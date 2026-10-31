@@ -463,7 +463,7 @@ describe('AppState multi-window workspace', () => {
     expect(app.store.get(corrupted)).toBeUndefined()
   })
 
-  it('retries a registration after a same-hash reconnect registry restores graph features', () => {
+  it('retries a registration after a same-hash reconnect registry restores graph features', async () => {
     const left = new EventChannel()
     const right = new EventChannel()
     left.peer = right
@@ -485,7 +485,7 @@ describe('AppState multi-window workspace', () => {
     const author = new AppState()
     author.registry.set(registry)
     const tab = author.createWorkflow()
-    expect(author.createRegion(tab, tab.store.doc.root, { x: 0, y: 0 }, 'map').ok).toBe(true)
+    expect((await author.createRegion(tab, tab.store.doc.root, { x: 0, y: 0 }, 'map')).ok).toBe(true)
     const result = author.compileTab(tab)
     if (!result?.ok) throw new Error(JSON.stringify(result?.diagnostics))
     const ref = { connection, prompt: asPromptId('run-register-region-reconnect') }

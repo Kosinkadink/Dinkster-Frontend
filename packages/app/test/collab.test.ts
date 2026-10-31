@@ -1323,10 +1323,10 @@ describe('lifecycle races', () => {
     expect(winnerNodeId).not.toBe(loserNodeId)
 
     hold.held = true
-    expect(appA.createEmptySubgraph(tabA, root, { x: 10, y: 20 }).ok).toBe(true)
+    expect((await appA.createEmptySubgraph(tabA, root, { x: 10, y: 20 })).ok).toBe(true)
     const fixedGraphId = tabA.graphStack.get().at(-1)!
     await sharedSession(appA, tabA.id).settle()
-    expect(appB.createEmptySubgraph(tabB, root, { x: 30, y: 40 }).ok).toBe(true)
+    expect((await appB.createEmptySubgraph(tabB, root, { x: 30, y: 40 })).ok).toBe(true)
     expect(tabB.graphStack.get()).toEqual([root, fixedGraphId])
     await until(() => server.staleBases >= 1, "B's stale create refusal")
     hold.held = false

@@ -10,6 +10,12 @@ Use **Create empty subgraph** from the canvas context menu or universal
 search. Dinkster creates an empty definition and occurrence as one undoable
 operation, then opens the new definition.
 
+Drill-in waits for the final creation result. Refusal leaves navigation
+unchanged. A delayed success does not move a tab that was closed, reopened,
+retargeted to another session, or navigated elsewhere while creation was
+pending. Switching tabs and returning also preserves the user's navigation.
+Creation still uses ordinary document dispatch, not retained admission.
+
 ## Extract a selection
 
 Use **Extract as Subgraph** in the selection toolbox or a node, group,

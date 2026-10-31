@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { createSignal } from '@dinkster/core'
 import {
   currentGraphId,
@@ -78,11 +78,11 @@ describe('graph navigation helpers', () => {
     expect(editedSubgraphDefinition(undefined)).toBeUndefined()
   })
 
-  it('creates an empty subgraph, drills into it, and one undo removes it and repairs navigation', () => {
+  it('creates an empty subgraph, drills into it, and one undo removes it and repairs navigation', async () => {
     const app = new AppState()
     const tab = app.createWorkflow()
     const root = tab.store.doc.root
-    const outcome = app.createEmptySubgraph(tab, root, { x: 12, y: 34 })
+    const outcome = await app.createEmptySubgraph(tab, root, { x: 12, y: 34 })
     expect(outcome.ok).toBe(true)
     expect(tab.graphStack.get()).toEqual([root, 'g0'])
     expect(tab.instancePath.get()).toEqual(['n1'])
@@ -93,6 +93,49 @@ describe('graph navigation helpers', () => {
     expect(tab.store.doc.graphs[root]!.nodes.n1).toBeUndefined()
     expect(tab.graphStack.get()).toEqual([root])
     expect(tab.instancePath.get()).toEqual([])
+  })
+
+  it.each([false, true])('waits for empty-subgraph acceptance %s before drilling in', async (accepted) => {
+    const app = new AppState()
+    const tab = app.createWorkflow()
+    const root = tab.store.doc.root
+    const dispatch = app.dispatchTo.bind(app)
+    let settle!: () => void
+    vi.spyOn(app, 'dispatchTo').mockImplementation((owner, invocation) => new Promise((resolve) => {
+      settle = () => resolve(accepted ? dispatch(owner, invocation) : { ok: false, diagnostics: [] })
+    }) as never)
+    const pending = app.createEmptySubgraph(tab, root, { x: 12, y: 34 })
+    expect(tab.graphStack.get()).toEqual([root])
+    expect(tab.store.doc.graphs.g0).toBeUndefined()
+    settle()
+    expect((await pending).ok).toBe(accepted)
+    expect(tab.graphStack.get()).toEqual(accepted ? [root, 'g0'] : [root])
+    expect(tab.instancePath.get()).toEqual(accepted ? ['n1'] : [])
+    expect(tab.store.doc.graphs.g0 !== undefined).toBe(accepted)
+    app.dispose()
+  })
+
+  it.each(['navigation', 'tab', 'closed', 'reopened'] as const)('does not steal navigation after %s changes during creation', async (change) => {
+    const app = new AppState()
+    const tab = app.createWorkflow()
+    const root = tab.store.doc.root
+    const dispatch = app.dispatchTo.bind(app)
+    let settle!: () => void
+    vi.spyOn(app, 'dispatchTo').mockImplementation((owner, invocation) => new Promise((resolve) => {
+      settle = () => resolve(dispatch(owner, invocation))
+    }) as never)
+    const pending = app.createEmptySubgraph(tab, root, { x: 12, y: 34 })
+    if (change === 'navigation') truncateGraphStack(tab, 1)
+    else if (change === 'tab') {
+      app.activeTabId.set('another-tab')
+      app.activeTabId.set(tab.id)
+    } else if (change === 'closed') app.closeTab(tab.id)
+    else app.openDocument(tab.store.doc, 'Reopened')
+    settle()
+    expect((await pending).ok).toBe(true)
+    expect(tab.graphStack.get()).toEqual([root])
+    expect(tab.instancePath.get()).toEqual([])
+    app.dispose()
   })
 
   it('opens F1 help only for one selected documented node', () => {

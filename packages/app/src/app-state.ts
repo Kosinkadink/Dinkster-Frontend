@@ -1151,8 +1151,8 @@ export interface CanvasBridge {
     type: string,
     expected?: { readonly schemaKey: string; readonly backendId: string },
   ) => boolean
-  readonly createEmptySubgraph?: (position?: Vec2) => boolean
-  readonly createRegion?: (kind: 'map' | 'fold' | 'while', position?: Vec2) => boolean
+  readonly createEmptySubgraph?: (position?: Vec2) => boolean | Promise<boolean>
+  readonly createRegion?: (kind: 'map' | 'fold' | 'while', position?: Vec2) => boolean | Promise<boolean>
   /** Opens the naming prompt after snapshotting selection and group contents. */
   readonly extractSubgraph?: () => boolean
   /** Flattens the sole selected subgraph occurrence by one level. */
@@ -5588,7 +5588,7 @@ export class AppState {
   }
 
   /** Plan, commit, then drill into one fresh empty definition. */
-  createEmptySubgraph(tab: Tab, graphId: string, position: Vec2): CommandOutcome {
+  async createEmptySubgraph(tab: Tab, graphId: string, position: Vec2): Promise<CommandOutcome> {
     if (tab.execution) return { ok: false, diagnostics: [] }
     const occurrenceNodeId = tab.store.predictedNodeId(graphId)
     if (occurrenceNodeId === undefined) return { ok: false, diagnostics: [] }
@@ -5602,13 +5602,26 @@ export class AppState {
       this.reportProblems(tab.id, plan.diagnostics)
       return { ok: false, diagnostics: plan.diagnostics }
     }
-    const outcome = this.dispatchTo(tab, plan.invocation)
-    if (outcome.ok) pushGraph(tab, plan.graphId, occurrenceNodeId)
-    return outcome
+    const store = tab.store
+    const stack = tab.graphStack.get()
+    const path = tab.instancePath.get()
+    let changedTab = false
+    const unsubscribe = this.activeTabId.subscribe(() => { changedTab = true })
+    try {
+      const outcome = await this.dispatchTo(tab, plan.invocation)
+      if (outcome.ok && !changedTab && this.tabs.get().includes(tab) && tab.store === store &&
+          tab.graphStack.get() === stack && tab.instancePath.get() === path && currentGraphId(tab) === graphId &&
+          occurrenceReferencesDefinition(tab.store.doc.graphs[graphId]?.nodes[occurrenceNodeId], plan.graphId)) {
+        pushGraph(tab, plan.graphId, occurrenceNodeId)
+      }
+      return outcome
+    } finally {
+      unsubscribe()
+    }
   }
 
   /** Plan and commit one fresh region occurrence and body definition. */
-  createRegion(tab: Tab, graphId: string, position: Vec2, kind: RegionKind): CommandOutcome {
+  async createRegion(tab: Tab, graphId: string, position: Vec2, kind: RegionKind): Promise<CommandOutcome> {
     if (tab.execution) return { ok: false, diagnostics: [] }
     const occurrenceNodeId = tab.store.predictedNodeId(graphId)
     if (occurrenceNodeId === undefined) return { ok: false, diagnostics: [] }
@@ -5627,8 +5640,7 @@ export class AppState {
       this.reportProblems(tab.id, plan.diagnostics)
       return { ok: false, diagnostics: plan.diagnostics }
     }
-    const outcome = this.dispatchTo(tab, plan.invocation)
-    return outcome
+    return await this.dispatchTo(tab, plan.invocation)
   }
 
   /**

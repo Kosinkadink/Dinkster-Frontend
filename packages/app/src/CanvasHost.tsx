@@ -1288,18 +1288,18 @@ export function visibleOutputPagerRect(
   return { x: left, y: top, width: right - left, height: bottom - top }
 }
 
-export function commitRegionCreation(
+export async function commitRegionCreation(
   app: AppState,
   tab: Tab,
   graphId: string,
   position: { x: number; y: number },
   kind: RegionKind,
   selectOccurrence: (nodeId: string) => void,
-): CommandOutcome {
+): Promise<CommandOutcome> {
   if (tab.execution) return { ok: false, diagnostics: [] }
   const occurrenceNodeId = tab.store.predictedNodeId(graphId)
   if (occurrenceNodeId === undefined) return { ok: false, diagnostics: [] }
-  const outcome = app.createRegion(tab, graphId, position, kind)
+  const outcome = await app.createRegion(tab, graphId, position, kind)
   if (outcome.ok) selectOccurrence(occurrenceNodeId)
   return outcome
 }
@@ -2671,10 +2671,24 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const tab = activeTab()
       return tab !== undefined && isFlattenSelection(tab.store.doc, currentGraphId(tab), [...controller.getSelection()], lifecycleOtherSelectionCount(controller))
     }
-    const createRegionAt = (tab: Tab, graphId: string, position: { x: number; y: number }, kind: RegionKind): boolean => {
-      return commitRegionCreation(props.app, tab, graphId, position, kind, (occurrenceNodeId) => {
-        if (activeTab() === tab && currentGraphId(tab) === graphId) controller.setSelection([occurrenceNodeId])
-      }).ok
+    const createRegionAt = async (tab: Tab, graphId: string, position: { x: number; y: number }, kind: RegionKind): Promise<boolean> => {
+      const store = tab.store
+      const stack = tab.graphStack.get()
+      const path = tab.instancePath.get()
+      const select = lifecycleSelectNodes
+      let changedTab = false
+      const unsubscribe = props.app.activeTabId.subscribe(() => { changedTab = true })
+      try {
+        const outcome = await commitRegionCreation(props.app, tab, graphId, position, kind, (occurrenceNodeId) => {
+          if (!changedTab && select !== undefined && lifecycleSelectNodes === select && activeTab() === tab && tab.store === store &&
+              tab.graphStack.get() === stack && tab.instancePath.get() === path && currentGraphId(tab) === graphId) {
+            select([occurrenceNodeId])
+          }
+        })
+        return outcome.ok
+      } finally {
+        unsubscribe()
+      }
     }
     const beginExtractSubgraph = (): boolean => {
       const tab = activeTab()
@@ -5919,7 +5933,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (armed) queueMicrotask(() => canvasEl.focus())
         return armed
       },
-      createEmptySubgraph: (position) => {
+      createEmptySubgraph: async (position) => {
         const tab = activeTab()
         if (!tab || frozen()) return false
         const vp = renderer.getViewport()
@@ -5927,7 +5941,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           x: (canvasEl.clientWidth / 2 - vp.x) / vp.scale,
           y: (canvasEl.clientHeight / 2 - vp.y) / vp.scale,
         }
-        return props.app.createEmptySubgraph(tab, currentGraphId(tab), center).ok
+        return (await props.app.createEmptySubgraph(tab, currentGraphId(tab), center)).ok
       },
       createRegion: (kind, position) => {
         const tab = activeTab()
