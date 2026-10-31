@@ -36,18 +36,12 @@ const loadThree = (): Promise<ThreeModules> => {
   return threeModules
 }
 
-type SparkModules = {
-  readonly SplatMesh: typeof import('@sparkjsdev/spark').SplatMesh
-  readonly SparkRenderer: typeof import('@sparkjsdev/spark').SparkRenderer
-}
+type SparkModules = typeof import('@sparkjsdev/spark')
 
 let sparkModules: Promise<SparkModules> | undefined
 
 const loadSpark = (): Promise<SparkModules> => {
-  sparkModules ??= import('@sparkjsdev/spark').then((spark) => ({
-    SplatMesh: spark.SplatMesh,
-    SparkRenderer: spark.SparkRenderer,
-  }))
+  sparkModules ??= import('@sparkjsdev/spark')
   return sparkModules
 }
 
@@ -68,6 +62,7 @@ interface FramedScene {
     renderer: import('three').WebGLRenderer,
     autoUpdate: boolean,
   ): import('@sparkjsdev/spark').SparkRenderer
+  beginNormalPass?(): () => void
   dispose(): void
 }
 
@@ -246,6 +241,28 @@ const loadFramedSplatScene = async (
         const view = new spark.SparkRenderer({ renderer, autoUpdate })
         scene.add(view)
         return view
+      },
+      beginNormalPass: () => {
+        const previousModifiers = mesh.worldModifiers
+        const previousWorldToView = mesh.enableWorldToView
+        const { dyno } = spark
+        const identity = new spark.SplatTransformer()
+        identity.updateFromMatrix(new THREE.Matrix4())
+        const colorNormal = spark.modifiers.makeNormalColorModifier(identity)
+        mesh.enableWorldToView = true
+        mesh.worldModifiers = [...previousModifiers ?? [], dyno.dynoBlock({ gsplat: dyno.Gsplat }, { gsplat: dyno.Gsplat }, ({ gsplat }) => {
+          if (!gsplat) throw new Error('Normal capture requires a splat')
+          const viewSplat = mesh.context.worldToView.applyGsplat(gsplat)
+          const colored = colorNormal.apply({ gsplat: viewSplat }).gsplat!
+          return { gsplat: dyno.combineGsplat({ gsplat, rgb: dyno.splitGsplat(colored).outputs.rgb }) }
+        })]
+        mesh.updateGenerator()
+        return () => {
+          if (previousModifiers === undefined) delete mesh.worldModifiers
+          else mesh.worldModifiers = previousModifiers
+          mesh.enableWorldToView = previousWorldToView
+          mesh.updateGenerator()
+        }
       },
       dispose: () => mesh.dispose(),
     }
@@ -480,6 +497,27 @@ export async function mountModel3dViewer(
     }
     activeCamera.updateProjectionMatrix()
   }
+  const updateSplats = async (): Promise<void> => {
+    if (!sparkView) return
+    // update() can return while an older worker sort or delayed sort is pending.
+    // Drain those updates before requesting the capture camera's own ordering.
+    clearTimeout(sparkView.updateTimeoutId)
+    sparkView.updateTimeoutId = -1
+    const deadline = performance.now() + 30_000
+    const settle = async (): Promise<void> => {
+      while (sparkView!.sorting || sparkView!.sortDirty) {
+        if (disposed) throw new Error('3D viewport was closed during capture')
+        if (performance.now() >= deadline) throw new Error('3D splat sorting did not finish')
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      }
+      if (disposed) throw new Error('3D viewport was closed during capture')
+    }
+    await settle()
+    framed.scene.updateMatrixWorld(true)
+    activeCamera.updateMatrixWorld(true)
+    await sparkView.update({ scene: framed.scene, camera: activeCamera })
+    await settle()
+  }
   const dispose = (): void => {
     if (disposed) return
     recording?.stop()
@@ -659,6 +697,7 @@ export async function mountModel3dViewer(
       const previousAlpha = gl.getClearAlpha()
       const previousOrbitEnabled = controls!.enabled
       const previousSparkAutoUpdate = sparkView?.autoUpdate
+      let endNormalPass: (() => void) | undefined
       const previousFrustum = activeCamera instanceof modules.THREE.OrthographicCamera
         ? { left: activeCamera.left, right: activeCamera.right, top: activeCamera.top, bottom: activeCamera.bottom }
         : undefined
@@ -674,11 +713,7 @@ export async function mountModel3dViewer(
       if (sparkView) sparkView.autoUpdate = false
       try {
         setOutputSize(width, height)
-        if (sparkView) {
-          framed.scene.updateMatrixWorld(true)
-          activeCamera.updateMatrixWorld(true)
-          await sparkView.update({ scene: framed.scene, camera: activeCamera })
-        }
+        await updateSplats()
         const image = await encode()
         // LoadImage returns 1-alpha as MASK. Keep transparent background,
         // including the original materials' transparency and alpha maps.
@@ -687,9 +722,12 @@ export async function mountModel3dViewer(
         const mask = await encode()
         framed.scene.overrideMaterial = normalMaterial
         gl.setClearColor(0x000000, 1)
+        endNormalPass = framed.beginNormalPass?.()
+        if (endNormalPass) await updateSplats()
         const normal = await encode()
         return { image, mask, normal }
       } finally {
+        endNormalPass?.()
         framed.scene.overrideMaterial = previousMaterial
         framed.scene.background = previousBackground
         framed.camera.aspect = previousAspect

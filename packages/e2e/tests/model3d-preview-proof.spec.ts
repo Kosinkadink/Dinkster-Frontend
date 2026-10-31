@@ -479,6 +479,47 @@ test('splat, spz and ksplat scenes render their encoded gaussians', async ({ pag
   }
 })
 
+test('anisotropic splat normal capture encodes facing normals rather than source colors', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const modulePath = '/src/model3d-viewer.ts'
+    const { mountModel3dViewer } = await import(modulePath)
+    const centers = [[-0.45, -0.2, 0], [0.15, 0.35, 0.1], [0.55, -0.1, -0.1]]
+    const bytes = new Uint8Array(centers.length * 32)
+    centers.forEach((center, index) => {
+      const view = new DataView(bytes.buffer, index * 32, 32)
+      center.forEach((value, axis) => view.setFloat32(axis * 4, value, true))
+      ;[0.2, 0.12, 0.025].forEach((value, axis) => view.setFloat32(12 + axis * 4, value, true))
+      bytes.set([255, 35, 15, 255, 255, 128, 128, 128], index * 32 + 24)
+    })
+    const host = document.createElement('div'); host.style.cssText = 'width:400px;height:300px'; document.body.append(host)
+    const url = URL.createObjectURL(new Blob([bytes]))
+    const viewer = await mountModel3dViewer(host, url, 'application/octet-stream', { format: 'splat' })
+    try {
+      viewer.setCameraState({ ...viewer.cameraState(), position: { x: 0, y: 0, z: 4 }, target: { x: 0, y: 0, z: 0 } })
+      const capture = await viewer.capture(300, 200)
+      const counts: Record<string, { red: number; blue: number; png: number[] }> = {}
+      for (const name of ['image', 'normal'] as const) {
+        const bitmap = await createImageBitmap(capture[name])
+        const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height
+        const context = canvas.getContext('2d')!; context.drawImage(bitmap, 0, 0); bitmap.close()
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+        let red = 0; let blue = 0
+        for (let i = 0; i < pixels.length; i += 4) {
+          if (pixels[i]! > pixels[i + 2]! + 30) red++
+          if (pixels[i + 2]! > pixels[i]! + 30 && pixels[i + 2]! > pixels[i + 1]! + 30) blue++
+        }
+        counts[name] = { red, blue, png: Array.from(new Uint8Array(await capture[name].arrayBuffer())) }
+      }
+      return counts
+    } finally { viewer.dispose(); URL.revokeObjectURL(url); host.remove() }
+  })
+  mkdirSync(proofDir, { recursive: true })
+  for (const [name, capture] of Object.entries(result)) writeFileSync(`${proofDir}/anisotropic-${name}.png`, Buffer.from(capture.png))
+  expect(result.image!.red).toBeGreaterThan(100)
+  expect(result.normal!.blue).toBeGreaterThan(100)
+  expect(result.normal!.red).toBe(0)
+})
+
 test('orthographic image and recording preserve an off-center authored frustum', async ({ page }) => {
   const result = await page.evaluate(async (bytes) => {
     const modulePath = '/src/model3d-viewer.ts'
