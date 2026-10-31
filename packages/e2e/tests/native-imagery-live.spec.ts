@@ -151,6 +151,7 @@ test.beforeEach(async ({ page }) => {
   expect(served, 'native catalog must register canonical LoadImage').toHaveProperty('LoadImage')
   expect(served, 'native catalog must register canonical SaveImage').toHaveProperty('SaveImage')
 
+  await page.setViewportSize({ width: 1440, height: 1100 })
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText('connected')
