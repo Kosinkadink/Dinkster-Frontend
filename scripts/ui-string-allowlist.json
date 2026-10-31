@@ -525,6 +525,7 @@
     "text:Promise",
     "text:Promise",
     "text:Promise",
+    "text:URL.revokeObjectURL(assetUrl)) return",
     "text:candidate.layer.id === layerId)! return (",
     "text:documentValue().masks[maskId]! return (",
     "text:hydrate: Promise",

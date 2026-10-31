@@ -96,6 +96,7 @@ export async function openGraphImageDocument(
   )
   const render = await renderAdoptedImageDocument(
     connection,
+    store,
     adopted.digest,
     text,
     GRAPH_IMAGE_DOCUMENT_SCOPE,

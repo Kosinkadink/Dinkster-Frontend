@@ -107,6 +107,13 @@ Unconfirmed owners remain journaled across restart; closing an editor or local
 store does not release them. This read lifetime does not certify workflow,
 execution-result, editor-history or durable document retention completeness.
 
+Authoritative rendered PNG reads use the same scoped journal and acknowledgment
+before fetching and verifying the declared output identity. Display and download
+use the verified local Blob, not a second unprotected server read. The keyed
+render view revokes its object URL on replacement or disposal; locale changes
+keep the existing URL. The server read owner is released only after the verified
+Blob exists, and unresolved release responses remain journaled.
+
 Transform components are a closed record of x/y, width/height, rotation in
 radians, boolean flipHorizontal/flipVertical, and sourceWidth/sourceHeight.
 Dimensions may be fractional and must be positive and at most 16384; source

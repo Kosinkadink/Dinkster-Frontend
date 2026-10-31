@@ -494,21 +494,25 @@ function ImageDocumentEditor(props: {
             </header>
             <Show when={authoritativeResult()} keyed fallback={
               <p>{message('imageDocument.editor.description.authoritative')}</p>
-            }>{(result) => <div class="image-document-render-result" data-testid="authoritative-image-document-render">
-              <a href={result.assetUrl} download={`${entryName()}.png`}>
-                <img src={result.assetUrl} alt={message('imageDocument.editor.region.authoritativeOutput')} />
-              </a>
-              <dl>
-                <div><dt>{message('imageDocument.editor.provenance.output')}</dt><dd>{result.response.provenance.output.width} x {result.response.provenance.output.height}, {formatNumber(result.response.provenance.output.byteSize)} bytes</dd></div>
-                <div><dt>{message('imageDocument.editor.provenance.target')}</dt><dd>{result.response.provenance.selector}</dd></div>
-                <div><dt>{message('imageDocument.editor.provenance.profile')}</dt><dd>{result.response.provenance.profile}</dd></div>
-                <div><dt>{message('imageDocument.editor.provenance.renderer')}</dt><dd>{result.response.provenance.rendererContract}</dd></div>
-                <div><dt>{message('imageDocument.editor.provenance.source')}</dt><dd><code>{result.response.provenance.documentDigest}</code></dd></div>
-                <div><dt>{message('imageDocument.editor.provenance.outputDigest')}</dt><dd><code>{result.response.asset.digest}</code></dd></div>
-                <div><dt>{message('imageDocument.editor.provenance.cacheKey')}</dt><dd><code>{result.response.cacheKey}</code></dd></div>
-              </dl>
-              <a class="image-document-download" href={result.assetUrl} download={`${entryName()}.png`}>{message('imageDocument.editor.action.downloadPng')}</a>
-            </div>}</Show>
+            }>{(result) => {
+              const assetUrl = URL.createObjectURL(result.image)
+              onCleanup(() => URL.revokeObjectURL(assetUrl))
+              return <div class="image-document-render-result" data-testid="authoritative-image-document-render">
+                <a href={assetUrl} download={`${entryName()}.png`}>
+                  <img src={assetUrl} alt={message('imageDocument.editor.region.authoritativeOutput')} />
+                </a>
+                <dl>
+                  <div><dt>{message('imageDocument.editor.provenance.output')}</dt><dd>{result.response.provenance.output.width} x {result.response.provenance.output.height}, {formatNumber(result.response.provenance.output.byteSize)} bytes</dd></div>
+                  <div><dt>{message('imageDocument.editor.provenance.target')}</dt><dd>{result.response.provenance.selector}</dd></div>
+                  <div><dt>{message('imageDocument.editor.provenance.profile')}</dt><dd>{result.response.provenance.profile}</dd></div>
+                  <div><dt>{message('imageDocument.editor.provenance.renderer')}</dt><dd>{result.response.provenance.rendererContract}</dd></div>
+                  <div><dt>{message('imageDocument.editor.provenance.source')}</dt><dd><code>{result.response.provenance.documentDigest}</code></dd></div>
+                  <div><dt>{message('imageDocument.editor.provenance.outputDigest')}</dt><dd><code>{result.response.asset.digest}</code></dd></div>
+                  <div><dt>{message('imageDocument.editor.provenance.cacheKey')}</dt><dd><code>{result.response.cacheKey}</code></dd></div>
+                </dl>
+                <a class="image-document-download" href={assetUrl} download={`${entryName()}.png`}>{message('imageDocument.editor.action.downloadPng')}</a>
+              </div>
+            }}</Show>
             <Show when={authoritativeError()}>{(value) =>
               <div class="image-document-render-error" role="alert">{message('imageDocument.editor.error.authoritativeFailed', { reason: value() })}</div>
             }</Show>
@@ -1228,6 +1232,7 @@ export function ImageDocumentWorkspace(props: {
     )
     return renderAdoptedImageDocument(
       backend.connection,
+      store,
       adopted.digest,
       serializeImageDocument(adopted.document),
       LIBRARY_SCOPE,

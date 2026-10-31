@@ -107,24 +107,13 @@ export async function uploadImageDocumentResource(
   }
 }
 
-export async function hydrateImageDocumentResources(
+async function withImageResourceRead<T>(
   connection: DinksterConnection,
   store: ImageDocumentLocalStore,
-  document: ImageDocument,
   scope: string,
-): Promise<void> {
-  const loaded = loadImageDocument(document)
-  if (loaded.document === undefined) throw new Error('cannot hydrate an invalid ImageDocument')
-  const resources = Object.values(loaded.document.resources)
-  const missing = new Set<string>()
-  for (const resource of resources) {
-    const local = await store.getResource(resource.digest)
-    if (local !== undefined && !stagedMatches(resource, local)) {
-      throw new Error(`local ImageDocument resource does not match its descriptor: ${resource.id}`)
-    }
-    if (local === undefined && resource.inline === undefined) missing.add(resource.digest)
-  }
-  const digests = [...missing].sort()
+  digests: readonly string[],
+  consume: () => Promise<T>,
+): Promise<T> {
   if (digests.length > 4096) throw new Error('Image resource read exceeds the retained identity limit')
   const read = digests.length === 0 ? undefined : await store.beginResourceRead(
     connection.id, connection.assetUrl(''), scope, digests,
@@ -146,6 +135,40 @@ export async function hydrateImageDocumentResources(
     }
   }
   try {
+    return await consume()
+  } finally {
+    if (read !== undefined) {
+      try {
+        const released = await connection.releaseRetainedAssets(read.owner, 1)
+        if (!matches(released, 2, [])) throw new Error('Image resource release acknowledgment differs')
+      } catch (error) {
+        let current: RetainedAssets | undefined
+        try { current = await connection.fetchRetainedAssets(read.owner) } catch { /* Durable intent remains unresolved. */ }
+        if (!matches(current, 2, [])) throw error
+      }
+      await store.finishResourceRead(read)
+    }
+  }
+}
+
+export async function hydrateImageDocumentResources(
+  connection: DinksterConnection,
+  store: ImageDocumentLocalStore,
+  document: ImageDocument,
+  scope: string,
+): Promise<void> {
+  const loaded = loadImageDocument(document)
+  if (loaded.document === undefined) throw new Error('cannot hydrate an invalid ImageDocument')
+  const resources = Object.values(loaded.document.resources)
+  const missing = new Set<string>()
+  for (const resource of resources) {
+    const local = await store.getResource(resource.digest)
+    if (local !== undefined && !stagedMatches(resource, local)) {
+      throw new Error(`local ImageDocument resource does not match its descriptor: ${resource.id}`)
+    }
+    if (local === undefined && resource.inline === undefined) missing.add(resource.digest)
+  }
+  await withImageResourceRead(connection, store, scope, [...missing].sort(), async () => {
     for (const resource of resources) {
       const local = await store.getResource(resource.digest)
       if (local !== undefined) {
@@ -166,19 +189,7 @@ export async function hydrateImageDocumentResources(
         )
       }
     }
-  } finally {
-    if (read !== undefined) {
-      try {
-        const released = await connection.releaseRetainedAssets(read.owner, 1)
-        if (!matches(released, 2, [])) throw new Error('Image resource release acknowledgment differs')
-      } catch (error) {
-        let current: RetainedAssets | undefined
-        try { current = await connection.fetchRetainedAssets(read.owner) } catch { /* Durable intent remains unresolved. */ }
-        if (!matches(current, 2, [])) throw error
-      }
-      await store.finishResourceRead(read)
-    }
-  }
+  })
 }
 
 function linkedRecord(record: LibraryRecord, link: ImageLibraryLink, scope: string): LibraryRecord {
@@ -285,7 +296,7 @@ export interface AdoptedImageDocumentForRender {
 
 export interface VerifiedImageDocumentRender {
   readonly response: RenderedImageDocument
-  readonly assetUrl: string
+  readonly image: Blob
   readonly sourceCanonical: string
 }
 
@@ -312,6 +323,7 @@ export async function adoptExactImageDocumentBytes(
 
 export async function renderAdoptedImageDocument(
   connection: DinksterConnection,
+  store: ImageDocumentLocalStore,
   digest: string,
   sourceCanonical: string,
   scope: string,
@@ -323,17 +335,19 @@ export async function renderAdoptedImageDocument(
     selector,
     ...(signal !== undefined ? { signal } : {}),
   })
-  const fetched = await connection.fetchAssetBytes(response.asset.digest)
-  if (fetched === undefined) throw new Error('Rendered ImageDocument PNG is not held by the server')
-  const bytes = new Uint8Array(fetched)
-  if (bytes.byteLength !== response.asset.size || imageDocumentDigest(bytes) !== response.asset.digest) {
-    throw new Error('Rendered ImageDocument PNG does not match its asset identity')
-  }
-  return {
-    response,
-    assetUrl: connection.assetUrl(response.asset.digest),
-    sourceCanonical,
-  }
+  return withImageResourceRead(connection, store, scope, [response.asset.digest], async () => {
+    const fetched = await connection.fetchAssetBytes(response.asset.digest)
+    if (fetched === undefined) throw new Error('Rendered ImageDocument PNG is not held by the server')
+    const bytes = new Uint8Array(fetched)
+    if (bytes.byteLength !== response.asset.size || imageDocumentDigest(bytes) !== response.asset.digest) {
+      throw new Error('Rendered ImageDocument PNG does not match its asset identity')
+    }
+    return {
+      response,
+      image: new Blob([bytes], { type: 'image/png' }),
+      sourceCanonical,
+    }
+  })
 }
 
 async function adoptOwnedImageDocument(
