@@ -39,6 +39,11 @@ made when the cursor is inside the canvas; a canvas click commits and Escape
 cancels. Link-drop, link-splice, and reroute choices retain their existing
 immediate atomic placement behavior.
 
+Ordinary insertion selects the new node only after the command is accepted.
+While acceptance is pending, the document and selection remain unchanged.
+A refusal shows the canvas command notice without adding a node. A later
+selection or navigation is not replaced by a delayed insertion result.
+
 The root and type-filter dialogs reuse `.floating-surface` chrome and
 `placeFloatingSurface` containment. The host owns markup, tokens, focus,
 ARIA, overflow, and Canvas interaction. Entries supply typed schema,

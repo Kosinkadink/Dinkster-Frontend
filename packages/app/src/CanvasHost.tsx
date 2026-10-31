@@ -3939,11 +3939,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     clearPaletteGhost = () => controller.setPaletteGhost(undefined)
 
-    const commitPaletteEntry = (
+    const commitPaletteEntry = async (
       entry: PaletteEntry,
       p: PaletteAnchor,
       owner?: { readonly tab: Tab; readonly graphId: string },
-    ): void => {
+    ): Promise<void> => {
       const tab = owner?.tab ?? activeTab()
       if (!tab) return
       const graphId = owner?.graphId ?? currentGraphId(tab)
@@ -3993,13 +3993,23 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const connect = p.splice !== undefined && schema !== undefined
         ? linkSpliceInvocations(graphId, expectedId, schema, p.splice)
         : p.linkDrop !== undefined ? linkDropInvocations(p.linkDrop, graphId, expectedId, schema) : []
-      const outcome = props.app.dispatchTo(
-        tab,
-        connect.length === 0
-          ? addInvocation
-          : { command: 'batch', params: { invocations: [addInvocation, ...connect] } as unknown as Json },
-      )
-      if (outcome.ok) controller.setSelection([expectedId])
+      const target = captureLifecycleTarget(tab, graphId)
+      const selectionVersion = selVersion()
+      try {
+        const outcome = await props.app.dispatchTo(
+          tab,
+          connect.length === 0
+            ? addInvocation
+            : { command: 'batch', params: { invocations: [addInvocation, ...connect] } as unknown as Json },
+        )
+        if (outcome.ok && selVersion() === selectionVersion && tab.store.doc.graphs[graphId]?.nodes[expectedId] !== undefined) {
+          target.selectNodes([expectedId])
+        } else if (!outcome.ok && target.isCurrent()) {
+          showGestureRefusal(outcome.diagnostics)
+        }
+      } finally {
+        target.dispose()
+      }
     }
 
     paletteCommit = (entry: PaletteEntry, placement?: PaletteAnchor): void => {
@@ -4028,7 +4038,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         armPaletteEntry(entry)
         return
       }
-      commitPaletteEntry(entry, p)
+      void commitPaletteEntry(entry, p)
     }
 
     // Test bridge: perf/interaction specs drive the focused pane directly.
@@ -6030,7 +6040,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
       const topLeft = titleCenteredPlacement(pointer, placement.geometry)
       clearArmedPlacement()
-      commitPaletteEntry(placement.entry, {
+      void commitPaletteEntry(placement.entry, {
         x: event.clientX - rect.left,
         y: event.clientY - rect.top,
         worldX: topLeft.x,
