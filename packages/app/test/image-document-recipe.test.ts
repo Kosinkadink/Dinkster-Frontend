@@ -133,7 +133,7 @@ describe('ImageDocument graph recipe parity', () => {
     await exportImageDocumentRecipe(app, origin, source)
     expect(dispatchTo).toHaveBeenCalledWith(tab, { command: 'image.documentRecipeExport', params: expect.objectContaining({
       graphId: 'g0', sourceNodeId: 'source', sourceOutputId: 'layers', commands: '[]', format: 'png', quality: 90,
-    }) })
+    }) }, expect.any(Function))
     await expect(exportImageDocumentRecipe(app, { ...origin, sourceTabId: 'other' }, source)).rejects.toThrow('source workflow')
     await expect(exportImageDocumentRecipe(app, { ...origin, expectedGraphFingerprint: 'stale' }, source)).rejects.toThrow('source graph changed')
     await expect(exportImageDocumentRecipe(app, { ...origin, connectionId: asConnectionId('other') }, source)).rejects.toThrow('source backend changed')
