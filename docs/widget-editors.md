@@ -20,7 +20,9 @@ undoable widget value. The mask carries alpha: its consuming MASK is 1-alpha,
 not grayscale RGB. Optional viewport recording uses the authored width and height,
 keeps that resolution during dock resizing, and uses the media upload route.
 Stopping or closing the editor releases the recording stream and restores the
-viewport size. Failed recordings are not uploaded.
+viewport size. Orthographic captures and recordings retain the authored vertical
+frustum and center, adjusting horizontal extent only for the output aspect ratio.
+Failed recordings are not uploaded.
 Cancel leaves the stored value unchanged; reopening restores its camera and
 transform. Missing model files and failed uploads do not replace the value.
 Connected file inputs use their resolved source, not the dormant stored file.

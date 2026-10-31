@@ -479,6 +479,42 @@ test('splat, spz and ksplat scenes render their encoded gaussians', async ({ pag
   }
 })
 
+test('orthographic image and recording preserve an off-center authored frustum', async ({ page }) => {
+  const result = await page.evaluate(async (bytes) => {
+    const modulePath = '/src/model3d-viewer.ts'
+    const { mountModel3dViewer } = await import(modulePath)
+    const host = document.createElement('div'); host.style.cssText = 'width:400px;height:300px'; document.body.append(host)
+    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)]))
+    const viewer = await mountModel3dViewer(host, url, 'model/gltf-binary')
+    try {
+      viewer.setCameraState({ ...viewer.cameraState(), position: { x: 0, y: 0, z: 4 }, target: { x: 0, y: 0, z: 0 },
+        zoom: 1, cameraType: 'orthographic', frustum: { left: -3, right: 5, top: 4, bottom: -2 } })
+      const pending = viewer.capture(320, 240)
+      const capturing = viewer.cameraState().frustum
+      const image = (await pending).image
+      const bitmap = await createImageBitmap(image)
+      const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height
+      const context = canvas.getContext('2d')!; context.drawImage(bitmap, 0, 0); bitmap.close()
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+      const rows: number[] = []
+      for (let y = 0; y < canvas.height; y++) {
+        if (Array.from({ length: canvas.width }, (_, x) => pixels[(y * canvas.width + x) * 4 + 3]!).some((alpha) => alpha > 0)) rows.push(y)
+      }
+      const session = viewer.recordingStream(300, 300)
+      const recording = viewer.cameraState().frustum
+      session.stop()
+      return { capturing, recording, after: viewer.cameraState().frustum, height: rows.at(-1)! - rows[0]! + 1,
+        image: Array.from(new Uint8Array(await image.arrayBuffer())) }
+    } finally { viewer.dispose(); URL.revokeObjectURL(url); host.remove() }
+  }, Array.from(glb()))
+  expect(result.capturing).toEqual({ left: -3, right: 5, top: 4, bottom: -2 })
+  expect(result.recording).toEqual({ left: -2, right: 4, top: 4, bottom: -2 })
+  expect(result.after).toEqual({ left: -3, right: 5, top: 4, bottom: -2 })
+  expect(result.height).toBe(80)
+  mkdirSync(proofDir, { recursive: true })
+  writeFileSync(`${proofDir}/orthographic-authored-capture.png`, Buffer.from(result.image))
+})
+
 test('viewport recording preserves authored resolution across resize and releases its stream', async ({ page }) => {
   const result = await page.evaluate(async (bytes) => {
     const modulePath = '/src/model3d-viewer.ts'

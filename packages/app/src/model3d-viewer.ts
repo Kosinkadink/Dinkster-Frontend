@@ -468,6 +468,18 @@ export async function mountModel3dViewer(
   let customUp: Vector3State | undefined
   let useCustomUp = false
   let activeCamera: import('three').PerspectiveCamera | import('three').OrthographicCamera = framed.camera
+  const setOutputSize = (width: number, height: number): void => {
+    renderer!.setPixelRatio(1)
+    renderer!.setSize(width, height, false)
+    if (activeCamera instanceof modules.THREE.PerspectiveCamera) activeCamera.aspect = width / height
+    else {
+      const center = (activeCamera.left + activeCamera.right) / 2
+      const halfWidth = (activeCamera.top - activeCamera.bottom) * width / height / 2
+      activeCamera.left = center - halfWidth
+      activeCamera.right = center + halfWidth
+    }
+    activeCamera.updateProjectionMatrix()
+  }
   const dispose = (): void => {
     if (disposed) return
     recording?.stop()
@@ -627,16 +639,7 @@ export async function mountModel3dViewer(
       }
       recording = session
       try {
-        gl.setPixelRatio(1)
-        gl.setSize(width, height, false)
-        if (activeCamera instanceof modules.THREE.PerspectiveCamera) activeCamera.aspect = width / height
-        else {
-          activeCamera.left = -5 * width / height
-          activeCamera.right = 5 * width / height
-          activeCamera.top = 5
-          activeCamera.bottom = -5
-        }
-        activeCamera.updateProjectionMatrix()
+        setOutputSize(width, height)
         stream = gl.domElement.captureStream(30)
         gl.render(framed.scene, activeCamera)
         return { stream, stop: session.stop }
@@ -670,16 +673,7 @@ export async function mountModel3dViewer(
       controls!.enabled = false
       if (sparkView) sparkView.autoUpdate = false
       try {
-        gl.setPixelRatio(1)
-        gl.setSize(width, height, false)
-        if (activeCamera instanceof modules.THREE.PerspectiveCamera) activeCamera.aspect = width / height
-        else {
-          activeCamera.left = -5 * width / height
-          activeCamera.right = 5 * width / height
-          activeCamera.top = 5
-          activeCamera.bottom = -5
-        }
-        activeCamera.updateProjectionMatrix()
+        setOutputSize(width, height)
         if (sparkView) {
           framed.scene.updateMatrixWorld(true)
           activeCamera.updateMatrixWorld(true)
