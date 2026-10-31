@@ -10,21 +10,25 @@ import { WidgetEditor } from '../src/WidgetEditor.js'
 const fixtures = vi.hoisted(() => ({
   camera: { position: { x: 3, y: 2, z: 7 }, target: { x: 1, y: 0, z: -2 }, zoom: 1.5, cameraType: 'perspective', fov: 53 },
   transform: { position: { x: 2, y: -1, z: 4 }, quaternion: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 2, z: 3 } },
+  loads: [] as { mime: string; format?: string; resources?: Readonly<Record<string, string>> }[],
 }))
 vi.mock('../src/model3d-viewer.js', () => ({
-  mountModel3dViewer: async () => ({
-    dispose() {},
-    cameraState: () => fixtures.camera,
-    setCameraState: (state: typeof fixtures.camera) => { fixtures.camera = state },
-    modelTransform: () => fixtures.transform,
-    setModelTransform: (state: typeof fixtures.transform) => { fixtures.transform = state },
-    animationClips: () => [],
-    capture: async () => ({ image: new Blob(['scene']), mask: new Blob(['alpha']), normal: new Blob(['normals']) }),
-    recordingStream: () => ({ stream: {}, stop() {} }),
-  }),
+  mountModel3dViewer: async (_host: HTMLElement, _url: string, mime: string, options: { format?: string; resources?: Readonly<Record<string, string>> }) => {
+    fixtures.loads.push({ mime, ...options })
+    return {
+      dispose() {},
+      cameraState: () => fixtures.camera,
+      setCameraState: (state: typeof fixtures.camera) => { fixtures.camera = state },
+      modelTransform: () => fixtures.transform,
+      setModelTransform: (state: typeof fixtures.transform) => { fixtures.transform = state },
+      animationClips: () => [],
+      capture: async () => ({ image: new Blob(['scene']), mask: new Blob(['alpha']), normal: new Blob(['normals']) }),
+      recordingStream: () => ({ stream: {}, stop() {} }),
+    }
+  },
 }))
 
-afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { document.body.replaceChildren(); fixtures.loads.length = 0; vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 it.each(['stored', 'tap', 'broken-link', 'broken-net'] as const)('keeps authored state on failure and cancel and captures undoably from %s', async (source) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
@@ -166,7 +170,7 @@ it.each(['read', 'upload'] as const)('refuses a stored-source backend retarget d
   dispose()
 })
 
-it.each(['valid', 'local-source', 'local-resource', 'revoked-local', 'empty-binding', 'missing-format', 'array-resources', 'null-source', 'scalar-manifest', 'parent-resource', 'null-resource', 'unverified-source', 'negative-size', 'unknown-field'] as const)('handles %s FILE_3D preview metadata without reading a dormant file', async (variant) => {
+it.each(['valid', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-ply', 'empty-gaussian-ply', 'empty-splat', 'empty-spz', 'empty-ksplat', 'empty-unsupported', 'empty-local', 'local-source', 'local-resource', 'revoked-local', 'empty-binding', 'missing-format', 'array-resources', 'null-source', 'scalar-manifest', 'parent-resource', 'null-resource', 'unverified-source', 'negative-size', 'unknown-field'] as const)('handles %s FILE_3D preview metadata without reading a dormant file', async (variant) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const schema = parseDinksterSchema('Preview3DAdvancedFixture', { interface: [
@@ -187,6 +191,8 @@ it.each(['valid', 'local-source', 'local-resource', 'revoked-local', 'empty-bind
   const manifest = { format: 'gltf', source: primary, resources: { 'buffers/mesh.bin': sidecar } }
   const local = { verification: 'unverified', localBinding: 'granted-revision', name: 'local.gltf', size: 31, mediaType: 'model/gltf+json', virtualPath: 'local.gltf' }
   const selected = variant === 'missing-format' ? { source: manifest.source, resources: manifest.resources }
+    : variant.startsWith('empty-') && variant !== 'empty-binding' ? { ...manifest, format: '',
+      source: variant === 'empty-local' ? local : { ...primary, name: 'misleading.obj', mediaType: 'text/plain' } }
     : variant === 'local-source' || variant === 'revoked-local' ? { ...manifest, source: local }
     : variant === 'local-resource' ? { ...manifest, resources: { 'buffers/mesh.bin': { ...local, name: 'local.bin', mediaType: 'application/octet-stream' } } }
     : variant === 'empty-binding' ? { ...manifest, source: { ...local, localBinding: '' } }
@@ -206,9 +212,17 @@ it.each(['valid', 'local-source', 'local-resource', 'revoked-local', 'empty-bind
   const registry = createWidgetRegistry()
   const reads: string[] = []
   const localReads: string[] = []
+  const bytes = variant === 'empty-glb' || variant === 'explicit-precedence' ? new TextEncoder().encode('glTF\u0002\u0000\u0000\u0000')
+    : variant === 'empty-ply' ? new TextEncoder().encode('ply\nformat binary_little_endian 1.0\n')
+    : variant === 'empty-gaussian-ply' ? new TextEncoder().encode(`ply\ncomment ${'x'.repeat(600)}\nproperty float f_dc_0\nproperty float scale_0\nproperty float rot_0\nend_header\n`)
+    : variant === 'empty-splat' ? new Uint8Array(32)
+    : variant === 'empty-spz' ? new Uint8Array([0x1f, 0x8b, 8])
+    : variant === 'empty-ksplat' ? new Uint8Array([0, 1, 0])
+    : variant === 'empty-unsupported' ? new Uint8Array([7])
+    : new TextEncoder().encode('{"asset":{"version":"2.0"}}')
   const connection = {
-    fetchAssetBytes: async (digest: string) => { reads.push(digest); return new Uint8Array([1]) },
-    fetchLocalAssetBytes: async (binding: string) => { localReads.push(binding); return variant === 'revoked-local' ? undefined : new Uint8Array([7]) },
+    fetchAssetBytes: async (digest: string) => { reads.push(digest); return bytes },
+    fetchLocalAssetBytes: async (binding: string) => { localReads.push(binding); return variant === 'revoked-local' ? undefined : bytes },
     uploadMediaAsset: async () => { throw new Error('metadata must not upload captures') },
   }
   const app = {
@@ -223,18 +237,22 @@ it.each(['valid', 'local-source', 'local-resource', 'revoked-local', 'empty-bind
     spec: inputsOf(schema)[1]!.widget, declaredType: inputsOf(schema)[1]!.type,
     multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-  if (variant !== 'valid' && variant !== 'local-source' && variant !== 'local-resource') {
+  if (variant !== 'valid' && variant !== 'explicit-precedence' && variant !== 'local-source' && variant !== 'local-resource' && !(variant.startsWith('empty-') && variant !== 'empty-binding' && variant !== 'empty-unsupported')) {
     await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
     expect(Array.from(document.querySelectorAll('button')).find((element) => element.textContent === 'Apply')!.disabled).toBe(true)
     expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual(initial)
-    expect(reads).toEqual([])
+    expect(reads).toEqual(variant === 'empty-unsupported' ? [primary.digest] : [])
     expect(localReads).toEqual(variant === 'revoked-local' ? [local.localBinding] : [])
     dispose()
     return
   }
   await vi.waitFor(() => expect(document.querySelector<HTMLInputElement>('#load3d-fov')?.value).toBe('67'))
-  expect(reads).toEqual(variant === 'local-source' ? [sidecar.digest] : variant === 'local-resource' ? [primary.digest] : [primary.digest, sidecar.digest])
-  expect(localReads).toEqual(variant === 'valid' ? [] : [local.localBinding])
+  expect(reads).toEqual(variant === 'local-source' || variant === 'empty-local' ? [sidecar.digest] : variant === 'local-resource' ? [primary.digest] : [primary.digest, sidecar.digest])
+  expect(localReads).toEqual(variant === 'local-source' || variant === 'local-resource' || variant === 'empty-local' ? [local.localBinding] : [])
+  expect(fixtures.loads[0]?.format).toBe(variant === 'empty-gaussian-ply' ? 'ply' : variant.startsWith('empty-') && variant !== 'empty-local' ? variant.slice(6) : 'gltf')
+  if (variant === 'empty-gaussian-ply') expect(fixtures.loads[0]?.mime).toBe('model/ply')
+  if (variant === 'empty-ply') expect(fixtures.loads[0]?.mime).toBe('application/octet-stream')
+  expect(fixtures.loads[0]?.resources).toEqual({ 'buffers/mesh.bin': 'blob:fixture' })
   expect(document.querySelector<HTMLInputElement>('#load3d-position-x')!.value).toBe('7')
   expect(document.body.textContent).not.toContain('Record viewport')
   Array.from(document.querySelectorAll('button')).find((element) => element.textContent === 'Apply')!.click()
