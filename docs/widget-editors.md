@@ -1,5 +1,10 @@
 # Widget compact controls and expanded editors
 
+Compact STRING and MARKDOWN views display non-string imported values using
+the shared value formatter (for example, null displays as `null`). Rendering
+does not replace them with schema defaults, mark them as empty placeholders,
+or make them valid text values. Multiline strings keep their original lines.
+
 ## Descriptor fields
 
 An unknown field on a known widget descriptor produces a
