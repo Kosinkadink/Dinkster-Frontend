@@ -682,14 +682,14 @@ export const lineView: WidgetView<string> = {
   drawCompact(ctx, value, spec, state) {
     const label = (spec.options['display_name'] as string | undefined) ?? ''
     const placeholder = value === '' && typeof spec.options['placeholder'] === 'string'
-    compactRow(ctx, label, placeholder ? spec.options['placeholder'] as string : value, state, 'widget.edit', placeholder)
+    compactRow(ctx, label, placeholder ? spec.options['placeholder'] as string : formatWidgetValue(value, spec), state, 'widget.edit', placeholder)
   },
 }
 export const markdownView: WidgetView<string> = {
   ...makeCompactView<string>('core.markdown', 'MARKDOWN'),
   drawCompact(ctx, value, spec, state) {
     const label = (spec.options['display_name'] as string | undefined) ?? ''
-    compactRow(ctx, label, value.split('\n')[0] ?? '', state, 'widget.edit')
+    compactRow(ctx, label, formatWidgetValue(value, spec).split('\n')[0] ?? '', state, 'widget.edit')
   },
 }
 /** Multiline preview: canonical lines are emitted independently for row clipping. */
@@ -701,7 +701,7 @@ export const textView: WidgetView<string> = {
       ? [typeof spec.options['placeholder'] === 'string'
           ? spec.options['placeholder']
           : (spec.options['display_name'] as string | undefined) ?? '']
-      : value.split('\n')
+      : formatWidgetValue(value, spec).split('\n')
     ctx.rect(0, 0, 1, Math.max(2, lines.length), {
       role: 'widgetBackground', focused: state.focused, connected: state.connected,
     })
