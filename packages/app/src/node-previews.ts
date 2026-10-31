@@ -377,7 +377,9 @@ export function deriveNodePreviewSurface(args: {
       }
       retainedSource = source !== undefined
     }
-    if (source === undefined && args.values !== undefined) {
+    // Finished native outputs outrank late frames just like recorded assets.
+    // Retained frames belong to an older job, not this execution's value API.
+    if (args.values !== undefined && (source === undefined || (!args.running && !retainedSource && source.key.startsWith('frame:')))) {
       const outputOrder = args.schema?.items
         .filter((item) => item.kind === 'output')
         .map((item) => item.id) ?? []
@@ -416,7 +418,7 @@ export function deriveNodePreviewSurface(args: {
       })
       candidates.push(...declared.filter((candidate) =>
         !images.some((image) => image.node === candidate.node && image.output === candidate.output)))
-      if (candidates.length > 0) source = args.loader.peekSource(args.values, exec, candidates, args.nodeId, args.outputIndex?.(args.outputKey))
+      if (candidates.length > 0) source = args.loader.peekSource(args.values, exec, candidates, args.nodeId, args.outputIndex?.(args.outputKey)) ?? source
     }
   }
   const selected = args.selectedAsset
