@@ -556,6 +556,34 @@ test('orthographic image and recording preserve an off-center authored frustum',
   writeFileSync(`${proofDir}/orthographic-authored-capture.png`, Buffer.from(result.image))
 })
 
+test('recording locks projection until stopped in either camera mode', async ({ page }) => {
+  const result = await page.evaluate(async (bytes) => {
+    const modulePath = '/src/model3d-viewer.ts'
+    const { mountModel3dViewer } = await import(modulePath)
+    const host = document.createElement('div'); host.style.cssText = 'width:418px;height:271px'; document.body.append(host)
+    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)]))
+    const viewer = await mountModel3dViewer(host, url, 'model/gltf-binary')
+    try {
+      const states = []
+      for (const cameraType of ['perspective', 'orthographic'] as const) {
+        viewer.setCameraState({ ...viewer.cameraState(), cameraType, frustum: { left: -4, right: 6, top: 3, bottom: -2 } })
+        const session = viewer.recordingStream(360, 200)
+        const before = viewer.cameraState()
+        viewer.setCameraState({ ...before, cameraType: cameraType === 'perspective' ? 'orthographic' : 'perspective' })
+        states.push({ before, during: viewer.cameraState() })
+        session.stop()
+        viewer.setCameraState({ ...viewer.cameraState(), cameraType: cameraType === 'perspective' ? 'orthographic' : 'perspective' })
+        states.push({ unlocked: viewer.cameraState().cameraType })
+      }
+      return states
+    } finally { viewer.dispose(); URL.revokeObjectURL(url); host.remove() }
+  }, Array.from(glb(0.75)))
+  expect(result[0]!.during).toEqual(result[0]!.before)
+  expect(result[1]!.unlocked).toBe('orthographic')
+  expect(result[2]!.during).toEqual(result[2]!.before)
+  expect(result[3]!.unlocked).toBe('perspective')
+})
+
 test('viewport recording preserves authored resolution across resize and releases its stream', async ({ page }) => {
   const result = await page.evaluate(async (bytes) => {
     const modulePath = '/src/model3d-viewer.ts'

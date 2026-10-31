@@ -186,7 +186,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
     <Show when={error()}>{(detail) => <ProductNotice tone="error">{detail()}</ProductNotice>}</Show>
     <Show when={camera()}>{(state) => <>
       <ProductField layout="compact" controlId="load3d-camera-type" label={message('load3dWidget.camera')}>
-        <ProductSelect id="load3d-camera-type" disabled={busy()} ariaLabel={message('load3dWidget.camera')} selectedId={state().cameraType}
+        <ProductSelect id="load3d-camera-type" disabled={busy() || recording()} ariaLabel={message('load3dWidget.camera')} selectedId={state().cameraType}
           options={[
             { id: 'perspective', value: 'perspective' as const, label: message('load3dWidget.perspective') },
             { id: 'orthographic', value: 'orthographic' as const, label: message('load3dWidget.orthographic') },

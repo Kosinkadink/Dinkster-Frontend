@@ -18,10 +18,11 @@ vi.mock('../src/model3d-viewer.js', () => ({
     setModelTransform: (state: typeof fixtures.transform) => { fixtures.transform = state },
     animationClips: () => [],
     capture: async () => ({ image: new Blob(['scene']), mask: new Blob(['alpha']), normal: new Blob(['normals']) }),
+    recordingStream: () => ({ stream: {}, stop() {} }),
   }),
 }))
 
-afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks() })
+afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 it.each(['stored', 'tap', 'broken-link', 'broken-net'] as const)('keeps authored state on failure and cancel and captures undoably from %s', async (source) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
@@ -77,6 +78,21 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net'] as const)('keeps authored
     return
   }
   await vi.waitFor(() => expect(document.querySelector('#load3d-position-x')).not.toBeNull())
+  if (source === 'stored') {
+    vi.stubGlobal('MediaRecorder', class {
+      state = 'inactive'
+      mimeType = 'video/webm'
+      onstop?: () => void
+      start() { this.state = 'recording' }
+      stop() { this.state = 'inactive'; this.onstop?.() }
+    })
+    const projection = document.querySelector<HTMLButtonElement>('#load3d-camera-type')!
+    expect(projection.disabled).toBe(false)
+    button('Record viewport').click()
+    expect(projection.disabled).toBe(true)
+    button('Stop recording').click()
+    expect(projection.disabled).toBe(false)
+  }
   const input = document.querySelector<HTMLInputElement>('#load3d-position-x')!
   input.value = '9'; input.dispatchEvent(new Event('change', { bubbles: true }))
   button('Apply').click()

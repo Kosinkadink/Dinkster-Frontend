@@ -22,6 +22,7 @@ keeps that resolution during dock resizing, and uses the media upload route.
 Stopping or closing the editor releases the recording stream and restores the
 viewport size. Orthographic captures and recordings retain the authored vertical
 frustum and center, adjusting horizontal extent only for the output aspect ratio.
+Projection changes are locked until recording stops.
 Failed recordings are not uploaded.
 Cancel leaves the stored value unchanged; reopening restores its camera and
 transform. Missing model files and failed uploads do not replace the value.
@@ -37,6 +38,8 @@ Mesh loading selects GLB, GLTF, OBJ, FBX, STL or USDZ from the original file
 format; point-cloud PLY uses geometry rather than gaussian-splat decoding.
 Splat PLY, SPLAT, SPZ and KSPLAT use the splat renderer. Captures wait for
 splat sorting, including earlier in-flight sorts, before encoding a capture.
+Closing cancels that wait. A stalled sort closes the viewport after 30 seconds
+instead of leaving capture active; reopen the editor to try again.
 Splat normal captures use facing normals in camera coordinates rather than
 the scene's original colors. Animated GLTF/FBX
 models expose clip selection, play/pause, time seeking and playback speed.

@@ -484,6 +484,7 @@ export async function mountModel3dViewer(
   let lastFrame = performance.now()
   let customUp: Vector3State | undefined
   let useCustomUp = false
+  let cancelCapture: ((reason: Error) => void) | undefined
   let activeCamera: import('three').PerspectiveCamera | import('three').OrthographicCamera = framed.camera
   const setOutputSize = (width: number, height: number): void => {
     renderer!.setPixelRatio(1)
@@ -503,25 +504,38 @@ export async function mountModel3dViewer(
     // Drain those updates before requesting the capture camera's own ordering.
     clearTimeout(sparkView.updateTimeoutId)
     sparkView.updateTimeoutId = -1
-    const deadline = performance.now() + 30_000
     const settle = async (): Promise<void> => {
       while (sparkView!.sorting || sparkView!.sortDirty) {
         if (disposed) throw new Error('3D viewport was closed during capture')
-        if (performance.now() >= deadline) throw new Error('3D splat sorting did not finish')
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+        await new Promise<void>((resolve) => setTimeout(resolve, 0))
       }
       if (disposed) throw new Error('3D viewport was closed during capture')
     }
-    await settle()
-    framed.scene.updateMatrixWorld(true)
-    activeCamera.updateMatrixWorld(true)
-    await sparkView.update({ scene: framed.scene, camera: activeCamera })
-    await settle()
+    const update = async (): Promise<void> => {
+      await settle()
+      if (disposed) throw new Error('3D viewport was closed during capture')
+      framed.scene.updateMatrixWorld(true)
+      activeCamera.updateMatrixWorld(true)
+      await sparkView!.update({ scene: framed.scene, camera: activeCamera })
+      await settle()
+    }
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const cancellation = new Promise<never>((_resolve, reject) => {
+      cancelCapture = reject
+      timeout = setTimeout(() => {
+        reject(new Error('3D splat sorting did not finish'))
+        // A timed-out worker must not resume against a reusable GL context.
+        dispose()
+      }, 30_000)
+    })
+    try { await Promise.race([update(), cancellation]) }
+    finally { clearTimeout(timeout); cancelCapture = undefined }
   }
   const dispose = (): void => {
     if (disposed) return
     recording?.stop()
     disposed = true
+    cancelCapture?.(new Error('3D viewport was closed during capture'))
     cancelAnimationFrame(frame)
     resize?.disconnect()
     controls?.dispose()
@@ -601,6 +615,7 @@ export async function mountModel3dViewer(
     }),
     setCameraState(state) {
       if (disposed || capturing) return
+      if (recording && state.cameraType !== (activeCamera instanceof modules.THREE.PerspectiveCamera ? 'perspective' : 'orthographic')) return
       if (state.cameraType === 'orthographic') {
         const bounds = state.frustum ?? { left: -10, right: 10, top: 10, bottom: -10 }
         activeCamera = new modules.THREE.OrthographicCamera(bounds.left, bounds.right, bounds.top, bounds.bottom,
