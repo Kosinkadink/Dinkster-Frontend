@@ -9,11 +9,19 @@ settings. Missing required fields and mistyped known fields still reject the
 node with a schema error. Unknown non-empty widget type names remain custom
 pack descriptors, preserving their JSON parameters for widget-kind lookup.
 
+A COMBO descriptor may opt into occurrence-authored choices with
+`editableOptions: true`. Its schema option list may be empty or omitted;
+remote and input-family option sources cannot coexist with this flag.
+Mistyped flags and conflicting sources reject the schema. Ordinary COMBO
+descriptors still require an option source. The schema's optional
+`additionalInputs` type declares authority for extra occurrence inputs;
+it cannot depend on tuple inputs or dynamic families. Neither declaration
+changes a node's type identity or the schema wire version.
+
 ## Occurrence-authored choice data
 
-A COMBO descriptor with `editableOptions: true` permits an empty option list
-and cannot also declare a remote or input-family option source. Its occurrence
-stores ordered scalar choices in `dynamic[input].options`, separately from
+An editable COMBO occurrence stores ordered scalar choices in
+`dynamic[input].options`, separately from
 the selected scalar in `values[input]`. Duplicate entries and a selected value
 outside the menu are preserved. Ordinary COMBO descriptors remain closed lists.
 
