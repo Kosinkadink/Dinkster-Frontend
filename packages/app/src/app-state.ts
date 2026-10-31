@@ -4652,11 +4652,11 @@ export class AppState {
       : scanReplacements(tab.store.doc, this.replacementRegistryFor(registry), registry.resolve)
   }
 
-  applyReplacements(tab: Tab, items: readonly ReplacementScanItem[]): boolean {
+  async applyReplacements(tab: Tab, items: readonly ReplacementScanItem[]): Promise<boolean> {
     const registry = this.registryForTab(tab)
     if (registry === undefined) return false
     const invocation = replacementInvocation(items, tab.store.doc, registry.resolve)
-    return invocation !== undefined && this.dispatchTo(tab, invocation).ok
+    return invocation !== undefined && (await this.dispatchTo(tab, invocation)).ok
   }
 
   canUndoMigrationNotice(tabId: string): boolean {
@@ -4684,33 +4684,39 @@ export class AppState {
     })
   }
 
-  private upgradeOnOpen(tab: Tab): void {
+  private upgradeOnOpen(tab: Tab): Promise<void> | undefined {
     if (this.reviewReplacements.get()) return
     const items = this.scanTabReplacements(tab).filter((item) => item.hops.length > 0)
-    if (items.length === 0 || !this.applyReplacements(tab, items)) return
-    // A shared definition has one notice line; navigate through its first
-    // reachable occurrence, not an arbitrary sibling's instance path.
-    const paths = new Map<string, readonly NodeId[]>([[tab.store.doc.root, []]])
-    for (const [graphId, path] of paths) {
-      for (const node of Object.values(tab.store.doc.graphs[graphId]?.nodes ?? {})) {
-        const child = subgraphDefIdOf(node.type)
-        if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
+    if (items.length === 0) return
+    const store = tab.store
+    const revision = store.revision
+    return this.applyReplacements(tab, items).then((accepted) => {
+      // A notice must identify this batch, never a later edit's undo record.
+      if (!accepted || !this.tabs.get().includes(tab) || tab.store !== store || store.revision !== revision + 1) return
+      // A shared definition has one notice line; navigate through its first
+      // reachable occurrence, not an arbitrary sibling's instance path.
+      const paths = new Map<string, readonly NodeId[]>([[tab.store.doc.root, []]])
+      for (const [graphId, path] of paths) {
+        for (const node of Object.values(tab.store.doc.graphs[graphId]?.nodes ?? {})) {
+          const child = subgraphDefIdOf(node.type)
+          if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
+        }
       }
-    }
-    const entries = items.map((item): OwnedDiagnostic => {
-      const instancePath = paths.get(item.graphId)
-      return {
-        ...diag(item.diagnostics.some((entry) => entry.severity === 'warning') ? 'warning' : 'info',
-          'command', 'replace.applied', `${item.nodeId}: ${item.sourceType} -> ${item.terminalType}`, {
-            refs: [{ graphId: item.graphId, nodeId: item.nodeId }],
-            ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: asNodeId(item.nodeId) } } }),
-            data: { warnings: item.diagnostics.map((entry) => entry.message) },
-          }),
-        owner: tab.id,
-      }
+      const entries = items.map((item): OwnedDiagnostic => {
+        const instancePath = paths.get(item.graphId)
+        return {
+          ...diag(item.diagnostics.some((entry) => entry.severity === 'warning') ? 'warning' : 'info',
+            'command', 'replace.applied', `${item.nodeId}: ${item.sourceType} -> ${item.terminalType}`, {
+              refs: [{ graphId: item.graphId, nodeId: item.nodeId }],
+              ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: asNodeId(item.nodeId) } } }),
+              data: { warnings: item.diagnostics.map((entry) => entry.message) },
+            }),
+          owner: tab.id,
+        }
+      })
+      const undoRecord = tab.store.historySnapshot().undo.at(-1)!
+      this.migrationNotices.update((current) => new Map(current).set(tab.id, { owner: tab.id, entries, undoRecord }))
     })
-    const undoRecord = tab.store.historySnapshot().undo.at(-1)!
-    this.migrationNotices.update((current) => new Map(current).set(tab.id, { owner: tab.id, entries, undoRecord }))
   }
 
   /** Tabs awaiting diagnostics from their target backend's first registry. */
@@ -4740,7 +4746,7 @@ export class AppState {
       }
       if (!this.registryForTab(tab)) continue // still waiting for schemas
       this.legacyBooleanPending.delete(tab.id)
-      this.normalizeLegacyBooleans(tab)
+      void this.normalizeLegacyBooleans(tab)
     }
   }
 
@@ -4756,8 +4762,12 @@ export class AppState {
       if (!this.registryForTab(tab)) continue // still waiting for schemas
       this.schemaDiagnosticsPending.delete(tab.id)
       this.reportEnvironmentDrift(tab)
-      this.upgradeOnOpen(tab)
-      this.reportUnresolvedTypes(tab)
+      const store = tab.store
+      const upgrade = this.upgradeOnOpen(tab)
+      if (upgrade === undefined) this.reportUnresolvedTypes(tab)
+      else void upgrade.then(() => {
+        if (this.tabs.get().includes(tab) && tab.store === store) this.reportUnresolvedTypes(tab)
+      })
     }
   }
 
@@ -4807,7 +4817,7 @@ export class AppState {
    * an exact recognized token is left alone - the advisory keeps reporting
    * it, and the value still submits unchanged (value-never-hostage).
    */
-  private normalizeLegacyBooleans(tab: Tab): void {
+  private async normalizeLegacyBooleans(tab: Tab): Promise<void> {
     const registry = this.registryForTab(tab)
     if (!registry) return
     const invocations: CommandInvocation[] = []
@@ -4824,7 +4834,9 @@ export class AppState {
       }
     }
     if (invocations.length === 0) return
-    if (this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json }).ok) {
+    const store = tab.store
+    if ((await this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })).ok &&
+      this.tabs.get().includes(tab) && tab.store === store) {
       this.reportProblems(tab.id, [
         diag('info', 'command', 'upgrade.legacyBoolean', `converted ${invocations.length} legacy boolean string value(s) to real booleans (one undo step)`),
       ])

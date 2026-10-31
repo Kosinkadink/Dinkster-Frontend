@@ -184,6 +184,8 @@ test('migration notices dismiss, clear on save or close, and never persist', asy
 })
 
 test('only opt-in review holds a lossy migration for badge Apply', async ({ page }, testInfo) => {
+  await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: {} }))
+  await page.routeWebSocket('**/api/events?*', () => {})
   await migrationCatalog(page)
   await page.evaluate(() => window.__dinksterTest!.app.reviewReplacements.set(true))
   await openMigration(page, 'review-migration')
@@ -197,16 +199,59 @@ test('only opt-in review holds a lossy migration for badge Apply', async ({ page
   const apply = popover.getByRole('button', { name: 'Apply Replacement', exact: true })
   await expect(apply).toBeEnabled()
   await page.screenshot({ path: testInfo.outputPath('migration-review.png') })
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__replacementCalls = 0
+    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
+      ;(window as any).__replacementCalls++
+      ;(window as any).__completeReplacement = (accepted: boolean) => resolve(accepted
+        ? dispatch(tab, invocation) : { ok: false, diagnostics: [] })
+    })
+  })
   await apply.click()
+  await page.evaluate(async () => {
+    ;(window.__dinksterTest!.app as any).backendsTick.update((value: number) => value + 1)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+  })
+  await apply.click()
+  expect(await page.evaluate(() => (window as any).__replacementCalls)).toBe(1)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.first!.type)).toBe('Previous')
+  await expect(popover).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('migration-review-pending.png') })
+  await page.evaluate(() => (window as any).__completeReplacement(false))
+  await expect(popover).toBeVisible()
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.first!.type)).toBe('Previous')
+  await page.screenshot({ path: testInfo.outputPath('migration-review-refused.png') })
+  await apply.click()
+  expect(await page.evaluate(() => (window as any).__replacementCalls)).toBe(2)
+  await page.evaluate(() => (window as any).__completeReplacement(true))
   await expect(popover).toHaveCount(0)
   expect(await page.evaluate(() => {
     const graph = window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!
     return { first: graph.nodes.first, secondType: graph.nodes.second!.type, links: graph.links }
   })).toEqual({ first: { id: 'first', type: 'Current', values: { amount: 11, format: 'webm_av1' } },
     secondType: 'Previous', links: {} })
+  await page.screenshot({ path: testInfo.outputPath('migration-review-accepted.png') })
   await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
   expect(await page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
     return { type: tab.store.doc.graphs.g0!.nodes.first!.type, linkCount: Object.keys(tab.store.doc.graphs.g0!.links).length, canUndo: tab.store.canUndo }
   })).toEqual({ type: 'Previous', linkCount: 1, canUndo: false })
+
+  const firstPoint = await badgePoint(page, 'first')
+  await page.mouse.click(firstPoint.x, firstPoint.y)
+  await expect(popover).toContainText('Deprecated: Previous')
+  await apply.click()
+  await page.keyboard.press('Escape')
+  const secondPoint = await badgePoint(page, 'second')
+  await page.mouse.click(secondPoint.x, secondPoint.y)
+  await expect(popover).toBeVisible()
+  await page.evaluate(() => (window as any).__completeReplacement(false))
+  await expect(popover).toBeVisible()
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.second!.type)).toBe('Previous')
+  await apply.click()
+  expect(await page.evaluate(() => (window as any).__replacementCalls)).toBe(4)
+  await page.evaluate(() => (window as any).__completeReplacement(false))
+  await expect(popover).toBeVisible()
 })

@@ -1861,8 +1861,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // Opened by clicking a node header badge (error chip, subgraph marker).
   // Anchored in canvas-pane CSS px; content resolves lazily at render.
   const [badgePopover, setBadgePopover] = createSolidSignal<
-    (BadgeAnchor & { readonly owner: string }) | undefined
+    (BadgeAnchor & { readonly owner: string; readonly lifetime: object }) | undefined
   >(undefined)
+  let pendingReplacement: object | undefined
 
   /** Current graph's document problem content, keyed independently of runtime errors. */
   let nodeProblems: NodeProblemMap = {}
@@ -3052,6 +3053,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setMenu(undefined)
         const vp = renderer.getViewport()
         setBadgePopover({
+          lifetime: {},
           owner: JSON.stringify([tab.id, tab.store.doc.lineage, currentGraphId(tab), viewInstancePath(tab)]),
           x: rect.x * vp.scale + vp.x,
           y: (rect.y + rect.height) * vp.scale + vp.y + 6,
@@ -6705,13 +6707,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             problems={problemMessages}
             subgraphInfo={subgraphInfoFor}
             deprecationInfo={deprecationInfoFor}
-            onApplyReplacement={(nodeId) => {
+            onApplyReplacement={async (nodeId) => {
               const tab = activeTab()
-              if (tab && reviewReplacements()) {
-                const item = props.app.scanTabReplacements(tab).find((item) => item.graphId === currentGraphId(tab) && item.nodeId === nodeId)
-                if (item) props.app.applyReplacements(tab, [item])
+              const anchor = badgePopover()
+              if (!tab || !anchor || !reviewReplacements() || pendingReplacement === anchor.lifetime) return
+              const item = props.app.scanTabReplacements(tab).find((item) => item.graphId === currentGraphId(tab) && item.nodeId === nodeId)
+              if (!item) return
+              const store = tab.store
+              pendingReplacement = anchor.lifetime
+              try {
+                if (await props.app.applyReplacements(tab, [item]) && activeTab() === tab && tab.store === store && badgePopover()?.lifetime === anchor.lifetime) {
+                  setBadgePopover(undefined)
+                }
+              } finally {
+                if (pendingReplacement === anchor.lifetime) pendingReplacement = undefined
               }
-              setBadgePopover(undefined)
             }}
             onOpenSubgraph={openSubgraphFromPopover}
             onClose={() => setBadgePopover(undefined)}

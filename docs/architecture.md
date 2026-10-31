@@ -243,6 +243,11 @@ preserves authored classes and topology; its class/version widget upgrade table
 is separate from native document migrations.
 On opening a native document, the app applies all applicable rule plans as one
 undo step, including lossy plans. Opening never waits for migration review.
+Replacement and legacy-boolean completion notices wait for final command
+acceptance and never target a closed or replaced store. A replacement notice
+is omitted if intervening history makes its undo record ambiguous. Explicit
+Apply Replacement keeps its popover open on refusal and deduplicates pending
+application; old completion cannot dismiss a replacement popover.
 Selected rule hops are planned against the preceding hop's result so shared
 link, tap and named-net removals do not leave stale peer plans. Composition
 validates the original chains first, then preserves each selected case even
