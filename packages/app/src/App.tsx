@@ -1506,8 +1506,7 @@ export function App(props: {
         execution={activeExecution}
         values={(execution) => {
           backendsTick()
-          const backend = app.backendFor(execution.ref.connection)
-          return backend?.protocol === 'dinkster' ? backend.connection.values() : undefined
+          return app.valuesForExecution(execution.ref)
         }}
       />,
     }),
@@ -3052,8 +3051,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
   const currentExecutionKey = createMemo(() => props.execution.key)
   const values = () => {
     backendTick()
-    const backend = props.app.backendFor(props.execution.ref.connection)
-    return backend?.protocol === 'dinkster' ? backend.connection.values() : undefined
+    return props.app.valuesForExecution(props.execution.ref)
   }
   const outputIdentities = createMemo(() => {
     const media = new Set<string>()

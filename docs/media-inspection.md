@@ -7,6 +7,12 @@ owns that execution, using the original job, runtime node and output IDs. It doe
 not download media, materialize a waveform, decode video, or edit the workflow.
 Unavailable owners and refused or expired values remain visible diagnostics.
 
+Removing a backend disconnects it without discarding its historical output
+routes. Recorded native images, canvas/App View previews and value inspectors
+still read through that execution's original backend and client identity; they
+never fall back to the current backend. Reads can still report unavailable
+when the original server or recorded value is no longer accessible.
+
 IMAGE rows show layout, alpha mode, dtype, storage dtype and color declarations.
 MASK rows show polarity and semantic. AUDIO rows show sample rate, channels,
 layout, duration and dtype. VIDEO rows distinguish the admitted source probe
