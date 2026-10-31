@@ -34,9 +34,9 @@ const formatFromBytes = (bytes: Uint8Array): string | undefined => {
   if (head.startsWith('Kaydara FBX Binary') || /^;\s*FBX\s/m.test(head)) return 'fbx'
   if (bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 3 && bytes[3] === 4) return 'usdz'
   if (bytes.length >= 84 && 84 + new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(80, true) * 50 === bytes.length) return 'stl'
-  if (/^v[ \t]+[+-]?(?:\d|\.)/m.test(head)) return 'obj'
   if (bytes[0] === 0x1f && bytes[1] === 0x8b) return 'spz'
   if (bytes[0] === 0 && (bytes[1] ?? 0) >= 1) return 'ksplat'
+  if (/^v[ \t]+[+-]?(?:\d|\.)/m.test(new TextDecoder().decode(bytes))) return 'obj'
   if (bytes.length > 0 && bytes.length % 32 === 0) return 'splat'
   return undefined
 }

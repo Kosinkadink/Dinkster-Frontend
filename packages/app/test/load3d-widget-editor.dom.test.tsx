@@ -170,11 +170,11 @@ it.each(['read', 'upload'] as const)('refuses a stored-source backend retarget d
   dispose()
 })
 
-it.each(['valid', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-ply', 'empty-gaussian-ply', 'empty-splat', 'empty-spz', 'empty-ksplat', 'empty-unsupported', 'empty-local', 'local-source', 'local-resource', 'revoked-local', 'empty-binding', 'missing-format', 'array-resources', 'null-source', 'scalar-manifest', 'parent-resource', 'null-resource', 'unverified-source', 'negative-size', 'unknown-field'] as const)('handles %s FILE_3D preview metadata without reading a dormant file', async (variant) => {
+it.each(['valid', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-obj', 'empty-ply', 'empty-gaussian-ply', 'empty-splat', 'empty-spz', 'empty-ksplat', 'empty-unsupported', 'empty-local', 'local-source', 'local-resource', 'revoked-local', 'empty-binding', 'missing-format', 'array-resources', 'null-source', 'scalar-manifest', 'parent-resource', 'null-resource', 'unverified-source', 'negative-size', 'unknown-field'] as const)('handles %s FILE_3D preview metadata without reading a dormant file', async (variant) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const schema = parseDinksterSchema('Preview3DAdvancedFixture', { interface: [
-    { role: 'input', id: 'model_3d', type: { kind: 'concrete', types: ['FILE_3D_GLTF'] } },
+    { role: 'input', id: 'model_3d', type: { kind: 'concrete', types: ['FILE_3D'] } },
     { role: 'input', id: 'viewport_state', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
     { role: 'input', id: 'camera_info', type: { kind: 'concrete', types: ['LOAD3D_CAMERA'] } },
     { role: 'input', id: 'model_3d_info', type: { kind: 'concrete', types: ['LOAD3D_MODEL_INFO'] } },
@@ -213,6 +213,7 @@ it.each(['valid', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-ply',
   const reads: string[] = []
   const localReads: string[] = []
   const bytes = variant === 'empty-glb' || variant === 'explicit-precedence' ? new TextEncoder().encode('glTF\u0002\u0000\u0000\u0000')
+    : variant === 'empty-obj' ? new TextEncoder().encode(`# ${'preamble '.repeat(100)}\nmtllib scene.mtl\nv -1 -1 0\nv 1 -1 0\nv 0 1 0\nf 1 2 3\n`)
     : variant === 'empty-ply' ? new TextEncoder().encode('ply\nformat binary_little_endian 1.0\n')
     : variant === 'empty-gaussian-ply' ? new TextEncoder().encode(`ply\ncomment ${'x'.repeat(600)}\nproperty float f_dc_0\nproperty float scale_0\nproperty float rot_0\nend_header\n`)
     : variant === 'empty-splat' ? new Uint8Array(32)
