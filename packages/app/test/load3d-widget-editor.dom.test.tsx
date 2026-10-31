@@ -16,6 +16,7 @@ vi.mock('../src/model3d-viewer.js', () => ({
     setCameraState: (state: typeof fixtures.camera) => { fixtures.camera = state },
     modelTransform: () => fixtures.transform,
     setModelTransform: (state: typeof fixtures.transform) => { fixtures.transform = state },
+    animationClips: () => [],
     capture: async () => ({ image: new Blob(['scene']), mask: new Blob(['alpha']), normal: new Blob(['normals']) }),
   }),
 }))
@@ -39,6 +40,7 @@ it('keeps authored state on upload failure and cancel; successful capture is und
   let fail = true
   const app = {
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
+    registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ protocol: 'dinkster', connection: {
       fetchAssetBytes: async () => new Uint8Array([1]),
       uploadMediaAsset: async (file: File) => {
@@ -103,6 +105,7 @@ it('authors FILE_3D preview metadata without capture uploads and preserves captu
   const registry = createWidgetRegistry()
   const app = {
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
+    registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ protocol: 'dinkster', connection: {
       fetchAssetBytes: async (digest: string) => ['primary', 'sidecar'].includes(digest) ? new Uint8Array([1]) : undefined,
       uploadMediaAsset: async () => { throw new Error('metadata must not upload captures') },

@@ -1,4 +1,4 @@
-import type { Json } from '@dinkster/core'
+import { companionSourcesOf, defaultValuesOf, type Json } from '@dinkster/core'
 import { createSignal, For, onCleanup, onMount, Show, type Component } from 'solid-js'
 import { ProductButton, ProductTextInput } from '../ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice } from '../ProductForm.js'
@@ -17,7 +17,19 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   const backend = props.editor.app.backendForTab(ed.tab)
   const graphId = ed.target.kind === 'input' ? ed.target.familyOwner?.graphId ?? ed.graphId : ed.graphId
   const nodeId = ed.target.kind === 'input' ? ed.target.familyOwner?.nodeId ?? ed.target.nodeId : undefined
-  const node = nodeId === undefined ? undefined : ed.tab.store.doc.graphs[graphId]?.nodes[nodeId]
+  const graph = ed.tab.store.doc.graphs[graphId]
+  const node = nodeId === undefined ? undefined : graph?.nodes[nodeId]
+  const resolveSchema = props.editor.app.registryForTab(ed.tab)?.resolve
+  const sources = graph === undefined ? undefined : companionSourcesOf(graph, undefined, (sourceId, inputId) => {
+    const source = graph.nodes[sourceId]
+    const schema = source === undefined ? undefined : resolveSchema?.(source.type)
+    return schema === undefined ? undefined : defaultValuesOf(schema)[inputId]
+  }, resolveSchema).get(nodeId ?? '')
+  const inputValue = (inputId: string): Json | undefined => {
+    const source = sources?.get(inputId)
+    if (source !== undefined) return source.kind === 'literal' ? source.value : undefined
+    return node?.values[inputId]
+  }
   const initial = object(ed.initial === undefined ? ed.spec?.default : ed.initial)
   const metadataOnly = ed.target.kind === 'input' && (ed.target.familyOwner?.valueKey ?? ed.target.valueKey) === 'viewport_state'
   const revision = ed.tab.store.revision
@@ -26,6 +38,11 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   const [error, setError] = createSignal(undefined as string | undefined)
   const [busy, setBusy] = createSignal(false)
   const [recording, setRecording] = createSignal(false)
+  const [clips, setClips] = createSignal([] as readonly { name: string; duration: number }[])
+  const [clip, setClip] = createSignal(0)
+  const [animationTime, setAnimationTime] = createSignal(0)
+  const [animationPlaying, setAnimationPlaying] = createSignal(false)
+  const [animationSpeed, setAnimationSpeed] = createSignal(1)
   let viewport!: HTMLDivElement
   let viewer: Model3dViewerHandle | undefined
   let live = true
@@ -45,8 +62,8 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   onMount(() => {
     void (async () => {
       if (backend.protocol !== 'dinkster') throw new Error(message('load3dWidget.native'))
-      const file3d = object(node?.values.model_3d)
-      const model = object(file3d.source ?? node?.values.model_file)
+      const file3d = object(inputValue('model_3d'))
+      const model = object(file3d.source ?? inputValue('model_file'))
       const assetUrl = async (ref: Record<string, Json>) => {
         if (typeof ref.digest !== 'string') throw new Error(message('load3dWidget.chooseModel'))
         const bytes = await backend.connection.fetchAssetBytes(ref.digest)
@@ -59,15 +76,18 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       const resources: Record<string, string> = {}
       for (const [name, ref] of Object.entries(object(file3d.resources))) resources[name] = await assetUrl(object(ref))
       const mime = file3d.format === 'gltf' ? 'model/gltf+json' : String(model.mediaType ?? 'model/gltf-binary')
-      const mounted = await mountModel3dViewer(viewport, url, mime, resources)
+      const format = typeof file3d.format === 'string' ? file3d.format : String(model.name ?? '').split('.').pop()?.toLowerCase()
+      const mounted = await mountModel3dViewer(viewport, url, mime, { resources,
+        ...(format ? { format } : {}), pointCloud: node?.type === 'PreviewPointCloud' })
       if (!live) { mounted.dispose(); return }
       viewer = mounted
-      const cameraInfo = node?.values.camera_info ?? initial.camera_info
+      const cameraInfo = inputValue('camera_info') ?? initial.camera_info
       if (cameraInfo) viewer.setCameraState(cameraInfo as unknown as Model3dCameraState)
-      const models = node?.values.model_3d_info ?? initial.model_3d_info
+      const models = inputValue('model_3d_info') ?? initial.model_3d_info
       if (Array.isArray(models) && models[0]) viewer.setModelTransform(models[0] as unknown as Model3dTransform)
       setCamera(viewer.cameraState())
       setTransform(viewer.modelTransform())
+      setClips(viewer.animationClips())
     })().catch((reason: unknown) => { if (live) setError(reason instanceof Error ? reason.message : String(reason)) })
   })
 
@@ -107,8 +127,8 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
     setBusy(true)
     setError(undefined)
     try {
-      const cameraInfo = node?.values.camera_info ?? initial.camera_info
-      const models = node?.values.model_3d_info ?? initial.model_3d_info
+      const cameraInfo = inputValue('camera_info') ?? initial.camera_info
+      const models = inputValue('model_3d_info') ?? initial.model_3d_info
       const modelInfo = Array.isArray(models) ? models : []
       const next: Record<string, Json> = {
         ...initial,
@@ -116,7 +136,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         model_3d_info: [{ ...object(modelInfo[0]), ...JSON.parse(JSON.stringify(viewer.modelTransform())) }, ...modelInfo.slice(1)],
       }
       if (!metadataOnly) {
-        const capture = await viewer.capture(Number(node?.values.width ?? 1024), Number(node?.values.height ?? 1024))
+        const capture = await viewer.capture(Number(inputValue('width') ?? 1024), Number(inputValue('height') ?? 1024))
         for (const name of ['image', 'mask', 'normal'] as const) {
           if (!live) return
           const file = new File([capture[name]], `viewport-${name}.png`, { type: 'image/png' })
@@ -153,7 +173,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   }
   return <div class="widget-editor widget-modal-editor" data-testid="load3d-widget-editor">
     <props.header type="LOAD_3D" />
-    <div ref={viewport} inert={busy()} class="load3d-widget-viewport" data-testid="load3d-viewport" />
+    <div ref={viewport} inert={busy()} class="load3d-widget-viewport" style={clips().length ? { height: 'clamp(120px, calc(100vh - 780px), 240px)' } : {}} data-testid="load3d-viewport" />
     <Show when={error()}>{(detail) => <ProductNotice tone="error">{detail()}</ProductNotice>}</Show>
     <Show when={camera()}>{(state) => <>
       <ProductField layout="compact" controlId="load3d-camera-type" label={message('load3dWidget.camera')}>
@@ -174,6 +194,29 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
           onChange={(event) => changeTransform(field, axis, Number(event.currentTarget.value))} />
       </ProductField>}</For>
     }</For>}</Show></div>
+    <Show when={clips().length > 0}><div class="load3d-widget-transforms">
+      <ProductField layout="compact" controlId="load3d-animation" label={message('load3dWidget.animation')}>
+        <ProductSelect id="load3d-animation" disabled={busy()} ariaLabel={message('load3dWidget.animation')} selectedId={String(clip())}
+          options={clips().map((entry, index) => ({ id: String(index), value: index, label: entry.name || message('load3dWidget.animationNumber', { number: index + 1 }) }))}
+          onSelect={(option) => { setClip(option.value); setAnimationTime(0); viewer?.setAnimation(option.value, 0, animationPlaying(), animationSpeed()) }} />
+      </ProductField>
+      <ProductField layout="compact" controlId="load3d-animation-time" label={message('load3dWidget.animationTime')}>
+        <ProductTextInput id="load3d-animation-time" disabled={busy()} value={String(animationTime())} onChange={(event) => {
+          const time = Number(event.currentTarget.value)
+          if (Number.isFinite(time)) { viewer?.setAnimation(clip(), time, animationPlaying(), animationSpeed()); setAnimationTime(viewer?.animationTime() ?? 0) }
+        }} />
+      </ProductField>
+      <ProductField layout="compact" controlId="load3d-animation-speed" label={message('load3dWidget.animationSpeed')}>
+        <ProductTextInput id="load3d-animation-speed" disabled={busy()} value={String(animationSpeed())} onChange={(event) => {
+          const speed = Number(event.currentTarget.value)
+          if (Number.isFinite(speed) && speed > 0) { setAnimationSpeed(speed); viewer?.setAnimation(clip(), viewer.animationTime(), animationPlaying(), speed) }
+        }} />
+      </ProductField>
+      <ProductButton type="button" disabled={busy()} onClick={() => {
+        const time = viewer?.animationTime() ?? 0
+        setAnimationTime(time); setAnimationPlaying(!animationPlaying()); viewer?.setAnimation(clip(), time, animationPlaying(), animationSpeed())
+      }}>{message(animationPlaying() ? 'load3dWidget.pauseAnimation' : 'load3dWidget.playAnimation')}</ProductButton>
+    </div></Show>
     <ProductActionFooter>
       <Show when={!metadataOnly}><ProductButton type="button" disabled={!camera() || busy()} onClick={record}>{message(recording() ? 'load3dWidget.stopRecording' : 'load3dWidget.record')}</ProductButton></Show>
       <ProductButton type="button" disabled={busy()} onClick={props.close}>{message('common.cancel')}</ProductButton>

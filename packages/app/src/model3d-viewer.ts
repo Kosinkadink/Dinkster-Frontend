@@ -54,6 +54,8 @@ const loadSpark = (): Promise<SparkModules> => {
 interface FramedScene {
   readonly scene: import('three').Scene
   readonly model: import('three').Object3D
+  readonly animations?: readonly import('three').AnimationClip[]
+  readonly animationRoot?: import('three').Object3D
   readonly camera: import('three').PerspectiveCamera
   readonly center: import('three').Vector3
   /**
@@ -91,33 +93,83 @@ const frameCamera = (
   return { camera, center }
 }
 
-/** Load a GLB and build a lit scene with the camera framing its bounds. */
-const loadFramedScene = async (modules: ThreeModules, src: string, aspect: number, resources?: Readonly<Record<string, string>>): Promise<FramedScene> => {
+export interface Model3dLoadOptions {
+  readonly resources?: Readonly<Record<string, string>>
+  readonly format?: string
+  readonly pointCloud?: boolean
+}
+
+/** Load a mesh or point cloud and frame its bounds in a lit scene. */
+const loadFramedScene = async (modules: ThreeModules, src: string, aspect: number, options: Model3dLoadOptions): Promise<FramedScene> => {
   const { THREE } = modules
+  const { resources, format = 'glb' } = options
   const manager = new THREE.LoadingManager()
   let resourceError: Error | undefined
+  let resourcesReady = Promise.resolve()
+  let resourcesLoaded = (): void => {}
+  manager.onStart = () => { resourcesReady = new Promise((resolve) => { resourcesLoaded = resolve }) }
+  manager.onLoad = () => resourcesLoaded()
   manager.onError = (url) => { resourceError = new Error(`3D resource failed to load: ${url}`) }
   if (resources !== undefined) manager.setURLModifier((url) => {
     if (url === src || url.startsWith('data:') || url.startsWith('blob:')) return url
     const key = decodeURIComponent(new URL(url, 'https://viewport.invalid/').pathname.slice(1))
-    const granted = resources[key]
+    const granted = Object.hasOwn(resources, key) ? resources[key] : undefined
     if (!granted || new URL(url, 'https://viewport.invalid/').origin !== 'https://viewport.invalid') {
       resourceError = new Error(`3D resource is not granted: ${url}`)
       throw resourceError
     }
     return granted
   })
-  const loader = new modules.GLTFLoader(manager)
-  if (resources !== undefined) loader.setResourcePath('https://viewport.invalid/')
-  const gltf = await loader.loadAsync(src)
+  let model: import('three').Object3D
+  let animations: readonly import('three').AnimationClip[] = []
+  if (format === 'obj') {
+    const { OBJLoader } = await import('three/examples/jsm/loaders/OBJLoader.js')
+    const loader = new OBJLoader(manager)
+    const text = await new THREE.FileLoader(manager).loadAsync(src)
+    const libraries = [...String(text).matchAll(/^mtllib\s+(.+)$/gm)].map((match) => match[1]!.trim())
+    const library = libraries.find((name) => resources?.[name] !== undefined)
+    if (library) {
+      const { MTLLoader } = await import('three/examples/jsm/loaders/MTLLoader.js')
+      const materialText = await new THREE.FileLoader(manager).loadAsync(resources![library]!)
+      loader.setMaterials(new MTLLoader(manager).parse(String(materialText), new URL('.', `https://viewport.invalid/${library}`).href))
+    }
+    model = loader.parse(String(text))
+  } else if (format === 'fbx') {
+    const { FBXLoader } = await import('three/examples/jsm/loaders/FBXLoader.js')
+    const loader = new FBXLoader(manager)
+    loader.setResourcePath('https://viewport.invalid/')
+    model = await loader.loadAsync(src)
+    animations = model.animations
+  } else if (format === 'usdz') {
+    const { USDLoader } = await import('three/examples/jsm/loaders/USDLoader.js')
+    model = await new USDLoader(manager).loadAsync(src)
+  } else if (format === 'stl' || format === 'ply') {
+    const geometry = format === 'stl'
+      ? await new (await import('three/examples/jsm/loaders/STLLoader.js')).STLLoader(manager).loadAsync(src)
+      : await new (await import('three/examples/jsm/loaders/PLYLoader.js')).PLYLoader(manager).loadAsync(src)
+    geometry.computeVertexNormals()
+    const colors = geometry.hasAttribute('color')
+    model = format === 'ply' && (options.pointCloud || !geometry.index?.count)
+      ? new THREE.Points(geometry, new THREE.PointsMaterial({ size: 0.005, vertexColors: colors, color: colors ? 0xffffff : 0xcccccc }))
+      : new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: colors, color: colors ? 0xffffff : 0x808080, side: THREE.DoubleSide, roughness: 0.8, metalness: 0.1 }))
+  } else if (format === 'glb' || format === 'gltf') {
+    const loader = new modules.GLTFLoader(manager)
+    if (resources !== undefined) loader.setResourcePath('https://viewport.invalid/')
+    const gltf = await loader.loadAsync(src)
+    model = gltf.scene
+    animations = gltf.animations
+  } else throw new Error(`Unsupported 3D format: ${format}`)
+  await resourcesReady
   const scene = new THREE.Scene()
-  scene.add(gltf.scene)
+  const transformRoot = new THREE.Group()
+  transformRoot.add(model)
+  scene.add(transformRoot)
   scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 2.4))
   const key = new THREE.DirectionalLight(0xffffff, 2.2)
   key.position.set(1, 1.5, 1.2)
   scene.add(key)
 
-  const bounds = new THREE.Box3().setFromObject(gltf.scene)
+  const bounds = new THREE.Box3().setFromObject(model)
   const { camera, center } = frameCamera(THREE, bounds, aspect)
 
   // GLTF scenes share geometries, materials, and textures across meshes;
@@ -151,7 +203,7 @@ const loadFramedScene = async (modules: ThreeModules, src: string, aspect: numbe
     for (const geometry of geometries) geometry.dispose()
   }
   if (resourceError) { dispose(); throw resourceError }
-  return { scene, model: gltf.scene, camera, center, dispose }
+  return { scene, model: transformRoot, animations, animationRoot: model, camera, center, dispose }
 }
 
 /**
@@ -165,12 +217,13 @@ const loadFramedSplatScene = async (
   spark: SparkModules,
   src: string,
   aspect: number,
+  format = 'ply',
 ): Promise<FramedScene> => {
   const { THREE } = modules
   const response = await fetch(src)
   if (!response.ok) throw new Error(`splat fetch failed: ${response.status}`)
   const bytes = await response.arrayBuffer()
-  const mesh = new spark.SplatMesh({ fileBytes: bytes, fileName: 'model.ply' })
+  const mesh = new spark.SplatMesh({ fileBytes: bytes, fileName: `model.${format}` })
   try {
     await mesh.initialized
     // 3DGS PLY files use OpenCV-style Y-down coordinates; rotate 180 degrees
@@ -207,11 +260,11 @@ const loadFramedSceneFor = async (
   src: string,
   aspect: number,
   mime: string,
-  resources?: Readonly<Record<string, string>>,
+  options: Model3dLoadOptions = {},
 ): Promise<FramedScene> =>
-  mime === SPLAT_PLY_MIME
-    ? loadFramedSplatScene(modules, await loadSpark(), src, aspect)
-    : loadFramedScene(modules, src, aspect, resources)
+  !options.pointCloud && (mime === SPLAT_PLY_MIME || ['splat', 'spz', 'ksplat'].includes(options.format ?? ''))
+    ? loadFramedSplatScene(modules, await loadSpark(), src, aspect, options.format)
+    : loadFramedScene(modules, src, aspect, options)
 
 /** Dispose a renderer AND lose its WebGL context so the browser context pool drains immediately. */
 const disposeRenderer = (renderer: import('three').WebGLRenderer): void => {
@@ -347,6 +400,9 @@ export interface Model3dViewerHandle {
   setCameraState(state: Model3dCameraState): void
   modelTransform(): Model3dTransform
   setModelTransform(state: Model3dTransform): void
+  animationClips(): readonly { name: string; duration: number }[]
+  animationTime(): number
+  setAnimation(index: number, time: number, playing: boolean, speed: number): void
   capture(width: number, height: number): Promise<{ image: Blob; mask: Blob; normal: Blob }>
 }
 
@@ -383,7 +439,7 @@ export async function mountModel3dViewer(
   container: HTMLElement,
   src: string,
   mime: string = GLB_MIME,
-  resources?: Readonly<Record<string, string>>,
+  options: Model3dLoadOptions = {},
 ): Promise<Model3dViewerHandle> {
   const modules = await loadThree()
   const framed = await loadFramedSceneFor(
@@ -391,7 +447,7 @@ export async function mountModel3dViewer(
     src,
     Math.max(container.clientWidth, 1) / Math.max(container.clientHeight, 1),
     mime,
-    resources,
+    options,
   )
 
   let renderer: import('three').WebGLRenderer | undefined
@@ -401,6 +457,12 @@ export async function mountModel3dViewer(
   let disposed = false
   let capturing = false
   let frame = 0
+  const clips = framed.animations ?? []
+  const mixer = clips.length ? new modules.THREE.AnimationMixer(framed.animationRoot ?? framed.model) : undefined
+  let animation: import('three').AnimationAction | undefined
+  let playing = false
+  let animationSpeed = 1
+  let lastFrame = performance.now()
   let customUp: Vector3State | undefined
   let useCustomUp = false
   let activeCamera: import('three').PerspectiveCamera | import('three').OrthographicCamera = framed.camera
@@ -410,6 +472,8 @@ export async function mountModel3dViewer(
     cancelAnimationFrame(frame)
     resize?.disconnect()
     controls?.dispose()
+    mixer?.stopAllAction()
+    mixer?.uncacheRoot(framed.animationRoot ?? framed.model)
     try {
       try {
         sparkView?.dispose()
@@ -443,10 +507,13 @@ export async function mountModel3dViewer(
 
     const renderLoop = (): void => {
       if (disposed) return
+      const now = performance.now()
       if (!capturing) {
+        if (playing) mixer?.update((now - lastFrame) / 1000 * animationSpeed)
         controls!.update()
         gl.render(framed.scene, activeCamera)
       }
+      lastFrame = now
       frame = requestAnimationFrame(renderLoop)
     }
     frame = requestAnimationFrame(renderLoop)
@@ -513,6 +580,19 @@ export async function mountModel3dViewer(
       framed.model.quaternion.copy(state.quaternion).normalize()
       framed.model.scale.copy(state.scale)
       framed.model.updateMatrixWorld(true)
+    },
+    animationClips: () => clips.map((clip) => ({ name: clip.name, duration: clip.duration })),
+    animationTime: () => animation?.time ?? 0,
+    setAnimation(index, time, play, speed) {
+      if (disposed || capturing || !mixer || !clips[index] || !Number.isFinite(time) || !Number.isFinite(speed)) return
+      animation?.stop()
+      animation = mixer.clipAction(clips[index])
+      animation.reset().play()
+      animation.time = Math.max(0, Math.min(time, clips[index].duration))
+      mixer.update(0)
+      playing = play
+      animationSpeed = speed
+      lastFrame = performance.now()
     },
     async capture(width, height) {
       if (disposed || capturing) throw new Error('3D viewport is unavailable for capture')

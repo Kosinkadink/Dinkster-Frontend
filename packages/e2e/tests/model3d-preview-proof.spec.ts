@@ -12,8 +12,8 @@ const savedModelDigest = `blake3:${'c'.repeat(64)}`
 const savedSplatDigest = `blake3:${'d'.repeat(64)}`
 
 /** Minimal valid GLB: one red unlit-friendly triangle, non-indexed. */
-function glb(alpha = 1): Buffer {
-  const positions = Buffer.alloc(36)
+function glb(alpha = 1, animated = false): Buffer {
+  const positions = Buffer.alloc(animated ? 68 : 36)
   const vertices = [-1, -1, 0, 1, -1, 0, 0, 1, 0]
   vertices.forEach((value, index) => positions.writeFloatLE(value, index * 4))
   const gltf = {
@@ -33,6 +33,13 @@ function glb(alpha = 1): Buffer {
       min: [-1, -1, 0],
       max: [1, 1, 0],
     }],
+    ...(animated ? { animations: [{ name: 'Slide right', samplers: [{ input: 1, output: 2 }], channels: [{ sampler: 0, target: { node: 0, path: 'translation' } }] }] } : {}),
+  }
+  if (animated) {
+    ;[0, 1, 0, 0, 0, 2, 0, 0].forEach((value, index) => positions.writeFloatLE(value, 36 + index * 4))
+    gltf.bufferViews.push({ buffer: 0, byteOffset: 36, byteLength: 8 }, { buffer: 0, byteOffset: 44, byteLength: 24 })
+    gltf.accessors.push({ bufferView: 1, componentType: 5126, count: 2, type: 'SCALAR', min: [0], max: [1] },
+      { bufferView: 2, componentType: 5126, count: 2, type: 'VEC3', min: [0, 0, 0], max: [2, 0, 0] })
   }
   let json = Buffer.from(JSON.stringify(gltf))
   if (json.length % 4 !== 0) json = Buffer.concat([json, Buffer.alloc(4 - json.length % 4, 0x20)])
@@ -329,7 +336,7 @@ test('GLTF sidecars use granted bytes and an ungranted external buffer cannot lo
     try {
       const source = urlFor(new Blob([JSON.stringify(json)], { type: 'model/gltf+json' }))
       const resource = urlFor(new Blob([buffer]))
-      const viewer = await mountModel3dViewer(host, source, 'model/gltf+json', { 'buffers/mesh.bin': resource })
+      const viewer = await mountModel3dViewer(host, source, 'model/gltf+json', { format: 'gltf', resources: { 'buffers/mesh.bin': resource } })
       let visible = 0
       try {
         const capture = await viewer.capture(129, 83)
@@ -343,7 +350,7 @@ test('GLTF sidecars use granted bytes and an ungranted external buffer cannot lo
       json.buffers[0].uri = 'https://ungranted.invalid/mesh.bin'
       let rejection = ''
       try {
-        const rejected = await mountModel3dViewer(host, urlFor(new Blob([JSON.stringify(json)])), 'model/gltf+json', {})
+        const rejected = await mountModel3dViewer(host, urlFor(new Blob([JSON.stringify(json)])), 'model/gltf+json', { format: 'gltf', resources: {} })
         rejected.dispose()
       } catch (error) { rejection = String(error) }
       return { visible, rejection }
@@ -351,4 +358,50 @@ test('GLTF sidecars use granted bytes and an ungranted external buffer cannot lo
   }, Array.from(glb()))
   expect(result.visible).toBeGreaterThan(100)
   expect(result.rejection).toContain('3D resource is not granted')
+})
+
+test('mesh formats render and animation seeking changes pixels without moving authored placement', async ({ page }) => {
+  const result = await page.evaluate(async (bytes) => {
+    const modulePath = '/src/model3d-viewer.ts'
+    const { mountModel3dViewer } = await import(modulePath)
+    const host = document.createElement('div'); host.style.cssText = 'width:400px;height:300px'; document.body.append(host)
+    const urls: string[] = []
+    const source = (data: BlobPart): string => { const url = URL.createObjectURL(new Blob([data])); urls.push(url); return url }
+    const samples = {
+      obj: 'v -1 -1 0\nv 1 -1 0\nv 0 1 0\nf 1 2 3\n',
+      stl: 'solid triangle\nfacet normal 0 0 1\nouter loop\nvertex -1 -1 0\nvertex 1 -1 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid triangle',
+      ply: 'ply\nformat ascii 1.0\nelement vertex 3\nproperty float x\nproperty float y\nproperty float z\nelement face 1\nproperty list uchar int vertex_indices\nend_header\n-1 -1 0\n1 -1 0\n0 1 0\n3 0 1 2\n',
+    }
+    const pixels = async (blob: Blob): Promise<{ count: number; centerX: number }> => {
+      const bitmap = await createImageBitmap(blob)
+      const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height
+      const context = canvas.getContext('2d')!; context.drawImage(bitmap, 0, 0)
+      const rgba = context.getImageData(0, 0, canvas.width, canvas.height).data
+      let count = 0; let sumX = 0
+      for (let i = 3; i < rgba.length; i += 4) if (rgba[i]! > 0) { count++; sumX += ((i - 3) / 4) % canvas.width }
+      bitmap.close(); return { count, centerX: sumX / count }
+    }
+    const visible: Record<string, number> = {}
+    try {
+      for (const [format, text] of Object.entries(samples)) {
+        const viewer = await mountModel3dViewer(host, source(text), 'application/octet-stream', { format, resources: {} })
+        try { visible[format] = (await pixels((await viewer.capture(257, 143)).image)).count } finally { viewer.dispose() }
+      }
+      const viewer = await mountModel3dViewer(host, source(new Uint8Array(bytes)), 'model/gltf-binary', { resources: {} })
+      try {
+        viewer.setCameraState({ ...viewer.cameraState(), position: { x: 0, y: 0, z: 6 }, target: { x: 0, y: 0, z: 0 } })
+        const placement = viewer.modelTransform()
+        viewer.setAnimation(0, 0, false, 1)
+        const before = await pixels((await viewer.capture(257, 143)).image)
+        viewer.setAnimation(0, 0.5, false, 1)
+        const after = await pixels((await viewer.capture(257, 143)).image)
+        return { visible, before, after, clips: viewer.animationClips(), time: viewer.animationTime(), placement, afterPlacement: viewer.modelTransform() }
+      } finally { viewer.dispose() }
+    } finally { urls.forEach((url) => URL.revokeObjectURL(url)); host.remove() }
+  }, Array.from(glb(1, true)))
+  for (const count of Object.values(result.visible)) expect(count).toBeGreaterThan(100)
+  expect(result.clips).toEqual([{ name: 'Slide right', duration: 1 }])
+  expect(result.time).toBe(0.5)
+  expect(result.after.centerX - result.before.centerX).toBeGreaterThan(20)
+  expect(result.afterPlacement).toEqual(result.placement)
 })
