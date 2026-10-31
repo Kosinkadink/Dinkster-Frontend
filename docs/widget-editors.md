@@ -9,6 +9,60 @@ settings. Missing required fields and mistyped known fields still reject the
 node with a schema error. Unknown non-empty widget type names remain custom
 pack descriptors, preserving their JSON parameters for widget-kind lookup.
 
+## Authored 3D viewport
+
+LOAD_3D edits the selected model file through an orbit viewport. Projection,
+field of view, position, rotation quaternion and scale remain drafts until Apply.
+Quaternion components are normalized to a unit rotation. Apply uploads
+scene, mask and normal PNG captures at the node's width and height and writes
+their granted file references with camera and model-transform metadata in one
+undoable widget value. The mask carries alpha: its consuming MASK is 1-alpha,
+not grayscale RGB. Optional viewport recording uses the authored width and height,
+keeps that resolution during dock resizing, and uses the media upload route.
+Stopping or closing the editor releases the recording stream and restores the
+viewport size. Orthographic rendering, captures and recordings retain the vertical
+frustum and center, adjusting horizontal extent for the current viewport or output
+aspect ratio. Backend quaternion cameras retain their roll without requiring a
+separate custom-up vector; explicit custom-up vectors still take precedence.
+Projection changes are locked until recording stops.
+Failed recordings are not uploaded.
+Cancel leaves the stored value unchanged; reopening restores its camera and
+transform. Missing model files and failed uploads do not replace the value.
+Connected file inputs use their resolved source, not the dormant stored file.
+An unresolved connection leaves the viewport unavailable.
+Producer inputs use the tab's bound completed execution and exact navigated
+instance. Their current compiled upstream recipes must still match that run.
+FILE_3D sources and camera/model metadata require advertised JSON renditions;
+ASSET producers use their declared file-reference metadata and existing byte
+authority. Linked capture dimensions use bounded integer output values. Multiple runtime
+occurrences must agree on type and fingerprint. A stale recipe, unknown instance,
+foreign backend or refused value leaves the editor unavailable. Closing or
+changing the document, execution or backend invalidates pending producer reads.
+Changing backend also invalidates stored and literal file reads and prevents
+pending captures or uploads from committing references from the previous server.
+Advanced and preview `viewport_state` slots save metadata without uploading
+captures or replacing existing empty/null capture fields. Non-null camera
+and model metadata inputs override the stored viewport state on opening.
+Preview FILE_3D values load their primary `source` and declared `resources`
+through asset authority. GLTF sidecars resolve only to these granted resources,
+never arbitrary external URLs or filesystem paths.
+Unverified sources and sidecars use the granting server's local-binding byte
+route, with browser caching disabled. They never enter digest lookup or acquire
+a synthetic digest. A revoked or changed binding leaves the viewport unavailable.
+Malformed FILE_3D manifests leave the viewport unavailable without reading a
+dormant model file. Resource names must be contained relative paths.
+Mesh loading selects GLB, GLTF, OBJ, FBX, STL or USDZ from the original file
+format; point-cloud PLY uses geometry rather than gaussian-splat decoding.
+Splat PLY, SPLAT, SPZ and KSPLAT use the splat renderer. Captures wait for
+splat sorting, including earlier in-flight sorts, before encoding a capture.
+Closing cancels that wait. A stalled sort closes the viewport after 30 seconds
+instead of leaving capture active; reopen the editor to try again.
+Splat normal captures use facing normals in camera coordinates rather than
+the scene's original colors. Animated GLTF/FBX
+models expose clip selection, play/pause, time seeking and playback speed.
+Animation poses remain viewport drafts; capture freezes one pose across all
+three passes without changing the authored model placement.
+
 ## Button actions
 
 BUTTON is stateless, with a null default and the `core.button` view. Its
