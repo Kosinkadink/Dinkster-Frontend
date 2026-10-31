@@ -604,6 +604,13 @@ describe('dynamic.labelMember', () => {
 describe('dynamic.compact', () => {
   const state = { images: { members: ['m0', 'm1', 'm2'], seq: 3 } }
 
+  it.each([{ options: [] }, { options: ['duplicate', 'duplicate', false, 0] }])('retains a parent with only an authored nested menu $options', ({ options }) => {
+    const initial = { items: { members: ['m0'], seq: 1, memberState: { m0: { choice: { options } } } } }
+    const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1', { dynamic: initial }) } }) }))
+    expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } }).ok).toBe(true)
+    expect(dynOf(store, 'n1')).toEqual(initial)
+  })
+
   it('removes unreferenced rows while preserving linked member identity and order', () => {
     const g = graph({
       id: 'g0',

@@ -2131,6 +2131,24 @@ const refreshFlattenSchemaDigest = (invocation: any): void => {
 }
 
 describe('subgraph.flatten trusted-dispatch authorization', () => {
+  it('preserves authored menus when flattening a body node', () => {
+    const initial = flattenDocument()
+    const dynamic = { choice: { options: ['duplicate', 'duplicate', false, 0] }, empty: { options: [] } }
+    initial.graphs.body.nodes.b.dynamic = dynamic
+    const invocation = flattenInvocation(initial)
+    expect(invocation.params.statePlan.status, JSON.stringify(invocation.params.statePlan)).toBe('ready')
+    const session = trustedFlattenSession(initial)
+    const result = session.dispatch(invocation)
+    expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+    const copied = Object.values(session.doc.graphs.root!.nodes).find((node) => node.type === 'BodyNode')!
+    expect(copied.dynamic).toEqual(dynamic)
+    expect(session.doc.graphs.body!.nodes.b!.dynamic).toEqual(dynamic)
+    expect(session.undo()).toBe(true)
+    expect(session.doc.graphs.root!.nodes.occurrence).toEqual(initial.graphs.root.nodes.occurrence)
+    expect(session.redo()).toBe(true)
+    expect(session.doc.graphs.root!.nodes[copied.id]!.dynamic).toEqual(dynamic)
+  })
+
   it.each([19, null, undefined])('flattens occurrence-local literal input state %s without mutating its shared definition', (value) => {
     const initial = flattenDocument()
     const binds = { kind: 'valueSource', valueSource: 'value', type: { kind: 'concrete', name: 'INT' } }

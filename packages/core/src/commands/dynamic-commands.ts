@@ -511,12 +511,12 @@ function compactScope(
       const directlyReferenced = references.some(
         (ref) => portIsWithin(ref.port, construct) && pathStartsWith(ref.members, path),
       )
-      // selected is user state; members surviving below are references to
+      // Selections and authored menus are user state; surviving members refer to
       // this member. Seq-only family state is allocation metadata, not data.
       const nestedReferenced =
         compacted !== undefined &&
         Object.values(compacted).some(
-          (child) => child.selected !== undefined || (child.members?.length ?? 0) > 0,
+          (child) => child.selected !== undefined || child.options !== undefined || (child.members?.length ?? 0) > 0,
         )
       if (!directlyReferenced && !nestedReferenced) continue
       members.push(member)
