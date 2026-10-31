@@ -1785,3 +1785,22 @@ This isolates scene resolution cost, not a complete revision comparison.
 
 Both workloads remain below the unchanged 2-second scene-build budget.
 These measurements do not measure browser frame time or backend execution.
+
+## 2026-10-30 Staged command publication
+
+X570 CPU, Node 26.12.0, consecutive single runs of the unchanged
+`packages/core/test/perf-dispatch.test.ts` 1200-node fixture. Compared
+`0fa869384081` with `97fd6420e6a6` using the same installed dependencies.
+
+| Operation | Before total (ms) | Staged total (ms) |
+| --- | ---: | ---: |
+| 300 node.setValue dispatches | 1144.7 | 1043.4 |
+| 300 node.add dispatches | 1149.6 | 1096.4 |
+| Delete 200 nodes | 421.7 | 392.5 |
+| 200 undo operations | 51.0 | 50.3 |
+| 200 redo operations | 52.6 | 47.1 |
+
+All unchanged test budgets pass. These single-run observations include
+shared-host variation and do not establish a causal speed improvement. They
+measure synchronous dispatch with candidate/history snapshots, not network
+admission, rendering or backend execution.
