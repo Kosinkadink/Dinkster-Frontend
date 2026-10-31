@@ -1375,14 +1375,14 @@ function occurrenceMutationInvocation(args: {
   } as CommandInvocation
 }
 
-export function dispatchOccurrenceIntention(args: {
+export async function dispatchOccurrenceIntention(args: {
   readonly document: WorkflowDocument
   readonly resolver: Parameters<OccurrenceMutationPlanner['planOccurrenceLinkMutation']>[1]
   readonly intention: OccurrenceLinkIntention
   readonly planner: OccurrenceMutationPlanner | undefined
-  readonly dispatch: (invocation: CommandInvocation) => CommandOutcome
+  readonly dispatch: (invocation: CommandInvocation) => CommandOutcome | Promise<CommandOutcome>
   readonly report: (diagnostics: readonly Diagnostic[]) => void
-}): CommandOutcome {
+}): Promise<CommandOutcome> {
   if (args.planner === undefined) {
     const diagnostics = [diag(
       'error',
@@ -1485,12 +1485,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const reportGestureRefusal = (owner: string, diagnostics: readonly Diagnostic[]): void => {
     props.app.reportProblems(owner, diagnostics)
     showGestureRefusal(diagnostics)
-  }
-
-  const dispatchGesture = (tab: Tab, invocation: CommandInvocation): CommandOutcome => {
-    const outcome = props.app.dispatchTo(tab, invocation)
-    if (!outcome.ok) showGestureRefusal(outcome.diagnostics)
-    return outcome
   }
 
   const presentFileDropResult = (surface: CanvasFileDropSurface | undefined): void => {
@@ -2686,6 +2680,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         dispose: unsubscribe,
       }
     }
+    const dispatchGesture = async (tab: Tab, invocation: CommandInvocation): Promise<CommandOutcome> => {
+      const target = captureLifecycleTarget(tab, currentGraphId(tab))
+      try {
+        const outcome = await props.app.dispatchTo(tab, invocation)
+        if (!outcome.ok && target.isCurrent()) showGestureRefusal(outcome.diagnostics)
+        return outcome
+      } finally {
+        target.dispose()
+      }
+    }
     const createRegionAt = async (tab: Tab, graphId: string, position: { x: number; y: number }, kind: RegionKind): Promise<boolean> => {
       const target = captureLifecycleTarget(tab, graphId)
       try {
@@ -3561,7 +3565,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
 
     /** Delete the current selection; net noodles delete as SINK removals. */
-    function deleteSelection(): void {
+    async function deleteSelection(): Promise<void> {
       const tab = activeTab()
       if (!tab) return
       const selectedItems = [...controller.getSelection()]
@@ -3615,18 +3619,24 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           )])
           return
         }
-        const outcome = dispatchOccurrenceIntention({
-          document: tab.store.doc,
-          resolver: documentResolver(tab.store.doc, props.app.registryForTab(tab)!.resolve),
-          intention: {
-            kind: 'disconnect', owner: scene.occurrence.owner,
-            bodyGraph: scene.occurrence.bodyGraph, link: decision.identity,
-          },
-          planner: occurrencePlanner(),
-          dispatch: (invocation) => dispatchGesture(tab, invocation),
-          report: (diagnostics) => reportGestureRefusal(tab.id, diagnostics),
-        })
-        if (outcome.ok) controller.setSelection(preservedBoundarySelection)
+        const target = captureLifecycleTarget(tab, currentGraphId(tab))
+        const selectionVersion = selVersion()
+        try {
+          const outcome = await dispatchOccurrenceIntention({
+            document: tab.store.doc,
+            resolver: documentResolver(tab.store.doc, props.app.registryForTab(tab)!.resolve),
+            intention: {
+              kind: 'disconnect', owner: scene.occurrence.owner,
+              bodyGraph: scene.occurrence.bodyGraph, link: decision.identity,
+            },
+            planner: occurrencePlanner(),
+            dispatch: (invocation) => dispatchGesture(tab, invocation),
+            report: (diagnostics) => reportGestureRefusal(tab.id, diagnostics),
+          })
+          if (outcome.ok && selVersion() === selectionVersion) target.selectNodes(preservedBoundarySelection)
+        } finally {
+          target.dispose()
+        }
         return
       }
       const invocation = selectionDeleteInvocation({
@@ -3635,8 +3645,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         rerouteIds, valueSourceIds, selectorIds, groupIds, selectedNetViews,
       })
       if (invocation === undefined) return
-      props.app.dispatchTo(tab, invocation)
-      controller.setSelection(preservedBoundarySelection)
+      const target = captureLifecycleTarget(tab, currentGraphId(tab))
+      const selectionVersion = selVersion()
+      try {
+        const outcome = await dispatchGesture(tab, invocation)
+        if (outcome.ok && selVersion() === selectionVersion) target.selectNodes(preservedBoundarySelection)
+      } finally {
+        target.dispose()
+      }
     }
 
     function toggleSelectedNodes(tab: Tab, selectedIds: readonly string[]): void {

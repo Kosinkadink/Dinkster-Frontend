@@ -96,6 +96,14 @@ editor mutation; refused edits remain open. A completion cannot close or add
 errors to a replacement editor or modal. These callers still use ordinary
 dispatch and do not establish retained ownership themselves.
 
+Canvas gesture dispatch accepts asynchronous outcomes; the host owns final
+diagnostics, while the controller drops only its transient gesture overlay.
+Selection deletion waits for acceptance before clearing selection. Refusal
+preserves selection, and delayed completion cannot clear a newer selection
+or report a refusal toast into another tab, session, navigation or canvas.
+Occurrence-local deletion uses the same rule after atomic planner dispatch.
+These gestures still use ordinary dispatch, not retained admission.
+
 Each admission shares its census across snapshots. Replayed node-only changes
 visit changed nodes when no subgraph instances are present; structural changes
 and subgraph instances require the full snapshot schema context. Object reuse

@@ -1141,7 +1141,7 @@ export interface CanvasBridge {
   readonly groupMembers: (graphId: string, groupId: string) => readonly string[] | undefined
   readonly showValueSource?: (tabId: string, graphId: string, valueSourceId: string) => void
   /** App-level actions live here so commands do not reach into renderer internals. */
-  readonly deleteSelection: () => void
+  readonly deleteSelection: () => void | Promise<void>
   readonly selectAll: () => void
   readonly setSelectedMode: (mode: 'active' | 'muted' | 'bypassed') => void
   readonly toggleSelectedCollapsed: () => void
