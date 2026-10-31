@@ -233,6 +233,7 @@
     "text:(settingsTick(), props.app.settings.get",
     "text:(undefined) /** * When the link menu opened. A midpoint single click opens it on release, * so the second press of a habitual double-click lands on the backdrop * milliseconds later; the backdrop ignores presses inside this window so * a double-click leaves the menu open instead of flashing it closed. */ let linkMenuOpenedAt = 0 const LINK_MENU_DISMISS_GRACE_MS = 350 const [recentNodeTypes, setRecentNodeTypes] = createSolidSignal",
     "text:(undefined) const [linkDoubleClickMenu, setLinkDoubleClickMenu] = createSolidSignal",
+    "text:(undefined) const [pendingController, setPendingController] = createSolidSignal",
     "text:, instancePath: readonly string[], ): ReadonlySet",
     "text:0) page(props.onPrevious) if (event.key === 'ArrowRight' && props.index",
     "text:3D viewer unavailable",

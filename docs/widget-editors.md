@@ -562,7 +562,11 @@ duplicate or cycle controller state. The menu routes fixed, increment,
 decrement, randomize-after-run, and randomize-after-refresh choices through the
 owner-routed `node.setController` command. Selecting randomize does not change
 the current value immediately; it advances only after the named successful run
-or refresh event. The chip does not move as the value gains digits. Wide rows
+or refresh event. The menu closes only after its mode change is accepted.
+Pending choices are disabled; refusal preserves the menu and current mode for
+retry and shows an inline error. Escape or clicking outside dismisses the menu, not a submitted command;
+an older completion cannot close a newly opened menu.
+The chip does not move as the value gains digits. Wide rows
 reserve 128px for value text (enough for a full JavaScript safe integer), while
 narrow rows retain a 44px label floor and clip at one stable threshold. Hovering
 the value zone exposes the complete effective value in the widget tooltip, so a

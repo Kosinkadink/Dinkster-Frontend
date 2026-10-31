@@ -159,7 +159,7 @@ import { resolveDroppedAsset } from './desktop-bridge.js'
 import { activeProjectId } from './projects.js'
 import { readUploadDestination, saveUploadDestination, type UploadDestinationChoice } from './upload-destination.js'
 import { palettePreviewLayout, placementSchemaKey } from './palette-node-preview.js'
-import { ProductActionFooter } from './ProductForm.js'
+import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import {
@@ -1719,8 +1719,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly inputId: string
     readonly mode: ControllerMode
     readonly trigger: 'after_generate' | 'after_refresh'
+    readonly lifetime: object
+    readonly refusal: Diagnostic | undefined
   }
   const [controllerMenu, setControllerMenu] = createSolidSignal<ControllerMenuState | undefined>(undefined)
+  const [pendingController, setPendingController] = createSolidSignal<object | undefined>(undefined)
+  onCleanup(() => setControllerMenu(undefined))
   let controllerMenuEl!: HTMLDivElement
   createEffect(() => {
     const menu = controllerMenu()
@@ -1756,20 +1760,34 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
     })
   })
-  const commitControllerMode = (
-    controller: Pick<ControllerMenuState, 'tab' | 'graphId' | 'nodeId' | 'inputId'>,
+  const commitControllerMode = async (
+    controller: ControllerMenuState,
     mode: ControllerMode,
-  ): boolean => {
+  ): Promise<void> => {
     // The compact canvas-row menu is the sole controller surface. Refuse
     // when the tab object that opened it is gone.
-    if (!props.app.tabs.get().includes(controller.tab)) return false
-    const outcome = props.app.dispatchTo(controller.tab, { command: 'node.setController', params: {
-      graphId: controller.graphId,
-      nodeId: controller.nodeId,
-      inputId: controller.inputId,
-      mode,
-    } })
-    return outcome.ok
+    if (!props.app.tabs.get().includes(controller.tab) || pendingController() === controller.lifetime) return
+    const store = controller.tab.store
+    const stack = controller.tab.graphStack.get()
+    const path = controller.tab.instancePath.get()
+    const isCurrent = () => controllerMenu()?.lifetime === controller.lifetime &&
+      activeTab() === controller.tab && controller.tab.store === store &&
+      controller.tab.graphStack.get() === stack && controller.tab.instancePath.get() === path
+    setPendingController(controller.lifetime)
+    setControllerMenu((current) => current?.lifetime === controller.lifetime ? { ...current, refusal: undefined } : current)
+    try {
+      const outcome = await props.app.dispatchTo(controller.tab, { command: 'node.setController', params: {
+        graphId: controller.graphId,
+        nodeId: controller.nodeId,
+        inputId: controller.inputId,
+        mode,
+      } })
+      if (!isCurrent()) return
+      if (outcome.ok) setControllerMenu(undefined)
+      else setControllerMenu((current) => current === undefined ? current : { ...current, refusal: outcome.diagnostics[0] })
+    } finally {
+      if (pendingController() === controller.lifetime) setPendingController(undefined)
+    }
   }
   const [selectionSize, setSelectionSize] = createSolidSignal(0)
   const [linkSelectionSize, setLinkSelectionSize] = createSolidSignal(0)
@@ -3035,6 +3053,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const rect = canvasEl.getBoundingClientRect()
         props.tooltips?.hide()
         setControllerMenu({
+          lifetime: {},
+          refusal: undefined,
           x: screenX - rect.left,
           y: screenY - rect.top + 8,
           tab,
@@ -6483,6 +6503,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               data-testid="seed-controller-menu"
               style={{ left: `${menu().x}px`, top: `${menu().y}px` }}
               role="menu"
+              aria-busy={pendingController() === menu().lifetime}
             >
               <div class="seed-controller-title">After {menu().trigger === 'after_refresh' ? 'refresh' : 'generate'}</div>
               <For each={[
@@ -6503,12 +6524,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                     type="button"
                     role="menuitemradio"
                     aria-checked={menu().mode === option.mode}
-                    classList={{ 'seed-controller-option': true, selected: menu().mode === option.mode }}
+                    class={`seed-controller-option${menu().mode === option.mode ? ' selected' : ''}`}
                     data-testid={`seed-controller-${option.mode}`}
-                    onClick={() => {
-                      commitControllerMode(menu(), option.mode)
-                      setControllerMenu(undefined)
-                    }}
+                    disabled={pendingController() === menu().lifetime}
+                    onClick={() => { void commitControllerMode(menu(), option.mode) }}
                   >
                     <Icon icon={option.icon} />
                     <span><strong>{option.label}</strong><small>{option.description}</small></span>
@@ -6516,6 +6535,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   </ProductButton>
                 )}
               </For>
+              <Show when={menu().refusal} keyed>
+                {(refusal) => <ProductNotice tone="error" testId="controller-refusal">
+                  <strong>{refusal.code}</strong>: {refusal.message}
+                </ProductNotice>}
+              </Show>
             </div>
           </div>
         )}
