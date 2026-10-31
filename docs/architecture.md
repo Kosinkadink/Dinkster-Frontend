@@ -90,6 +90,12 @@ gesture. Both synchronous and asynchronous final results are supported; a
 pending result is not success. Their canvas adapters await the result before
 reading `ok`. These paths still use ordinary dispatch, not retained admission.
 
+Curve, Compositor and GLSL Apply, and unused-definition cleanup, also await
+the final command result. Pending actions disable duplicate submission and
+editor mutation; refused edits remain open. A completion cannot close or add
+errors to a replacement editor or modal. These callers still use ordinary
+dispatch and do not establish retained ownership themselves.
+
 Each admission shares its census across snapshots. Replayed node-only changes
 visit changed nodes when no subgraph instances are present; structural changes
 and subgraph instances require the full snapshot schema context. Object reuse

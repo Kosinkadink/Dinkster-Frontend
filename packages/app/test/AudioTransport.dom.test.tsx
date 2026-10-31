@@ -169,6 +169,40 @@ describe('shared audio transport lifecycle', () => {
     expect(request.openedValue.points).toEqual([{ position: 0, value: 0 }, { position: 1, value: 1 }])
     closeCurve()
   })
+  it.each([
+    { accepted: false, replace: false },
+    { accepted: true, replace: false },
+    { accepted: false, replace: true },
+  ])('waits for curve apply and isolates replacement targets: %j', async ({ accepted, replace }) => {
+    const request = { tabId: 'tab', graphId: 'g', nodeId: 'envelope', inputId: 'curve', instancePath: [], openedValue: { points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] } }
+    const target = createSignal<typeof request | undefined>(request)
+    const tab = { id: 'tab', store: { document: createSignal({}) } }
+    let settle!: () => void
+    const dispatch = vi.fn(() => new Promise((resolve) => {
+      settle = () => resolve({ ok: accepted, diagnostics: [] })
+    }))
+    const app = {
+      curveEditorTarget: target, tabs: createSignal([tab]), activeTabId: createSignal('tab'), store: { executions: createSignal(new Map()) },
+      curveTargetForInput: () => target.get(), executionForTab: () => undefined, dispatchTo: dispatch,
+      closeCurveEditor: () => target.set(undefined),
+    } as unknown as AppState
+    const curve = document.createElement('div'); root.append(curve)
+    const closeCurve = render(() => <CurveEditor app={app} />, curve)
+    const apply = Array.from(curve.querySelectorAll('button')).find((button) => button.textContent === 'Apply')!
+    apply.click()
+    expect(apply.disabled).toBe(true)
+    expect(target.get()).toBe(request)
+    apply.click()
+    expect(dispatch).toHaveBeenCalledOnce()
+    const replacement = { ...request }
+    if (replace) target.set(replacement)
+    settle()
+    await next()
+    expect(target.get()).toBe(replace ? replacement : accepted ? undefined : request)
+    if (!accepted && !replace) expect(curve.textContent).toContain('Curve update was refused')
+    if (replace) expect(curve.textContent).not.toContain('Curve update was refused')
+    closeCurve()
+  })
   it('loads the executed envelope curve and follows only its exact audio source', async () => {
     const request = {
       tabId: 'tab', graphId: 'g', nodeId: 'editor', inputId: 'curve', instancePath: ['sub'],
