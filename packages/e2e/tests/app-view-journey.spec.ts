@@ -131,6 +131,10 @@ test('authors, uses, and reloads a complete App View', async ({ page }) => {
   mkdirSync(evidenceGroupDir('issue-21'), { recursive: true })
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await expect.poll(() => page.evaluate(() => {
+    const backend = window.__dinksterTest!.app.backends.get()[0]!
+    return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
+  })).toBe(true)
   await registerSchema(page)
   await openJourneyDocument(page)
   await injectPreview(page, 'Portrait result')
