@@ -86,6 +86,7 @@ test.beforeEach(async ({ page }) => {
     }, 'Problem Surfaces')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
+  await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
 })
 
 test('the Focused tab follows canvas focus and shows only that context\'s problems', async ({ page }) => {
