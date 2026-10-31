@@ -195,6 +195,26 @@ export function BoundaryPanel(props: { app: AppState }) {
   // successful edit.
   const [notice, setNotice] = createSolidSignal<{ key: string; text: string } | undefined>(undefined)
   const [nameDrafts, setNameDrafts] = createSolidSignal<Record<string, string>>({})
+  const [pending, setPending] = createSolidSignal<object | undefined>(undefined)
+  let lifetime = {}
+  createEffect(() => {
+    const tab = activeTab()
+    const reset = () => {
+      lifetime = {}
+      setPending(undefined)
+      setNotice(undefined)
+      setNameDrafts({})
+    }
+    reset()
+    const unsubStack = tab?.graphStack.subscribe(reset)
+    const unsubPath = tab?.instancePath.subscribe(reset)
+    onCleanup(() => {
+      unsubStack?.()
+      unsubPath?.()
+      reset()
+    })
+  })
+  const editingDisabled = () => frozen() || pending() !== undefined
 
   const itemKey = (side: string, item: BoundaryItem): string => `${side}:${item.id}`
   const clearNameDraft = (key: string): void => {
@@ -204,28 +224,35 @@ export function BoundaryPanel(props: { app: AppState }) {
     })
   }
 
-  const dispatch = (command: string, params: JsonObject): boolean => {
+  const dispatch = async (command: string, params: JsonObject, region = false): Promise<boolean> => {
     const ctx = editedDef()
-    if (!ctx) return false
-    const outcome = props.app.dispatchTo(ctx.tab, {
-      command,
-      params: { graphId: ctx.def.id, ...params },
-    })
-    if (outcome.ok) setNotice(undefined)
-    return outcome.ok
+    const occurrence = region ? regionCtx() : undefined
+    if (!ctx || editingDisabled() || (region && !occurrence)) return false
+    const owner = lifetime
+    const store = ctx.tab.store
+    const request = {}
+    setPending(request)
+    try {
+      const outcome = await props.app.dispatchTo(ctx.tab, {
+        command,
+        params: occurrence
+          ? { graphId: occurrence.parentGraphId, nodeId: occurrence.occurrenceNodeId, ...params }
+          : { graphId: ctx.def.id, ...params },
+      })
+      if (lifetime !== owner || activeTab() !== ctx.tab || ctx.tab.store !== store) return false
+      if (outcome.ok) setNotice(undefined)
+      else if (outcome.diagnostics[0]) setNotice({
+        key: region ? 'region' : `${params.side}:${params.itemId}`,
+        text: outcome.diagnostics[0].message,
+      })
+      return outcome.ok
+    } finally {
+      if (pending() === request) setPending(undefined)
+    }
   }
 
-  const regionDispatch = (command: string, params: JsonObject): boolean => {
-    const ctx = regionCtx()
-    if (!ctx) return false
-    const outcome = props.app.dispatchTo(ctx.tab, {
-      command,
-      params: { graphId: ctx.parentGraphId, nodeId: ctx.occurrenceNodeId, ...params },
-    })
-    if (outcome.ok) setNotice(undefined)
-    else if (outcome.diagnostics[0]) setNotice({ key: 'region', text: outcome.diagnostics[0].message })
-    return outcome.ok
-  }
+  const regionDispatch = (command: string, params: JsonObject): Promise<boolean> =>
+    dispatch(command, params, true)
 
   const roleOf = (side: 'inputs' | 'outputs', item: BoundaryItem, region: RegionContract): string => {
     if (side === 'inputs') {
@@ -297,8 +324,17 @@ export function BoundaryPanel(props: { app: AppState }) {
     return items
   }
 
-  const rename = (side: 'inputs' | 'outputs', item: BoundaryItem, displayName: string): void => {
-    dispatch('boundary.renameItem', { side, itemId: item.id, displayName: displayName.trim() })
+  const rename = async (side: 'inputs' | 'outputs', item: BoundaryItem, displayName: string): Promise<void> => {
+    if (editingDisabled()) return
+    const key = itemKey(side, item)
+    if (displayName.trim() === (item.displayName ?? '')) {
+      clearNameDraft(key)
+      return
+    }
+    const owner = lifetime
+    setNameDrafts((current) => ({ ...current, [key]: displayName }))
+    const accepted = await dispatch('boundary.renameItem', { side, itemId: item.id, displayName: displayName.trim() })
+    if (accepted && lifetime === owner && nameDrafts()[key] === displayName) clearNameDraft(key)
   }
 
   const showOnCanvas = (item: BoundaryItem): void => {
@@ -343,6 +379,7 @@ export function BoundaryPanel(props: { app: AppState }) {
         data-testid="boundary-panel"
         role="region"
         aria-label={message('boundaryPanel.aria.editor')}
+        aria-busy={pending() !== undefined}
         tabIndex={-1}
         onKeyDown={(event) => {
           if (event.key !== 'Escape') return
@@ -393,7 +430,7 @@ export function BoundaryPanel(props: { app: AppState }) {
                       data-region-binding={binding}
                       aria-label={`Set binding to ${binding}`}
                       aria-pressed={(ctx().region.binding ?? 'zip') === binding}
-                      disabled={frozen()}
+                      disabled={editingDisabled()}
                       onClick={() => regionDispatch('region.setBinding', { binding })}
                     >
                       {binding}
@@ -410,7 +447,7 @@ export function BoundaryPanel(props: { app: AppState }) {
                   min={1}
                   step={1}
                   ariaLabel="Maximum iterations"
-                  disabled={frozen()}
+                  disabled={editingDisabled()}
                   value={ctx().region.maxIterations ?? ''}
                   onCommit={(raw) => {
                     const value = raw.trim()
@@ -487,19 +524,13 @@ export function BoundaryPanel(props: { app: AppState }) {
                         aria-label={`${side === 'inputs' ? 'Input' : 'Output'} ${item.id} display name`}
                         placeholder={defaultItemName(side, item)}
                         value={nameDrafts()[itemKey(side, item)] ?? item.displayName ?? ''}
-                        disabled={frozen()}
+                        disabled={editingDisabled()}
                         onInput={(event) => setNameDrafts((current) => ({
                           ...current,
                           [itemKey(side, item)]: event.currentTarget.value,
                         }))}
-                        onChange={(event) => {
-                          rename(side, item, event.currentTarget.value)
-                          clearNameDraft(itemKey(side, item))
-                        }}
-                        onBlur={(event) => {
-                          rename(side, item, event.currentTarget.value)
-                          clearNameDraft(itemKey(side, item))
-                        }}
+                        onChange={(event) => rename(side, item, event.currentTarget.value)}
+                        onBlur={(event) => rename(side, item, event.currentTarget.value)}
                         onKeyDown={(event) => {
                           if (event.key === 'Enter') {
                             event.preventDefault()
@@ -556,7 +587,7 @@ export function BoundaryPanel(props: { app: AppState }) {
                                     data-tooltip-detail={message('boundary.region.output.occurrenceOnly')}
                                     aria-label={`Set output ${itemName(side, item)} role to ${role}`}
                                     aria-pressed={roleOf(side, item, ctx().region) === role}
-                                    disabled={frozen()}
+                                    disabled={editingDisabled()}
                                     onClick={() => regionDispatch('region.setOutputRole', { outputId: item.id, role })}
                                   >
                                     {role}
@@ -574,7 +605,7 @@ export function BoundaryPanel(props: { app: AppState }) {
                                     data-tooltip-detail={message('boundary.region.output.occurrenceOnly')}
                                     aria-label={`Set output ${itemName(side, item)} role to state ${statePort}`}
                                     aria-pressed={statePortOf(item, ctx().region) === statePort}
-                                    disabled={frozen()}
+                                    disabled={editingDisabled()}
                                     onClick={() => regionDispatch('region.setOutputRole', { outputId: item.id, role: 'state', statePort })}
                                   >
                                     state: {statePort}
@@ -590,7 +621,7 @@ export function BoundaryPanel(props: { app: AppState }) {
                                 data-tooltip-detail={message('boundary.region.output.occurrenceOnly')}
                                 aria-label={`Use output ${item.displayName ?? item.id} as continuation`}
                                 aria-pressed={ctx().region.continueOutput === item.id}
-                                disabled={frozen()}
+                                disabled={editingDisabled()}
                                 onClick={() => regionDispatch('region.setContinueOutput', {
                                   ...(ctx().region.continueOutput === item.id ? {} : { outputId: item.id }),
                                 })}
@@ -614,7 +645,7 @@ export function BoundaryPanel(props: { app: AppState }) {
                                   data-role-choice={role === 'broadcast' ? 'capture' : role}
                                   aria-label={`Set input ${item.displayName ?? item.id} role to ${label.toLowerCase()}`}
                                   aria-pressed={roleOf(side, item, ctx().region) === label.toLowerCase()}
-                                  disabled={frozen()}
+                                  disabled={editingDisabled()}
                                   onClick={() => regionDispatch('region.setPortRole', {
                                     side: 'input', portId: item.id, role,
                                   })}
@@ -631,7 +662,7 @@ export function BoundaryPanel(props: { app: AppState }) {
                       <p class="boundary-message" role="status">
                         {item.binds.kind === 'dynamicCombo' ? 'Full branch: inputs and values are independent on each instance.' : 'Selector only: branch inputs stay definition-owned.'}
                       </p>
-                      <button type="button" class="boundary-button" disabled={frozen()}
+                      <button type="button" class="boundary-button" disabled={editingDisabled()}
                         aria-label={`${item.binds.kind === 'dynamicCombo' ? 'Use selector only for' : 'Upgrade to full branch for'} ${itemName(side, item)}`}
                         onClick={() => setConditionalBinding(item, item.binds.kind === 'dynamicCombo' ? 'port' : 'dynamicCombo')}>
                         {item.binds.kind === 'dynamicCombo' ? 'Use selector only' : 'Upgrade to full branch'}
@@ -642,7 +673,7 @@ export function BoundaryPanel(props: { app: AppState }) {
                         {item.binds.kind === 'slot' ? 'Full slot: specialization and dependents are independent on each instance.' : 'Slot dependents are not forwarded.'}
                       </p>
                       <Show when={item.binds.kind !== 'slot'}>
-                        <button type="button" class="boundary-button" disabled={frozen()}
+                        <button type="button" class="boundary-button" disabled={editingDisabled()}
                           aria-label={`Forward full slot for ${itemName(side, item)}`}
                           onClick={() => setConditionalBinding(item, 'slot')}>Forward full slot</button>
                       </Show>
@@ -671,7 +702,7 @@ export function BoundaryPanel(props: { app: AppState }) {
                                       type="button"
                                       class="boundary-button"
                                       data-testid="boundary-pin"
-                                      disabled={frozen()}
+                                      disabled={editingDisabled()}
                                       onClick={() => pin(side, item, template())}
                                     >
                                       Pin selection
@@ -687,7 +718,7 @@ export function BoundaryPanel(props: { app: AppState }) {
                                   type="button"
                                   class="boundary-button"
                                   data-testid="boundary-unpin"
-                                  disabled={frozen()}
+                                  disabled={editingDisabled()}
                                   onClick={() => unpin(side, item)}
                                 >
                                   Track all slots
@@ -714,7 +745,7 @@ export function BoundaryPanel(props: { app: AppState }) {
                                         template={template()}
                                         tree={t()}
                                         prefix=""
-                                        disabled={frozen()}
+                                        disabled={editingDisabled()}
                                         onToggle={(path) => toggle(side, item, template(), path)}
                                       />
                                     )}

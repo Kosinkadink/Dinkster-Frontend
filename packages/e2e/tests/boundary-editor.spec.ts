@@ -232,10 +232,72 @@ async function blurControls(page: Page): Promise<void> {
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
+  if (testInfo.annotations.some((annotation) => annotation.type === 'mock-boundary-dispatch')) {
+    await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: {} }))
+    await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'boundary-fixture', schemaWire: 1 }, nodes: {},
+    } }))
+    await page.routeWebSocket('**/api/events?*', () => {})
+  }
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await openBoundaryWorkflow(page)
+})
+
+test('boundary edits await acceptance and preserve refused drafts for retry', {
+  annotation: { type: 'mock-boundary-dispatch' },
+}, async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__boundaryPending = []
+    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
+      ;(window as any).__boundaryPending.push((accepted: boolean) => resolve(accepted
+        ? dispatch(tab, invocation)
+        : { ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Boundary edit refused for test' }] }))
+    })
+  })
+  const panel = page.getByTestId('boundary-panel')
+  const item = page.locator('[data-testid=boundary-item][data-boundary-id=fwd]')
+  const input = item.getByTestId('boundary-name-input')
+  const pin = item.getByTestId('boundary-pin')
+  const settle = (index: number, accepted: boolean) => page.evaluate(({ index, accepted }) => {
+    ;(window as any).__boundaryPending[index](accepted)
+  }, { index, accepted })
+  await page.screenshot({ path: testInfo.outputPath('boundary-default.png') })
+  await input.fill('  Batch Masks  ')
+  await input.press('Tab')
+  await expect(panel).toHaveAttribute('aria-busy', 'true')
+  await expect(input).toBeDisabled()
+  await expect(input).toHaveValue('  Batch Masks  ')
+  await expect(pin).toBeDisabled()
+  expect((await activeDoc(page)).graphs.sub!.boundary!.inputs[0]).not.toHaveProperty('displayName')
+  await input.dispatchEvent('change')
+  expect(await page.evaluate(() => (window as any).__boundaryPending.length)).toBe(1)
+  await page.screenshot({ path: testInfo.outputPath('boundary-pending.png') })
+  await settle(0, false)
+  await expect(input).toBeEnabled()
+  await expect(input).toHaveValue('  Batch Masks  ')
+  await expect(item.getByTestId('boundary-notice')).toHaveText('Boundary edit refused for test')
+  await page.screenshot({ path: testInfo.outputPath('boundary-refused.png') })
+  await input.focus()
+  await input.press('Tab')
+  await settle(1, true)
+  await expect(input).toBeEnabled()
+  await expect(input).toHaveValue('Batch Masks')
+  await expect(item.getByTestId('boundary-notice')).toHaveCount(0)
+  expect((await activeDoc(page)).graphs.sub!.boundary!.inputs[0]).toMatchObject({ displayName: 'Batch Masks' })
+  await page.screenshot({ path: testInfo.outputPath('boundary-accepted.png') })
+  await pin.click()
+  expect(await fwdSlots(page)).toBeUndefined()
+  await settle(2, true)
+  await expect(item).toContainText('Pinned')
+  expect(await fwdSlots(page)).toEqual(['req', 'sub', 'tag'])
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+  expect(await fwdSlots(page)).toBeUndefined()
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+  await expect(input).toHaveValue('')
 })
 
 test('root prompt reopens definitions; family item pins to an explicit full selection', async ({ page }) => {
