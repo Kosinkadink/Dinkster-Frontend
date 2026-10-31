@@ -7,6 +7,9 @@ import {
   type CommandOutcome,
   type HistorySnapshot,
   type Json,
+  type NodeData,
+  type NodeSchema,
+  type PatchOp,
   type PreparedDocumentDispatch,
   type SchemaResolver,
   type TypeExpr,
@@ -23,9 +26,14 @@ export function workflowAssetRoots(
   document: WorkflowDocument,
   history: HistorySnapshot,
   resolve: SchemaResolver,
+  additionalDocuments: readonly WorkflowDocument[] = [],
 ): { readonly complete: boolean; readonly digests: readonly string[] } {
   const digests = new Set<string>()
   let complete = true
+  const checkedExtensions = new WeakSet<object>()
+  const checkedNodes = new WeakMap<object, Set<NodeSchema | undefined>>()
+  const checkedSources = new WeakSet<object>()
+  let hasInstances = false
   const supported = (type: TypeExpr): boolean => {
     if (type.kind === 'asset') return true
     if (type.kind === 'list') return supported(type.element)
@@ -58,6 +66,8 @@ export function workflowAssetRoots(
   }
   const checkExtensions = (value: Json): void => {
     if (typeof value !== 'object' || value === null) return
+    if (checkedExtensions.has(value)) return
+    checkedExtensions.add(value)
     if (Array.isArray(value)) {
       for (const entry of value) checkExtensions(entry)
     } else {
@@ -68,30 +78,54 @@ export function workflowAssetRoots(
       }
     }
   }
-  const visit = (snapshot: WorkflowDocument): void => {
-    checkExtensions(snapshot as unknown as Json)
-    const schemas = documentResolver(snapshot, resolve)
-    for (const graph of Object.values(snapshot.graphs)) {
-      for (const node of Object.values(graph.nodes)) {
-        const schema = schemas(node.type)
-        if (schema === undefined || (node.dynamic !== undefined && Object.keys(node.dynamic).length > 0)) {
-          complete = false
-        }
-        for (const item of schema?.items ?? []) {
-          if (item.kind !== 'input' && item.kind !== 'output') complete = false
-          if (item.kind === 'input') {
-            if (item.dynamic !== undefined || (item.ext !== undefined && Object.keys(item.ext).length > 0)) complete = false
-            if (item.widget !== undefined && !widgetTypes.has(item.widget.widgetType)) complete = false
-            if (!Object.hasOwn(node.values, item.id) && item.widget?.default !== undefined) valueRoots(item.widget.default as Json, item.type)
-          }
-        }
-        for (const [input, value] of Object.entries(node.values)) {
-          const spec = schema?.items.find((item) => item.kind === 'input' && item.id === input)
-          if (spec?.kind !== 'input') complete = false
-          else valueRoots(value, spec.type)
-        }
+  const visitNode = (node: NodeData, schemas: SchemaResolver): void => {
+    if (node.type.startsWith('#')) hasInstances = true
+    checkExtensions(node as unknown as Json)
+    const schema = schemas(node.type)
+    // A stable node can resolve differently after its referenced graph changes.
+    let checkedSchemas = checkedNodes.get(node)
+    if (checkedSchemas?.has(schema)) return
+    if (checkedSchemas === undefined) {
+      checkedSchemas = new Set()
+      checkedNodes.set(node, checkedSchemas)
+    }
+    checkedSchemas.add(schema)
+    if (schema === undefined || (node.dynamic !== undefined && Object.keys(node.dynamic).length > 0)) complete = false
+    for (const item of schema?.items ?? []) {
+      if (item.kind !== 'input' && item.kind !== 'output') complete = false
+      if (item.kind === 'input') {
+        if (item.dynamic !== undefined || (item.ext !== undefined && Object.keys(item.ext).length > 0)) complete = false
+        if (item.widget !== undefined && !widgetTypes.has(item.widget.widgetType)) complete = false
+        if (!Object.hasOwn(node.values, item.id) && item.widget?.default !== undefined) valueRoots(item.widget.default as Json, item.type)
       }
+    }
+    for (const [input, value] of Object.entries(node.values)) {
+      const spec = schema?.items.find((item) => item.kind === 'input' && item.id === input)
+      if (spec?.kind !== 'input') complete = false
+      else valueRoots(value, spec.type)
+    }
+  }
+  const visit = (snapshot: WorkflowDocument, changes?: readonly PatchOp[]): void => {
+    const schemas = documentResolver(snapshot, resolve)
+    // Without instances, node-only patches cannot change another node's schema or values.
+    if (!hasInstances && changes !== undefined && changes.every((op) =>
+      op.path.length >= 4 && op.path[0] === 'graphs' && op.path[2] === 'nodes' &&
+      !op.path.slice(0, 4).includes('ext'))) {
+      const nodes = new Set(changes.flatMap((op) => {
+        const node = snapshot.graphs[String(op.path[1])]?.nodes[String(op.path[3])]
+        return node === undefined ? [] : [node]
+      }))
+      if ([...nodes].every((node) => !node.type.startsWith('#'))) {
+        for (const node of nodes) visitNode(node, schemas)
+        return
+      }
+    }
+    checkExtensions(snapshot as unknown as Json)
+    for (const graph of Object.values(snapshot.graphs)) {
+      for (const node of Object.values(graph.nodes)) visitNode(node, schemas)
       for (const source of Object.values(graph.valueSources ?? {})) {
+        if (checkedSources.has(source)) continue
+        checkedSources.add(source)
         if (source.spec?.options !== undefined) complete = false
         const typed = parseTypedLiteralWire(source.value)
         if (typed === undefined) complete = false
@@ -100,13 +134,14 @@ export function workflowAssetRoots(
     }
   }
   visit(document)
+  for (const snapshot of additionalDocuments) visit(snapshot)
   for (const [records, direction] of [[history.undo, 'inverse'], [history.redo, 'forward']] as const) {
     let snapshot = document
     for (const record of [...records].reverse()) {
       const replayed = replayHistoryOps(snapshot, record[direction], { requireRecordedValues: true })
       if (replayed.stale !== undefined) complete = false
       snapshot = replayed.doc
-      visit(snapshot)
+      visit(snapshot, replayed.applied)
     }
   }
   return { complete, digests: [...digests].sort() }
@@ -120,18 +155,17 @@ export async function admitWorkflowDispatch(
   stillCurrent: () => boolean,
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
 ): Promise<CommandOutcome> {
-  const current = workflowAssetRoots(prepared.currentDocument, prepared.currentHistory, resolve)
-  const proposed = workflowAssetRoots(prepared.document, prepared.history, resolve)
-  const retained = (prepared.retainedDocuments ?? []).map((document) =>
-    workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, resolve))
-  if (!current.complete || !proposed.complete || retained.some((roots) => !roots.complete)) throw new Error('Workflow asset identities are incomplete')
-  const digests = [...new Set([...current.digests, ...proposed.digests, ...retained.flatMap((roots) => roots.digests)])].sort()
+  // Proposed history adds only the captured current state and trims existing records.
+  const roots = workflowAssetRoots(prepared.currentDocument, prepared.currentHistory, resolve,
+    [prepared.document, ...(prepared.retainedDocuments ?? [])])
+  if (!roots.complete) throw new Error('Workflow asset identities are incomplete')
+  const digests = roots.digests
   if (digests.length > 4096) throw new Error('Workflow exceeds the retained identity limit')
   const owner = { scope: 'local', ownerKind: 'document' as const, ownerId: `workflow-candidate:${uuidv4()}` }
   const key = scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)
   const intent = {
-    version: 1, connectionId: connection.id, assetBaseUrl: connection.assetUrl(''), owner, digests,
-    document: prepared.document, history: prepared.history,
+    version: 2, connectionId: connection.id, assetBaseUrl: connection.assetUrl(''), owner, digests,
+    documentLineage: prepared.document.lineage, documentRevision: prepared.history.revision,
   }
   storage.setItem(key, JSON.stringify(intent))
   const matches = (value: RetainedAssets | undefined): boolean =>

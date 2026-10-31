@@ -73,14 +73,23 @@ history or connection status before optimistic publication and submission. The
 candidate's history record is installed before document observers run.
 
 Image apply and image-document export commands use an awaited retained
-dispatch path. It journals the candidate and the union of current, undo, redo
-and proposed asset roots before requesting ownership. Exact acknowledgment or
+dispatch path. It journals the exact backend, owner, root union and document
+lineage/revision before requesting ownership; workflow contents remain in their
+separate persistence path rather than being duplicated in each retention intent.
+The union includes current, undo, redo, proposed and shared pending roots.
+Exact acknowledgment or
 exact owner reconciliation precedes publication; a changed destination or stale
 candidate is refused. Unsupported schemas, dynamic state and nonempty extension
-records are incomplete, not empty root sets. Shared sessions cannot use this
-local staging path. Ordinary synchronous dispatch is unchanged.
+records are incomplete, not empty root sets. Ordinary synchronous dispatch is unchanged.
 Schema defaults contribute roots only when the node has no stored override.
 An effective unresolved selection name is incomplete, not an asset identity.
+
+Each admission shares its census across snapshots. Replayed node-only changes
+visit changed nodes when no subgraph instances are present; structural changes
+and subgraph instances require the full snapshot schema context. Object reuse
+is local to that census and node checks are keyed by resolved schema as well as
+node identity. Proposed history adds the captured current state and trims prior
+records, so it does not require replaying the same historical documents twice.
 
 Candidate owners remain retained and journaled, including after uncertain writes
 or failed publication. This path does not automatically release them or certify

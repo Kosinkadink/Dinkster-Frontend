@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   asGraphDefId, asLineageId, asNodeId, coreCommandRegistry, createLocalSession,
-  type NodeSchema, type WorkflowDocument,
+  type GraphDef, type NodeSchema, type WorkflowDocument,
 } from '@dinkster/core'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
 import { admitWorkflowDispatch, workflowAssetRoots } from '../src/workflow-asset-retention.js'
@@ -73,7 +73,10 @@ describe('workflow candidate admission', () => {
       { setItem: (key, value) => { journal.set(key, value) } })
     const { owner, declaration } = await requested.promise
     expect(declaration.digests).toEqual(['a', 'b', 'c', 'd'].map((letter) => asset(letter).digest))
-    expect([...journal.values()].map((value) => JSON.parse(value))).toMatchObject([{ owner, digests: declaration.digests }])
+    expect([...journal.values()].map((value) => JSON.parse(value))).toEqual([{
+      version: 2, connectionId: 'backend', assetBaseUrl: 'http://assets.test/', owner, digests: declaration.digests,
+      documentLineage: local.doc.lineage, documentRevision: prepared.history.revision,
+    }])
     expect(local.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
     acknowledged.resolve({ ...owner, ...declaration, revision: 1 })
     expect((await operation).ok).toBe(true)
@@ -129,6 +132,28 @@ describe('workflow candidate admission', () => {
     expect(local.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('a')])
   })
 
+  it('admits large documents without duplicating document bytes in the owner journal', async () => {
+    const local = session()
+    expect(local.dispatch({ command: 'node.setTitle', params: {
+      graphId: 'g0', nodeId: 'n0', title: 'x'.repeat(50_000),
+    } }).ok).toBe(true)
+    const prepared = local.prepareDispatch!(replace('b'))
+    if (!prepared.ok) throw new Error('candidate rejected')
+    let stored = ''
+    const connection = {
+      id: 'backend', assetUrl: () => 'http://assets.test/',
+      retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
+        expect(JSON.parse(stored)).toMatchObject({ owner, digests: [asset('a').digest, asset('b').digest] })
+        return { ...owner, ...declaration, revision: 1 }
+      },
+    } as unknown as DinksterConnection
+    expect((await admitWorkflowDispatch(connection, prepared, resolve, () => true, { setItem: (_key, value) => {
+      if (value.length > 2048) throw new Error('storage quota')
+      stored = value
+    } })).ok).toBe(true)
+    expect(local.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
+  })
+
   it('ignores overridden selection-name defaults but refuses unresolved effective names', () => {
     const local = session()
     const node = local.doc.graphs.g0!.nodes.n0!
@@ -147,6 +172,49 @@ describe('workflow candidate admission', () => {
       n0: { ...node, values: {} },
     } } } }
     expect(workflowAssetRoots(withoutOverride, history, resolveSelection).complete).toBe(false)
+  })
+
+  it('rechecks an unchanged instance when historical graph edits change its derived schema', () => {
+    const local = session()
+    const root = local.doc.graphs.g0!
+    const inner = { ...root, id: asGraphDefId('g1'), nodes: {
+      inner: { id: asNodeId('inner'), type: 'Loader', values: {} },
+    }, boundary: { inputs: [{ id: 'files', binds: { kind: 'port', node: 'inner', port: 'files' } }], outputs: [] } } as unknown as GraphDef
+    const document = { ...local.doc, graphs: {
+      g0: { ...root, nodes: { n0: { ...root.nodes.n0!, type: '#g1' } } }, g1: inner,
+    } }
+    const strings: NodeSchema = { ...schema, type: 'StringLoader', items: [{
+      kind: 'input', id: 'files', optional: false, type: { kind: 'concrete', name: 'STRING' },
+    }] }
+    const resolveBoth = (type: string) => type === 'StringLoader' ? strings : resolve(type)
+    expect(workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, resolveBoth))
+      .toEqual({ complete: true, digests: [asset('a').digest] })
+    expect(workflowAssetRoots(document, { revision: 1, redo: [], undo: [{ forward: [], inverse: [{
+      op: 'replace', path: ['graphs', 'g1', 'nodes', 'inner', 'type'], oldValue: 'Loader', value: 'StringLoader',
+    }] }] }, resolveBoth).complete).toBe(false)
+  })
+
+  it('keeps historical extensions and stale replay incomplete when node objects are shared', () => {
+    const local = session()
+    for (const inverse of [
+      { op: 'add' as const, path: ['ext'], value: { unknown: { digest: asset('e').digest } } },
+      { op: 'replace' as const, path: ['graphs', 'g0', 'nodes', 'n0', 'values', 'files'], oldValue: [], value: [asset('f')] },
+    ]) {
+      expect(workflowAssetRoots(local.doc, { revision: 1, redo: [], undo: [{ forward: [], inverse: [inverse] }] }, resolve).complete).toBe(false)
+    }
+  })
+
+  it('includes nodes restored by history and typed sources added outside the node-only path', () => {
+    const local = session()
+    const roots = workflowAssetRoots(local.doc, { revision: 2, redo: [], undo: [
+      { forward: [], inverse: [{ op: 'add', path: ['graphs', 'g0', 'valueSources'], value: {
+        literal: { value: { $typed: { type: 'asset<DATA>', value: asset('f') } } },
+      } }] },
+      { forward: [], inverse: [{ op: 'add', path: ['graphs', 'g0', 'nodes', 'n1'], value: {
+        id: 'n1', type: 'Loader', values: { files: [asset('e')] },
+      } }] },
+    ] }, resolve)
+    expect(roots).toEqual({ complete: true, digests: ['a', 'e', 'f'].map((letter) => asset(letter).digest) })
   })
 
   it('does not certify unknown schemas, opaque values, dormant extensions or truncated lists', () => {
