@@ -16,6 +16,10 @@ Recorded native values also offer [typed media inspection](media-inspection.md)
 through the execution owner's values API. Nonblocking alpha and mask warnings
 name their runtime node and affected ports. Metadata reads do not download media.
 
+Persisted job completion refreshes output descriptors as well as artifacts.
+An earlier engine completion notification can arrive before those results are
+stored; that early empty read does not make the final output inventory empty.
+
 The rail distinguishes no selected execution, queued/running output wait,
 completed-output loading, completed empty output, execution failure, removed
 owner, checking media, available media, and unavailable media. A removed owner
