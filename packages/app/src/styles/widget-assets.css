@@ -166,6 +166,9 @@
 }
 .widget-editor.widget-modal-editor:active { cursor: default; }
 .widget-editor.widget-modal-editor .widget-editor-header { cursor: default; touch-action: auto; }
+.load3d-widget-viewport { height: clamp(160px, calc(100vh - 660px), 320px); flex-shrink: 0; width: 100%; }
+.load3d-widget-viewport-animated { height: clamp(120px, calc(100vh - 780px), 240px); }
+.load3d-widget-transforms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .widget-modal-help { margin: 0; color: var(--dinkster-text-secondary); }
 .widget-modal-metadata {
   display: grid;
