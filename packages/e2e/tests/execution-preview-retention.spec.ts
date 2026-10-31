@@ -203,7 +203,7 @@ test('history: entry admitted from mid-run chatter is labeled unconfirmed', asyn
   const sourceTab = library.locator('[data-testid=collection-source][data-source=history]')
   if (await sourceTab.isVisible()) await sourceTab.click()
   else await selectProductOption(page, library.getByTestId('library-source-select'), 'history')
-  const entry = page.getByTestId('collection-entry')
+  const entry = library.getByTestId('collection-entry')
   await expect(entry).toHaveCount(1)
   await expect(entry.locator('.collection-badges')).toContainText('unconfirmed')
   await expect(entry.locator('.collection-badges')).not.toContainText('queued')
