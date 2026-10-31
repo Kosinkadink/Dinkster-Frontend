@@ -17,6 +17,7 @@ const canonicalFamilyMembers: Record<string, Record<string, readonly string[] | 
   ComfyAndNode: { values: ['value0'] },
   ComfyOrNode: { values: ['value0'] },
   ComfyMathExpression: { values: ['a'] },
+  ConcatenateVideo: { videos: ['video0'] },
   CreateList: { inputs: ['input0'] },
   MergeSplat: { splats: ['splat0', 'splat1'] },
   ReferenceMultiLatent: { images: null },

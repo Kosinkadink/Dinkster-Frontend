@@ -34,7 +34,7 @@ import { runJournalIdentity, type DinksterConnection } from './dinkster-connecti
 import type { ExecutionStore } from './execution-store.js'
 import { supersedable } from './reconcile-track.js'
 
-/** Fetch the persisted result after a live completed event and attach its execution artifacts. */
+/** Fetch persisted outputs and artifacts after the queue's live completion event. */
 export async function hydrateDinksterCompletedExecution(
   connection: DinksterConnection,
   store: ExecutionStore,
@@ -44,6 +44,13 @@ export async function hydrateDinksterCompletedExecution(
   const job = await connection.fetchJob(ref.prompt)
   if (job?.state === 'completed') {
     if (job.submittedBy !== undefined) store.hydrateSubmittedBy(ref, job.submittedBy)
+    // run_finished precedes result persistence; an earlier output fetch may
+    // have observed a still-running job with no descriptors.
+    const outputs = job.outputs
+    if (typeof outputs === 'object' && outputs !== null && !Array.isArray(outputs) &&
+      Object.values(outputs).every((value) => typeof value === 'object' && value !== null && !Array.isArray(value))) {
+      store.hydrateOutputs(ref, outputs as Readonly<Record<string, Readonly<Record<string, unknown>>>>)
+    }
     if (job.artifacts !== undefined) store.hydrateArtifacts(ref, job.artifacts)
   }
 }

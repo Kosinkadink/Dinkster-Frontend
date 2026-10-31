@@ -29,6 +29,7 @@ import {
   DinksterConnection,
   ExecutionStore,
   IMAGE_DOCUMENT_MEDIA_TYPE,
+  hydrateDinksterCompletedExecution,
   parseAssetsMissingRejection,
   promptToDinksterGraph,
   reconcileDinksterExecutions,
@@ -2885,6 +2886,23 @@ describe('reconcileDinksterExecutions', () => {
     }
     return { conn, store, requested, seedRunning }
   }
+
+  it('hydrates persisted image outputs after run_finished observed an unfinished job', async () => {
+    const job: Record<string, unknown> = { state: 'running' }
+    const { conn, store, seedRunning } = harness({ '/api/jobs/cid/j1': job })
+    seedRunning('j1')
+    conn.ingest({ type: 'run_finished', jobId: 'j1' })
+    expect(store.get(ref('j1'))!.status).toBe('completed')
+    expect(await conn.fetchJobOutputs('j1')).toEqual({})
+
+    const outputs = { save: { images: {
+      typeId: 'IMAGE', fingerprint: 'saved-image', meta: { shape: [2, 48, 64, 3] },
+    } } }
+    Object.assign(job, { state: 'completed', outputs, artifacts: [] })
+    await hydrateDinksterCompletedExecution(conn, store, ref('j1'))
+    expect(store.get(ref('j1'))!.outputs).toEqual(outputs)
+    expect(store.get(ref('j1'))!.artifactsHydrated).toBe(true)
+  })
 
   it('completes a run whose terminal event was missed, hydrating output descriptors', async () => {
     const outputs = { n1: { sum: { typeId: 'INT', fingerprint: 'abc', meta: {}, length: 4 } } }
