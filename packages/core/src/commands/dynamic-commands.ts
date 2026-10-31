@@ -214,23 +214,24 @@ type SelectResult =
   | { readonly ok: false; readonly diagnostic: Diagnostic }
 
 /**
- * Set `selected` on the combo construct's state at the (possibly nested)
+ * Edit the combo construct's state at the (possibly nested)
  * scope, creating missing containers beneath PERSISTED ancestors. Fails when
  * an ancestor member is not persisted: state must never exist beneath a
  * synthetic member (hazard N3) - batch dynamic.materialize first.
  */
-function selectInScope(
+function editInScope(
   scope: Readonly<Record<string, DynamicPortState>> | undefined,
   ancestors: readonly AncestorJson[],
   construct: string,
-  option: string | null,
+  update: { readonly selected: string | null } | { readonly options: readonly (string | number | boolean)[] },
   inherited?: Readonly<Record<string, DynamicPortState>>,
 ): SelectResult {
   if (ancestors.length === 0) {
-    const state = scope?.[construct] ?? {}
+    const state = ('options' in update ? mergeDynamicScope(inherited, scope)[construct] : scope?.[construct]) ?? {}
     const next = { ...state }
-    if (option === null) delete (next as { selected?: string }).selected
-    else (next as { selected?: string }).selected = option
+    if ('options' in update) (next as { options?: readonly (string | number | boolean)[] }).options = update.options
+    else if (update.selected === null) delete (next as { selected?: string }).selected
+    else (next as { selected?: string }).selected = update.selected
     return { ok: true, scope: { ...scope, [construct]: next } }
   }
   const a = ancestors[0]!
@@ -240,10 +241,10 @@ function selectInScope(
       ok: false,
       diagnostic: err(
         'dynamic.unmaterializedAncestor',
-        `dynamic.selectOption: ancestor member '${a.member}' of family '${a.construct}' is not materialized; batch dynamic.materialize first`,
+        `dynamic: ancestor member '${a.member}' of family '${a.construct}' is not materialized; batch dynamic.materialize first`,
       ),
     }
-  const inner = selectInScope(scope?.[a.construct]?.memberState?.[a.member], ancestors.slice(1), construct, option, state.memberState?.[a.member])
+  const inner = editInScope(scope?.[a.construct]?.memberState?.[a.member], ancestors.slice(1), construct, update, state.memberState?.[a.member])
   if (!inner.ok) return inner
   return {
     ok: true,
@@ -290,9 +291,38 @@ const dynamicSelectOption: CommandDefinition = {
           `dynamic.selectOption: nesting exceeds the cap of ${MAX_DYNAMIC_STATE_DEPTH}`,
         ),
       ]
-    const next = selectInScope(node.dynamic, ancestors, params.construct, params.option, inheritedState(doc, def, node, params, context))
+    const next = editInScope(node.dynamic, ancestors, params.construct, { selected: params.option }, inheritedState(doc, def, node, params, context))
     if (!next.ok) return [next.diagnostic]
     // Idempotent: re-selecting the current option records no transaction.
+    if (JSON.stringify(next.scope) === JSON.stringify(node.dynamic ?? {})) return []
+    tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'dynamic'], next.scope as unknown as Json)
+    return []
+  },
+}
+
+const dynamicSetOptions: CommandDefinition = {
+  id: 'dynamic.setOptions',
+  prepareForSharedReplay: prepareInheritedState,
+  validateDispatch: validateInheritedState,
+  run(doc, params, tx, context) {
+    if (!isObj(params) || typeof params.nodeId !== 'string' ||
+      typeof params.construct !== 'string' || params.construct.length === 0 ||
+      !Array.isArray(params.options) || !params.options.every((option) =>
+        typeof option === 'string' || typeof option === 'boolean' ||
+        typeof option === 'number' && Number.isFinite(option)) ||
+      (params.ancestors !== undefined && (!Array.isArray(params.ancestors) || !params.ancestors.every(isAncestor)))) {
+      return [err('params.invalid', 'dynamic.setOptions: params must be {graphId, nodeId, ancestors?, construct, options: scalar[]}')]
+    }
+    const def = graphOf(doc, params.graphId)
+    if (!def) return [err('graph.missing', `dynamic.setOptions: unknown graph '${String(params.graphId)}'`)]
+    const node = def.nodes[params.nodeId]
+    if (!node) return [err('node.missing', `dynamic.setOptions: unknown node '${params.nodeId}'`)]
+    const ancestors = (params.ancestors ?? []) as readonly AncestorJson[]
+    if (ancestors.length + 1 > MAX_DYNAMIC_STATE_DEPTH)
+      return [err('dynamic.tooDeep', `dynamic.setOptions: nesting exceeds the cap of ${MAX_DYNAMIC_STATE_DEPTH}`)]
+    const next = editInScope(node.dynamic, ancestors, params.construct,
+      { options: params.options as readonly (string | number | boolean)[] }, inheritedState(doc, def, node, params, context))
+    if (!next.ok) return [next.diagnostic]
     if (JSON.stringify(next.scope) === JSON.stringify(node.dynamic ?? {})) return []
     tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'dynamic'], next.scope as unknown as Json)
     return []
@@ -435,7 +465,7 @@ const dynamicSpecializeSlot: CommandDefinition = {
     const ancestors = (params.ancestors ?? []) as readonly AncestorJson[]
     if (ancestors.length + 1 > MAX_DYNAMIC_STATE_DEPTH)
       return [err('dynamic.tooDeep', `dynamic.specializeSlot: nesting exceeds the cap of ${MAX_DYNAMIC_STATE_DEPTH}`)]
-    const next = selectInScope(node.dynamic, ancestors, params.construct, params.variant as string | null, inheritedState(doc, def, node, params, context))
+    const next = editInScope(node.dynamic, ancestors, params.construct, { selected: params.variant as string | null }, inheritedState(doc, def, node, params, context))
     if (!next.ok) return [next.diagnostic]
     if (JSON.stringify(next.scope) === JSON.stringify(node.dynamic ?? {})) return []
     tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'dynamic'], next.scope as unknown as Json)
@@ -638,6 +668,7 @@ const dynamicCompact: CommandDefinition = {
 export const DYNAMIC_COMMANDS: readonly CommandDefinition[] = [
   dynamicMaterialize,
   dynamicSelectOption,
+  dynamicSetOptions,
   dynamicLabelMember,
   dynamicLabelMembers,
   dynamicSpecializeSlot,

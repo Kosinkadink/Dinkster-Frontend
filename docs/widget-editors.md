@@ -38,6 +38,13 @@ absent, no index is synthesized. Linked extra inputs become explicit members
 before endpoint mapping. Unknown authoring fields remain in the import record,
 not in executable inputs, and native save/reopen preserves both records.
 
+`dynamic.setOptions` replaces an occurrence's ordered scalar menu without
+rewriting its selected value, typed index or additional-input membership.
+An empty menu and duplicate entries are valid. Nested edits require persisted
+ancestor members; batch materialization with the edit for one undo step.
+The command stores authoring state only: schemas without `editableOptions`
+continue to use their declared menus.
+
 ## Authored 3D viewport
 
 LOAD_3D edits the selected model file through an orbit viewport. Projection,

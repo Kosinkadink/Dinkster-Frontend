@@ -98,6 +98,62 @@ const autogrowFamily = (
 const dynOf = (store: DocumentStore, nodeId: string, graphId = 'g0') =>
   store.doc.graphs[graphId]!.nodes[nodeId]!.dynamic
 
+describe('dynamic.setOptions', () => {
+  it('preserves ordered scalar choices independently of selection and index through undo and redo', () => {
+    const initial = doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1', {
+      values: { choice: 'outside', index: { $typed: { type: 'INT', value: 7 } } },
+      additionalInputs: ['index', 'sparse.172'],
+      dynamic: { choice: { options: ['before'] }, unrelated: { selected: 'keep' } },
+    }) } }) })
+    const store = makeStore(initial)
+    const choices = ['duplicate', 'duplicate', '', 0, false, ...Array.from({ length: 152 }, (_, i) => `entry${i * 3}`)]
+    expect(store.dispatch({ command: 'dynamic.setOptions', params: {
+      graphId: 'g0', nodeId: 'n1', construct: 'choice', options: choices,
+    } }).ok).toBe(true)
+    expect(dynOf(store, 'n1')).toEqual({ choice: { options: choices }, unrelated: { selected: 'keep' } })
+    expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(initial.graphs.g0!.nodes.n1!.values)
+    expect(store.doc.graphs.g0!.nodes.n1!.additionalInputs).toEqual(['index', 'sparse.172'])
+    for (const editableOptions of [true, false]) {
+      const schema = schemaOf([socketInput('choice', 'COMBO', {
+        widget: { widgetType: 'COMBO', ...(editableOptions ? { editableOptions: true } : {}), options: { options: ['schema'] } },
+      })])
+      const effective = elabInputsOf(elaborateInterface(schema, store.doc.graphs.g0!.nodes.n1!))
+      expect(effective[0]!.spec.widget!.options.options).toEqual(editableOptions ? choices : ['schema'])
+    }
+    store.undo()
+    expect(store.doc).toEqual(initial)
+    store.redo()
+    expect(dynOf(store, 'n1')!.choice!.options).toEqual(choices)
+    expect(store.dispatch({ command: 'dynamic.setOptions', params: {
+      graphId: 'g0', nodeId: 'n1', construct: 'choice', options: [],
+    } }).ok).toBe(true)
+    expect(dynOf(store, 'n1')!.choice!.options).toEqual([])
+    expect(store.doc.graphs.g0!.nodes.n1!.values.choice).toBe('outside')
+  })
+
+  it('requires persisted ancestors and batches nested menu materialization as one undo step', () => {
+    const initial = doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1') } }) })
+    const store = makeStore(initial)
+    const edit = { command: 'dynamic.setOptions', params: {
+      graphId: 'g0', nodeId: 'n1', ancestors: [{ construct: 'items', member: 'm0' }], construct: 'choice', options: ['a', 'a'],
+    } }
+    expect(store.dispatch(edit).ok).toBe(false)
+    expect(store.doc).toEqual(initial)
+    expect(store.dispatch({ command: 'batch', params: { invocations: [
+      { command: 'dynamic.materialize', params: { graphId: 'g0', nodeId: 'n1', frames: [{ construct: 'items', members: ['m0'] }] } },
+      edit,
+    ] } }).ok).toBe(true)
+    expect(dynOf(store, 'n1')!.items!.memberState!.m0!.choice!.options).toEqual(['a', 'a'])
+    store.undo()
+    expect(dynOf(store, 'n1')!.items!.members).toBeUndefined()
+    expect(dynOf(store, 'n1')!.items!.memberState).toBeUndefined()
+    for (const options of [[null], [{}], [['a']]]) {
+      expect(store.dispatch({ command: 'dynamic.setOptions', params: { graphId: 'g0', nodeId: 'n1', construct: 'choice', options } }).ok).toBe(false)
+    }
+    expect(dynOf(store, 'n1')!.choice).toBeUndefined()
+  })
+})
+
 // ---------------------------------------------------------------------------
 // dynamic.materialize
 // ---------------------------------------------------------------------------
