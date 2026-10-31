@@ -163,6 +163,7 @@ async function installGraph(page: Page, artifact: ProofArtifact): Promise<void> 
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   }, artifact)
+  await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
 }
 
 test.beforeEach(async ({ page }) => {
