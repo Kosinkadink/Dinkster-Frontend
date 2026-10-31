@@ -23,6 +23,8 @@ Stopping or closing the editor releases the recording stream and restores the
 viewport size. Failed recordings are not uploaded.
 Cancel leaves the stored value unchanged; reopening restores its camera and
 transform. Missing model files and failed uploads do not replace the value.
+Connected file inputs use their resolved source, not the dormant stored file.
+An unresolved connection leaves the viewport unavailable.
 Advanced and preview `viewport_state` slots save metadata without uploading
 captures or replacing existing empty/null capture fields. Non-null camera
 and model metadata inputs override the stored viewport state on opening.

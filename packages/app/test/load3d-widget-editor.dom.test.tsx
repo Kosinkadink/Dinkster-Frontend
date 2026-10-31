@@ -1,6 +1,6 @@
 import { render } from 'solid-js/web'
 import { afterEach, expect, it, vi } from 'vitest'
-import { coreCommandRegistry, DocumentStore, importLitegraph, inputsOf, parseDinksterSchema } from '@dinkster/core'
+import { asLinkId, asNetId, asNodeId, asPortId, coreCommandRegistry, DocumentStore, importLitegraph, inputsOf, parseDinksterSchema } from '@dinkster/core'
 import { createWidgetRegistry } from '@dinkster/widgets'
 import type { AppState, Tab } from '../src/app-state.js'
 import { WidgetEditor } from '../src/WidgetEditor.js'
@@ -23,7 +23,7 @@ vi.mock('../src/model3d-viewer.js', () => ({
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks() })
 
-it('keeps authored state on upload failure and cancel; successful capture is undoable and reopens', async () => {
+it.each(['stored', 'tap', 'broken-link', 'broken-net'] as const)('keeps authored state on failure and cancel and captures undoably from %s', async (source) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const schema = parseDinksterSchema('Load3DFixture', { interface: [
@@ -34,7 +34,18 @@ it('keeps authored state on upload failure and cancel; successful capture is und
     model_3d_info: [{ ...fixtures.transform, customModel: 'retained' }, { name: 'second-model' }] }
   const model = { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'model/gltf-binary', name: 'fixture.glb', size: 1, virtualPath: 'fixture.glb' }
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [model, initial] }], links: [] }, () => schema)
-  const store = new DocumentStore(imported.document!, coreCommandRegistry())
+  const doc = imported.document!
+  const graph = doc.graphs.g0!
+  const linkedModel = { ...model, digest: `blake3:${'b'.repeat(64)}` }
+  const to = { node: asNodeId('n1'), port: asPortId('model_file') }
+  const store = new DocumentStore({ ...doc, graphs: { ...doc.graphs, g0: {
+    ...graph,
+    nodes: { ...graph.nodes, source: { id: asNodeId('source'), type: schema.type, values: { model_file: linkedModel } } },
+    links: source === 'stored' || source === 'broken-net' ? graph.links : { l1: {
+      id: asLinkId('l1'), from: { node: asNodeId(source === 'tap' ? 'source' : 'missing'), tap: asPortId('model_file') }, to,
+    } },
+    nets: source !== 'broken-net' ? graph.nets : { net: { id: asNetId('net'), name: 'model', source: { node: asNodeId('missing'), port: asPortId('out') }, sinks: [to] } },
+  } } }, coreCommandRegistry())
   const tab = { store } as unknown as Tab
   const registry = createWidgetRegistry()
   let fail = true
@@ -42,7 +53,7 @@ it('keeps authored state on upload failure and cancel; successful capture is und
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ protocol: 'dinkster', connection: {
-      fetchAssetBytes: async () => new Uint8Array([1]),
+      fetchAssetBytes: async (digest: string) => digest === (source === 'tap' ? linkedModel.digest : model.digest) ? new Uint8Array([1]) : undefined,
       uploadMediaAsset: async (file: File) => {
         if (fail && file.name.includes('mask')) throw new Error('upload denied')
         return { ...model, name: file.name, mediaType: file.type }
@@ -58,6 +69,13 @@ it('keeps authored state on upload failure and cancel; successful capture is und
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
   const button = (name: string) => Array.from(document.querySelectorAll('button')).find((element) => element.textContent === name)!
   let dispose = open()
+  if (source.startsWith('broken')) {
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Choose a model file'))
+    expect(button('Apply').disabled).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(initial)
+    dispose()
+    return
+  }
   await vi.waitFor(() => expect(document.querySelector('#load3d-position-x')).not.toBeNull())
   const input = document.querySelector<HTMLInputElement>('#load3d-position-x')!
   input.value = '9'; input.dispatchEvent(new Event('change', { bubbles: true }))

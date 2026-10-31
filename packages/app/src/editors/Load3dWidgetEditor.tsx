@@ -1,4 +1,4 @@
-import { companionSourcesOf, defaultValuesOf, type Json } from '@dinkster/core'
+import { asPortId, buildRerouteIndex, companionSourcesOf, defaultValuesOf, portRefKey, type Json } from '@dinkster/core'
 import { createSignal, For, onCleanup, onMount, Show, type Component } from 'solid-js'
 import { ProductButton, ProductTextInput } from '../ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice } from '../ProductForm.js'
@@ -20,7 +20,8 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   const graph = ed.tab.store.doc.graphs[graphId]
   const node = nodeId === undefined ? undefined : graph?.nodes[nodeId]
   const resolveSchema = props.editor.app.registryForTab(ed.tab)?.resolve
-  const sources = graph === undefined ? undefined : companionSourcesOf(graph, undefined, (sourceId, inputId) => {
+  const index = graph === undefined ? undefined : buildRerouteIndex(graph)
+  const sources = graph === undefined ? undefined : companionSourcesOf(graph, index, (sourceId, inputId) => {
     const source = graph.nodes[sourceId]
     const schema = source === undefined ? undefined : resolveSchema?.(source.type)
     return schema === undefined ? undefined : (defaultValuesOf(schema) as Record<string, Json>)[inputId]
@@ -28,6 +29,10 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   const inputValue = (inputId: string): Json | undefined => {
     const source = sources?.get(inputId)
     if (source !== undefined) return source.kind === 'literal' ? source.value : undefined
+    if (node !== undefined && index !== undefined) {
+      const key = portRefKey({ node: node.id, port: asPortId(inputId) })
+      if (index.inputDriverOf.has(key) || index.netSourceOf.has(key)) return undefined
+    }
     return node?.values[inputId]
   }
   const initial = object(ed.initial === undefined ? ed.spec?.default : ed.initial)
