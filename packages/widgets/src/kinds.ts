@@ -510,6 +510,14 @@ export const mountKind: WidgetKind<string | null> = {
 const isJsonObject = (value: unknown): value is Record<string, Json> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
+export const load3dKind: WidgetKind<Json> = {
+  type: 'LOAD_3D',
+  valueSchema: { version: 1, validate: (value): value is Json => isJsonObject(value) },
+  defaultValue: (spec) => isJsonObject(spec.default) ? spec.default : {},
+  validate: () => [],
+  defaultView: () => 'core.load3d',
+}
+
 const finiteField = (value: unknown): boolean =>
   value === undefined || (typeof value === 'number' && Number.isFinite(value))
 
@@ -831,6 +839,13 @@ export const mountView: WidgetView<Json> = {
       typeof value === 'string' ? value : t('mountWidget.default'), state, 'widget.edit')
   },
 }
+export const load3dView: WidgetView<Json> = {
+  ...makeCompactView<Json>('core.load3d', 'LOAD_3D'),
+  drawCompact(ctx, _value, spec, state) {
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
+      '3D viewport', state, 'widget.edit')
+  },
+}
 export const videoEditView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.videoEdit', 'VIDEO_EDIT'),
   drawCompact(ctx, value, spec, state) {
@@ -886,11 +901,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, curveView, compositorView, assetView, mountView, videoEditView, buttonView, markdownView, colorsView, audioRecordView]) {
+    multiSelectView, listView, colorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

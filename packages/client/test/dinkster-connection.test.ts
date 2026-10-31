@@ -4152,6 +4152,23 @@ describe('workflow library wire', () => {
     expect(await missing.fetchAssetBytes(DIGEST)).toBeUndefined()
   })
 
+  it('reads local bindings without digest identity or browser caching and propagates cancellation', async () => {
+    const { conn, requests } = submitHarness(() => new Response(new Uint8Array([251, 0, 17])))
+    const abort = new AbortController()
+    expect(new Uint8Array((await conn.fetchLocalAssetBytes('binding/?scope=public', abort.signal))!)).toEqual(new Uint8Array([251, 0, 17]))
+    expect(requests[0]).toEqual({
+      url: 'http://test/api/assets/local/binding%2F%3Fscope%3Dpublic',
+      init: { cache: 'no-store', signal: abort.signal },
+    })
+    const { conn: revoked } = submitHarness(() => jsonResponse(404, {}))
+    expect(await revoked.fetchLocalAssetBytes('revoked')).toBeUndefined()
+    const { conn: denied } = submitHarness(() => jsonResponse(403, {}))
+    await expect(denied.fetchLocalAssetBytes('denied')).rejects.toThrow('403')
+    const { conn: cancelled } = submitHarness((_url, init) => { init?.signal?.throwIfAborted(); return new Response() })
+    abort.abort()
+    await expect(cancelled.fetchLocalAssetBytes('cancelled', abort.signal)).rejects.toThrow()
+  })
+
   it('listLibrary sends the query-first request and skips malformed records', async () => {
     const { conn, requests } = submitHarness((url) =>
       url.includes('/api/library?')

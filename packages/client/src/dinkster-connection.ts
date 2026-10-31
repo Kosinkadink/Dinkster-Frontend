@@ -2978,6 +2978,16 @@ export class DinksterConnection {
     return res.arrayBuffer()
   }
 
+  /** Read a host-granted revision without caching or claiming content identity. */
+  async fetchLocalAssetBytes(binding: string, signal?: AbortSignal): Promise<ArrayBuffer | undefined> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/local/${encodeURIComponent(binding)}`, {
+      cache: 'no-store', ...(signal ? { signal } : {}),
+    })
+    if (res.status === 404) return undefined
+    if (!res.ok) throw new Error(`GET /api/assets/local failed: ${res.status}`)
+    return res.arrayBuffer()
+  }
+
   assetUrl(digest: string): string {
     return `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`
   }
