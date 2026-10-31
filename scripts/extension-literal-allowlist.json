@@ -555,7 +555,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/compile/compile.ts",
-      "line": 2017,
+      "line": 2018,
       "column": 9,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -595,7 +595,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/dinkster-wire.ts",
-      "line": 1236,
+      "line": 1245,
       "column": 50,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -603,7 +603,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 363,
+      "line": 365,
       "column": 7,
       "symbol": "widgetType:FLOAT",
       "issue": 507
@@ -611,7 +611,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 376,
+      "line": 378,
       "column": 7,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -619,7 +619,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1082,
+      "line": 1086,
       "column": 3,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -627,7 +627,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/schema/model.ts",
-      "line": 1085,
+      "line": 1089,
       "column": 3,
       "symbol": "widgetType:ASSET",
       "issue": 122
