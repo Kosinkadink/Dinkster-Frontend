@@ -479,6 +479,32 @@ describe('widget promotion vs socket-only', () => {
     expect(seed.widget).toBeDefined()
     expect(seed.forceInput).toBeUndefined()
   })
+
+  it.each([false, true])('inherits authored editable menus at the promoted scope, nested=%s', (nested) => {
+    for (const choices of [[], [false, 0, 'same', 'same']]) {
+      const menu = { kind: 'input' as const, id: 'choice', type: { kind: 'concrete' as const, name: 'COMBO' }, optional: false,
+        widget: { widgetType: 'COMBO', editableOptions: true as const, options: { options: ['schema'] } } }
+      const inner: NodeSchema = { type: 'Menu', displayName: 'Menu', category: 'test', source: 'v3', isOutputNode: false,
+        items: nested ? [{ kind: 'input', id: 'items', type: menu.type, optional: false,
+          dynamic: { kind: 'autogrow', template: [menu], naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 } } }] : [menu] }
+      const graph = asDef({ id: 'sub', name: 'sub', nodes: { n0: {
+        id: 'n0', type: 'Menu', values: { choice: 'outside' },
+        dynamic: nested ? { items: { members: ['m0', 'm1'], memberState: {
+          m0: { 'items.choice': { options: ['sibling'] } }, m1: { 'items.choice': { options: choices } },
+        } } } : { choice: { options: choices } },
+      } }, links: {}, nets: {}, nextOrdinal: 1, boundary: { inputs: [{ id: 'menu', promoted: true,
+        binds: { kind: 'port', node: 'n0', port: nested ? 'items.choice' : 'choice', ...(nested ? { members: ['m1'] } : {}) },
+      }], outputs: [] } })
+      const before = JSON.stringify(graph)
+      const { schema, diagnostics } = deriveBoundarySchema(graph, (type) => type === inner.type ? inner : undefined)
+      expect(diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+      expect(inputsOf(schema!)[0]!.widget!.options.options).toEqual(choices)
+      const instance = { values: { menu: 'outside' }, dynamic: { menu: { options: ['override'] } } }
+      expect(elabInputsOf(elaborateInterface(schema!, instance))[0]!.spec.widget!.options.options).toEqual(['override'])
+      expect(instance.values).toEqual({ menu: 'outside' })
+      expect(JSON.stringify(graph)).toBe(before)
+    }
+  })
 })
 
 describe('type variables cross the boundary', () => {

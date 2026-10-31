@@ -1133,8 +1133,10 @@ export function deriveBoundarySchema(
       }
     }
     if (!fanoutOk) continue
+    const inheritedOptions = inner.widget?.editableOptions ? scopeAt(node, route.hops)?.[item.binds.port]?.options : undefined
     const promotedWidget = promoted ? {
       ...inner.widget!,
+      ...(inheritedOptions !== undefined ? { options: { ...inner.widget!.options, options: inheritedOptions } } : {}),
       ...(Object.hasOwn(node.values, item.binds.port as string)
         ? { default: node.values[item.binds.port as string] }
         : {}),
