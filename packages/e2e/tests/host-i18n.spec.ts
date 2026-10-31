@@ -24,6 +24,10 @@ test('canvas view menus localize in place without changing registry data or app 
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
+  await page.waitForFunction(() => {
+    const settings = window.__dinksterTest!.app.settings as unknown as { list(): readonly { id: string }[] }
+    return settings.list().some((setting) => setting.id === 'templates.registryUrl')
+  })
   const localeModule = await (await request.get('/src/locale.ts')).text()
   const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
   expect(i18nModule).toBeDefined()
