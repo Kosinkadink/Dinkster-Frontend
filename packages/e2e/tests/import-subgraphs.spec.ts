@@ -216,6 +216,10 @@ nativeTest('draws, rebinds, and extracts an imported input boundary with mixed d
 for (const name of templates) test(`imports and drills into official nested subgraphs: ${name}`, async ({ page }, testInfo) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
+  // Local asset inventory must not rewrite or interrupt structural navigation.
+  await page.route('/api/assets/guess', (route) => route.fulfill({
+    status: 503, body: 'Asset lookup unavailable in structural navigation fixture',
+  }))
   await page.goto('/')
   await expectSchemasReady(page)
   const workflow = readJson(`../../core/fixtures/workflows/official-subgraphs/${name}`)
@@ -250,8 +254,6 @@ for (const name of templates) test(`imports and drills into official nested subg
     ]))
     expect(counts).toEqual(expected.problemCounts)
   }
-  const assetResolution = page.getByTestId('import-asset-resolution-dialog')
-  if (await assetResolution.waitFor({ state: 'visible', timeout: 1_000 }).then(() => true).catch(() => false)) await page.getByTestId('import-assets-cancel').click()
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBeGreaterThan(0)
   await page.screenshot({ path: testInfo.outputPath('imported.png') })
   await enterInstance(page, result.outer!)
