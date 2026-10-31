@@ -560,6 +560,7 @@
 .widget-editor-popover.color-editor { width: min(300px, calc(100% - 8px)); }
 .widget-editor-popover.combo-dropdown { height: min(300px, calc(100% - 8px)); overflow: hidden; }
 .widget-editor-popover.combo-dropdown.input-family-combo { height: auto; max-height: min(520px, calc(100% - 8px)); }
+.widget-editor-popover.combo-dropdown.editable-combo-dropdown { width: min(480px, calc(100% - 8px)); height: auto; max-height: calc(100% - 8px); overflow-y: auto; }
 .widget-editor-popover .widget-editor-header { cursor: default; touch-action: auto; }
 
 .widget-editor-popover.markdown-editor { width: min(480px, calc(100% - 8px)); }

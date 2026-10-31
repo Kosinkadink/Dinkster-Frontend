@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import Ajv2020Import from 'ajv/dist/2020.js'
 import { WORKFLOW_SCHEMA } from '../src/format/schema.js'
 import { validateDocumentShape } from '../src/format/validate.js'
+import { loadDocument } from '../src/format/migrate.js'
 
 // CJS/ESM interop: vitest may surface the class under .default.
 const Ajv2020 = ((Ajv2020Import as unknown as { default?: unknown }).default ??
@@ -31,6 +32,28 @@ function agree(json: unknown): { schemaValid: boolean; validatorValid: boolean }
 }
 
 describe('JSON Schema <-> runtime validator agreement', () => {
+  it('round-trips ordered editable choices and validates explicit extra input membership', () => {
+    const fixture = loadFixture('minimal') as { graphs: Record<string, { nodes: Record<string, Record<string, unknown>> }> }
+    const node = Object.values(Object.values(fixture.graphs)[0]!.nodes)[0]!
+    node['additionalInputs'] = ['index', 'sparse.009']
+    node['dynamic'] = { choice: { options: ['same', 'same', false, 7] } }
+    expect(agree(fixture)).toEqual({ schemaValid: true, validatorValid: true })
+    expect(loadDocument(JSON.parse(JSON.stringify(fixture))).document!.graphs).toEqual(fixture.graphs)
+    for (const invalid of [['index', 'index'], [''], ['bad\0name'], [1], 'index']) {
+      node['additionalInputs'] = invalid
+      expect(agree(fixture)).toEqual({ schemaValid: false, validatorValid: false })
+    }
+    node['additionalInputs'] = []
+    for (const options of [[], ['same', 'same'], [false, 7, '']]) {
+      node['dynamic'] = { choice: { options } }
+      expect(agree(fixture)).toEqual({ schemaValid: true, validatorValid: true })
+    }
+    for (const options of [[null], [{}], [[7]], [Infinity], 'wrong']) {
+      node['dynamic'] = { choice: { options } }
+      expect(agree(fixture)).toEqual({ schemaValid: false, validatorValid: false })
+    }
+  })
+
   it('preserves typed unattached slots and rejects endpoint or widget decorations', () => {
     const fixture = loadFixture('subgraph') as { graphs: Record<string, { boundary?: { inputs: unknown[]; outputs: unknown[] } }> }
     const boundary = Object.values(fixture.graphs).find((graph) => graph.boundary)!.boundary!

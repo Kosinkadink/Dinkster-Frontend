@@ -2,7 +2,8 @@ import { boundaryBindingKey, isForwardingBinding, suppressedDeliveryKey, type Bo
 import { asDynamicMemberId, asNodeId, asPortId, isOccurrenceAncestorOrSelf, isPortEndpoint, occurrenceKey, type OccurrenceRef, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { memberHopsOf, resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
-import { buildBoundaryCrossings, crossingTargets, isSubtreeCrossing, overlayNodeDynamic, overlaySelectorDynamic, projectCountBoundValues, projectCrossingValues, rekeySubtreeValues, translateThroughCrossing, type SubtreeCrossing } from './crossing.js'
+import { elabKeyOf } from '../schema/elaborate.js'
+import { buildBoundaryCrossings, crossingTargets, isSubtreeCrossing, overlayNodeDynamic, overlayPortDynamic, projectCountBoundValues, projectEditableOptions, projectCrossingValues, rekeySubtreeValues, translateThroughCrossing, type SubtreeCrossing } from './crossing.js'
 import { boundaryStateResolver } from './boundary-state.js'
 import { documentNodeResolver } from './compile.js'
 
@@ -208,7 +209,7 @@ export function occurrenceDynamicView(
     const instanceDynamic = overlays.get(hop) ?? node.dynamic
     const instanceValues = values.get(hop) ?? node.values
     const instanceControllers = controllers.get(hop) ?? node.controllers
-    const childOverlays = new Map<string, Readonly<Record<string, DynamicPortState>>>()
+    const childOverlays = new Map<string, Readonly<Record<string, DynamicPortState>>>(projectEditableOptions(child, instanceDynamic, (inner) => resolveNode(child.id, inner)))
     const childValues = new Map(projectCountBoundValues(child, instanceValues, (inner) => resolveNode(child.id, inner)))
     const childControllers = new Map<string, NonNullable<NodeData['controllers']>>()
     const childSubtreeOwners = new Map<string, SubtreeOwner[]>()
@@ -246,20 +247,21 @@ export function occurrenceDynamicView(
       if (item.promoted !== true) continue
       const owner = valueOwners.get(hop)?.get(item.id) ?? { graphId: def.id, nodeId: hop, valueKey: item.id }
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
-        if (binding.kind !== 'port' || binding.members !== undefined) continue
+        if (binding.kind !== 'port') continue
         const target = child.nodes[binding.node]
         const schema = target && resolveNode(child.id, target)
         if (!target || !schema) continue
         const route = resolveBoundaryRoute(schema, binding, 'input')
         if (!route.ok || route.route.terminal.kind !== 'port' || route.route.terminal.slot.dynamic !== undefined) continue
+        const valueKey = binding.members?.length ? elabKeyOf(binding) : binding.port as string
         let targetOwners = childValueOwners.get(binding.node)
         if (!targetOwners) childValueOwners.set(binding.node, (targetOwners = new Map()))
-        if (!targetOwners.has(binding.port as string)) targetOwners.set(binding.port as string, owner)
+        if (!targetOwners.has(valueKey)) targetOwners.set(valueKey, owner)
         if (Object.hasOwn(instanceValues, item.id)) childValues.set(target.id, {
-          ...(childValues.get(target.id) ?? target.values), [binding.port]: instanceValues[item.id]!,
+          ...(childValues.get(target.id) ?? target.values), [valueKey]: instanceValues[item.id]!,
         })
         if (Object.hasOwn(instanceControllers ?? {}, item.id)) childControllers.set(target.id, {
-          ...(childControllers.get(target.id) ?? target.controllers), [binding.port]: instanceControllers![item.id]!,
+          ...(childControllers.get(target.id) ?? target.controllers), [valueKey]: instanceControllers![item.id]!,
         })
       }
     }
@@ -378,7 +380,7 @@ export function occurrenceDynamicView(
       const requested = instanceDynamic?.[item.id]?.selected
       if (requested === undefined || !dynamic.options.some((option) => option.key === requested)) continue
       const base = childOverlays.get(target.id) ?? target.dynamic
-      childOverlays.set(target.id, overlaySelectorDynamic(base, rr.route, item.binds.port as string, requested))
+      childOverlays.set(target.id, overlayPortDynamic(base, rr.route, item.binds.port as string, { selected: requested }))
     }
     def = child
     overlays = childOverlays

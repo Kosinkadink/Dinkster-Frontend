@@ -214,6 +214,22 @@ test('a native run decodes real pixels into the outputs panel and the node previ
 
   await openImageryDoc(page, asset)
 
+  // Model run_finished arriving before result persistence, independently of
+  // host scheduling. The later persisted job read must restore the inventory.
+  let earlyOutputRead = false
+  await page.route('**/api/jobs/*/*', async (route) => {
+    const response = await route.fetch()
+    if (route.request().method() !== 'GET' || earlyOutputRead) {
+      await route.fulfill({ response })
+      return
+    }
+    earlyOutputRead = true
+    const job = await response.json() as Record<string, unknown>
+    delete job['outputs']
+    delete job['artifacts']
+    await route.fulfill({ response, json: { ...job, state: 'running' } })
+  })
+
   // Queue the full document (SaveImage is an output node) and complete.
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   await page.getByTestId('queue-button').click()
@@ -231,6 +247,7 @@ test('a native run decodes real pixels into the outputs panel and the node previ
     .poll(() => outputImg.evaluate((el) => (el as HTMLImageElement).naturalWidth), { timeout: 15_000 })
     .toBe(64)
   expect(await outputImg.evaluate((el) => (el as HTMLImageElement).naturalHeight)).toBe(48)
+  expect(earlyOutputRead).toBe(true)
 
   // On-canvas preview: the save node's panel decoded the same content at
   // its true dimensions.

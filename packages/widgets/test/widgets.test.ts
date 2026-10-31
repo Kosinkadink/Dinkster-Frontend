@@ -425,6 +425,8 @@ describe('kind semantics', () => {
     const kind = registry().kind('COMBO')!
     expect(kind.validate('euler', spec('COMBO', { options: ['euler'] }))).toEqual([])
     expect(kind.validate('nope', spec('COMBO', { options: ['euler'] }))).toHaveLength(1)
+    expect(kind.validate('nope', { ...spec('COMBO', { options: ['euler'] }), editableOptions: true })).toEqual([])
+    expect(kind.validate('nope', { ...spec('COMBO', { options: [] }), editableOptions: true })).toEqual([])
     const remote: WidgetSpec = { widgetType: 'COMBO', options: {}, remote: { route: '/models' } }
     expect(kind.validate('anything', remote)).toEqual([])
   })

@@ -101,6 +101,26 @@ function withChoices(slotVariants: Readonly<Record<string, string>>): Replacemen
 }
 
 describe('wire-28 dynamic replacement targets', () => {
+  it('retains scalar authored menus in replacement plans and rejects malformed choices', () => {
+    const before = sourceDocument()
+    const original = planReplacement(before, 'g0', 'old', rule, resolve).plan!
+    const menu = { options: ['duplicate', 'duplicate', false, 0] }
+    const plan = { ...original, dynamic: { ...original.dynamic, authored: menu }, createdNodes: original.createdNodes!.map((node) => ({
+      ...node, dynamic: { ...node.dynamic, authored: { options: [] } },
+    })) }
+    const store = replacementStore(before)
+    const applied = store.dispatch({ command: 'node.replace', params: { plan } as unknown as Json })
+    expect(applied.ok, JSON.stringify(applied.diagnostics)).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.old!.dynamic!.authored).toEqual(menu)
+    expect(store.doc.graphs.g0!.nodes['old:audit']!.dynamic!.authored).toEqual({ options: [] })
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.old).toEqual(before.graphs.g0!.nodes.old)
+    expect(store.redo()).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.old!.dynamic!.authored).toEqual(menu)
+    const malformed = { ...plan, dynamic: { ...plan.dynamic, authored: { options: [null] } } }
+    expect(replacementStore(before).dispatch({ command: 'node.replace', params: { plan: malformed } as unknown as Json }).ok).toBe(false)
+  })
+
   it('decodes successor rules with explicit historical choices', () => {
     expect(resolve('fixture.dynamic-modern')?.replacements).toEqual([rule])
     expect(rule.cases[0]!.slotVariants).toEqual({

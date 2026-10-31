@@ -6,6 +6,7 @@ import { suppressedDeliveryKey, type DynamicPortState, type Json, type JsonObjec
 import { validateBoundaryBindingShape } from '../format/validate.js'
 import { actorCursorOf, asLinkId, formatAllocatedId, guardOrdinal, isPortEndpoint, occurrenceKey, sameEndpoint, type OccurrenceRef } from '../ids.js'
 import { lifecycleCanonicalHash } from '../lifecycle/planner.js'
+import { isComboValue } from '../schema/combo-options.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import type { NodeSchema } from '../schema/model.js'
 import { elaborateInterface, elabInputsOf, elabOutputsOf, materializeFramesOf, type MaterializeFrame } from '../schema/elaborate.js'
@@ -87,7 +88,8 @@ function validIdentity(value: Json | undefined, marker = false): boolean {
 }
 
 function validDynamicState(value: Json | undefined, depth = 0): boolean {
-  if (!isObj(value) || depth > 16 || !exactKeys(value, [], ['members', 'memberLabels', 'seq', 'selected', 'memberState'])) return false
+  if (!isObj(value) || depth > 16 || !exactKeys(value, [], ['members', 'memberLabels', 'seq', 'selected', 'options', 'memberState'])) return false
+  if (value.options !== undefined && (!Array.isArray(value.options) || !value.options.every(isComboValue))) return false
   if (value.members !== undefined && !stringArray(value.members, false)) return false
   if (value.seq !== undefined && (!Number.isSafeInteger(value.seq) || Number(value.seq) < 0)) return false
   if (value.selected !== undefined && !nonEmptyString(value.selected)) return false

@@ -5,9 +5,9 @@ import { expect, test, type Page } from '@playwright/test'
 import { canonicalJson } from '@dinkster/core'
 import { selectProductOption, skipWithoutNativeCatalog } from './fixtures.js'
 
-// Native catalog from the pinned backend a93dbaa4595de01b940c8b6ba4368408901be136.
+// Native catalog from the pinned backend f5359517e35a9eac95a36301758dc66eaea06108.
 const canonicalCatalogSha256 =
-  '531774b59a8201b6344f04fa40060369546016bed1bb08af3bf9def9db470955'
+  'c3dbf95896d9420a663e414a85d6a2c49d73148e506788199597b21b80697497'
 const nativeBackend =
   process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -161,7 +161,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
     .update(canonicalJson(stableCatalog))
     .digest('hex')
   expect(catalogDigest).toBe(canonicalCatalogSha256)
-  expect(Object.keys(catalog.nodes)).toHaveLength(819)
+  expect(Object.keys(catalog.nodes)).toHaveLength(839)
   const inputs = widgets(catalog)
   const descriptors = inputs.flatMap(({ input }) =>
     widgetDescriptors(input.widget),
@@ -413,7 +413,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
         ),
       { timeout: 20_000 },
     )
-    .toBe(819)
+    .toBe(839)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument(
       {

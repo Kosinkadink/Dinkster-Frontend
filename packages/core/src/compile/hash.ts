@@ -190,6 +190,7 @@ function semanticNode(n: NodeData): Json {
     values: n.values,
     ...(n.controllers ? { controllers: n.controllers } : {}),
     ...(n.mode && n.mode !== 'active' ? { mode: n.mode } : {}),
+    ...(n.additionalInputs?.length ? { additionalInputs: n.additionalInputs } : {}),
     ...(dynamic !== undefined ? { dynamic } : {}),
     ...(n.ext ? { ext: n.ext } : {}),
   } as unknown as Json

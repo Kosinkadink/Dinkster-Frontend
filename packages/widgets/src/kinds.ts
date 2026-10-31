@@ -177,6 +177,7 @@ export const comboKind: WidgetKind<Json> = {
     return ''
   },
   validate: (value, spec) => {
+    if (spec.editableOptions === true) return []
     // Out-of-vocabulary severity split (v13 joint pin, frontend-owned per
     // the v9 combo contract): a STATIC-only combo's options are the whole
     // vocabulary, so a value outside it is error-grade; a REMOTE combo's

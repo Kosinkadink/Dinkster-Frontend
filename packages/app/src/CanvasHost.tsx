@@ -4998,6 +4998,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           nodeId,
           valueKey: hit.row.valueKey,
           ...(hit.row.familyOwner !== undefined ? { familyOwner: hit.row.familyOwner } : {}),
+          ...(hit.row.optionsTarget !== undefined ? { optionsTarget: hit.row.optionsTarget } : {}),
           ...(hit.row.inputFamilyOwner !== undefined ? { inputFamilyOwner: hit.row.inputFamilyOwner } : {}),
           ...(hit.row.materialize !== undefined ? { materialize: hit.row.materialize } : {}),
           ...(hit.row.selector !== undefined ? { selector: hit.row.selector } : {}),

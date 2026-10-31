@@ -18,6 +18,46 @@ descriptors still require an option source. The schema's optional
 it cannot depend on tuple inputs or dynamic families. Neither declaration
 changes a node's type identity or the schema wire version.
 
+## Occurrence-authored choice data
+
+An editable COMBO occurrence stores ordered scalar choices in
+`dynamic[input].options`, separately from
+the selected scalar in `values[input]`. Duplicate entries and a selected value
+outside the menu are preserved. Ordinary COMBO descriptors remain closed lists.
+
+`NodeData.additionalInputs` records extra input names only for schemas declaring
+`additionalInputs`. The schema supplies their types; document values never
+create ports implicitly. Extra names may be sparse and have no option-count
+limit, but cannot replace declared inputs or claim a dynamic construct's
+namespace. The normal interface budget still applies.
+
+ComfyUI CustomCombo imports retain positional and keyed option entries in
+authored order, including duplicate values, separately from the selection.
+The serialized index is stored as an explicit INT typed literal; when it is
+absent, no index is synthesized. Linked extra inputs become explicit members
+before endpoint mapping. Unknown authoring fields remain in the import record,
+not in executable inputs, and native save/reopen preserves both records.
+
+`dynamic.setOptions` replaces an occurrence's ordered scalar menu without
+rewriting its selected value, typed index or additional-input membership.
+An empty menu and duplicate entries are valid. Nested edits require persisted
+ancestor members; batch materialization with the edit for one undo step.
+The command stores authoring state only: schemas without `editableOptions`
+continue to use their declared menus.
+Promoted editable menus follow their instance through chained subgraphs and
+fan-out without changing the definition. Member-scoped menus stay on their
+own persisted ancestor path; an explicit empty list overrides inherited choices.
+An instance without a menu override inherits its definition's authored choices.
+Canvas menu targets carry their structural construct and member ancestors
+separately from the selected value's storage key.
+Promoting a menu from a persisted family member keeps both menu and selected
+value edits on the instance, not the shared definition.
+The editable COMBO popover exposes the selected scalar and ordered menu as
+separate JSON drafts. Apply menu preserves the selected value, index and extra
+input membership; Apply selected value does not change the menu. Cancel or an
+outside press discards unapplied drafts. Menu entries accept strings, finite
+numbers and booleans, including duplicate entries and an empty array.
+
 ## Authored 3D viewport
 
 LOAD_3D edits the selected model file through an orbit viewport. Projection,

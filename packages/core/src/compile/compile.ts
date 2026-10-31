@@ -97,8 +97,9 @@ import {
   projectCrossingValues,
   matchBoundaryItem,
   overlayNodeDynamic,
-  overlaySelectorDynamic,
+  overlayPortDynamic,
   projectCountBoundValues,
+  projectEditableOptions,
   translateThroughCrossing,
   type BoundaryCrossing,
 } from './crossing.js'
@@ -788,6 +789,7 @@ function compileImpl(
       ? node
       : {
           values: values ?? node.values,
+          ...(node.additionalInputs !== undefined ? { additionalInputs: node.additionalInputs } : {}),
           ...(overlay !== undefined ? { dynamic: overlay } : node.dynamic !== undefined ? { dynamic: node.dynamic } : {}),
         }
     const connectivity = withExtraConnectivity(connectivityFor(ctx.path, ctx.defId)(node.id), extraIn, extraOut)
@@ -826,7 +828,7 @@ function compileImpl(
     nodeId: NodeId,
     nodeType: string,
     schema: NodeSchema,
-    state: Pick<NodeData, 'values' | 'dynamic'>,
+    state: Pick<NodeData, 'values' | 'dynamic' | 'additionalInputs'>,
     connectivity: Connectivity,
     owner: { readonly graphId: GraphDefId; readonly nodeId: NodeId; readonly runtimeId?: string },
   ): NodeElab {
@@ -1748,6 +1750,9 @@ function compileImpl(
         for (const [target, values] of projectCountBoundValues(child, instanceValues, resolveChildNode)) {
           childCtx.values.set(target, values)
         }
+        for (const [target, dynamic] of projectEditableOptions(child, instanceDynamic, resolveChildNode)) {
+          childCtx.overlays.set(target, dynamic)
+        }
         // Selector forwarding is an occurrence-local state projection, not a
         // family crossing. It must run even when this boundary forwards no
         // families, and it composes with family overlays on the same node.
@@ -1769,7 +1774,7 @@ function compileImpl(
           const requested = instanceDynamic?.[item.id]?.selected
           if (requested === undefined || !dyn.options.some((o) => o.key === requested)) continue
           const base = childCtx.overlays.get(target.id) ?? target.dynamic
-          childCtx.overlays.set(target.id, overlaySelectorDynamic(base, rr.route, item.binds.port as string, requested))
+          childCtx.overlays.set(target.id, overlayPortDynamic(base, rr.route, item.binds.port as string, { selected: requested }))
         }
         if (crossings.size > 0) {
           crossingsByInstance.set(occurrenceKey({ instancePath: path, node: node.id }), crossings)
@@ -2871,6 +2876,12 @@ function compileImpl(
       const v = fn.inputs[input.spec.id]
       if (v !== undefined && input.wire15Materialization && fn.linkedInputs.has(input.spec.id) &&
         !successful.has(portAddressKey(input.address.port, input.address.members))) continue
+      if (v !== undefined && fn.node.additionalInputs?.includes(input.address.port) &&
+        canonicalTypeIdOf(input.spec.type) === undefined && !fn.linkedInputs.has(input.spec.id) &&
+        (parseTypedLiteralWire(v) === undefined || !emitTypedLiterals)) {
+        diags.push(diag('error', 'compile', 'compile.value.additionalInputType', `${fn.node.type}.${input.spec.id}: additional input literals require an explicit type and backend typed-literal support`, { anchor: { occurrence: fn.occ } }))
+        continue
+      }
       if (v !== undefined) {
         inputs[submissionName] = v
         const widget = input.spec.widget

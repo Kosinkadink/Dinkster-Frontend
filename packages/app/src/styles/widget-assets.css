@@ -25,6 +25,16 @@
   font: inherit;
 }
 
+.combo-authoring {
+  display: grid;
+  flex: none;
+  gap: var(--dinkster-space-8);
+  padding: var(--dinkster-space-8);
+  border-bottom: 1px solid var(--dinkster-border-subtle);
+}
+.combo-authoring textarea { resize: vertical; font-family: var(--dinkster-font-mono); }
+.editable-combo-dropdown .combo-options { min-height: var(--dinkster-space-32); max-height: calc(var(--dinkster-space-32) * 5); flex-shrink: 0; }
+
 .input-family-labels {
   display: grid;
   flex: none;
