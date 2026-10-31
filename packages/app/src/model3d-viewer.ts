@@ -486,9 +486,7 @@ export async function mountModel3dViewer(
   let useCustomUp = false
   let cancelCapture: ((reason: Error) => void) | undefined
   let activeCamera: import('three').PerspectiveCamera | import('three').OrthographicCamera = framed.camera
-  const setOutputSize = (width: number, height: number): void => {
-    renderer!.setPixelRatio(1)
-    renderer!.setSize(width, height, false)
+  const updateProjection = (width: number, height: number): void => {
     if (activeCamera instanceof modules.THREE.PerspectiveCamera) activeCamera.aspect = width / height
     else {
       const center = (activeCamera.left + activeCamera.right) / 2
@@ -497,6 +495,11 @@ export async function mountModel3dViewer(
       activeCamera.right = center + halfWidth
     }
     activeCamera.updateProjectionMatrix()
+  }
+  const setOutputSize = (width: number, height: number): void => {
+    renderer!.setPixelRatio(1)
+    renderer!.setSize(width, height, false)
+    updateProjection(width, height)
   }
   const updateSplats = async (): Promise<void> => {
     if (!sparkView) return
@@ -590,8 +593,7 @@ export async function mountModel3dViewer(
       const width = Math.max(container.clientWidth, 1)
       const height = Math.max(container.clientHeight, 1)
       gl.setSize(width, height)
-      if (activeCamera instanceof modules.THREE.PerspectiveCamera) activeCamera.aspect = width / height
-      activeCamera.updateProjectionMatrix()
+      updateProjection(width, height)
     })
     resize.observe(container)
   } catch (error) {
@@ -629,6 +631,10 @@ export async function mountModel3dViewer(
       activeCamera.position.copy(state.position)
       activeCamera.zoom = state.zoom
       customUp = state.customUp ? vector(state.customUp) : undefined
+      if (!customUp && state.useCustomUp && state.quaternion) {
+        customUp = vector(new modules.THREE.Vector3(0, 1, 0).applyQuaternion(
+          new modules.THREE.Quaternion().copy(state.quaternion).normalize()))
+      }
       useCustomUp = state.useCustomUp === true && customUp !== undefined
       activeCamera.up.copy(useCustomUp ? customUp! : { x: 0, y: 1, z: 0 })
       // OrbitControls caches the camera-up basis when it is constructed.
@@ -637,7 +643,8 @@ export async function mountModel3dViewer(
       controls.enableDamping = true
       controls!.target.copy(state.target)
       activeCamera.lookAt(controls!.target)
-      activeCamera.updateProjectionMatrix()
+      const size = renderer!.getSize(new modules.THREE.Vector2())
+      updateProjection(size.x, size.y)
       controls!.update()
     },
     modelTransform: () => ({ position: vector(framed.model.position),
@@ -685,9 +692,8 @@ export async function mountModel3dViewer(
           const width = Math.max(container.clientWidth, 1)
           const height = Math.max(container.clientHeight, 1)
           gl.setSize(width, height, false)
-          if (activeCamera instanceof modules.THREE.PerspectiveCamera) activeCamera.aspect = width / height
-          else if (previousFrustum) Object.assign(activeCamera, previousFrustum)
-          activeCamera.updateProjectionMatrix()
+          if (previousFrustum && activeCamera instanceof modules.THREE.OrthographicCamera) Object.assign(activeCamera, previousFrustum)
+          updateProjection(width, height)
         },
       }
       recording = session
@@ -754,8 +760,7 @@ export async function mountModel3dViewer(
           const width = Math.max(container.clientWidth, 1)
           const height = Math.max(container.clientHeight, 1)
           gl.setSize(width, height, false)
-          if (activeCamera instanceof modules.THREE.PerspectiveCamera) activeCamera.aspect = width / height
-          activeCamera.updateProjectionMatrix()
+          updateProjection(width, height)
           controls!.enabled = previousOrbitEnabled
           if (sparkView && previousSparkAutoUpdate !== undefined) sparkView.autoUpdate = previousSparkAutoUpdate
         }

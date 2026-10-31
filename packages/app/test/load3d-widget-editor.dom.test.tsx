@@ -52,16 +52,17 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net'] as const)('keeps authored
   const tab = { store } as unknown as Tab
   const registry = createWidgetRegistry()
   let fail = true
+  const connection = {
+    fetchAssetBytes: async (digest: string) => digest === (source === 'tap' ? linkedModel.digest : model.digest) ? new Uint8Array([1]) : undefined,
+    uploadMediaAsset: async (file: File) => {
+      if (fail && file.name.includes('mask')) throw new Error('upload denied')
+      return { ...model, name: file.name, mediaType: file.type }
+    },
+  }
   const app = {
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }),
-    backendForTab: () => ({ protocol: 'dinkster', connection: {
-      fetchAssetBytes: async (digest: string) => digest === (source === 'tap' ? linkedModel.digest : model.digest) ? new Uint8Array([1]) : undefined,
-      uploadMediaAsset: async (file: File) => {
-        if (fail && file.name.includes('mask')) throw new Error('upload denied')
-        return { ...model, name: file.name, mediaType: file.type }
-      },
-    } }),
+    backendForTab: () => ({ protocol: 'dinkster', connection }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
@@ -118,6 +119,53 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net'] as const)('keeps authored
   dispose()
 })
 
+it.each(['read', 'upload'] as const)('refuses a stored-source backend retarget during %s', async (phase) => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  const schema = parseDinksterSchema('Load3DFixture', { interface: [
+    { role: 'input', id: 'model_file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [], kind: 'model/3d' } },
+    { role: 'input', id: 'image', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
+  ] }).schema!
+  const model = { digest: `blake3:${'e'.repeat(64)}`, name: 'scene.glb', size: 1, mediaType: 'model/gltf-binary', virtualPath: 'scene.glb' }
+  const initial = { custom: 'unchanged' }
+  const doc = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [model, initial] }], links: [] }, () => schema).document!
+  const store = new DocumentStore(doc, coreCommandRegistry())
+  const tab = { store } as unknown as Tab
+  const registry = createWidgetRegistry()
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => { release = resolve })
+  let entered = false
+  const connection = {
+    fetchAssetBytes: async () => { if (phase === 'read') { entered = true; await pending }; return new Uint8Array([1]) },
+    uploadMediaAsset: async () => { entered = true; await pending; return model },
+  }
+  let current = connection
+  const app = {
+    widgetRegistry: registry, widgetRegistryForTab: () => registry,
+    registryForTab: () => ({ resolve: () => schema }),
+    backendForTab: () => ({ protocol: 'dinkster', connection: current }),
+    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+  } as unknown as AppState
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <WidgetEditor app={app} ed={{
+    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'image' }, label: 'Viewport',
+    spec: inputsOf(schema)[1]!.widget, declaredType: inputsOf(schema)[1]!.type,
+    multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  if (phase === 'upload') {
+    await vi.waitFor(() => expect(document.querySelector('#load3d-position-x')).not.toBeNull())
+    Array.from(document.querySelectorAll('button')).find((button) => button.textContent === 'Apply')!.click()
+  }
+  await vi.waitFor(() => expect(entered).toBe(true))
+  current = { ...connection }
+  release()
+  if (phase === 'read') await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
+  else await vi.waitFor(() => expect(Array.from(document.querySelectorAll('button')).find((button) => button.textContent === 'Apply')!.disabled).toBe(false))
+  expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(initial)
+  expect(store.undo()).toBe(false)
+  dispose()
+})
+
 it.each(['valid', 'local-source', 'local-resource', 'revoked-local', 'empty-binding', 'missing-format', 'array-resources', 'null-source', 'scalar-manifest', 'parent-resource', 'null-resource', 'unverified-source', 'negative-size', 'unknown-field'] as const)('handles %s FILE_3D preview metadata without reading a dormant file', async (variant) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
@@ -158,14 +206,15 @@ it.each(['valid', 'local-source', 'local-resource', 'revoked-local', 'empty-bind
   const registry = createWidgetRegistry()
   const reads: string[] = []
   const localReads: string[] = []
+  const connection = {
+    fetchAssetBytes: async (digest: string) => { reads.push(digest); return new Uint8Array([1]) },
+    fetchLocalAssetBytes: async (binding: string) => { localReads.push(binding); return variant === 'revoked-local' ? undefined : new Uint8Array([7]) },
+    uploadMediaAsset: async () => { throw new Error('metadata must not upload captures') },
+  }
   const app = {
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }),
-    backendForTab: () => ({ protocol: 'dinkster', connection: {
-      fetchAssetBytes: async (digest: string) => { reads.push(digest); return new Uint8Array([1]) },
-      fetchLocalAssetBytes: async (binding: string) => { localReads.push(binding); return variant === 'revoked-local' ? undefined : new Uint8Array([7]) },
-      uploadMediaAsset: async () => { throw new Error('metadata must not upload captures') },
-    } }),
+    backendForTab: () => ({ protocol: 'dinkster', connection }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)

@@ -71,7 +71,8 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   let stopRecording: (() => void) | undefined
   let video: Blob | undefined
   const abort = new AbortController()
-  let sourcesCurrent = (): boolean => ed.tab.store.revision === revision
+  const backendCurrent = (): boolean => props.editor.app.backendForTab(ed.tab).connection === backend.connection
+  let sourcesCurrent = (): boolean => ed.tab.store.revision === revision && backendCurrent()
   onCleanup(() => {
     live = false
     abort.abort()
@@ -108,7 +109,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
             && navigation.every((id, index) => id === path[index])
             && fresh?.ok === true && fresh.artifact.schemaHash === current.schemaHash
             && props.editor.app.executionForTab(ed.tab)?.key === execution.key
-            && props.editor.app.backendForTab(ed.tab).connection === backend.connection
+            && backendCurrent()
         }
         const occurrences = occurrencesForView({
           instancePath: path.slice(0, ownerDepth),

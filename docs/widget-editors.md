@@ -20,8 +20,10 @@ undoable widget value. The mask carries alpha: its consuming MASK is 1-alpha,
 not grayscale RGB. Optional viewport recording uses the authored width and height,
 keeps that resolution during dock resizing, and uses the media upload route.
 Stopping or closing the editor releases the recording stream and restores the
-viewport size. Orthographic captures and recordings retain the authored vertical
-frustum and center, adjusting horizontal extent only for the output aspect ratio.
+viewport size. Orthographic rendering, captures and recordings retain the vertical
+frustum and center, adjusting horizontal extent for the current viewport or output
+aspect ratio. Backend quaternion cameras retain their roll without requiring a
+separate custom-up vector; explicit custom-up vectors still take precedence.
 Projection changes are locked until recording stops.
 Failed recordings are not uploaded.
 Cancel leaves the stored value unchanged; reopening restores its camera and
@@ -36,6 +38,8 @@ authority. Linked capture dimensions use bounded integer output values. Multiple
 occurrences must agree on type and fingerprint. A stale recipe, unknown instance,
 foreign backend or refused value leaves the editor unavailable. Closing or
 changing the document, execution or backend invalidates pending producer reads.
+Changing backend also invalidates stored and literal file reads and prevents
+pending captures or uploads from committing references from the previous server.
 Advanced and preview `viewport_state` slots save metadata without uploading
 captures or replacing existing empty/null capture fields. Non-null camera
 and model metadata inputs override the stored viewport state on opening.
