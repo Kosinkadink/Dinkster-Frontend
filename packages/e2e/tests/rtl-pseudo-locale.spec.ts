@@ -22,6 +22,10 @@ test('an expanded RTL pseudo-locale updates the mounted host without changing ap
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
+  await page.waitForFunction(() => {
+    const settings = window.__dinksterTest!.app.settings as unknown as { list(): readonly { id: string }[] }
+    return settings.list().some((setting) => setting.id === 'templates.registryUrl')
+  })
   await page.getByTestId('settings-button').click()
   const dialog = page.locator('[data-testid="modal-surface"][data-modal="settings"]')
   const search = dialog.locator('.settings-search')
