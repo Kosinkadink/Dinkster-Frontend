@@ -173,7 +173,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   }
   return <div class="widget-editor widget-modal-editor" data-testid="load3d-widget-editor">
     <props.header type="LOAD_3D" />
-    <div ref={viewport} inert={busy()} class="load3d-widget-viewport" style={clips().length ? { height: 'clamp(120px, calc(100vh - 780px), 240px)' } : {}} data-testid="load3d-viewport" />
+    <div ref={viewport} inert={busy()} class="load3d-widget-viewport" classList={{ 'load3d-widget-viewport-animated': clips().length > 0 }} data-testid="load3d-viewport" />
     <Show when={error()}>{(detail) => <ProductNotice tone="error">{detail()}</ProductNotice>}</Show>
     <Show when={camera()}>{(state) => <>
       <ProductField layout="compact" controlId="load3d-camera-type" label={message('load3dWidget.camera')}>
