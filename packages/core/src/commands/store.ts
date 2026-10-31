@@ -47,6 +47,10 @@ export type PreparedDocumentDispatch =
       readonly currentHistory: HistorySnapshot
       readonly document: WorkflowDocument
       readonly history: HistorySnapshot
+      readonly forward: readonly PatchOp[]
+      readonly inverse: readonly PatchOp[]
+      /** Confirmed and pending shared documents that still hold identities. */
+      readonly retainedDocuments?: readonly WorkflowDocument[]
       /** Publish once, only while the captured document revision is current. */
       readonly commit: () => CommandOutcome
     }
@@ -558,6 +562,8 @@ export class DocumentStore implements DocumentStoreContract {
       currentHistory,
       document: outcome.doc,
       history,
+      forward: outcome.forward,
+      inverse: outcome.inverse,
       commit: (): CommandOutcome => {
         if (consumed || this.revision !== revision || this.doc !== currentDocument ||
           this.undoStack.length !== currentHistory.undo.length || this.redoStack.length !== currentHistory.redo.length) {

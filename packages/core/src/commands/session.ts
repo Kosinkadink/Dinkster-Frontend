@@ -103,7 +103,7 @@ export interface DocumentSession extends DocumentStoreContract {
    * successor's document is identical to this session's).
    */
   historySnapshot(): HistorySnapshot
-  /** Local candidate admission; shared sessions have independent publication boundaries. */
+  /** Stage an exact candidate without publishing or submitting shared operations. */
   prepareDispatch?(invocation: CommandInvocation): PreparedDocumentDispatch
 }
 

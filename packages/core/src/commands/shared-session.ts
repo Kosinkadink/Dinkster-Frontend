@@ -71,7 +71,7 @@ import type {
 import { predictAllocatedId } from './alloc.js'
 import { isValidActorId } from '../ids.js'
 import { applyOps, type PatchOp } from './patch.js'
-import { DocumentStore, jsonSameValue, replayHistoryOps, type HistorySnapshot, type ListenerErrorSink } from './store.js'
+import { DocumentStore, jsonSameValue, replayHistoryOps, type HistorySnapshot, type ListenerErrorSink, type PreparedDocumentDispatch } from './store.js'
 import { toWirePatch, type DocumentSession, type SessionOp, type WirePatchOp } from './session.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
@@ -355,6 +355,11 @@ class SharedDocumentSession implements DocumentSession {
   }
 
   dispatch(invocation: CommandInvocation): CommandOutcome {
+    const prepared = this.prepareDispatch(invocation)
+    return prepared.ok ? prepared.commit() : prepared
+  }
+
+  prepareDispatch(invocation: CommandInvocation): PreparedDocumentDispatch {
     if (invocation.command === sessionPatchCommand.id) {
       return {
         ok: false,
@@ -363,18 +368,7 @@ class SharedDocumentSession implements DocumentSession {
         ],
       }
     }
-    const outcome = this.run(invocation)
-    if (outcome.ok && outcome.forward.length > 0) {
-      const record: HistoryRecord = { forward: outcome.forward, inverse: outcome.inverse }
-      // run() just pushed this intention's pending entry (synchronous,
-      // deferred pump - nothing can interleave): tie the record to it so
-      // rebases keep history and pending coherent.
-      this.pending[this.pending.length - 1]!.record = record
-      this.undoStack.push(record)
-      if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
-      this.redoStack.length = 0
-    }
-    return outcome
+    return this.prepareRun(invocation, undefined, true)
   }
 
   undo(): boolean {
@@ -477,6 +471,11 @@ class SharedDocumentSession implements DocumentSession {
    * that is what routes id allocation to this actor's disjoint cursors.
    */
   private run(invocation: CommandInvocation, origin?: string): CommandOutcome {
+    const prepared = this.prepareRun(invocation, origin)
+    return prepared.ok ? prepared.commit() : prepared
+  }
+
+  private prepareRun(invocation: CommandInvocation, origin?: string, recordHistory = false): PreparedDocumentDispatch {
     const status = this.statusSignal.get()
     if (status === 'closed' || status === 'error') {
       return {
@@ -530,19 +529,79 @@ class SharedDocumentSession implements DocumentSession {
         stamped = Object.freeze({ ...stamped, params: ownedPrepared.value })
       }
     }
-    const outcome = this.store.dispatch(stamped)
-    if (outcome.ok && outcome.forward.length > 0) {
-      this.pending.push({
-        opId: this.mintOpId(),
-        invocation: stamped,
-        origin: origin ?? stamped.command,
-        predicted: toWirePatch(outcome.forward),
-        attempts: [],
-      })
-      this.docSignal.set(this.store.doc)
-      this.pump()
+    const store = this.store
+    const prepared = store.prepareDispatch(stamped)
+    if (!prepared.ok) return prepared
+    const confirmedRevision = this.confirmedRevision
+    const confirmed = this.confirmed
+    const freezeHistory = (history: HistorySnapshot): HistorySnapshot => Object.freeze({
+      revision: history.revision,
+      undo: Object.freeze(history.undo.map((record) => Object.freeze(record))),
+      redo: Object.freeze(history.redo.map((record) => Object.freeze(record))),
+    })
+    const currentHistory = freezeHistory(this.historySnapshot())
+    const undo = [...currentHistory.undo]
+    const changes = prepared.forward.length > 0
+    if (recordHistory && changes) {
+      undo.push({ forward: prepared.forward, inverse: prepared.inverse })
+      if (undo.length > this.maxUndo) undo.shift()
     }
-    return outcome
+    const history = freezeHistory({
+      revision: currentHistory.revision + (changes ? 1 : 0),
+      undo,
+      redo: recordHistory && changes ? [] : currentHistory.redo,
+    })
+    const currentDocument = store.doc
+    const pendingPatches = this.pending.map((entry) => entry.predicted)
+    let retainedDocuments: readonly WorkflowDocument[] | undefined
+    let consumed = false
+    return Object.freeze({
+      ...prepared,
+      currentHistory,
+      history,
+      get retainedDocuments(): readonly WorkflowDocument[] {
+        if (retainedDocuments === undefined) {
+          const documents = [currentDocument, confirmed]
+          let pendingDocument = confirmed
+          for (const patch of pendingPatches) {
+            pendingDocument = applyOps(pendingDocument as unknown as Json, patch) as unknown as WorkflowDocument
+            documents.push(pendingDocument)
+          }
+          retainedDocuments = Object.freeze(documents)
+        }
+        return retainedDocuments
+      },
+      commit: (): CommandOutcome => {
+        if (consumed || this.store !== store || this.confirmedRevision !== confirmedRevision ||
+          this.confirmed !== confirmed || this.statusSignal.get() !== status ||
+          this.revision !== currentHistory.revision ||
+          this.undoStack.length !== currentHistory.undo.length || this.redoStack.length !== currentHistory.redo.length) {
+          return { ok: false, diagnostics: [diag('error', 'command', 'command.candidate.stale', 'Prepared shared command is stale or already consumed')] }
+        }
+        consumed = true
+        const outcome = prepared.commit()
+        if (outcome.ok && outcome.forward.length > 0) {
+          const record: HistoryRecord | undefined = recordHistory
+            ? { forward: outcome.forward, inverse: outcome.inverse } : undefined
+          this.pending.push({
+            opId: this.mintOpId(),
+            invocation: stamped,
+            origin: origin ?? stamped.command,
+            predicted: toWirePatch(outcome.forward),
+            attempts: [],
+            ...(record !== undefined ? { record } : {}),
+          })
+          if (record !== undefined) {
+            this.undoStack.push(record)
+            if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
+            this.redoStack.length = 0
+          }
+          this.docSignal.set(this.store.doc)
+          this.pump()
+        }
+        return outcome
+      },
+    })
   }
 
   private replayHistory(from: HistoryRecord[], to: HistoryRecord[], during: 'undo' | 'redo'): boolean {

@@ -122,8 +122,10 @@ export async function admitWorkflowDispatch(
 ): Promise<CommandOutcome> {
   const current = workflowAssetRoots(prepared.currentDocument, prepared.currentHistory, resolve)
   const proposed = workflowAssetRoots(prepared.document, prepared.history, resolve)
-  if (!current.complete || !proposed.complete) throw new Error('Workflow asset identities are incomplete')
-  const digests = [...new Set([...current.digests, ...proposed.digests])].sort()
+  const retained = (prepared.retainedDocuments ?? []).map((document) =>
+    workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, resolve))
+  if (!current.complete || !proposed.complete || retained.some((roots) => !roots.complete)) throw new Error('Workflow asset identities are incomplete')
+  const digests = [...new Set([...current.digests, ...proposed.digests, ...retained.flatMap((roots) => roots.digests)])].sort()
   if (digests.length > 4096) throw new Error('Workflow exceeds the retained identity limit')
   const owner = { scope: 'local', ownerKind: 'document' as const, ownerId: `workflow-candidate:${uuidv4()}` }
   const key = scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)

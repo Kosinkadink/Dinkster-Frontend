@@ -33,6 +33,25 @@ function deferred<T>() {
 }
 
 describe('workflow candidate admission', () => {
+  it('includes shared confirmed and pending document roots outside local history', async () => {
+    const local = session()
+    const prepared = local.prepareDispatch!(replace('b'))
+    if (!prepared.ok) throw new Error('candidate rejected')
+    const retained = { ...prepared.currentDocument, graphs: { g0: { ...prepared.currentDocument.graphs.g0!, nodes: {
+      n0: { ...prepared.currentDocument.graphs.g0!.nodes.n0!, values: { files: [asset('e')] } },
+    } } } }
+    const connection = {
+      id: 'backend', assetUrl: () => 'http://assets.test/',
+      retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
+        expect(declaration.digests).toEqual(['a', 'b', 'e'].map((letter) => asset(letter).digest))
+        return { ...owner, ...declaration, revision: 1 }
+      },
+    } as unknown as DinksterConnection
+    const outcome = await admitWorkflowDispatch(connection, { ...prepared, retainedDocuments: [retained] }, resolve,
+      () => true, { setItem: () => {} })
+    expect(outcome.ok).toBe(true)
+  })
+
   it('journals current and undo/redo roots before acknowledgment, then publishes once', async () => {
     const local = session()
     local.dispatch(replace('b'))

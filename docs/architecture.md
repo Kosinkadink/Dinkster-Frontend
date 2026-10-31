@@ -66,7 +66,13 @@ untouched. Ordinary `dispatch()` immediately prepares and commits, preserving
 its synchronous final-outcome contract. A prepared command does not certify
 typed asset completeness or register a frontend holder.
 
-Local image apply and image-document export commands use an awaited retained
+Shared sessions stage the actor-stamped, shared-replay-prepared invocation once.
+Their candidates include the participant's undo/redo history and confirmed and
+pending documents. Commit refuses a changed confirmed baseline, rebuilt store,
+history or connection status before optimistic publication and submission. The
+candidate's history record is installed before document observers run.
+
+Image apply and image-document export commands use an awaited retained
 dispatch path. It journals the candidate and the union of current, undo, redo
 and proposed asset roots before requesting ownership. Exact acknowledgment or
 exact owner reconciliation precedes publication; a changed destination or stale
