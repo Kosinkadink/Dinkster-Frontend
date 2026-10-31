@@ -22,7 +22,7 @@ Use **Extract as Subgraph** in the selection toolbox or a node, group,
 reroute, value-source, or selector context menu, find **Extract selection as
 subgraph** in universal search, or press **Ctrl+Shift+E**. Element-row menus
 such as widgets, pins, sections, nets, and links stay scoped to that element.
-Extraction commits immediately without a naming prompt. The definition uses
+Extraction submits without a naming prompt. The definition uses
 the shared collision-safe default (`New Subgraph`, then `New Subgraph 2`, and
 so on). The created occurrence remains renameable later through the normal
 node **Rename** action.
@@ -32,7 +32,10 @@ and groups. A selected group includes every supported item spatially inside
 the group at gesture time. Selecting the contents without selecting the
 group does not move the group.
 
-After success, the new occurrence is the active selection.
+Selection waits for the final extraction result. After success, the new
+occurrence is selected only if the original canvas, tab, session and
+navigation are still current. Switching tabs and returning invalidates that
+selection update. Refusal leaves the selection unchanged.
 
 An input boundary attached to a reroute moves with that junction and its
 complete selected fanout. Extraction remaps the boundary attachment while
@@ -62,8 +65,10 @@ menu, find **Flatten selected subgraph one level** in universal search, or
 press **Ctrl+Shift+F**. Element-row menus such as widgets, pins, sections,
 nets, and links stay scoped to that element. Dinkster removes that occurrence
 and splices one copy of its body into the parent as one undoable operation.
-Nested occurrences remain nested. After success, the newly spliced body
-nodes are selected.
+Nested occurrences remain nested. Selection waits for final acceptance;
+after success, the newly spliced body nodes are selected only in the
+original current canvas, tab, session and navigation, using the same
+ownership checks as extraction. Refusal leaves the selection unchanged.
 
 A promoted literal input transfers this occurrence's stored
 value and controller mode to the fresh source, preserving explicit null.

@@ -712,7 +712,7 @@ export function extractSubgraphInvocationThroughBridge(args: {
   return undefined
 }
 
-export function flattenSubgraphThroughBridge(args: {
+export async function flattenSubgraphThroughBridge(args: {
   readonly document: WorkflowDocument
   readonly graphId: string
   readonly instancePath: readonly string[]
@@ -723,9 +723,9 @@ export function flattenSubgraphThroughBridge(args: {
   readonly measure: TextMeasurer
   readonly widgetMeasure: WidgetMeasure
   readonly report: (diagnostic: Diagnostic) => void
-  readonly dispatch: (invocation: CommandInvocation) => CommandOutcome
+  readonly dispatch: (invocation: CommandInvocation) => CommandOutcome | Promise<CommandOutcome>
   readonly selectNodes: (nodeIds: readonly string[]) => void
-}): boolean {
+}): Promise<boolean> {
   const report = (message: string): false => {
     args.report(lifecyclePlanFailure('flatten', message, args.graphId, args.nodeId, args.instancePath))
     return false
@@ -772,7 +772,7 @@ export function flattenSubgraphThroughBridge(args: {
   const before = new Set(Object.keys(args.document.graphs[args.graphId]?.nodes ?? {}))
   let outcome: CommandOutcome
   try {
-    outcome = args.dispatch(invocation)
+    outcome = await args.dispatch(invocation)
   } catch (error) {
     return report(`dispatch failed: ${error instanceof Error ? error.message : String(error)}`)
   }
@@ -2671,26 +2671,31 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const tab = activeTab()
       return tab !== undefined && isFlattenSelection(tab.store.doc, currentGraphId(tab), [...controller.getSelection()], lifecycleOtherSelectionCount(controller))
     }
-    const createRegionAt = async (tab: Tab, graphId: string, position: { x: number; y: number }, kind: RegionKind): Promise<boolean> => {
+    const captureLifecycleTarget = (tab: Tab, graphId: string) => {
       const store = tab.store
       const stack = tab.graphStack.get()
       const path = tab.instancePath.get()
       const select = lifecycleSelectNodes
       let changedTab = false
       const unsubscribe = props.app.activeTabId.subscribe(() => { changedTab = true })
-      try {
-        const outcome = await commitRegionCreation(props.app, tab, graphId, position, kind, (occurrenceNodeId) => {
-          if (!changedTab && select !== undefined && lifecycleSelectNodes === select && activeTab() === tab && tab.store === store &&
-              tab.graphStack.get() === stack && tab.instancePath.get() === path && currentGraphId(tab) === graphId) {
-            select([occurrenceNodeId])
-          }
-        })
-        return outcome.ok
-      } finally {
-        unsubscribe()
+      const isCurrent = () => !changedTab && select !== undefined && lifecycleSelectNodes === select && activeTab() === tab && tab.store === store &&
+        tab.graphStack.get() === stack && tab.instancePath.get() === path && currentGraphId(tab) === graphId
+      return {
+        isCurrent,
+        selectNodes: (nodeIds: readonly string[]) => { if (isCurrent()) select!(nodeIds) },
+        dispose: unsubscribe,
       }
     }
-    const beginExtractSubgraph = (): boolean => {
+    const createRegionAt = async (tab: Tab, graphId: string, position: { x: number; y: number }, kind: RegionKind): Promise<boolean> => {
+      const target = captureLifecycleTarget(tab, graphId)
+      try {
+        const outcome = await commitRegionCreation(props.app, tab, graphId, position, kind, (occurrenceNodeId) => target.selectNodes([occurrenceNodeId]))
+        return outcome.ok
+      } finally {
+        target.dispose()
+      }
+    }
+    const beginExtractSubgraph = async (): Promise<boolean> => {
       const tab = activeTab()
       const reg = tab ? props.app.registryForTab(tab) : undefined
       if (!tab || tab.execution || !reg || !canExtractSubgraph()) return false
@@ -2704,38 +2709,52 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         report: (diagnostic) => reportGestureRefusal(tab.id, [diagnostic]),
       })
       if (invocation === undefined) return false
-      const result = commitExtract({
-        invocation,
-        beforeNodeIds: new Set(Object.keys(tab.store.doc.graphs[graphId]?.nodes ?? {})),
-        graphId,
-        dispatch: (command) => dispatchGesture(tab, command),
-      })
-      if (result.status === 'committed') lifecycleSelectNodes?.(result.selectedNodeIds)
-      return true
+      const target = captureLifecycleTarget(tab, graphId)
+      try {
+        const result = await commitExtract({
+          invocation,
+          beforeNodeIds: new Set(Object.keys(tab.store.doc.graphs[graphId]?.nodes ?? {})),
+          graphId,
+          dispatch: async (command) => {
+            const outcome = await props.app.dispatchTo(tab, command)
+            if (!outcome.ok && target.isCurrent()) showGestureRefusal(outcome.diagnostics)
+            return outcome
+          },
+        })
+        if (result.status === 'committed') target.selectNodes(result.selectedNodeIds)
+        return result.status === 'committed'
+      } finally {
+        target.dispose()
+      }
     }
-    const flattenSelectedSubgraph = (): boolean => {
+    const flattenSelectedSubgraph = async (): Promise<boolean> => {
       const tab = activeTab()
       const reg = tab ? props.app.registryForTab(tab) : undefined
       const graphId = tab ? currentGraphId(tab) : ''
       const nodeId = [...controller.getSelection()][0]
       if (!tab || tab.execution || !reg || !nodeId || !canFlattenSubgraph()) return false
       const occurrenceNode = scene.nodes.find((node) => node.id === nodeId)
-      return flattenSubgraphThroughBridge({
-        document: tab.store.doc,
-        graphId,
-        instancePath: viewInstancePath(tab) ?? [],
-        nodeId,
-        occurrence: occurrenceNode === undefined
-          ? undefined
-          : { id: nodeId, kind: 'node', x: occurrenceNode.x, y: occurrenceNode.y, width: occurrenceNode.layout.width, height: occurrenceNode.layout.height },
-        resolveSchema: reg.resolve,
-        seedControllerEnabled: props.app.settings.get<boolean>('features.seedController.enabled'),
-        measure,
-        widgetMeasure,
-        report: (diagnostic) => reportGestureRefusal(tab.id, [diagnostic]),
-        dispatch: (invocation) => tab.store.dispatch(invocation),
-        selectNodes: (nodeIds) => controller.setSelection(nodeIds),
-      })
+      const target = captureLifecycleTarget(tab, graphId)
+      try {
+        return await flattenSubgraphThroughBridge({
+          document: tab.store.doc,
+          graphId,
+          instancePath: viewInstancePath(tab) ?? [],
+          nodeId,
+          occurrence: occurrenceNode === undefined
+            ? undefined
+            : { id: nodeId, kind: 'node', x: occurrenceNode.x, y: occurrenceNode.y, width: occurrenceNode.layout.width, height: occurrenceNode.layout.height },
+          resolveSchema: reg.resolve,
+          seedControllerEnabled: props.app.settings.get<boolean>('features.seedController.enabled'),
+          measure,
+          widgetMeasure,
+          report: (diagnostic) => { if (target.isCurrent()) reportGestureRefusal(tab.id, [diagnostic]) },
+          dispatch: (invocation) => props.app.dispatchTo(tab, invocation),
+          selectNodes: target.selectNodes,
+        })
+      } finally {
+        target.dispose()
+      }
     }
     const widgetExposureItem = (
       tab: Tab,

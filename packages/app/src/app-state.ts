@@ -1153,10 +1153,10 @@ export interface CanvasBridge {
   ) => boolean
   readonly createEmptySubgraph?: (position?: Vec2) => boolean | Promise<boolean>
   readonly createRegion?: (kind: 'map' | 'fold' | 'while', position?: Vec2) => boolean | Promise<boolean>
-  /** Opens the naming prompt after snapshotting selection and group contents. */
-  readonly extractSubgraph?: () => boolean
+  /** Extracts the captured selection and group contents with the default name. */
+  readonly extractSubgraph?: () => boolean | Promise<boolean>
   /** Flattens the sole selected subgraph occurrence by one level. */
-  readonly flattenSubgraph?: () => boolean
+  readonly flattenSubgraph?: () => boolean | Promise<boolean>
   readonly canExtractSubgraph?: () => boolean
   readonly canFlattenSubgraph?: () => boolean
 }

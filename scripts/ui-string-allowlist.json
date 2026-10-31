@@ -245,6 +245,7 @@
     "text:Cancel",
     "text:Cancel",
     "text:Close",
+    "text:CommandOutcome | Promise",
     "text:Download",
     "text:Download",
     "text:FROZEN",
