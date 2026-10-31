@@ -7,6 +7,7 @@ import { clampComboHighlight, comboMenuEntries, comboRenderWindow, scrollComboHi
 import { Icon } from '../Icon.js'
 import { useAppMessage } from '../locale.js'
 import { ProductActionFooter, ProductField, ProductNotice } from '../ProductForm.js'
+import { ProductButton, ProductTextArea, ProductTextInput } from '../ProductControls.js'
 import { withMaterializeFrames, type WidgetEditorImplementationProps } from '../WidgetEditorController.js'
 
 interface RemoteSource {
@@ -156,9 +157,44 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
   props.editor.bindClickAway?.(clickAway)
   const label = (value: string) => availableOptions().find((option) => option.value === value)?.label ?? value
   const oov = (value: string): 'error' | 'warning' | undefined => availableOptions().some((option) => option.value === value) ? undefined : spec.remote ? 'warning' : 'error'
+  const editable = !multi && spec.remote === undefined && spec.editableOptions === true && ed.target.kind === 'input' && ed.target.optionsTarget !== undefined
+  const [menuDraft, setMenuDraft] = createSignal(JSON.stringify(initialOptions.map((option) => option.value)))
+  const [selectedDraft, setSelectedDraft] = createSignal(JSON.stringify(ed.initial) ?? '')
+  const parsedMenu = createMemo(() => {
+    try {
+      const value: unknown = JSON.parse(menuDraft())
+      return Array.isArray(value) && value.every(isComboValue) ? value : undefined
+    } catch { return undefined }
+  })
+  const parsedSelection = createMemo(() => {
+    try {
+      const value: unknown = JSON.parse(selectedDraft())
+      return isComboValue(value) ? value : undefined
+    } catch { return undefined }
+  })
+  const applyMenu = () => {
+    const options = parsedMenu()
+    if (!editable || options === undefined || ed.target.kind !== 'input' || !ed.target.optionsTarget) return
+    const target = ed.target.optionsTarget
+    const owner = target.owner ?? { graphId: ed.graphId, nodeId: ed.target.nodeId, construct: target.construct, ancestors: target.ancestors }
+    props.editor.app.dispatchTo(ed.tab, withMaterializeFrames(owner.graphId, owner.nodeId, target.materialize ?? ed.target.materialize, {
+      command: 'dynamic.setOptions', params: { ...owner, options },
+    } as CommandInvocation))
+    props.close()
+  }
 
-  return <div ref={(el) => { root = el; props.bindPopover(el) }} class="widget-editor floating-surface widget-editor-popover combo-dropdown" classList={{ 'multi-combo-dropdown': multi, 'input-family-combo': !multi && spec.optionSource !== undefined }} data-testid={multi ? 'multi-combo-dropdown' : 'combo-dropdown'} data-remote={remote()?.state ?? 'static'} data-chip={multi ? spec.options['chip'] === true ? 'true' : spec.options['chip'] === false ? 'false' : 'absent' : undefined} data-editor-surface="popover" role="dialog" aria-label={`Edit ${ed.label} ${multi ? 'MULTI_COMBO' : 'COMBO'}`} style={props.popoverStyle}>
+  return <div ref={(el) => { root = el; props.bindPopover(el) }} class="widget-editor floating-surface widget-editor-popover combo-dropdown" classList={{ 'multi-combo-dropdown': multi, 'input-family-combo': !multi && spec.optionSource !== undefined, 'editable-combo-dropdown': editable }} data-testid={multi ? 'multi-combo-dropdown' : 'combo-dropdown'} data-remote={remote()?.state ?? 'static'} data-chip={multi ? spec.options['chip'] === true ? 'true' : spec.options['chip'] === false ? 'false' : 'absent' : undefined} data-editor-surface="popover" role="dialog" aria-label={`Edit ${ed.label} ${multi ? 'MULTI_COMBO' : 'COMBO'}`} style={props.popoverStyle}>
     <props.header type={multi ? 'MULTI_COMBO' : 'COMBO'} />
+    <Show when={editable}><div class="combo-authoring" data-testid="combo-authoring">
+      <ProductField controlId="combo-selected-draft" label={message('comboAuthoring.selected')} description={message('comboAuthoring.selectedHint')} layout="stack" invalid={parsedSelection() === undefined}>
+        <ProductTextInput id="combo-selected-draft" data-testid="combo-selected-draft" value={selectedDraft()} invalid={parsedSelection() === undefined} onInput={(event) => setSelectedDraft(event.currentTarget.value)} />
+      </ProductField>
+      <ProductActionFooter><ProductButton data-testid="combo-selected-apply" disabled={parsedSelection() === undefined} onClick={() => { const value = parsedSelection(); if (value !== undefined) props.commitValue(value) }}>{message('comboAuthoring.applySelected')}</ProductButton></ProductActionFooter>
+      <ProductField controlId="combo-menu-draft" label={message('comboAuthoring.menu')} description={message('comboAuthoring.menuHint')} layout="stack" invalid={parsedMenu() === undefined} message={parsedMenu() === undefined ? message('comboAuthoring.invalidMenu') : undefined}>
+        <ProductTextArea id="combo-menu-draft" data-testid="combo-menu-draft" rows={4} value={menuDraft()} invalid={parsedMenu() === undefined} onInput={(event) => setMenuDraft(event.currentTarget.value)} />
+      </ProductField>
+      <ProductActionFooter><ProductButton data-testid="combo-menu-cancel" onClick={props.close}>{message('comboAuthoring.cancel')}</ProductButton><ProductButton variant="primary" data-testid="combo-menu-apply" disabled={parsedMenu() === undefined} onClick={applyMenu}>{message('comboAuthoring.applyMenu')}</ProductButton></ProductActionFooter>
+    </div></Show>
     <Show when={!multi && spec.optionSource !== undefined && editableFamily.length > 0}><fieldset class="input-family-labels" data-testid="input-family-labels"><legend>{message('inputFamily.labels.title')}</legend><For each={editableFamily}>{(option) => <label class="input-family-label-row"><span>{message('inputFamily.stableId', { id: memberId(option.value) })}</span><input data-testid={`input-family-label-${memberId(option.value)}`} aria-label={`${message('inputFamily.labels.item')}: ${memberId(option.value)}`} value={labels()[option.value] ?? option.label} onInput={(event) => setLabels((current) => ({ ...current, [option.value]: event.currentTarget.value }))} /></label>}</For><Show when={labelError()}><ProductNotice tone="error" testId="input-family-label-error">{labelError()}</ProductNotice></Show><button type="button" data-testid="input-family-label-apply" disabled={!labelsChanged() || labelError() !== undefined} onClick={commitLabels}>{message('inputFamily.labels.apply')}</button></fieldset></Show>
     <Show when={multi}><div class="multi-combo-values" data-testid="multi-combo-values"><For each={values()} fallback={<span class="combo-status">No selections</span>}>{(value, valueIndex) => <button type="button" class="multi-combo-value" classList={{ chip: spec.options['chip'] === true }} data-testid="multi-combo-value" data-oov={oov(value)} aria-label={`Remove ${label(value)}`} onClick={() => mutateValues((current) => current.filter((_item, candidate) => candidate !== valueIndex()))}>{label(value)}</button>}</For></div></Show>
     <ProductField controlId={multi ? 'multi-combo-search-control' : 'combo-search-control'} label="Search options" layout="compact"><input id={multi ? 'multi-combo-search-control' : 'combo-search-control'} data-testid={multi ? 'multi-combo-search' : 'combo-search'} placeholder={multi && typeof spec.options['placeholder'] === 'string' ? spec.options['placeholder'] : 'Search options...'} ref={(el) => queueMicrotask(() => el.focus())} value={query()} onInput={(event) => { highlightSource = 'keyboard'; setQuery(event.currentTarget.value); setIndex(0) }} onKeyDown={onKeyDown} /></ProductField>

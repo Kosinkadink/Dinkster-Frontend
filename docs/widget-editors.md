@@ -52,6 +52,11 @@ Canvas menu targets carry their structural construct and member ancestors
 separately from the selected value's storage key.
 Promoting a menu from a persisted family member keeps both menu and selected
 value edits on the instance, not the shared definition.
+The editable COMBO popover exposes the selected scalar and ordered menu as
+separate JSON drafts. Apply menu preserves the selected value, index and extra
+input membership; Apply selected value does not change the menu. Cancel or an
+outside press discards unapplied drafts. Menu entries accept strings, finite
+numbers and booleans, including duplicate entries and an empty array.
 
 ## Authored 3D viewport
 

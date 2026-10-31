@@ -965,7 +965,6 @@
     "text:comboMenuEntries(availableOptions(), folder(), query())) const window = createMemo",
     "text:loading remote options...",
     "text:memberIds[String(option.value)] !== undefined) : familyOptions const [labels, setLabels] = createSignal",
-    "text:option.value === value) ? undefined : spec.remote ? 'warning' : 'error' return",
     "text:refresh",
     "text:remote options stale",
     "text:remote options unavailable"
