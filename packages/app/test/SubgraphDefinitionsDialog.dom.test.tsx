@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { render } from 'solid-js/web'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorkflowDocument } from '@dinkster/core'
 import { AppState } from '../src/app-state.js'
 import { SubgraphDefinitionsDialog } from '../src/SubgraphDefinitionsDialog.js'
@@ -53,12 +53,13 @@ const documentWithUnusedDefinitions = (): WorkflowDocument => ({
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   document.body.replaceChildren()
   localStorage.clear()
 })
 
 describe('SubgraphDefinitionsDialog', () => {
-  it('presents the complete cleanup impact and removes it only after destructive activation', () => {
+  it('presents the complete cleanup impact and removes it only after destructive activation', async () => {
     const app = new AppState()
     expect(app.openDocument(documentWithUnusedDefinitions(), 'Cleanup')).toEqual([])
     app.modalPanel.set('subgraph-definitions')
@@ -97,9 +98,61 @@ describe('SubgraphDefinitionsDialog', () => {
     expect(app.activeTab()!.store.doc.graphs.orphan).toBeUndefined()
     expect(app.activeTab()!.store.doc.graphs.orphanChild).toBeUndefined()
     expect(app.activeTab()!.store.doc.graphs.used).toBeDefined()
-    expect(app.modalPanel.get()).toBe('')
+    await vi.waitFor(() => expect(app.modalPanel.get()).toBe(''))
     expect(app.transientStatus.get()).toBe('Removed 2 unused subgraph definitions')
     dispose()
+  })
+
+  it.each([false, true])('waits for cleanup result %s before reporting or closing', async (accepted) => {
+    const app = new AppState()
+    app.openDocument(documentWithUnusedDefinitions(), 'Cleanup')
+    app.modalPanel.set('subgraph-definitions')
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <SubgraphDefinitionsDialog app={app} />, root)
+    const dispatch = app.dispatchTo.bind(app)
+    let settle!: () => void
+    const pending = vi.spyOn(app, 'dispatchTo').mockImplementation((tab, invocation) =>
+      new Promise((resolve) => { settle = () => resolve(accepted ? dispatch(tab, invocation) : { ok: false, diagnostics: [] }) }) as never)
+    const button = root.querySelector<HTMLButtonElement>('[data-testid="confirm-subgraph-cleanup"]')!
+    button.click()
+    expect(button.disabled).toBe(true)
+    expect(app.modalPanel.get()).toBe('subgraph-definitions')
+    expect(app.transientStatus.get()).toBeUndefined()
+    expect(app.activeTab()!.store.doc.graphs.orphan).toBeDefined()
+    button.click()
+    expect(pending).toHaveBeenCalledOnce()
+    settle()
+    await vi.waitFor(() => accepted ? expect(app.modalPanel.get()).toBe('') : expect(button.disabled).toBe(false))
+    expect(app.activeTab()!.store.doc.graphs.orphan === undefined).toBe(accepted)
+    if (!accepted) {
+      expect(app.modalPanel.get()).toBe('subgraph-definitions')
+      expect(app.transientStatus.get()).toBeUndefined()
+    }
+    dispose()
+    app.dispose()
+  })
+
+  it('does not close or report into another modal after cleanup completes', async () => {
+    const app = new AppState()
+    app.openDocument(documentWithUnusedDefinitions(), 'Cleanup')
+    app.modalPanel.set('subgraph-definitions')
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <SubgraphDefinitionsDialog app={app} />, root)
+    let settle!: () => void
+    vi.spyOn(app, 'dispatchTo').mockImplementation(() => new Promise((resolve) => {
+      settle = () => resolve({ ok: true })
+    }) as never)
+    root.querySelector<HTMLButtonElement>('[data-testid="confirm-subgraph-cleanup"]')!.click()
+    app.modalPanel.set('settings')
+    settle()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(app.modalPanel.get()).toBe('settings')
+    expect(app.transientStatus.get()).toBeUndefined()
+    dispose()
+    app.dispose()
   })
 
   it('shows an empty state and never offers deletion when all definitions are reachable', () => {

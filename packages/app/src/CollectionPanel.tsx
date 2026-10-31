@@ -339,7 +339,7 @@ export function CollectionPanel(props: {
           && rootEl?.contains(active) === true && active.dataset['entry'] !== undefined
           ? active.dataset['entry']
           : undefined
-        setItems(append ? [...items(), ...page.items] : page.items)
+        setItems(append ? [...new Map([...items(), ...page.items].map((entry) => [entry.id, entry])).values()] : page.items)
         setCursor(page.cursor)
         setTotal(page.total)
         setPageOwner(page.owner)

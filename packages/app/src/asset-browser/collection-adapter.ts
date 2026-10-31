@@ -44,7 +44,8 @@ export function assetEntryOf(item: AssetBrowserItem, assetUrl?: (digest: string)
   return {
     id: item.id,
     title: item.name,
-    badges: item.size !== undefined ? [formatSize(item.size)] : [],
+    badges: [...(item.size !== undefined ? [formatSize(item.size)] : []), ...(item.availability === 'missing' ? ['missing'] : [])],
+    ...(item.details !== undefined ? { details: item.details } : {}),
     // Conservative preview policy: digest bytes render as a thumbnail only
     // for browser-previewable media entries; everything else stays
     // text-first (initials), never a broken-image box. GLB and splat PLY
@@ -52,7 +53,7 @@ export function assetEntryOf(item: AssetBrowserItem, assetUrl?: (digest: string)
     // instead of a URL.
     ...(assetUrl !== undefined && item.digest !== undefined && isBrowserPreviewable(item)
       ? { thumbUrl: assetUrl(item.digest) }
-      : assetUrl !== undefined && item.digest !== undefined && isModel3dMime(item.mediaType)
+      : assetUrl !== undefined && item.digest !== undefined && (item.availability === undefined || item.availability === 'available') && isModel3dMime(item.mediaType)
         ? {
             thumbRender: () => {
               const url = assetUrl(item.digest!)

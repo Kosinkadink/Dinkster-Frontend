@@ -245,6 +245,7 @@
     "text:Cancel",
     "text:Cancel",
     "text:Close",
+    "text:CommandOutcome | Promise",
     "text:Download",
     "text:Download",
     "text:FROZEN",
@@ -282,7 +283,8 @@
     "text:rect.right || e.clientY",
     "text:root-graph node ids (a subgraph instance is \"in // scope\" when ANY of its inner occurrences is). const rootIds = new Set",
     "text:schemas from this run are unavailable - nodes render without definitions",
-    "text:undefined const schema: NodeSchema | undefined = entry.schema ?? resolve(entry.type) const virtualKind = props.app.virtualNodeKinds.get(entry.type) // Registry state can change after the palette opens. Preserve the old // unresolved-node fallback rather than turning that narrow race into a // silent no-op; only known schemas can contribute defaults or state. const values = virtualKind?.defaultValues ?? (schema ? (defaultValuesOf(schema) as Record"
+    "text:undefined const schema: NodeSchema | undefined = entry.schema ?? resolve(entry.type) const virtualKind = props.app.virtualNodeKinds.get(entry.type) // Registry state can change after the palette opens. Preserve the old // unresolved-node fallback rather than turning that narrow race into a // silent no-op; only known schemas can contribute defaults or state. const values = virtualKind?.defaultValues ?? (schema ? (defaultValuesOf(schema) as Record",
+    "text:void, ): Promise"
   ],
   "CanvasSemanticNavigator.tsx": [
     "attribute:aria-label:Canvas scene navigator",
@@ -418,7 +420,8 @@
     "text:, successKey?: string): Promise",
     "text:= 1024 && unit",
     "text:Promise",
-    "text:addMount(id: string, path: string, mode: 'read' | 'readwrite'): Promise"
+    "text:addMount(id: string, path: string, mode: 'read' | 'readwrite'): Promise",
+    "text:props.connection) const [info, setInfo] = createSignal"
   ],
   "DesktopSetup.tsx": [
     "text:props.status.phase === 'failed' return ("
@@ -524,6 +527,7 @@
     "text:Promise",
     "text:Promise",
     "text:Promise",
+    "text:URL.revokeObjectURL(assetUrl)) return",
     "text:candidate.layer.id === layerId)! return (",
     "text:documentValue().masks[maskId]! return (",
     "text:hydrate: Promise",
@@ -564,6 +568,9 @@
     "text:controls?.querySelectorAll",
     "text:directSource() ?",
     "text:transitioning() ?"
+  ],
+  "LibraryStorageSettings.tsx": [
+    "text:() const [limit, setLimit] = createSignal"
   ],
   "MemoryPanel.tsx": [
     "attribute:aria-label:Active memory leases",
@@ -632,7 +639,8 @@
     "text:Rendering 3D preview..."
   ],
   "MountFolderForm.tsx": [
-    "text:('read') const [kind, setKind] = createSignal('') const [shared, setShared] = createSignal(false) const [busy, setBusy] = createSignal(false) const [status, setStatus] = createSignal"
+    "text:('read') const [kind, setKind] = createSignal('') const [shared, setShared] = createSignal(false) const [busy, setBusy] = createSignal(false) const [status, setStatus] = createSignal",
+    "text:props.backendUrl) const [mountPath, setMountPath] = createSignal('') const [mountId, setMountId] = createSignal('') const [mode, setMode] = createSignal"
   ],
   "NodePalette.tsx": [
     "text:() const duplicates = new Set",
@@ -725,7 +733,8 @@
     "text:, ): Promise",
     "text:capture()?.command === command.id ? capture()?.pending || message('settingsDialog.keybinding.pressKeys') : combo() ?? message('settingsDialog.keybinding.unbound') const ids = productFieldIds(controlId) return",
     "text:props.settings.categoryOf(d))) const [searchCategory, setSearchCategory] = createSignal",
-    "text:updatePackSettings( packId: string, values: Readonly"
+    "text:updatePackSettings( packId: string, values: Readonly",
+    "text:void readonly storageConnection?: Pick"
   ],
   "ShellChrome.tsx": [
     "text:('.dock-zone-actions') const actionGap = actions === null ? 0 : Number.parseFloat(getComputedStyle(actions).columnGap) || 0 const overflowWidth = overflowRoot !== undefined && root.contains(overflowRoot) ? overflowRoot.getBoundingClientRect().width + actionGap : 0 const widthWithoutOverflow = tablist.clientWidth + overflowWidth const allFloorsWidth = count * floor + Math.max(0, count - 1) * gap const visibleCount = allFloorsWidth",
@@ -904,6 +913,7 @@
     "text:(undefined) const [logicalModels, setLogicalModels] = createSolidSignal",
     "text:(undefined) const [logicalModelsError, setLogicalModelsError] = createSolidSignal",
     "text:(undefined) const [logicalModelsLoading, setLogicalModelsLoading] = createSolidSignal(false) const unresolvedAsset = ed.spec?.selection !== true && typeof ed.initial === 'string' ? ed.initial : undefined const [assetMatchCandidates, setAssetMatchCandidates] = createSolidSignal",
+    "text:(undefined) const [mountDiscoveryError, setMountDiscoveryError] = createSolidSignal",
     "text:/ list",
     "text:Accepted types",
     "text:Back to source options",

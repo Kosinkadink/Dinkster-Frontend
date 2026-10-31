@@ -284,6 +284,180 @@ async function callStarted(spy: { mock: { calls: unknown[][] } }): Promise<void>
   if (spy.mock.calls.length === 0) throw new Error('spied call was never entered')
 }
 
+describe('workflow asset presence', () => {
+  const first = { digest: 'blake3:' + 'a'.repeat(64), name: 'portrait.png', size: 17,
+    mediaType: 'image/png', virtualPath: 'mounts/original/portrait.png' }
+  const other = { ...first, digest: 'blake3:' + 'b'.repeat(64) }
+  const document = {
+    ...CHAIN_DOC,
+    graphs: { g0: { ...CHAIN_DOC.graphs.g0, nodes: {
+      n0: { ...CHAIN_DOC.graphs.g0.nodes.n0, values: { a: first, b: [other, first] } },
+    }, links: {} } },
+  }
+
+  it('exports last-known paths per occurrence and displays them read-only after reopen on an empty library', async () => {
+    const { backend } = nativeSetup()
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([
+      { digest: first.digest, status: 'available' }, { digest: other.digest, status: 'available' },
+    ])
+    vi.spyOn(backend.connection, 'fetchAssetLocations').mockImplementation(async (digest) =>
+      digest === first.digest ? ['/original/portrait.png', '/relocated/portrait.png'] : ['/other/portrait.png'])
+    app.openDocument({ ...document, meta: { ext: { unrelated: { keep: true } } } }, 'Assets')
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    const before = JSON.stringify(tab.store.doc)
+    await vi.waitFor(() => expect(app.exportDocument(tab.id)?.meta?.ext?.['dinkster.assetLocations']).toEqual({
+      version: 1, observations: [
+        { graph: 'g0', node: 'n0', input: 'a', index: 0, digest: first.digest,
+          machine: 'Native', paths: ['/original/portrait.png', '/relocated/portrait.png'] },
+        { graph: 'g0', node: 'n0', input: 'b', index: 0, digest: other.digest,
+          machine: 'Native', paths: ['/other/portrait.png'] },
+        { graph: 'g0', node: 'n0', input: 'b', index: 1, digest: first.digest,
+          machine: 'Native', paths: ['/original/portrait.png', '/relocated/portrait.png'] },
+      ],
+    }))
+    const saved = app.exportDocument(tab.id)!
+    expect(saved.meta?.ext?.['unrelated']).toEqual({ keep: true })
+    expect(JSON.stringify(tab.store.doc)).toBe(before)
+    expect(tab.store.revision).toBe(0)
+    const empty = app.addBackend('http://empty:8000', 'Empty library', false, 'dinkster')!
+    if (empty.protocol !== 'dinkster') throw new Error('native backend required')
+    vi.spyOn(empty.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(empty.connection, 'checkAssetAvailability').mockResolvedValue([
+      { digest: first.digest, status: 'missing' }, { digest: other.digest, status: 'missing' },
+    ])
+    const paths = vi.spyOn(empty.connection, 'fetchAssetLocations')
+    app.openDocument(saved, 'Reopened')
+    const reopened = app.activeTab()!
+    const reopenedBefore = JSON.stringify(reopened.store.doc)
+    app.setTabTarget(reopened.id, empty.id)
+    await vi.waitFor(() => expect(app.problems.get().filter((entry) => entry.code === 'asset.availability.missing')).toHaveLength(3))
+    const hint = app.problems.get().find((entry) => entry.data?.['input'] === 'a')
+    expect(hint?.data).toMatchObject({ name: 'portrait.png', backend: 'Empty library',
+      lastKnownMachine: 'Native', lastKnownPaths: ['/original/portrait.png', '/relocated/portrait.png'] })
+    expect(paths).not.toHaveBeenCalled()
+    expect(JSON.stringify(reopened.store.doc)).toBe(reopenedBefore)
+    expect(reopened.store.revision).toBe(0)
+    expect(reopened.store.doc.graphs['g0']!.nodes['n0']!.values).toEqual(document.graphs.g0.nodes.n0.values)
+    app.dispose()
+  })
+
+  it('anchors a missing shared-definition input to a reachable instance', async () => {
+    const { backend } = nativeSetup()
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([{ digest: first.digest, status: 'missing' }])
+    expect(app.openDocument({ ...CHAIN_DOC, graphs: {
+      g0: { ...CHAIN_DOC.graphs.g0, nodes: {
+        left: { id: 'left', type: '#child', values: {} }, right: { id: 'right', type: '#child', values: {} },
+      }, links: {} },
+      child: { ...CHAIN_DOC.graphs.g0, id: 'child', nodes: {
+        reader: { id: 'reader', type: 'std.math.add_ints', values: { a: first } },
+      }, links: {} },
+    }, view: { graphs: {} } }, 'Nested missing asset')).toEqual([])
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    await vi.waitFor(() => expect(app.problems.get().filter((entry) => entry.code === 'asset.availability.missing')).toHaveLength(1))
+    expect(app.problems.get().find((entry) => entry.code === 'asset.availability.missing')?.anchor).toEqual({
+      occurrence: { instancePath: ['left'], node: 'reader' },
+    })
+    expect(tab.store.revision).toBe(0)
+    app.dispose()
+  })
+
+  it('discards stale path reads after retarget and ignores hints for a different digest', async () => {
+    const { backend } = nativeSetup()
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([
+      { digest: first.digest, status: 'available' }, { digest: other.digest, status: 'available' },
+    ])
+    const pending = deferred<readonly string[]>()
+    const paths = vi.spyOn(backend.connection, 'fetchAssetLocations').mockReturnValue(pending.promise)
+    app.openDocument({ ...document, meta: { ext: { 'dinkster.assetLocations': { version: 1, observations: [{
+      graph: 'g0', node: 'n0', input: 'a', index: 0, digest: other.digest, machine: 'Wrong identity', paths: ['/do/not/read'],
+    }] } } } }, 'Assets')
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    await callStarted(paths)
+    const empty = app.addBackend('http://empty:8000', 'Empty library', false, 'dinkster')!
+    if (empty.protocol !== 'dinkster') throw new Error('native backend required')
+    vi.spyOn(empty.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(empty.connection, 'checkAssetAvailability').mockResolvedValue([
+      { digest: first.digest, status: 'missing' }, { digest: other.digest, status: 'missing' },
+    ])
+    app.setTabTarget(tab.id, empty.id)
+    pending.resolve(['/stale/location'])
+    await vi.waitFor(() => expect(app.problems.get().filter((entry) => entry.code === 'asset.availability.missing')).toHaveLength(3))
+    expect(app.problems.get().some((entry) => entry.data?.['lastKnownMachine'] !== undefined)).toBe(false)
+    expect(JSON.stringify(app.exportDocument(tab.id))).not.toContain('/stale/location')
+    app.dispose()
+  })
+
+  it('checks exact identities on reopen and retarget without mutating refs or unrelated problems', async () => {
+    const { backend } = nativeSetup()
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([
+      { digest: first.digest, status: 'available' }, { digest: other.digest, status: 'missing' },
+    ])
+    expect(app.openDocument(document, 'Assets')).toEqual([])
+    const tab = app.activeTab()!
+    const before = JSON.stringify(tab.store.doc)
+    const revision = tab.store.revision
+    app.reportProblems(tab.id, [diag('info', 'command', 'unrelated.notice', 'Keep me')])
+    app.setTabTarget(tab.id, backend.id)
+    await vi.waitFor(() => expect(shownCodes(tab.id)).toContain('asset.availability.missing'))
+    const missing = app.problems.get().filter((problem) => problem.code === 'asset.availability.missing')
+    expect(missing).toHaveLength(1)
+    expect(missing[0]).toMatchObject({
+      message: 'portrait.png is missing on Native: g0/n0/b [1].',
+      refs: [{ graphId: 'g0', nodeId: 'n0', valueKey: 'b', direction: 'input' }],
+      data: { digest: other.digest, index: 0 },
+    })
+    const empty = app.addBackend('http://empty:8000', 'Empty library', false, 'dinkster')!
+    if (empty.protocol !== 'dinkster') throw new Error('native backend required')
+    vi.spyOn(empty.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(empty.connection, 'checkAssetAvailability').mockResolvedValue([
+      { digest: first.digest, status: 'missing' }, { digest: other.digest, status: 'available' },
+    ])
+    app.setTabTarget(tab.id, empty.id)
+    await vi.waitFor(() => expect(app.problems.get().filter((problem) => problem.code === 'asset.availability.missing')).toHaveLength(2))
+    expect(shownCodes(tab.id)).toContain('unrelated.notice')
+    expect(JSON.stringify(tab.store.doc)).toBe(before)
+    expect(tab.store.revision).toBe(revision)
+    expect(app.assetConsent.get()).toBeUndefined()
+    app.dispose()
+  })
+
+  it('does not interpret failed checks as missing or publish late responses after edits and close', async () => {
+    const { backend } = nativeSetup()
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    const pending = deferred<readonly { digest: string; status: 'missing' }[]>()
+    const check = vi.spyOn(backend.connection, 'checkAssetAvailability').mockReturnValue(pending.promise)
+    app.openDocument(document, 'Assets')
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    await callStarted(check)
+    check.mockRejectedValue(new Error('network unavailable'))
+    expect(app.dispatchTo(tab, { command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n0', inputId: 'a', value: other,
+    } }).ok).toBe(true)
+    await vi.waitFor(() => expect(shownCodes(tab.id)).toContain('asset.availability.unchecked'))
+    pending.resolve([{ digest: first.digest, status: 'missing' }])
+    await pending.promise
+    expect(shownCodes(tab.id)).not.toContain('asset.availability.missing')
+    const closed = deferred<readonly { digest: string; status: 'missing' }[]>()
+    check.mockReturnValue(closed.promise)
+    app.dispatchTo(tab, { command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n0', inputId: 'a', value: first,
+    } })
+    app.closeTab(tab.id)
+    closed.resolve([{ digest: first.digest, status: 'missing' }])
+    await closed.promise
+    expect(app.problems.get().filter((problem) => problem.owner === tab.id)).toEqual([])
+    app.dispose()
+  })
+})
+
 describe('late async results and dead owners', () => {
   it('blocks a stale wire-15 artifact before POST when mode changes during source upload', async () => {
     const { backend, tab } = nativeSetup()

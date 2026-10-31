@@ -25,7 +25,7 @@ describe.skipIf(!LIVE_URL)('live native regions', () => {
 
     const tab = app.createWorkflow()
     const root = tab.store.doc.root
-    expect(app.createRegion(tab, root, { x: 0, y: 0 }, kind).ok).toBe(true)
+    expect((await app.createRegion(tab, root, { x: 0, y: 0 }, kind)).ok).toBe(true)
     const occurrence = Object.values(tab.store.doc.graphs[root]!.nodes)[0]!
     const inputId = kind === 'map' ? 'item' : 'state'
     expect(tab.store.dispatch({

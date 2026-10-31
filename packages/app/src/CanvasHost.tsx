@@ -87,6 +87,7 @@ import {
   canonicalTypeIdOf,
   nodeSearchFields,
   searchVisibilityOf,
+  isAssetWidgetInput,
   isPortEndpoint,
   planOccurrenceLinkMutation,
   samePortRef,
@@ -711,7 +712,7 @@ export function extractSubgraphInvocationThroughBridge(args: {
   return undefined
 }
 
-export function flattenSubgraphThroughBridge(args: {
+export async function flattenSubgraphThroughBridge(args: {
   readonly document: WorkflowDocument
   readonly graphId: string
   readonly instancePath: readonly string[]
@@ -722,9 +723,9 @@ export function flattenSubgraphThroughBridge(args: {
   readonly measure: TextMeasurer
   readonly widgetMeasure: WidgetMeasure
   readonly report: (diagnostic: Diagnostic) => void
-  readonly dispatch: (invocation: CommandInvocation) => CommandOutcome
+  readonly dispatch: (invocation: CommandInvocation) => CommandOutcome | Promise<CommandOutcome>
   readonly selectNodes: (nodeIds: readonly string[]) => void
-}): boolean {
+}): Promise<boolean> {
   const report = (message: string): false => {
     args.report(lifecyclePlanFailure('flatten', message, args.graphId, args.nodeId, args.instancePath))
     return false
@@ -771,7 +772,7 @@ export function flattenSubgraphThroughBridge(args: {
   const before = new Set(Object.keys(args.document.graphs[args.graphId]?.nodes ?? {}))
   let outcome: CommandOutcome
   try {
-    outcome = args.dispatch(invocation)
+    outcome = await args.dispatch(invocation)
   } catch (error) {
     return report(`dispatch failed: ${error instanceof Error ? error.message : String(error)}`)
   }
@@ -1287,18 +1288,18 @@ export function visibleOutputPagerRect(
   return { x: left, y: top, width: right - left, height: bottom - top }
 }
 
-export function commitRegionCreation(
+export async function commitRegionCreation(
   app: AppState,
   tab: Tab,
   graphId: string,
   position: { x: number; y: number },
   kind: RegionKind,
   selectOccurrence: (nodeId: string) => void,
-): CommandOutcome {
+): Promise<CommandOutcome> {
   if (tab.execution) return { ok: false, diagnostics: [] }
   const occurrenceNodeId = tab.store.predictedNodeId(graphId)
   if (occurrenceNodeId === undefined) return { ok: false, diagnostics: [] }
-  const outcome = app.createRegion(tab, graphId, position, kind)
+  const outcome = await app.createRegion(tab, graphId, position, kind)
   if (outcome.ok) selectOccurrence(occurrenceNodeId)
   return outcome
 }
@@ -2670,12 +2671,31 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const tab = activeTab()
       return tab !== undefined && isFlattenSelection(tab.store.doc, currentGraphId(tab), [...controller.getSelection()], lifecycleOtherSelectionCount(controller))
     }
-    const createRegionAt = (tab: Tab, graphId: string, position: { x: number; y: number }, kind: RegionKind): boolean => {
-      return commitRegionCreation(props.app, tab, graphId, position, kind, (occurrenceNodeId) => {
-        if (activeTab() === tab && currentGraphId(tab) === graphId) controller.setSelection([occurrenceNodeId])
-      }).ok
+    const captureLifecycleTarget = (tab: Tab, graphId: string) => {
+      const store = tab.store
+      const stack = tab.graphStack.get()
+      const path = tab.instancePath.get()
+      const select = lifecycleSelectNodes
+      let changedTab = false
+      const unsubscribe = props.app.activeTabId.subscribe(() => { changedTab = true })
+      const isCurrent = () => !changedTab && select !== undefined && lifecycleSelectNodes === select && activeTab() === tab && tab.store === store &&
+        tab.graphStack.get() === stack && tab.instancePath.get() === path && currentGraphId(tab) === graphId
+      return {
+        isCurrent,
+        selectNodes: (nodeIds: readonly string[]) => { if (isCurrent()) select!(nodeIds) },
+        dispose: unsubscribe,
+      }
     }
-    const beginExtractSubgraph = (): boolean => {
+    const createRegionAt = async (tab: Tab, graphId: string, position: { x: number; y: number }, kind: RegionKind): Promise<boolean> => {
+      const target = captureLifecycleTarget(tab, graphId)
+      try {
+        const outcome = await commitRegionCreation(props.app, tab, graphId, position, kind, (occurrenceNodeId) => target.selectNodes([occurrenceNodeId]))
+        return outcome.ok
+      } finally {
+        target.dispose()
+      }
+    }
+    const beginExtractSubgraph = async (): Promise<boolean> => {
       const tab = activeTab()
       const reg = tab ? props.app.registryForTab(tab) : undefined
       if (!tab || tab.execution || !reg || !canExtractSubgraph()) return false
@@ -2689,38 +2709,52 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         report: (diagnostic) => reportGestureRefusal(tab.id, [diagnostic]),
       })
       if (invocation === undefined) return false
-      const result = commitExtract({
-        invocation,
-        beforeNodeIds: new Set(Object.keys(tab.store.doc.graphs[graphId]?.nodes ?? {})),
-        graphId,
-        dispatch: (command) => dispatchGesture(tab, command),
-      })
-      if (result.status === 'committed') lifecycleSelectNodes?.(result.selectedNodeIds)
-      return true
+      const target = captureLifecycleTarget(tab, graphId)
+      try {
+        const result = await commitExtract({
+          invocation,
+          beforeNodeIds: new Set(Object.keys(tab.store.doc.graphs[graphId]?.nodes ?? {})),
+          graphId,
+          dispatch: async (command) => {
+            const outcome = await props.app.dispatchTo(tab, command)
+            if (!outcome.ok && target.isCurrent()) showGestureRefusal(outcome.diagnostics)
+            return outcome
+          },
+        })
+        if (result.status === 'committed') target.selectNodes(result.selectedNodeIds)
+        return result.status === 'committed'
+      } finally {
+        target.dispose()
+      }
     }
-    const flattenSelectedSubgraph = (): boolean => {
+    const flattenSelectedSubgraph = async (): Promise<boolean> => {
       const tab = activeTab()
       const reg = tab ? props.app.registryForTab(tab) : undefined
       const graphId = tab ? currentGraphId(tab) : ''
       const nodeId = [...controller.getSelection()][0]
       if (!tab || tab.execution || !reg || !nodeId || !canFlattenSubgraph()) return false
       const occurrenceNode = scene.nodes.find((node) => node.id === nodeId)
-      return flattenSubgraphThroughBridge({
-        document: tab.store.doc,
-        graphId,
-        instancePath: viewInstancePath(tab) ?? [],
-        nodeId,
-        occurrence: occurrenceNode === undefined
-          ? undefined
-          : { id: nodeId, kind: 'node', x: occurrenceNode.x, y: occurrenceNode.y, width: occurrenceNode.layout.width, height: occurrenceNode.layout.height },
-        resolveSchema: reg.resolve,
-        seedControllerEnabled: props.app.settings.get<boolean>('features.seedController.enabled'),
-        measure,
-        widgetMeasure,
-        report: (diagnostic) => reportGestureRefusal(tab.id, [diagnostic]),
-        dispatch: (invocation) => tab.store.dispatch(invocation),
-        selectNodes: (nodeIds) => controller.setSelection(nodeIds),
-      })
+      const target = captureLifecycleTarget(tab, graphId)
+      try {
+        return await flattenSubgraphThroughBridge({
+          document: tab.store.doc,
+          graphId,
+          instancePath: viewInstancePath(tab) ?? [],
+          nodeId,
+          occurrence: occurrenceNode === undefined
+            ? undefined
+            : { id: nodeId, kind: 'node', x: occurrenceNode.x, y: occurrenceNode.y, width: occurrenceNode.layout.width, height: occurrenceNode.layout.height },
+          resolveSchema: reg.resolve,
+          seedControllerEnabled: props.app.settings.get<boolean>('features.seedController.enabled'),
+          measure,
+          widgetMeasure,
+          report: (diagnostic) => { if (target.isCurrent()) reportGestureRefusal(tab.id, [diagnostic]) },
+          dispatch: (invocation) => props.app.dispatchTo(tab, invocation),
+          selectNodes: target.selectNodes,
+        })
+      } finally {
+        target.dispose()
+      }
     }
     const widgetExposureItem = (
       tab: Tab,
@@ -3871,7 +3905,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           resolveType: () => ownerRegistry?.resolve,
           connect: (nodeId, schema) =>
             p.linkDrop !== undefined ? linkDropInvocations(p.linkDrop, graphId, nodeId, schema) : [],
-          dispatch: (invocation) => props.app.dispatchTo(tab, invocation).ok,
+          dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
           onInserted: (nodeId) => {
             if (activeTab() === tab) controller.setSelection([nodeId])
           },
@@ -4220,6 +4254,26 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const link = scene.links.find((candidate) => candidate.id === focusPlan.linkId)
         if (node) {
           controller.setSelection([node.id])
+          const input = focusRequest?.openAssetInput
+          const row = input === undefined ? undefined : node.layout.rows.find((candidate) =>
+            candidate.kind === 'widget' && candidate.valueKey === input)
+          if (input !== undefined && hostFocused()) {
+            const snapshot = tab.store.doc
+            queueMicrotask(() => {
+              if (!canvasEl.isConnected || activeTab() !== tab || tab.store.doc !== snapshot || currentGraphId(tab) !== graphId ||
+                  props.app.diagnosticFocus.get() !== undefined) return
+              if (row?.kind !== 'widget' || !isAssetWidgetInput({ widget: row.spec }) || tab.execution ||
+                  (row.selector === undefined && companionInputs.get(node.id)?.has(row.address.port))) {
+                reportGestureRefusal(tab.id, [diag('warning', 'validation', 'asset.replacement.unavailable',
+                  message('problems.assetReplacementUnavailable'))])
+                return
+              }
+              openWidgetEditor({
+                kind: 'widget', node, row, x: node.x + row.inset, y: node.y + row.y,
+                width: node.layout.width - row.inset * 2, height: row.height, localX: 0, localY: 0,
+              }, focusRequest?.missingAssetDigest)
+            })
+          }
           camera.animateTo(viewportCenteredOnNode(
             renderer.getViewport(),
             { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
@@ -4771,7 +4825,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     // -- widget editor overlay ----------------------------------------------
 
-    function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>): void {
+    function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>, missingAssetDigest?: string): void {
       const tab = activeTab()
       if (!tab || tab.execution) return // frozen views are read-only
       const graphId = currentGraphId(tab)
@@ -4790,7 +4844,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // stored value underneath. The exact envelope -> curve editor relation
       // instead opens a read-only view of the executed curve. Selector rows
       // keep their own value channel and are never driven.
-      if (hit.row.selector === undefined && companionInputs.get(nodeId)?.has(hit.row.valueKey) && curveTarget?.follow === undefined) return
+      if (hit.row.selector === undefined && companionInputs.get(nodeId)?.has(hit.row.address.port) && curveTarget?.follow === undefined) return
       const editorRole = (registry()?.resolve(hit.node.node.type) as { readonly editorRole?: string } | undefined)?.editorRole
       const valueType = canonicalTypeIdOf(hit.row.type)
       if (props.app.openEditorForBinding(tab.id, {
@@ -4923,6 +4977,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           height: hit.height,
         },
         initial: widgetKind === undefined ? JSON.stringify(value, null, 2) : value,
+        ...(missingAssetDigest === undefined ? {} : { missingAssetDigest }),
         ...(descriptors !== undefined ? { outputDescriptors: {
           spec: descriptors,
           asset: outputDescriptorAssetOf(descriptors, descriptorValues),
@@ -5338,7 +5393,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           upload: (body) => existing ? Promise.resolve(existing) : backend.protocol === 'dinkster'
             ? backend.connection.uploadLatentAsset(body, { scope: 'local', name: 'dropped-latent.latent', signal: abort.signal })
             : Promise.reject(new Error('latent upload requires a Dinkster backend')),
-          dispatch: (invocation) => props.app.dispatchTo(tab, invocation).ok,
+          dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
           onInserted: (nodeId) => { if (activeTab() === tab) controller.setSelection([nodeId]) },
         })
         const reportable = ownerLive()
@@ -5412,7 +5467,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             )
             return uploaded
           },
-          dispatch: (invocation) => props.app.dispatchTo(tab, invocation).ok,
+          dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
           onInserted: (nodeId) => { if (activeTab() === tab) controller.setSelection([nodeId]) },
         })
         const reportable = ownerLive()
@@ -5684,7 +5739,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           currentGraphId: () => currentGraphId(tab),
           graphStillOwned: () => !graphRetired,
           doc: () => tab.store.doc,
-          dispatch: (invocation) => props.app.dispatchTo(tab, invocation).ok,
+          dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
           onPasted: (nodeIds, rerouteIds) => {
             if (activeTab() === tab) controller.setSelection([...nodeIds], [], [...rerouteIds])
           },
@@ -5897,7 +5952,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (armed) queueMicrotask(() => canvasEl.focus())
         return armed
       },
-      createEmptySubgraph: (position) => {
+      createEmptySubgraph: async (position) => {
         const tab = activeTab()
         if (!tab || frozen()) return false
         const vp = renderer.getViewport()
@@ -5905,7 +5960,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           x: (canvasEl.clientWidth / 2 - vp.x) / vp.scale,
           y: (canvasEl.clientHeight / 2 - vp.y) / vp.scale,
         }
-        return props.app.createEmptySubgraph(tab, currentGraphId(tab), center).ok
+        return (await props.app.createEmptySubgraph(tab, currentGraphId(tab), center)).ok
       },
       createRegion: (kind, position) => {
         const tab = activeTab()

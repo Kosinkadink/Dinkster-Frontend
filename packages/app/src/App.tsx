@@ -1231,9 +1231,14 @@ export function App(props: {
   // from the registry, so moving a surface is a descriptor change, not a
   // JSX rewrite. Bodies stay local components so they can close over App
   // state.
-  const BackendMetadataState = (props: { readonly children: JSX.Element }) => {
+  const BackendMetadataState = (props: { readonly children: JSX.Element; readonly independentMounts?: boolean }) => {
     const [retrying, setRetrying] = createSolidSignal(false)
-    const error = () => { backendsTick(); return backendMetadataError(activeBackend()) }
+    const error = () => {
+      backendsTick()
+      const backend = activeBackend()
+      if (props.independentMounts && backend.schemaState.get().status !== 'error') return undefined
+      return backendMetadataError(backend)
+    }
     const retry = async (): Promise<void> => {
       if (retrying()) return
       const backend = activeBackend()
@@ -1270,17 +1275,19 @@ export function App(props: {
     />
     </BackendMetadataState>
   )
-  const AssetsPanelBody = () => {
-    const backend = activeBackend()
-    return backend.protocol === 'dinkster'
-      ? <BackendMetadataState><AssetsBody
+  const AssetsPanelBody = () => <Show when={activeBackend()} keyed>
+    {(backend) => {
+      return backend.protocol === 'dinkster'
+      ? <BackendMetadataState independentMounts><AssetsBody
           connection={backend.connection}
           backendId={String(backend.id)}
           baseUrl={backend.baseUrl}
+          backendLabel={backend.label}
           {...(props.federatedAssets ? { federatedContract: props.federatedAssets } : {})}
         /></BackendMetadataState>
       : <ProductEmptyState title={message('shell.backend.assetsRequireNative')} />
-  }
+    }}
+  </Show>
   const LogsBody = () => <ActivityLog entries={logs} clearArmed={logsClearArmed} />
   /**
    * Best-effort display title for a runtime node id: resolve through compile
@@ -1542,6 +1549,7 @@ export function App(props: {
         keybindings={app.keybindings}
         request={app.settingsOpenRequest.get()}
         onRequestConsumed={() => app.settingsOpenRequest.set(undefined)}
+        storageConnection={activeBackend().connection}
         packSettings={'fetchPackSettings' in app.connection ? {
           client: app.connection,
           packs: () => [...(defaultRegistry()?.packs ?? [])]

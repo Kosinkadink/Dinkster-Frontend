@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AssetDtoV1Client, CandidateV1 } from '@dinkster/client'
 import { federatedCollectionSource } from '../src/asset-browser/federated-collection-source.js'
+import { assetEntryPickable, assetItemOf } from '../src/asset-browser/collection-adapter.js'
+import { committableAssetRef } from '../src/asset-browser/helpers.js'
 
 const digest = `blake3:${'a'.repeat(64)}`
 const candidate: CandidateV1 = {
@@ -13,6 +15,26 @@ const candidate: CandidateV1 = {
 }
 
 describe('federated collection source', () => {
+  it('shares picker kind, MIME, availability and canonical-reference guards', async () => {
+    const media = { ...candidate, assetKind: 'media/image', assetRef: { ...candidate.assetRef!, name: 'image.png', mediaType: 'image/png' } }
+    const catalog = vi.fn().mockResolvedValue({ items: [
+      media,
+      { ...media, logicalId: 'remote', availability: { status: 'downloadable', reason: 'not local' } },
+      { ...media, logicalId: 'denied', compatibility: { status: 'incompatible', reason: 'refused' } },
+      { ...media, logicalId: 'wrong-kind', assetKind: 'media/video' },
+      { ...media, logicalId: 'wrong-mime', assetRef: { ...media.assetRef, mediaType: 'image/jpeg' } },
+    ] })
+    const source = federatedCollectionSource({ catalog } as unknown as AssetDtoV1Client, undefined, {
+      fixedKind: 'media/image', assetUrl: (digest) => `/assets/${digest}`,
+    })
+    const page = await source.page({ query: 'image', limit: 10 })
+    expect(catalog).toHaveBeenCalledWith({ query: 'image', limit: 10, assetKind: 'media/image' }, undefined)
+    expect(page.items.map(assetEntryPickable(['image/png'], 'media/image'))).toEqual([true, false, false, false, false])
+    expect(page.items[1]!.thumbUrl).toBeUndefined()
+    expect(page.items[2]!.thumbUrl).toBeUndefined()
+    expect(committableAssetRef(assetItemOf(page.items[0])!)).toEqual(media.assetRef)
+  })
+
   it('prefers a non-empty AssetRef name and keeps candidate identity in details', async () => {
     const source = federatedCollectionSource({ catalog: vi.fn().mockResolvedValue({ items: [candidate] }) } as unknown as AssetDtoV1Client)
     const item = (await source.page({ query: '', limit: 10 })).items[0]!
@@ -54,7 +76,8 @@ describe('federated collection source', () => {
     expect(item.title).toBe('downloadable / fp16')
     expect(item.subtitle).toBeUndefined()
     expect(item.badges).toEqual(['456 B'])
-    expect(item.ref).toEqual({ digest, size: 456, mediaType: 'application/x-safetensors' })
+    expect(assetItemOf(item)).toMatchObject({ digest, size: 456, mediaType: 'application/x-safetensors', availability: 'unavailable' })
+    expect(committableAssetRef(assetItemOf(item)!)).toBeUndefined()
     expect(item.details).toEqual(expect.arrayContaining([
       { label: 'Size', text: '456' },
       { label: 'Media type', text: 'application/x-safetensors' },
@@ -74,7 +97,7 @@ describe('federated collection source', () => {
   it('preserves local provenance and uses CollectionEntry.ref', async () => {
     const source = federatedCollectionSource({ catalog: vi.fn().mockResolvedValue({ items: [candidate] }) } as unknown as AssetDtoV1Client)
     const item = (await source.page({ query: '', limit: 10 })).items[0]!
-    expect(item.ref).toEqual(candidate.assetRef)
+    expect(committableAssetRef(assetItemOf(item)!)).toEqual(candidate.assetRef)
     expect(item.details).toEqual(expect.arrayContaining([
       { label: 'Kind', text: 'model/checkpoint' },
       { label: 'Virtual path', text: 'models/alpha.safetensors' },

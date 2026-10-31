@@ -25,6 +25,88 @@ and Apply action; when there are no writable folders, it directs the operator
 to add one in Project folders. Policy-disabled configuration stays read-only.
 Selecting an explicit save target does not require a configured default.
 
+## Retained asset wire contract
+
+`DinksterConnection` reads and writes scoped manifests at
+`/api/library/retentions/{ownerKind}/{ownerId}?scope=`. Owner kinds are
+`document`, `history`, `shown-result` and `preview`; independent retained
+generations use distinct IDs. PUT sends `{revision, digests, complete}` with
+canonical, sorted, deduplicated `blake3:` identities (at most 4096). Unknown or
+opaque typed values require incomplete ownership, not an empty complete set.
+The transport rejects oversized declarations rather than truncating them.
+
+An acknowledgment must match the exact scope, owner kind and ID. Mutations
+also require the requested canonical set, completeness and next revision.
+GET 404 means absent; conflicts, unavailable storage and malformed responses
+are errors, not successful release. No mutation is automatically retried:
+a lost response requires GET reconciliation against the entire expected set,
+completeness and revision before publication or a subsequent mutation.
+DELETE requires the acknowledged positive revision and returns a complete
+empty manifest at the next revision, preserving the durable tombstone.
+Restart, disconnection and view unmount do not authorize release.
+
+These manifests do not enumerate all frontend holders or enable collection.
+Bounded output descriptors, rendition fingerprints and cache keys are not
+complete typed asset-reference sets. The backend source gate
+`FRONTEND_RETENTION_COMPLETE` remains false; no HTTP flag enables deletion.
+
+## Staged document commands
+
+`DocumentStore.prepareDispatch()` evaluates and validates a command without
+changing the document, revision, undo/redo stacks or observers. A successful
+candidate exposes frozen current and proposed documents and history snapshots.
+The proposed history includes the new forward/inverse record, undo-depth
+trimming and redo-branch removal. Callers can retain both snapshots while
+awaiting external admission; preparation itself is not an acknowledgment.
+
+`commit()` publishes the candidate once. It refuses a consumed candidate or
+one whose captured document, revision or history has changed, including an
+edit followed by undo and a history-only clear. Refusal leaves current state
+untouched. Ordinary `dispatch()` immediately prepares and commits, preserving
+its synchronous final-outcome contract. A prepared command does not certify
+typed asset completeness or register a frontend holder.
+
+Shared sessions stage the actor-stamped, shared-replay-prepared invocation once.
+Their candidates include the participant's undo/redo history and confirmed and
+pending documents. Commit refuses a changed confirmed baseline, rebuilt store,
+history or connection status before optimistic publication and submission. The
+candidate's history record is installed before document observers run.
+
+Image apply and image-document export commands use an awaited retained
+dispatch path. It journals the exact backend, owner, root union and document
+lineage/revision before requesting ownership; workflow contents remain in their
+separate persistence path rather than being duplicated in each retention intent.
+The union includes current, undo, redo, proposed and shared pending roots.
+Exact acknowledgment or
+exact owner reconciliation precedes publication; a changed destination or stale
+candidate is refused. Unsupported schemas, dynamic state and nonempty extension
+records are incomplete, not empty root sets. Ordinary synchronous dispatch is unchanged.
+Schema defaults contribute roots only when the node has no stored override.
+An effective unresolved selection name is incomplete, not an asset identity.
+
+Delayed blueprint, clipboard, image-drop and latent-drop insertion await their
+owner-routed dispatch result before announcing inserted ids or completing the
+gesture. Both synchronous and asynchronous final results are supported; a
+pending result is not success. Their canvas adapters await the result before
+reading `ok`. These paths still use ordinary dispatch, not retained admission.
+
+Curve, Compositor and GLSL Apply, and unused-definition cleanup, also await
+the final command result. Pending actions disable duplicate submission and
+editor mutation; refused edits remain open. A completion cannot close or add
+errors to a replacement editor or modal. These callers still use ordinary
+dispatch and do not establish retained ownership themselves.
+
+Each admission shares its census across snapshots. Replayed node-only changes
+visit changed nodes when no subgraph instances are present; structural changes
+and subgraph instances require the full snapshot schema context. Object reuse
+is local to that census and node checks are keyed by resolved schema as well as
+node identity. Proposed history adds the captured current state and trims prior
+records, so it does not require replaying the same historical documents twice.
+
+Candidate owners remain retained and journaled, including after uncertain writes
+or failed publication. This path does not automatically release them or certify
+other workflow holders, restored sessions or collection safety.
+
 ## Goals
 
 - Performant node-graph editor for ComfyUI, local-first (no cloud/API-node concerns for now).
@@ -422,6 +504,75 @@ Custom packs like VideoHelperSuite have to fight the current frontend to show li
 **Input materialization ("peek") - assessed viable, exposure post-v1.** Rich-typed inputs (IMAGE first) can be widget-capable like any other port: an asset-reference WidgetKind (upload/pick/paste), value stored ID-keyed, compiled as a literal - no architectural change, just a registry entry. For *connected* inputs, an input's best available value can be resolved from prior executions without executing: hash the input's upstream cone (same memoized closure machinery as ExecutionScope) and compare against the same cone in each execution snapshot via provenance maps. Equal -> that run's output media is an **exact** materialization; unequal -> stale, shown dimmed with a provenance badge ("from run at T, upstream changed" - decided default; a settings toggle can suppress instead, and interactive approximation editors suppress stale inputs since editing against outdated pixels is the one costly case) - never silently wrong, which is what makes this safe where an "whatever image is lying around" heuristic would not be. "Materialize this input" is just partial execution targeting the feeding node. On top of peeked media, widgets/editors may declare an opt-in **interactive approximation** capability (e.g. crop-rectangle preview over the real upstream image, updating as values change client-side); approximations must be visually distinct from authoritative execution outputs at the design-language level. Known caveat: cone equality guarantees semantic identity, not bit-identity (GPU nondeterminism) - same caveat as the backend's own caching.
 
 **Peek backend contracts (SHIPPED, Dinkster commit a58cdb6).** The frontend side of peek is pure document+snapshot computation; payload access rides two native-protocol capabilities: (1) `GET /api/values?clientId&jobId&nodeId&outputId` - runtime node ids verbatim (region paths included), optional `element=i,j` list descent, optional `rendition=<kind>`; JSON descriptor + declared rendition list without a rendition, raw bytes with one (`ETag "<fingerprint>/<kind>"`, immutable - cache client-side forever, conditional GET honored). Lookup identity is job/node/output - fingerprint is ONLY the cache-validation tag, never a fetch key. Refusals are structured and distinct (`unknown-*`, `not-retained`, `not-complete`, `evicted`, `no-rendition`) - an evicted value can never silently resolve to a newer one, which is the property peek's "never silently wrong" story rests on. Rendition kinds are registry-extensible per type (packs register through the same TypeRegistry door as atoms), so negotiation is generic over the declared list, never hardcoded to PNG. (2) **Inline small scalars**: completed-job descriptors AND `node_finished`/`node_cached` per-output summaries carry optional `value` for registry-approved JSON scalars (strings capped, lists never inline at top level, absence never inlines; omission means "not inline", never null) - int/string/bool peeks need zero round trips, including mid-run intermediates. Retention: bounded server job history + cache residency for intermediates; leaving history is a clean `unknown-job`. Which execution peek resolves against is the section-8 overlay binding (follow-latest or pinned) - no new selection machinery.
+
+**Local asset catalog transport.** `DinksterConnection.listLocalAssets` reads
+`GET /api/assets/catalog` with scope and the immutable connection project.
+Pages preserve server-authored five-field references, aliases, ingest origins
+and timestamps; cursors stay bound to the query. Observations describe history,
+not authority to resolve their locations. `checkAssetAvailability` reads
+`GET /api/assets/availability` using scope and repeated exact digest fields;
+this endpoint does not accept a project parameter. It checks local byte
+presence without acquisition or catalog recovery. Missing bytes are explicit
+`missing` rows, never inferred from a malformed, incomplete or failed response.
+Both methods pass cancellation signals through to the transport.
+
+The Assets dock's All assets source combines recorded local assets, readable
+mounts and the configured federated catalog. Local assets remain available as
+a separate source, including when no filesystem mount exists. Recorded rows
+show aliases, dates and ingest provenance in the existing Details disclosure.
+The selected available asset also names its backend machine and offers exact
+operator locations through Copy server path. A capable Desktop shell adds
+Show file on this computer using digest, scope and project, never a renderer
+path. Missing rows expose no location actions. Connection and project changes
+invalidate the old selection's actions. The dock keys its body on the active
+backend, clearing selection and disposing pending location reads when a tab
+switches backend; switching panels alone preserves the body.
+All assets groups equal digests across sources and pages, retaining observed
+names, virtual locations and provenance in Details. Different bytes remain
+separate even when their names match; a live location can satisfy an older
+missing observation. Later pages update existing row identities in place.
+Exact byte availability is checked before presenting local results: missing
+rows remain inspectable but cannot be picked and never request thumbnails or
+model metadata. Compatible ASSET pickers share this adapter; directory, pair
+and literal selectors do not use it. A failed source is reported independently
+without hiding successful local or remote results. Model scans preserve
+healthy sources when another source fails and cancel paging when the editor
+closes or a refresh replaces the scan. Mount-discovery errors appear in source
+health without removing the independent local or federated catalogs. Compatible
+non-model ASSET pickers combine federated entries with local and mounted rows;
+only locally available, non-refused candidates with complete canonical refs
+can be picked. Remote-only or incompatible candidates cannot trigger byte
+reads or implicit acquisition.
+
+Live workflow tabs check their stored scalar and list AssetRefs against the
+selected native backend on open, edits, reconnect and target changes. Problems
+identifies missing exact digests by filename, backend, graph, node and input
+index. Failed or offline checks report unknown presence, not missing bytes.
+These checks never acquire files, resolve filenames or rewrite stored refs;
+late results from replaced checks, closed tabs and old targets are discarded.
+Successful current operator location reads are held as session observations.
+Save/download captures the submitted document before waiting for its current
+presence and location lookup (up to five seconds total for that lookup).
+Edits or target/session changes cancel the wait; failed or timed-out optional
+reads do not block saving or replace existing hints. The synchronous
+`exportDocument` snapshot includes only already completed observations.
+Save/download stamps observations into `meta.ext.dinkster.assetLocations`
+with a version, exact digest, machine label, physical paths and graph/node/input
+occurrence. Other extension data is preserved; the live document and its undo
+history are unchanged. Reopened missing-asset details show matching last-known
+machine/path hints without reading them. Hints with a different digest or input
+occurrence are ignored; permission failures preserve previous hints rather than
+inventing a location or inferring byte presence.
+
+Missing-asset Problems rows offer **Locate or replace** for reachable node
+definitions. The action navigates to the input and opens its ordinary compatible
+ASSET picker; shared definitions use their first reachable instance. Browsing
+and cancellation do not edit the workflow. Explicit Apply uses the existing
+undoable widget command, including list and materialized-family behavior.
+Same-name files are never automatic repairs, and recorded physical paths are
+not read. Frozen or wire-driven inputs remain read-only. A stored input without
+a currently exposed editable ASSET row reports that replacement is unavailable
+instead of silently focusing the node; its stored value is preserved.
 
 **Filesystem mounts backend contract (SHIPPED, Dinkster commit ddb4729).** The multi-directory replacement for ComfyUI's one-input/one-output-dir model; this is the surface a file-picker / mount-browser UX builds on. Read surface (always on when the backend serves with `--library-root`): `GET /api/mounts` -> `{"mounts": [{id, path, mode, source, state, entryCount?, error?}]}` with `state` pending|scanning|ready|failed, `mode` read|readwrite, `source` config|derived - real filesystem paths appear ONLY here (operator surface); documents never see them. `GET /api/mounts/{id}/list?path=<rel>` returns one level (`{"folders", "entries"}`) for folder navigation; `GET /api/mounts/{id}/entries?q=&cursor=&limit=` is the query-first cursor-paged catalog under the standing collection contract (cursor query-bound, 400 on mismatch, limit 1..500 default 100). Entry rows are EXACTLY the upload path's AssetRef fields plus `virtualPath` (`mounts/<id>/<relpath>`): `{virtualPath, name, digest, size, mediaType}` - so a browsed entry commits as a widget value through the existing ASSET path with zero decoder change. Previews: `GET /api/assets/{digest}` falls through from the upload vault to ready mounts (streamed, same ETag/immutable-cache contract) - no upload/copy needed. Mutation is policy-gated, not absent: `POST /api/mounts {id, path, mode?}` -> 201 descriptor, `DELETE /api/mounts/{id}`; without `--allow-mount-changes` both answer 403 `{"error": "mount-changes-disabled"}` (machine-readable, engine-not-ready mold - distinguish policy from missing endpoint and hide/disable the grant UI accordingly). Grants are durable immediately (mounts.toml), visible as a pending row at once, scanned in background; derived mounts (comfy-input read-only, comfy-output readwrite, auto-derived from `--comfy-root`) refuse runtime deletion with 409. Event: every mutation and finished scan publishes non-droppable `{"type": "mounts_changed"}` - a refetch ping for `GET /api/mounts`, never a diff (no epoch; the list is tiny). Workers resolve mounted digests live via an engine-republished snapshot file - no restart. Writes use the separate filename prefix and mount inputs described below.
 

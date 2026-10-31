@@ -326,7 +326,7 @@ interface DinksterTestBridge {
     queue(tab: DinksterBridgeTab): Promise<void>
     queueSelection(tab: DinksterBridgeTab, nodeIds: readonly string[]): Promise<void>
     exportDocument(tabId: string): unknown
-    exportWorkflow(tabId: string): boolean
+    exportWorkflow(tabId: string): Promise<boolean>
     importWorkflowFile(file: Pick<File, 'name' | 'text'>): Promise<boolean>
     /** Compile a tab against its target backend (undefined: no registry). */
     compileTab(tab: DinksterBridgeTab):

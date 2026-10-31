@@ -27,6 +27,11 @@ export function UniversalSearchTrigger(props: { readonly shortcut?: string | und
 export function UniversalSearch(props: { app: AppState }) {
   const [query, setQuery] = createSignal(''); const [groups, setGroups] = createSignal<readonly SearchGroup[]>([])
   const [selected, setSelected] = createSignal<string>(); const [expanded, setExpanded] = createSignal<ReadonlySet<string>>(new Set())
+  const [activating, setActivating] = createSignal(false)
+  let live = true
+  let searchRevision = 0
+  const unsubscribeOpen = props.app.searchOpen.subscribe(() => { searchRevision++ })
+  const unsubscribeTab = props.app.activeTabId.subscribe(() => { searchRevision++ })
   let input!: HTMLInputElement; let dialog!: HTMLDialogElement
   let results!: HTMLDivElement
   const instanceId = createUniqueId()
@@ -84,15 +89,16 @@ export function UniversalSearch(props: { app: AppState }) {
         : first?.results[0] === undefined ? undefined : `result:${first.id}:${first.results[0].id}`)
     },
   })
-  createEffect(() => session.query(query()))
+  createEffect(() => { searchRevision++; session.query(query()) })
   createEffect(() => {
     const id = activeDescendant()
     if (id === undefined) return
     queueMicrotask(() => results?.querySelector<HTMLElement>(`#${id}`)?.scrollIntoView?.({ block: 'nearest' }))
   })
   onMount(() => { dialog.showModal(); queueMicrotask(() => input.focus()) })
-  onCleanup(() => { session.dispose(); dialog.close() })
-  const activate = (index = selectedIndex()) => {
+  onCleanup(() => { live = false; unsubscribeOpen(); unsubscribeTab(); session.dispose(); dialog.close() })
+  const activate = async (index = selectedIndex()): Promise<void> => {
+    if (activating()) return
     const row = visible()[index]
     if (!row) return
     if (row.kind === 'expand') {
@@ -116,9 +122,19 @@ export function UniversalSearch(props: { app: AppState }) {
       queueMicrotask(() => runSearchAction(props.app, action))
       return
     }
-    if (!runSearchAction(props.app, action)) return
-    recordSearchRecent(props.app.settings, recentKeyOf(row))
-    props.app.searchOpen.set(false)
+    const tab = props.app.activeTab()
+    const revision = searchRevision
+    setActivating(true)
+    try {
+      const outcome = runSearchAction(props.app, action)
+      const accepted = typeof outcome === 'boolean' ? outcome : await outcome
+      if (!accepted || !live || (action.kind === 'command' &&
+          (!props.app.searchOpen.get() || props.app.activeTab() !== tab || searchRevision !== revision))) return
+      recordSearchRecent(props.app.settings, recentKeyOf(row))
+      props.app.searchOpen.set(false)
+    } finally {
+      if (live) setActivating(false)
+    }
   }
   const announcement = (): string => {
     const rows = visible()
@@ -163,7 +179,7 @@ export function UniversalSearch(props: { app: AppState }) {
           controls={listboxId}
           describedBy={statusId}
           activeDescendant={activeDescendant()}
-          busy={pending()}
+          busy={pending() || activating()}
           ariaLabel="Search Dinkster"
           testId="universal-search-input"
           inputRef={(element) => { input = element }}

@@ -277,6 +277,64 @@ describe('ASSET widget modal integration', () => {
     decodeError: () => { throw new Error('unexpected federated error') },
   })
 
+  it('composes local, mounted and federated media and retains local picks after mount failure', async () => {
+    const ref = (letter: string, name: string) => ({ digest: `blake3:${letter.repeat(64)}`, name, size: 12, mediaType: 'image/png', virtualPath: `images/${name}` })
+    const local = ref('a', 'local.png')
+    const mounted = ref('b', 'mounted.png')
+    const remote = ref('c', 'federated.png')
+    const missing = ref('d', 'missing.png')
+    const encodeRequest = vi.fn((request) => request)
+    const mediaCandidate = { ...candidate(remote.digest), assetKind: 'media/image', assetRef: remote,
+      availability: { status: 'local' as const, reason: '' } }
+    const contract: AssetDtoV1WireContract = { ...federatedContract(vi.fn(), []), catalog: { encodeRequest, decodeResponse: () => ({ contractVersion: 1, items: [
+      mediaCandidate,
+      { ...mediaCandidate, logicalId: 'unavailable', assetRef: ref('e', 'unavailable.png'), digest: ref('e', '').digest,
+        availability: { status: 'unavailable', reason: 'offline' } },
+      { ...mediaCandidate, logicalId: 'wrong-kind', assetKind: 'media/video', assetRef: ref('f', 'wrong-kind.png') },
+    ] }) } }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}'))
+    const connection = {
+      ...assetLocationMethods,
+      listMounts: vi.fn().mockResolvedValue([{ id: 'pictures', mode: 'read', state: 'ready', kind: 'media/image' }]),
+      listMountEntries: vi.fn().mockResolvedValue({ entries: [{ ...mounted, kind: 'media/image' }] }),
+      listLocalAssets: vi.fn().mockResolvedValue({ assets: [local, missing].map((asset) => ({ asset, aliases: [], observations: [{ kind: 'media/image', created: 1, origin: {} }] })) }),
+      checkAssetAvailability: vi.fn().mockResolvedValue([{ digest: local.digest, status: 'available' }, { digest: missing.digest, status: 'missing' }]),
+      assetUrl: (digest: string) => `/assets/${digest}`,
+      fetchAssetBytes: vi.fn().mockResolvedValue(undefined),
+    }
+    const dispatchTo = vi.fn()
+    const backend = { protocol: 'dinkster', id: 'native', connection }
+    const app = { backendForTab: () => backend, dispatchTo, widgetRegistry: { kind: () => undefined } } as unknown as AppState
+    const ed: WidgetEditorState = {
+      ...widgetState('ASSET', { accept: ['image/png'] }, missing),
+      missingAssetDigest: missing.digest,
+      spec: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] } },
+    }
+    for (const offline of [false, true]) {
+      if (offline) connection.listMounts.mockRejectedValue(new Error('Mount discovery offline'))
+      const root = document.createElement('div')
+      document.body.append(root)
+      const dispose = render(() => <WidgetEditor app={app} ed={ed} federatedAssets={contract} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+      await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(offline ? 2 : 3))
+      expect(connection.fetchAssetBytes).not.toHaveBeenCalled()
+      const names = [...root.querySelectorAll('[data-testid="collection-entry"]')].map((entry) => entry.textContent)
+      expect(names.some((name) => name?.includes('federated.png'))).toBe(true)
+      expect(names.some((name) => name?.includes('local.png'))).toBe(true)
+      expect(names.some((name) => name?.includes('mounted.png'))).toBe(!offline)
+      if (offline) expect(root.textContent).toContain('Mount discovery offline')
+      const pick = [...root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((entry) => entry.textContent?.includes(offline ? 'local.png' : 'federated.png'))!
+      pick.click()
+      root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+      expect(dispatchTo).toHaveBeenLastCalledWith(ed.tab, {
+        command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: offline ? local : remote },
+      })
+      dispose()
+      root.remove()
+      connection.fetchAssetBytes.mockClear()
+    }
+    expect(encodeRequest).toHaveBeenCalledWith(expect.objectContaining({ assetKind: 'media/image' }))
+  })
+
   const catalogAssetEditor = (
     kind: string,
     declaredType: WidgetEditorState['declaredType'] = { kind: 'concrete', name: 'ASSET' },
@@ -573,13 +631,13 @@ describe('ASSET widget modal integration', () => {
   it('keeps every media kind on the CollectionPanel grid by default', async () => {
     localStorage.removeItem('dinkster.assetBrowser.view.v1')
     const mounted = catalogAssetEditor('media/image')
-    await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="collection-panel"]')).not.toBeNull())
+    await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="collection-items"]')).not.toBeNull())
     expect(mounted.root.querySelector('[data-testid="collection-items"]')?.getAttribute('data-mode')).toBe('grid')
     expect(mounted.connection.listMountEntries).toHaveBeenCalledWith('left', expect.objectContaining({ kind: 'media/image' }))
     mounted.unmount()
 
     const video = catalogAssetEditor('media/video')
-    await vi.waitFor(() => expect(video.root.querySelector('[data-testid="collection-panel"]')).not.toBeNull())
+    await vi.waitFor(() => expect(video.root.querySelector('[data-testid="collection-items"]')).not.toBeNull())
     expect(video.root.querySelector('[data-testid="collection-items"]')?.getAttribute('data-mode')).toBe('grid')
     video.unmount()
   })

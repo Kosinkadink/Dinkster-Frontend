@@ -17,6 +17,69 @@ afterEach(() => {
   app.dispose()
   document.body.replaceChildren()
   localStorage.clear()
+  delete window.dinksterDesktop
+  vi.restoreAllMocks()
+})
+
+it('replaces Assets backend ownership and rejects pending old file locations when the tab target changes', async () => {
+  app = new AppState()
+  const old = app.backends.get()[0]!
+  const next = app.addBackend('http://next.test:9000', 'Next workstation', false, 'dinkster')!
+  if (old.protocol !== 'dinkster' || next.protocol !== 'dinkster') throw new Error('native backends required')
+  const ref = (letter: string, name: string) => ({
+    digest: `blake3:${letter.repeat(64)}`, name, size: 7,
+    mediaType: 'application/octet-stream', virtualPath: `mounts/output/${name}`,
+  })
+  const first = ref('a', 'old.bin')
+  const delayed = ref('b', 'delayed.bin')
+  const current = ref('c', 'current.bin')
+  let resolveOld!: (paths: string[]) => void
+  const pending = new Promise<string[]>((resolve) => { resolveOld = resolve })
+  for (const [backend, assets] of [[old, [first, delayed]], [next, [current]]] as const) {
+    vi.spyOn(backend.connection, 'listMounts').mockResolvedValue([])
+    vi.spyOn(backend.connection, 'listLocalAssets').mockResolvedValue({ assets: assets.map((asset) => ({ asset, aliases: [asset.name], observations: [] })) })
+    vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue(assets.map(({ digest }) => ({ digest, status: 'available' as const })))
+  }
+  vi.spyOn(old.connection, 'fetchAssetLocations').mockImplementation((digest) => digest === delayed.digest ? pending : Promise.resolve(['/old/output/old.bin']))
+  vi.spyOn(next.connection, 'fetchAssetLocations').mockResolvedValue(['/next/output/current.bin'])
+  const revealFile = vi.fn().mockResolvedValue(undefined)
+  const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+  const host = document.createElement('div')
+  document.body.append(host)
+  window.dinksterDesktop = {
+    fileCapabilities: async () => ({ nativeFolderChoice: false, reveal: true }),
+    chooseDirectory: async () => undefined,
+    resolveDroppedFile: async () => ({ status: 'refused', reason: 'not-resolvable' }),
+    revealFile,
+  }
+  dispose = render(() => <App app={app} />, host)
+  expect(host.querySelector('[data-testid="desktop-management-button"]')).toBeNull()
+  host.querySelector<HTMLButtonElement>('[data-testid="assets-toggle"]')!.click()
+  const select = (name: string) => [...host.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((row) => row.textContent?.includes(name))!
+  await vi.waitFor(() => expect(select(first.name)).toBeDefined())
+  select(first.name).click()
+  await vi.waitFor(() => expect(host.querySelector('[data-testid="asset-file-location"]')?.textContent).toContain('/old/output/old.bin'))
+  select(delayed.name).click()
+  await vi.waitFor(() => expect(old.connection.fetchAssetLocations).toHaveBeenCalledWith(delayed.digest))
+
+  app.setTabTarget(app.activeTab()!.id, next.id)
+
+  await vi.waitFor(() => expect(select(current.name)).toBeDefined())
+  expect(select(first.name)).toBeUndefined()
+  expect(host.querySelector('[data-testid="asset-file-location"]')).toBeNull()
+  select(current.name).click()
+  await vi.waitFor(() => expect(host.querySelector('[data-testid="asset-file-location"]')?.textContent).toContain('/next/output/current.bin'))
+  resolveOld(['/old/output/delayed.bin'])
+  await pending
+  await Promise.resolve()
+  const locations = host.querySelector('[data-testid="asset-file-location"]')!
+  expect(locations.textContent).toContain('Next workstation')
+  expect(locations.textContent).not.toContain('/old/')
+  ;[...locations.querySelectorAll('button')].find((button) => button.textContent === 'Copy server path')!.click()
+  await vi.waitFor(() => expect(copy).toHaveBeenCalledWith('/next/output/current.bin'))
+  ;[...locations.querySelectorAll('button')].find((button) => button.textContent === 'Show file on this computer')!.click()
+  await vi.waitFor(() => expect(revealFile).toHaveBeenCalledWith('http://next.test:9000/', { digest: current.digest, scope: 'local', project: 'default' }))
+  expect(revealFile).toHaveBeenCalledTimes(1)
 })
 
 it('does not register disabled template surfaces and withdraws enabled surfaces', async () => {

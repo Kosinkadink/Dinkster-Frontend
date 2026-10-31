@@ -74,7 +74,7 @@ export const pasteClipboardIntoTab = async (p: {
   /** The invoking tab's document at commit time. */
   readonly doc: () => WorkflowDocument
   /** Owner-routed dispatch (dispatchTo the invoking tab); true on ok. */
-  readonly dispatch: (invocation: CommandInvocation) => boolean
+  readonly dispatch: (invocation: CommandInvocation) => boolean | Promise<boolean>
   /** Called with the fresh ids after an ok commit. */
   readonly onPasted: (nodeIds: readonly string[], rerouteIds: readonly string[]) => void
 }): Promise<ClipboardPasteOutcome> => {
@@ -98,7 +98,7 @@ export const pasteClipboardIntoTab = async (p: {
     p.acceptExternal === undefined ? undefined : (stub) => p.acceptExternal!(parsed as DinksterClipboardEnvelope, stub),
   )
   if (!plan) return 'no-plan'
-  if (!p.dispatch(plan.invocation)) return 'rejected'
+  if (!await p.dispatch(plan.invocation)) return 'rejected'
   p.onPasted(plan.nodeIds, plan.rerouteIds)
   return 'pasted'
 }

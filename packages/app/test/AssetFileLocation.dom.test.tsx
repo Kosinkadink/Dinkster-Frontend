@@ -2,12 +2,28 @@ import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AssetFileLocation } from '../src/AssetFileLocation.js'
-import { resolveDroppedAsset, type DinksterDesktopBridge } from '../src/desktop-bridge.js'
+import { desktopBridge, desktopFileBridge, resolveDroppedAsset, type DinksterDesktopBridge } from '../src/desktop-bridge.js'
 
 const digest = `blake3:${'a'.repeat(64)}`
 afterEach(() => { delete window.dinksterDesktop; document.body.replaceChildren(); vi.restoreAllMocks() })
 
 describe('exact asset location actions', () => {
+  it('detects native files independently while preserving the full lifecycle bridge', () => {
+    expect(desktopBridge()).toBeUndefined()
+    expect(desktopFileBridge()).toBeUndefined()
+    const files = {
+      fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: true }),
+      chooseDirectory: async () => undefined,
+    }
+    window.dinksterDesktop = files
+    expect(desktopBridge()).toBeUndefined()
+    expect(desktopFileBridge()).toBe(files)
+    const full = { ...files, locale: async () => 'en', status: async () => ({ phase: 'running', detail: '' }) } as unknown as DinksterDesktopBridge
+    window.dinksterDesktop = full
+    expect(desktopBridge()).toBe(full)
+    expect(desktopFileBridge()).toBe(full)
+  })
+
   it.each([undefined, false])('does not send a File when resolvePath is %s and fails closed on capability errors', async (resolvePath) => {
     const resolveDroppedFile = vi.fn()
     const file = new File(['original'], 'original.png', { type: 'image/png' })

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { render } from 'solid-js/web'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, EMPTY_COMPOSITOR_RECIPE, registerCatalog, setLocale, type DinksterNodesPayload, type Json } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
@@ -91,13 +91,14 @@ function mount(options: {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks()
   setLocale('en')
   document.body.replaceChildren()
   localStorage.clear()
 })
 
 describe('CompositorEditor', () => {
-  it('edits layer order and properties, then commits one exact atomic recipe', () => {
+  it('edits layer order and properties, then commits one exact atomic recipe', async () => {
     const mounted = mount()
     expect(mounted.root.querySelectorAll('.compositor-layer-row')).toHaveLength(2)
     expect([...mounted.root.querySelectorAll<HTMLInputElement>('input')].some((input) => input.value === '320')).toBe(true)
@@ -139,7 +140,51 @@ describe('CompositorEditor', () => {
       flipHorizontal: false, flipVertical: false, sourceWidth: 80, sourceHeight: 60,
     } })
     expect(value.commands.at(-1)).toEqual({ op: 'reorder', ids: ['l2', 'l0'] })
-    expect(mounted.app.imageEditorTarget.get()).toBeUndefined()
+    await vi.waitFor(() => expect(mounted.app.imageEditorTarget.get()).toBeUndefined())
+    mounted.dispose()
+    mounted.app.dispose()
+  })
+
+  it.each([false, true])('waits for compositor result %s before closing and prevents duplicate apply', async (accepted) => {
+    const mounted = mount()
+    const request = mounted.app.imageEditorTarget.get()
+    const dispatch = mounted.app.dispatchTo.bind(mounted.app)
+    let settle!: () => void
+    const pending = vi.spyOn(mounted.app, 'dispatchTo').mockImplementation((tab, invocation) =>
+      new Promise((resolve) => { settle = () => resolve(accepted ? dispatch(tab, invocation) : { ok: false, diagnostics: [] }) }) as never)
+    const apply = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Apply')!
+    apply.click()
+    expect(apply.disabled).toBe(true)
+    expect(mounted.app.imageEditorTarget.get()).toBe(request)
+    apply.click()
+    expect(pending).toHaveBeenCalledOnce()
+    settle()
+    await vi.waitFor(() => accepted
+      ? expect(mounted.app.imageEditorTarget.get()).toBeUndefined()
+      : expect(mounted.root.querySelector('[role="alert"]')).not.toBeNull())
+    if (!accepted) {
+      expect(mounted.app.imageEditorTarget.get()).toBe(request)
+      expect(apply.disabled).toBe(false)
+    }
+    mounted.dispose()
+    mounted.app.dispose()
+  })
+
+  it('keeps a replacement compositor free of an old apply refusal', async () => {
+    const mounted = mount()
+    let settle!: () => void
+    vi.spyOn(mounted.app, 'dispatchTo').mockImplementation(() => new Promise((resolve) => {
+      settle = () => resolve({ ok: false, diagnostics: [] })
+    }) as never)
+    const apply = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Apply')!
+    apply.click()
+    const replacement = { ...mounted.app.imageEditorTarget.get()! }
+    mounted.app.imageEditorTarget.set(replacement)
+    settle()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(mounted.app.imageEditorTarget.get()).toBe(replacement)
+    expect(mounted.root.querySelector('[role="alert"]')).toBeNull()
     mounted.dispose()
     mounted.app.dispose()
   })

@@ -1,5 +1,6 @@
 import { AssetDtoV1Client, AssetDtoV1HttpError, type CandidateV1, type CatalogRequestV1 } from '@dinkster/client'
 import type { CollectionEntry, CollectionSource } from '@dinkster/core'
+import { assetEntryOf } from './collection-adapter.js'
 import { formatSize } from './helpers.js'
 
 const details = (
@@ -25,19 +26,23 @@ const details = (
   ...(candidate.assetRef ? [{ label: 'Virtual path', text: candidate.assetRef.virtualPath }] : []),
 ]
 
-const entry = (candidate: CandidateV1): CollectionEntry => {
+const entry = (candidate: CandidateV1, assetUrl?: (digest: string) => string): CollectionEntry => {
   const size = candidate.assetRef?.size ?? candidate.size
   const mediaType = candidate.assetRef?.mediaType ?? candidate.mediaType
+  const id = `federated:${JSON.stringify([candidate.logicalId, candidate.variantId, candidate.digest])}`
   return {
-    id: `federated:${JSON.stringify([candidate.logicalId, candidate.variantId, candidate.digest])}`,
-    title: candidate.assetRef?.name || `${candidate.logicalId} / ${candidate.variantId}`,
-    badges: size !== undefined ? [formatSize(size)] : [],
-    details: details(candidate, size, mediaType),
-    ref: candidate.assetRef ?? {
-      digest: candidate.digest,
+    ...assetEntryOf({
+      id, name: candidate.assetRef?.name || `${candidate.logicalId} / ${candidate.variantId}`,
+      digest: candidate.digest, kind: candidate.assetKind,
       ...(size !== undefined ? { size } : {}),
       ...(mediaType !== undefined ? { mediaType } : {}),
-    },
+      ...(candidate.assetRef ? { virtualPath: candidate.assetRef.virtualPath, rawRef: candidate.assetRef } : {}),
+      availability: candidate.availability.status === 'local' && candidate.assetRef !== undefined
+        && candidate.compatibility.status !== 'incompatible' ? 'available' : 'unavailable',
+      source: { id: 'federated-assets', label: 'Federated catalog' },
+    }, assetUrl),
+    badges: size !== undefined ? [formatSize(size)] : [],
+    details: details(candidate, size, mediaType),
   }
 }
 
@@ -49,18 +54,22 @@ const unavailable = (title: string, reason: string): CollectionEntry => ({
   details: [{ label: 'Reason', text: reason }],
 })
 
-export function federatedCollectionSource(client: AssetDtoV1Client, onFailure?: (message: string | undefined) => void): CollectionSource {
+export function federatedCollectionSource(
+  client: AssetDtoV1Client,
+  onFailure?: (message: string | undefined) => void,
+  options: { fixedKind?: string; assetUrl?: (digest: string) => string } = {},
+): CollectionSource {
   const providers = new Set<string>()
   const sources = new Set<string>()
   let generation = 0
-  const options = (values: Set<string>) => [...values].sort().map((value) => ({ value, label: value }))
+  const filterOptions = (values: Set<string>) => [...values].sort().map((value) => ({ value, label: value }))
   return {
     id: 'all-assets',
     label: 'All assets',
     folders: false,
     filters: [
-      { id: 'providerId', label: 'Provider', options: () => options(providers) },
-      { id: 'sourceId', label: 'Source', options: () => options(sources) },
+      { id: 'providerId', label: 'Provider', options: () => filterOptions(providers) },
+      { id: 'sourceId', label: 'Source', options: () => filterOptions(sources) },
       { id: 'availability', label: 'Availability', options: () => ['local', 'downloadable', 'unavailable'].map((value) => ({ value, label: value })) },
       { id: 'compatibility', label: 'Compatibility', options: () => ['compatible', 'incompatible', 'unknown'].map((value) => ({ value, label: value })) },
     ],
@@ -70,7 +79,8 @@ export function federatedCollectionSource(client: AssetDtoV1Client, onFailure?: 
       const filters = req.filters ?? {}
       const request: CatalogRequestV1 = {
         query: req.query,
-        ...(typeof filters['assetKind'] === 'string' ? { assetKind: filters['assetKind'] } : {}),
+        ...(options.fixedKind !== undefined ? { assetKind: options.fixedKind }
+          : typeof filters['assetKind'] === 'string' ? { assetKind: filters['assetKind'] } : {}),
         ...(filters['availability'] ? { availability: [filters['availability']] as NonNullable<CatalogRequestV1['availability']> } : {}),
         ...(filters['compatibility'] ? { compatibility: [filters['compatibility']] as NonNullable<CatalogRequestV1['compatibility']> } : {}),
         ...(req.cursor !== undefined ? { cursor: req.cursor } : {}),
@@ -91,7 +101,7 @@ export function federatedCollectionSource(client: AssetDtoV1Client, onFailure?: 
               (!providerId || provider.source.providerId === providerId)
               && (!sourceId || provider.source.sourceId === sourceId)))
           : page.items
-        return { items: filtered.map(entry), ...(page.nextCursor !== undefined ? { cursor: page.nextCursor } : {}) }
+        return { items: filtered.map((candidate) => entry(candidate, options.assetUrl)), ...(page.nextCursor !== undefined ? { cursor: page.nextCursor } : {}) }
       } catch (error) {
         if (req.signal?.aborted === true) throw error
         const code = error instanceof AssetDtoV1HttpError ? error.error.error.code : 'catalog-error'
