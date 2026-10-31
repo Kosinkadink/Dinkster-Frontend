@@ -39,6 +39,7 @@ import {
   hasPreviewSurface,
   inputsOf,
   isCanonicalUnsafeInteger,
+  type CommandOutcome,
   type ExposedParameter,
   type ExposedPreview,
   type Json,
@@ -678,19 +679,19 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     commit(row, parsed.value)
   }
 
-  const dispatchEntry = (command: string, entry: ExposedParameter, extra: Record<string, Json> = {}): void => {
+  const dispatchEntry = (command: string, entry: ExposedParameter, extra: Record<string, Json> = {}): CommandOutcome | Promise<CommandOutcome> | undefined => {
     const tab = activeTab()
     if (!tab) return
-    props.app.dispatchTo(tab, {
+    return props.app.dispatchTo(tab, {
       command,
       params: { graphId: entry.graphId, nodeId: entry.nodeId, inputId: entry.inputId, ...extra },
     })
   }
 
-  const dispatchPreviewEntry = (command: string, entry: ExposedPreview, extra: Record<string, Json> = {}): void => {
+  const dispatchPreviewEntry = (command: string, entry: ExposedPreview, extra: Record<string, Json> = {}): CommandOutcome | Promise<CommandOutcome> | undefined => {
     const tab = activeTab()
     if (!tab) return
-    props.app.dispatchTo(tab, {
+    return props.app.dispatchTo(tab, {
       command,
       params: { graphId: entry.graphId, nodeId: entry.nodeId, ...extra },
     })
@@ -953,6 +954,57 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   const [renaming, setRenaming] = createSolidSignal<string | undefined>(undefined)
   const [previewRenaming, setPreviewRenaming] = createSolidSignal<string | undefined>(undefined)
 
+  const RenameLabel = (renameProps: {
+    readonly initial: string
+    readonly label: string
+    readonly testId: string
+    readonly commit: (label: string | null) => CommandOutcome | Promise<CommandOutcome> | undefined
+    readonly close: () => void
+  }) => {
+    const tab = activeTab()
+    const initial = renameProps.initial
+    let current = true
+    onCleanup(() => { current = false })
+    const [pending, setPending] = createSolidSignal(false)
+    const [refusal, setRefusal] = createSolidSignal<string>()
+    const noticeId = createUniqueId()
+    const submit = async (raw: string): Promise<void> => {
+      if (!current || pending() || activeTab() !== tab) return
+      setPending(true)
+      setRefusal(undefined)
+      try {
+        const label = raw.trim()
+        const outcome = await renameProps.commit(label.length > 0 ? label : null)
+        if (!current || activeTab() !== tab) return
+        if (outcome?.ok) renameProps.close()
+        else if (outcome !== undefined) setRefusal(outcome.diagnostics[0]?.message)
+      } finally {
+        if (current) setPending(false)
+      }
+    }
+    return <div class="app-view-rename-field" aria-busy={pending()}>
+      <ProductTextInput
+        class="app-view-rename"
+        data-testid={renameProps.testId}
+        aria-label={renameProps.label}
+        aria-invalid={refusal() !== undefined}
+        aria-describedby={refusal() === undefined ? undefined : noticeId}
+        value={initial}
+        readOnly={pending()}
+        ref={(element) => queueMicrotask(() => { if (current) { element.focus(); element.select() } })}
+        onKeyDown={(event) => {
+          if (event.isComposing) return
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            void submit(event.currentTarget.value)
+          } else if (event.key === 'Escape') renameProps.close()
+        }}
+        onBlur={renameProps.close}
+      />
+      <Show when={refusal()}>{(text) => <div id={noticeId}><ProductNotice tone="error">{text()}</ProductNotice></div>}</Show>
+    </div>
+  }
+
   interface RemoteSource {
     readonly client: RefreshableScopedClient
     readonly route: string
@@ -1154,8 +1206,10 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   // authoring interaction state whenever either changes. The memo's value
   // equality keeps unrelated tabs-array churn from clearing a live rename.
   const interactionScope = createMemo((): string => `${activeTabId()}:${arrange()}:${arrangeBreakpoint()}`)
+  const interactionStore = createMemo(() => activeTab()?.store)
   createEffect(() => {
     interactionScope()
+    interactionStore()
     disposeGridPointer?.()
     setGridGesture(undefined)
     setRenaming(undefined)
@@ -1612,21 +1666,12 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               </span>
             }
           >
-            <ProductTextInput
-              class="app-view-rename"
-              data-testid="app-view-rename"
-              aria-label={message('appView.action.rename', { label: label() })}
-              value={row().entry.label ?? label()}
-              ref={(element) => queueMicrotask(() => { element.focus(); element.select() })}
-              onKeyDown={(event) => {
-                if (event.isComposing) return
-                if (event.key === 'Enter') {
-                  const trimmed = event.currentTarget.value.trim()
-                  dispatchEntry('params.setLabel', row().entry, { label: trimmed.length > 0 ? trimmed : null })
-                  setRenaming(undefined)
-                } else if (event.key === 'Escape') setRenaming(undefined)
-              }}
-              onBlur={() => setRenaming(undefined)}
+            <RenameLabel
+              testId="app-view-rename"
+              label={message('appView.action.rename', { label: label() })}
+              initial={row().entry.label ?? label()}
+              commit={(label) => dispatchEntry('params.setLabel', row().entry, { label })}
+              close={() => setRenaming(undefined)}
             />
           </Show>
           <Show when={arrange()}>
@@ -1801,21 +1846,12 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               </span>
             }
           >
-            <ProductTextInput
-              class="app-view-rename"
-              data-testid="app-preview-rename"
-              aria-label={message('appView.action.rename', { label: label() })}
-              value={row().entry.label ?? label()}
-              ref={(element) => queueMicrotask(() => { element.focus(); element.select() })}
-              onKeyDown={(event) => {
-                if (event.isComposing) return
-                if (event.key === 'Enter') {
-                  const trimmed = event.currentTarget.value.trim()
-                  dispatchPreviewEntry('previews.setLabel', row().entry, { label: trimmed.length > 0 ? trimmed : null })
-                  setPreviewRenaming(undefined)
-                } else if (event.key === 'Escape') setPreviewRenaming(undefined)
-              }}
-              onBlur={() => setPreviewRenaming(undefined)}
+            <RenameLabel
+              testId="app-preview-rename"
+              label={message('appView.action.rename', { label: label() })}
+              initial={row().entry.label ?? label()}
+              commit={(label) => dispatchPreviewEntry('previews.setLabel', row().entry, { label })}
+              close={() => setPreviewRenaming(undefined)}
             />
           </Show>
           <Show when={arrange()}>

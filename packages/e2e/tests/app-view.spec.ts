@@ -61,13 +61,25 @@ async function exposeViaMenu(page: Page, inputId: string): Promise<void> {
   await menuItem(page, 'core.widget.expose.toggle').click()
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
+  const mockRename = testInfo.annotations.some((annotation) => annotation.type === 'mock-rename-dispatch')
+  if (mockRename) {
+    await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: {} }))
+    await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'rename-fixture', schemaWire: 1 }, nodes: {},
+    } }))
+    await page.routeWebSocket('**/api/events?*', () => {})
+  }
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await expect.poll(() => page.evaluate(() => {
-    const backend = window.__dinksterTest!.app.backends.get()[0]!
-    return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
-  })).toBe(true)
+  if (mockRename) {
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
+  } else {
+    await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+    await expect.poll(() => page.evaluate(() => {
+      const backend = window.__dinksterTest!.app.backends.get()[0]!
+      return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
+    })).toBe(true)
+  }
   await page.evaluate((remoteRoute) => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
@@ -368,6 +380,97 @@ test('control coverage: string/boolean/combo edit inline; ASSET renders read-onl
   await readOnly.focus()
   await expect(page.getByTestId('app-tooltip')).toHaveText(hint!)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
+})
+
+test('parameter and preview renames await acceptance and preserve refused or newer drafts', {
+  annotation: { type: 'mock-rename-dispatch' },
+}, async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'AppViewTest', displayName: 'App View Test', category: 'test', source: 'v3', isOutputNode: false,
+      emitsPreviews: true,
+      items: [{ kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: false,
+        widget: { widgetType: 'INT', options: { min: 0, max: 100, step: 5 }, default: 5 } }],
+    }])
+    const tab = app.activeTab()!
+    app.dispatchTo(tab, { command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'count' } })
+    app.dispatchTo(tab, { command: 'previews.expose', params: { graphId: 'g0', nodeId: 'widgets' } })
+  })
+  await selectView(page, 'App view')
+  await enterArrange(page)
+  for (const kind of ['app-view', 'app-preview']) {
+    await page.evaluate(() => {
+      const app = window.__dinksterTest!.app as any
+      const dispatch = app.dispatchTo.bind(app)
+      ;(window as any).__renameOriginal ??= dispatch
+      ;(window as any).__renamePending = []
+      app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
+        ;(window as any).__renamePending.push((accepted: boolean) => resolve(accepted ? (window as any).__renameOriginal(tab, invocation) : {
+          ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Label change refused for test' }],
+        }))
+      })
+    })
+    const input = page.getByTestId(`${kind}-rename`)
+    const open = () => page.getByTestId(`${kind}-rename-start`).click()
+    const settle = (index: number, accepted: boolean) => page.evaluate(({ index, accepted }) => {
+      ;(window as any).__renamePending[index](accepted)
+    }, { index, accepted })
+    const label = async () => ((await activeDoc(page)).ext?.[kind === 'app-view' ? 'dinkster.exposed' : 'dinkster.exposedPreviews'] as { label?: string }[])[0]!.label
+    await open()
+    await page.screenshot({ path: testInfo.outputPath(`${kind}-default.png`) })
+    await input.fill('  Exact label  ')
+    await input.press('Enter')
+    await expect(input).toHaveAttribute('readonly', '')
+    await expect(input.locator('..')).toHaveAttribute('aria-busy', 'true')
+    await input.press('Enter')
+    expect(await page.evaluate(() => (window as any).__renamePending.length)).toBe(1)
+    expect(await label()).toBeUndefined()
+    await page.screenshot({ path: testInfo.outputPath(`${kind}-pending.png`) })
+    await settle(0, false)
+    await expect(input).not.toHaveAttribute('readonly')
+    await expect(input).toHaveValue('  Exact label  ')
+    await expect(input.locator('..').getByRole('alert')).toHaveText('Label change refused for test')
+    await page.screenshot({ path: testInfo.outputPath(`${kind}-refused.png`) })
+    await page.setViewportSize({ width: 760, height: 900 })
+    await expect(input).toHaveValue('  Exact label  ')
+    await page.screenshot({ path: testInfo.outputPath(`${kind}-refused-narrow.png`) })
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await input.press('Enter')
+    await settle(1, true)
+    await expect(input).toHaveCount(0)
+    expect(await label()).toBe('Exact label')
+    await page.screenshot({ path: testInfo.outputPath(`${kind}-accepted.png`) })
+    expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+    expect(await label()).toBeUndefined()
+    await open()
+    await input.fill('Old label')
+    await input.press('Enter')
+    await input.press('Escape')
+    await open()
+    await input.fill('New label')
+    await input.press('Enter')
+    await settle(2, true)
+    await expect(input).toHaveValue('New label')
+    await expect(input).toHaveAttribute('readonly', '')
+    await settle(3, false)
+    await expect(input).toHaveValue('New label')
+    await expect(input.locator('..').getByRole('alert')).toBeVisible()
+    await input.press('Enter')
+    await page.getByTestId('app-view-arrange-toggle').click()
+    await page.getByTestId('app-view-arrange-toggle').click()
+    await expect(input).toHaveCount(0)
+    await open()
+    await input.fill('Next draft')
+    await settle(4, false)
+    await expect(input).toHaveValue('Next draft')
+    await expect(input.locator('..').getByRole('alert')).toHaveCount(0)
+    await input.fill('   ')
+    await input.press('Enter')
+    await settle(5, true)
+    await expect(input).toHaveCount(0)
+    expect(await label()).toBeUndefined()
+  }
 })
 
 test('rename and reorder are document commands; stale rows stay removable', async ({ page }) => {

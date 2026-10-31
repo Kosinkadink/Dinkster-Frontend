@@ -38,6 +38,13 @@ controls. Arrange state belongs to the tab UI, survives an editor-kind switch,
 and is not document data or persisted across reloads. Frozen tabs cannot enter
 Arrange mode.
 
+Parameter and preview label renames wait for final command acceptance before
+closing. Pending fields stay read only and ignore repeated Enter. A refusal
+keeps the exact draft with an inline notice for retry. Escape or blur dismisses
+the field without cancelling a submitted command. Leaving Arrange mode,
+switching tabs or replacing the document session discards transient rename UI;
+old completion cannot close a newer rename. Empty labels still clear overrides.
+
 App View uses the shared Product button, text, number, checkbox and select
 controls in both modes. Group and text-style selectors support the same
 combobox keyboard navigation and focus restoration as shell settings.
