@@ -220,6 +220,7 @@ it.each(['valid', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-obj',
     : variant === 'empty-spz' ? new Uint8Array([0x1f, 0x8b, 8])
     : variant === 'empty-ksplat' ? new Uint8Array([0, 1, 0])
     : variant === 'empty-unsupported' ? new Uint8Array([7])
+    : variant === 'empty-gltf' ? new TextEncoder().encode(`${' '.repeat(700)}{"asset":{"version":"2.0"}}`)
     : new TextEncoder().encode('{"asset":{"version":"2.0"}}')
   const connection = {
     fetchAssetBytes: async (digest: string) => { reads.push(digest); return bytes.buffer },
