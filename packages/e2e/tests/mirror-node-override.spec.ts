@@ -40,11 +40,14 @@ const imageSourceNode = {
 test('the node context menu overrides mirror estimates per node', async ({ page }, testInfo) => {
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
+  await page.routeWebSocket('**/api/events*', () => {})
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.route('**/api/assets/*', (route) => route.fulfill({ contentType: 'image/png', body: sourcePng }))
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+  await page.route('/api/nodes*', (route) => page.waitForFunction(() =>
+    window.__dinksterTest?.app.backends.get()[0]?.connection.status.get() === 'connected',
+  ).then(() => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
     dinkster: { version: 'mirror-node-override-proof', schemaWire: 1 },
@@ -52,7 +55,7 @@ test('the node context menu overrides mirror estimates per node', async ({ page 
       'e2e.image.source': imageSourceNode,
       'dinkster.image.adjust': adjustWire,
     },
-  } }))
+  } })))
 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
