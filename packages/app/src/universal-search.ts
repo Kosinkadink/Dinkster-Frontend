@@ -76,10 +76,11 @@ function duplicateNodeNames(schemas: readonly Pick<NodeSchema, 'type' | 'display
   return duplicates
 }
 
-export function runSearchAction(app: AppState, action: SearchAction): boolean {
+export function runSearchAction(app: AppState, action: SearchAction): boolean | Promise<boolean> {
   if (action.kind === 'command') {
     const tab = app.activeTab()
-    return tab !== undefined && app.dispatchTo(tab, action.invocation).ok
+    return tab === undefined ? false
+      : Promise.resolve(app.dispatchTo(tab, action.invocation)).then((outcome) => outcome.ok)
   }
   const decoded = decodeSearchHostAction(action)
   if (decoded === undefined) return false
