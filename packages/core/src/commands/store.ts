@@ -39,6 +39,18 @@ type PreparedCommand =
   | Extract<CommandOutcome, { readonly ok: false }>
   | (Extract<CommandOutcome, { readonly ok: true }> & { readonly invocation: CommandInvocation })
 
+export type PreparedDocumentDispatch =
+  | Extract<CommandOutcome, { readonly ok: false }>
+  | {
+      readonly ok: true
+      readonly currentDocument: WorkflowDocument
+      readonly currentHistory: HistorySnapshot
+      readonly document: WorkflowDocument
+      readonly history: HistorySnapshot
+      /** Publish once, only while the captured document revision is current. */
+      readonly commit: () => CommandOutcome
+    }
+
 /**
  * Observer failures must never corrupt a committed transaction (CO10): each
  * listener is isolated, the rest keep getting notified, and failures go to
@@ -445,7 +457,7 @@ export class DocumentStore implements DocumentStoreContract {
     }
   }
 
-  private prepareDispatch(invocation: CommandInvocation): PreparedCommand {
+  private evaluateDispatch(invocation: CommandInvocation): PreparedCommand {
     const def = this.commands.get(invocation.command)
     if (!def) {
       return {
@@ -517,13 +529,54 @@ export class DocumentStore implements DocumentStoreContract {
     return { ok: true, doc, forward, inverse, diagnostics: [...commandDiags, ...invariantDiags], invocation: ownedInvocation }
   }
 
-  dispatch(invocation: CommandInvocation): CommandOutcome {
-    const prepared = this.prepareDispatch(invocation)
+  prepareDispatch(invocation: CommandInvocation): PreparedDocumentDispatch {
+    const prepared = this.evaluateDispatch(invocation)
     if (!prepared.ok) return prepared
     const { invocation: ownedInvocation, ...outcome } = prepared
+    const revision = this.revision
+    const currentDocument = this.doc
+    const freezeHistory = (history: HistorySnapshot): HistorySnapshot => Object.freeze({
+      revision: history.revision,
+      undo: Object.freeze(history.undo.map((record) => Object.freeze(record))),
+      redo: Object.freeze(history.redo.map((record) => Object.freeze(record))),
+    })
+    const currentHistory = freezeHistory(this.historySnapshot())
+    const undo = [...currentHistory.undo]
+    if (outcome.forward.length > 0) {
+      undo.push({ forward: outcome.forward, inverse: outcome.inverse })
+      if (undo.length > this.maxUndo) undo.shift()
+    }
+    const history = freezeHistory({
+      revision: revision + (outcome.forward.length > 0 ? 1 : 0),
+      undo,
+      redo: outcome.forward.length > 0 ? [] : currentHistory.redo,
+    })
+    let consumed = false
+    return Object.freeze({
+      ok: true,
+      currentDocument,
+      currentHistory,
+      document: outcome.doc,
+      history,
+      commit: (): CommandOutcome => {
+        if (consumed || this.revision !== revision || this.doc !== currentDocument ||
+          this.undoStack.length !== currentHistory.undo.length || this.redoStack.length !== currentHistory.redo.length) {
+          return { ok: false, diagnostics: [diag('error', 'command', 'command.candidate.stale', 'Prepared command is stale or already consumed')] }
+        }
+        consumed = true
+        return this.publishDispatch(ownedInvocation, outcome)
+      },
+    })
+  }
+
+  dispatch(invocation: CommandInvocation): CommandOutcome {
+    const prepared = this.prepareDispatch(invocation)
+    return prepared.ok ? prepared.commit() : prepared
+  }
+
+  private publishDispatch(ownedInvocation: CommandInvocation, outcome: Extract<CommandOutcome, { readonly ok: true }>): CommandOutcome {
     const { doc, forward, inverse } = outcome
     if (forward.length === 0) return outcome
-
     this.revisionCounter += 1
     // FR2: capture the revision NOW - a reentrant dispatch from inside the
     // commit's notifications moves revisionCounter before this frame ends.

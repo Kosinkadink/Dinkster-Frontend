@@ -50,6 +50,22 @@ Bounded output descriptors, rendition fingerprints and cache keys are not
 complete typed asset-reference sets. The backend source gate
 `FRONTEND_RETENTION_COMPLETE` remains false; no HTTP flag enables deletion.
 
+## Staged document commands
+
+`DocumentStore.prepareDispatch()` evaluates and validates a command without
+changing the document, revision, undo/redo stacks or observers. A successful
+candidate exposes frozen current and proposed documents and history snapshots.
+The proposed history includes the new forward/inverse record, undo-depth
+trimming and redo-branch removal. Callers can retain both snapshots while
+awaiting external admission; preparation itself is not an acknowledgment.
+
+`commit()` publishes the candidate once. It refuses a consumed candidate or
+one whose captured document, revision or history has changed, including an
+edit followed by undo and a history-only clear. Refusal leaves current state
+untouched. Ordinary `dispatch()` immediately prepares and commits, preserving
+its synchronous final-outcome contract. A prepared command does not certify
+typed asset completeness or register a frontend holder.
+
 ## Goals
 
 - Performant node-graph editor for ComfyUI, local-first (no cloud/API-node concerns for now).
