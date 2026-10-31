@@ -10,12 +10,14 @@
  * output fanning out to n2+n3) and s9 random (c10 IMAGE from n0, c11 LATENT
  * from n4).
  */
-import { readFileSync } from 'node:fs'
+import selectorFixture from '../../core/fixtures/workflows/selector.json' with { type: 'json' }
 import { expect, test, type Page } from './fixtures.js'
 
-const fixture = JSON.parse(
-  readFileSync(new URL('../../core/fixtures/workflows/selector.json', import.meta.url), 'utf8'),
-) as unknown
+const fixture = structuredClone(selectorFixture)
+fixture.graphs.g0.links.l12.from.port = 'IMAGE'
+fixture.graphs.g0.links.l13.from.port = 'IMAGE'
+fixture.graphs.g0.links.l17.from.port = 'IMAGE'
+fixture.graphs.g0.links.l18.from.port = 'LATENT'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 
@@ -233,11 +235,11 @@ test('Add Branch appends a candidate; a fresh producer connects into it; Remove 
   const newId = grown.candidates[2]!.id
 
   // The new branch renders an empty (wildcard) pin; n1's output accepts it.
-  await drag(page, await pinPoint(page, 'n1', 'out0', 'out'), await pointOnSelector(page, 's6', { candidate: newId }))
+  await drag(page, await pinPoint(page, 'n1', 'IMAGE', 'out'), await pointOnSelector(page, 's6', { candidate: newId }))
   const g = await rootGraph(page)
   const feed = Object.values(g.links).find((l) => 'selector' in l.to && l.to.candidate === newId)
   expect(feed).toBeDefined()
-  expect(feed!.from).toEqual({ node: 'n1', port: 'out0' })
+  expect(feed!.from).toEqual({ node: 'n1', port: 'IMAGE' })
 
   // Removing the branch cascades its feed link.
   await page.mouse.click(...xy(await pointOnSelector(page, 's6', 'body')), { button: 'right' })
@@ -253,11 +255,11 @@ test('grabbing an occupied candidate pin rewires its feed to another branch; spa
   await menuItem(page, 'core.selector.addCandidate').click()
   const newId = (await rootGraph(page)).selectors!['s6']!.candidates[2]!.id
 
-  // c7 is fed by n0.out0 (l12). Grabbing the branch pin grabs that link's
+  // c7 is fed by n0.IMAGE (l12). Grabbing the branch pin grabs that link's
   // input end (the driver stays fixed); dropping on the free branch rewires.
   await drag(page, await pointOnSelector(page, 's6', { candidate: 'c7' }), await pointOnSelector(page, 's6', { candidate: newId }))
   const g = await rootGraph(page)
-  expect(g.links['l12']!.from).toEqual({ node: 'n0', port: 'out0' })
+  expect(g.links['l12']!.from).toEqual({ node: 'n0', port: 'IMAGE' })
   expect(g.links['l12']!.to).toEqual({ selector: 's6', candidate: newId })
 
   // Grabbing the rewired feed and dropping in empty space detaches it.

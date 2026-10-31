@@ -72,6 +72,73 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('node-output-pager')).toHaveCount(1)
 })
 
+test('native batch rail mounts one page, releases departing tiles, and keeps viewer indices', async ({ page }) => {
+  const requested: number[] = []
+  const png = await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 64
+    canvas.height = 32
+    const context = canvas.getContext('2d')!
+    context.fillStyle = '#3b82f6'
+    context.fillRect(0, 0, 64, 32)
+    const revoked: string[] = []
+    const revoke = URL.revokeObjectURL.bind(URL)
+    URL.revokeObjectURL = (url) => { revoked.push(url); revoke(url) }
+    ;(window as unknown as { revokedOutputUrls: string[] }).revokedOutputUrls = revoked
+    return canvas.toDataURL('image/png').split(',')[1]!
+  })
+  const descriptor = { typeId: 'IMAGE', fingerprint: 'native-batch', meta: { shape: [9, 32, 64, 3] } }
+  await page.route('**/api/values?*', (route) => {
+    const query = new URL(route.request().url()).searchParams
+    if (!query.has('rendition')) return route.fulfill({ json: {
+      available: true, descriptor, renditions: [{ kind: 'png', mime: 'image/png', parameters: ['batch'] }],
+    } })
+    requested.push(Number(query.get('batch')))
+    return route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64'), headers: {
+      'X-Dinkster-Fingerprint': 'native-batch', 'X-Dinkster-Rendition': 'png',
+    } })
+  })
+  await page.evaluate((descriptor) => {
+    const app = window.__dinksterTest!.app
+    const execution = [...app.store.executions.get().values()].find((entry) => entry.ref.prompt === 'output-preview-run-1')!
+    ;(app.store as unknown as { apply(event: unknown): void }).apply({
+      kind: 'nodeOutput', execution: execution.ref, runtimeNodeId: 'save', timestamp: Date.now(), output: { images: descriptor },
+    })
+  }, descriptor)
+  const thumbnails = page.locator('.output-thumbnail')
+  const pages = page.getByRole('group', { name: 'Output image pages' })
+  await expect(thumbnails).toHaveCount(4)
+  await expect(pages).toContainText('1-4 of 9')
+  await expect.poll(() => [...new Set(requested)].sort()).toEqual([0, 1, 2, 3])
+  for (const image of await thumbnails.locator('img').all()) await expect(image).toHaveJSProperty('naturalWidth', 64)
+  const firstUrls = await thumbnails.locator('img').evaluateAll((images) => images.map((image) => (image as HTMLImageElement).src))
+  await page.getByTestId('outputs-panel').screenshot({ path: `${proofDir}/native-batch-page-1.png` })
+  await thumbnails.last().scrollIntoViewIfNeeded()
+  await expect(thumbnails.last()).toBeInViewport()
+  await page.getByTestId('outputs-panel').screenshot({ path: `${proofDir}/native-batch-page-1-tail.png` })
+  await pages.getByRole('button', { name: 'Next output page' }).click()
+  await expect(pages).toContainText('5-8 of 9')
+  await expect(thumbnails.first()).toHaveAttribute('aria-label', /Image 5 of 9/)
+  await expect.poll(() => page.evaluate((urls) => {
+    const revoked = (window as unknown as { revokedOutputUrls: string[] }).revokedOutputUrls
+    return urls.every((url) => revoked.includes(url))
+  }, firstUrls)).toBe(true)
+  await expect.poll(() => [...new Set(requested)].sort()).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+  await page.getByTestId('outputs-panel').screenshot({ path: `${proofDir}/native-batch-page-2.png` })
+  await thumbnails.last().scrollIntoViewIfNeeded()
+  await expect(thumbnails.last()).toBeInViewport()
+  await page.getByTestId('outputs-panel').screenshot({ path: `${proofDir}/native-batch-page-2-tail.png` })
+  await pages.getByRole('button', { name: 'Next output page' }).click()
+  await expect(thumbnails).toHaveCount(1)
+  await expect(pages).toContainText('9-9 of 9')
+  await expect(pages.getByRole('button', { name: 'Next output page' })).toBeDisabled()
+  await thumbnails.first().click()
+  await expect(page.getByTestId('output-viewer-position')).toHaveText('9 / 9')
+  await page.keyboard.press('Escape')
+  await expect(thumbnails.first()).toBeFocused()
+  await page.getByTestId('outputs-panel').screenshot({ path: `${proofDir}/native-batch-page-3.png` })
+})
+
 test('rail viewer and canvas paging remain ordered, accessible, ephemeral, and responsive', async ({ page }) => {
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   const thumbnails = page.locator('.output-thumbnail')

@@ -12,7 +12,7 @@
     "text:'close' path), and closing restores focus to the opener. A body that must swallow keys - e.g. the settings keybinding capture - calls preventDefault on the keydown, which suppresses the native close request. The host owns the chrome (::backdrop, title, close button); a keyed Show remounts the body per panel, so opening IS the reset. aria-modal is redundant on a modal",
     "text:('.product-tablist') const body = element.querySelector",
     "text:('.product-tabpanel:not([hidden])') const overflowButton = element.querySelector",
-    "text:() const [failed, setFailed] = createSolidSignal",
+    "text:() const [imagePage, setImagePage] = createSolidSignal(0) const [failed, setFailed] = createSolidSignal",
     "text:() const layers = new Set",
     "text:()) setLoaded(new Set",
     "text:(new Set()) const [loaded, setLoaded] = createSolidSignal",

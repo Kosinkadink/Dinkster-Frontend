@@ -17,6 +17,13 @@ const TEMPLATE_DOC = {
 }
 
 async function openTemplatesPanel(page: Page): Promise<void> {
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {},
+  } }))
+  await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
+  await page.route('/api/settings', (route) => route.fulfill({ json: {
+    features: { templates: { enabled: false } }, categories: { granted: [], available: [] }, settings: {},
+  } }))
   await page.routeWebSocket('**/api/events*', () => {})
   await page.route(`${MOCK}/api/settings`, (route) => route.fulfill({ json: {
     features: { templates: { enabled: true } },
@@ -56,21 +63,22 @@ async function openTemplatesPanel(page: Page): Promise<void> {
   const templates = library.locator('[data-testid=collection-source][data-source=templates]')
   if (await templates.isVisible()) await templates.click()
   else await selectProductOption(page, library.getByTestId('library-source-select'), 'templates')
-  await expect(page.getByTestId('collection-entry')).toHaveCount(2)
+  await expect(library.getByTestId('collection-entry')).toHaveCount(2)
 }
 
 test('searches templates and opens the body as a new document', async ({ page }) => {
   await openTemplatesPanel(page)
+  const library = page.getByTestId('library-overlay')
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
-  const starter = page.getByRole('option', { name: /Stable Diffusion 1.5/ })
+  const starter = library.getByRole('option', { name: /Stable Diffusion 1.5/ })
   await expect(starter).not.toHaveAttribute('title')
   await starter.hover()
   await expect(page.getByTestId('app-tooltip')).toContainText('Stable Diffusion 1.5', { timeout: 1_500 })
   await starter.focus()
   await expect(page.getByTestId('app-tooltip')).toContainText('Two expected nodes')
-  await page.getByTestId('collection-search').fill('SD 1.5')
-  const search = page.getByTestId('collection-search')
-  const clearSearch = page.getByRole('button', { name: 'Clear search templates', exact: true })
+  await library.getByTestId('collection-search').fill('SD 1.5')
+  const search = library.getByTestId('collection-search')
+  const clearSearch = library.getByRole('button', { name: 'Clear search templates', exact: true })
   await expect(clearSearch).toBeVisible()
   await expect(search).toHaveAttribute('type', 'search')
   await expect(search).toHaveAttribute('role', 'combobox')
@@ -87,16 +95,16 @@ test('searches templates and opens the body as a new document', async ({ page })
   await expect(search).toHaveValue('')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
   await search.fill('SD 1.5')
-  await expect(page.getByTestId('collection-entry')).toHaveCount(1)
+  await expect(library.getByTestId('collection-entry')).toHaveCount(1)
   if (proofDir !== undefined) {
     await page.getByTestId('library-overlay').screenshot({
       path: join(proofDir, 'library-template-search-sd15.png'),
       animations: 'disabled',
     })
   }
-  await page.getByTestId('collection-entry').click()
-  await expect(page.getByTestId('collection-entry')).toContainText('Demo Model - model/checkpoint - 1 KiB')
-  await page.locator('[data-testid=collection-action][data-action=open]').click()
+  await library.getByTestId('collection-entry').click()
+  await expect(library.getByTestId('collection-entry')).toContainText('Demo Model - model/checkpoint - 1 KiB')
+  await library.locator('[data-testid=collection-action][data-action=open]').click()
   await expect(page.getByTestId('library-overlay')).not.toBeVisible()
   expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes))).toEqual(['expectedA', 'expectedB'])
 })
@@ -107,10 +115,11 @@ test('Enter on a nested entry action clicks the action, not the row', async ({ p
   // have no click-activation), the action strip would vanish, and the
   // template could never open by keyboard. Native button Enter must win.
   await openTemplatesPanel(page)
-  await page.getByTestId('collection-search').fill('SD 1.5')
-  await expect(page.getByTestId('collection-entry')).toHaveCount(1)
-  await page.getByTestId('collection-entry').click()
-  const action = page.locator('[data-testid=collection-action][data-action=open]')
+  const library = page.getByTestId('library-overlay')
+  await library.getByTestId('collection-search').fill('SD 1.5')
+  await expect(library.getByTestId('collection-entry')).toHaveCount(1)
+  await library.getByTestId('collection-entry').click()
+  const action = library.locator('[data-testid=collection-action][data-action=open]')
   await action.focus()
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('library-overlay')).not.toBeVisible()

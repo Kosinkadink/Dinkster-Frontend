@@ -13,6 +13,43 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('decodes editable combos with empty or omitted choices without widening ordinary combos', () => {
+    const editable = { type: 'COMBO', editableOptions: true }
+    for (const choices of [{}, { options: [] }, { options: ['second', 'first', 'second', 0, false] }]) {
+      const result = parseDinksterSchema('Authored', {
+        additionalInputs: { kind: 'wildcard' },
+        interface: [{ role: 'input', id: 'choice', type: concrete('COMBO'), widget: { ...editable, ...choices } }],
+      })
+      expect(result.diagnostics).toEqual([])
+      expect(result.schema!.additionalInputs).toEqual({ kind: 'wildcard' })
+      expect(inputsOf(result.schema!)[0]!.widget).toMatchObject({
+        editableOptions: true,
+        options: 'options' in choices ? { options: choices.options } : {},
+      })
+    }
+    for (const widget of [
+      { ...editable, editableOptions: 'true' },
+      { ...editable, remote: { route: '/choices' } },
+      { ...editable, optionSource: { inputFamily: 'items' } },
+      { type: 'COMBO', options: [] },
+      { type: 'COMBO' },
+      { type: 'COMBO', editableOptions: false, options: [] },
+    ]) {
+      expect(parseDinksterSchema('Invalid', { interface: [
+        { role: 'input', id: 'choice', type: concrete('COMBO'), widget },
+      ] }).schema).toBeUndefined()
+    }
+    const ordinary = parseDinksterSchema('Ordinary', { interface: [
+      { role: 'input', id: 'choice', type: concrete('COMBO'), widget: { type: 'COMBO', options: ['a'] } },
+    ] })
+    expect(ordinary.diagnostics).toEqual([])
+    expect(inputsOf(ordinary.schema!)[0]!.widget!.editableOptions).toBeUndefined()
+    expect(parseDinksterSchema('Closed', { interface: [] }).schema!.additionalInputs).toBeUndefined()
+    expect(parseDinksterSchema('Invalid', {
+      additionalInputs: { kind: 'family_tuple', input: 'items' }, interface: [],
+    }).schema).toBeUndefined()
+  })
+
   it('preserves native asset-selection schemas and imported source names', () => {
     for (const kind of ['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset']) {
       const types = [concrete('COMBO'), ...(kind === 'model/vae' ? [{ kind: 'union', types: ['COMBO', 'ASSET'] }] : [])]

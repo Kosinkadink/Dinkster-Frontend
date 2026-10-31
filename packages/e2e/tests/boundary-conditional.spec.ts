@@ -363,8 +363,8 @@ test('region occurrences author independent conditional and promoted widget stat
       kind: string; inputId?: string; derivedValue?: unknown; familyOwner?: unknown
     }>
     const row = rows.find((item) => item.kind === 'widget' && item.inputId === 'amount')!
-    return { occurrenceValue: row.derivedValue !== undefined, occurrenceOwner: row.familyOwner !== undefined }
-  })).toEqual({ occurrenceValue: false, occurrenceOwner: false })
+    return { occurrenceValue: row.derivedValue !== undefined, occurrenceOwner: row.familyOwner }
+  })).toEqual({ occurrenceValue: false, occurrenceOwner: { graphId: 'g0', nodeId: 'i0', construct: 'amount', valueKey: 'amount' } })
   const definitionAmount = await widgetRowPoint(page, 'amount', 'amount')
   await page.mouse.click(definitionAmount.x, definitionAmount.y)
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)

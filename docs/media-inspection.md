@@ -7,6 +7,12 @@ owns that execution, using the original job, runtime node and output IDs. It doe
 not download media, materialize a waveform, decode video, or edit the workflow.
 Unavailable owners and refused or expired values remain visible diagnostics.
 
+Removing a backend disconnects it without discarding its historical output
+routes. Recorded native images, canvas/App View previews and value inspectors
+still read through that execution's original backend and client identity; they
+never fall back to the current backend. Reads can still report unavailable
+when the original server or recorded value is no longer accessible.
+
 IMAGE rows show layout, alpha mode, dtype, storage dtype and color declarations.
 MASK rows show polarity and semantic. AUDIO rows show sample rate, channels,
 layout, duration and dtype. VIDEO rows distinguish the admitted source probe
@@ -25,6 +31,16 @@ preserves mounted inspector disclosures and their open state.
 Image output thumbnails, the output viewer, canvas previews and App View use a
 checkerboard behind transparent pixels. The background is presentation-only and
 does not bake into the image or affect downstream mirror inputs.
+The Outputs image grid includes native IMAGE batches as well as saved image
+assets. It mounts at most four tiles per page; page controls retain the global
+output order and opening a tile selects that image in the full viewer.
+Each native batch tile requests an advertised PNG rendition from its
+owning execution; mounting and unmounting the tile owns its request and blob URL.
+Unavailable renditions remain visible as unavailable tiles.
+
+Canvas and App View show attributed live frames while a node is running.
+Once it finishes, recorded native media renditions take precedence over late
+frames, just like saved artifact previews. Frame-only nodes retain their frame.
 
 When a server rendition includes `X-Dinkster-Color-Transform`, canvas and App View
 captions show its conversion label as **Preview color**. App View calls that

@@ -4447,10 +4447,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (!frozen && exec?.artifact && liveArtifact?.connection === exec.ref.connection &&
           exec.artifact.connection === exec.ref.connection) exactProducer = liveExactnessFor(liveArtifact, exec.artifact)
       // Terminal NATIVE runs can peek recorded values via GET /api/values.
-      const execBackend = exec ? props.app.backendFor(exec.ref.connection) : undefined
       const values =
-        exec && execBackend?.protocol === 'dinkster' && exec.status !== 'queued' && exec.status !== 'running'
-          ? execBackend.connection.values()
+        exec && exec.status !== 'queued' && exec.status !== 'running'
+          ? props.app.valuesForExecution(exec.ref)
           : undefined
       const currentDiagnostics = composeCanvasProblemDiagnostics({
         owned: problems().filter((diagnostic) =>

@@ -245,6 +245,9 @@ test('manifest-gated extension providers use host groups, previews, actions, and
   await page.setViewportSize({ width: 1600, height: 950 })
   await page.goto('/')
   await expect(page.getByTestId('topbar-search')).toBeVisible()
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest!.app.backends.get()[0]?.schemaState.get().status,
+  )).toBe('ready')
   expect(await page.evaluate(() => window.__dinksterTest!.app.extensions.register({
     id: 'demo', displayName: 'Demo search pack', contributions: [
       { id: 'demo.search.workflows', category: 'searchProvider' },

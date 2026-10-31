@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
+import { selectProductOption } from './fixtures.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const PHYSICAL_MICROPHONE = process.env['DINKSTER_PHYSICAL_MICROPHONE']
@@ -138,6 +139,7 @@ test(PHYSICAL_MICROPHONE
   await page.mouse.click(point.x, point.y)
   const recorder = page.getByRole('region', { name: 'Record audio', exact: true })
   await expect(recorder).toBeVisible()
+  await selectProductOption(page, page.getByTestId('upload-destination-mount'), 'output')
   let selectedDevice: Buffer | undefined
   if (PHYSICAL_MICROPHONE) {
     await recorder.getByRole('button', { name: 'Find microphones' }).click()

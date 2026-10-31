@@ -50,12 +50,12 @@ test('in: filters by declared input type with residual text ranking', async ({ p
 nativeTest('long node names do not overlap their pack badge', async ({ page }) => {
   nativeTest.skip(process.env['DINKSTER_E2E_USE_NATIVE'] !== '1', 'requires the native multi-pack catalog')
   await openPalette(page)
-  await page.getByTestId('palette-search').fill('Convert Text to Lowercase')
-  const row = page.locator('[data-node-type="comfy.TextToLowercase"]')
+  await page.getByTestId('palette-search').fill('CLIP Text Encode (SDXL Refiner)')
+  const row = page.locator('[data-node-type="CLIPTextEncodeSDXLRefiner"]')
   const name = row.locator('.search-result-row-title')
   const pack = row.locator('.search-result-row-badge')
   await expect(row).toBeVisible()
-  await expect(pack).toHaveText('ComfyUI Compat')
+  await expect(pack).toHaveText('dinkster-nodes-comfy')
 
   const [nameBox, packBox] = await Promise.all([name.boundingBox(), pack.boundingBox()])
   expect(nameBox).not.toBeNull()
@@ -146,12 +146,17 @@ test('highlighted entry shows a schema preview: ports with types, keyboard-drive
 
   // Arrow keys move the highlight and the preview follows.
   await search.fill('image')
-  const first = await page.getByTestId('palette-item').first().locator('.search-result-row-title').textContent()
-  const firstType = await canvas.getAttribute('data-preview-ready')
+  const entries = page.getByTestId('palette-item')
+  const firstType = await entries.nth(0).getAttribute('data-node-type')
+  const secondType = await entries.nth(1).getAttribute('data-node-type')
+  const secondTitle = await entries.nth(1).locator('.search-result-row-title').textContent()
   expect(firstType).toBeTruthy()
+  expect(secondType).toBeTruthy()
+  expect(secondType).not.toBe(firstType)
+  await expect(canvas).toHaveAttribute('data-preview-ready', firstType!)
   await search.press('ArrowDown')
-  await expect(preview.locator('.preview-title')).not.toHaveText(first!)
-  await expect(canvas).not.toHaveAttribute('data-preview-ready', firstType!)
+  await expect(preview.locator('.preview-title')).toHaveText(secondTitle!)
+  await expect(canvas).toHaveAttribute('data-preview-ready', secondType!)
 })
 
 test('subgraph entries preview their boundary-derived interface', async ({ page }) => {
@@ -201,7 +206,12 @@ test('product type disclosures are independent, keyboard complete, and mutation 
   await inputSearch.fill('latent')
   const latent = inputPanel.getByRole('checkbox', { name: 'LATENT', exact: true })
   await expect(latent).toHaveAttribute('aria-checked', 'false')
+  const options = inputPanel.getByRole('checkbox')
+  const latentIndex = await options.evaluateAll((items) => items.findIndex((item) => item.textContent === 'LATENT'))
+  expect(latentIndex).toBeGreaterThanOrEqual(0)
   await inputSearch.press('ArrowDown')
+  await expect(options.first()).toBeFocused()
+  for (let index = 0; index < latentIndex; index++) await page.keyboard.press('ArrowDown')
   await expect(latent).toBeFocused()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
 

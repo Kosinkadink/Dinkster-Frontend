@@ -40,13 +40,17 @@ async function addNodeAndOpenHelp(page: Page, type: string): Promise<void> {
 }
 
 test('documented node context Help renders its immutable Markdown page', async ({ page }) => {
+  await page.routeWebSocket('**/api/events*', () => {})
   await page.route('/supervisor/status', (route) =>
     route.fulfill({ status: 502, contentType: 'text/plain', body: 'no supervisor' }),
   )
   await page.route('/system_stats', (route) =>
     route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }),
   )
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+  await page.route('/api/nodes*', (route) => page.waitForFunction(() => {
+    const backend = window.__dinksterTest?.app.backends.get()[0]
+    return backend?.connection.status.get() === 'connected'
+  }).then(() => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
     dinkster: { version: 'node-help-e2e', schemaWire: 1 },
@@ -61,7 +65,7 @@ test('documented node context Help renders its immutable Markdown page', async (
         category: 'math', pack: 'demo-pack', signature: 'no-help-e2e', interface: [],
       },
     },
-  } }))
+  } })))
   await page.route('/api/docs?*', (route) => route.fulfill({ json: {
     docs: [{
       pack: 'demo-pack', kind: 'node', id: 'demo.add', defaultLocale: 'en',

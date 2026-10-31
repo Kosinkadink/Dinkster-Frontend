@@ -149,7 +149,7 @@ test("Save Image publishes its mounted path and follows the persisted output mou
     .toBe("ready");
 
   const uploaded = await request.post(
-    `${backend}/api/assets/media?scope=local&kind=media%2Fimage&name=output-mount-source.png`,
+    `${backend}/api/assets/media?scope=local&kind=media%2Fimage&mount=output&name=output-mount-source.png`,
     {
       headers: { "Content-Type": "image/png" },
       data: tinyPng(),

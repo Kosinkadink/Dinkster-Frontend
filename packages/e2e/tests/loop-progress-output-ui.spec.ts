@@ -11,8 +11,10 @@ async function mockBackend(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'loop-proof', schemaWire: 1 }, nodes: {},
   } }))
-  await page.route(/\/view(?:\?|$)/, (route) => {
-    const filename = new URL(route.request().url()).searchParams.get('filename') ?? 'unknown.png'
+  await page.route('**/api/assets/*', (route) => {
+    const digest = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!)
+    const filename = digest === `blake3:${'a'.repeat(64)}` ? 'item-1.png'
+      : digest === `blake3:${'b'.repeat(64)}` ? 'item-2.png' : 'nested-item.png'
     const color = filename === 'item-1.png' ? '#2563eb' : '#9333ea'
     void route.fulfill({
       contentType: 'image/svg+xml',
@@ -26,7 +28,7 @@ async function installLoopExecution(page: Page): Promise<void> {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([{
       type: 'LoopOutputProof', displayName: 'Loop output', category: 'proof', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: 'comfy.IMAGE' } }],
+      items: [{ kind: 'output', id: 'images', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } } }],
     }])
     bridge.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'loop-progress-proof', root: 'g0',
@@ -57,15 +59,19 @@ async function installLoopExecution(page: Page): Promise<void> {
       kind: 'regionIteration', execution: ref, timestamp: now + 5,
       runtimeNodeId: 'mapImages', iteration: 1, state: 'running',
     })
+    const imageAsset = (name: string, char: string) => ({
+      typeId: 'asset<IMAGE>', fingerprint: `blake3:${char.repeat(64)}`,
+      meta: { digest: `blake3:${char.repeat(64)}`, name, mediaType: 'image/png' },
+    })
     for (const [iteration, filename] of ['item-1.png', 'item-2.png'].entries()) {
       store.apply({
         kind: 'nodeOutput', execution: ref, timestamp: now + 6 + iteration,
-        runtimeNodeId: `mapImages[${iteration}]/output`, output: { images: [{ filename }] },
+        runtimeNodeId: `mapImages[${iteration}]/output`, output: { images: imageAsset(filename, 'ab'[iteration]!) },
       })
     }
     store.apply({
       kind: 'nodeOutput', execution: ref, timestamp: now + 8,
-      runtimeNodeId: 'mapImages[0]/nested[2]/output', output: { images: [{ filename: 'nested-item.png' }] },
+      runtimeNodeId: 'mapImages[0]/nested[2]/output', output: { images: imageAsset('nested-item.png', 'c') },
     })
   })
 }
@@ -88,13 +94,13 @@ test('loop progress and outputs render per item', async ({ page }) => {
   await page.getByRole('tab', { name: 'Outputs' }).click()
   const outputs = page.getByTestId('outputs-panel')
   await expect(
-    outputs.getByRole('region', { name: 'mapImages - item 1', exact: true }),
+    outputs.getByRole('region', { name: 'mapImages - item 1', exact: true }).filter({ has: page.locator('.output-thumbnail') }),
   ).toContainText('item-1.png')
   await expect(
-    outputs.getByRole('region', { name: 'mapImages - item 2', exact: true }),
+    outputs.getByRole('region', { name: 'mapImages - item 2', exact: true }).filter({ has: page.locator('.output-thumbnail') }),
   ).toContainText('item-2.png')
   await expect(
-    outputs.getByRole('region', { name: 'mapImages - item 1 / nested - item 3', exact: true }),
+    outputs.getByRole('region', { name: 'mapImages - item 1 / nested - item 3', exact: true }).filter({ has: page.locator('.output-thumbnail') }),
   ).toContainText('nested-item.png')
   await expect(outputs.locator('.output-thumbnail')).toHaveCount(3)
   if (proofDir !== undefined) {

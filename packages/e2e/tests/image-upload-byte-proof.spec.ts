@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { deflateSync } from 'node:zlib'
 import { expect, test, type Page, type Request } from '@playwright/test'
+import { selectProductOption } from './fixtures.js'
 
 interface AssetRef {
   digest: string
@@ -204,6 +205,7 @@ test('real ASSET Upload preserves a greater-than-256-KiB PNG through graph, vaul
   expect(pageRecord).toEqual({ length: png.length, sha256 })
   await openDocument(page, 'widget-image-byte-proof', false)
   await openLoadImageAssetEditor(page)
+  await selectProductOption(page, page.getByTestId('upload-destination-mount'), 'output')
   const upload = waitForUpload(page, '/api/assets/media')
   await page.getByTestId('asset-editor').locator('input[type=file]').setInputFiles({
     name: 'widget-byte-proof.png', mimeType: 'image/png', buffer: png,
@@ -238,11 +240,13 @@ test('real canvas image drop preserves a greater-than-256-KiB PNG and its canoni
       bubbles: true, cancelable: true, clientX: 420, clientY: 320, dataTransfer: transfer,
     }))
   }, [...png])
+  await selectProductOption(page, page.getByTestId('canvas-import-dialog').getByTestId('upload-destination-mount'), 'output')
   await page.getByTestId('canvas-import-confirm').click()
   const request = await upload
   const query = new URL(request.url()).searchParams
   expect(query.get('scope')).toBe('local')
   expect(query.get('kind')).toBe('media/image')
+  expect(query.get('mount')).toBe('output')
   expect(query.get('name')).toBe('private-canvas-name.png')
   const digest = await assertUploadAndVault(page, request, png, pageRecord)
   const payload = await (await request.response())!.json() as { asset: AssetRef }

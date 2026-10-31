@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
 
 async function openDescriptors(page: Page): Promise<void> {
   const point = await page.evaluate(() => {

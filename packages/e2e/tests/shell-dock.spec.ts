@@ -685,6 +685,11 @@ test('topbar Customize layout button opens the existing modal', async ({ page })
 })
 
 test('Customize Layout toggles supported regions and persists status bar visibility', async ({ page }) => {
+  const waitForTemplateSetting = () => page.waitForFunction(() => {
+    const settings = window.__dinksterTest!.app.settings as unknown as { list(): readonly { id: string }[] }
+    return settings.list().some((setting) => setting.id === 'templates.registryUrl')
+  })
+  await waitForTemplateSetting()
   await page.getByTestId('library-toggle').click()
   await page.getByTestId('logs-toggle').click()
   await page.getByTestId('dinkster-menu-button').click()
@@ -724,6 +729,7 @@ test('Customize Layout toggles supported regions and persists status bar visibil
   await expect(page.getByTestId('dinkster-menu-button')).toBeFocused()
   await page.reload()
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
+  await waitForTemplateSetting()
   await expect(page.getByTestId('status-bar')).toBeHidden()
 
   await page.getByTestId('dinkster-menu-button').click()

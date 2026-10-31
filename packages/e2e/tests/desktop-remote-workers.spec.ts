@@ -74,7 +74,7 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test('edits a guided remote-worker profile across a mounted locale change', async ({ page, request }) => {
+test('edits a guided remote-worker profile across a mounted locale change', async ({ page }) => {
   await page.goto('/')
   await page.getByTestId('desktop-management-button').click()
   const section = page.locator('.desktop-management-section').filter({ has: page.locator('.desktop-worker-list') })
@@ -91,8 +91,6 @@ test('edits a guided remote-worker profile across a mounted locale change', asyn
   await expect(section).toContainText('An empty list allows no node types')
   await expect(section).toContainText('token contents never enter the renderer')
 
-  await page.locator('.modal-surface').evaluate((element) => { element.style.maxHeight = 'none' })
-  await page.locator('.desktop-management').evaluate((element) => { element.style.overflow = 'visible' })
   await section.evaluate((element) => { element.dataset['localeIdentity'] = 'worker-section' })
   await section.locator('.desktop-worker-card').evaluate((element) => { element.dataset['localeIdentity'] = 'worker-card' })
   await section.locator('.desktop-worker-form').evaluate((element) => { element.dataset['localeIdentity'] = 'worker-form' })
@@ -105,13 +103,7 @@ test('edits a guided remote-worker profile across a mounted locale change', asyn
     animations: 'disabled',
   })
 
-  const localeModule = await (await request.get('/src/locale.ts')).text()
-  const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
-  expect(i18nModule).toBeDefined()
-  await page.evaluate(async ({ i18nModule }) => {
-    const { setLocale } = await import(i18nModule)
-    setLocale('zh')
-  }, { i18nModule: new URL(i18nModule!, page.url()).href })
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('dinkster.locale', 'zh'))
 
   await expect(page.locator('[data-locale-identity="worker-section"]')).toHaveCount(1)
   await expect(page.locator('[data-locale-identity="worker-card"]')).toHaveCount(1)

@@ -76,6 +76,10 @@ async function setStrength(page: Page, value: string): Promise<void> {
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await page.waitForFunction(() => {
+    const backend = window.__dinksterTest!.app.backends.get()[0]
+    return backend?.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
+  })
   await page.evaluate(() => {
     const concrete = (name: string) => ({ kind: 'concrete', name })
     const wildcard = { kind: 'wildcard' }

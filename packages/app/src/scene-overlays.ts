@@ -165,6 +165,7 @@ export function retainProvenExecution(
   const nodes = { ...current.nodes }
   const outputs = { ...current.outputs }
   const previews = { ...current.previews }
+  const artifacts = [...current.artifacts]
   const idsFor = (artifact: NonNullable<ExecutionState['artifact']>) => {
     const occurrences = occurrencesForView({
       instancePath,
@@ -185,6 +186,7 @@ export function retainProvenExecution(
     ...Object.keys(current.nodes),
     ...Object.keys(current.outputs),
     ...Object.keys(current.previews),
+    ...current.artifacts.map((artifact) => artifact.nodeId),
   ])
   const selected = new Set<string>()
   const candidates = executions
@@ -204,6 +206,7 @@ export function retainProvenExecution(
       ...Object.keys(candidate.nodes),
       ...Object.keys(candidate.outputs),
       ...Object.keys(candidate.previews),
+      ...candidate.artifacts.map((artifact) => artifact.nodeId),
     ])
     for (const runtimeId of runtimeIds) {
       if (requestedIds.has(runtimeId) || occupied.has(runtimeId) || selected.has(runtimeId) ||
@@ -234,11 +237,15 @@ export function retainProvenExecution(
       if (nodes[runtimeId] !== undefined && previews[runtimeId] === undefined && priorFrame !== undefined) {
         previews[runtimeId] = priorFrame
       }
-      if (nodes[runtimeId] !== undefined || outputs[runtimeId] !== undefined) selected.add(runtimeId)
+      // Saved artifacts are content-addressed even when the node's value is
+      // a tensor whose rendition belongs to the previous job.
+      const priorArtifacts = candidate.artifacts.filter((artifact) => artifact.nodeId === runtimeId)
+      artifacts.push(...priorArtifacts)
+      if (nodes[runtimeId] !== undefined || outputs[runtimeId] !== undefined || priorArtifacts.length > 0) selected.add(runtimeId)
     }
   }
   if (selected.size === 0) return unchanged()
-  return { execution: { ...current, nodes, outputs, previews }, retainedRuntimeIds: selected }
+  return { execution: { ...current, nodes, outputs, previews, artifacts }, retainedRuntimeIds: selected }
 }
 
 /** One derivation pass, ready for the host to install on the renderer. */

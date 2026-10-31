@@ -299,6 +299,8 @@ export interface WidgetDescriptorSpec {
   readonly remote?: RemoteSourceSpec
   /** Ordered options derived from one occurrence-local input family. */
   readonly optionSource?: InputFamilyOptionSourceSpec
+  /** Ordered choices authored on an occurrence, independently of its selected value. */
+  readonly editableOptions?: true
   /** Schema-declared text completion vocabulary (wire 36). */
   readonly textCompletions?: TextCompletionsSpec
 }
@@ -960,6 +962,8 @@ export interface NodeSchema {
   readonly source: SchemaSource
   /** Ordered as declared. Inputs, outputs, sections - any order. */
   readonly items: readonly InterfaceItem[]
+  /** Type authority for explicit occurrence-authored extra input names. Absent means closed. */
+  readonly additionalInputs?: TypeExpr
   readonly isOutputNode: boolean
   /**
    * This node's execution emits live previews (sampling previews etc.).
@@ -1087,7 +1091,8 @@ export const isAssetWidgetInput = (spec: Pick<InputSpec, 'widget'>): boolean =>
 export const isImageAssetInput = (spec: InputSpec): boolean => {
   const type = canonicalTypeIdOf(spec.type)
   return spec.hidden !== true && isAssetWidgetInput(spec) &&
-    (type === 'asset<IMAGE>' || type === 'asset<comfy.IMAGE>')
+    (type === 'asset<IMAGE>' || type === 'asset<comfy.IMAGE>' ||
+      (type === 'ASSET' && spec.widget?.kind === 'media/image'))
 }
 
 /**
