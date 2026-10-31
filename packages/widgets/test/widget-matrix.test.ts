@@ -27,7 +27,7 @@ const cases: Array<{
   { type: 'ASSET', options: {}, explicit: asset, intrinsic: undefined, invalid: { ...asset, size: -1 }, view: 'core.asset' },
   { type: 'AUDIO_RECORD', options: {}, explicit: { ...asset, name: 'recording.webm', mediaType: 'audio/webm' }, intrinsic: undefined, invalid: asset, view: 'core.audioRecord' },
   { type: 'MOUNT', options: {}, explicit: 'archive', intrinsic: null, invalid: 'Invalid/Mount', invalidCode: 'widget.MOUNT.invalid', view: 'core.mount' },
-  { type: 'LOAD_3D', options: {}, explicit: { image: asset, mask: '', camera_info: { fov: 53 } }, intrinsic: {}, invalid: [], view: 'core.load3d' },
+  { type: 'LOAD_3D', options: {}, explicit: { image: asset, mask: '', camera_info: { fov: 53 } }, intrinsic: undefined, invalid: [], view: 'core.load3d' },
 ]
 
 const registry = createWidgetRegistry()
