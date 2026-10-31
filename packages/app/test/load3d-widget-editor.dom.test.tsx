@@ -221,8 +221,8 @@ it.each(['valid', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-ply',
     : variant === 'empty-unsupported' ? new Uint8Array([7])
     : new TextEncoder().encode('{"asset":{"version":"2.0"}}')
   const connection = {
-    fetchAssetBytes: async (digest: string) => { reads.push(digest); return bytes },
-    fetchLocalAssetBytes: async (binding: string) => { localReads.push(binding); return variant === 'revoked-local' ? undefined : bytes },
+    fetchAssetBytes: async (digest: string) => { reads.push(digest); return bytes.buffer },
+    fetchLocalAssetBytes: async (binding: string) => { localReads.push(binding); return variant === 'revoked-local' ? undefined : bytes.buffer },
     uploadMediaAsset: async () => { throw new Error('metadata must not upload captures') },
   }
   const app = {

@@ -211,7 +211,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         if (!live || !sourcesCurrent() || !bytes) throw new Error(message('load3dWidget.unavailable'))
         const url = URL.createObjectURL(new Blob([bytes], { type: String(ref.mediaType ?? 'application/octet-stream') }))
         urls.push(url)
-        return { url, bytes }
+        return { url, bytes: new Uint8Array(bytes) }
       }
       const primary = await assetUrl(model)
       const unspecified = manifest !== undefined && file3d.format === ''
