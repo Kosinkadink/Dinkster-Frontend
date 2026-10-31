@@ -1,17 +1,14 @@
 /**
  * Native imagery end to end against a REAL Dinkster backend: upload a png
- * asset (POST /api/assets/media), execute dinkster.load_image -> dinkster.save_image,
+ * asset (POST /api/assets/media), execute LoadImage -> SaveImage,
  * and prove ACTUAL DECODED PIXELS land in both imagery surfaces:
  *
- * - the outputs panel <img> resolves the produced asset by CAS digest
- *   through /api/assets/{digest} and decodes (naturalWidth > 0, not
- *   merely a URL);
+ * - the outputs panel <img> decodes the IMAGE rendition (naturalWidth > 0,
+ *   not merely a URL);
  * - the on-canvas node preview panel decodes the same digest at the true
  *   image dimensions (renderer.getNodePreviews()).
  *
- * This is the native counterpart of previews-remote.spec.ts's v1 output-
- * thumbnail proof: v1 imagery rides /view file refs; native imagery rides
- * output value descriptors carrying asset digests. This file intentionally
+ * Native imagery uses output value renditions and saved asset digests. This file intentionally
  * uses native same-origin startup so browser requests and event sockets both
  * exercise Vite's DINKSTER_NATIVE_BACKEND proxy without requiring backend CORS.
  *
@@ -57,7 +54,7 @@ function tinyPng(): Buffer {
   ])
 }
 
-/** Two disjoint load_image -> save_image branches referencing one uploaded asset. */
+/** Two disjoint LoadImage -> SaveImage branches referencing one uploaded asset. */
 interface UploadedAsset {
   readonly digest: string
   readonly name: string
@@ -73,14 +70,14 @@ async function openImageryDoc(page: Page, asset: UploadedAsset): Promise<void> {
       graphs: { g0: {
         id: 'g0', name: 'root',
         nodes: {
-          li: { id: 'li', type: 'dinkster.load_image', values: { image: asset } },
-          si: { id: 'si', type: 'dinkster.save_image', values: {} },
-          li2: { id: 'li2', type: 'dinkster.load_image', values: { image: asset } },
-          si2: { id: 'si2', type: 'dinkster.save_image', values: {} },
+          li: { id: 'li', type: 'LoadImage', values: { image: asset } },
+          si: { id: 'si', type: 'SaveImage', values: {} },
+          li2: { id: 'li2', type: 'LoadImage', values: { image: asset } },
+          si2: { id: 'si2', type: 'SaveImage', values: {} },
         },
         links: {
-          l1: { id: 'l1', from: { node: 'li', port: 'image' }, to: { node: 'si', port: 'images' } },
-          l2: { id: 'l2', from: { node: 'li2', port: 'image' }, to: { node: 'si2', port: 'images' } },
+          l1: { id: 'l1', from: { node: 'li', port: 'IMAGE' }, to: { node: 'si', port: 'images' } },
+          l2: { id: 'l2', from: { node: 'li2', port: 'IMAGE' }, to: { node: 'si2', port: 'images' } },
         },
         nets: {}, reroutes: {}, nextOrdinal: 5,
       } },
@@ -151,8 +148,8 @@ test.beforeEach(async ({ page }) => {
     if (probe.ok) served = (await probe.json() as { nodes?: Record<string, unknown> }).nodes ?? {}
   } catch { /* unreachable -> served stays null */ }
   test.skip(served === null, `no native Dinkster backend reachable at ${NATIVE_BACKEND} (set DINKSTER_NATIVE_BACKEND)`)
-  test.skip(!(served !== null && 'dinkster.load_image' in served && 'dinkster.save_image' in served),
-    `native backend at ${NATIVE_BACKEND} lacks dinkster.load_image/save_image - compose the comfy pack (--comfy-root)`)
+  expect(served, 'native catalog must register canonical LoadImage').toHaveProperty('LoadImage')
+  expect(served, 'native catalog must register canonical SaveImage').toHaveProperty('SaveImage')
 
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
@@ -203,40 +200,39 @@ test('a disjoint native partial run retains only the omitted numeric branch as l
   expect(pageErrors).toEqual([])
 })
 
-test('a native run decodes real pixels into the outputs panel and the node preview', async ({ page, request }) => {
+test('a native run decodes real pixels into the outputs panel and the node preview', async ({ page }) => {
   // Upload the source asset FIRST, so the submit needs no consent round.
   const png = tinyPng()
-  const uploaded = await request.post(`${NATIVE_BACKEND}/api/assets/media?scope=local&kind=media%2Fimage&name=e2e.png`, {
+  const uploaded = await page.request.post('/api/assets/media?scope=local&kind=media%2Fimage&mount=output&name=e2e.png', {
     headers: { 'Content-Type': 'image/png' },
     data: png,
   })
-  expect([200, 201]).toContain(uploaded.status()) // 200: bytes already stored (CAS dedupe)
+  expect([200, 201], await uploaded.text()).toContain(uploaded.status()) // 200: bytes already stored (CAS dedupe)
   const { asset } = (await uploaded.json()) as { asset: UploadedAsset }
   expect(asset.digest).toMatch(/^blake3:[0-9a-f]{64}$/)
 
   await openImageryDoc(page, asset)
 
-  // Queue the full document (save_image is an output node) and complete.
+  // Queue the full document (SaveImage is an output node) and complete.
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   await page.getByTestId('queue-button').click()
   const row = page.getByTestId('execution-row').first()
   await expect(row).toBeVisible({ timeout: 30_000 })
   await expect(row.locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })
 
-  // Outputs panel: the produced asset's digest URL decoded - real pixels,
+  // Outputs panel: the produced IMAGE rendition decoded - real pixels,
   // not just an <img> with a src.
   await page.getByRole('tab', { name: 'Outputs' }).click()
   const outputImg = page.getByTestId('outputs-panel').locator('.output-thumbnail img').first()
   await expect(outputImg).toBeVisible({ timeout: 15_000 })
-  expect(await outputImg.getAttribute('src')).toContain('/api/assets/')
+  expect(await outputImg.getAttribute('src')).toMatch(/^blob:/)
   await expect
     .poll(() => outputImg.evaluate((el) => (el as HTMLImageElement).naturalWidth), { timeout: 15_000 })
     .toBe(64)
   expect(await outputImg.evaluate((el) => (el as HTMLImageElement).naturalHeight)).toBe(48)
 
   // On-canvas preview: the save node's panel decoded the same content at
-  // its true dimensions. (load_image is not a target; its tensor output
-  // renders only once the backend ships a comfy.IMAGE rendition.)
+  // its true dimensions.
   await expect
     .poll(
       () =>
@@ -247,14 +243,18 @@ test('a native run decodes real pixels into the outputs panel and the node previ
       { timeout: 15_000 },
     )
     .toEqual({ width: 64, height: 48 })
+  await test.info().attach('native-current-saved-artifact', {
+    body: await page.screenshot({ path: test.info().outputPath('native-current-saved-artifact.png'), animations: 'disabled' }), contentType: 'image/png',
+  })
 })
 
-test('a disjoint native partial run retains the unchanged digest preview as last resolved', async ({ page, request }) => {
+test('a disjoint native partial run retains the unchanged digest preview as last resolved', async ({ page }) => {
   const png = tinyPng()
-  const uploaded = await request.post(`${NATIVE_BACKEND}/api/assets/media?scope=local&kind=media%2Fimage&name=e2e.png`, {
+  const uploaded = await page.request.post('/api/assets/media?scope=local&kind=media%2Fimage&mount=output&name=e2e.png', {
     headers: { 'Content-Type': 'image/png' },
     data: png,
   })
+  expect([200, 201], await uploaded.text()).toContain(uploaded.status())
   const { asset } = (await uploaded.json()) as { asset: UploadedAsset }
   await openImageryDoc(page, asset)
 
@@ -280,4 +280,7 @@ test('a disjoint native partial run retains the unchanged digest preview as last
     const previews = window.__dinksterTest!.renderer!.getNodePreviews()
     return { retained: previews.si?.state, current: previews.si2?.state ?? 'current' }
   }), { timeout: 15_000 }).toEqual({ retained: 'cached', current: 'current' })
+  await test.info().attach('native-retained-saved-artifact', {
+    body: await page.screenshot({ path: test.info().outputPath('native-retained-saved-artifact.png'), animations: 'disabled' }), contentType: 'image/png',
+  })
 })

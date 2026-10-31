@@ -5,6 +5,10 @@ branch executes and after a browser reload. A value copied from an older run
 is labeled as retained/cached. It becomes stale or disappears when the current
 workflow can no longer prove the same computation.
 
+Saved, content-addressed artifacts also remain available for unchanged branches
+omitted from a partial run, including save nodes whose output values are tensors.
+Their previews use the original artifact bytes, not the new job's tensor values.
+
 ## Proof and invalidation
 
 Each persisted result is partitioned by project, backend URL, stable backend
