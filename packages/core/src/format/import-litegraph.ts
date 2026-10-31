@@ -25,6 +25,7 @@
  */
 
 import { canonicalJson } from '../compile/hash.js'
+import { typedLiteralWire } from '../compile/dinkster-graph.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
   comboBranchValuePath,
@@ -44,6 +45,7 @@ import { DEFAULT_ELAB_BUDGET, elaborateInterface, elabInputsOf } from '../schema
 import {
   FORMAT_VERSION,
   type ControllerMode,
+  type DynamicPortState,
   type GraphDef,
   type GroupViewState,
   type Json,
@@ -162,7 +164,7 @@ const imp = (severity: 'error' | 'warning' | 'info', code: string, message: stri
 interface PositionalWidgetDecode {
   readonly values: Record<string, Json>
   readonly controllers: Record<string, ControllerMode>
-  readonly dynamic: Record<string, Json>
+  readonly dynamic: Record<string, DynamicPortState & JsonObject>
   index: number
   stopped: boolean
 }
@@ -1465,8 +1467,9 @@ function importLitegraphGraph(
     const schema = resolveImported(n)
     const values: Record<string, Json> = {}
     const controllers: Record<string, ControllerMode> = {}
-    const dynamic: Record<string, Json> = {}
+    const dynamic: Record<string, DynamicPortState & JsonObject> = {}
     const ext: Record<string, Json> = {}
+    const additionalInputs: string[] = []
     const targetedSlots = new Set<number>()
     for (const wire of wires.values()) if (wire.toNode === n.id) targetedSlots.add(wire.toSlot)
     for (const entry of ueLinks) if (entry.downstream === n.id) targetedSlots.add(entry.downstreamSlot)
@@ -1489,6 +1492,35 @@ function importLitegraphGraph(
     if (schema === undefined) {
       diags.push(imp('warning', 'import.schema.missing', `node ${n.id} ('${n.type}'): no such node type is installed; widget values kept raw for review`))
       if (n.widgets_values !== undefined) ext['importer.rawWidgetValues'] = n.widgets_values as Json
+    } else if (n.type === 'CustomCombo' && schema.additionalInputs !== undefined &&
+      inputsOf(schema).find((input) => input.id === 'choice')?.widget?.editableOptions === true) {
+      const raw = n.widgets_values
+      const keyed = raw as Readonly<Record<string, Json>> | undefined
+      const choice = Array.isArray(raw) ? raw[0] : keyed?.['choice']
+      const index = Array.isArray(raw) ? raw[1] : keyed?.['index']
+      if (choice !== undefined) values['choice'] = choice
+      const authored = Array.isArray(raw)
+        ? raw.slice(2)
+        : Object.entries(raw ?? {}).filter(([name]) => name.startsWith('option')).map(([, value]) => value)
+      dynamic['choice'] = { options: authored.filter((value) =>
+        typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value)) }
+      if (index !== undefined) {
+        if (typeof index === 'number' && Number.isSafeInteger(index)) {
+          values['index'] = typedLiteralWire('INT', index) as Json
+          additionalInputs.push('index')
+        } else {
+          diags.push(imp('error', 'import.combo.index', `node ${n.id} ('${n.type}'): authored index must be an integer`))
+        }
+      }
+      if (raw !== undefined) {
+        if (Array.isArray(raw)) ext['importer.rawWidgetValues'] = raw
+        else {
+          const unknown = Object.fromEntries(Object.entries(raw).filter(([name]) =>
+            name !== 'choice' && name !== 'index' && !name.startsWith('option')))
+          if (Object.keys(unknown).length > 0) ext['importer.unknownWidgetValues'] = unknown
+          ext['importer.rawWidgetValues'] = raw
+        }
+      }
     } else if (Array.isArray(n.widgets_values)) {
       let raw = n.widgets_values
       const sourceVersion = n.properties?.['ver']
@@ -1619,10 +1651,22 @@ function importLitegraphGraph(
           ...(mintedSuffixes.length > 0 ? { seq: Math.max(...mintedSuffixes) + 1 } : {}),
         }
       }
-      const elaborated = elabInputsOf(elaborateInterface(schema, { values, dynamic } as Pick<NodeData, 'values' | 'dynamic'>))
+      if (schema.additionalInputs !== undefined) {
+        const declared = elabInputsOf(elaborateInterface(schema, { values, dynamic }))
+        const roots = schema.items.filter((item) => item.kind === 'input').map((item) => item.id)
+        const linkedNames = (n.inputs ?? []).flatMap((input, slot) => {
+          const name = input.widget?.name ?? input.name
+          return targetedSlots.has(slot) && typeof name === 'string' &&
+            !declared.some((item) => item.apiName === name) &&
+            !roots.some((root) => name === root || name.startsWith(`${root}.`))
+            ? [name] : []
+        })
+        additionalInputs.splice(0, additionalInputs.length, ...new Set([...linkedNames, ...additionalInputs]))
+      }
+      const elaborated = elabInputsOf(elaborateInterface(schema, { values, dynamic, additionalInputs }))
       for (const [slot, input] of (n.inputs ?? []).entries()) {
         if (endpoints.has(slot)) continue
-        const matches = elaborated.filter((item) => item.origin.kind === 'branch' && item.apiName === input.name)
+        const matches = elaborated.filter((item) => (item.origin.kind === 'branch' || additionalInputs.includes(item.spec.id)) && item.apiName === (input.widget?.name ?? input.name))
         if (matches.length === 1) endpoints.set(slot, { node: id, ...matches[0]!.address } as unknown as JsonObject)
       }
       if (endpoints.size > 0) importedInputEndpoints.set(n.id, endpoints)
@@ -1737,6 +1781,7 @@ function importLitegraphGraph(
       values,
       ...(Object.keys(controllers).length > 0 ? { controllers } : {}),
       ...(Object.keys(dynamic).length > 0 ? { dynamic } : {}),
+      ...(additionalInputs.length > 0 ? { additionalInputs } : {}),
       ...(mode ? { mode } : {}),
       ...(title !== undefined ? { title } : {}),
       ...(Object.keys(ext).length > 0 ? { ext } : {}),

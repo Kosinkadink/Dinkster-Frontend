@@ -174,6 +174,13 @@ export type LayoutRow =
        * option key). Renderers/editors read this instead of values.
        */
       readonly derivedValue?: Json
+      /** Structural menu state coordinate, independent of the selected value. */
+      readonly optionsTarget?: {
+        readonly construct: string
+        readonly ancestors: readonly { readonly construct: string; readonly member: string }[]
+        readonly owner?: DynamicEditOwner
+        readonly materialize?: readonly MaterializeFrame[]
+      }
       /**
        * Set for a DynamicCombo selector row: edits dispatch
        * dynamic.selectOption with these params, never node.setValue.
@@ -987,6 +994,10 @@ export function layoutNode(
           : {}),
         ...(spec.optional ? { optional: true } : {}),
         ...(item.derivedValue !== undefined ? { derivedValue: item.derivedValue } : {}),
+        ...(representation.spec.editableOptions === true ? { optionsTarget: {
+          construct: item.address.port,
+          ancestors: (item.ancestry ?? []).map((ancestor) => ({ construct: ancestor.construct, member: ancestor.member as string })),
+        } } : {}),
         ...(selector !== undefined ? { selector } : {}),
         ...annotate(item),
       },

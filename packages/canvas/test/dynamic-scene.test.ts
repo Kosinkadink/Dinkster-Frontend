@@ -706,6 +706,64 @@ describe('dynamic layout on plain nodes', () => {
     expect(selector.selector!.owner).toEqual({ graphId: 'g0', nodeId: 'instance', construct: 'choice' })
   })
 
+  it.each(['local', 'promoted', 'promoted-member', 'family'] as const)('routes authored menu edits to the %s persisted scope', (mode) => {
+    const choice = input('choice', { widget: { widgetType: 'COMBO', editableOptions: true, options: { options: ['schema'] } } })
+    const menu = schemaOf('EditableMenu', mode === 'promoted' ? [choice] : [{
+      ...input('items'), dynamic: { kind: 'autogrow', template: [choice], naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 } },
+    }])
+    const doc = docOf({
+      g0: { nodes: { instance: { type: '#sub', values: mode === 'promoted-member' ? { menu: 'outer value' } : {},
+        dynamic: mode === 'family' ? { forwarded: { members: ['s0'] } } : {},
+      } } },
+      sub: { nodes: { n: { type: menu.type, values: { choice: 'outside' },
+        dynamic: mode === 'promoted' ? {} : { items: { members: ['d0'] } },
+      } }, boundary: { inputs: mode === 'local' ? [] : [{ id: mode === 'family' ? 'forwarded' : 'menu',
+        ...(mode.startsWith('promoted') ? { promoted: true } : {}),
+        binds: { kind: mode === 'family' ? 'family' : 'port', node: 'n', port: mode === 'family' ? 'items' : mode === 'promoted-member' ? 'items.choice' : 'choice',
+          ...(mode === 'promoted-member' ? { members: ['d0'] } : {}),
+        },
+      }] } },
+    })
+    const resolve = documentResolver(doc, (type) => type === menu.type ? menu : undefined)
+    const occurrenceView = occurrenceDynamicView(doc, resolve, ['instance'])
+    if (mode === 'promoted-member') expect(occurrenceView.values.get('n')).toMatchObject({ 'items.choice#d0': 'outer value' })
+    const scene = buildScene({ document: doc, graphId: 'sub', resolve, tokens: defaultTokens, measure, widgetMeasure,
+      occurrenceView,
+    })
+    const rows = widgetRowsOf(scene, 'n')
+    const row = rows.find((candidate) => !candidate.ghost && (mode !== 'family' || candidate.address.members?.[0] === '\u0000s0'))!
+    const target = row.optionsTarget!
+    expect(target).toBeDefined()
+    const owner = target.owner ?? { graphId: 'sub', nodeId: 'n', ...target }
+    expect(owner).toEqual(mode.startsWith('promoted')
+      ? { graphId: 'g0', nodeId: 'instance', construct: 'menu', ancestors: [] }
+      : mode === 'family'
+        ? { graphId: 'g0', nodeId: 'instance', construct: 'forwarded.choice', ancestors: [{ construct: 'forwarded', member: 's0' }] }
+        : { graphId: 'sub', nodeId: 'n', construct: 'items.choice', ancestors: [{ construct: 'items', member: 'd0' }] })
+    const store = new DocumentStore(doc, coreCommandRegistry([], resolve))
+    const result = store.dispatch({ command: 'dynamic.setOptions', params: { ...owner, options: [false, 0, 'duplicate', 'duplicate'] } })
+    expect(result.ok).toBe(true)
+    const node = store.doc.graphs[owner.graphId]!.nodes[owner.nodeId]!
+    const scope = !owner.ancestors?.length ? node.dynamic : node.dynamic?.[owner.ancestors[0]!.construct]?.memberState?.[owner.ancestors[0]!.member]
+    expect(scope?.[owner.construct]?.options).toEqual([false, 0, 'duplicate', 'duplicate'])
+    expect(store.doc.graphs.sub!.nodes.n!.values).toEqual({ choice: 'outside' })
+    store.undo()
+    expect(store.doc).toEqual(doc)
+    if (mode === 'family') {
+      const ghost = rows.find((candidate) => candidate.ghost)!
+      const ghostOwner = ghost.optionsTarget!.owner!
+      const outcome = store.dispatch({ command: 'batch', params: { invocations: [
+        { command: 'dynamic.materialize', params: { graphId: ghostOwner.graphId, nodeId: ghostOwner.nodeId, frames: ghost.optionsTarget!.materialize } },
+        { command: 'dynamic.setOptions', params: { ...ghostOwner, options: [] } },
+      ] } } as CommandInvocation)
+      expect(outcome.ok, JSON.stringify(outcome)).toBe(true)
+      expect(store.doc.graphs.g0!.nodes.instance!.dynamic?.forwarded?.memberState?.[ghostOwner.ancestors![0]!.member]?.['forwarded.choice']?.options).toEqual([])
+      store.undo()
+      expect(store.doc.graphs.g0!.nodes.instance!.dynamic?.forwarded).toEqual({ members: ['s0'], seq: 1 })
+      expect(store.doc.graphs.sub).toEqual(doc.graphs.sub)
+    }
+  })
+
   it('keeps an occurrence input-family option source bound to its persisted owner', () => {
     const doc = docOf({
       g0: { nodes: { instance: {

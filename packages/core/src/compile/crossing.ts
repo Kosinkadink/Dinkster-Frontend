@@ -125,6 +125,42 @@ export function projectCountBoundValues(
   return projected
 }
 
+/** Project schema-opted-in menus through promoted inputs without changing values. */
+export function projectEditableOptions(
+  child: GraphDef,
+  instanceDynamic: Readonly<Record<string, DynamicPortState>> | undefined,
+  resolveNode: (node: NodeData) => NodeSchema | undefined,
+): ReadonlyMap<NodeId, Readonly<Record<string, DynamicPortState>>> {
+  const projected = new Map<NodeId, Readonly<Record<string, DynamicPortState>>>()
+  const claimed = new Map<NodeId, Set<string>>()
+  for (const item of child.boundary?.inputs ?? []) {
+    if (item.promoted !== true || item.binds.kind !== 'port') continue
+    const options = instanceDynamic?.[item.id]?.options
+    if (options === undefined) continue
+    const primary = child.nodes[item.binds.node]
+    const primarySchema = primary && resolveNode(primary)
+    const primaryRoute = primarySchema && resolveBoundaryRoute(primarySchema, item.binds, 'input')
+    if (!primaryRoute?.ok || primaryRoute.route.terminal.kind !== 'port' ||
+      primaryRoute.route.terminal.slot.kind !== 'input' || !primaryRoute.route.terminal.slot.widget?.editableOptions) continue
+    for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+      if (binding.kind !== 'port') continue
+      const target = child.nodes[binding.node]
+      const schema = target && resolveNode(target)
+      const route = schema && resolveBoundaryRoute(schema, binding, 'input')
+      if (!target || !route?.ok || route.route.terminal.kind !== 'port' ||
+        route.route.terminal.slot.kind !== 'input' || !route.route.terminal.slot.widget?.editableOptions) continue
+      const key = JSON.stringify([binding.port, binding.members])
+      let keys = claimed.get(target.id)
+      if (!keys) claimed.set(target.id, (keys = new Set()))
+      if (keys.has(key)) continue
+      keys.add(key)
+      projected.set(target.id, overlayPortDynamic(projected.get(target.id) ?? target.dynamic,
+        route.route, binding.port, { options }))
+    }
+  }
+  return projected
+}
+
 // ---------------------------------------------------------------------------
 // Boundary item selection (the ONE interpreter of instance addresses)
 // ---------------------------------------------------------------------------
@@ -592,19 +628,18 @@ export function overlayNodeDynamic(
 }
 
 /**
- * Overlay one conditional selector at its exact member scope. Unlike family
- * merging this replaces only `selected`; siblings and nested member state are
- * copied so several projections onto one node compose in either order.
+ * Overlay authored port state at its exact member scope. Siblings and nested
+ * member state are copied so projections onto one node compose in either order.
  */
-export function overlaySelectorDynamic(
+export function overlayPortDynamic(
   base: Readonly<Record<string, DynamicPortState>> | undefined,
   route: BoundaryRoute,
   constructPath: string,
-  selected: string,
+  authored: Pick<DynamicPortState, 'selected' | 'options'>,
 ): Readonly<Record<string, DynamicPortState>> {
   const members = memberHopsOf(route.hops)
   const apply = (scope: Readonly<Record<string, DynamicPortState>> | undefined, depth: number): Record<string, DynamicPortState> => {
-    if (depth === members.length) return { ...scope, [constructPath]: { ...scope?.[constructPath], selected } }
+    if (depth === members.length) return { ...scope, [constructPath]: { ...scope?.[constructPath], ...authored } }
     const hop = members[depth]!
     const state = scope?.[hop.familyPath] ?? {}
     return {

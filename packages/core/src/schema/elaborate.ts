@@ -1509,11 +1509,11 @@ const RESERVED_ID_CHARS = /[.[\]#*?!,|:@${}/\\"'`<>\s]/
 
 /**
  * Elaborate one node's effective interface. Pure and deterministic over
- * (schema, node.values/node.dynamic, connectivity) - memoize on those.
+ * (schema, node.values/node.dynamic/node.additionalInputs, connectivity).
  */
 export function elaborateInterface(
   schema: NodeSchema,
-  node: Pick<NodeData, 'values' | 'dynamic'>,
+  node: Pick<NodeData, 'values' | 'dynamic' | 'additionalInputs'>,
   connectivity: Connectivity = EMPTY_CONNECTIVITY,
   options: ElaborateOptions = {},
 ): ElaboratedInterface {
@@ -1576,6 +1576,12 @@ export function elaborateInterface(
         scope.members.length > 0 ? { port: item.address.port, members: scope.members } : { port: item.address.port }
       const id = elabKeyOf(address)
       const ancestry = scope.ancestry.length > 0 ? { ancestry: scope.ancestry } : {}
+      if (item.kind === 'input' && item.spec.widget?.editableOptions) {
+        const options = scope.stateOf(item.address.port)?.options
+        if (options !== undefined) item = { ...item, spec: { ...item.spec,
+          widget: { ...item.spec.widget, options: { ...item.spec.widget.options, options } },
+        } }
+      }
       // Fast path: an already-canonical spec (right id, no construct, not
       // ghosted) is emitted without cloning - top-level statics stay
       // allocation-free.
@@ -1907,6 +1913,24 @@ export function elaborateInterface(
     if (type.kind === 'tuple') return { ...type, elements: type.elements.map((element) => scopeType(element, member)) }
     if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') return { ...type, element: scopeType(type.element, member) }
     return type
+  }
+  const additionalType = schema.additionalInputs
+  const reserved = schema.items.filter((item) => item.kind === 'input' && item.dynamic !== undefined).map((item) => item.id)
+  for (const id of node.additionalInputs ?? []) {
+    if (halted) break
+    if (additionalType === undefined) {
+      ctx.report('error', 'elab.additionalInput.closed', 'This node does not declare additional inputs.', id)
+      break
+    }
+    if (!id || id.includes('\0') || emittedInputKeys.has(id) || submittedPaths.has(id) || reserved.some((root) => id === root || id.startsWith(`${root}.`))) {
+      ctx.report('error', 'elab.additionalInput.reserved', `Additional input '${id}' conflicts with a declared input or dynamic construct.`, id)
+      continue
+    }
+    ctx.emit({
+      kind: 'input', address: { port: id }, apiName: id,
+      spec: { kind: 'input', id, type: scopeType(additionalType, id), optional: true },
+      origin: { kind: 'static' },
+    }, topScope)
   }
   for (const [index, item] of items.entries()) {
     if (item.kind !== 'input' || item.ancestry === undefined) continue

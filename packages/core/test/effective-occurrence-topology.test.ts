@@ -121,6 +121,20 @@ function document(): WorkflowDocument {
   }
 }
 
+it('retains authored extra ports when validating occurrence-local links', () => {
+  const base = withOverlay()
+  const body = base.graphs.body!
+  const authored: WorkflowDocument = { ...base, graphs: { ...base.graphs, body: {
+    ...body, nodes: { ...body.nodes, sink: { ...body.nodes.sink!, additionalInputs: ['in'] } },
+  } } }
+  const extra = { ...schema('Sink', [], []), additionalInputs: { kind: 'wildcard' as const } }
+  const resolver = (type: string) => type === 'Sink' ? extra : resolve(type)
+  const result = effectiveOccurrenceTopology(authored, resolver, owner('a'))
+  expect(result.diagnostics).toEqual([])
+  const closed = effectiveOccurrenceTopology(base, resolver, owner('a'))
+  expect(closed.diagnostics.map((item) => item.code)).toContain('occurrence.topology.endpointMissing')
+})
+
 function withOverlay(base = document()): WorkflowDocument {
   const a = owner('a')
   return {

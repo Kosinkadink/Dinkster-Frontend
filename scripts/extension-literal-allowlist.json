@@ -195,7 +195,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4961,
+      "line": 4962,
       "column": 36,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -203,7 +203,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 4978,
+      "line": 4979,
       "column": 11,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -211,7 +211,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/CanvasHost.tsx",
-      "line": 6861,
+      "line": 6862,
       "column": 19,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -555,7 +555,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/compile/compile.ts",
-      "line": 2017,
+      "line": 2022,
       "column": 9,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -563,7 +563,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 192,
+      "line": 194,
       "column": 20,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -571,7 +571,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 193,
+      "line": 195,
       "column": 7,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -579,7 +579,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/core/src/format/import-litegraph.ts",
-      "line": 1502,
+      "line": 1534,
       "column": 11,
       "symbol": "widgetType:STRING",
       "issue": 511

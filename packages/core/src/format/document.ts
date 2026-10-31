@@ -107,6 +107,8 @@ export interface DynamicPortState {
   readonly seq?: number
   /** Selected schema-authored choice (DynamicCombo option or DynamicSlot variant). */
   readonly selected?: string
+  /** Occurrence-authored editable COMBO choices; order and duplicate entries are significant. */
+  readonly options?: readonly (string | number | boolean)[]
   /**
    * Nested dynamic state scoped to ONE family member (hazard N1/N4): keyed
    * by member id, then by the nested construct's value key (the same key the
@@ -320,6 +322,8 @@ export interface NodeData {
   readonly controllers?: Readonly<Record<string, ControllerMode>>
   readonly mode?: NodeMode // default 'active'
   readonly dynamic?: Readonly<Record<string, DynamicPortState>>
+  /** Extra input membership only; the node schema supplies every input's type. */
+  readonly additionalInputs?: readonly string[]
   /** Present only on subgraph occurrences that execute as repetition regions. */
   readonly region?: RegionContract
   /** Node title override (semantic: appears in exports/diagnostics). */

@@ -34,6 +34,7 @@ const dynamicPortStateLevel = (nested: unknown): Record<string, unknown> => ({
     members: { type: 'array', items: { type: 'string', minLength: 1 } },
     memberLabels: { type: 'object', additionalProperties: { type: 'string', minLength: 1 } },
     selected: { type: 'string' },
+    options: { type: 'array', items: { type: ['string', 'number', 'boolean'] } },
     seq: { type: 'integer', minimum: 0, maximum: 9007199254740991 },
     memberState: {
       type: 'object',
@@ -501,6 +502,7 @@ export const WORKFLOW_SCHEMA = {
         type: { type: 'string', minLength: 1 },
         virtual: { const: true },
         values: { type: 'object' },
+        additionalInputs: { type: 'array', uniqueItems: true, items: { type: 'string', minLength: 1, pattern: '^[^\\u0000]+$' } },
         controllers: {
           type: 'object',
           additionalProperties: { enum: ['fixed', 'increment', 'decrement', 'randomize'] },

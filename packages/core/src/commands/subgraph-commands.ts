@@ -24,6 +24,7 @@ import { EXPOSED_EXT_KEY, parseExposedEntry } from '../format/exposed.js'
 import { EXPOSED_PREVIEWS_EXT_KEY, parseExposedPreviewEntry } from '../format/exposed-previews.js'
 import { APP_LAYOUT_EXT_KEY, localizeAppLayoutJson, removeAppLayoutGraphRefs } from '../format/app-layout.js'
 import { checkDocument, subgraphDefIdOf } from '../invariants.js'
+import { isComboValue } from '../schema/combo-options.js'
 import {
   auditExtractionCuts,
   boundaryNameCandidates,
@@ -1134,7 +1135,8 @@ function flattenStatePlanFromJson(
   const controllerModes = new Set<ControllerMode>(['fixed', 'increment', 'decrement', 'randomize'])
   const dynamicState = (entry: Json | undefined, depth = 0): boolean => {
     if (!isObj(entry) || depth > MAX_DYNAMIC_STATE_DEPTH ||
-        !exactKeys(entry, [], ['members', 'memberLabels', 'selected', 'seq', 'memberState'])) return false
+        !exactKeys(entry, [], ['members', 'memberLabels', 'selected', 'options', 'seq', 'memberState'])) return false
+    if (entry.options !== undefined && (!Array.isArray(entry.options) || !entry.options.every(isComboValue))) return false
     if (entry.members !== undefined && (!Array.isArray(entry.members) ||
         !entry.members.every((member) => typeof member === 'string' && member.length > 0) ||
         new Set(entry.members).size !== entry.members.length)) return false

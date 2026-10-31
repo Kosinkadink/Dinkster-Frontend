@@ -21,6 +21,7 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { canonicalJson, fnv1a64 } from '../compile/hash.js'
+import { isComboValue } from '../schema/combo-options.js'
 import { boundaryBindingKey, isNodeBoundaryBinding, MAX_DYNAMIC_STATE_DEPTH, type ControllerMode, type GraphDef, type Json, type JsonObject, type WorkflowDocument } from '../format/document.js'
 import { asDynamicMemberId, asPortId, isExactWidgetTapRef, isPortEndpoint, isWidgetTapRef, samePortRef, type PortRef } from '../ids.js'
 import { graphAllocator } from './alloc.js'
@@ -148,10 +149,11 @@ const isBoundaryGuard = (v: Json): v is JsonObject & { item: string; side: 'inpu
   (v.alsoIndex === undefined || typeof v.alsoIndex === 'number') &&
   (v.promoted === undefined || typeof v.promoted === 'boolean')
 const CONTROLLER_MODES = new Set<ControllerMode>(['fixed', 'increment', 'decrement', 'randomize'])
-const DYNAMIC_STATE_KEYS = new Set(['members', 'memberLabels', 'seq', 'selected', 'memberState'])
+const DYNAMIC_STATE_KEYS = new Set(['members', 'memberLabels', 'seq', 'selected', 'options', 'memberState'])
 const isDynamicPortState = (v: Json, depth = 0): boolean => {
   if (!isObj(v) || depth > MAX_DYNAMIC_STATE_DEPTH || Object.keys(v).some((key) => !DYNAMIC_STATE_KEYS.has(key)))
     return false
+  if (v.options !== undefined && (!Array.isArray(v.options) || !v.options.every(isComboValue))) return false
   if (v.members !== undefined && (
     !Array.isArray(v.members) ||
     !v.members.every((member) => typeof member === 'string' && member.length > 0) ||

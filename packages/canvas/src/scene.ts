@@ -29,6 +29,7 @@ import {
   isSelectorRef,
   isValueSourceRef,
   isWidgetTapRef,
+  memberHopsOf,
   netSinkKey,
   netViewPositions,
   occurrenceDynamicView,
@@ -37,6 +38,7 @@ import {
   occurrenceSubtreeKey,
   portRefKey,
   regionBoundaryLabels,
+  resolveBoundaryRoute,
   outputsOf,
   samePortRef,
   solveGraphTypes,
@@ -62,6 +64,7 @@ import {
   type OccurrenceLinkEndpoint,
   type OccurrenceRef,
   type PortRef,
+  type PortAddress,
   type SchemaResolver,
   type SelectorData,
   type SolveResult,
@@ -1304,6 +1307,53 @@ export function buildScene(input: BuildSceneInput): Scene {
       }
       return undefined
     }
+    const optionsOwnerFor = (row: Extract<typeof baseLayout.rows[number], { kind: 'widget' }>) => {
+      if (row.optionsTarget === undefined) return undefined
+      let source: { graphId: string; nodeId: string; address: PortAddress } | undefined
+      let materialize = row.materialize
+      for (const owner of input.occurrenceView?.familyOwners?.get(node.id)?.values() ?? []) {
+        const endpoint = occurrenceFamilyEndpoint(owner, row.address.port, row.address.members, row.materialize?.at(-1)?.members.at(-1))
+        if (endpoint === undefined || endpoint.kind !== 'boundary') continue
+        const member = occurrenceFamilyMemberOwner(owner, row.address.port, row.address.members) ?? owner.ghostOwner
+        source = { graphId: member.graphId, nodeId: member.nodeId, address: endpoint.address }
+        materialize = row.materialize?.flatMap((frame) => {
+          const canonical = owner.optionalAfterMinimum && frame.construct === owner.familyPath
+          const level = row.optionsTarget!.ancestors.findIndex((ancestor) => ancestor.construct === frame.construct)
+          const addresses = frame.members.flatMap((candidate) => {
+            const mapped = occurrenceFamilyEndpoint(owner, canonical ? `${frame.construct}.${candidate}` : frame.construct,
+              [...row.optionsTarget!.ancestors.slice(0, Math.max(0, level)).map((ancestor) => asDynamicMemberId(ancestor.member)), asDynamicMemberId(candidate)], candidate)
+            return mapped?.kind === 'boundary' ? [mapped.address] : []
+          })
+          return addresses.length === 0 ? [] : [{ construct: canonical ? member.boundaryId : addresses[0]!.port,
+            members: addresses.map((address, candidate) => address.members?.at(-1) ?? frame.members[candidate]!),
+          }]
+        })
+        break
+      }
+      if (source === undefined) {
+        const subtree = subtreeTarget(row.valueKey)
+        if (subtree !== undefined) {
+          source = { graphId: subtree.owner.graphId, nodeId: subtree.owner.nodeId, address: subtree.address }
+          materialize = row.materialize === undefined ? undefined : mapFrames(subtree.owner, row.materialize)
+        }
+      }
+      if (source === undefined) {
+        const owner = input.occurrenceView?.valueOwners?.get(node.id)?.get(row.valueKey)
+        // Value owners project only static promoted ports, so this is the
+        // boundary's document id, not an elaborated member key.
+        if (owner !== undefined) source = { graphId: owner.graphId, nodeId: owner.nodeId, address: { port: asPortId(owner.valueKey) } }
+      }
+      if (source === undefined) return undefined
+      const target = input.document.graphs[source.graphId]?.nodes[source.nodeId]
+      const targetSchema = target && resolveNode(source.graphId, target)
+      if (!targetSchema) return undefined
+      const route = resolveBoundaryRoute(targetSchema, { kind: 'port', node: asNodeId(source.nodeId), ...source.address, port: asPortId(source.address.port) }, 'input')
+      if (!route.ok) return undefined
+      return { owner: { graphId: source.graphId, nodeId: source.nodeId, construct: source.address.port,
+        ancestors: memberHopsOf(route.route.hops).map((hop) => ({ construct: hop.familyPath, member: hop.member as string })),
+      }, ...(materialize === undefined ? {} : { materialize }),
+      }
+    }
     const rawLayout = schema && input.occurrenceView
       ? {
           ...baseLayout,
@@ -1311,8 +1361,12 @@ export function buildScene(input: BuildSceneInput): Scene {
             const optionSourceOwner = baseRow.kind === 'widget' && baseRow.spec.optionSource !== undefined
               ? familyOwnerFor(baseRow.spec.optionSource.inputFamily)
               : undefined
-            const row = optionSourceOwner === undefined ? baseRow : {
-              ...baseRow,
+            const optionsOwner = baseRow.kind === 'widget' ? optionsOwnerFor(baseRow) : undefined
+            const menuRow = optionsOwner === undefined || baseRow.kind !== 'widget' ? baseRow : {
+              ...baseRow, optionsTarget: { ...baseRow.optionsTarget!, ...optionsOwner },
+            }
+            const row = optionSourceOwner === undefined ? menuRow : {
+              ...menuRow,
               inputFamilyOwner: {
                 graphId: optionSourceOwner.graphId,
                 nodeId: optionSourceOwner.nodeId,

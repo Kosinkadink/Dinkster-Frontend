@@ -361,6 +361,9 @@ describe('occurrence-local link commands', () => {
 
   it('materializes a boundary ghost and creates its local link in one undo step', () => {
     const initial = document()
+    ;(initial.graphs.root!.nodes as Record<string, NodeData>).a = {
+      ...initial.graphs.root!.nodes.a!, dynamic: { ingest: { options: ['duplicate', false, 0] } },
+    }
     const target = owner('a')
     const bodyGraph = initial.graphs.body!
     ;(bodyGraph.nodes as Record<string, NodeData>).sink = { id: asNodeId('sink'), type: 'FamilySink', values: {} }
@@ -380,13 +383,13 @@ describe('occurrence-local link commands', () => {
       from: body({ node: 'producerOne', port: 'out' }), to: ghost,
     }).invocation)
     expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
-    expect(store.doc.graphs.root!.nodes.a!.dynamic).toEqual({ ingest: { members: ['m0'], seq: 1 } })
+    expect(store.doc.graphs.root!.nodes.a!.dynamic).toEqual({ ingest: { options: ['duplicate', false, 0], members: ['m0'], seq: 1 } })
     expect(store.doc.occurrenceTopologies!.a!.links.l0).toBeDefined()
     expect(store.undo()).toBe(true)
-    expect(store.doc.graphs.root!.nodes.a!.dynamic).toEqual({ ingest: { seq: 1 } })
+    expect(store.doc.graphs.root!.nodes.a!.dynamic).toEqual({ ingest: { options: ['duplicate', false, 0], seq: 1 } })
     expect(store.doc.occurrenceTopologies!.a!.links).toEqual({})
     expect(store.redo()).toBe(true)
-    expect(store.doc.graphs.root!.nodes.a!.dynamic).toEqual({ ingest: { members: ['m0'], seq: 1 } })
+    expect(store.doc.graphs.root!.nodes.a!.dynamic).toEqual({ ingest: { options: ['duplicate', false, 0], members: ['m0'], seq: 1 } })
     expect(store.doc.occurrenceTopologies!.a!.links.l0).toBeDefined()
 
     const capped = structuredClone(initial) as WorkflowDocument
