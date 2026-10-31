@@ -34,6 +34,9 @@ and model metadata inputs override the stored viewport state on opening.
 Preview FILE_3D values load their primary `source` and declared `resources`
 through asset authority. GLTF sidecars resolve only to these granted resources,
 never arbitrary external URLs or filesystem paths.
+Unverified sources and sidecars use the granting server's local-binding byte
+route, with browser caching disabled. They never enter digest lookup or acquire
+a synthetic digest. A revoked or changed binding leaves the viewport unavailable.
 Malformed FILE_3D manifests leave the viewport unavailable without reading a
 dormant model file. Resource names must be contained relative paths.
 Mesh loading selects GLB, GLTF, OBJ, FBX, STL or USDZ from the original file

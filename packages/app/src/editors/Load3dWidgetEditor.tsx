@@ -75,7 +75,13 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         typeof file3d.format !== 'string' || !/^[a-z0-9]+$/.test(file3d.format)
         || Object.keys(file3d).some((key) => { return !['format', 'source', 'resources'].includes(key) })
         || [file3d.source, ...resourceRefs.map(([, ref]) => ref)].some((ref) => {
-          return !isAssetRefValue(ref) || Object.keys(object(ref)).some((key) => {
+          const asset = object(ref)
+          const valid = asset.verification === 'unverified'
+            ? !('digest' in asset) && typeof asset.localBinding === 'string' && asset.localBinding.length > 0
+              && typeof asset.name === 'string' && typeof asset.mediaType === 'string' && typeof asset.virtualPath === 'string'
+              && typeof asset.size === 'number' && Number.isSafeInteger(asset.size) && asset.size >= 0
+            : isAssetRefValue(ref)
+          return !valid || Object.keys(asset).some((key) => {
             return !['digest', 'name', 'size', 'mediaType', 'virtualPath', 'verification', 'localBinding'].includes(key)
           })
         })
@@ -87,9 +93,13 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       )) throw new Error(message('load3dWidget.unavailable'))
       const model = object(manifest === undefined ? inputValue('model_file') : file3d.source)
       const assetUrl = async (ref: Record<string, Json>) => {
-        if (ref.verification === 'unverified') throw new Error(message('load3dWidget.unavailable'))
-        if (typeof ref.digest !== 'string') throw new Error(message('load3dWidget.chooseModel'))
-        const bytes = await backend.connection.fetchAssetBytes(ref.digest)
+        if (ref.verification === 'unverified' && (typeof ref.localBinding !== 'string' || !ref.localBinding || 'digest' in ref)) {
+          throw new Error(message('load3dWidget.unavailable'))
+        }
+        if (ref.verification !== 'unverified' && typeof ref.digest !== 'string') throw new Error(message('load3dWidget.chooseModel'))
+        const bytes = ref.verification === 'unverified'
+          ? await backend.connection.fetchLocalAssetBytes(ref.localBinding as string, abort.signal)
+          : await backend.connection.fetchAssetBytes(ref.digest as string)
         if (!live || !bytes) throw new Error(message('load3dWidget.unavailable'))
         const url = URL.createObjectURL(new Blob([bytes], { type: String(ref.mediaType ?? 'application/octet-stream') }))
         urls.push(url)
