@@ -35,6 +35,8 @@ export function ImportAssetResolutionDialog(props: { app: AppState }) {
   useAssetDecisionViewport(() => decisionEl)
   const request = useSignal(props.app.importAssetResolution)
   const [selected, setSelected] = createSignal<ReadonlyMap<string, AssetGuessCandidate>>(new Map())
+  const [pending, setPending] = createSignal<ReturnType<typeof request>>()
+  const busy = () => pending() !== undefined && pending() === request()
   createEffect(() => {
     const initial = new Map<string, AssetGuessCandidate>()
     for (const match of request()?.matches ?? []) {
@@ -44,6 +46,16 @@ export function ImportAssetResolutionDialog(props: { app: AppState }) {
     setSelected(initial)
   })
   const cancel = () => request()?.cancel()
+  const accept = async () => {
+    const owner = request()
+    if (!owner || busy()) return
+    setPending(owner)
+    try {
+      await owner.accept(selected())
+    } finally {
+      if (pending() === owner) setPending(undefined)
+    }
+  }
   const choose = (query: string, candidate?: AssetGuessCandidate) => {
     const next = new Map(selected())
     if (candidate) next.set(query, candidate); else next.delete(query)
@@ -59,7 +71,7 @@ export function ImportAssetResolutionDialog(props: { app: AppState }) {
     testId="import-asset-resolution-dialog"
     onRequestClose={cancel}
   >
-    <div ref={decisionEl} class="asset-decision import-asset-resolution-dialog">
+    <div ref={decisionEl} class="asset-decision import-asset-resolution-dialog" aria-busy={busy()}>
       <section class="asset-decision-intro">
         <span class="asset-decision-eyebrow">{message('importAssetResolution.eyebrow')}</span>
         <p id="import-asset-resolution-intro">{message('importAssetResolution.intro')}</p>
@@ -80,7 +92,7 @@ export function ImportAssetResolutionDialog(props: { app: AppState }) {
               <strong>{message(reasonHeadingKey[reason()])}</strong>
               <span id={reasonId} data-testid="import-asset-reason">{message(reasonLabelKey[reason()])}</span>
             </div>
-            <ProductRadio class="asset-decision-option import-asset-unresolved" checked={!selected().has(match.query)} onSelect={() => choose(match.query)} ariaLabel={message('importAssetResolution.leaveUnresolved.title')}>
+            <ProductRadio class="asset-decision-option import-asset-unresolved" disabled={busy()} checked={!selected().has(match.query)} onSelect={() => choose(match.query)} ariaLabel={message('importAssetResolution.leaveUnresolved.title')}>
               <span class="asset-decision-option-copy"><strong>{message('importAssetResolution.leaveUnresolved.title')}</strong><small>{message('importAssetResolution.leaveUnresolved.detail')}</small></span>
             </ProductRadio>
             <Show when={match.candidates.length === 0}><ProductEmptyState testId="import-asset-empty" title={message('importAssetResolution.noCandidates.title')} hint={message('importAssetResolution.noCandidates.detail')} /></Show>
@@ -88,7 +100,7 @@ export function ImportAssetResolutionDialog(props: { app: AppState }) {
               const complete = assetGuessCandidateToRef(candidate) !== undefined
               return <ProductRadio
                 class="asset-decision-option import-asset-candidate"
-                disabled={!complete}
+                disabled={!complete || busy()}
                 checked={selected().get(match.query) === candidate}
                 onSelect={() => choose(match.query, candidate)}
               >
@@ -114,7 +126,7 @@ export function ImportAssetResolutionDialog(props: { app: AppState }) {
       </div>
       <ProductActionFooter status={<span role="status" aria-live="polite" data-testid="import-assets-selection-status">{selectionStatus()}</span>}>
         <button type="button" data-testid="import-assets-cancel" onClick={cancel}>{message('importAssetResolution.action.skip')}</button>
-        <button type="button" class="primary" data-testid="import-assets-accept" onClick={() => request()?.accept(selected())}>{message('importAssetResolution.action.accept')}</button>
+        <button type="button" class="primary" data-testid="import-assets-accept" disabled={busy()} onClick={accept}>{message('importAssetResolution.action.accept')}</button>
       </ProductActionFooter>
     </div>
   </ModalSurface></Show>

@@ -6326,6 +6326,7 @@ export class AppState {
     digestHints: readonly ImportAssetDigestHint[],
   ): Promise<void> {
     const registry = backend.registry.get()
+    const resolution = this.importAssetResolution.get()
     const refs = this.legacyAssetReferences(tab, backend)
     const names = [...new Set(refs.map((ref) => ref.name))]
     if (names.length === 0) return
@@ -6338,7 +6339,7 @@ export class AppState {
       const matches = await backend.connection.guessAssets(names, importAssetDigestHintsForNames(names, digestHints))
       const basenameMatches = basenameNames.length > 0 ? await backend.connection.guessAssets(basenameNames) : []
       const current = liveTab()
-      if (current === undefined || backend.registry.get() !== registry) return
+      if (current === undefined || this.backendForTab(current) !== backend || backend.registry.get() !== registry) return
       const liveRefs = refs.filter((ref) =>
         current.store.doc.graphs[ref.graphId]?.nodes[ref.nodeId]?.values[ref.inputId] === ref.name)
       if (liveRefs.length === 0) return
@@ -6359,7 +6360,9 @@ export class AppState {
       }
       const appliedNames = new Set<string>()
       if (invocations.length > 0) {
-        const outcome = this.dispatchTo(current, { command: 'batch', params: { invocations } as unknown as Json })
+        const store = current.store
+        const outcome = await this.dispatchTo(current, { command: 'batch', params: { invocations } as unknown as Json })
+        if (liveTab() !== current || current.store !== store || this.backendForTab(current) !== backend || backend.registry.get() !== registry) return
         if (outcome.ok) {
           for (const name of liveNames) if (Object.prototype.hasOwnProperty.call(plan.auto, name)) appliedNames.add(name)
           this.reportProblems(current.id, plan.provenance.map((entry) => diag(
@@ -6370,9 +6373,11 @@ export class AppState {
           )))
         }
       }
-      const leftoverNames = liveNames.filter((name) => !appliedNames.has(name))
+      if (this.importAssetResolution.get() !== resolution) return
+      const leftoverRefs = liveRefs.filter((ref) => !appliedNames.has(ref.name) &&
+        current.store.doc.graphs[ref.graphId]?.nodes[ref.nodeId]?.values[ref.inputId] === ref.name)
+      const leftoverNames = [...new Set(leftoverRefs.map((ref) => ref.name))]
       if (leftoverNames.length === 0) return
-      const leftoverRefs = liveRefs.filter((ref) => !appliedNames.has(ref.name))
       // The navigation signals identify this document owner across a shared
       // workspace promotion while excluding a same-lineage replacement.
       installImportAssetResolution({
@@ -6380,10 +6385,13 @@ export class AppState {
         refs: leftoverRefs,
         reasons: plan.prompt,
         slot: this.importAssetResolution,
-        tabStillOpen: () => liveTab() !== undefined,
-        dispatch: (invocation) => {
+        tabStillOpen: () => {
           const owner = liveTab()
-          if (owner !== undefined) this.dispatchTo(owner, invocation)
+          return owner !== undefined && this.backendForTab(owner) === backend && backend.registry.get() === registry
+        },
+        dispatch: async (invocation) => {
+          const owner = liveTab()
+          return owner !== undefined && (await this.dispatchTo(owner, invocation)).ok
         },
       })
     } catch (error) {

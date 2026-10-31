@@ -309,14 +309,14 @@ const ref = (name: string): ImportAssetReference => ({ graphId: 'g0', nodeId: 'n
 const installResolution = (slot: RequestSlot<ImportAssetResolutionRequest>, overrides: {
   readonly tabStillOpen?: () => boolean
 } = {}): { dispatch: ReturnType<typeof vi.fn> } => {
-  const dispatch = vi.fn()
+  const dispatch = vi.fn().mockReturnValue(true)
   installImportAssetResolution({
     matches: [match('model.safetensors')],
     refs: [ref('model.safetensors')],
     reasons: { 'model.safetensors': 'ambiguous' },
     slot,
     tabStillOpen: overrides.tabStillOpen ?? (() => true),
-    dispatch: dispatch as unknown as (invocation: CommandInvocation) => void,
+    dispatch: dispatch as unknown as (invocation: CommandInvocation) => boolean,
   })
   return { dispatch }
 }
@@ -336,10 +336,10 @@ describe('installImportAssetResolution ownership', () => {
     expect(assetGuessCandidateToRef(withoutVirtualPath)).toBeUndefined()
   })
 
-  it('accept dispatches one batch of asset values and clears its own dialog', () => {
+  it('accept dispatches one batch of asset values and clears its own dialog', async () => {
     const slot = slotOf<ImportAssetResolutionRequest>()
     const { dispatch } = installResolution(slot)
-    slot.value!.accept(choicesFor('model.safetensors'))
+    await slot.value!.accept(choicesFor('model.safetensors'))
     expect(dispatch).toHaveBeenCalledTimes(1)
     const batch = dispatch.mock.calls[0]![0] as { command: string; params: { invocations: Array<{ params: { value: { digest: string } } }> } }
     expect(batch.command).toBe('batch')
@@ -415,5 +415,58 @@ describe('installImportAssetResolution ownership', () => {
     installResolution(slot)
     slot.value!.cancel()
     expect(slot.value).toBeUndefined()
+  })
+
+  it.each([false, true])('waits for acceptance=%s and permits retry after refusal', async (accepted) => {
+    const slot = slotOf<ImportAssetResolutionRequest>()
+    const { dispatch } = installResolution(slot)
+    let finish!: (accepted: boolean) => void
+    dispatch.mockImplementation(() => new Promise<boolean>((resolve) => { finish = resolve }))
+    const request = slot.value!
+    const pending = request.accept(choicesFor('model.safetensors'))
+    await request.accept(choicesFor('model.safetensors'))
+    expect(dispatch).toHaveBeenCalledTimes(1)
+    expect(slot.value).toBe(request)
+    finish(accepted)
+    await pending
+    expect(slot.value).toBe(accepted ? undefined : request)
+    if (!accepted) {
+      const retry = request.accept(choicesFor('model.safetensors'))
+      finish(true)
+      await retry
+      expect(slot.value).toBeUndefined()
+    }
+  })
+
+  it.each([false, true])('does not overwrite a newer request after acceptance=%s', async (accepted) => {
+    const slot = slotOf<ImportAssetResolutionRequest>()
+    const { dispatch } = installResolution(slot)
+    let finish!: (accepted: boolean) => void
+    dispatch.mockImplementation(() => new Promise<boolean>((resolve) => { finish = resolve }))
+    const pending = slot.value!.accept(choicesFor('model.safetensors'))
+    installResolution(slot)
+    const newer = slot.value!
+    finish(accepted)
+    await pending
+    expect(slot.value).toBe(newer)
+    await newer.accept(choicesFor('model.safetensors'))
+    expect(slot.value).toBeUndefined()
+  })
+
+  it.each(['dismissed', 'closed'])('does not retain a %s request after a pending refusal', async (state) => {
+    const slot = slotOf<ImportAssetResolutionRequest>()
+    let open = true
+    const { dispatch } = installResolution(slot, { tabStillOpen: () => open })
+    let finish!: (accepted: boolean) => void
+    dispatch.mockImplementation(() => new Promise<boolean>((resolve) => { finish = resolve }))
+    const request = slot.value!
+    const pending = request.accept(choicesFor('model.safetensors'))
+    if (state === 'dismissed') request.cancel()
+    else open = false
+    finish(false)
+    await pending
+    expect(slot.value).toBeUndefined()
+    await request.accept(choicesFor('model.safetensors'))
+    expect(dispatch).toHaveBeenCalledTimes(1)
   })
 })

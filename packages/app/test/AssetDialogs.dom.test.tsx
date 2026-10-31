@@ -7,6 +7,7 @@ import { registerCatalog, setLocale } from '@dinkster/core'
 import { AppState } from '../src/app-state.js'
 import { AssetConsentDialog } from '../src/AssetConsentDialog.js'
 import { ImportAssetResolutionDialog } from '../src/ImportAssetResolutionDialog.js'
+import { installImportAssetResolution } from '../src/dialog-requests.js'
 import '../src/locale.js'
 
 const digest = (character: string) => `blake3:${character.repeat(64)}`
@@ -56,6 +57,50 @@ afterEach(() => {
 })
 
 describe('asset modal surfaces', () => {
+  it('preserves choices on refusal and disables duplicate resolution while pending', async () => {
+    const mounted = mountResolution(undefined)
+    let finish!: (accepted: boolean) => void
+    const dispatch = vi.fn(() => new Promise<boolean>((resolve) => { finish = resolve }))
+    installImportAssetResolution({
+      slot: mounted.app.importAssetResolution, tabStillOpen: () => true, dispatch,
+      matches: [{ query: 'old.ckpt', candidates: [candidate()] }], reasons: { 'old.ckpt': 'ambiguous' },
+      refs: [{ graphId: 'g0', nodeId: 'n0', inputId: 'model', name: 'old.ckpt' }],
+    })
+    const accept = () => mounted.root.querySelector<HTMLButtonElement>('[data-testid="import-assets-accept"]')!
+    const radios = () => [...mounted.root.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+    expect(radios().map((radio) => radio.getAttribute('aria-checked'))).toEqual(['false', 'true'])
+    accept().click()
+    accept().click()
+    expect(dispatch).toHaveBeenCalledTimes(1)
+    expect(accept().disabled).toBe(true)
+    expect(radios().every((radio) => radio.disabled)).toBe(true)
+    expect(mounted.root.querySelector('[aria-busy="true"]')).not.toBeNull()
+    finish(false)
+    await vi.waitFor(() => expect(accept().disabled).toBe(false))
+    expect(radios().map((radio) => radio.getAttribute('aria-checked'))).toEqual(['false', 'true'])
+    accept().click()
+    finish(true)
+    await vi.waitFor(() => expect(mounted.app.importAssetResolution.get()).toBeUndefined())
+    expect(mounted.root.querySelector('[data-testid="import-asset-resolution-dialog"]')).toBeNull()
+    mounted.dispose()
+  })
+
+  it('isolates a replacement dialog from an older pending completion', async () => {
+    let finish!: () => void
+    const old = { matches: [], reasons: {}, cancel: vi.fn(), accept: () => new Promise<void>((resolve) => { finish = resolve }) }
+    const mounted = mountResolution(old)
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="import-assets-accept"]')!.click()
+    const newer = { matches: [], reasons: {}, cancel: vi.fn(), accept: vi.fn() }
+    mounted.app.importAssetResolution.set(newer)
+    expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="import-assets-accept"]')!.disabled).toBe(false)
+    finish()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(mounted.app.importAssetResolution.get()).toBe(newer)
+    expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="import-assets-accept"]')!.disabled).toBe(false)
+    mounted.dispose()
+  })
+
   it('updates an open import resolution dialog while preserving candidate data', () => {
     registerCatalog('de-DE', {
       'importAssetResolution.action.accept': '[Auswahl annehmen]',
