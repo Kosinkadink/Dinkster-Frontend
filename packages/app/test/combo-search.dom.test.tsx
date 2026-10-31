@@ -57,6 +57,7 @@ const mountEditor = (ed: WidgetEditorState, appOverrides: Partial<AppState> = {}
   const dispatchTo = vi.fn()
   const onClose = vi.fn()
   const [open, setOpen] = createSignal(true)
+  let clickAway: (() => void) | undefined
   const app = {
     backendForTab: () => ({ protocol: 'v1', scopedClient: { remoteChoiceAuthority: () => 0 } }),
     backendsTick: { get: () => 0, subscribe: () => () => {} },
@@ -72,11 +73,12 @@ const mountEditor = (ed: WidgetEditorState, appOverrides: Partial<AppState> = {}
         app={app}
         ed={ed}
         viewport={() => ({ x: 0, y: 0, scale: 1 })}
+        bindClickAway={(handler) => { clickAway = handler }}
         onClose={() => { onClose(); setOpen(false) }}
       />
     </Show>
   ), root)
-  return { root, outside, dispatchTo, onClose, unmount }
+  return { root, outside, dispatchTo, onClose, unmount, clickAway: () => clickAway?.() }
 }
 
 const optionLabels = (root: ParentNode): string[] =>
@@ -122,10 +124,34 @@ describe('combo search', () => {
         target: { kind: 'input', nodeId: 'n0', valueKey: 'choice', optionsTarget: { construct: 'choice', ancestors: [] } },
       }, { dispatchTo: (_tab, command) => { const outcome = store.dispatch(command); expect(outcome.ok).toBe(true); return outcome } })
     }
+    for (const dismissal of ['cancel', 'outside']) {
+      const draft = open()
+      await flushMicrotasks()
+      const before = structuredClone(store.doc)
+      const menu = draft.root.querySelector<HTMLTextAreaElement>('[data-testid="combo-menu-draft"]')!
+      menu.value = '["unapplied", false]'
+      menu.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      const selected = draft.root.querySelector<HTMLInputElement>('[data-testid="combo-selected-draft"]')!
+      selected.value = '0'
+      selected.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      if (dismissal === 'cancel') draft.root.querySelector<HTMLButtonElement>('[data-testid="combo-menu-cancel"]')!.click()
+      else draft.clickAway()
+      expect(draft.root.querySelector('[data-testid="combo-dropdown"]')).toBeNull()
+      expect(store.doc).toEqual(before)
+      draft.unmount()
+    }
     const mounted = open()
     await flushMicrotasks()
     const control = mounted.root.querySelector<HTMLTextAreaElement>('[data-testid="combo-menu-draft"]')!
     expect(control).not.toBeNull()
+    for (const invalid of ['[null]', '[{}]', '[[1]]', '[1e999]', 'true', '[']) {
+      control.value = invalid
+      control.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      const apply = mounted.root.querySelector<HTMLButtonElement>('[data-testid="combo-menu-apply"]')!
+      expect(apply.disabled).toBe(true)
+      apply.click()
+      expect(store.doc.graphs.g0!.nodes.n0!.dynamic?.choice).toBeUndefined()
+    }
     control.value = JSON.stringify(choices)
     control.dispatchEvent(new InputEvent('input', { bubbles: true }))
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="combo-menu-apply"]')!.click()
@@ -146,6 +172,23 @@ describe('combo search', () => {
     expect(store.doc.graphs.g0!.nodes.n0!.values.choice).toBe(false)
     expect(store.doc.graphs.g0!.nodes.n0!.dynamic?.choice?.options).toEqual(choices)
     reopened.unmount()
+  })
+
+  it.each(['ordinary', 'remote', 'multi', 'no-owner'])('does not expose authored-menu controls for %s combos', async (kind) => {
+    const spec = {
+      widgetType: kind === 'multi' ? 'MULTI_COMBO' : 'COMBO',
+      ...(kind === 'ordinary' ? {} : { editableOptions: true as const }),
+      options: { options: ['schema'] },
+      ...(kind === 'remote' ? { remote: { route: '/choices' } } : {}),
+    }
+    const ed = editorState(spec, kind === 'multi' ? ['schema'] : 'schema')
+    const mounted = mountEditor({ ...ed, target: { kind: 'input', nodeId: 'n0', valueKey: 'choice',
+      ...(kind === 'no-owner' ? {} : { optionsTarget: { construct: 'choice', ancestors: [] } }),
+    } }, { backendForTab: () => ({ scopedClient: { remoteChoiceAuthority: () => 0, remoteChoices: async () => ['schema'] } }) } as unknown as Partial<AppState>)
+    await flushMicrotasks()
+    expect(mounted.root.querySelector('[data-testid="combo-authoring"]')).toBeNull()
+    expect(optionLabels(mounted.root)).toEqual(['schema'])
+    mounted.unmount()
   })
 
   it('commits mixed scalar options without string or boolean coercion', async () => {
