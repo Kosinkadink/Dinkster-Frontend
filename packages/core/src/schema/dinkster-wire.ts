@@ -164,6 +164,7 @@ export interface DinksterWireSchema {
   readonly editorRole?: unknown
   readonly idempotent?: unknown
   readonly interface?: unknown
+  readonly additionalInputs?: unknown
   readonly occupies?: unknown
   readonly ioBound?: unknown
   readonly deprecation?: unknown
@@ -446,7 +447,13 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       return
     case 'COMBO': {
-      checkWidgetFields(descriptor, ['type', 'options', 'remote', 'controlAfterGenerate', 'optionSource'], where, diags)
+      checkWidgetFields(descriptor, ['type', 'options', 'remote', 'controlAfterGenerate', 'optionSource', 'editableOptions'], where, diags)
+      if (descriptor['editableOptions'] !== undefined && typeof descriptor['editableOptions'] !== 'boolean') {
+        throw new Error(`${where}.editableOptions must be a boolean`)
+      }
+      if (descriptor['editableOptions'] === true && (descriptor['remote'] !== undefined || descriptor['optionSource'] !== undefined)) {
+        throw new Error(`${where}.editableOptions cannot have another option source`)
+      }
       const options = descriptor['options']
       if (options !== undefined) {
         if (!Array.isArray(options)) throw new Error(`${where}.options must be an array`)
@@ -477,7 +484,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
           throw new Error(`${where}.optionSource.inputFamily must be a non-empty string`)
         }
       }
-      if ((!Array.isArray(options) || options.length === 0) && remote === undefined && optionSource === undefined) {
+      if ((!Array.isArray(options) || options.length === 0) && remote === undefined && optionSource === undefined && descriptor['editableOptions'] !== true) {
         throw new Error(`${where} requires options, remote, or optionSource`)
       }
       return
@@ -738,6 +745,7 @@ function widgetFor(
       labelOn?: unknown
       labelOff?: unknown
       optionSource?: unknown
+      editableOptions?: unknown
       min?: unknown
       max?: unknown
       step?: unknown
@@ -855,7 +863,7 @@ function widgetFor(
       let options: unknown[] | undefined
       if (descriptor.options !== undefined) {
         if (Array.isArray(descriptor.options)) {
-          if (descriptor.options.length > 0) options = [...descriptor.options]
+          if (descriptor.options.length > 0 || descriptor.editableOptions === true) options = [...descriptor.options]
         } else {
           diags.push(diag('warning', 'schema', 'schema.dinkster.badComboOptions', `${nodeType}.${id}: COMBO options are invalid`))
         }
@@ -910,7 +918,7 @@ function widgetFor(
           optionSource = { inputFamily: source['inputFamily'] }
         }
       }
-      if (options === undefined && remote === undefined && optionSource === undefined) {
+      if (options === undefined && remote === undefined && optionSource === undefined && descriptor.editableOptions !== true) {
         diags.push(diag('warning', 'schema', 'schema.dinkster.badCombo', `${nodeType}.${id}: COMBO has no options or option source`))
       } else {
         let controllerInitial: WidgetSpec['controllerInitial']
@@ -931,6 +939,7 @@ function widgetFor(
         return {
           widgetType: 'COMBO',
           options: options !== undefined ? { options } : {},
+          ...(descriptor.editableOptions === true ? { editableOptions: true as const } : {}),
           ...(remote !== undefined ? { remote } : {}),
           ...(optionSource !== undefined ? { optionSource } : {}),
           ...(controllerInitial !== undefined ? { controller: 'after_generate' as const, controllerInitial } : {}),
@@ -1963,6 +1972,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       items.push(decodeWireEntry(nodeType, entry, where, diags, budget, 0))
     }
     const idempotent = wire.idempotent !== false
+    const additionalInputs = wire.additionalInputs === undefined ? undefined : wireType(wire.additionalInputs, 'additionalInputs')
     const deprecation = decodeDeprecation(nodeType, wire.deprecation, diags)
     const replacements = decodeReplacements(nodeType, wire.replacements, diags)
     const searchVisibility = decodeSearchVisibility(nodeType, wire.searchVisibility, diags)
@@ -1982,6 +1992,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       ...(typeof wire.description === 'string' && wire.description !== '' ? { description: wire.description } : {}),
       source: 'v3',
       items: [],
+      ...(additionalInputs !== undefined ? { additionalInputs } : {}),
       isOutputNode: wire.outputNode === true || !idempotent,
       ...(wire.emitsPreviews === true ? { emitsPreviews: true } : {}),
       ...(wire.mayExpandGraph === true ? { mayExpandGraph: true } : {}),
@@ -2017,6 +2028,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       } else if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') validateTupleDeclaration(type.element, output)
     }
     for (const item of items) if (item.kind !== 'section') validateTupleDeclaration(item.type, item.kind === 'output')
+    if (additionalInputs !== undefined) validateTupleDeclaration(additionalInputs, false)
     if (decodedOutputs.filter((output) => output.outputDescriptors !== undefined).length > 1) {
       throw new Error('a schema may declare only one outputDescriptors construct')
     }

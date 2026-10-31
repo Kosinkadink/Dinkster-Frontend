@@ -9,6 +9,20 @@ settings. Missing required fields and mistyped known fields still reject the
 node with a schema error. Unknown non-empty widget type names remain custom
 pack descriptors, preserving their JSON parameters for widget-kind lookup.
 
+## Occurrence-authored choice data
+
+A COMBO descriptor with `editableOptions: true` permits an empty option list
+and cannot also declare a remote or input-family option source. Its occurrence
+stores ordered scalar choices in `dynamic[input].options`, separately from
+the selected scalar in `values[input]`. Duplicate entries and a selected value
+outside the menu are preserved. Ordinary COMBO descriptors remain closed lists.
+
+`NodeData.additionalInputs` records extra input names only for schemas declaring
+`additionalInputs`. The schema supplies their types; document values never
+create ports implicitly. Extra names may be sparse and have no option-count
+limit, but cannot replace declared inputs or claim a dynamic construct's
+namespace. The normal interface budget still applies.
+
 ## Authored 3D viewport
 
 LOAD_3D edits the selected model file through an orbit viewport. Projection,

@@ -121,6 +121,33 @@ const noState = { values: {} }
 // ---------------------------------------------------------------------------
 
 describe('static schemas', () => {
+  it('keeps authored choices separate from values and scopes explicit extra input types', () => {
+    const schema: NodeSchema = {
+      ...schemaOf([{ ...socketInput('choice', 'COMBO'), widget: { widgetType: 'COMBO', options: { options: ['seed'] }, editableOptions: true } }]),
+      additionalInputs: { kind: 'variable', templateId: 'T' },
+    }
+    const names = ['index', 'sparse.009', ...Array.from({ length: 150 }, (_, index) => `extra_${index * 3}`)]
+    const values = { choice: 'outside', unlisted: 42 }
+    const result = elaborateInterface(schema, {
+      values, additionalInputs: names, dynamic: { choice: { options: ['same', 'same', false, 7] } },
+    })
+    expect(result.diagnostics).toEqual([])
+    const inputs = elabInputsOf(result)
+    expect(inputs.map((input) => input.apiName)).toEqual(['choice', ...names])
+    expect(inputs[0]!.spec.widget!.options['options']).toEqual(['same', 'same', false, 7])
+    expect(inputs[1]!.spec).toMatchObject({ optional: true, type: { kind: 'variable', templateId: 'index:T' } })
+    expect(inputs[2]!.spec.type).toEqual({ kind: 'variable', templateId: 'sparse.009:T' })
+    expect(values.choice).toBe('outside')
+    expect(elabInputsOf(elaborateInterface(schema, { values, dynamic: { choice: { options: [] } } }))[0]!.spec.widget!.options['options']).toEqual([])
+    const closed = elaborateInterface(schemaOf([socketInput('choice', 'COMBO')]), { values, additionalInputs: ['index'] })
+    expect(closed.diagnostics.map((diag) => diag.code)).toContain('elab.additionalInput.closed')
+    expect(elabInputsOf(closed).map((input) => input.apiName)).toEqual(['choice'])
+    const collision = elaborateInterface({ ...schema, items: [...schema.items, autogrowFamily('items')] }, {
+      values, additionalInputs: ['choice', 'items.inactive', 'items'],
+    })
+    expect(collision.diagnostics.filter((diag) => diag.code === 'elab.additionalInput.reserved')).toHaveLength(3)
+  })
+
   it('elaborates a static schema unchanged, in declared order', () => {
     const schema = schemaOf([
       output('out0'),

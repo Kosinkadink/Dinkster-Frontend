@@ -788,6 +788,7 @@ function compileImpl(
       ? node
       : {
           values: values ?? node.values,
+          ...(node.additionalInputs !== undefined ? { additionalInputs: node.additionalInputs } : {}),
           ...(overlay !== undefined ? { dynamic: overlay } : node.dynamic !== undefined ? { dynamic: node.dynamic } : {}),
         }
     const connectivity = withExtraConnectivity(connectivityFor(ctx.path, ctx.defId)(node.id), extraIn, extraOut)
@@ -826,7 +827,7 @@ function compileImpl(
     nodeId: NodeId,
     nodeType: string,
     schema: NodeSchema,
-    state: Pick<NodeData, 'values' | 'dynamic'>,
+    state: Pick<NodeData, 'values' | 'dynamic' | 'additionalInputs'>,
     connectivity: Connectivity,
     owner: { readonly graphId: GraphDefId; readonly nodeId: NodeId; readonly runtimeId?: string },
   ): NodeElab {

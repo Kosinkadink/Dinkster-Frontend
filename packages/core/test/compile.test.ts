@@ -39,6 +39,32 @@ const compileInput = (
 })
 
 describe('golden pairs', () => {
+  it('compiles explicit extra membership without deriving ports from dormant values', () => {
+    const schema = parseDinksterSchema('Authored', {
+      outputNode: true,
+      additionalInputs: { kind: 'concrete', types: ['INT'] },
+      interface: [{ role: 'input', id: 'choice', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', editableOptions: true, options: [] } }],
+    }).schema!
+    const base = loadWorkflow('minimal')
+    const document = (additionalInputs: readonly string[]): WorkflowDocument => ({
+      ...base,
+      graphs: { [base.root]: {
+        ...base.graphs[base.root]!, links: {},
+        nodes: { n0: { id: asNodeId('n0'), type: 'Authored', values: { choice: 'outside', index: 7, unused: 42 }, additionalInputs,
+          dynamic: { choice: { options: ['same', 'same'] } } } },
+      } },
+    })
+    const withIndex = document(['index'])
+    const withoutIndex = document([])
+    const result = compile(compileInput(withIndex, { kind: 'full' }, () => schema))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.artifact.prompt['n0']!.inputs).toEqual({ choice: 'outside', index: 7 })
+    const omitted = compile(compileInput(withoutIndex, { kind: 'full' }, () => schema))
+    expect(omitted.ok).toBe(true)
+    if (omitted.ok) expect(omitted.artifact.prompt['n0']!.inputs).toEqual({ choice: 'outside' })
+    expect(semanticHashOf(withIndex)).not.toBe(semanticHashOf(withoutIndex))
+  })
+
   it('strips virtual notes without changing the execution prompt or semantic hash', () => {
     const base = loadWorkflow('exec-basic')
     const graph = base.graphs[base.root]!

@@ -303,6 +303,11 @@ function checkDynamicPortState(c: ShapeChecker, st: unknown, p: string, depth: n
     }
   }
   if (st['selected'] !== undefined) c.str(st['selected'], `${p}.selected`)
+  if (st['options'] !== undefined && c.arr(st['options'], `${p}.options`)) {
+    st['options'].forEach((option, index) => {
+      if (typeof option !== 'string' && typeof option !== 'boolean') c.num(option, `${p}.options[${index}]`)
+    })
+  }
   if (st['memberLabels'] !== undefined && c.obj(st['memberLabels'], `${p}.memberLabels`)) {
     for (const [member, label] of Object.entries(st['memberLabels'])) {
       if (member.length === 0) c.fail(`${p}.memberLabels`, 'member ids must be non-empty')
@@ -331,6 +336,15 @@ function checkNode(c: ShapeChecker, v: unknown, path: string): void {
   c.str(v['type'], `${path}.type`, { nonEmpty: true })
   if (v['virtual'] !== undefined && v['virtual'] !== true) c.fail(`${path}.virtual`, 'expected true')
   c.obj(v['values'], `${path}.values`)
+  if (v['additionalInputs'] !== undefined && c.arr(v['additionalInputs'], `${path}.additionalInputs`)) {
+    const names = v['additionalInputs']
+    names.forEach((name, index) => {
+      if (c.str(name, `${path}.additionalInputs[${index}]`, { nonEmpty: true }) && name.includes('\0')) {
+        c.fail(`${path}.additionalInputs[${index}]`, 'input names cannot contain NUL')
+      }
+    })
+    if (new Set(names).size !== names.length) c.fail(`${path}.additionalInputs`, 'input names must be unique')
+  }
   if (v['controllers'] !== undefined && c.obj(v['controllers'], `${path}.controllers`)) {
     for (const [k, mode] of Object.entries(v['controllers'])) {
       if (typeof mode !== 'string' || !CONTROLLER_MODES.has(mode)) {

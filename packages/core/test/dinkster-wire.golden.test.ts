@@ -13,6 +13,31 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('decodes editable empty combos and typed additional inputs only when opted in', () => {
+    const editable = { type: 'COMBO', editableOptions: true, options: [] }
+    const result = parseDinksterSchema('Authored', {
+      additionalInputs: { kind: 'wildcard' },
+      interface: [{ role: 'input', id: 'choice', type: concrete('COMBO'), widget: editable }],
+    })
+    expect(result.diagnostics).toEqual([])
+    expect(result.schema!.additionalInputs).toEqual({ kind: 'wildcard' })
+    expect(inputsOf(result.schema!)[0]!.widget).toMatchObject({ editableOptions: true, options: { options: [] } })
+    for (const widget of [
+      { ...editable, editableOptions: 'true' },
+      { ...editable, remote: { route: '/choices' } },
+      { ...editable, optionSource: { inputFamily: 'items' } },
+      { type: 'COMBO', options: [] },
+    ]) {
+      expect(parseDinksterSchema('Invalid', { interface: [
+        { role: 'input', id: 'choice', type: concrete('COMBO'), widget },
+      ] }).schema).toBeUndefined()
+    }
+    expect(parseDinksterSchema('Closed', { interface: [] }).schema!.additionalInputs).toBeUndefined()
+    expect(parseDinksterSchema('Invalid', {
+      additionalInputs: { kind: 'family_tuple', input: 'items' }, interface: [],
+    }).schema).toBeUndefined()
+  })
+
   it('preserves native asset-selection schemas and imported source names', () => {
     for (const kind of ['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset']) {
       const types = [concrete('COMBO'), ...(kind === 'model/vae' ? [{ kind: 'union', types: ['COMBO', 'ASSET'] }] : [])]
