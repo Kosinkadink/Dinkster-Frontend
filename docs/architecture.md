@@ -66,6 +66,18 @@ untouched. Ordinary `dispatch()` immediately prepares and commits, preserving
 its synchronous final-outcome contract. A prepared command does not certify
 typed asset completeness or register a frontend holder.
 
+Local image apply and image-document export commands use an awaited retained
+dispatch path. It journals the candidate and the union of current, undo, redo
+and proposed asset roots before requesting ownership. Exact acknowledgment or
+exact owner reconciliation precedes publication; a changed destination or stale
+candidate is refused. Unsupported schemas, dynamic state and nonempty extension
+records are incomplete, not empty root sets. Shared sessions cannot use this
+local staging path. Ordinary synchronous dispatch is unchanged.
+
+Candidate owners remain retained and journaled, including after uncertain writes
+or failed publication. This path does not automatically release them or certify
+other workflow holders, restored sessions or collection safety.
+
 ## Goals
 
 - Performant node-graph editor for ComfyUI, local-first (no cloud/API-node concerns for now).

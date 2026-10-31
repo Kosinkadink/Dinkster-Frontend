@@ -196,6 +196,7 @@ import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegist
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
+import { admitWorkflowDispatch } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -5552,6 +5553,38 @@ export class AppState {
     const outcome = tab.store.dispatch(effective)
     if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
     return outcome
+  }
+
+  async dispatchRetainedTo(tab: Tab, invocation: CommandInvocation, stillWanted: () => boolean = () => true): Promise<CommandOutcome> {
+    if (tab.execution) return { ok: false, diagnostics: [] }
+    const backend = this.backendForTab(tab)
+    const registry = this.registryForTab(tab)
+    try {
+      if (backend.protocol !== 'dinkster' || registry === undefined || tab.store.prepareDispatch === undefined) {
+        throw new Error('The destination cannot stage retained workflow commands')
+      }
+      const session = tab.store
+      const prepared = session.prepareDispatch!(this.countAwareValueInvocation(tab, invocation))
+      if (!prepared.ok) {
+        this.reportProblems(tab.id, prepared.diagnostics)
+        return prepared
+      }
+      const outcome = await admitWorkflowDispatch(
+        backend.connection,
+        prepared,
+        this.resolverWithVirtualNodes(registry.resolve),
+        () => this.tabs.get().includes(tab) && tab.store === session &&
+          this.backendForTab(tab) === backend && this.registryForTab(tab) === registry && !tab.execution && stillWanted(),
+      )
+      if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
+      return outcome
+    } catch (error) {
+      const outcome = { ok: false as const, diagnostics: [diag(
+        'error', 'command', 'command.retention.refused', error instanceof Error ? error.message : String(error),
+      )] }
+      this.reportProblems(tab.id, outcome.diagnostics)
+      return outcome
+    }
   }
 
   /** Plan, commit, then drill into one fresh empty definition. */

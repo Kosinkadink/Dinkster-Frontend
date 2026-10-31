@@ -115,11 +115,11 @@ describe('ImageDocument graph recipe parity', () => {
       graphStack: { get: () => [] },
       store: { doc: { root: 'g0', graphs: { g0: graph } } },
     }
-    const dispatchTo = vi.fn(() => ({ ok: true, diagnostics: [] }))
+    const dispatchTo = vi.fn(async () => ({ ok: true, diagnostics: [] }))
     const app = {
       activeTab: () => tab,
       backendForTab: () => ({ id: 'backend-a' }),
-      dispatchTo,
+      dispatchRetainedTo: dispatchTo,
     } as unknown as AppState
     const origin = {
       connectionId: asConnectionId('backend-a'),

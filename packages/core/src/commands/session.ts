@@ -33,7 +33,7 @@ import type {
 } from './contract.js'
 import { predictAllocatedId } from './alloc.js'
 import type { PatchOp } from './patch.js'
-import { DocumentStore, type HistorySnapshot } from './store.js'
+import { DocumentStore, type HistorySnapshot, type PreparedDocumentDispatch } from './store.js'
 
 /**
  * One committed change, shaped to the collab envelope. Locally minted
@@ -103,6 +103,8 @@ export interface DocumentSession extends DocumentStoreContract {
    * successor's document is identical to this session's).
    */
   historySnapshot(): HistorySnapshot
+  /** Local candidate admission; shared sessions have independent publication boundaries. */
+  prepareDispatch?(invocation: CommandInvocation): PreparedDocumentDispatch
 }
 
 /**
@@ -232,6 +234,10 @@ class LocalDocumentSession implements DocumentSession {
 
   dispatch(invocation: CommandInvocation): CommandOutcome {
     return this.store.dispatch(invocation)
+  }
+
+  prepareDispatch(invocation: CommandInvocation): PreparedDocumentDispatch {
+    return this.store.prepareDispatch(invocation)
   }
 
   undo(): boolean {

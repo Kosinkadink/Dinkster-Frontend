@@ -186,7 +186,7 @@ export async function exportImageDocumentRecipe(
   if (backend.id !== origin.connectionId) throw new Error('The source backend changed since this image document was opened')
   const policy = imageOutputPolicyOf(document)
   const commands = canonicalJson(imageDocumentRecipeCommands(origin.document, document))
-  const outcome = app.dispatchTo(tab, { command: 'image.documentRecipeExport', params: {
+  const outcome = await app.dispatchRetainedTo(tab, { command: 'image.documentRecipeExport', params: {
     graphId: origin.graphId,
     expectedGraphFingerprint: origin.expectedGraphFingerprint,
     sourceNodeId: origin.sourceNodeId,
@@ -194,7 +194,7 @@ export async function exportImageDocumentRecipe(
     commands,
     format: policy.format,
     quality: policy.quality,
-  } })
+  } }, () => app.activeTab() === tab && currentGraphId(tab) === origin.graphId)
   if (!outcome.ok) throw new Error(outcome.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
 }
 
@@ -220,11 +220,11 @@ export async function exportImageDocumentSnapshot(
   if (app.activeTab() !== tab || app.backendForTab(tab) !== backend || currentGraphId(tab) !== graphId) {
     throw new Error('The destination workflow or backend changed during export')
   }
-  const outcome = app.dispatchTo(tab, { command: 'image.documentExport', params: {
+  const outcome = await app.dispatchRetainedTo(tab, { command: 'image.documentExport', params: {
     graphId, expectedGraphFingerprint, position: { x: 80, y: 80 },
     asset: { digest: adopted.digest, name: `${name}.dinkster-image`,
       size: new TextEncoder().encode(serializeImageDocument(adopted.document)).byteLength,
       mediaType: IMAGE_DOCUMENT_MEDIA_TYPE, virtualPath: '' },
-  } })
+  } }, () => app.activeTab() === tab && currentGraphId(tab) === graphId)
   if (!outcome.ok) throw new Error(outcome.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
 }

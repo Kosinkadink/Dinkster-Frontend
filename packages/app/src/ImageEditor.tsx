@@ -194,7 +194,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
           setError('The image destination changed while the mask was being edited')
           return
         }
-        const outcome = props.app.dispatchTo(currentTab, {
+        const outcome = await props.app.dispatchRetainedTo(currentTab, {
           command: 'image.applyMaskPaint',
           params: {
             graphId: request.graphId,
@@ -207,7 +207,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
             expectedMaskLinkIds: request.maskPaint!.expectedMaskLinkIds,
             expectedMaskNetIds: request.maskPaint!.expectedMaskNetIds,
           },
-        })
+        }, () => live && !abort.signal.aborted && target() === request)
         if (!outcome.ok) {
           setError(outcome.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? 'Mask apply was rejected')
           return
@@ -232,7 +232,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
         mediaType: 'image/png',
         virtualPath: '',
       }
-      const outcome = props.app.dispatchTo(currentTab, {
+      const outcome = await props.app.dispatchRetainedTo(currentTab, {
         command: 'image.applyAsset',
         params: {
           graphId: request.graphId,
@@ -241,7 +241,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
           expectedSourceDigest: request.sourceRef.digest,
           asset: ref,
         },
-      })
+      }, () => live && !abort.signal.aborted && target() === request)
       if (!outcome.ok) {
         setError(outcome.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? 'Image apply was rejected')
         return
