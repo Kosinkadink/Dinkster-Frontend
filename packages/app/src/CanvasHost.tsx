@@ -1981,16 +1981,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }
   const [netPrompt, setNetPrompt] = createSolidSignal<NetPromptState | undefined>(undefined)
 
-  const netPromptCommit = (name: string): void => {
+  const netPromptCommit = (name: string): CommandOutcome | Promise<CommandOutcome> | undefined => {
     const p = netPrompt()
-    setNetPrompt(undefined)
     const tab = activeTab()
     if (!p || !tab || tab.execution) return
     const trimmed = name.trim()
     if (trimmed.length === 0) return
     const graphId = currentGraphId(tab)
     if (p.mode === 'create' && p.source) {
-      props.app.dispatchTo(tab, {
+      return props.app.dispatchTo(tab, {
         command: 'net.create',
         params: {
           graphId,
@@ -2003,7 +2002,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         },
       })
     } else if (p.mode === 'rename' && p.netId !== undefined) {
-      props.app.dispatchTo(tab, { command: 'net.rename', params: { graphId, netId: p.netId, name: trimmed } })
+      return props.app.dispatchTo(tab, { command: 'net.rename', params: { graphId, netId: p.netId, name: trimmed } })
     }
   }
 
@@ -2017,14 +2016,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }
   const [groupPrompt, setGroupPrompt] = createSolidSignal<GroupPromptState | undefined>(undefined)
 
-  const groupPromptCommit = (title: string): void => {
+  const groupPromptCommit = (title: string): CommandOutcome | Promise<CommandOutcome> | undefined => {
     const p = groupPrompt()
-    setGroupPrompt(undefined)
     const tab = activeTab()
     if (!p || !tab || tab.execution) return
     const trimmed = title.trim()
     if (trimmed.length === 0) return
-    props.app.dispatchTo(tab, {
+    return props.app.dispatchTo(tab, {
       command: 'view.setGroupTitle',
       params: { graphId: currentGraphId(tab), groupId: p.groupId, title: trimmed },
     })
@@ -2043,12 +2041,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }
   const [nodePrompt, setNodePrompt] = createSolidSignal<NodePromptState | undefined>(undefined)
 
-  const nodePromptCommit = (title: string): void => {
+  const nodePromptCommit = (title: string): CommandOutcome | Promise<CommandOutcome> | undefined => {
     const p = nodePrompt()
-    setNodePrompt(undefined)
     if (!p || activeTab() !== p.tab || p.tab.execution || currentGraphId(p.tab) !== p.graphId) return
     const invocation = nodeTitleInvocation(p.graphId, p.nodeId, title, p.originalTitle)
-    if (invocation) props.app.dispatchTo(p.tab, invocation)
+    if (invocation) return props.app.dispatchTo(p.tab, invocation)
   }
 
   // -- selector rename prompt -------------------------------------------------
@@ -2061,14 +2058,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }
   const [selectorPrompt, setSelectorPrompt] = createSolidSignal<SelectorPromptState | undefined>(undefined)
 
-  const selectorPromptCommit = (title: string): void => {
+  const selectorPromptCommit = (title: string): CommandOutcome | Promise<CommandOutcome> | undefined => {
     const p = selectorPrompt()
-    setSelectorPrompt(undefined)
     const tab = activeTab()
     if (!p || !tab || tab.execution) return
     const trimmed = title.trim()
     if (trimmed.length === 0) return
-    props.app.dispatchTo(tab, {
+    return props.app.dispatchTo(tab, {
       command: 'selector.setTitle',
       params: { graphId: currentGraphId(tab), selectorId: p.selectorId, title: trimmed },
     })
@@ -2087,12 +2083,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [boundaryPrompt, setBoundaryPrompt] = createSolidSignal<BoundaryPromptState | undefined>(undefined)
   let lifecycleSelectNodes: ((ids: readonly string[]) => void) | undefined
 
-  const boundaryPromptCommit = (name: string): void => {
+  const boundaryPromptCommit = (name: string): CommandOutcome | Promise<CommandOutcome> | undefined => {
     const p = boundaryPrompt()
-    setBoundaryPrompt(undefined)
     const tab = activeTab()
     if (!p || !tab || tab.execution) return
-    props.app.dispatchTo(tab, {
+    return props.app.dispatchTo(tab, {
       command: 'boundary.renameItem',
       params: { graphId: currentGraphId(tab), side: p.side, itemId: p.itemId, displayName: name.trim() },
     })
@@ -2101,7 +2096,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // Tab or graph navigation dismisses any pending name editors: the prompts
   // are anchored to a menu position that no longer means anything.
   createEffect(() => {
-    activeTabId()
+    activeTab()
     stack()
     setNetPrompt(undefined)
     setGroupPrompt(undefined)
@@ -6891,70 +6886,70 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         )}
       </Show>
 
-      <Show when={netPrompt()}>
+      <Show when={netPrompt()} keyed>
         {(p) => (
           <NamePrompt
-            x={p().x}
-            y={p().y}
+            x={p.x}
+            y={p.y}
             testid="net-prompt"
-            placeholder={p().mode === 'create' ? 'Net name...' : 'New net name...'}
-            initial={p().initial}
+            placeholder={p.mode === 'create' ? 'Net name...' : 'New net name...'}
+            initial={p.initial}
             onCommit={netPromptCommit}
             onCancel={() => setNetPrompt(undefined)}
           />
         )}
       </Show>
 
-      <Show when={groupPrompt()}>
+      <Show when={groupPrompt()} keyed>
         {(p) => (
           <NamePrompt
-            x={p().x}
-            y={p().y}
+            x={p.x}
+            y={p.y}
             testid="group-prompt"
             placeholder="Group title..."
-            initial={p().initial}
+            initial={p.initial}
             onCommit={groupPromptCommit}
             onCancel={() => setGroupPrompt(undefined)}
           />
         )}
       </Show>
 
-      <Show when={nodePrompt()}>
+      <Show when={nodePrompt()} keyed>
         {(p) => (
           <NamePrompt
-            x={p().x}
-            y={p().y}
+            x={p.x}
+            y={p.y}
             testid="node-prompt"
             placeholder="Node title..."
-            initial={p().initial}
+            initial={p.initial}
             onCommit={nodePromptCommit}
             onCancel={() => setNodePrompt(undefined)}
           />
         )}
       </Show>
 
-      <Show when={selectorPrompt()}>
+      <Show when={selectorPrompt()} keyed>
         {(p) => (
           <NamePrompt
-            x={p().x}
-            y={p().y}
+            x={p.x}
+            y={p.y}
             testid="selector-prompt"
             placeholder="Selector title..."
-            initial={p().initial}
+            initial={p.initial}
             onCommit={selectorPromptCommit}
             onCancel={() => setSelectorPrompt(undefined)}
           />
         )}
       </Show>
 
-      <Show when={boundaryPrompt()}>
+      <Show when={boundaryPrompt()} keyed>
         {(p) => (
           <NamePrompt
-            x={p().x}
-            y={p().y}
+            x={p.x}
+            y={p.y}
             testid="boundary-prompt"
-            placeholder={`${p().itemId} (empty resets)`}
-            initial={p().initial}
+            placeholder={`${p.itemId} (empty resets)`}
+            initial={p.initial}
             onCommit={boundaryPromptCommit}
             onCancel={() => setBoundaryPrompt(undefined)}
           />

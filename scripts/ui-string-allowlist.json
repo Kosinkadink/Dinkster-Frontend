@@ -234,6 +234,10 @@
     "text:(undefined) /** * When the link menu opened. A midpoint single click opens it on release, * so the second press of a habitual double-click lands on the backdrop * milliseconds later; the backdrop ignores presses inside this window so * a double-click leaves the menu open instead of flashing it closed. */ let linkMenuOpenedAt = 0 const LINK_MENU_DISMISS_GRACE_MS = 350 const [recentNodeTypes, setRecentNodeTypes] = createSolidSignal",
     "text:(undefined) const [linkDoubleClickMenu, setLinkDoubleClickMenu] = createSolidSignal",
     "text:(undefined) const [pendingController, setPendingController] = createSolidSignal",
+    "text:(undefined) const groupPromptCommit = (title: string): CommandOutcome | Promise",
+    "text:(undefined) const netPromptCommit = (name: string): CommandOutcome | Promise",
+    "text:(undefined) const nodePromptCommit = (title: string): CommandOutcome | Promise",
+    "text:(undefined) const selectorPromptCommit = (title: string): CommandOutcome | Promise",
     "text:, instancePath: readonly string[], ): ReadonlySet",
     "text:0) page(props.onPrevious) if (event.key === 'ArrowRight' && props.index",
     "text:3D viewer unavailable",
@@ -286,6 +290,7 @@
     "text:root-graph node ids (a subgraph instance is \"in // scope\" when ANY of its inner occurrences is). const rootIds = new Set",
     "text:schemas from this run are unavailable - nodes render without definitions",
     "text:undefined const schema: NodeSchema | undefined = entry.schema ?? resolve(entry.type) const virtualKind = props.app.virtualNodeKinds.get(entry.type) // Registry state can change after the palette opens. Preserve the old // unresolved-node fallback rather than turning that narrow race into a // silent no-op; only known schemas can contribute defaults or state. const values = virtualKind?.defaultValues ?? (schema ? (defaultValuesOf(schema) as Record",
+    "text:void) | undefined const boundaryPromptCommit = (name: string): CommandOutcome | Promise",
     "text:void, ): Promise"
   ],
   "CanvasSemanticNavigator.tsx": [
@@ -644,6 +649,10 @@
   "MountFolderForm.tsx": [
     "text:('read') const [kind, setKind] = createSignal('') const [shared, setShared] = createSignal(false) const [busy, setBusy] = createSignal(false) const [status, setStatus] = createSignal",
     "text:props.backendUrl) const [mountPath, setMountPath] = createSignal('') const [mountId, setMountId] = createSignal('') const [mode, setMode] = createSignal"
+  ],
+  "NamePrompt.tsx": [
+    "text:(undefined) const commit = async (value: string): Promise",
+    "text:CommandOutcome | undefined | Promise"
   ],
   "NodePalette.tsx": [
     "text:() const duplicates = new Set",
