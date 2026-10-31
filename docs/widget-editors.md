@@ -28,6 +28,14 @@ Cancel leaves the stored value unchanged; reopening restores its camera and
 transform. Missing model files and failed uploads do not replace the value.
 Connected file inputs use their resolved source, not the dormant stored file.
 An unresolved connection leaves the viewport unavailable.
+Producer inputs use the tab's bound completed execution and exact navigated
+instance. Their current compiled upstream recipes must still match that run.
+FILE_3D sources and camera/model metadata require advertised JSON renditions;
+ASSET producers use their declared file-reference metadata and existing byte
+authority. Linked capture dimensions use bounded integer output values. Multiple runtime
+occurrences must agree on type and fingerprint. A stale recipe, unknown instance,
+foreign backend or refused value leaves the editor unavailable. Closing or
+changing the document, execution or backend invalidates pending producer reads.
 Advanced and preview `viewport_state` slots save metadata without uploading
 captures or replacing existing empty/null capture fields. Non-null camera
 and model metadata inputs override the stored viewport state on opening.

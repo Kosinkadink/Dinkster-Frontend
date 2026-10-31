@@ -1,6 +1,8 @@
 import { render } from 'solid-js/web'
 import { afterEach, expect, it, vi } from 'vitest'
 import { asLinkId, asNetId, asNodeId, asPortId, coreCommandRegistry, DocumentStore, importLitegraph, inputsOf, parseDinksterSchema } from '@dinkster/core'
+import type { CompileArtifact } from '@dinkster/core'
+import type { ExecutionState, ValueQuery } from '@dinkster/client'
 import { createWidgetRegistry } from '@dinkster/widgets'
 import type { AppState, Tab } from '../src/app-state.js'
 import { WidgetEditor } from '../src/WidgetEditor.js'
@@ -71,7 +73,7 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net'] as const)('keeps authored
   const button = (name: string) => Array.from(document.querySelectorAll('button')).find((element) => element.textContent === name)!
   let dispose = open()
   if (source.startsWith('broken')) {
-    await vi.waitFor(() => expect(document.body.textContent).toContain('Choose a model file'))
+    await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
     expect(button('Apply').disabled).toBe(true)
     expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(initial)
     dispose()
@@ -192,5 +194,103 @@ it.each(['valid', 'local-source', 'local-resource', 'revoked-local', 'empty-bind
   }))
   expect(store.undo()).toBe(true)
   expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual(initial)
+  dispose()
+})
+
+it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no-rendition', 'changed-result', 'close', 'edited', 'divergent', 'width-overflow', 'rendition-mismatch', 'asset-producer', 'malformed-asset', 'base-file', 'splat-file', 'cloud-file'] as const)('resolves exact producer metadata or abstains for %s', async (variant) => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:producer')
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  const schema = parseDinksterSchema('Preview3DProducerFixture', { interface: [
+    { role: 'input', id: 'model_3d', type: { kind: 'concrete', types: ['FILE_3D_GLTF'] } },
+    { role: 'input', id: 'viewport_state', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
+    { role: 'input', id: 'camera_info', type: { kind: 'concrete', types: ['LOAD3D_CAMERA'] } },
+    { role: 'input', id: 'model_3d_info', type: { kind: 'concrete', types: ['LOAD3D_MODEL_INFO'] } },
+    { role: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] } },
+  ] }).schema!
+  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type }], links: [] }, () => schema)
+  const graph = imported.document!.graphs.g0!
+  const primary = { digest: `blake3:${'e'.repeat(64)}`, name: 'linked.gltf', size: 21, mediaType: 'model/gltf+json', virtualPath: 'linked.gltf' }
+  const initial = { camera_info: { ...fixtures.camera, fov: 11 }, model_3d_info: [fixtures.transform], recording: '' }
+  const cameraInfo = { ...fixtures.camera, fov: 79, extension: 'linked-camera' }
+  const models = [{ ...fixtures.transform, position: { x: -8, y: 4, z: 1 }, extension: 'linked-model' }, { name: 'second-linked' }]
+  const assetProducer = variant === 'asset-producer' || variant === 'malformed-asset'
+  const store = new DocumentStore({ ...imported.document!, graphs: { g0: { ...graph,
+    nodes: { ...graph.nodes, n1: { ...graph.nodes.n1!, values: { viewport_state: initial, model_file: { ...primary, digest: `blake3:${'f'.repeat(64)}` } } },
+      source: { id: asNodeId('source'), type: 'Source', values: {} } },
+    links: Object.fromEntries([assetProducer ? 'model_file' : 'model_3d', 'camera_info', 'model_3d_info', 'width'].map((port) => [port, {
+      id: asLinkId(port), from: { node: asNodeId('source'), port: asPortId(port) }, to: { node: asNodeId('n1'), port: asPortId(port) },
+    }])),
+  } } }, coreCommandRegistry())
+  const nested = variant === 'nested'
+  const art = { snapshot: store.doc, schemaHash: 'schema', connection: 'owner',
+    prompt: { current: { class_type: 'Source', inputs: { value: 3 } }, other: { class_type: 'Source', inputs: { value: 5 } } },
+    provenance: { toSource: { current: nested ? 'instanceA.source' : 'source', other: nested ? 'instanceB.source' : 'source' },
+      fromSource: {}, outputAliases: { current: { camera_info: 'camera-output' }, other: { camera_info: 'camera-output' } } },
+  } as unknown as CompileArtifact
+  const liveArtifact = variant === 'stale' ? { ...art, prompt: { current: { class_type: 'Source', inputs: { value: 99 } } } } : art
+  let execution = { key: 'owner:job', ref: { connection: variant === 'foreign' ? 'foreign' : 'owner', prompt: 'job' },
+    status: 'completed', artifact: art, nodes: {}, outputs: {}, previews: {}, activities: [], artifacts: [], logs: [],
+  } as unknown as ExecutionState
+  const tab = { store, graphStack: { get: () => nested ? ['root', 'g0'] : ['g0'] },
+    instancePath: { get: () => nested || variant === 'unknown-path' ? ['instanceA'] : [] },
+  } as unknown as Tab
+  const registry = createWidgetRegistry()
+  let release: (() => void) | undefined
+  const paused = new Promise<void>((resolve) => { release = resolve })
+  let started = false
+  const reads: string[] = []
+  const connection = {
+    values: () => ({
+      peek: async (query: ValueQuery) => {
+        started = true
+        if (variant === 'close' || variant === 'edited') await paused
+        if (variant === 'refused') return { available: false, status: 404, reason: 'evicted' }
+        if (query.outputId === 'model_file') return { available: true, descriptor: { typeId: 'ASSET', fingerprint: primary.digest,
+          meta: variant === 'malformed-asset' ? { ...primary, size: -1 } : primary }, renditions: [] }
+        const fileType = variant === 'base-file' ? 'FILE_3D' : variant === 'splat-file' ? 'FILE_3D_SPLAT_ANY' : variant === 'cloud-file' ? 'FILE_3D_POINT_CLOUD_ANY' : 'FILE_3D_GLTF'
+        const typeId = query.outputId === 'width' ? 'INT' : query.outputId === 'model_3d' ? fileType : query.outputId === 'model_3d_info' ? 'LOAD3D_MODEL_INFO' : 'LOAD3D_CAMERA'
+        return { available: true, descriptor: { typeId, fingerprint: variant === 'divergent' && query.nodeId === 'other' ? 'different' : 'same' },
+          ...(query.outputId === 'width' ? { descriptor: { typeId, fingerprint: 'same', value: variant === 'width-overflow' ? 4097 : 257 } } : {}),
+          renditions: variant === 'no-rendition' ? [] : [{ kind: query.outputId === 'model_3d' ? 'manifest' : 'json', mime: 'application/json' }] }
+      },
+      rendition: async (query: ValueQuery) => {
+        if (nested && query.nodeId !== 'current') throw new Error('wrong instance')
+        if (variant === 'changed-result') execution = { ...execution, key: 'owner:new-job' }
+        const value = query.outputId === 'model_3d' ? { format: variant === 'splat-file' || variant === 'cloud-file' ? 'ply' : 'gltf', source: primary, resources: {} }
+          : query.outputId === 'camera-output' ? cameraInfo : models
+        return { available: true, mime: 'application/json', fingerprint: variant === 'rendition-mismatch' ? 'different' : 'same', bytes: new TextEncoder().encode(JSON.stringify(value)).buffer }
+      },
+    }),
+    fetchAssetBytes: async (digest: string) => { reads.push(digest); return new Uint8Array([1]) },
+  }
+  const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry, registryForTab: () => ({ resolve: () => schema }),
+    backendForTab: () => ({ id: 'owner', protocol: 'dinkster', connection }),
+    executionForTab: () => execution, compileTabCached: () => ({ ok: true, artifact: liveArtifact }),
+    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+  } as unknown as AppState
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <WidgetEditor app={app} ed={{ tab, graphId: 'g0',
+    target: { kind: 'input', nodeId: 'n1', valueKey: 'viewport_state' }, label: 'Viewport', spec: inputsOf(schema)[1]!.widget,
+    declaredType: inputsOf(schema)[1]!.type, multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  if (variant === 'close' || variant === 'edited') {
+    await vi.waitFor(() => expect(started).toBe(true))
+    if (variant === 'close') dispose()
+    else store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'value', value: 4 } })
+    release!()
+  }
+  if (!['current', 'nested', 'asset-producer', 'base-file', 'splat-file', 'cloud-file'].includes(variant)) {
+    if (variant !== 'close') await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
+    else await paused
+    expect(reads).toEqual([])
+    expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual(initial)
+    if (variant !== 'close') dispose()
+    return
+  }
+  await vi.waitFor(() => expect(document.querySelector<HTMLInputElement>('#load3d-fov')?.value).toBe('79'))
+  expect(document.querySelector<HTMLInputElement>('#load3d-position-x')!.value).toBe('-8')
+  expect(reads).toEqual([primary.digest])
+  Array.from(document.querySelectorAll('button')).find((button) => button.textContent === 'Apply')!.click()
+  await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual({ ...initial, camera_info: cameraInfo, model_3d_info: models }))
   dispose()
 })

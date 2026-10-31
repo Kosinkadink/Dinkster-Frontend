@@ -1,5 +1,7 @@
-import { asPortId, buildRerouteIndex, companionSourcesOf, defaultValuesOf, isAssetRefValue, portRefKey, type Json } from '@dinkster/core'
+import { asPortId, buildRerouteIndex, companionSourcesOf, defaultValuesOf, isAssetRefValue, occurrencesForView, parseAssetTypeId, portRefKey, type Json } from '@dinkster/core'
 import { createSignal, For, onCleanup, onMount, Show, type Component } from 'solid-js'
+import { viewInstancePath } from '../app-state.js'
+import { liveExactnessFor } from '../companion-display.js'
 import { ProductButton, ProductTextInput } from '../ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice } from '../ProductForm.js'
 import { ProductSelect } from '../ProductSelect.js'
@@ -9,6 +11,18 @@ import { WidgetEditorController, type WidgetEditorImplementationProps, type Widg
 
 const object = (value: unknown): Record<string, Json> => {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, Json> : {}
+}
+
+const validAsset = (value: unknown): boolean => {
+  const asset = object(value)
+  const valid = asset.verification === 'unverified'
+    ? !('digest' in asset) && typeof asset.localBinding === 'string' && asset.localBinding.length > 0
+      && typeof asset.name === 'string' && typeof asset.mediaType === 'string' && typeof asset.virtualPath === 'string'
+      && typeof asset.size === 'number' && Number.isSafeInteger(asset.size) && asset.size >= 0
+    : isAssetRefValue(value)
+  return valid && Object.keys(asset).every((key) => {
+    return ['digest', 'name', 'size', 'mediaType', 'virtualPath', 'verification', 'localBinding'].includes(key)
+  })
 }
 
 const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props) => {
@@ -26,9 +40,10 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
     const schema = source === undefined ? undefined : resolveSchema?.(source.type)
     return schema === undefined ? undefined : (defaultValuesOf(schema) as Record<string, Json>)[inputId]
   }, resolveSchema).get(nodeId ?? '')
+  const resolved = new Map<string, Json>()
   const inputValue = (inputId: string): Json | undefined => {
     const source = sources?.get(inputId)
-    if (source !== undefined) return source.kind === 'literal' ? source.value : undefined
+    if (source !== undefined) return source.kind === 'literal' ? source.value : resolved.get(inputId)
     if (node !== undefined && index !== undefined) {
       const key = portRefKey({ node: node.id, port: asPortId(inputId) })
       if (index.inputDriverOf.has(key) || index.netSourceOf.has(key)) return undefined
@@ -56,6 +71,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   let stopRecording: (() => void) | undefined
   let video: Blob | undefined
   const abort = new AbortController()
+  let sourcesCurrent = (): boolean => ed.tab.store.revision === revision
   onCleanup(() => {
     live = false
     abort.abort()
@@ -67,6 +83,91 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   onMount(() => {
     void (async () => {
       if (backend.protocol !== 'dinkster') throw new Error(message('load3dWidget.native'))
+      const inputs = ['model_3d', 'model_file', 'camera_info', 'model_3d_info', 'width', 'height']
+      const producers = inputs.flatMap((inputId) => {
+        const source = sources?.get(inputId)
+        return source?.kind === 'producer' ? [{ inputId, source }] : []
+      })
+      const unavailable = () => new Error(message('load3dWidget.unavailable'))
+      if (producers.length > 0) {
+        if (producers.some(({ source }) => { return graph?.nodes[source.node] === undefined })) throw unavailable()
+        const execution = props.editor.app.executionForTab(ed.tab)
+        const ran = execution?.artifact
+        const compiled = props.editor.app.compileTabCached(ed.tab)
+        const current = compiled?.ok ? compiled.artifact : undefined
+        const path = viewInstancePath(ed.tab)
+        const ownerDepth = ed.tab.graphStack.get().lastIndexOf(graphId)
+        const exact = liveExactnessFor(current, ran)
+        if (!execution || execution.status !== 'completed' || !ran || !current || !exact || !path || ownerDepth < 0
+          || execution.ref.connection !== backend.id || ran.connection !== backend.id || current.connection !== backend.id
+          || ran.snapshot.lineage !== ed.tab.store.doc.lineage || current.snapshot.lineage !== ed.tab.store.doc.lineage) throw unavailable()
+        sourcesCurrent = () => {
+          const navigation = viewInstancePath(ed.tab)
+          const fresh = props.editor.app.compileTabCached(ed.tab)
+          return ed.tab.store.revision === revision && navigation?.length === path.length
+            && navigation.every((id, index) => id === path[index])
+            && fresh?.ok === true && fresh.artifact.schemaHash === current.schemaHash
+            && props.editor.app.executionForTab(ed.tab)?.key === execution.key
+            && props.editor.app.backendForTab(ed.tab).connection === backend.connection
+        }
+        const occurrences = occurrencesForView({
+          instancePath: path.slice(0, ownerDepth),
+          runtimeIds: new Set([
+            ...Object.keys(ran.prompt), ...Object.keys(execution.nodes), ...Object.keys(execution.outputs),
+            ...Object.keys(execution.previews), ...Object.keys(execution.blockedNodes ?? {}), ...Object.keys(execution.expandedNodes ?? {}),
+            ...execution.activities.map((entry) => entry.nodeId), ...execution.artifacts.map((entry) => entry.nodeId),
+            ...execution.logs.flatMap((entry) => entry.runtimeNodeId === undefined ? [] : [entry.runtimeNodeId]),
+            ...(execution.valueDiagnostics ?? []).map((entry) => entry.nodeId),
+          ]),
+          toSource: ran.provenance.toSource,
+        })
+        const values = backend.connection.values()
+        for (const { inputId, source } of producers) {
+          const ids = occurrences.own.get(source.node) ?? []
+          if (!live || !sourcesCurrent() || !ids.length || ids.some((id) => !exact(id)
+            || current.provenance.toSource[id] === undefined || current.provenance.toSource[id] !== ran.provenance.toSource[id])) throw unavailable()
+          const candidates = await Promise.all(ids.map(async (id) => {
+            const query = { jobId: execution.ref.prompt, nodeId: id, outputId: ran.provenance.outputAliases?.[id]?.[source.output] ?? source.output }
+            const peek = await values.peek(query, { signal: abort.signal })
+            if (!peek.available) throw unavailable()
+            return { query, peek }
+          }))
+          if (!live || !sourcesCurrent()) throw unavailable()
+          const first = candidates[0]!
+          if (candidates.some(({ peek }) => peek.descriptor.fingerprint !== first.peek.descriptor.fingerprint
+            || peek.descriptor.typeId !== first.peek.descriptor.typeId)) throw unavailable()
+          if (inputId === 'model_file') {
+            const descriptor = first.peek.descriptor
+            const ref = descriptor.meta
+            if ((descriptor.typeId !== 'ASSET' && parseAssetTypeId(descriptor.typeId) === undefined) || !validAsset(ref)
+              || candidates.some(({ peek }) => !validAsset(peek.descriptor.meta) || Object.keys(object(ref)).some((key) => {
+                return object(peek.descriptor.meta)[key] !== object(ref)[key]
+              }))) throw unavailable()
+            resolved.set(inputId, ref as Json)
+          } else if (inputId === 'width' || inputId === 'height') {
+            const value = first.peek.descriptor.value
+            if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1 || value > 4096
+              || candidates.some(({ peek }) => peek.descriptor.value !== value)) throw unavailable()
+            resolved.set(inputId, value)
+          } else {
+            const kind = inputId === 'model_3d' ? 'manifest' : 'json'
+            const advertised = first.peek.renditions.find((entry) => entry.kind === kind && entry.mime === 'application/json')
+            if (!advertised || (inputId === 'model_3d' ? !['FILE_3D', 'FILE_3D_GLB', 'FILE_3D_GLTF', 'FILE_3D_FBX',
+              'FILE_3D_OBJ', 'FILE_3D_STL', 'FILE_3D_USDZ', 'FILE_3D_PLY', 'FILE_3D_SPLAT', 'FILE_3D_SPZ',
+              'FILE_3D_KSPLAT', 'FILE_3D_SPLAT_ANY', 'FILE_3D_POINT_CLOUD_ANY'].includes(first.peek.descriptor.typeId)
+              : first.peek.descriptor.typeId !== (inputId === 'camera_info' ? 'LOAD3D_CAMERA' : 'LOAD3D_MODEL_INFO'))) throw unavailable()
+            const result = await values.rendition(first.query, kind, { signal: abort.signal,
+              ...(advertised.version === undefined ? {} : { rendererVersion: advertised.version }) })
+            if (!result.available || result.mime !== 'application/json' || result.fingerprint !== first.peek.descriptor.fingerprint) throw unavailable()
+            resolved.set(inputId, JSON.parse(new TextDecoder().decode(result.bytes)) as Json)
+          }
+          if (!live || !sourcesCurrent()) throw unavailable()
+        }
+      }
+      for (const inputId of inputs) {
+        const key = node === undefined ? undefined : portRefKey({ node: node.id, port: asPortId(inputId) })
+        if (key !== undefined && (index?.inputDriverOf.has(key) || index?.netSourceOf.has(key)) && inputValue(inputId) === undefined) throw unavailable()
+      }
       const manifest = inputValue('model_3d')
       const file3d = object(manifest)
       const resourcesValue = file3d.resources
@@ -74,17 +175,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       if (manifest !== undefined && (
         typeof file3d.format !== 'string' || !/^[a-z0-9]+$/.test(file3d.format)
         || Object.keys(file3d).some((key) => { return !['format', 'source', 'resources'].includes(key) })
-        || [file3d.source, ...resourceRefs.map(([, ref]) => ref)].some((ref) => {
-          const asset = object(ref)
-          const valid = asset.verification === 'unverified'
-            ? !('digest' in asset) && typeof asset.localBinding === 'string' && asset.localBinding.length > 0
-              && typeof asset.name === 'string' && typeof asset.mediaType === 'string' && typeof asset.virtualPath === 'string'
-              && typeof asset.size === 'number' && Number.isSafeInteger(asset.size) && asset.size >= 0
-            : isAssetRefValue(ref)
-          return !valid || Object.keys(asset).some((key) => {
-            return !['digest', 'name', 'size', 'mediaType', 'virtualPath', 'verification', 'localBinding'].includes(key)
-          })
-        })
+        || [file3d.source, ...resourceRefs.map(([, ref]) => ref)].some((ref) => { return !validAsset(ref) })
         || (resourcesValue !== undefined && (resourcesValue === null || typeof resourcesValue !== 'object' || Array.isArray(resourcesValue)))
         || resourceRefs.some(([name]) => {
           return !name || name.split('/').some((part) => { return !part || part === '.' || part === '..' })
@@ -100,7 +191,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         const bytes = ref.verification === 'unverified'
           ? await backend.connection.fetchLocalAssetBytes(ref.localBinding as string, abort.signal)
           : await backend.connection.fetchAssetBytes(ref.digest as string)
-        if (!live || !bytes) throw new Error(message('load3dWidget.unavailable'))
+        if (!live || !sourcesCurrent() || !bytes) throw new Error(message('load3dWidget.unavailable'))
         const url = URL.createObjectURL(new Blob([bytes], { type: String(ref.mediaType ?? 'application/octet-stream') }))
         urls.push(url)
         return url
@@ -112,7 +203,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       const format = typeof file3d.format === 'string' ? file3d.format : String(model.name ?? '').split('.').pop()?.toLowerCase()
       const mounted = await mountModel3dViewer(viewport, url, mime, { resources,
         ...(format ? { format } : {}), pointCloud: node?.type === 'PreviewPointCloud' })
-      if (!live) { mounted.dispose(); return }
+      if (!live || !sourcesCurrent()) { mounted.dispose(); return }
       viewer = mounted
       const cameraInfo = inputValue('camera_info') ?? initial.camera_info
       if (cameraInfo) viewer.setCameraState(cameraInfo as unknown as Model3dCameraState)
@@ -160,7 +251,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   }
   const apply = async (): Promise<void> => {
     if (!viewer || backend.protocol !== 'dinkster' || recording() || busy()) return
-    if (ed.tab.execution || ed.tab.store.revision !== revision) { props.close(); return }
+    if (ed.tab.execution || !sourcesCurrent()) { props.close(); return }
     setBusy(true)
     setError(undefined)
     try {
@@ -175,19 +266,20 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       if (!metadataOnly) {
         const capture = await viewer.capture(Number(inputValue('width') ?? 1024), Number(inputValue('height') ?? 1024))
         for (const name of ['image', 'mask', 'normal'] as const) {
-          if (!live) return
+          if (!live || !sourcesCurrent()) return
           const file = new File([capture[name]], `viewport-${name}.png`, { type: 'image/png' })
           const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/image', name: file.name, signal: abort.signal })
           next[name] = JSON.parse(JSON.stringify(ref)) as Json
         }
         if (video) {
+          if (!live || !sourcesCurrent()) return
           const file = new File([video], 'viewport-recording.webm', { type: video.type })
           const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/video', name: file.name, signal: abort.signal })
           next.recording = JSON.parse(JSON.stringify(ref)) as Json
         } else if (next.recording === undefined) next.recording = ''
       }
       if (!live || abort.signal.aborted) return
-      if (ed.tab.execution || ed.tab.store.revision !== revision) { props.close(); return }
+      if (ed.tab.execution || !sourcesCurrent()) { props.close(); return }
       props.commitValue(next)
     } catch (reason) {
       if (live) setError(reason instanceof Error ? reason.message : String(reason))
