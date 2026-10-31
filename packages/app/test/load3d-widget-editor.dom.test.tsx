@@ -116,7 +116,7 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net'] as const)('keeps authored
   dispose()
 })
 
-it('authors FILE_3D preview metadata without capture uploads and preserves capture sentinels', async () => {
+it.each(['valid', 'missing-format', 'array-resources', 'null-source', 'scalar-manifest', 'parent-resource', 'null-resource', 'unverified-source', 'negative-size', 'unknown-field'] as const)('handles %s FILE_3D preview metadata without reading a dormant file', async (variant) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const schema = parseDinksterSchema('Preview3DAdvancedFixture', { interface: [
@@ -124,6 +124,7 @@ it('authors FILE_3D preview metadata without capture uploads and preserves captu
     { role: 'input', id: 'viewport_state', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
     { role: 'input', id: 'camera_info', type: { kind: 'concrete', types: ['LOAD3D_CAMERA'] } },
     { role: 'input', id: 'model_3d_info', type: { kind: 'concrete', types: ['LOAD3D_MODEL_INFO'] } },
+    { role: 'input', id: 'model_file', type: { kind: 'concrete', types: ['ASSET'] } },
   ] }).schema!
   const initial = { image: '', mask: null, normal: '', recording: null, custom: 'keep',
     camera_info: { ...fixtures.camera, fov: 19 }, model_3d_info: [fixtures.transform] }
@@ -131,17 +132,30 @@ it('authors FILE_3D preview metadata without capture uploads and preserves captu
   const models = [{ ...fixtures.transform, position: { x: 7, y: -3, z: 1 }, modelExtra: 'explicit' }, { name: 'second' }]
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type }], links: [] }, () => schema)
   const store = new DocumentStore(imported.document!, coreCommandRegistry())
+  const primary = { digest: `blake3:${'c'.repeat(64)}`, name: 'scene.gltf', size: 31, mediaType: 'model/gltf+json', virtualPath: 'scene.gltf' }
+  const sidecar = { ...primary, digest: `blake3:${'d'.repeat(64)}`, name: 'mesh.bin', size: 17, mediaType: 'application/octet-stream', virtualPath: 'mesh.bin' }
+  const manifest = { format: 'gltf', source: primary, resources: { 'buffers/mesh.bin': sidecar } }
+  const selected = variant === 'missing-format' ? { source: manifest.source, resources: manifest.resources }
+    : variant === 'array-resources' ? { ...manifest, resources: [] }
+    : variant === 'null-source' ? { ...manifest, source: null }
+    : variant === 'parent-resource' ? { ...manifest, resources: { '../mesh.bin': sidecar } }
+    : variant === 'null-resource' ? { ...manifest, resources: { 'buffers/mesh.bin': null } }
+    : variant === 'unverified-source' ? { ...manifest, source: { ...manifest.source, verification: 'unverified', localBinding: 'local-only' } }
+    : variant === 'negative-size' ? { ...manifest, source: { ...primary, size: -1 } }
+    : variant === 'unknown-field' ? { ...manifest, source: { ...primary, path: '/ungranted/scene.gltf' } }
+    : variant === 'scalar-manifest' ? 'not a file manifest' : manifest
   for (const [inputId, value] of Object.entries({ viewport_state: initial, camera_info: cameraInfo, model_3d_info: models,
-    model_3d: { format: 'gltf', source: { digest: 'primary' }, resources: { 'buffers/mesh.bin': { digest: 'sidecar' } } } })) {
+    model_3d: selected, model_file: { digest: 'dormant', name: 'unused.glb' } })) {
     store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId, value } })
   }
   const tab = { store } as unknown as Tab
   const registry = createWidgetRegistry()
+  const reads: string[] = []
   const app = {
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ protocol: 'dinkster', connection: {
-      fetchAssetBytes: async (digest: string) => ['primary', 'sidecar'].includes(digest) ? new Uint8Array([1]) : undefined,
+      fetchAssetBytes: async (digest: string) => { reads.push(digest); return new Uint8Array([1]) },
       uploadMediaAsset: async () => { throw new Error('metadata must not upload captures') },
     } }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
@@ -152,7 +166,16 @@ it('authors FILE_3D preview metadata without capture uploads and preserves captu
     spec: inputsOf(schema)[1]!.widget, declaredType: inputsOf(schema)[1]!.type,
     multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  if (variant !== 'valid') {
+    await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
+    expect(Array.from(document.querySelectorAll('button')).find((element) => element.textContent === 'Apply')!.disabled).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual(initial)
+    expect(reads).toEqual([])
+    dispose()
+    return
+  }
   await vi.waitFor(() => expect(document.querySelector<HTMLInputElement>('#load3d-fov')?.value).toBe('67'))
+  expect(reads).toEqual([primary.digest, sidecar.digest])
   expect(document.querySelector<HTMLInputElement>('#load3d-position-x')!.value).toBe('7')
   expect(document.body.textContent).not.toContain('Record viewport')
   Array.from(document.querySelectorAll('button')).find((element) => element.textContent === 'Apply')!.click()

@@ -1,4 +1,4 @@
-import { asPortId, buildRerouteIndex, companionSourcesOf, defaultValuesOf, portRefKey, type Json } from '@dinkster/core'
+import { asPortId, buildRerouteIndex, companionSourcesOf, defaultValuesOf, isAssetRefValue, portRefKey, type Json } from '@dinkster/core'
 import { createSignal, For, onCleanup, onMount, Show, type Component } from 'solid-js'
 import { ProductButton, ProductTextInput } from '../ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice } from '../ProductForm.js'
@@ -67,9 +67,27 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   onMount(() => {
     void (async () => {
       if (backend.protocol !== 'dinkster') throw new Error(message('load3dWidget.native'))
-      const file3d = object(inputValue('model_3d'))
-      const model = object(file3d.source ?? inputValue('model_file'))
+      const manifest = inputValue('model_3d')
+      const file3d = object(manifest)
+      const resourcesValue = file3d.resources
+      const resourceRefs = Object.entries(object(resourcesValue))
+      if (manifest !== undefined && (
+        typeof file3d.format !== 'string' || !/^[a-z0-9]+$/.test(file3d.format)
+        || Object.keys(file3d).some((key) => { return !['format', 'source', 'resources'].includes(key) })
+        || [file3d.source, ...resourceRefs.map(([, ref]) => ref)].some((ref) => {
+          return !isAssetRefValue(ref) || Object.keys(object(ref)).some((key) => {
+            return !['digest', 'name', 'size', 'mediaType', 'virtualPath', 'verification', 'localBinding'].includes(key)
+          })
+        })
+        || (resourcesValue !== undefined && (resourcesValue === null || typeof resourcesValue !== 'object' || Array.isArray(resourcesValue)))
+        || resourceRefs.some(([name]) => {
+          return !name || name.split('/').some((part) => { return !part || part === '.' || part === '..' })
+            || /[\\:%?#\u0000]/.test(name)
+        })
+      )) throw new Error(message('load3dWidget.unavailable'))
+      const model = object(manifest === undefined ? inputValue('model_file') : file3d.source)
       const assetUrl = async (ref: Record<string, Json>) => {
+        if (ref.verification === 'unverified') throw new Error(message('load3dWidget.unavailable'))
         if (typeof ref.digest !== 'string') throw new Error(message('load3dWidget.chooseModel'))
         const bytes = await backend.connection.fetchAssetBytes(ref.digest)
         if (!live || !bytes) throw new Error(message('load3dWidget.unavailable'))
@@ -78,8 +96,8 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         return url
       }
       const url = await assetUrl(model)
-      const resources: Record<string, string> = {}
-      for (const [name, ref] of Object.entries(object(file3d.resources))) resources[name] = await assetUrl(object(ref))
+      const resources: Record<string, string> = Object.create(null)
+      for (const [name, ref] of resourceRefs) resources[name] = await assetUrl(object(ref))
       const mime = file3d.format === 'gltf' ? 'model/gltf+json' : String(model.mediaType ?? 'model/gltf-binary')
       const format = typeof file3d.format === 'string' ? file3d.format : String(model.name ?? '').split('.').pop()?.toLowerCase()
       const mounted = await mountModel3dViewer(viewport, url, mime, { resources,

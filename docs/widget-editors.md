@@ -34,6 +34,8 @@ and model metadata inputs override the stored viewport state on opening.
 Preview FILE_3D values load their primary `source` and declared `resources`
 through asset authority. GLTF sidecars resolve only to these granted resources,
 never arbitrary external URLs or filesystem paths.
+Malformed FILE_3D manifests leave the viewport unavailable without reading a
+dormant model file. Resource names must be contained relative paths.
 Mesh loading selects GLB, GLTF, OBJ, FBX, STL or USDZ from the original file
 format; point-cloud PLY uses geometry rather than gaussian-splat decoding.
 Splat PLY, SPLAT, SPZ and KSPLAT use the splat renderer. Captures wait for
