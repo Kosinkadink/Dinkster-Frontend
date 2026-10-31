@@ -782,7 +782,7 @@ export function ImageDocumentWorkspace(props: {
     const backend = shared === undefined ? undefined : backendForCollaboration(shared.baseUrl)
     if (backend?.protocol !== 'dinkster') return
     entry.hydrate = entry.hydrate.catch(() => undefined).then(() =>
-      hydrateImageDocumentResources(backend.connection, store, entry.session.doc),
+      hydrateImageDocumentResources(backend.connection, store, entry.session.doc, shared!.descriptor.scope),
     ).then(() => {
       if (live) setResourceTick((tick) => tick + 1)
     }).catch((cause) => {
@@ -885,7 +885,7 @@ export function ImageDocumentWorkspace(props: {
       await previous?.persist
       await session.settle()
       const sharedDocument = session.doc
-      await hydrateImageDocumentResources(backend.connection, store, sharedDocument)
+      await hydrateImageDocumentResources(backend.connection, store, sharedDocument, descriptor.scope)
       if (previous !== undefined &&
         serializeImageDocument(previous.session.doc) !== serializeImageDocument(sharedDocument)) {
         throw new Error('the local image differs from the shared session; publish or discard it before joining')

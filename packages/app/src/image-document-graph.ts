@@ -100,7 +100,7 @@ export async function openGraphImageDocument(
     text,
     GRAPH_IMAGE_DOCUMENT_SCOPE,
   )
-  await hydrateImageDocumentResources(connection, store, loaded.document)
+  await hydrateImageDocumentResources(connection, store, loaded.document, GRAPH_IMAGE_DOCUMENT_SCOPE)
   const draft = current ?? await store.saveDraft(
     loaded.document,
     `${query.nodeId} / ${query.outputId}`,

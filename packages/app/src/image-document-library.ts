@@ -4,6 +4,7 @@ import {
   type ImageDocumentDependency,
   type LibraryRecord,
   type RenderedImageDocument,
+  type RetainedAssets,
 } from '@dinkster/client'
 import {
   MAX_IMAGE_DOCUMENT_BYTES,
@@ -110,25 +111,72 @@ export async function hydrateImageDocumentResources(
   connection: DinksterConnection,
   store: ImageDocumentLocalStore,
   document: ImageDocument,
+  scope: string,
 ): Promise<void> {
-  for (const resource of Object.values(document.resources)) {
+  const loaded = loadImageDocument(document)
+  if (loaded.document === undefined) throw new Error('cannot hydrate an invalid ImageDocument')
+  const resources = Object.values(loaded.document.resources)
+  const missing = new Set<string>()
+  for (const resource of resources) {
     const local = await store.getResource(resource.digest)
-    if (local !== undefined) {
-      if (!stagedMatches(resource, local)) {
-        throw new Error(`local ImageDocument resource does not match its descriptor: ${resource.id}`)
+    if (local !== undefined && !stagedMatches(resource, local)) {
+      throw new Error(`local ImageDocument resource does not match its descriptor: ${resource.id}`)
+    }
+    if (local === undefined && resource.inline === undefined) missing.add(resource.digest)
+  }
+  const digests = [...missing].sort()
+  if (digests.length > 4096) throw new Error('Image resource read exceeds the retained identity limit')
+  const read = digests.length === 0 ? undefined : await store.beginResourceRead(
+    connection.id, connection.assetUrl(''), scope, digests,
+  )
+  const matches = (actual: RetainedAssets | undefined, revision: number, expected: readonly string[]): boolean =>
+    actual !== undefined && read !== undefined && actual.scope === read.owner.scope &&
+    actual.ownerKind === read.owner.ownerKind && actual.ownerId === read.owner.ownerId &&
+    actual.revision === revision && actual.complete === true &&
+    actual.digests.length === expected.length && actual.digests.every((digest, index) => digest === expected[index])
+  if (read !== undefined) {
+    try {
+      const acknowledged = await connection.retainAssets(read.owner, { revision: 0, complete: true, digests })
+      if (!matches(acknowledged, 1, digests)) throw new Error('Image resource retention acknowledgment differs')
+    } catch (error) {
+      // A lost write response is not permission to replay or read unheld bytes.
+      let current: RetainedAssets | undefined
+      try { current = await connection.fetchRetainedAssets(read.owner) } catch { /* Durable intent remains unresolved. */ }
+      if (!matches(current, 1, digests)) throw error
+    }
+  }
+  try {
+    for (const resource of resources) {
+      const local = await store.getResource(resource.digest)
+      if (local !== undefined) {
+        if (!stagedMatches(resource, local)) {
+          throw new Error(`local ImageDocument resource does not match its descriptor: ${resource.id}`)
+        }
+      } else {
+        const fetched = resource.inline === undefined
+          ? await connection.fetchAssetBytes(resource.digest)
+          : Uint8Array.from(atob(resource.inline), (character) => character.charCodeAt(0))
+        if (fetched === undefined) {
+          throw new Error(`ImageDocument resource is not held by the server: ${resource.id}`)
+        }
+        await store.stageResource(
+          resource,
+          new Uint8Array(fetched),
+          `${resource.id}.${resource.mediaType.slice('image/'.length)}`,
+        )
       }
-    } else {
-      const fetched = resource.inline === undefined
-        ? await connection.fetchAssetBytes(resource.digest)
-        : Uint8Array.from(atob(resource.inline), (character) => character.charCodeAt(0))
-      if (fetched === undefined) {
-        throw new Error(`ImageDocument resource is not held by the server: ${resource.id}`)
+    }
+  } finally {
+    if (read !== undefined) {
+      try {
+        const released = await connection.releaseRetainedAssets(read.owner, 1)
+        if (!matches(released, 2, [])) throw new Error('Image resource release acknowledgment differs')
+      } catch (error) {
+        let current: RetainedAssets | undefined
+        try { current = await connection.fetchRetainedAssets(read.owner) } catch { /* Durable intent remains unresolved. */ }
+        if (!matches(current, 2, [])) throw error
       }
-      await store.stageResource(
-        resource,
-        new Uint8Array(fetched),
-        `${resource.id}.${resource.mediaType.slice('image/'.length)}`,
-      )
+      await store.finishResourceRead(read)
     }
   }
 }
@@ -436,7 +484,7 @@ export async function openImageDocumentFromLibrary(
       throw new Error('local ImageDocument draft belongs to another library record')
     }
   }
-  await hydrateImageDocumentResources(connection, store, loaded.document)
+  await hydrateImageDocumentResources(connection, store, loaded.document, scope)
   return store.saveDraft(loaded.document, record.name, {
     recordId: record.id,
     revision: record.revision,

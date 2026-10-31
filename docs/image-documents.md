@@ -97,6 +97,16 @@ from external dependency manifests and uploads; external resources still require
 scoped access, including resource records not currently referenced by a layer
 or mask. Document retrieval alone grants no access to external raster bytes.
 
+External raster hydration first journals a fresh scoped read owner in IndexedDB
+and obtains an exact retained-asset acknowledgment before fetching bytes. The
+owner protects missing external resources through digest verification and local
+durable staging; inline and already-staged resources need no server read owner.
+Release happens only after those reads settle. Lost registration or release
+responses reconcile by the exact owner and revision without replaying writes.
+Unconfirmed owners remain journaled across restart; closing an editor or local
+store does not release them. This read lifetime does not certify workflow,
+execution-result, editor-history or durable document retention completeness.
+
 Transform components are a closed record of x/y, width/height, rotation in
 radians, boolean flipHorizontal/flipVertical, and sourceWidth/sourceHeight.
 Dimensions may be fractional and must be positive and at most 16384; source
