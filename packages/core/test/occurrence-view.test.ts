@@ -4,6 +4,7 @@ import { occurrenceDynamicView, occurrenceFamilyEndpoint } from '../src/compile/
 import type { WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asGraphDefId, asNodeId, asPortId, occurrenceKey } from '../src/ids.js'
 import type { InputSpec, NodeSchema } from '../src/schema/model.js'
+import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
 
 const combo: InputSpec = {
   kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: true,
@@ -66,6 +67,71 @@ const docOf = (selected?: string): WorkflowDocument => ({
 } as unknown as WorkflowDocument)
 
 describe('occurrenceDynamicView', () => {
+  it.each([{ options: [] }, { options: [false, 0, 'same', 'same'] }])('projects promoted editable menus through chained instances and fan-out: %j', ({ options }) => {
+    const menuSchema: NodeSchema = {
+      type: 'Menu', displayName: 'Menu', category: 'test', source: 'v3', isOutputNode: true,
+      items: [{ kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
+        widget: { widgetType: 'COMBO', editableOptions: true, options: { options: ['schema'] } } }],
+    }
+    const bodyNode = (id: string) => ({ id, type: 'Menu', values: {}, dynamic: {
+      choice: { options: ['definition'] }, untouched: { selected: 'keep' },
+    } })
+    const doc: WorkflowDocument = {
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'menus', root: 'g0',
+      graphs: {
+        g0: graph('g0', { s: { id: 's', type: '#outer', values: {}, dynamic: { outerMenu: { options } } } }),
+        outer: graph('outer', { i: { id: 'i', type: '#inner', values: {}, dynamic: { innerMenu: { options: ['middle'] } } } }, {
+          inputs: [{ id: 'outerMenu', binds: { kind: 'port', node: 'i', port: 'innerMenu' }, promoted: true }], outputs: [],
+        }),
+        inner: graph('inner', { a: bodyNode('a'), b: bodyNode('b') }, {
+          inputs: [{ id: 'innerMenu', binds: { kind: 'port', node: 'a', port: 'choice' },
+            alsoBinds: [{ kind: 'port', node: 'b', port: 'choice' }], promoted: true }], outputs: [],
+        }),
+      }, view: { graphs: {} },
+    } as unknown as WorkflowDocument
+    const before = JSON.stringify(doc)
+    const resolveMenu = (type: string) => type === 'Menu' ? menuSchema : undefined
+    const view = occurrenceDynamicView(doc, documentResolver(doc, resolveMenu), ['s', 'i'])
+    for (const id of ['a', 'b']) {
+      const node = doc.graphs.inner!.nodes[id]!
+      const dynamic = view.dynamic.get(id) ?? node.dynamic
+      expect(dynamic).toEqual({ choice: { options }, untouched: { selected: 'keep' } })
+      const input = elaborateInterface(menuSchema, { ...node, dynamic: dynamic ?? {} }).items.find((item) => item.kind === 'input')!
+      expect(input.spec.widget!.options.options).toEqual(options)
+      expect(view.valueOwners.get(id)?.get('choice')).toEqual({ graphId: 'g0', nodeId: 's', valueKey: 'outerMenu' })
+    }
+    const result = compile({ document: doc, revision: 0, resolve: resolveMenu, scope: { kind: 'full' }, connection: asConnectionId('menus'), schemaHash: 'menus' })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) throw new Error('menu compilation failed')
+    for (const id of ['s.i.a', 's.i.b']) expect(result.artifact.prompt[id]!.inputs).toEqual(options.length === 0 ? {} : { choice: false })
+    expect(JSON.stringify(doc)).toBe(before)
+  })
+
+  it.each([false, true])('keeps promoted nested menus at their member scope and respects schema authority: %s', (editableOptions) => {
+    const menu: InputSpec = { kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
+      widget: { widgetType: 'COMBO', ...(editableOptions ? { editableOptions: true } : {}), options: { options: ['schema'] } } }
+    const nested: NodeSchema = { type: 'NestedMenu', displayName: 'NestedMenu', category: 'test', source: 'v3', isOutputNode: true,
+      items: [{ kind: 'input', id: 'items', type: menu.type, optional: false,
+        dynamic: { kind: 'autogrow', template: [menu], naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 } } }] }
+    const doc = { ...docOf(), graphs: {
+      g0: graph('g0', { s: { id: 's', type: '#sub', values: { menu: 'outside' }, dynamic: { menu: { options: [] } } } }),
+      sub: graph('sub', { n: { id: 'n', type: 'NestedMenu', values: {}, dynamic: { items: {
+        members: ['m0', 'm1'], memberState: {
+          m0: { 'items.choice': { options: ['first'] } },
+          m1: { 'items.choice': { options: ['second'] } },
+        },
+      } } } }, { inputs: [{ id: 'menu', binds: { kind: 'port', node: 'n', port: 'items.choice', members: ['m1'] }, promoted: true }], outputs: [] }),
+    } } as unknown as WorkflowDocument
+    const view = occurrenceDynamicView(doc, documentResolver(doc, (type) => type === nested.type ? nested : undefined), ['s'])
+    const node = doc.graphs.sub!.nodes.n!
+    const dynamic = view.dynamic.get('n') ?? node.dynamic ?? {}
+    expect(dynamic.items!.memberState!.m0!['items.choice']!.options).toEqual(['first'])
+    expect(dynamic.items!.memberState!.m1!['items.choice']!.options).toEqual(editableOptions ? [] : ['second'])
+    const inputs = elabInputsOf(elaborateInterface(nested, { ...node, dynamic })).filter((item) => item.spec.widget !== undefined)
+    expect(inputs.filter((item) => item.address.members?.[0] === 'm1').map((item) => item.spec.widget!.options.options)).toEqual([editableOptions ? [] : ['schema']])
+    expect(node.dynamic!.items!.memberState!.m1!['items.choice']!.options).toEqual(['second'])
+  })
+
   it('overlays a valid occurrence choice and records its instance owner', () => {
     const view = occurrenceDynamicView(docOf('b'), resolve, ['s'])
     expect(view.dynamic.get('n')?.mode?.selected).toBe('b')

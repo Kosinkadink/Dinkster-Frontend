@@ -44,6 +44,9 @@ An empty menu and duplicate entries are valid. Nested edits require persisted
 ancestor members; batch materialization with the edit for one undo step.
 The command stores authoring state only: schemas without `editableOptions`
 continue to use their declared menus.
+Promoted editable menus follow their instance through chained subgraphs and
+fan-out without changing the definition. Member-scoped menus stay on their
+own persisted ancestor path; an explicit empty list overrides inherited choices.
 
 ## Authored 3D viewport
 

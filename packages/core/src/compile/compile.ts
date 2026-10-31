@@ -97,8 +97,9 @@ import {
   projectCrossingValues,
   matchBoundaryItem,
   overlayNodeDynamic,
-  overlaySelectorDynamic,
+  overlayPortDynamic,
   projectCountBoundValues,
+  projectEditableOptions,
   translateThroughCrossing,
   type BoundaryCrossing,
 } from './crossing.js'
@@ -1749,6 +1750,9 @@ function compileImpl(
         for (const [target, values] of projectCountBoundValues(child, instanceValues, resolveChildNode)) {
           childCtx.values.set(target, values)
         }
+        for (const [target, dynamic] of projectEditableOptions(child, instanceDynamic, resolveChildNode)) {
+          childCtx.overlays.set(target, dynamic)
+        }
         // Selector forwarding is an occurrence-local state projection, not a
         // family crossing. It must run even when this boundary forwards no
         // families, and it composes with family overlays on the same node.
@@ -1770,7 +1774,7 @@ function compileImpl(
           const requested = instanceDynamic?.[item.id]?.selected
           if (requested === undefined || !dyn.options.some((o) => o.key === requested)) continue
           const base = childCtx.overlays.get(target.id) ?? target.dynamic
-          childCtx.overlays.set(target.id, overlaySelectorDynamic(base, rr.route, item.binds.port as string, requested))
+          childCtx.overlays.set(target.id, overlayPortDynamic(base, rr.route, item.binds.port as string, { selected: requested }))
         }
         if (crossings.size > 0) {
           crossingsByInstance.set(occurrenceKey({ instancePath: path, node: node.id }), crossings)

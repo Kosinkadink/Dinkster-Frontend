@@ -1576,6 +1576,12 @@ export function elaborateInterface(
         scope.members.length > 0 ? { port: item.address.port, members: scope.members } : { port: item.address.port }
       const id = elabKeyOf(address)
       const ancestry = scope.ancestry.length > 0 ? { ancestry: scope.ancestry } : {}
+      if (item.kind === 'input' && item.spec.widget?.editableOptions) {
+        const options = scope.stateOf(item.address.port)?.options
+        if (options !== undefined) item = { ...item, spec: { ...item.spec,
+          widget: { ...item.spec.widget, options: { ...item.spec.widget.options, options } },
+        } }
+      }
       // Fast path: an already-canonical spec (right id, no construct, not
       // ghosted) is emitted without cloning - top-level statics stay
       // allocation-free.
@@ -1731,10 +1737,6 @@ export function elaborateInterface(
       let effective = item
       const widget = item.widget
       const source = widget?.optionSource
-      const authoredOptions = scope.stateOf(port)?.options
-      if (widget?.editableOptions && authoredOptions !== undefined) {
-        effective = { ...item, widget: { ...widget, options: { ...widget.options, options: authoredOptions } } }
-      }
       if (widget !== undefined && source !== undefined) {
         const family = joinValuePath(scope.valuePrefix, source.inputFamily)
         const familyState = scope.stateOf(family)
