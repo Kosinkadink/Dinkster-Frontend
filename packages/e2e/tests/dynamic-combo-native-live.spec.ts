@@ -13,12 +13,12 @@ test.beforeEach(async ({ page }) => {
     if (response.ok) nodes = (await response.json() as { nodes: Record<string, unknown> }).nodes
   } catch { /* handled by the skip below */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
-  test.skip(!('comfy.EmptyImage' in nodes! && 'comfy.ResizeImageMaskNode' in nodes!),
-    'native backend lacks EmptyImage or ResizeImageMaskNode')
+  expect(nodes, 'native backend must provide the canonical DynamicCombo nodes').toHaveProperty('EmptyImage')
+  expect(nodes).toHaveProperty('ResizeImageMaskNode')
 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('comfy.ResizeImageMaskNode') ?? false,
+    window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('ResizeImageMaskNode') ?? false,
   ), { timeout: 15_000 }).toBe(true)
 })
 
@@ -41,11 +41,11 @@ test('ResizeImageMask DynamicCombo choice is accepted and completes on Dinkster'
         id: 'g0', name: 'root',
         nodes: {
           source: {
-            id: 'source', type: 'comfy.EmptyImage',
+            id: 'source', type: 'EmptyImage',
             values: { width: 64, height: 48, batch_size: 1, color },
           },
           resize: {
-            id: 'resize', type: 'comfy.ResizeImageMaskNode',
+            id: 'resize', type: 'ResizeImageMaskNode',
             values: {
               scale_method: 'bicubic',
               'resize_type.width': 32,
@@ -56,7 +56,7 @@ test('ResizeImageMask DynamicCombo choice is accepted and completes on Dinkster'
           },
         },
         links: {
-          image: { id: 'image', from: { node: 'source', port: 'image' }, to: { node: 'resize', port: 'input' } },
+          image: { id: 'image', from: { node: 'source', port: 'IMAGE' }, to: { node: 'resize', port: 'input' } },
         },
         nets: {}, reroutes: {}, nextOrdinal: 3,
       } },
@@ -79,16 +79,15 @@ test('ResizeImageMask DynamicCombo choice is accepted and completes on Dinkster'
 
   expect(submitted).toBeDefined()
   expect(submitted!.graph.nodes.resize).toEqual({
-    nodeType: 'dinkster.image.resize',
+    nodeType: 'ResizeImageMaskNode',
     inputs: {
-      apply: 'always',
-      fit_rounding: 'round',
-      image: { $link: { node: 'source', output: 'image' } },
-      interpolation: 'bicubic',
-      'target.height': 24,
-      'target.width': 32,
+      input: { $link: { node: 'source', output: 'IMAGE' } },
+      scale_method: 'bicubic',
+      'resize_type.width': 32,
+      'resize_type.height': 24,
+      'resize_type.crop': 'disabled',
     },
-    slotVariants: { divisibility: 'none', mode: 'stretch', target: 'dimensions' },
+    slotVariants: { resize_type: 'scale dimensions' },
   })
 
   const completed = await request.get(

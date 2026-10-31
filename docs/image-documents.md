@@ -120,8 +120,10 @@ The live acceptance executes paint, layer, and flatten nodes and checks every
 decoded transparency-mask sample against the identically edited explicit bake.
 For other eligible inputs, **Bake to asset** explicitly replaces the input
 asset; **Cancel** leaves the workflow unchanged. Typed PNG inputs use the same
-editor and command guard for `asset<IMAGE>`;
-hidden and driven inputs are not writable.
+editor and command guard for `asset<IMAGE>`. Canonical `LoadImage` inputs also
+qualify through their declared `ASSET` carrier and `media/image` widget kind;
+unclassified assets and other media kinds do not qualify.
+Hidden and driven inputs are not writable.
 
 ## Authoritative render
 

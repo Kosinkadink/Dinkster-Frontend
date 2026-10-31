@@ -144,6 +144,7 @@ import {
   type LibraryRecord,
   type BackendDiscovery,
   type DinksterSubmitResult,
+  type DinksterValuesClient,
   type PreviewMode,
   type CompatSkip,
   type PackInferenceUnavailable,
@@ -4498,6 +4499,12 @@ export class AppState {
       this.retiredBackends.get(ref.connection) ??
       this.backends.get()[0]!
     return `${backend.baseUrl}/api/assets/${encodeURIComponent(digest)}`
+  }
+
+  /** Read historical native values through their original owner, without reconnecting it. */
+  valuesForExecution(ref: ExecutionRef): DinksterValuesClient | undefined {
+    const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
+    return backend?.protocol === 'dinkster' ? backend.connection.values() : undefined
   }
 
   /**

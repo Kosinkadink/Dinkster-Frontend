@@ -3,7 +3,7 @@ import { evidencePath } from './evidence-output.js'
 
 test('Problems presents five ordered sections with one-line rows and debug-only codes', async ({ page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
-  await page.route('/object_info', (route) => route.fulfill({ json: {} }))
+  await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await page.evaluate(() => {

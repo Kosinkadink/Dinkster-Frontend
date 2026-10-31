@@ -191,7 +191,7 @@ test(`shows transparent pixels without changing source bytes, server conversion 
     context.fillRect(140, 70, 120, 90)
     return canvas.toDataURL('image/png').split(',')[1]!
   })
-  await page.route(/\/view(?:\?|$)/, (route) => route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64') }))
+  await page.route('**/api/assets/*', (route) => route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64') }))
   const requests: string[] = []
   const descriptor = video ? descriptors.video : descriptors.image
   await page.route('**/api/values?*', (route) => {
@@ -231,7 +231,10 @@ test(`shows transparent pixels without changing source bytes, server conversion 
     store.register(ref, compiled.artifact, Date.now())
     store.apply({ kind: 'started', execution: ref, timestamp: Date.now() })
     store.apply({ kind: 'nodeStates', execution: ref, timestamp: Date.now(), nodes: { image: { state: 'done' } } })
-    store.apply({ kind: 'nodeOutput', execution: ref, runtimeNodeId: 'image', timestamp: Date.now(), output: { images: converted ? descriptor : [{ filename: 'transparent.png' }] } })
+    const digest = `blake3:${'a'.repeat(64)}`
+    store.apply({ kind: 'nodeOutput', execution: ref, runtimeNodeId: 'image', timestamp: Date.now(), output: { images: converted ? descriptor : {
+      typeId: 'ASSET', fingerprint: digest, meta: { digest, mediaType: 'image/png', name: 'transparent.png' },
+    } } })
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   }, { converted: colorTransform !== undefined || video, descriptor })

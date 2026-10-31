@@ -1,7 +1,7 @@
 /**
  * Widget representation proof against the native backend. This imports
- * the Playwright base directly because the shared fixture supplies a legacy
- * catalog and cannot establish the deployed schema contract.
+ * the Playwright base directly to discover the deployed schema without
+ * seeded editing documents.
  */
 import { expect, test as base, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
@@ -19,7 +19,7 @@ async function textRow(page: Page): Promise<{
 }> {
   return page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'clip')!
-    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'text')!
+    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'value')!
     const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     const viewport = window.__dinksterTest!.renderer!.getViewport()
     const representationId = (row as typeof row & { representationId?: string }).representationId
@@ -73,8 +73,6 @@ test.beforeEach(async ({ page, request }) => {
   expect(payload.dinkster?.schemaWire).toBe(1)
   expect(JSON.stringify(payload.nodes)).toContain('"type":"REPRESENTATIONS"')
 
-  await page.route('/system_stats', (route) => void route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
-  await page.route('/object_info', (route) => void route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText('connected')
@@ -89,7 +87,7 @@ test.beforeEach(async ({ page, request }) => {
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'wire17-representations', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
-        nodes: { clip: { id: 'clip', type: 'dinkster.clip_text_encode', values: { text: 'canonical text' } } },
+        nodes: { clip: { id: 'clip', type: 'dinkster.string_multiline', values: { value: 'canonical text' } } },
         links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
       } },
       view: { graphs: { g0: { nodes: { clip: { position: { x: 100, y: 100 } } } } } },
@@ -122,11 +120,11 @@ test('schema default and user switch persist as view state without changing the 
     const tab = window.__dinksterTest!.app.activeTab()!
     const view = tab.store.doc.view.graphs.g0!.nodes.clip as { views?: Record<string, string> }
     return {
-      value: tab.store.doc.graphs.g0!.nodes.clip!.values.text,
+      value: tab.store.doc.graphs.g0!.nodes.clip!.values.value,
       views: view.views,
     }
   })
-  expect(state).toEqual({ value: 'canonical text', views: { text: 'single-line' } })
+  expect(state).toEqual({ value: 'canonical text', views: { value: 'single-line' } })
 
   await page.keyboard.press('Control+z')
   await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('multiline')
@@ -147,11 +145,11 @@ test('schema default and user switch persist as view state without changing the 
     const tab = window.__dinksterTest!.app.activeTab()!
     const view = tab.store.doc.view.graphs.g0!.nodes.clip as { views?: Record<string, string> }
     return {
-      value: tab.store.doc.graphs.g0!.nodes.clip!.values.text,
+      value: tab.store.doc.graphs.g0!.nodes.clip!.values.value,
       views: view.views,
     }
   })
-  expect(state).toEqual({ value: 'canonical text', views: { text: 'single-line' } })
+  expect(state).toEqual({ value: 'canonical text', views: { value: 'single-line' } })
 
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
@@ -170,11 +168,11 @@ test('schema default and user switch persist as view state without changing the 
         }[]
       } | undefined
     }
-    const original = registry.resolve('dinkster.clip_text_encode')!
+    const original = registry.resolve('dinkster.string_multiline')!
     ;(window as typeof window & { __wire17OriginalSchema?: typeof original }).__wire17OriginalSchema = original
     app.registerSchemas([{
       ...original,
-      items: original.items.map((item) => item.kind === 'input' && item.id === 'text'
+      items: original.items.map((item) => item.kind === 'input' && item.id === 'value'
         ? {
             ...item,
             widget: {
@@ -200,7 +198,7 @@ test('schema default and user switch persist as view state without changing the 
   expect(await page.evaluate(() => {
     const view = window.__dinksterTest!.app.activeTab()!.store.doc.view.graphs.g0!.nodes.clip as { views?: Record<string, string> }
     return view.views
-  })).toEqual({ text: 'single-line' })
+  })).toEqual({ value: 'single-line' })
   await page.evaluate(() => {
     const original = (window as typeof window & { __wire17OriginalSchema?: unknown }).__wire17OriginalSchema
     window.__dinksterTest!.app.registerSchemas([original])
@@ -215,26 +213,10 @@ test('schema default and user switch persist as view state without changing the 
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const current = structuredClone(app.activeTab()!.store.doc)
-    current.graphs.g0!.nodes.source = {
-      id: 'source',
-      type: 'dinkster.load_checkpoint',
-      values: {
-        checkpoint: {
-          digest: `blake3:${'0'.repeat(64)}`,
-          name: 'wire17-proof.safetensors',
-          size: 1,
-          mediaType: 'application/octet-stream',
-          virtualPath: 'checkpoints/wire17-proof.safetensors',
-        },
-      },
-    }
     current.graphs.g0!.nodes.sink = { id: 'sink', type: 'dinkster.preview_any', values: {} }
     const links = current.graphs.g0!.links as Record<string, unknown>
-    links['l_clip'] = {
-      id: 'l_clip', from: { node: 'source', port: 'clip' }, to: { node: 'clip', port: 'clip' },
-    }
-    links['l_conditioning'] = {
-      id: 'l_conditioning', from: { node: 'clip', port: 'conditioning' }, to: { node: 'sink', port: 'source' },
+    links['l_value'] = {
+      id: 'l_value', from: { node: 'clip', port: 'value' }, to: { node: 'sink', port: 'source' },
     }
     app.openDocument(current, 'Wire 17 Submission')
     await app.queue(app.activeTab()!)
@@ -244,12 +226,10 @@ test('schema default and user switch persist as view state without changing the 
     nodes: Record<string, { nodeType: string; inputs: Record<string, unknown> }>
   }
   expect(graph.nodes['clip']).toEqual({
-    nodeType: 'dinkster.clip_text_encode',
-    inputs: {
-      text: 'canonical text',
-      clip: { $link: { node: 'source', output: 'clip' } },
-    },
+    nodeType: 'dinkster.string_multiline',
+    inputs: { value: 'canonical text' },
   })
+  expect(graph.nodes['sink']?.inputs['source']).toEqual({ $link: { node: 'clip', output: 'value' } })
   expect(JSON.stringify(graph)).not.toContain('single-line')
 })
 
@@ -259,7 +239,7 @@ test('multiline preview expands with node height while representation, editor, a
     const tab = window.__dinksterTest!.app.activeTab()!
     tab.store.dispatch({
       command: 'node.setValue',
-      params: { graphId: tab.store.doc.root, nodeId: 'clip', inputId: 'text', value: text },
+      params: { graphId: tab.store.doc.root, nodeId: 'clip', inputId: 'value', value: text },
     })
   }, value)
 
@@ -285,7 +265,7 @@ test('multiline preview expands with node height while representation, editor, a
         prototype.fillText = original
       }
       const node = test.renderer!.getScene().nodes.find((candidate) => candidate.id === 'clip')!
-      const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'text')!
+      const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'value')!
       const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
       const viewport = test.renderer!.getViewport()
       return {
@@ -309,7 +289,7 @@ test('multiline preview expands with node height while representation, editor, a
 
   const natural = await page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'clip')!
-    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'text')!
+    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'value')!
     return { width: node.layout.width, height: node.layout.height, rowHeight: row.height }
   })
   expect(natural.rowHeight).toBe(74)
@@ -355,32 +335,22 @@ test('multiline preview expands with node height while representation, editor, a
     const tab = app.activeTab()!
     const exported = structuredClone(app.exportDocument(tab.id)!) as any
     const graph = exported.graphs.g0!
-    graph.nodes.source = {
-      id: 'source', type: 'dinkster.load_checkpoint', values: {
-        checkpoint: {
-          digest: `blake3:${'0'.repeat(64)}`, name: 'layout-proof.safetensors', size: 1,
-          mediaType: 'application/octet-stream', virtualPath: 'checkpoints/layout-proof.safetensors',
-        },
-      },
-    }
     graph.nodes.sink = { id: 'sink', type: 'dinkster.preview_any', values: {} }
-    graph.links.l_clip = { id: 'l_clip', from: { node: 'source', port: 'clip' }, to: { node: 'clip', port: 'clip' } }
-    graph.links.l_conditioning = {
-      id: 'l_conditioning', from: { node: 'clip', port: 'conditioning' }, to: { node: 'sink', port: 'source' },
+    graph.links.l_value = {
+      id: 'l_value', from: { node: 'clip', port: 'value' }, to: { node: 'sink', port: 'source' },
     }
-    graph.nextOrdinal += 2
-    exported.view.graphs.g0!.nodes.source = { position: { x: 40, y: 300 } }
+    graph.nextOrdinal += 1
     exported.view.graphs.g0!.nodes.sink = { position: { x: 500, y: 300 } }
     app.openDocument(exported, 'Multiline Layout Reopened')
     const reopened = app.activeTab()!
     const compiled = app.compileTab(reopened)
     if (!compiled?.ok) throw new Error('reopened multiline document did not compile')
     await app.queue(reopened)
-    return reopened.store.doc.graphs.g0!.nodes.clip!.values.text
+    return reopened.store.doc.graphs.g0!.nodes.clip!.values.value
   })
   expect(exportedValue).toBe(value)
   const graph = submitted?.['graph'] as { nodes?: Record<string, { inputs?: Record<string, unknown> }> } | undefined
-  expect(graph?.nodes?.['clip']?.inputs?.['text']).toBe(value)
+  expect(graph?.nodes?.['clip']?.inputs?.['value']).toBe(value)
   expect(JSON.stringify(graph?.nodes?.['clip'])).not.toContain('representation')
   expect(JSON.stringify(graph?.nodes?.['clip'])).not.toContain('single-line')
 })
@@ -392,7 +362,7 @@ test('multiline live resize paints the text bottom at every pointer frame withou
     const tab = test.app.activeTab()!
     tab.store.dispatch({
       command: 'node.setValue',
-      params: { graphId: tab.store.doc.root, nodeId: 'clip', inputId: 'text', value: text },
+      params: { graphId: tab.store.doc.root, nodeId: 'clip', inputId: 'value', value: text },
     })
     const original = CanvasRenderingContext2D.prototype.roundRect
     ;(window as typeof window & { __multilineRoundRect?: typeof original; __multilinePaintOps?: unknown[][] }).__multilineRoundRect = original
@@ -422,7 +392,7 @@ test('multiline live resize paints the text bottom at every pointer frame withou
         resizePreview?: { nodeId: string; x: number; y: number; width: number; height: number }
       }).resizePreview!
       const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'clip')!
-      const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'text')!
+      const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'value')!
       const projectedRowHeight = row.height + preview.height - node.layout.height
       return {
         preview,
@@ -454,7 +424,7 @@ test('multiline live resize paints the text bottom at every pointer frame withou
   expect(await revision(page)).toBe(startRevision + 1)
   const committed = await page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'clip')!
-    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'text')!
+    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'value')!
     return { nodeHeight: node.layout.height, rowBottom: node.y + row.y + row.height }
   })
   expect(committed.nodeHeight).toBe(Math.round(frames[2]!.previewHeight))
@@ -466,7 +436,7 @@ test('natural two-line editor fits the painted content strip without overflow', 
     const tab = window.__dinksterTest!.app.activeTab()!
     tab.store.dispatch({
       command: 'node.setValue',
-      params: { graphId: tab.store.doc.root, nodeId: 'clip', inputId: 'text', value: 'first line\nsecond line' },
+      params: { graphId: tab.store.doc.root, nodeId: 'clip', inputId: 'value', value: 'first line\nsecond line' },
     })
   })
   const point = await textRow(page)
@@ -494,7 +464,7 @@ test('in-node multiline editor tracks camera and keeps commit, cancel, and blur 
     const tab = test.app.activeTab()!
     tab.store.dispatch({
       command: 'node.setValue',
-      params: { graphId: tab.store.doc.root, nodeId: 'clip', inputId: 'text', value: text },
+      params: { graphId: tab.store.doc.root, nodeId: 'clip', inputId: 'value', value: text },
     })
     const node = test.renderer!.getScene().nodes.find((candidate) => candidate.id === 'clip')!
     tab.store.dispatch({
@@ -513,7 +483,7 @@ test('in-node multiline editor tracks camera and keeps commit, cancel, and blur 
   const geometry = async () => page.evaluate(() => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'clip')!
-    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'text')!
+    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'value')!
     const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     const viewport = renderer.getViewport()
     const actual = document.querySelector('[data-editor-surface="in-node"]')!.getBoundingClientRect()
@@ -565,31 +535,31 @@ test('in-node multiline editor tracks camera and keeps commit, cancel, and blur 
   await expect(textarea).toHaveCSS('font-size', '19.6px')
   await expect(textarea).toHaveCSS('line-height', '28px')
 
-  const baselineValue = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)
+  const baselineValue = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.value)
   // Look-don't-touch editing closes without changing the value.
   await page.mouse.click(movedGeometry.actual.left - 10, movedGeometry.actual.top - 10)
   await expect(editor).not.toBeVisible()
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe(baselineValue)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.value)).toBe(baselineValue)
 
   const commitPoint = await textRow(page)
   await page.mouse.click(commitPoint.x, commitPoint.y)
   await textarea.fill('ctrl commit\nvalue')
   await textarea.press('Control+Enter')
   await expect(editor).not.toBeVisible()
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe('ctrl commit\nvalue')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.value)).toBe('ctrl commit\nvalue')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe(baselineValue)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.value)).toBe(baselineValue)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())).toBe(true)
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe('ctrl commit\nvalue')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.value)).toBe('ctrl commit\nvalue')
 
   const cancelPoint = await textRow(page)
   await page.mouse.click(cancelPoint.x, cancelPoint.y)
   await editor.locator('textarea').fill('escape must cancel')
   await page.keyboard.press('Escape')
   await expect(editor).not.toBeVisible()
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe('ctrl commit\nvalue')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.value)).toBe('ctrl commit\nvalue')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe(baselineValue)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.value)).toBe(baselineValue)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())).toBe(true)
 
   const blurPoint = await textRow(page)
@@ -597,11 +567,11 @@ test('in-node multiline editor tracks camera and keeps commit, cancel, and blur 
   await editor.locator('textarea').fill('blur commit\nvalue')
   await page.mouse.click(movedGeometry.actual.left - 10, movedGeometry.actual.top - 10)
   await expect(editor).not.toBeVisible()
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe('blur commit\nvalue')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.value)).toBe('blur commit\nvalue')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe('ctrl commit\nvalue')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.value)).toBe('ctrl commit\nvalue')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())).toBe(true)
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.text)).toBe('blur commit\nvalue')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.clip!.values.value)).toBe('blur commit\nvalue')
   await test.info().attach('multiline-in-node-editor', {
     body: await page.screenshot({ animations: 'disabled' }),
     contentType: 'image/png',
@@ -616,7 +586,7 @@ test('multiline preview and editor wrap long canonical lines with themed overflo
     const tab = test.app.activeTab()!
     tab.store.dispatch({
       command: 'node.setValue',
-      params: { graphId: tab.store.doc.root, nodeId: 'clip', inputId: 'text', value },
+      params: { graphId: tab.store.doc.root, nodeId: 'clip', inputId: 'value', value },
     })
     const nodeBefore = test.renderer!.getScene().nodes.find((candidate) => candidate.id === 'clip')!
     tab.store.dispatch({
@@ -637,7 +607,7 @@ test('multiline preview and editor wrap long canonical lines with themed overflo
       prototype.fillText = original
     }
     const node = test.renderer!.getScene().nodes.find((candidate) => candidate.id === 'clip')!
-    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'text')!
+    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'value')!
     return { calls, rowHeight: row.height, nodeMinHeight: node.layout.minHeight }
   }, { value })
 
@@ -714,7 +684,7 @@ test('multiline painted and focused geometry shares one gutter across zoom and r
     const tab = test.app.activeTab()!
     tab.store.dispatch({
       command: 'node.setValue',
-      params: { graphId: tab.store.doc.root, nodeId: 'clip', inputId: 'text', value: text },
+      params: { graphId: tab.store.doc.root, nodeId: 'clip', inputId: 'value', value: text },
     })
     const node = test.renderer!.getScene().nodes.find((candidate) => candidate.id === 'clip')!
     tab.store.dispatch({
@@ -726,7 +696,7 @@ test('multiline painted and focused geometry shares one gutter across zoom and r
   const rowGeometry = () => page.evaluate(() => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'clip')!
-    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'text')!
+    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'value')!
     const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     const viewport = renderer.getViewport()
     const fieldWidth = node.layout.width - row.inset! * 2

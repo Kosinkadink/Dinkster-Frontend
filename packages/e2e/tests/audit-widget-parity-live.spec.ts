@@ -5,9 +5,9 @@ import { expect, test, type Page } from '@playwright/test'
 import { canonicalJson } from '@dinkster/core'
 import { selectProductOption, skipWithoutNativeCatalog } from './fixtures.js'
 
-// Backend e4a7c233 and ComfyUI 15eb748b: 279 pack declarations plus 620 translated nodes.
+// Native catalog from the pinned backend a93dbaa4595de01b940c8b6ba4368408901be136.
 const canonicalCatalogSha256 =
-  '5d338fe0ca0e14973d5ecb54a7665f41289eaedb1f62ce5a91dc40c5bee8dd76'
+  '531774b59a8201b6344f04fa40060369546016bed1bb08af3bf9def9db470955'
 const nativeBackend =
   process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -161,7 +161,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
     .update(canonicalJson(stableCatalog))
     .digest('hex')
   expect(catalogDigest).toBe(canonicalCatalogSha256)
-  expect(Object.keys(catalog.nodes)).toHaveLength(899)
+  expect(Object.keys(catalog.nodes)).toHaveLength(819)
   const inputs = widgets(catalog)
   const descriptors = inputs.flatMap(({ input }) =>
     widgetDescriptors(input.widget),
@@ -170,10 +170,10 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   const roundInputs = inputs.filter(
     ({ input }) => typeof input.widget?.['round'] === 'number',
   )
-  expect(roundInputs).toHaveLength(17)
+  expect(roundInputs).toHaveLength(18)
   expect(roundInputs).toContainEqual(
     expect.objectContaining({
-      nodeType: 'comfy.DualModelGuider',
+      nodeType: 'DualModelGuider',
       input: expect.objectContaining({
         id: 'cfg',
         widget: expect.objectContaining({ round: 0.01 }),
@@ -183,10 +183,10 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   const dynamicPromptInputs = inputs.filter(({ input }) =>
     JSON.stringify(input.widget ?? {}).includes('"dynamicPrompts":true'),
   )
-  expect(dynamicPromptInputs).toHaveLength(40)
+  expect(dynamicPromptInputs).toHaveLength(51)
   expect(
     dynamicPromptInputs.map(({ nodeType, input }) => `${nodeType}.${input.id}`),
-  ).toContain('dinkster.clip_text_encode.text')
+  ).toContain('CLIPTextEncode.text')
   expect(
     inputs.filter(({ input }) =>
       Object.hasOwn(input.widget ?? {}, 'placeholder'),
@@ -211,9 +211,10 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   ).toHaveLength(0)
   expect(
     inputs.filter(({ input }) => input.widget?.['type'] === 'COLOR'),
-  ).toHaveLength(10)
+  ).toHaveLength(6)
   expect(Object.hasOwn(catalog.nodes, 'dinkster.ksampler_advanced')).toBe(false)
-  expect(Object.hasOwn(catalog.nodes, 'comfy.KSamplerAdvanced')).toBe(true)
+  expect(Object.hasOwn(catalog.nodes, 'comfy.KSamplerAdvanced')).toBe(false)
+  expect(Object.hasOwn(catalog.nodes, 'KSamplerAdvanced')).toBe(true)
 
   const remoteDescriptors = descriptors.filter(
     (widget) => typeof widget['remote'] === 'object',
@@ -246,11 +247,6 @@ test('hosted native stack proves live widget adoption and exact catalog absences
       .sort((a, b) => a.input.localeCompare(b.input)),
   ).toEqual(
     [
-      {
-        input: 'comfy.CheckpointLoader.config_name',
-        route: '/api/choices/comfy.files.configs',
-        refreshButton: true,
-      },
       {
         input: 'dev.gallery.widgets.combo_remote',
         route: '/api/choices/dev.gallery.samplers',
@@ -341,6 +337,21 @@ test('hosted native stack proves live widget adoption and exact catalog absences
         route: '/api/choices/dinkster.devices.video_inputs',
         refreshButton: true,
       },
+      {
+        input: 'SelectCLIPDevice.device',
+        route: '/api/choices/devices.gpu',
+        refreshButton: null,
+      },
+      {
+        input: 'SelectModelDevice.device',
+        route: '/api/choices/devices.gpu',
+        refreshButton: null,
+      },
+      {
+        input: 'SelectVAEDevice.device',
+        route: '/api/choices/devices.vae',
+        refreshButton: null,
+      },
     ].sort((a, b) => a.input.localeCompare(b.input)),
   )
 
@@ -350,10 +361,12 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   expect(
     sourceInputs.map(({ nodeType, input }) => `${nodeType}.${input.id}`).sort(),
   ).toEqual([
-    'comfy.LoadAudio.audio',
-    'comfy.LoadImageMask.image',
-    'comfy.LoadImageOutput.image',
-    'comfy.LoadVideo.file',
+    'LoadAudio.audio',
+    'LoadImage.image',
+    'LoadImageMask.image',
+    'LoadImageOutput.image',
+    'LoadLatent.latent',
+    'LoadVideo.file',
     'dinkster.load_audio.audio',
     'dinkster.load_gaussian_splat.splat',
     'dinkster.load_image.image',
@@ -365,9 +378,9 @@ test('hosted native stack proves live widget adoption and exact catalog absences
     'dinkster.read_image_metadata.image',
   ])
   expect(sourceInputs).toContainEqual({
-    nodeType: 'dinkster.load_mask',
+    nodeType: 'LoadImageMask',
     input: expect.objectContaining({
-      id: 'mask',
+      id: 'image',
       widget: expect.objectContaining({
         type: 'ASSET',
         kind: 'media/image',
@@ -388,6 +401,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
     }
   })
 
+  await page.setViewportSize({ width: 1800, height: 1100 })
   await page.goto('/')
   await expect
     .poll(
@@ -399,7 +413,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
         ),
       { timeout: 20_000 },
     )
-    .toBe(899)
+    .toBe(819)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument(
       {
@@ -414,23 +428,23 @@ test('hosted native stack proves live widget adoption and exact catalog absences
             nodes: {
               round: {
                 id: 'round',
-                type: 'comfy.DualModelGuider',
+                type: 'DualModelGuider',
                 values: { cfg: 8.0 },
               },
               checkpoint: {
                 id: 'checkpoint',
-                type: 'comfy.CheckpointLoader',
-                values: { config_name: 'anything_v3.yaml' },
+                type: 'dev.gallery.widgets',
+                values: { combo_remote: 'euler' },
               },
               sampler: {
                 id: 'sampler',
-                type: 'comfy.KSamplerAdvanced',
+                type: 'KSamplerAdvanced',
                 values: {
                   sampler_name: 'euler',
                   scheduler: 'simple',
                 },
               },
-              media: { id: 'media', type: 'dinkster.load_mask', values: {} },
+              media: { id: 'media', type: 'LoadImageMask', values: {} },
             },
             links: {},
             nets: {},
@@ -447,7 +461,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
                   size: { width: 320, height: 220 },
                 },
                 checkpoint: {
-                  position: { x: 350, y: 80 },
+                  position: { x: 1050, y: 80 },
                   size: { width: 320, height: 150 },
                 },
                 sampler: {
@@ -493,19 +507,19 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   await refreshCombo(
     page,
     'checkpoint',
-    'config_name',
-    '/api/choices/comfy.files.configs',
+    'combo_remote',
+    '/api/choices/dev.gallery.samplers',
   )
   await expect
     .poll(
       () =>
         choiceRequests.filter(
-          (path) => path === '/api/choices/comfy.files.configs',
+          (path) => path === '/api/choices/dev.gallery.samplers',
         ).length,
     )
     .toBeGreaterThanOrEqual(2)
 
-  const media = await rowPoint(page, 'media', 'mask')
+  const media = await rowPoint(page, 'media', 'image')
   await page.mouse.click(media.x, media.y)
   await expect(page.getByTestId('asset-editor')).toBeVisible()
   await selectProductOption(
@@ -550,7 +564,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
       page.evaluate(
         () =>
           window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes
-            .media!.values.mask,
+            .media!.values.image,
       ),
     )
     .toEqual(
@@ -564,7 +578,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
       page.evaluate(
         () =>
           window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes
-            .media!.values.mask as { digest: string },
+            .media!.values.image as { digest: string },
       ),
     )
   const uploadedResponse = await page.request.get(
@@ -578,12 +592,23 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   })
 
   // Admission is tested while paused; these bytes must never be executed as weights.
-  const clipUpload = await page.request.post('/api/assets', {
-    data: Buffer.from('bounded queue admission fixture, not model weights\n'),
-    headers: { 'Content-Type': 'application/octet-stream' },
-  })
+  const clipUpload = await page.request.post(
+    '/api/assets?scope=local&mount=output&name=queue-admission.bin',
+    {
+      data: Buffer.from('bounded queue admission fixture, not model weights\n'),
+      headers: { 'Content-Type': 'application/octet-stream' },
+    },
+  )
   expect(clipUpload.ok()).toBe(true)
-  const clipAsset = (await clipUpload.json()) as { digest: string }
+  const { asset: clipAsset } = (await clipUpload.json()) as {
+    asset: {
+      digest: string
+      name: string
+      size: number
+      mediaType: string
+      virtualPath: string
+    }
+  }
   let submitted: Record<string, any> | undefined
   page.on('request', (request) => {
     if (
@@ -608,23 +633,23 @@ test('hosted native stack proves live widget adoption and exact catalog absences
             nodes: {
               clip: {
                 id: 'clip',
-                type: 'dinkster.load_clip',
+                type: 'CLIPLoader',
                 values: {
-                  text_encoder: clipAsset,
+                  clip_name: clipAsset,
                   type: 'minimax',
                   device: 'cpu',
                 },
               },
               encode: {
                 id: 'encode',
-                type: 'dinkster.clip_text_encode',
+                type: 'CLIPTextEncode',
                 values: { text: '{amber|violet} proof' },
               },
             },
             links: {
               l0: {
                 id: 'l0',
-                from: { node: 'clip', port: 'clip' },
+                from: { node: 'clip', port: 'CLIP' },
                 to: { node: 'encode', port: 'clip' },
               },
             },
@@ -726,7 +751,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
       const banner = document.createElement('pre')
       banner.style.cssText =
         'position:fixed;right:320px;top:150px;width:520px;white-space:pre-wrap;overflow-wrap:anywhere;z-index:10000;background:#102030;color:#e8f4ff;padding:16px;border:2px solid #60a5fa'
-      banner.textContent = `current canonical catalog SHA-256: ${catalogDigest}\nFLOAT commit: 8.129 -> 8.13\ncanonical sampler: comfy.KSamplerAdvanced\nremote COMBO routes refreshed: 1/1\nsource upload: audit-wpar-source.png\ndynamic POST: ${expanded}\nplaceholder declarers: 0\nMULTI_COMBO declarers: 0\nremote policy declarers: 0`
+      banner.textContent = `current canonical catalog SHA-256: ${catalogDigest}\nFLOAT commit: 8.129 -> 8.13\ncanonical sampler: KSamplerAdvanced\nremote COMBO routes refreshed: 1/1\nsource upload: audit-wpar-source.png\ndynamic POST: ${expanded}\nplaceholder declarers: 0\nMULTI_COMBO declarers: 0\nremote policy declarers: 0`
       document.body.appendChild(banner)
     },
     {
@@ -741,8 +766,8 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   console.log(
     JSON.stringify({
       canonicalCatalogSha256,
-      round: 'comfy.DualModelGuider.cfg 8.129 -> 8.13',
-      sampler: 'comfy.KSamplerAdvanced',
+      round: 'DualModelGuider.cfg 8.129 -> 8.13',
+      sampler: 'KSamplerAdvanced',
       choiceRequests,
       mediaUpload: Object.fromEntries(mediaUrl.searchParams),
       dynamicPrompt: submitted!.graph.nodes.encode.inputs.text,

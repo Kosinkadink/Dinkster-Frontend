@@ -162,6 +162,11 @@ describe('image editor entry admission', () => {
     expect(imageInputCandidates({ schema: schema([input('image')]), nodeId: asNodeId('n0'), values: { image: ref }, drivenInputIds: new Set(['image']) })).toEqual([])
     expect(imageInputCandidates({ schema: schema([input('a'), input('b')]), nodeId: asNodeId('n0'), values: { a: ref, b: ref } })).toHaveLength(2)
     expect(imageInputCandidates({ schema: schema([{ ...input('image'), type: { kind: 'concrete', name: 'ASSET' } }]), nodeId: asNodeId('n0'), values: { image: ref } })).toEqual([])
+    const nativeImage = { ...input('image'), type: { kind: 'concrete' as const, name: 'ASSET' }, widget: { ...input('image').widget, kind: 'media/image' } }
+    expect(imageInputCandidates({ schema: schema([nativeImage]), nodeId: asNodeId('n0'), values: { image: ref } })).toEqual([{ nodeId: 'n0', inputId: 'image', sourceRef: ref }])
+    expect(imageInputCandidates({ schema: schema([{ ...nativeImage, widget: { ...nativeImage.widget, kind: 'media/video' } }]), nodeId: asNodeId('n0'), values: { image: ref } })).toEqual([])
+    expect(imageInputCandidates({ schema: schema([{ ...nativeImage, hidden: true }]), nodeId: asNodeId('n0'), values: { image: ref } })).toEqual([])
+    expect(imageInputCandidates({ schema: schema([nativeImage]), nodeId: asNodeId('n0'), values: { image: ref }, drivenInputIds: new Set(['image']) })).toEqual([])
     expect(imageInputCandidates({ schema: schema([input('image')]), nodeId: asNodeId('n0'), values: { image: { ...ref, mediaType: 'image/jpeg' } } })).toEqual([])
     expect(imageInputCandidates({ schema: schema([{ ...input('image'), hidden: true }]), nodeId: asNodeId('n0'), values: { image: ref } })).toEqual([])
   })

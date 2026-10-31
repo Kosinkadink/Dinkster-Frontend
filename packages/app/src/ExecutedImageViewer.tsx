@@ -37,7 +37,7 @@ export function executionOutputProvenance(
 const clamp = (value: number, count: number): number => Math.max(0, Math.min(Math.trunc(value), Math.max(0, count - 1)))
 
 /** Each mounted tile owns its request and URL; unmounting cancels and releases both. */
-function ViewerImage(props: {
+export function ViewerImage(props: {
   readonly image: ExecutedImage
   readonly alt: string
   readonly fit?: boolean

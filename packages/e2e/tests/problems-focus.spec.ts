@@ -1,12 +1,16 @@
 import { expect, openRailPanel, test } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
-
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
+  if (testInfo.title.startsWith('Problems locale, disclosure')) {
+    await page.route('/api/diagnostics*', (route) => route.fulfill({
+      json: { compatSkips: [{ packId: 'raw-pack', nodeId: 'RawNode', reason: 'raw compatibility refusal' }] },
+    }))
+  }
   await page.route('/system_stats', (route) =>
     route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }),
   )
-  await page.route('/object_info', (route) => route.fulfill({ json: {} }))
+  await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await page.evaluate(() => {
@@ -117,12 +121,6 @@ test('Problems locale, disclosure, selection, clipboard, and explicit canvas act
         },
       },
     ])
-    const backend = app.backends.get()[0]! as unknown as {
-      readonly compatSkips: { set(value: readonly { packId: string; nodeId: string; reason: string }[]): void }
-    }
-    backend.compatSkips.set([{
-      packId: 'raw-pack', nodeId: 'RawNode', reason: 'raw compatibility refusal',
-    }])
   })
 
   const panel = page.getByTestId('problems-panel')

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -13,7 +12,6 @@ const NATIVE_BACKEND =
   process.env["DINKSTER_NATIVE_BACKEND"] ?? "http://127.0.0.1:8765";
 const proofDir = process.env["DINKSTER_TEMPLATE_PROOF_DIR"];
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true });
-const EXPECTED_FAMILIES: readonly string[] = [];
 const EXPECTED_LOOPS = [
   "loop-map-images",
   "loop-gather-image-batch",
@@ -29,27 +27,22 @@ interface TemplateDescriptor {
   readonly family?: string;
 }
 
-async function starterTemplates(): Promise<
-  readonly TemplateDescriptor[] | undefined
-> {
-  try {
-    const response = await fetch(`${NATIVE_BACKEND}/api/templates?limit=200`, {
-      signal: AbortSignal.timeout(2_000),
-    });
-    if (!response.ok) return undefined;
-    const payload = (await response.json()) as {
-      templates?: TemplateDescriptor[];
-    };
-    const families = new Set<string>(EXPECTED_FAMILIES);
-    const loops = new Set<string>(EXPECTED_LOOPS);
-    return payload.templates?.filter(
-      (template) =>
-        (template.family !== undefined && families.has(template.family)) ||
-        loops.has(template.id),
-    );
-  } catch {
-    return undefined;
-  }
+async function starterTemplates(): Promise<readonly TemplateDescriptor[]> {
+  const response = await fetch(`${NATIVE_BACKEND}/api/templates?limit=200`, {
+    signal: AbortSignal.timeout(2_000),
+  });
+  expect(response.ok).toBe(true);
+  const payload = (await response.json()) as {
+    templates: TemplateDescriptor[];
+  };
+  expect(payload.templates.map((template) => template.id).sort()).toEqual(
+    ["dev-gallery", ...EXPECTED_LOOPS].sort(),
+  );
+  expect(
+    payload.templates.flatMap((template) => template.family ?? []),
+  ).toEqual([]);
+  const loops = new Set<string>(EXPECTED_LOOPS);
+  return payload.templates.filter((template) => loops.has(template.id));
 }
 
 async function connect(page: Page): Promise<string> {
@@ -115,9 +108,10 @@ async function connectNativeFrontend(page: Page): Promise<string> {
   await expect
     .poll(() =>
       page.evaluate(() =>
-        window
-          .__dinksterTest?.app.backends.get()
-          .find((backend) => backend.protocol === "dinkster")?.registry.get(),
+        window.__dinksterTest?.app.backends
+          .get()
+          .find((backend) => backend.protocol === "dinkster")
+          ?.registry.get(),
       ),
     )
     .toBeDefined();
@@ -125,7 +119,8 @@ async function connectNativeFrontend(page: Page): Promise<string> {
     const backend = window
       .__dinksterTest!.app.backends.get()
       .find((candidate) => candidate.protocol === "dinkster");
-    if (backend === undefined) throw new Error("native backend was not discovered");
+    if (backend === undefined)
+      throw new Error("native backend was not discovered");
     return backend.id;
   });
 }
@@ -139,30 +134,6 @@ async function errorProblems(page: Page): Promise<readonly string[]> {
   );
 }
 
-async function makeModelsAvailable(page: Page): Promise<void> {
-  await page.route("**/api/assets/guess", async (route) => {
-    const request = route.request().postDataJSON() as { names: string[] };
-    await route.fulfill({
-      json: {
-        matches: request.names.map((query) => ({
-          query,
-          candidates: [
-            {
-              digest: `blake3:${createHash("sha256").update(query).digest("hex")}`,
-              name: query,
-              confidence: "path",
-              held: true,
-              virtualPath: `mounts/models/${query}`,
-              size: 1,
-              mediaType: "application/octet-stream",
-            },
-          ],
-        })),
-      },
-    });
-  });
-}
-
 async function openTemplateGallery(page: Page): Promise<void> {
   await page.getByTestId("topbar-search").click();
   await page
@@ -174,34 +145,24 @@ async function openTemplateGallery(page: Page): Promise<void> {
     .click();
 }
 
-test("all starter families and loop templates load with zero problem-panel errors", async ({
+test("all retained loop templates load with zero problem-panel errors", async ({
   page,
 }) => {
   const templates = await starterTemplates();
-  test.skip(
-    templates === undefined,
-    `no native Dinkster backend reachable at ${NATIVE_BACKEND}`,
+  expect(templates.map((template) => template.id).sort()).toEqual(
+    [...EXPECTED_LOOPS].sort(),
   );
-  expect(templates!.flatMap((template) => template.family ?? []).sort()).toEqual([
-    ...EXPECTED_FAMILIES,
-  ]);
-  expect(templates!.filter((template) => template.id.startsWith("loop-")).map((template) => template.id).sort()).toEqual([
-    ...EXPECTED_LOOPS,
-  ].sort());
 
   const owner = await connectNativeFrontend(page);
-  await makeModelsAvailable(page);
   await openTemplateGallery(page);
   const gallery = page.getByTestId("template-gallery");
   await expect(gallery).toBeVisible();
-  for (const template of templates!) {
+  for (const template of templates) {
     await expect(
       gallery.getByTestId("template-card").filter({ hasText: template.name }),
     ).toBeVisible();
   }
-  await expect(gallery.locator('[data-family^="dinkster."]')).toHaveCount(
-    EXPECTED_FAMILIES.length,
-  );
+  await expect(gallery.locator('[data-family^="dinkster."]')).toHaveCount(0);
   if (proofDir !== undefined)
     await gallery.screenshot({
       path: join(proofDir, "starter-template-gallery-live.png"),
@@ -212,7 +173,7 @@ test("all starter families and loop templates load with zero problem-panel error
   const panelErrors = page
     .getByTestId("problems-panel")
     .locator('.problem[data-severity="error"]');
-  for (const template of templates!) {
+  for (const template of templates) {
     expect(
       await page.evaluate(
         ({ ownerId, row }) =>
@@ -229,36 +190,27 @@ test("all starter families and loop templates load with zero problem-panel error
       ),
       template.id,
     ).toBe(true);
-    await expect.poll(() => page.evaluate(() => ({
-      lineage: window.__dinksterTest!.app.activeTab()?.store.doc.lineage,
-      title: window.__dinksterTest!.app.activeTab()?.title,
-    }))).toMatchObject(template.family === undefined
-      ? { title: template.name }
-      : { lineage: `starter-${template.id}` });
+    await expect
+      .poll(() =>
+        page.evaluate(() => window.__dinksterTest!.app.activeTab()?.title),
+      )
+      .toBe(template.name);
     expect(await errorProblems(page), template.id).toEqual([]);
     await expect(panelErrors, template.id).toHaveCount(0);
   }
 });
 
-test("the Stable Diffusion 1.5 starter opens with readable node detail at 1280x800", async ({
+test("the retained while loop starter opens with readable node detail at 1280x800", async ({
   page,
 }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   const templates = await starterTemplates();
-  test.skip(
-    templates === undefined,
-    `no native Dinkster backend reachable at ${NATIVE_BACKEND}`,
+  const template = templates.find(
+    (candidate) => candidate.id === "loop-while-until",
   );
-  const template = templates?.find(
-    (candidate) => candidate.family === "dinkster.sd15",
-  );
-  test.skip(
-    template === undefined,
-    `native backend at ${NATIVE_BACKEND} has no SD 1.5 starter`,
-  );
+  expect(template).toBeDefined();
 
   const owner = await connectNativeFrontend(page);
-  await makeModelsAvailable(page);
   expect(
     await page.evaluate(
       ({ ownerId, row }) =>
@@ -279,7 +231,7 @@ test("the Stable Diffusion 1.5 starter opens with readable node detail at 1280x8
       })),
     )
     .toMatchObject({
-      lineage: `starter-${template!.id}`,
+      lineage: template!.id,
       detail: "content",
     });
   await expect
@@ -288,29 +240,25 @@ test("the Stable Diffusion 1.5 starter opens with readable node detail at 1280x8
     )
     .toBeGreaterThanOrEqual(0.5);
   const screenshot = await page.screenshot({ animations: "disabled" });
-  await testInfo.attach("sd15-starter-opened-1280x800", {
+  await testInfo.attach("while-loop-starter-opened-1280x800", {
     body: screenshot,
     contentType: "image/png",
   });
   if (proofDir !== undefined)
-    writeFileSync(join(proofDir, "sd15-starter-opened-1280x800.png"), screenshot);
+    writeFileSync(
+      join(proofDir, "while-loop-starter-opened-1280x800.png"),
+      screenshot,
+    );
 });
 
-test("the all-family problem assertion rejects a malformed starter", async ({
+test("the problem assertion rejects a malformed retained loop starter", async ({
   page,
 }) => {
   const templates = await starterTemplates();
-  test.skip(
-    templates === undefined,
-    `no native Dinkster backend reachable at ${NATIVE_BACKEND}`,
+  const template = templates.find(
+    (candidate) => candidate.id === "loop-map-images",
   );
-  const template = templates?.find(
-    (candidate) => candidate.family === "dinkster.sd15",
-  );
-  test.skip(
-    template === undefined,
-    `native backend at ${NATIVE_BACKEND} has no SD 1.5 starter`,
-  );
+  expect(template).toBeDefined();
 
   const bodyUrl = `${NATIVE_BACKEND}/api/packs/${encodeURIComponent(template!.pack)}/templates/${encodeURIComponent(template!.id)}`;
   const body = (await (await fetch(bodyUrl)).json()) as {
@@ -324,16 +272,12 @@ test("the all-family problem assertion rejects a malformed starter", async ({
       }
     >;
   };
-  const graph = Object.values(body.graphs)[0]!;
-  const sampler = Object.values(graph.nodes).find(
-    (node) => node.type === "dinkster.ksampler",
-  );
-  expect(sampler).toBeDefined();
-  sampler!.values["sampler_name"] = "invalid-sampler";
+  const source = body.graphs["root"]!.nodes["source"]!;
+  expect(source.type).toBe("dinkster.image.generate");
+  source.values["channels"] = "invalid-channels";
   await page.route(bodyUrl, (route) => route.fulfill({ json: body }));
 
   const owner = await connect(page);
-  await makeModelsAvailable(page);
   await openRailPanel(page, "Problems");
   await page.evaluate(
     ({ ownerId, row }) =>
@@ -353,4 +297,10 @@ test("the all-family problem assertion rejects a malformed starter", async ({
       .getByTestId("problems-panel")
       .locator('.problem[data-severity="error"]'),
   ).not.toHaveCount(0);
+  await expect(page.getByTestId("problems-panel")).toContainText(
+    "widget.COMBO.unknownOption",
+  );
+  await expect(page.getByTestId("problems-panel")).toContainText(
+    "source.channels: 'invalid-channels' is not in the option list",
+  );
 });

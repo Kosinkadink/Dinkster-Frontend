@@ -1,5 +1,9 @@
-import { expect, appViewTest as test } from './fixtures.js'
+import { expect, nativeAppViewTest as test } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
+
+test.beforeEach(async ({ page }) => {
+  await page.routeWebSocket('**/api/events*', () => {})
+})
 
 test('canvas view menus localize in place without changing registry data or app state', async ({ page, request }) => {
   let schemaRequests = 0
@@ -20,6 +24,10 @@ test('canvas view menus localize in place without changing registry data or app 
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
+  await page.waitForFunction(() => {
+    const settings = window.__dinksterTest!.app.settings as unknown as { list(): readonly { id: string }[] }
+    return settings.list().some((setting) => setting.id === 'templates.registryUrl')
+  })
   const localeModule = await (await request.get('/src/locale.ts')).text()
   const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
   expect(i18nModule).toBeDefined()
@@ -131,7 +139,9 @@ test('shell, App View, and runtime settings update from the active locale catalo
   await expect(page.getByTestId('app-view-arrange-toggle')).toContainText('Arrange')
   await expect(page.getByTestId('app-view-empty')).toContainText('Nothing is exposed yet.')
   await expect(page.getByTestId('backends-toggle')).toContainText('Backends')
-  await expect(page.getByTestId('status-bar').getByRole('button', { name: /Review upgrades/ })).toHaveCount(0)
+  const upgrades = page.getByTestId('status-bar').getByRole('button', { name: 'Review upgrades', exact: true })
+  await expect(upgrades).toBeVisible()
+  await expect(upgrades).toHaveAttribute('aria-pressed', 'false')
   await page.getByTestId('dinkster-menu-button').click()
   await expect(page.locator('[data-item-id="workflow.open"]')).toContainText('Open workflow library')
   await page.screenshot({ path: evidencePath('issue-457', 'host-i18n-app-view-en.png'), fullPage: true })
@@ -174,6 +184,7 @@ test('shell, App View, and runtime settings update from the active locale catalo
       'shell.panel.memory.title': '[RAM]',
       'shell.panel.outputs.title': '[Out]',
       'shell.panel.settings.title': '[Cfg]',
+      'shell.reviewUpgrades.label': '[Aktualisierungen prufen]',
       'shell.toggle.leftPanel': '[Linken Bereich umschalten]',
     })
     setLocale('de-DE')
@@ -188,6 +199,8 @@ test('shell, App View, and runtime settings update from the active locale catalo
   await expect(page.getByTestId('backends-toggle')).toContainText('[Srv]')
   await expect(page.getByTestId('app-view-arrange-toggle')).toContainText('[Anordnen und gestalten]')
   await expect(page.getByTestId('app-view-empty')).toContainText('[Noch keine Steuerelemente freigegeben.]')
+  await expect(page.getByTestId('review-upgrades-toggle')).toHaveAttribute('aria-label', '[Aktualisierungen prufen]')
+  await expect(page.getByTestId('review-upgrades-toggle')).toHaveAttribute('aria-pressed', 'false')
   await expect(page.getByTestId('dinkster-menu-button')).toHaveAttribute('aria-expanded', 'false')
   await page.getByTestId('dinkster-menu-button').click()
   await expect(page.locator('[data-item-id="workflow.open"]')).toContainText('[Arbeitsablaufbibliothek offnen]')
@@ -244,6 +257,10 @@ test('panel host chrome updates in place without backend requests', async ({ pag
   await page.setViewportSize({ width: 1400, height: 900 })
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
+  await page.waitForFunction(() => {
+    const settings = window.__dinksterTest!.app.settings as unknown as { list(): readonly { id: string }[] }
+    return settings.list().some((setting) => setting.id === 'templates.registryUrl')
+  })
   const localeModule = await (await request.get('/src/locale.ts')).text()
   const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
   expect(i18nModule).toBeDefined()

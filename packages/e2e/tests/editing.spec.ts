@@ -117,6 +117,10 @@ test.beforeEach(async ({ page }, testInfo) => {
   await page.goto('/')
   // Scenes need schemas; wait for the registry before touching the canvas.
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await expect.poll(() => page.evaluate(() => {
+    const backend = window.__dinksterTest!.app.backends.get()[0]!
+    return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
+  })).toBe(true)
   await identityViewport(page)
 })
 
@@ -234,7 +238,7 @@ test('marquee-selected node and reroute move together and undo atomically', asyn
         n0: { id: 'n0', type: 'EmptyImage', values: { width: 64, height: 64, batch_size: 1, color: 0 } },
         n1: { id: 'n1', type: 'PreviewImage', values: {} },
       }, links: {
-        l0: { id: 'l0', from: { node: 'n0', port: 'out0' }, to: { reroute: 'r0' } },
+        l0: { id: 'l0', from: { node: 'n0', port: 'IMAGE' }, to: { reroute: 'r0' } },
         l1: { id: 'l1', from: { reroute: 'r0' }, to: { node: 'n1', port: 'images' } },
       }, nets: {}, reroutes: { r0: { id: 'r0' } }, nextOrdinal: 5 } },
       view: { graphs: { g0: {
@@ -299,7 +303,7 @@ test('dragging a connected input pin into space disconnects; undo restores', asy
 })
 
 test('dragging output pin -> compatible input creates a link (replacing the old driver)', async ({ page }) => {
-  const from = await pointOn(page, 'n0', { kind: 'pin', direction: 'out', portId: 'out0' })
+  const from = await pointOn(page, 'n0', { kind: 'pin', direction: 'out', portId: 'IMAGE' })
   const to = await pointOn(page, 'n1', { kind: 'pin', direction: 'in', portId: 'images' })
   await drag(page, from, to)
 
@@ -307,7 +311,7 @@ test('dragging output pin -> compatible input creates a link (replacing the old 
   const links = Object.values(doc.graphs['g0']!.links)
   // Old driver (l2) displaced by the new link in the same gesture; still one driver.
   expect(links).toHaveLength(1)
-  expect(links[0]!.from).toEqual({ node: 'n0', port: 'out0' })
+  expect(links[0]!.from).toEqual({ node: 'n0', port: 'IMAGE' })
   expect(links[0]!.to).toEqual({ node: 'n1', port: 'images' })
 })
 
