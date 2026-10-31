@@ -8,12 +8,30 @@ type DynamicState = Record<string, {
   readonly seq?: number
 }>
 
+// Authored comfy-pack families opt into canonical positions; legacy families
+// retain stable mN identities. ReferenceMultiLatent's image template is optional.
+const canonicalFamilyMembers: Record<string, Record<string, readonly string[] | null>> = {
+  BatchImagesNode: { images: ['image0'] },
+  BatchLatentsNode: { latents: ['latent0'] },
+  BatchMasksNode: { masks: ['mask0'] },
+  ComfyAndNode: { values: ['value0'] },
+  ComfyOrNode: { values: ['value0'] },
+  ComfyMathExpression: { values: ['a'] },
+  ConcatenateVideo: { videos: ['video0'] },
+  CreateList: { inputs: ['input0'] },
+  MergeMeshes: { meshes: ['mesh0', 'mesh1'] },
+  MergeSplat: { splats: ['splat0', 'splat1'] },
+  ReferenceMultiLatent: { images: null },
+  TextEncodeMOSSImageEdit: { images: ['image_0'] },
+}
+
 type Wire15Input = {
   readonly kind: string
   readonly id: string
   readonly dynamic?: {
     readonly kind: string
     readonly materialization?: string
+    readonly optionalAfterMinimum?: boolean
     readonly template?: readonly Wire15Input[]
     readonly naming?:
       | { readonly kind: 'prefix'; readonly min?: number }
@@ -24,6 +42,7 @@ type Wire15Input = {
 }
 
 function requiredWire15State(
+  nodeType: string,
   items: readonly Wire15Input[],
   prefix = '',
   result: DynamicState = {},
@@ -41,14 +60,24 @@ function requiredWire15State(
       if (dynamic.naming.kind === 'native') continue
       const min = dynamic.naming.min ?? 0
       if (min === 0) continue
-      const members = dynamic.naming.kind === 'names'
-        ? dynamic.naming.names.slice(0, min)
-        : Array.from({ length: min }, (_, index) => `m${index}`)
+      const canonical = canonicalFamilyMembers[nodeType]?.[construct]
+      if (canonical !== undefined) {
+        expect(dynamic.optionalAfterMinimum, `${nodeType}:${construct}: canonical declaration`).toBe(true)
+      }
+      if (dynamic.optionalAfterMinimum) {
+        expect(canonical, `${nodeType}:${construct}: authored canonical expectation`).not.toBeUndefined()
+        if (canonical === null) continue
+      }
+      const members = dynamic.optionalAfterMinimum
+        ? canonical!
+        : dynamic.naming.kind === 'names'
+          ? dynamic.naming.names.slice(0, min)
+          : Array.from({ length: min }, (_, index) => `m${index}`)
       result[construct] = {
         members,
         ...(dynamic.naming.kind === 'prefix' ? { seq: min } : {}),
       }
-      for (const member of members) requiredWire15State(dynamic.template, `${construct}.${member}`, result)
+      for (const member of members) requiredWire15State(nodeType, dynamic.template, `${construct}.${member}`, result)
       continue
     }
     if (
@@ -59,7 +88,7 @@ function requiredWire15State(
     const option = dynamic.options[0]
     if (option === undefined) continue
     result[construct] = { selected: option.key }
-    requiredWire15State(option.inputs, construct, result)
+    requiredWire15State(nodeType, option.inputs, construct, result)
   }
   return result
 }
@@ -168,6 +197,7 @@ test('every live wire-15 family node persists minimums and reloads with a growth
       hasAutogrow((schema as { readonly items: readonly unknown[] }).items) ? [type] : [])
   })
   expect(familyNodeTypes.length).toBeGreaterThan(0)
+  expect(familyNodeTypes).toEqual(expect.arrayContaining(Object.keys(canonicalFamilyMembers)))
 
   for (const type of familyNodeTypes) {
     await openBlank(page, `fresh-${type}`)
@@ -191,11 +221,16 @@ test('every live wire-15 family node persists minimums and reloads with a growth
           .map((diagnostic) => diagnostic.message),
       }
     }, { nodeId, type })
-    const required = requiredWire15State(result.schemaItems as Wire15Input[])
+    const required = requiredWire15State(type, result.schemaItems as Wire15Input[])
     for (const [construct, state] of Object.entries(required)) {
       expect(result.dynamic[construct], `${type}:${construct}`).toEqual(state)
     }
-    expect(result.hasGrowthTarget, type).toBe(true)
+    for (const [construct, members] of Object.entries(canonicalFamilyMembers[type] ?? {})) {
+      if (members === null) expect(result.dynamic[construct], `${type}:${construct}:optional`).toBeUndefined()
+    }
+    // These nodes expose only the hidden dependencies family in loops.py.
+    const visibleGrowth = !['LoopIteration', 'LoopProgress', 'LoopResult'].includes(type)
+    expect(result.hasGrowthTarget, type).toBe(visibleGrowth)
     expect(result.underMinimum, type).toEqual([])
 
     await page.evaluate(({ type }) => {
@@ -226,7 +261,10 @@ test('every live wire-15 family node persists minimums and reloads with a growth
     for (const [construct, state] of Object.entries(required)) {
       expect(reloaded.dynamic[construct], `${type}:${construct}:reload`).toEqual(state)
     }
-    expect(reloaded.hasGrowthTarget, `${type}:reload`).toBe(true)
+    for (const [construct, members] of Object.entries(canonicalFamilyMembers[type] ?? {})) {
+      if (members === null) expect(reloaded.dynamic[construct], `${type}:${construct}:optional:reload`).toBeUndefined()
+    }
+    expect(reloaded.hasGrowthTarget, `${type}:reload`).toBe(visibleGrowth)
     expect(reloaded.underMinimum, `${type}:reload`).toEqual([])
   }
 })

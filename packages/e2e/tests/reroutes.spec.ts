@@ -81,7 +81,7 @@ const menuItem = (page: Page, id: string) => page.locator(`[data-item-id="${id}"
 
 /**
  * EmptyImage -> r0 -> PreviewImage, plus a second free PreviewImage. Types
- * resolve against the real backend's object_info, so the traced reroute type
+ * resolve against the real backend's native catalog, so the traced reroute type
  * is a concrete IMAGE.
  */
 async function openRerouteWorkflow(page: Page): Promise<void> {
@@ -114,7 +114,7 @@ async function openRerouteWorkflow(page: Page): Promise<void> {
               },
             },
             links: {
-              l1: { id: 'l1', from: { node: 'n0', port: 'out0' }, to: { reroute: 'r0' } },
+              l1: { id: 'l1', from: { node: 'n0', port: 'IMAGE' }, to: { reroute: 'r0' } },
               l2: { id: 'l2', from: { reroute: 'r0' }, to: { node: 'n1', port: 'images' } },
             },
             nets: {},
@@ -171,7 +171,7 @@ test('clicking a link midpoint inserts ONE reroute there; undo restores the dire
   const links = Object.values(g.links)
   expect(links).toHaveLength(2)
   expect(links).toContainEqual(
-    expect.objectContaining({ from: { node: 'n0', port: 'out0' }, to: { reroute: rid } }),
+    expect.objectContaining({ from: { node: 'n0', port: 'IMAGE' }, to: { reroute: rid } }),
   )
   expect(links).toContainEqual(
     expect.objectContaining({ from: { reroute: rid }, to: { node: 'n1', port: 'images' } }),
@@ -188,7 +188,7 @@ test('clicking a link midpoint inserts ONE reroute there; undo restores the dire
   const undone = await rootGraph(page)
   expect(Object.keys(undone.reroutes)).toHaveLength(0)
   expect(Object.values(undone.links)).toEqual([
-    expect.objectContaining({ from: { node: 'n0', port: 'out0' }, to: { node: 'n1', port: 'images' } }),
+    expect.objectContaining({ from: { node: 'n0', port: 'IMAGE' }, to: { node: 'n1', port: 'images' } }),
   ])
 })
 
@@ -335,7 +335,7 @@ test('dragging the ghost output socket fans out a new consumer - no Alt needed',
 test('dragging the ghost input socket to a producer replaces the junction driver', async ({ page }) => {
   await openRerouteWorkflow(page)
   const dot = await reroutePoint(page, 'r0')
-  const producer = await pinPoint(page, 'n3', 'out0', 'out')
+  const producer = await pinPoint(page, 'n3', 'IMAGE', 'out')
 
   await page.mouse.move(dot.x, dot.y)
   await drag(page, { x: dot.x - SOCKET_OFFSET, y: dot.y }, producer)
@@ -346,7 +346,7 @@ test('dragging the ghost input socket to a producer replaces the junction driver
   const links = Object.values(g.links)
   expect(links).toHaveLength(2)
   expect(links).toContainEqual(
-    expect.objectContaining({ from: { node: 'n3', port: 'out0' }, to: { reroute: 'r0' } }),
+    expect.objectContaining({ from: { node: 'n3', port: 'IMAGE' }, to: { reroute: 'r0' } }),
   )
   expect(links).toContainEqual(
     expect.objectContaining({ from: { reroute: 'r0' }, to: { node: 'n1', port: 'images' } }),
@@ -356,7 +356,7 @@ test('dragging the ghost input socket to a producer replaces the junction driver
   await page.keyboard.press('Control+z')
   const undone = Object.values((await rootGraph(page)).links)
   expect(undone).toContainEqual(
-    expect.objectContaining({ from: { node: 'n0', port: 'out0' }, to: { reroute: 'r0' } }),
+    expect.objectContaining({ from: { node: 'n0', port: 'IMAGE' }, to: { reroute: 'r0' } }),
   )
   expect(undone).toHaveLength(2)
 })
@@ -429,7 +429,7 @@ test('context-menu Dissolve reconnects the path as a direct link', async ({ page
   const g = await rootGraph(page)
   expect(Object.keys(g.reroutes)).toHaveLength(0)
   expect(Object.values(g.links)).toEqual([
-    expect.objectContaining({ from: { node: 'n0', port: 'out0' }, to: { node: 'n1', port: 'images' } }),
+    expect.objectContaining({ from: { node: 'n0', port: 'IMAGE' }, to: { node: 'n1', port: 'images' } }),
   ])
   // The junction's view geometry went with it.
   const doc = await activeDoc(page)

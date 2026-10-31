@@ -1,4 +1,4 @@
-import { expect, appViewTest as test, type Page } from './fixtures.js'
+import { expect, nativeAppViewTest as test, type Page } from './fixtures.js'
 import type { Route } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {

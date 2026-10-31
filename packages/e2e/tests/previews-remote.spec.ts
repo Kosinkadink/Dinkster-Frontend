@@ -1,6 +1,6 @@
 /**
  * Node preview panels: output thumbnails come from a REAL backend execution
- * (executed -> outputs -> /view -> decode -> panel). Live sampling frames are
+ * (executed -> outputs -> native rendition -> decode -> panel). Live sampling frames are
  * injected through the SAME ExecutionStore.apply path the metadata preview
  * protocol uses, because the CPU fixture workflow finishes too fast to catch
  * a real sampler frame deterministically.
@@ -62,9 +62,9 @@ const panels = (page: Page) =>
   })
 
 /** Inject an attributed live frame (encoded PNG) for the latest execution. */
-async function injectFrame(page: Page, runtimeNodeId: string, width: number, height: number): Promise<void> {
+async function injectFrame(page: Page, runtimeNodeId: string, width: number, height: number, running = false): Promise<void> {
   await page.evaluate(
-    async ({ runtimeNodeId, width, height }) => {
+    async ({ runtimeNodeId, width, height, running }) => {
       const canvas = new OffscreenCanvas(width, height)
       const g = canvas.getContext('2d')!
       g.fillStyle = '#c00'
@@ -73,6 +73,10 @@ async function injectFrame(page: Page, runtimeNodeId: string, width: number, hei
       const payload = await blob.arrayBuffer()
       const store = window.__dinksterTest!.app.store
       const latest = [...store.executions.get().values()].sort((a, b) => b.queuedAt - a.queuedAt)[0]!
+      if (running) (store as unknown as { apply(event: unknown): void }).apply({
+        kind: 'nodeStates', execution: latest.ref, timestamp: Date.now(),
+        nodes: { [runtimeNodeId]: { state: 'running' } },
+      })
       store.apply({
         kind: 'preview',
         execution: latest.ref,
@@ -82,7 +86,7 @@ async function injectFrame(page: Page, runtimeNodeId: string, width: number, hei
         payload,
       })
     },
-    { runtimeNodeId, width, height },
+    { runtimeNodeId, width, height, running },
   )
 }
 
@@ -95,22 +99,24 @@ test.beforeEach(async ({ page }) => {
 // Node preview panels
 // ---------------------------------------------------------------------------
 
-test('completed execution shows the output thumbnail on the producing node only', async ({ page }) => {
+test('completed execution shows each native image on its producing node', async ({ page }) => {
   await queueAndComplete(page)
-  // n1 (PreviewImage) produced an image; the panel decodes from /view.
-  await expect.poll(() => panels(page).then((p) => Object.keys(p).sort()), { timeout: 10_000 }).toEqual(['n1'])
-  const p = await panels(page)
-  expect(p['n1']!.width).toBeGreaterThan(0)
-  expect(p['n1']!.height).toBeGreaterThan(0)
+  // Both EmptyImage and PreviewImage declare native IMAGE outputs.
+  await expect.poll(() => panels(page), { timeout: 10_000 }).toEqual({
+    n0: { width: 64, height: 64 }, n1: { width: 64, height: 64 },
+  })
 })
 
 test('attributed live frame attaches to its node; other nodes stay clean', async ({ page }) => {
   await queueAndComplete(page)
-  // n0 (EmptyImage) has no image outputs, so an attributed frame is its panel.
-  await injectFrame(page, 'n0', 32, 16)
+  // A live running-node event makes its attributed frame authoritative.
+  await injectFrame(page, 'n0', 32, 16, true)
   await expect.poll(() => panels(page).then((p) => p['n0']), { timeout: 10_000 }).toEqual({ width: 32, height: 16 })
   // The output node keeps its own thumbnail; the frame did not leak onto it.
   await expect.poll(() => panels(page).then((p) => Object.keys(p).sort())).toEqual(['n0', 'n1'])
+  await test.info().attach('Native running frame', {
+    body: await page.screenshot({ path: test.info().outputPath('native-running-frame.png'), animations: 'disabled' }), contentType: 'image/png',
+  })
 })
 
 test('output thumbnail wins over a live frame once the node is finished', async ({ page }) => {
@@ -120,6 +126,9 @@ test('output thumbnail wins over a live frame once the node is finished', async 
   // A late frame for the finished output node must NOT replace the output.
   await injectFrame(page, 'n1', 3, 3)
   await page.waitForTimeout(300)
+  await test.info().attach('Native completed output after late frame', {
+    body: await page.screenshot({ path: test.info().outputPath('native-completed-late-frame.png'), animations: 'disabled' }), contentType: 'image/png',
+  })
   expect((await panels(page))['n1']).toEqual(before)
 })
 

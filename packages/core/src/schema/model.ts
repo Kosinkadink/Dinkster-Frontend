@@ -1091,7 +1091,8 @@ export const isAssetWidgetInput = (spec: InputSpec): boolean =>
 export const isImageAssetInput = (spec: InputSpec): boolean => {
   const type = canonicalTypeIdOf(spec.type)
   return spec.hidden !== true && isAssetWidgetInput(spec) &&
-    (type === 'asset<IMAGE>' || type === 'asset<comfy.IMAGE>')
+    (type === 'asset<IMAGE>' || type === 'asset<comfy.IMAGE>' ||
+      (type === 'ASSET' && spec.widget?.kind === 'media/image'))
 }
 
 /**

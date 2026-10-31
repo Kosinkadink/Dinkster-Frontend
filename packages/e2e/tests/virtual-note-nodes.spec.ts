@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_VIRTUAL_NOTE_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -231,6 +231,7 @@ test('notes render, persist, copy atomically, and never reach the backend', asyn
       },
     })
 
+  await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
   const noteTextPoint = await page.evaluate(() => {
     const node = window
       .__dinksterTest!.renderer!.getScene()

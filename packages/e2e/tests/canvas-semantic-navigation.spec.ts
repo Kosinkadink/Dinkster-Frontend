@@ -15,6 +15,7 @@ const capture = async (page: Page, testInfo: TestInfo, name: string): Promise<vo
 }
 
 test.beforeEach(async ({ page }) => {
+  await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
 })
@@ -26,6 +27,7 @@ test('semantic scene navigation stays virtual until focused and pans only on act
   ))
   expect(diagnostics).toEqual([])
   await expect(page.getByTestId('tab-bar').locator('.tab', { hasText: 'Semantic navigation proof' })).toBeVisible()
+  await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
 
   const navigator = page.getByRole('listbox', { name: 'Canvas scene navigator' })
   await expect(navigator.getByRole('option')).toHaveCount(0)

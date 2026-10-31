@@ -112,7 +112,7 @@ nativeTest('draws, rebinds, and extracts an imported input boundary with mixed d
         { id: 2, type: 'Relay', pos: [420, 320], inputs: [{ name: 'value', widget: { name: 'value' }, link: 4 }], outputs: [{ name: 'result' }], widgets_values: [11] },
         { id: 3, type: 'Reroute', pos: [170, 180], inputs: [{ name: '', link: 1 }], outputs: [{ name: '' }] },
         { id: 4, type: 'Reroute', pos: [310, 180], inputs: [{ name: '', link: 2 }], outputs: [{ name: '' }] },
-        { id: 5, type: 'Relay', pos: [700, 460], inputs: [{ name: 'value', widget: { name: 'value' }, link: 6 }], outputs: [{ name: 'result' }], widgets_values: [13] },
+        { id: 5, type: 'Relay', pos: [700, 460], inputs: [{ name: 'value', link: 6 }], outputs: [{ name: 'result' }], widgets_values: [13] },
       ],
       links: [[1, -10, 0, 3, 0, 'INT'], [2, 3, 0, 4, 0, 'INT'], [3, 4, 0, 1, 0, 'INT'],
         [4, 3, 0, 2, 0, 'INT'], [5, 2, 0, -20, 0, 'INT'], [6, -10, 0, 5, 0, 'INT']],
@@ -216,6 +216,10 @@ nativeTest('draws, rebinds, and extracts an imported input boundary with mixed d
 for (const name of templates) test(`imports and drills into official nested subgraphs: ${name}`, async ({ page }, testInfo) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
+  // Local asset inventory must not rewrite or interrupt structural navigation.
+  await page.route('/api/assets/guess', (route) => route.fulfill({
+    status: 503, body: 'Asset lookup unavailable in structural navigation fixture',
+  }))
   await page.goto('/')
   await expectSchemasReady(page)
   const workflow = readJson(`../../core/fixtures/workflows/official-subgraphs/${name}`)
@@ -250,8 +254,6 @@ for (const name of templates) test(`imports and drills into official nested subg
     ]))
     expect(counts).toEqual(expected.problemCounts)
   }
-  const assetResolution = page.getByTestId('import-asset-resolution-dialog')
-  if (await assetResolution.waitFor({ state: 'visible', timeout: 1_000 }).then(() => true).catch(() => false)) await page.getByTestId('import-assets-cancel').click()
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBeGreaterThan(0)
   await page.screenshot({ path: testInfo.outputPath('imported.png') })
   await enterInstance(page, result.outer!)

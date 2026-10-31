@@ -171,6 +171,7 @@ test('mounted backend connection chrome follows the supported locale without cha
   await reconnecting.scrollIntoViewIfNeeded()
   await page.screenshot({ path: evidencePath('issue-457', 'backend-connections-i18n-en.png'), fullPage: true })
 
+  await expect(page.locator('.memory-controls details[data-category="memory-budgets"]')).toBeAttached()
   const backendRequests: string[] = []
   page.on('request', (outgoing) => {
     const url = new URL(outgoing.url())

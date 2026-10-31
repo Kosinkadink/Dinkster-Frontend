@@ -1,8 +1,10 @@
 import type { Locator, Page } from '@playwright/test'
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test } from './fixtures.js'
 
-async function disableNativeDiscovery(page: Page): Promise<void> {
-  await page.route('/api/nodes*', (route) => route.fulfill({ status: 502, body: 'no native backend' }))
+async function mockEmptyNativeCatalog(page: Page): Promise<void> {
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'panel-window-test', schemaWire: 1 }, nodes: {},
+  } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
 }
 
@@ -35,7 +37,7 @@ test('settings changes reach an already-open panel window', async ({ page, conte
   await setGate(true)
 
   const panel = await context.newPage()
-  await disableNativeDiscovery(panel)
+  await mockEmptyNativeCatalog(panel)
   await panel.goto('/?dinksterWindow=browser-panel-surfaces&dinksterWindowKind=panel&dinksterPanel=surfaces&dinksterPanelReturn=rail')
   await panel.waitForFunction(() => window.__dinksterTest !== undefined)
   await expect(panel.locator('[data-testid="native-panel-window"][data-panel="surfaces"]')).toBeVisible()
@@ -55,7 +57,7 @@ test('settings changes reach an already-open panel window', async ({ page, conte
 })
 
 test('panel window headers render and clear live indicators', async ({ page }) => {
-  await disableNativeDiscovery(page)
+  await mockEmptyNativeCatalog(page)
   await page.goto('/?dinksterWindow=browser-panel-problems&dinksterWindowKind=panel&dinksterPanel=problems&dinksterPanelReturn=rail')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
   const panel = page.locator('[data-testid="native-panel-window"][data-panel="problems"]')

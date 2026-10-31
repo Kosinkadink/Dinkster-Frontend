@@ -213,7 +213,7 @@ test.describe('asset and mount editors (mock dinkster backend)', () => {
     const asset = page.getByTestId('asset-editor')
     await expect(asset.getByTestId('collection-panel')).toBeVisible()
     await asset.getByTestId('collection-entry').first().click()
-    await expect(page.getByTestId('asset-selection-summary')).toBeVisible()
+    await expect(asset.getByTestId('asset-selection-summary')).toBeVisible()
     await auditSurface(page, 'editor-asset-selected', '[data-testid=widget-modal-surface]')
   })
 
@@ -231,7 +231,7 @@ test.describe('asset and mount editors (mock dinkster backend)', () => {
     const asset = page.getByTestId('asset-editor')
     await expect(asset.getByTestId('collection-panel')).toBeVisible()
     await asset.getByTestId('collection-entry').first().click()
-    await expect(page.getByTestId('asset-selection-summary')).toBeVisible()
+    await expect(asset.getByTestId('asset-selection-summary')).toBeVisible()
     await auditSurface(page, 'editor-asset-narrow', '[data-testid=widget-modal-surface]')
   })
 

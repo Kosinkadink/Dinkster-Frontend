@@ -419,7 +419,9 @@ test('left and bottom tab strips start durable cross-zone drags', async ({ page 
   await page.getByTestId('logs-toggle').click()
   const bottomLogs = zoneTab(page, 'bottom', 'logs')
   const fromBottom = await center(bottomLogs)
-  const leftBody = await center(page.getByTestId('library-overlay'))
+  const body = (await page.getByTestId('dock-zone-left').locator('.product-tabpanel:not([hidden])').boundingBox())!
+  // The lower half splits the section; library content can exceed the dock's visible body.
+  const leftBody = { x: body.x + body.width / 2, y: body.y + body.height / 4 }
 
   await page.mouse.move(fromBottom.x, fromBottom.y)
   await page.mouse.down()

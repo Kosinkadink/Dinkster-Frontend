@@ -4,7 +4,7 @@
  * dev proxy. Uses the window.__dinksterTest bridge for state assertions instead
  * of scraping canvas pixels.
  */
-import { expect, test } from './fixtures.js'
+import { expect, openRailPanel, test } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
@@ -38,9 +38,11 @@ test('queues the basic workflow and tracks it to completion with outputs', async
   const execution = page.getByTestId('execution-row').first()
   await expect(execution).toBeVisible({ timeout: 10_000 })
   await expect(execution.locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })
+  await openRailPanel(page, 'Outputs')
   await expect(page.getByTestId('outputs-panel').locator('.output-thumbnail img')).not.toHaveCount(0, {
     timeout: 10_000,
   })
+  await expect(page.getByTestId('outputs-panel').locator('.output-thumbnail img').first()).toHaveJSProperty('naturalWidth', 64)
   await expect(page.getByTestId('problems-panel')).toContainText('None.')
 })
 

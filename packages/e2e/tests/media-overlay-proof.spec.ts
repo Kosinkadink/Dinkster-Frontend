@@ -660,11 +660,12 @@ test('visible media DOM stays capped while focused, playing, and selected previe
 })
 
 test('output pager cap retains focused, selected, and open-viewer roots without remounts or stale keys', async ({ page }) => {
+  await page.route('**/api/assets/**', (route) => route.fulfill({ contentType: 'image/png', body: png }))
   await page.evaluate(() => {
     const count = 30
     window.__dinksterTest!.app.registerSchemas([{
       type: 'ProofPagedImage', displayName: 'ProofPagedImage', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: 'comfy.IMAGE' } }],
+      items: [{ kind: 'output', id: 'images', type: { kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } } } }],
     }])
     const nodes = Object.fromEntries(Array.from({ length: count }, (_, index) => {
       const id = `pager-${index}`
@@ -697,7 +698,16 @@ test('output pager cap retains focused, selected, and open-viewer roots without 
     for (const id of Object.keys(nodes)) {
       store.apply({
         kind: 'nodeOutput', execution: ref, runtimeNodeId: id, timestamp: Date.now(),
-        output: { images: [0, 1, 2].map((pageIndex) => ({ filename: `${id}-${pageIndex}.png` })) },
+        output: { images: {
+          typeId: 'list<asset<IMAGE>>',
+          elements: [0, 1, 2].map((pageIndex) => ({
+            typeId: 'asset<IMAGE>',
+            meta: {
+              digest: `blake3:${(Number(id.slice('pager-'.length)) * 3 + pageIndex).toString(16).padStart(64, '0')}`,
+              mediaType: 'image/png', name: `${id}-${pageIndex}.png`,
+            },
+          })),
+        } },
       })
     }
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })

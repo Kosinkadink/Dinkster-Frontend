@@ -121,6 +121,10 @@ test('language setting updates the document language and persists', async ({ pag
 })
 
 test('settings search and controls remain reachable in a narrow viewport', async ({ page }) => {
+  await page.waitForFunction(() => {
+    const settings = window.__dinksterTest!.app.settings as unknown as { list(): readonly { id: string }[] }
+    return settings.list().some((setting) => setting.id === 'templates.registryUrl')
+  })
   await page.setViewportSize({ width: 360, height: 640 })
   await page.getByTestId('settings-button').click()
   const dialog = page.getByRole('dialog', { name: 'Settings' })

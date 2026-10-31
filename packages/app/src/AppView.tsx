@@ -418,9 +418,8 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       exec.artifact.connection === exec.ref.connection
       ? liveExactnessFor(liveArtifact, exec.artifact)
       : undefined
-    const backend = exec === undefined ? undefined : props.app.backendFor(exec.ref.connection)
-    const values = exec !== undefined && backend?.protocol === 'dinkster' && exec.status !== 'queued' && exec.status !== 'running'
-      ? backend.connection.values()
+    const values = exec !== undefined && exec.status !== 'queued' && exec.status !== 'running'
+      ? props.app.valuesForExecution(exec.ref)
       : undefined
     const mappings = new Map<string, ReturnType<typeof previewRuntimeMapping>>()
     return previewCandidates().map((row): RenderedPreviewRow => {

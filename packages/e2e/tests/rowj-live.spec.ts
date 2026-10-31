@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
 import { DINKSTER_SCHEMA_WIRE_VERSION } from '@dinkster/core'
@@ -5,6 +6,9 @@ import { skipWithoutNativeCatalog } from './fixtures.js'
 
 const PROOF = '/tmp/audit-rowj-proof'
 const RANGE_FILL = 'rgba(90, 176, 255, 0.14)'
+const PNG = readFileSync(new URL('../../../docs/assets/lora-conditioning-scheduling/flat-native-image.png', import.meta.url))
+const SOURCE = `blake3:${'1'.repeat(64)}`
+const DERIVED = `blake3:${'d'.repeat(64)}`
 
 async function rowGeometry(page: Page, nodeId: string, inputId: string) {
   return page.evaluate(({ nodeId, inputId }) => {
@@ -59,6 +63,7 @@ test('live current-wire row J acceptance proof', async ({ page, request }, testI
   const wires: number[] = []
   let assetPosts = 0
   let jobPosts = 0
+  let uploaded: Buffer<ArrayBufferLike> = PNG
   page.on('console', (message) => {
     if (message.type() === 'error') consoleErrors.push(message.text())
   })
@@ -70,10 +75,13 @@ test('live current-wire row J acceptance proof', async ({ page, request }, testI
       if (body?.dinkster?.schemaWire !== undefined) wires.push(body.dinkster.schemaWire)
     }
   })
+  await page.route(`**/api/assets/${encodeURIComponent(SOURCE)}`, (route) => route.fulfill({ contentType: 'image/png', body: PNG }))
+  await page.route(`**/api/assets/${encodeURIComponent(DERIVED)}`, (route) => route.fulfill({ contentType: 'image/png', body: uploaded }))
   await page.route('**/api/assets', async (route) => {
     if (route.request().method() !== 'POST') return route.continue()
     assetPosts += 1
-    await route.fulfill({ status: 200, json: { digest: `blake3:${'d'.repeat(64)}` } })
+    uploaded = route.request().postDataBuffer() ?? Buffer.alloc(0)
+    await route.fulfill({ status: 200, json: { digest: DERIVED } })
   })
   await page.route('**/api/jobs', async (route) => {
     if (route.request().method() !== 'POST') return route.continue()
@@ -91,7 +99,7 @@ test('live current-wire row J acceptance proof', async ({ page, request }, testI
     window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'rowj-live', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
-        sampler: { id: 'sampler', type: 'dinkster.ksampler', values: { seed: 7, steps: 20, cfg: 8, sampler_name: 'euler', scheduler: 'simple', denoise: 1 }, controllers: { seed: 'fixed' } },
+        sampler: { id: 'sampler', type: 'KSampler', values: { seed: 7, steps: 20, cfg: 8, sampler_name: 'euler', scheduler: 'simple', denoise: 1 }, controllers: { seed: 'fixed' } },
       }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { sampler: { position: { x: 140, y: 90 }, size: { width: 360, height: 220 } } } } } },
     }, 'Row J live proof')
@@ -126,7 +134,7 @@ test('live current-wire row J acceptance proof', async ({ page, request }, testI
   await page.evaluate((value) => {
     const test = window.__dinksterTest!
     const tab = test.app.activeTab()!
-    tab.store.dispatch({ command: 'node.add', params: { graphId: 'g0', type: 'dinkster.clip_text_encode', values: { text: value }, position: { x: 570, y: 90 } } })
+    tab.store.dispatch({ command: 'node.add', params: { graphId: 'g0', type: 'CLIPTextEncode', values: { text: value }, position: { x: 570, y: 90 } } })
   }, text)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(2)
   const clipId = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id !== 'sampler')!.id)
@@ -158,20 +166,12 @@ test('live current-wire row J acceptance proof', async ({ page, request }, testI
   await page.mouse.move(textRow.x + textRow.width / 2, textRow.y + textRow.height / 2)
   await screenshot(page, '07-hover-geometry.png')
 
-  const entriesResponse = await request.get('/api/mounts/comfy-input/entries?kind=media/image')
-  test.skip(!entriesResponse.ok(), 'live library has no comfy-input mount for image-mask proof')
-  expect(entriesResponse.ok()).toBe(true)
-  const entries = await entriesResponse.json() as { entries: Array<{ digest: string; name: string; mediaType: string }> }
-  const image = entries.entries.find((record) => record.mediaType.startsWith('image/'))
-  expect(image, 'live library must contain a read-only image for mask proof').toBeTruthy()
-  const assetResponse = await request.get(`/api/assets/${encodeURIComponent(image!.digest)}`)
-  expect(assetResponse.ok()).toBe(true)
-  const bytes = await assetResponse.body()
+  const image = { digest: SOURCE, name: 'source.png', mediaType: 'image/png' }
   await page.evaluate(({ image, size }) => {
     const tab = window.__dinksterTest!.app.activeTab()!
-    tab.store.dispatch({ command: 'node.add', params: { graphId: 'g0', type: 'dinkster.load_image', values: { image: { digest: image!.digest, name: image!.name, mediaType: image!.mediaType, size, virtualPath: '' } }, position: { x: 180, y: 430 } } })
+    tab.store.dispatch({ command: 'node.add', params: { graphId: 'g0', type: 'LoadImage', values: { image: { ...image, size, virtualPath: '' } }, position: { x: 180, y: 430 } } })
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  }, { image, size: bytes.length })
+  }, { image, size: PNG.length })
   const loadId = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.find((node) => !['sampler'].includes(node.id) && node.layout.rows.some((row) => row.inputId === 'image'))!.id)
   const beforeImageEdit = await page.evaluate((nodeId) => { const tab = window.__dinksterTest!.app.activeTab()!; return { revision: tab.store.revision, value: tab.store.doc.graphs.g0!.nodes[nodeId]!.values.image } }, loadId)
   await page.evaluate((nodeId) => {
@@ -206,7 +206,7 @@ test('live current-wire row J acceptance proof', async ({ page, request }, testI
 
   await page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
-    tab.store.dispatch({ command: 'node.add', params: { graphId: 'g0', type: 'dinkster.mask.make', values: { width: 512, height: 512, batch_size: 1, invert: false, operation: 'solid', foreground: 1 }, position: { x: 920, y: 430 } } })
+    tab.store.dispatch({ command: 'node.add', params: { graphId: 'g0', type: 'dinkster.mask.make', values: { width: 512, height: 512, batch_size: 1, invert: false, 'operation.foreground': 1 }, dynamic: { operation: { selected: 'solid' } }, position: { x: 920, y: 430 } } })
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.layout.rows.some((row) => row.inputId === 'width')))).toBe(true)

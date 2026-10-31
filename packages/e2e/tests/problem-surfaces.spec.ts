@@ -61,7 +61,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/system_stats', (route) =>
     route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }),
   )
-  await page.route('/object_info', (route) => route.fulfill({ json: {} }))
+  await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await page.evaluate(() => {
@@ -86,6 +86,7 @@ test.beforeEach(async ({ page }) => {
     }, 'Problem Surfaces')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
+  await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
 })
 
 test('the Focused tab follows canvas focus and shows only that context\'s problems', async ({ page }) => {
