@@ -19,6 +19,7 @@ const canonicalFamilyMembers: Record<string, Record<string, readonly string[] | 
   ComfyMathExpression: { values: ['a'] },
   ConcatenateVideo: { videos: ['video0'] },
   CreateList: { inputs: ['input0'] },
+  MergeMeshes: { meshes: ['mesh0', 'mesh1'] },
   MergeSplat: { splats: ['splat0', 'splat1'] },
   ReferenceMultiLatent: { images: null },
   TextEncodeMOSSImageEdit: { images: ['image_0'] },

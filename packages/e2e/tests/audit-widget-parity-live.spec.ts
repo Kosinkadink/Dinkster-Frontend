@@ -413,7 +413,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
         ),
       { timeout: 20_000 },
     )
-    .toBe(819)
+    .toBe(839)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument(
       {
