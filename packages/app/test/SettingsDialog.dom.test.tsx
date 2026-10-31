@@ -82,6 +82,36 @@ describe('SettingsDialog search', () => {
     unmount()
   })
 
+  it('keeps the replacement backend policy when an old write is acknowledged late', async () => {
+    const settings = isolatedSettings()
+    const status: LibraryStorage = { temporaryBytes: 37, vaultBytes: 999, adoptedBytes: 211,
+      reclaimableBytes: null, blocked: ['owner_completeness_unknown'], collectionEnabled: false,
+      policyAvailable: true, limitBytes: 8193 }
+    let acknowledge!: () => void
+    const pending = new Promise<void>((done) => { acknowledge = done })
+    const [connection, setConnection] = createSignal({ fetchLibraryStorage: async () => status,
+      updateLibraryStorageLimit: () => pending })
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()}
+      keybindings={new KeybindingRegistry(settings)} storageConnection={connection()}
+      request={{ category: 'storage', id: 'library-storage-limit' }} />, root)
+    await vi.waitFor(() => expect(root.querySelector<HTMLInputElement>('#library-storage-limit')?.value).toBe('8193'))
+    root.querySelector<HTMLButtonElement>('#library-storage-unlimited')!.click()
+    ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Apply limit')!.click()
+    expect([...root.querySelectorAll('button')].find((button) => button.textContent === 'Refresh')!.disabled).toBe(true)
+    setConnection({ fetchLibraryStorage: async () => ({ ...status, vaultBytes: 313, limitBytes: 6149 }),
+      updateLibraryStorageLimit: async () => {} })
+    await vi.waitFor(() => expect(root.querySelector<HTMLInputElement>('#library-storage-limit')?.value).toBe('6149'))
+    acknowledge()
+    await pending
+    await Promise.resolve()
+    expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('313 bytes')
+    expect(root.querySelector<HTMLInputElement>('#library-storage-limit')?.value).toBe('6149')
+    expect(root.querySelector<HTMLButtonElement>('#library-storage-unlimited')?.getAttribute('aria-checked')).toBe('false')
+    unmount()
+  })
+
   it('distinguishes unknown storage from zero and saves a limit without enabling Clear', async () => {
     let limit: number | null = 8193
     const connection = {
