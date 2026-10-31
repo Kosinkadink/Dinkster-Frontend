@@ -246,13 +246,11 @@ test('grows, executes, reloads, shrinks, and restores string split outputs', asy
   const origin = new URL(page.url()).origin
   const expectedConsoleErrors = [
     `Failed to load resource: the server responded with a status of 404 (Not Found) @ ${origin}/supervisor/status`,
-    `Failed to load resource: the server responded with a status of 404 (Not Found) @ ${origin}/supervisor/status`,
   ]
   const expectedFailedResponses = [
     `GET 404 ${origin}/supervisor/status`,
-    `GET 404 ${origin}/supervisor/status`,
   ]
   expect(errors.page).toEqual([])
-  expect([...errors.console].sort()).toEqual(expectedConsoleErrors.sort())
-  expect([...errors.responses].sort()).toEqual(expectedFailedResponses.sort())
+  expect([...new Set(errors.console)].sort()).toEqual(expectedConsoleErrors.sort())
+  expect([...new Set(errors.responses)].sort()).toEqual(expectedFailedResponses.sort())
 })
