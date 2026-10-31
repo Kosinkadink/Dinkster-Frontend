@@ -577,7 +577,7 @@ function buildEffectiveOccurrenceTopology(
       const schema = node && resolveNode(at.bodyGraph.id, node)
       const dynamic = node && (dynamicView.dynamic.get(nodeId) ?? node.dynamic)
       const values = node && (dynamicView.values.get(nodeId) ?? node.values)
-      const state = node && values && { values, ...(dynamic ? { dynamic } : {}) }
+      const state = node && values && { values, ...(dynamic ? { dynamic } : {}), ...(node.additionalInputs !== undefined ? { additionalInputs: node.additionalInputs } : {}) }
       const elaborated = schema && state && elaborateInterface(schema, state, connectivity(nodeId), { promoteGhosts: false, nodeId })
       const result = {
         inputs: new Set(elaborated ? elabInputsOf(elaborated).map((input) => portAddressKey(input.address.port, input.address.members)) : []),

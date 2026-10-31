@@ -2872,6 +2872,12 @@ function compileImpl(
       const v = fn.inputs[input.spec.id]
       if (v !== undefined && input.wire15Materialization && fn.linkedInputs.has(input.spec.id) &&
         !successful.has(portAddressKey(input.address.port, input.address.members))) continue
+      if (v !== undefined && fn.node.additionalInputs?.includes(input.address.port) &&
+        canonicalTypeIdOf(input.spec.type) === undefined && !fn.linkedInputs.has(input.spec.id) &&
+        (parseTypedLiteralWire(v) === undefined || !emitTypedLiterals)) {
+        diags.push(diag('error', 'compile', 'compile.value.additionalInputType', `${fn.node.type}.${input.spec.id}: additional input literals require an explicit type and backend typed-literal support`, { anchor: { occurrence: fn.occ } }))
+        continue
+      }
       if (v !== undefined) {
         inputs[submissionName] = v
         const widget = input.spec.widget

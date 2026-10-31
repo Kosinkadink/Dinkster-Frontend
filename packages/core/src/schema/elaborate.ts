@@ -1509,7 +1509,7 @@ const RESERVED_ID_CHARS = /[.[\]#*?!,|:@${}/\\"'`<>\s]/
 
 /**
  * Elaborate one node's effective interface. Pure and deterministic over
- * (schema, node.values/node.dynamic, connectivity) - memoize on those.
+ * (schema, node.values/node.dynamic/node.additionalInputs, connectivity).
  */
 export function elaborateInterface(
   schema: NodeSchema,

@@ -39,6 +39,28 @@ const compileInput = (
 })
 
 describe('golden pairs', () => {
+  it('requires explicit supported type stamps for nonconcrete additional literals', () => {
+    const schema = parseDinksterSchema('Authored', {
+      outputNode: true, additionalInputs: { kind: 'wildcard' }, interface: [],
+    }).schema!
+    const base = loadWorkflow('minimal')
+    for (const [value, features, accepted] of [
+      [7, ['typedLiteral'], false],
+      [{ $typed: { type: 'INT', value: 7 } }, [], false],
+      [{ $typed: { type: 'INT', value: 7 } }, ['typedLiteral'], true],
+    ] as const) {
+      const document: WorkflowDocument = { ...base, graphs: { [base.root]: {
+        ...base.graphs[base.root]!, links: {}, nodes: {
+          n0: { id: asNodeId('n0'), type: 'Authored', values: { index: value }, additionalInputs: ['index'] },
+        },
+      } } }
+      const result = compile({ ...compileInput(document, { kind: 'full' }, () => schema), graphFeatures: features })
+      expect(result.ok).toBe(accepted)
+      if (!result.ok) expect(result.diagnostics.map((item) => item.code)).toContain('compile.value.additionalInputType')
+      else expect(result.artifact.prompt.n0!.inputs.index).toEqual({ $typed: { type: 'INT', value: 7 } })
+    }
+  })
+
   it('compiles explicit extra membership without deriving ports from dormant values', () => {
     const schema = parseDinksterSchema('Authored', {
       outputNode: true,
