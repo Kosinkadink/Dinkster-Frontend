@@ -129,7 +129,8 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   await expect(primary).toContainText('Over budget by 1.0 GiB')
   await expect(primary).toContainText('No consumers')
   await expect(primary.locator('[data-device]')).toHaveCount(2)
-  await expect(page.getByTestId('memory-panel')).toHaveCount(2)
+  await expect(page.getByTestId('memory-panel')).toHaveCount(3)
+  await expect(page.getByTestId('memory-panel').filter({ hasText: 'Local' })).toHaveCount(1)
   await expect(primary).toContainText('Flux model with a long descriptive residency label')
   expect(detailRequests).toBe(1)
 

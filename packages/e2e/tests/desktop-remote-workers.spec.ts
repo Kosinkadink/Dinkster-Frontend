@@ -91,8 +91,6 @@ test('edits a guided remote-worker profile across a mounted locale change', asyn
   await expect(section).toContainText('An empty list allows no node types')
   await expect(section).toContainText('token contents never enter the renderer')
 
-  await page.locator('.modal-surface').evaluate((element) => { element.style.maxHeight = 'none' })
-  await page.locator('.desktop-management').evaluate((element) => { element.style.overflow = 'visible' })
   await section.evaluate((element) => { element.dataset['localeIdentity'] = 'worker-section' })
   await section.locator('.desktop-worker-card').evaluate((element) => { element.dataset['localeIdentity'] = 'worker-card' })
   await section.locator('.desktop-worker-form').evaluate((element) => { element.dataset['localeIdentity'] = 'worker-form' })
