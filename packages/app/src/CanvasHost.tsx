@@ -3872,7 +3872,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           resolveType: () => ownerRegistry?.resolve,
           connect: (nodeId, schema) =>
             p.linkDrop !== undefined ? linkDropInvocations(p.linkDrop, graphId, nodeId, schema) : [],
-          dispatch: (invocation) => props.app.dispatchTo(tab, invocation).ok,
+          dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
           onInserted: (nodeId) => {
             if (activeTab() === tab) controller.setSelection([nodeId])
           },
@@ -5360,7 +5360,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           upload: (body) => existing ? Promise.resolve(existing) : backend.protocol === 'dinkster'
             ? backend.connection.uploadLatentAsset(body, { scope: 'local', name: 'dropped-latent.latent', signal: abort.signal })
             : Promise.reject(new Error('latent upload requires a Dinkster backend')),
-          dispatch: (invocation) => props.app.dispatchTo(tab, invocation).ok,
+          dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
           onInserted: (nodeId) => { if (activeTab() === tab) controller.setSelection([nodeId]) },
         })
         const reportable = ownerLive()
@@ -5434,7 +5434,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             )
             return uploaded
           },
-          dispatch: (invocation) => props.app.dispatchTo(tab, invocation).ok,
+          dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
           onInserted: (nodeId) => { if (activeTab() === tab) controller.setSelection([nodeId]) },
         })
         const reportable = ownerLive()
@@ -5706,7 +5706,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           currentGraphId: () => currentGraphId(tab),
           graphStillOwned: () => !graphRetired,
           doc: () => tab.store.doc,
-          dispatch: (invocation) => props.app.dispatchTo(tab, invocation).ok,
+          dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
           onPasted: (nodeIds, rerouteIds) => {
             if (activeTab() === tab) controller.setSelection([...nodeIds], [], [...rerouteIds])
           },

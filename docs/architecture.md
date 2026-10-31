@@ -84,6 +84,12 @@ records are incomplete, not empty root sets. Ordinary synchronous dispatch is un
 Schema defaults contribute roots only when the node has no stored override.
 An effective unresolved selection name is incomplete, not an asset identity.
 
+Delayed blueprint, clipboard, image-drop and latent-drop insertion await their
+owner-routed dispatch result before announcing inserted ids or completing the
+gesture. Both synchronous and asynchronous final results are supported; a
+pending result is not success. Their canvas adapters await the result before
+reading `ok`. These paths still use ordinary dispatch, not retained admission.
+
 Each admission shares its census across snapshots. Replayed node-only changes
 visit changed nodes when no subgraph instances are present; structural changes
 and subgraph instances require the full snapshot schema context. Object reuse

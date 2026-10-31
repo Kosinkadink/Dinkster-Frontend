@@ -178,7 +178,7 @@ export const insertBlueprintIntoTab = async (p: {
   /** Link-drop connect invocations for the new node (empty when none). */
   readonly connect: (nodeId: string, schema: NodeSchema | undefined) => readonly CommandInvocation[]
   /** Owner-routed dispatch (dispatchTo the invoking tab); true on ok. */
-  readonly dispatch: (invocation: CommandInvocation) => boolean
+  readonly dispatch: (invocation: CommandInvocation) => boolean | Promise<boolean>
   /** Called with the new node id after an ok commit. */
   readonly onInserted: (nodeId: string) => void
 }): Promise<BlueprintInsertOutcome> => {
@@ -203,7 +203,7 @@ export const insertBlueprintIntoTab = async (p: {
   const resolve = resolveType ? documentResolver(body, resolveType) : () => undefined
   const schema = resolve(`#${body.root}`)
   const values = schema ? (defaultValuesOf(schema) as Record<string, Json>) : {}
-  const ok = p.dispatch({
+  const ok = await p.dispatch({
     command: 'batch',
     params: {
       invocations: [
