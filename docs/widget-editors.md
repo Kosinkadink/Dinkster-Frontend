@@ -17,7 +17,10 @@ Quaternion components are normalized to a unit rotation. Apply uploads
 scene, mask and normal PNG captures at the node's width and height and writes
 their granted file references with camera and model-transform metadata in one
 undoable widget value. The mask carries alpha: its consuming MASK is 1-alpha,
-not grayscale RGB. Optional viewport recording uses the media upload route.
+not grayscale RGB. Optional viewport recording uses the authored width and height,
+keeps that resolution during dock resizing, and uses the media upload route.
+Stopping or closing the editor releases the recording stream and restores the
+viewport size. Failed recordings are not uploaded.
 Cancel leaves the stored value unchanged; reopening restores its camera and
 transform. Missing model files and failed uploads do not replace the value.
 Advanced and preview `viewport_state` slots save metadata without uploading

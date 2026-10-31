@@ -405,3 +405,69 @@ test('mesh formats render and animation seeking changes pixels without moving au
   expect(result.after.centerX - result.before.centerX).toBeGreaterThan(20)
   expect(result.afterPlacement).toEqual(result.placement)
 })
+
+test('viewport recording preserves authored resolution across resize and releases its stream', async ({ page }) => {
+  const result = await page.evaluate(async (bytes) => {
+    const modulePath = '/src/model3d-viewer.ts'
+    const { mountModel3dViewer } = await import(modulePath)
+    const host = document.createElement('div'); host.style.cssText = 'width:400px;height:300px'; document.body.append(host)
+    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)]))
+    const viewer = await mountModel3dViewer(host, url, 'model/gltf-binary')
+    let recordedUrl: string | undefined
+    try {
+      const session = viewer.recordingStream(258, 146)
+      const recorder = new MediaRecorder(session.stream)
+      const chunks: Blob[] = []
+      const firstFrame = new Promise<void>((resolve) => {
+        recorder.ondataavailable = (event) => { if (event.data.size) { chunks.push(event.data); if (event.data.size > 1) resolve() } }
+      })
+      const stopped = new Promise<void>((resolve) => { recorder.onstop = () => { session.stop(); resolve() } })
+      recorder.start(50)
+      host.style.width = '517px'; host.style.height = '211px'
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      const canvas = host.querySelector('canvas')!
+      const during = { width: canvas.width, height: canvas.height }
+      await firstFrame
+      recorder.stop()
+      await stopped
+      const tracks = session.stream.getTracks().map((track: MediaStreamTrack) => track.readyState)
+      recordedUrl = URL.createObjectURL(new Blob(chunks, { type: recorder.mimeType }))
+      const video = document.createElement('video')
+      const metadata = new Promise<void>((resolve, reject) => {
+        video.onloadeddata = () => resolve()
+        video.onerror = () => reject(new Error('recording did not decode'))
+      })
+      video.src = recordedUrl
+      await metadata
+      const dimensions = { width: video.videoWidth, height: video.videoHeight }
+      const decoded = document.createElement('canvas'); decoded.width = video.videoWidth; decoded.height = video.videoHeight
+      const context = decoded.getContext('2d')!; context.drawImage(video, 0, 0)
+      let redPixels = 0
+      const inspect = (): void => {
+        context.drawImage(video, 0, 0)
+        const rgba = context.getImageData(0, 0, decoded.width, decoded.height).data
+        let count = 0
+        for (let i = 0; i < rgba.length; i += 4) if (rgba[i]! > 50 && rgba[i]! > rgba[i + 1]! * 1.3) count++
+        redPixels = Math.max(redPixels, count)
+        if (!video.ended) video.requestVideoFrameCallback(inspect)
+      }
+      video.requestVideoFrameCallback(inspect)
+      const ended = new Promise<void>((resolve) => { video.onended = () => resolve() })
+      video.muted = true
+      await video.play()
+      await ended
+      video.removeAttribute('src'); video.load()
+      const restored = { width: canvas.width, height: canvas.height }
+      const active = viewer.recordingStream(130, 82)
+      viewer.dispose()
+      return { during, dimensions, tracks, restored, redPixels, pixelRatio: devicePixelRatio,
+        disposedTracks: active.stream.getTracks().map((track: MediaStreamTrack) => track.readyState) }
+    } finally { viewer.dispose(); URL.revokeObjectURL(url); if (recordedUrl) URL.revokeObjectURL(recordedUrl); host.remove() }
+  }, Array.from(glb()))
+  expect(result.during).toEqual({ width: 258, height: 146 })
+  expect(result.dimensions).toEqual({ width: 258, height: 146 })
+  expect(result.redPixels).toBeGreaterThan(100)
+  expect(result.restored).toEqual({ width: 517 * result.pixelRatio, height: 211 * result.pixelRatio })
+  expect(result.tracks).toEqual(['ended'])
+  expect(result.disposedTracks).toEqual(['ended'])
+})

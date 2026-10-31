@@ -48,14 +48,14 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   let live = true
   const urls: string[] = []
   let recorder: MediaRecorder | undefined
-  let stream: MediaStream | undefined
+  let stopRecording: (() => void) | undefined
   let video: Blob | undefined
   const abort = new AbortController()
   onCleanup(() => {
     live = false
     abort.abort()
     if (recorder?.state === 'recording') recorder.stop()
-    stream?.getTracks().forEach((track) => track.stop())
+    stopRecording?.()
     viewer?.dispose()
     urls.forEach((url) => URL.revokeObjectURL(url))
   })
@@ -97,27 +97,31 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       return
     }
     try {
-      const recordingStream = viewport.querySelector('canvas')!.captureStream(30)
-      stream = recordingStream
-      const currentRecorder = new MediaRecorder(recordingStream)
+      const capture = viewer!.recordingStream(Number(inputValue('width') ?? 1024), Number(inputValue('height') ?? 1024))
+      stopRecording = capture.stop
+      const currentRecorder = new MediaRecorder(capture.stream)
       recorder = currentRecorder
+      video = undefined
+      let failed = false
       const chunks: Blob[] = []
       currentRecorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data) }
       currentRecorder.onstop = () => {
-        recordingStream.getTracks().forEach((track) => track.stop())
+        capture.stop()
         if (live && recorder === currentRecorder) {
-          video = new Blob(chunks, { type: currentRecorder.mimeType })
+          if (!failed) video = new Blob(chunks, { type: currentRecorder.mimeType })
           setRecording(false)
         }
       }
       currentRecorder.onerror = () => {
-        recordingStream.getTracks().forEach((track) => track.stop())
+        failed = true
+        capture.stop()
+        if (currentRecorder.state === 'recording') currentRecorder.stop()
         if (live && recorder === currentRecorder) { setRecording(false); setError(message('load3dWidget.recordingFailed')) }
       }
       currentRecorder.start()
       setRecording(true)
     } catch (reason) {
-      stream?.getTracks().forEach((track) => track.stop())
+      stopRecording?.()
       setError(reason instanceof Error ? reason.message : String(reason))
     }
   }

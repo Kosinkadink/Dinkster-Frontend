@@ -403,6 +403,7 @@ export interface Model3dViewerHandle {
   animationClips(): readonly { name: string; duration: number }[]
   animationTime(): number
   setAnimation(index: number, time: number, playing: boolean, speed: number): void
+  recordingStream(width: number, height: number): { stream: MediaStream; stop(): void }
   capture(width: number, height: number): Promise<{ image: Blob; mask: Blob; normal: Blob }>
 }
 
@@ -456,6 +457,7 @@ export async function mountModel3dViewer(
   let resize: ResizeObserver | undefined
   let disposed = false
   let capturing = false
+  let recording: { stop(): void } | undefined
   let frame = 0
   const clips = framed.animations ?? []
   const mixer = clips.length ? new modules.THREE.AnimationMixer(framed.animationRoot ?? framed.model) : undefined
@@ -468,6 +470,7 @@ export async function mountModel3dViewer(
   let activeCamera: import('three').PerspectiveCamera | import('three').OrthographicCamera = framed.camera
   const dispose = (): void => {
     if (disposed) return
+    recording?.stop()
     disposed = true
     cancelAnimationFrame(frame)
     resize?.disconnect()
@@ -519,7 +522,7 @@ export async function mountModel3dViewer(
     frame = requestAnimationFrame(renderLoop)
 
     resize = new ResizeObserver(() => {
-      if (capturing || disposed) return
+      if (capturing || recording || disposed) return
       const width = Math.max(container.clientWidth, 1)
       const height = Math.max(container.clientHeight, 1)
       gl.setSize(width, height)
@@ -594,8 +597,53 @@ export async function mountModel3dViewer(
       animationSpeed = speed
       lastFrame = performance.now()
     },
+    recordingStream(width, height) {
+      if (disposed || capturing || recording) throw new Error('3D viewport is unavailable for recording')
+      if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > 4096 || height > 4096) {
+        throw new Error('Recording dimensions must be integers from 1 to 4096')
+      }
+      const gl = renderer!
+      const previousRatio = gl.getPixelRatio()
+      const previousFrustum = activeCamera instanceof modules.THREE.OrthographicCamera
+        ? { left: activeCamera.left, right: activeCamera.right, top: activeCamera.top, bottom: activeCamera.bottom }
+        : undefined
+      let stream: MediaStream | undefined
+      let stopped = false
+      const session = {
+        stop() {
+          if (stopped) return
+          stopped = true
+          stream?.getTracks().forEach((track) => track.stop())
+          recording = undefined
+          if (disposed) return
+          gl.setPixelRatio(previousRatio)
+          const width = Math.max(container.clientWidth, 1)
+          const height = Math.max(container.clientHeight, 1)
+          gl.setSize(width, height, false)
+          if (activeCamera instanceof modules.THREE.PerspectiveCamera) activeCamera.aspect = width / height
+          else if (previousFrustum) Object.assign(activeCamera, previousFrustum)
+          activeCamera.updateProjectionMatrix()
+        },
+      }
+      recording = session
+      try {
+        gl.setPixelRatio(1)
+        gl.setSize(width, height, false)
+        if (activeCamera instanceof modules.THREE.PerspectiveCamera) activeCamera.aspect = width / height
+        else {
+          activeCamera.left = -5 * width / height
+          activeCamera.right = 5 * width / height
+          activeCamera.top = 5
+          activeCamera.bottom = -5
+        }
+        activeCamera.updateProjectionMatrix()
+        stream = gl.domElement.captureStream(30)
+        gl.render(framed.scene, activeCamera)
+        return { stream, stop: session.stop }
+      } catch (error) { session.stop(); throw error }
+    },
     async capture(width, height) {
-      if (disposed || capturing) throw new Error('3D viewport is unavailable for capture')
+      if (disposed || capturing || recording) throw new Error('3D viewport is unavailable for capture')
       if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > 4096 || height > 4096) {
         throw new Error('Capture dimensions must be integers from 1 to 4096')
       }
