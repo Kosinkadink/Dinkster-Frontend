@@ -231,6 +231,7 @@ test('notes render, persist, copy atomically, and never reach the backend', asyn
       },
     })
 
+  await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
   const noteTextPoint = await page.evaluate(() => {
     const node = window
       .__dinksterTest!.renderer!.getScene()
