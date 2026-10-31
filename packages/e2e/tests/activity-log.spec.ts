@@ -76,6 +76,11 @@ test('mounted Activity chrome localizes without changing raw events or reader st
   })
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
+  await page.waitForFunction(() => window.__dinksterTest !== undefined)
+  await expect.poll(() => page.evaluate(() => {
+    const backend = window.__dinksterTest!.app.backends.get()[0]!
+    return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
+  })).toBe(true)
   const seeded = [entries(3)[2]!, ...entries(32).slice(3)]
   await setEntries(page, seeded)
   await page.getByTestId('logs-toggle').click()
