@@ -10,7 +10,7 @@
  * in-page identity of that object across operations proves "never
  * remounted" without reaching into component internals.
  */
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test } from './fixtures.js'
 
 declare global {
   interface Window {
