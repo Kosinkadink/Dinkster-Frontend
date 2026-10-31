@@ -48,6 +48,8 @@ Promoted editable menus follow their instance through chained subgraphs and
 fan-out without changing the definition. Member-scoped menus stay on their
 own persisted ancestor path; an explicit empty list overrides inherited choices.
 An instance without a menu override inherits its definition's authored choices.
+Canvas menu targets carry their structural construct and member ancestors
+separately from the selected value's storage key.
 
 ## Authored 3D viewport
 

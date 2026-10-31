@@ -54,6 +54,13 @@ export type EditorTarget =
       readonly materialize?: readonly MaterializeFrame[]
       /** Derived occurrence values persist on this owner. */
       readonly familyOwner?: { readonly graphId: string; readonly nodeId: string; readonly valueKey?: string }
+      /** Structural authored-menu state coordinate, separate from value ownership. */
+      readonly optionsTarget?: {
+        readonly construct: string
+        readonly ancestors: readonly { readonly construct: string; readonly member: string }[]
+        readonly owner?: DynamicEditOwner
+        readonly materialize?: readonly MaterializeFrame[]
+      }
       /** Occurrence-local owner of a COMBO option source's input family. */
       readonly inputFamilyOwner?: {
         readonly graphId: string
