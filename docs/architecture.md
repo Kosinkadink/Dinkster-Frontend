@@ -73,6 +73,8 @@ exact owner reconciliation precedes publication; a changed destination or stale
 candidate is refused. Unsupported schemas, dynamic state and nonempty extension
 records are incomplete, not empty root sets. Shared sessions cannot use this
 local staging path. Ordinary synchronous dispatch is unchanged.
+Schema defaults contribute roots only when the node has no stored override.
+An effective unresolved selection name is incomplete, not an asset identity.
 
 Candidate owners remain retained and journaled, including after uncertain writes
 or failed publication. This path does not automatically release them or certify

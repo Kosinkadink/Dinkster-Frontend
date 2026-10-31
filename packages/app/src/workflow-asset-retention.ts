@@ -82,7 +82,7 @@ export function workflowAssetRoots(
           if (item.kind === 'input') {
             if (item.dynamic !== undefined || (item.ext !== undefined && Object.keys(item.ext).length > 0)) complete = false
             if (item.widget !== undefined && !widgetTypes.has(item.widget.widgetType)) complete = false
-            if (item.widget?.default !== undefined) valueRoots(item.widget.default as Json, item.type)
+            if (!Object.hasOwn(node.values, item.id) && item.widget?.default !== undefined) valueRoots(item.widget.default as Json, item.type)
           }
         }
         for (const [input, value] of Object.entries(node.values)) {

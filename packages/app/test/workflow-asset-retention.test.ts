@@ -110,6 +110,26 @@ describe('workflow candidate admission', () => {
     expect(local.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('a')])
   })
 
+  it('ignores overridden selection-name defaults but refuses unresolved effective names', () => {
+    const local = session()
+    const node = local.doc.graphs.g0!.nodes.n0!
+    const document = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { ...node, values: { files: asset('e') } },
+    } } } }
+    const selectionSchema: NodeSchema = { ...schema, items: [{
+      kind: 'input', id: 'files', optional: false,
+      type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } },
+      widget: { widgetType: 'ASSET', kind: 'model/vae', selection: true, options: {}, default: 'nested/source' },
+    }] }
+    const resolveSelection = () => selectionSchema
+    const history = { revision: 0, undo: [], redo: [] }
+    expect(workflowAssetRoots(document, history, resolveSelection)).toEqual({ complete: true, digests: [asset('e').digest] })
+    const withoutOverride = { ...document, graphs: { g0: { ...document.graphs.g0, nodes: {
+      n0: { ...node, values: {} },
+    } } } }
+    expect(workflowAssetRoots(withoutOverride, history, resolveSelection).complete).toBe(false)
+  })
+
   it('does not certify unknown schemas, opaque values, dormant extensions or truncated lists', () => {
     const local = session()
     const document = local.doc
