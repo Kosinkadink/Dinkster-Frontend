@@ -146,7 +146,7 @@ test('graph mask edits execute visibly and match an explicit baked asset', async
       value ? resolve(value) : reject(new Error('PNG encoding failed')), 'image/png'))
     return [...new Uint8Array(await blob.arrayBuffer())]
   })
-  const upload = await request.post(`${NATIVE_BACKEND}/api/assets/media?scope=local&kind=media%2Fimage&name=mask-source.png`, {
+  const upload = await request.post(`${NATIVE_BACKEND}/api/assets/media?scope=local&kind=media%2Fimage&mount=output&name=mask-source.png`, {
     headers: { 'Content-Type': 'image/png' },
     data: Buffer.from(png),
   })

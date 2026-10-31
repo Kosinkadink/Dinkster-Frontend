@@ -99,7 +99,7 @@ test('opens exact graph document bytes and matches the live flatten image and tr
       value === null ? reject(new Error('PNG encoding failed')) : resolve(value), 'image/png'))
     return [...new Uint8Array(await blob.arrayBuffer())]
   }, rgba)
-  const uploaded = await request.post(`${NATIVE_BACKEND}/api/assets/media?scope=local&kind=media%2Fimage&name=layer-source.png`, {
+  const uploaded = await request.post(`${NATIVE_BACKEND}/api/assets/media?scope=local&kind=media%2Fimage&mount=output&name=layer-source.png`, {
     headers: { 'Content-Type': 'image/png' },
     data: Buffer.from(source),
   })
