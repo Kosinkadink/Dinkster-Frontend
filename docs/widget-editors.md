@@ -50,6 +50,8 @@ own persisted ancestor path; an explicit empty list overrides inherited choices.
 An instance without a menu override inherits its definition's authored choices.
 Canvas menu targets carry their structural construct and member ancestors
 separately from the selected value's storage key.
+Promoting a menu from a persisted family member keeps both menu and selected
+value edits on the instance, not the shared definition.
 
 ## Authored 3D viewport
 

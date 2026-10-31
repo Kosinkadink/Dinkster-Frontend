@@ -706,30 +706,36 @@ describe('dynamic layout on plain nodes', () => {
     expect(selector.selector!.owner).toEqual({ graphId: 'g0', nodeId: 'instance', construct: 'choice' })
   })
 
-  it.each(['local', 'promoted', 'family'] as const)('routes authored menu edits to the %s persisted scope', (mode) => {
+  it.each(['local', 'promoted', 'promoted-member', 'family'] as const)('routes authored menu edits to the %s persisted scope', (mode) => {
     const choice = input('choice', { widget: { widgetType: 'COMBO', editableOptions: true, options: { options: ['schema'] } } })
     const menu = schemaOf('EditableMenu', mode === 'promoted' ? [choice] : [{
       ...input('items'), dynamic: { kind: 'autogrow', template: [choice], naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 } },
     }])
     const doc = docOf({
-      g0: { nodes: { instance: { type: '#sub', dynamic: mode === 'family' ? { forwarded: { members: ['s0'] } } : {} } } },
+      g0: { nodes: { instance: { type: '#sub', values: mode === 'promoted-member' ? { menu: 'outer value' } : {},
+        dynamic: mode === 'family' ? { forwarded: { members: ['s0'] } } : {},
+      } } },
       sub: { nodes: { n: { type: menu.type, values: { choice: 'outside' },
         dynamic: mode === 'promoted' ? {} : { items: { members: ['d0'] } },
       } }, boundary: { inputs: mode === 'local' ? [] : [{ id: mode === 'family' ? 'forwarded' : 'menu',
-        ...(mode === 'promoted' ? { promoted: true } : {}),
-        binds: { kind: mode === 'family' ? 'family' : 'port', node: 'n', port: mode === 'family' ? 'items' : 'choice' },
+        ...(mode.startsWith('promoted') ? { promoted: true } : {}),
+        binds: { kind: mode === 'family' ? 'family' : 'port', node: 'n', port: mode === 'family' ? 'items' : mode === 'promoted-member' ? 'items.choice' : 'choice',
+          ...(mode === 'promoted-member' ? { members: ['d0'] } : {}),
+        },
       }] } },
     })
     const resolve = documentResolver(doc, (type) => type === menu.type ? menu : undefined)
+    const occurrenceView = occurrenceDynamicView(doc, resolve, ['instance'])
+    if (mode === 'promoted-member') expect(occurrenceView.values.get('n')).toMatchObject({ 'items.choice#d0': 'outer value' })
     const scene = buildScene({ document: doc, graphId: 'sub', resolve, tokens: defaultTokens, measure, widgetMeasure,
-      occurrenceView: occurrenceDynamicView(doc, resolve, ['instance']),
+      occurrenceView,
     })
     const rows = widgetRowsOf(scene, 'n')
     const row = rows.find((candidate) => !candidate.ghost && (mode !== 'family' || candidate.address.members?.[0] === '\u0000s0'))!
     const target = row.optionsTarget!
     expect(target).toBeDefined()
     const owner = target.owner ?? { graphId: 'sub', nodeId: 'n', ...target }
-    expect(owner).toEqual(mode === 'promoted'
+    expect(owner).toEqual(mode.startsWith('promoted')
       ? { graphId: 'g0', nodeId: 'instance', construct: 'menu', ancestors: [] }
       : mode === 'family'
         ? { graphId: 'g0', nodeId: 'instance', construct: 'forwarded.choice', ancestors: [{ construct: 'forwarded', member: 's0' }] }
