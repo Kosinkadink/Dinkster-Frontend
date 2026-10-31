@@ -1,11 +1,13 @@
 // @vitest-environment happy-dom
 
 import { render } from 'solid-js/web'
-import type { PackSettings } from '@dinkster/client'
+import { createSignal } from 'solid-js'
+import type { LibraryStorage, PackSettings } from '@dinkster/client'
 import { registerCatalog, setLocale, t } from '@dinkster/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import '../src/locale.js'
 import { SettingsDialog } from '../src/SettingsDialog.js'
+import { LibraryStorageSettings } from '../src/LibraryStorageSettings.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY } from '../src/settings.js'
 
 const isolatedSettings = (): SettingsRegistry => new SettingsRegistry({ getItem: () => null, setItem: () => {} })
@@ -57,6 +59,79 @@ afterEach(() => {
 })
 
 describe('SettingsDialog search', () => {
+  it('discards pending accounting from a replaced backend', async () => {
+    const settings = isolatedSettings()
+    const status: LibraryStorage = { temporaryBytes: 37, vaultBytes: 313, adoptedBytes: 211,
+      reclaimableBytes: null, blocked: ['owner_completeness_unknown'], collectionEnabled: false,
+      policyAvailable: true, limitBytes: 8193 }
+    let resolve!: (value: LibraryStorage) => void
+    const pending = new Promise<LibraryStorage>((done) => { resolve = done })
+    const [connection, setConnection] = createSignal({ fetchLibraryStorage: () => pending,
+      updateLibraryStorageLimit: async () => {} })
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()}
+      keybindings={new KeybindingRegistry(settings)} storageConnection={connection()}
+      request={{ category: 'storage', id: 'library-storage-limit' }} />, root)
+    expect(root.textContent).toContain('Loading storage accounting')
+    setConnection({ fetchLibraryStorage: async () => status, updateLibraryStorageLimit: async () => {} })
+    await vi.waitFor(() => expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('313 bytes'))
+    resolve({ ...status, vaultBytes: 999 })
+    await Promise.resolve()
+    expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('313 bytes')
+    unmount()
+  })
+
+  it('distinguishes unknown storage from zero and saves a limit without enabling Clear', async () => {
+    let limit: number | null = 8193
+    const connection = {
+      fetchLibraryStorage: async () => ({ temporaryBytes: 37, vaultBytes: 0, adoptedBytes: 211,
+        reclaimableBytes: null, blocked: ['owner_completeness_unknown'], collectionEnabled: false,
+        policyAvailable: true, limitBytes: limit }),
+      updateLibraryStorageLimit: async (next: number | null) => { limit = next },
+    }
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <LibraryStorageSettings connection={connection} />, root)
+    await vi.waitFor(() => expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('0 bytes'))
+    expect(root.querySelector('#library-storage-reclaimableBytes')?.textContent).toBe('Unknown')
+    const clear = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Clear eligible assets')!
+    expect(clear.disabled).toBe(true)
+    root.querySelector<HTMLButtonElement>('#library-storage-unlimited')!.click()
+    const apply = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Apply limit')!
+    apply.click()
+    await vi.waitFor(() => expect(limit).toBeNull())
+    await vi.waitFor(() => expect(apply.disabled).toBe(true))
+    expect(clear.disabled).toBe(true)
+    expect(root.textContent).toContain('Saving a limit does not enable cleanup')
+    unmount()
+  })
+
+  it('does not present an unavailable policy as unlimited or accept a failed write', async () => {
+    let available = false
+    const connection = {
+      fetchLibraryStorage: async () => ({ temporaryBytes: null, vaultBytes: null, adoptedBytes: null,
+        reclaimableBytes: null, blocked: ['reference_state_unavailable'], collectionEnabled: false,
+        policyAvailable: available, limitBytes: available ? 8193 : null }),
+      updateLibraryStorageLimit: async () => { throw new Error('Operator permission denied') },
+    }
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <LibraryStorageSettings connection={connection} />, root)
+    await vi.waitFor(() => expect(root.textContent).toContain('The saved policy is unavailable'))
+    const unlimited = root.querySelector<HTMLButtonElement>('#library-storage-unlimited')!
+    expect(unlimited.getAttribute('aria-checked')).toBe('false')
+    expect(unlimited.disabled).toBe(true)
+    available = true
+    ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Refresh')!.click()
+    await vi.waitFor(() => expect(unlimited.disabled).toBe(false))
+    unlimited.click()
+    ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Apply limit')!.click()
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('Operator permission denied'))
+    expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('Unknown')
+    unmount()
+  })
+
   it('updates mounted settings fields, search, and command labels when the locale changes', () => {
     registerCatalog('de-DE', {
       'command.workflow.open': '[Arbeitsablaufbibliothek offnen]',

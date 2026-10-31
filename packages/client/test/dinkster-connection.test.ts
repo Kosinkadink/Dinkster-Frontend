@@ -1571,6 +1571,47 @@ function submitHarness(respond: (url: string, init?: RequestInit) => Response | 
 const nodesRoute = (url: string): Response | undefined =>
   url.includes('/api/nodes') ? jsonResponse(200, liveNodesPayload) : undefined
 
+describe('library storage accounting', () => {
+  const status = { temporaryBytes: 37, vaultBytes: 513, adoptedBytes: 299, reclaimableBytes: null,
+    collectionEnabled: false, blocked: ['owner_completeness_unknown'], policyAvailable: true, limitBytes: 8193 }
+
+  it('preserves unknown sizes and unavailable policy instead of inventing zero or unlimited', async () => {
+    let body: unknown = status
+    const { conn, requests } = submitHarness(() => jsonResponse(200, body))
+    expect(await conn.fetchLibraryStorage()).toEqual(status)
+    expect(requests[0]!.url).toBe('http://test/api/library/storage')
+    expect(requests[0]!.init!.cache).toBe('no-store')
+    body = { ...status, policyAvailable: false, limitBytes: null, vaultBytes: null }
+    expect(await conn.fetchLibraryStorage()).toEqual(body)
+    for (const invalid of [{ ...status, vaultBytes: -1 }, { ...status, temporaryBytes: undefined },
+      { ...status, limitBytes: 0 }, { ...status, policyAvailable: false }, { ...status, blocked: [false] }]) {
+      body = invalid
+      await expect(conn.fetchLibraryStorage()).rejects.toThrow('malformed')
+    }
+  })
+
+  it('requires an exact policy acknowledgment and does not replay failed writes', async () => {
+    let body: unknown = { limitBytes: 8193, collectionEnabled: false }
+    let code = 200
+    const { conn, requests } = submitHarness(() => jsonResponse(code, body))
+    await conn.updateLibraryStorageLimit(8193)
+    expect(requests[0]!.url).toBe('http://test/api/library/storage/policy')
+    expect(JSON.parse(requests[0]!.init!.body as string)).toEqual({ limitBytes: 8193 })
+    body = { limitBytes: null, collectionEnabled: false }
+    await conn.updateLibraryStorageLimit(null)
+    await expect(conn.updateLibraryStorageLimit(8193)).rejects.toThrow('differs')
+    body = { limitBytes: 8193, collectionEnabled: true }
+    await expect(conn.updateLibraryStorageLimit(8193)).rejects.toThrow('differs')
+    code = 403
+    await expect(conn.updateLibraryStorageLimit(8193)).rejects.toThrow('403')
+    const count = requests.length
+    for (const invalid of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      await expect(conn.updateLibraryStorageLimit(invalid)).rejects.toThrow('positive safe integer')
+    }
+    expect(requests).toHaveLength(count)
+  })
+})
+
 describe('retained asset ownership', () => {
   const a = `blake3:${'a'.repeat(64)}`
   const b = `blake3:${'b'.repeat(64)}`

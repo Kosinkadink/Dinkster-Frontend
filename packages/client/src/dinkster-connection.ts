@@ -1193,6 +1193,29 @@ export interface RetainedAssets extends RetainedAssetOwner {
 
 export type RetainedAssetDeclaration = Pick<RetainedAssets, 'revision' | 'digests' | 'complete'>
 
+export interface LibraryStorage {
+  readonly temporaryBytes: number | null
+  readonly vaultBytes: number | null
+  readonly adoptedBytes: number | null
+  readonly reclaimableBytes: number | null
+  readonly collectionEnabled: boolean
+  readonly blocked: readonly string[]
+  readonly policyAvailable: boolean
+  readonly limitBytes: number | null
+}
+
+function libraryStorage(value: unknown): LibraryStorage {
+  if (!record(value) ||
+    !['temporaryBytes', 'vaultBytes', 'adoptedBytes', 'reclaimableBytes', 'limitBytes'].every((key) =>
+      value[key] === null || (typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && value[key] >= 0)) ||
+    typeof value['collectionEnabled'] !== 'boolean' || typeof value['policyAvailable'] !== 'boolean' ||
+    !Array.isArray(value['blocked']) || !value['blocked'].every((reason: unknown) => typeof reason === 'string') ||
+    (value['limitBytes'] === 0) || (!value['policyAvailable'] && value['limitBytes'] !== null)) {
+    throw new Error('Library storage response is malformed')
+  }
+  return value as unknown as LibraryStorage
+}
+
 function retainedAssetRoute(owner: RetainedAssetOwner): string {
   if (owner.ownerId.length === 0 || [...owner.ownerId].length > 512) {
     throw new Error('Retained asset owner ID must contain 1 to 512 characters')
@@ -2557,6 +2580,29 @@ export class DinksterConnection {
   }
 
   // -- Workflow library (POST /api/assets + /api/library) --------------------
+
+  async fetchLibraryStorage(signal?: AbortSignal): Promise<LibraryStorage> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/library/storage`, {
+      method: 'GET', cache: 'no-store', ...(signal !== undefined ? { signal } : {}),
+    })
+    if (!res.ok) throw new Error(`GET library storage failed: ${res.status}`)
+    return libraryStorage(await res.json())
+  }
+
+  async updateLibraryStorageLimit(limitBytes: number | null): Promise<void> {
+    if (limitBytes !== null && (!Number.isSafeInteger(limitBytes) || limitBytes <= 0)) {
+      throw new Error('Storage limit must be a positive safe integer or null')
+    }
+    const res = await this.fetchFn(`${this.baseUrl}/api/library/storage/policy`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limitBytes }),
+    })
+    if (!res.ok) throw new Error(`PUT library storage policy failed: ${res.status}`)
+    const value: unknown = await res.json()
+    if (!record(value) || value['limitBytes'] !== limitBytes || value['collectionEnabled'] !== false) {
+      throw new Error('Storage policy acknowledgment differs from the requested limit')
+    }
+  }
 
   async fetchRetainedAssets(owner: RetainedAssetOwner, signal?: AbortSignal): Promise<RetainedAssets | undefined> {
     const res = await this.fetchFn(`${this.baseUrl}${retainedAssetRoute(owner)}`, {

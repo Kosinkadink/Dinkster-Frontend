@@ -566,6 +566,9 @@
     "text:directSource() ?",
     "text:transitioning() ?"
   ],
+  "LibraryStorageSettings.tsx": [
+    "text:() const [limit, setLimit] = createSignal"
+  ],
   "MemoryPanel.tsx": [
     "attribute:aria-label:Active memory leases",
     "attribute:aria-label:Memory history table",

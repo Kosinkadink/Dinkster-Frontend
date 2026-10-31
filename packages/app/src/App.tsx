@@ -1549,6 +1549,7 @@ export function App(props: {
         keybindings={app.keybindings}
         request={app.settingsOpenRequest.get()}
         onRequestConsumed={() => app.settingsOpenRequest.set(undefined)}
+        storageConnection={activeBackend().connection}
         packSettings={'fetchPackSettings' in app.connection ? {
           client: app.connection,
           packs: () => [...(defaultRegistry()?.packs ?? [])]

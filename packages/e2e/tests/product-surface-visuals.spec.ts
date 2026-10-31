@@ -855,6 +855,40 @@ test('Library Assets and Outputs use shared empty and loading states', async ({ 
   }
 })
 
+test('Storage settings distinguish accounting policy and permission failures', async ({ page }) => {
+  let state: 'ready' | 'unavailable' | 'forbidden' = 'ready'
+  await page.route('**/api/library/storage', (route) => state === 'forbidden'
+    ? route.fulfill({ status: 403, body: 'operator required' })
+    : route.fulfill({ json: {
+      temporaryBytes: state === 'ready' ? 37 : null, vaultBytes: 513, adoptedBytes: 299,
+      reclaimableBytes: null, collectionEnabled: false, blocked: ['owner_completeness_unknown'],
+      policyAvailable: state === 'ready', limitBytes: state === 'ready' ? 21474836480 : null,
+    } }))
+  await boot(page)
+  await closeGallery(page)
+  await openModal(page, 'settings')
+  await page.getByRole('button', { name: 'Storage', exact: true }).click()
+  const panel = page.getByTestId('library-storage-settings')
+  await expect(panel.getByText('513 bytes', { exact: true })).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Clear eligible assets', exact: true })).toBeDisabled()
+  await screenshot(page, 'storage-ready-1440')
+  await panel.getByRole('button', { name: 'Clear eligible assets', exact: true }).scrollIntoViewIfNeeded()
+  await expect(panel.locator('#library-storage-limit')).toHaveValue('21474836480')
+  await screenshot(page, 'storage-ready-controls-1440')
+  await page.setViewportSize({ width: 900, height: 700 })
+  state = 'unavailable'
+  await panel.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await expect(panel.getByText('The saved policy is unavailable, not unlimited. Editing is disabled.', { exact: true })).toBeVisible()
+  await expect(panel.getByRole('checkbox')).not.toBeChecked()
+  await expect(panel.getByRole('checkbox')).toBeDisabled()
+  await screenshot(page, 'storage-unavailable-900')
+  state = 'forbidden'
+  await panel.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await expect(panel.getByRole('alert')).toContainText('403')
+  await expect(panel.getByRole('button', { name: 'Apply limit', exact: true })).toBeDisabled()
+  await screenshot(page, 'storage-forbidden-900')
+})
+
 test('Settings and subgraph cleanup empty states remain usable', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
