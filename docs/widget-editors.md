@@ -9,6 +9,15 @@ settings. Missing required fields and mistyped known fields still reject the
 node with a schema error. Unknown non-empty widget type names remain custom
 pack descriptors, preserving their JSON parameters for widget-kind lookup.
 
+A COMBO descriptor may opt into occurrence-authored choices with
+`editableOptions: true`. Its schema option list may be empty or omitted;
+remote and input-family option sources cannot coexist with this flag.
+Mistyped flags and conflicting sources reject the schema. Ordinary COMBO
+descriptors still require an option source. The schema's optional
+`additionalInputs` type declares authority for extra occurrence inputs;
+it cannot depend on tuple inputs or dynamic families. Neither declaration
+changes a node's type identity or the schema wire version.
+
 ## Authored 3D viewport
 
 LOAD_3D edits the selected model file through an orbit viewport. Projection,
