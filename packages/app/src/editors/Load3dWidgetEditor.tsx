@@ -23,7 +23,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   const sources = graph === undefined ? undefined : companionSourcesOf(graph, undefined, (sourceId, inputId) => {
     const source = graph.nodes[sourceId]
     const schema = source === undefined ? undefined : resolveSchema?.(source.type)
-    return schema === undefined ? undefined : defaultValuesOf(schema)[inputId]
+    return schema === undefined ? undefined : (defaultValuesOf(schema) as Record<string, Json>)[inputId]
   }, resolveSchema).get(nodeId ?? '')
   const inputValue = (inputId: string): Json | undefined => {
     const source = sources?.get(inputId)
