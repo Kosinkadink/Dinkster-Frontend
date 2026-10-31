@@ -31,7 +31,8 @@ through asset authority. GLTF sidecars resolve only to these granted resources,
 never arbitrary external URLs or filesystem paths.
 Mesh loading selects GLB, GLTF, OBJ, FBX, STL or USDZ from the original file
 format; point-cloud PLY uses geometry rather than gaussian-splat decoding.
-Splat PLY, SPLAT, SPZ and KSPLAT use the splat renderer. Animated GLTF/FBX
+Splat PLY, SPLAT, SPZ and KSPLAT use the splat renderer. Captures wait for
+splat sorting, including when Apply follows immediately after loading. Animated GLTF/FBX
 models expose clip selection, play/pause, time seeking and playback speed.
 Animation poses remain viewport drafts; capture freezes one pose across all
 three passes without changing the authored model placement.

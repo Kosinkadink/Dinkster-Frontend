@@ -655,6 +655,7 @@ export async function mountModel3dViewer(
       const previousColor = gl.getClearColor(new modules.THREE.Color())
       const previousAlpha = gl.getClearAlpha()
       const previousOrbitEnabled = controls!.enabled
+      const previousSparkAutoUpdate = sparkView?.autoUpdate
       const previousFrustum = activeCamera instanceof modules.THREE.OrthographicCamera
         ? { left: activeCamera.left, right: activeCamera.right, top: activeCamera.top, bottom: activeCamera.bottom }
         : undefined
@@ -667,6 +668,7 @@ export async function mountModel3dViewer(
       }
       capturing = true
       controls!.enabled = false
+      if (sparkView) sparkView.autoUpdate = false
       try {
         gl.setPixelRatio(1)
         gl.setSize(width, height, false)
@@ -678,6 +680,11 @@ export async function mountModel3dViewer(
           activeCamera.bottom = -5
         }
         activeCamera.updateProjectionMatrix()
+        if (sparkView) {
+          framed.scene.updateMatrixWorld(true)
+          activeCamera.updateMatrixWorld(true)
+          await sparkView.update({ scene: framed.scene, camera: activeCamera })
+        }
         const image = await encode()
         // LoadImage returns 1-alpha as MASK. Keep transparent background,
         // including the original materials' transparency and alpha maps.
@@ -703,6 +710,7 @@ export async function mountModel3dViewer(
           if (activeCamera instanceof modules.THREE.PerspectiveCamera) activeCamera.aspect = width / height
           activeCamera.updateProjectionMatrix()
           controls!.enabled = previousOrbitEnabled
+          if (sparkView && previousSparkAutoUpdate !== undefined) sparkView.autoUpdate = previousSparkAutoUpdate
         }
         normalMaterial.dispose()
         capturing = false

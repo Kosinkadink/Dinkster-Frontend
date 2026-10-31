@@ -4,7 +4,7 @@
  * viewport mounts a live WebGL scene in a DOM overlay and disposes on close.
  * Every backend route is mocked, so the spec runs against any dev server.
  */
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 
 const proofDir = process.env.DINKSTER_MODEL3D_PROOF_DIR ?? '/tmp/dinkster-model3d-proof'
@@ -367,10 +367,20 @@ test('mesh formats render and animation seeking changes pixels without moving au
     const host = document.createElement('div'); host.style.cssText = 'width:400px;height:300px'; document.body.append(host)
     const urls: string[] = []
     const source = (data: BlobPart): string => { const url = URL.createObjectURL(new Blob([data])); urls.push(url); return url }
-    const samples = {
+    const threePath = '/node_modules/.vite/deps/three.js'
+    const exporterPath = '/node_modules/three/examples/jsm/exporters/USDZExporter.js'
+    const THREE = await import(threePath)
+    const imports = document.createElement('script'); imports.type = 'importmap'
+    imports.textContent = JSON.stringify({ imports: { three: threePath } }); document.head.append(imports)
+    const { USDZExporter } = await import(exporterPath)
+    const scene = new THREE.Scene()
+    scene.add(new THREE.Mesh(new THREE.BoxGeometry(1, 2, 0.5), new THREE.MeshStandardMaterial({ color: 0xff4020 })))
+    const samples: Record<string, BlobPart> = {
       obj: 'v -1 -1 0\nv 1 -1 0\nv 0 1 0\nf 1 2 3\n',
       stl: 'solid triangle\nfacet normal 0 0 1\nouter loop\nvertex -1 -1 0\nvertex 1 -1 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid triangle',
       ply: 'ply\nformat ascii 1.0\nelement vertex 3\nproperty float x\nproperty float y\nproperty float z\nelement face 1\nproperty list uchar int vertex_indices\nend_header\n-1 -1 0\n1 -1 0\n0 1 0\n3 0 1 2\n',
+      fbx: '; FBX 7.4.0 project file\nFBXHeaderExtension:  {\n\tFBXVersion: 7400\n}\nObjects:  {\n\tGeometry: 1, "Geometry::Triangle", "Mesh" {\n\t\tVertices: *9 {\n\t\t\ta: -1,-1,0,1,-1,0,0,1,0\n\t\t}\n\t\tPolygonVertexIndex: *3 {\n\t\t\ta: 0,1,-3\n\t\t}\n\t}\n\tModel: 2, "Model::Triangle", "Mesh" {\n\t\tVersion: 232\n\t}\n}\nConnections:  {\n\tC: "OO",1,2\n\tC: "OO",2,0\n}\n',
+      usdz: await new USDZExporter().parseAsync(scene),
     }
     const pixels = async (blob: Blob): Promise<{ count: number; centerX: number }> => {
       const bitmap = await createImageBitmap(blob)
@@ -399,11 +409,74 @@ test('mesh formats render and animation seeking changes pixels without moving au
       } finally { viewer.dispose() }
     } finally { urls.forEach((url) => URL.revokeObjectURL(url)); host.remove() }
   }, Array.from(glb(1, true)))
-  for (const count of Object.values(result.visible)) expect(count).toBeGreaterThan(100)
+  for (const [format, count] of Object.entries(result.visible)) expect(count, format).toBeGreaterThan(100)
   expect(result.clips).toEqual([{ name: 'Slide right', duration: 1 }])
   expect(result.time).toBe(0.5)
   expect(result.after.centerX - result.before.centerX).toBeGreaterThan(20)
   expect(result.afterPlacement).toEqual(result.placement)
+})
+
+test('splat, spz and ksplat scenes render their encoded gaussians', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const modulePath = '/src/model3d-viewer.ts'
+    const { mountModel3dViewer } = await import(modulePath)
+    const centers = [[-0.5, 0, 0], [0.5, 0, 0], [0, 0.5, 0]]
+    const splat = new Uint8Array(centers.length * 32)
+    const ksplat = new Uint8Array(5120 + centers.length * 44)
+    const ks = new DataView(ksplat.buffer)
+    ks.setUint8(1, 1); ks.setUint32(4, 1, true)
+    ks.setUint32(8, 1, true); ks.setUint32(12, centers.length, true); ks.setUint32(16, centers.length, true)
+    ks.setUint32(4096, centers.length, true); ks.setUint32(4100, centers.length, true)
+    const spz = new Uint8Array(16 + centers.length * 20)
+    const sz = new DataView(spz.buffer)
+    sz.setUint32(0, 0x5053474e, true); sz.setUint32(4, 3, true)
+    sz.setUint32(8, centers.length, true); sz.setUint8(13, 12)
+    centers.forEach((center, index) => {
+      const raw = new DataView(splat.buffer, index * 32, 32)
+      center.forEach((value, axis) => {
+        raw.setFloat32(axis * 4, value, true); raw.setFloat32(12 + axis * 4, 0.2, true)
+        ks.setFloat32(5120 + index * 44 + axis * 4, value, true)
+        ks.setFloat32(5132 + index * 44 + axis * 4, 0.2, true)
+        const fixed = Math.round(value * 4096)
+        for (let byte = 0; byte < 3; byte++) spz[16 + index * 9 + axis * 3 + byte] = (fixed >> (byte * 8)) & 255
+        spz[16 + centers.length * 13 + index * 3 + axis] = Math.round((Math.log(0.2) + 10) * 16)
+        spz[16 + centers.length * 10 + index * 3 + axis] = axis === index ? 240 : 80
+      })
+      splat.set([255, 80, 30, 255, 255, 128, 128, 128], index * 32 + 24)
+      ks.setFloat32(5144 + index * 44, 1, true)
+      ksplat.set([255, 80, 30, 255], 5160 + index * 44)
+      spz[16 + centers.length * 9 + index] = 255
+      spz[16 + centers.length * 16 + index * 4 + 3] = 192
+    })
+    const compressed = await new Response(new Blob([spz]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer()
+    const samples = { splat, spz: new Uint8Array(compressed), ksplat }
+    const host = document.createElement('div'); host.style.cssText = 'width:400px;height:300px'; document.body.append(host)
+    const visible: Record<string, { count: number; image: number[] }> = {}
+    try {
+      for (const [format, bytes] of Object.entries(samples)) {
+        const url = URL.createObjectURL(new Blob([bytes]))
+        try {
+          const viewer = await mountModel3dViewer(host, url, 'application/octet-stream', { format })
+          try {
+            const image = (await viewer.capture(257, 143)).image
+            const bitmap = await createImageBitmap(image)
+            const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height
+            const context = canvas.getContext('2d')!; context.drawImage(bitmap, 0, 0)
+            const rgba = context.getImageData(0, 0, canvas.width, canvas.height).data
+            let count = 0
+            for (let i = 3; i < rgba.length; i += 4) if (rgba[i]! > 0) count++
+            visible[format] = { count, image: Array.from(new Uint8Array(await image.arrayBuffer())) }; bitmap.close()
+          } finally { viewer.dispose() }
+        } finally { URL.revokeObjectURL(url) }
+      }
+      return visible
+    } finally { host.remove() }
+  })
+  mkdirSync(proofDir, { recursive: true })
+  for (const [format, capture] of Object.entries(result)) {
+    writeFileSync(`${proofDir}/${format}-capture.png`, Buffer.from(capture.image))
+    expect(capture.count, format).toBeGreaterThan(100)
+  }
 })
 
 test('viewport recording preserves authored resolution across resize and releases its stream', async ({ page }) => {
