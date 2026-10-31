@@ -26,7 +26,9 @@ Image output thumbnails, the output viewer, canvas previews and App View use a
 checkerboard behind transparent pixels. The background is presentation-only and
 does not bake into the image or affect downstream mirror inputs.
 The Outputs image grid includes native IMAGE batches as well as saved image
-assets. Each native batch tile requests an advertised PNG rendition from its
+assets. It mounts at most four tiles per page; page controls retain the global
+output order and opening a tile selects that image in the full viewer.
+Each native batch tile requests an advertised PNG rendition from its
 owning execution; mounting and unmounting the tile owns its request and blob URL.
 Unavailable renditions remain visible as unavailable tiles.
 

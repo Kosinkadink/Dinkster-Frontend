@@ -3043,8 +3043,10 @@ function outputIterationGroup(runtimeId: string, workflowLabel: string): { reado
 }
 
 function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers: (request: GraphImageDocumentRequest) => void }) {
+  const message = useAppMessage()
   const backendTick = useSignal(props.app.backendsTick)
   const [viewerIndex, setViewerIndex] = createSolidSignal<number>()
+  const [imagePage, setImagePage] = createSolidSignal(0)
   const [failed, setFailed] = createSolidSignal<ReadonlySet<string>>(new Set())
   const [loaded, setLoaded] = createSolidSignal<ReadonlySet<string>>(new Set())
   const currentExecutionKey = createMemo(() => props.execution.key)
@@ -3084,6 +3086,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
   createEffect(() => {
     currentExecutionKey()
     setViewerIndex(undefined)
+    setImagePage(0)
     setFailed(new Set<string>())
     setLoaded(new Set<string>())
   })
@@ -3091,9 +3094,11 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
     values: values(),
   }))
+  const pageStart = () => Math.min(imagePage(), Math.max(0, Math.ceil(images().length / 4) - 1)) * 4
   const imageGroups = createMemo(() => {
     const groups = new Map<string, { readonly label: string; readonly images: { readonly image: ExecutedImage; readonly index: number }[] }>()
-    for (const [index, image] of images().entries()) {
+    for (const [offset, image] of images().slice(pageStart(), pageStart() + 4).entries()) {
+      const index = pageStart() + offset
       const { key, label } = outputIterationGroup(image.runtimeId, 'Workflow outputs')
       const group = groups.get(key) ?? { label, images: [] }
       group.images.push({ image, index })
@@ -3187,6 +3192,15 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
           }}</For>
         </section>
       )}</For>
+      <Show when={images().length > 4}>
+        <div class="output-viewer-toolbar" role="group" aria-label={message('outputs.pages.label')}>
+          <ProductButton size="compact" type="button" disabled={pageStart() === 0}
+            onClick={() => setImagePage(pageStart() / 4 - 1)}>{message('outputs.pages.previous')}</ProductButton>
+          <span aria-live="polite">{message('outputs.pages.position', { first: pageStart() + 1, last: Math.min(images().length, pageStart() + 4), count: images().length })}</span>
+          <ProductButton size="compact" type="button" disabled={pageStart() + 4 >= images().length}
+            onClick={() => setImagePage(pageStart() / 4 + 1)}>{message('outputs.pages.next')}</ProductButton>
+        </div>
+      </Show>
       <div class="outputs" aria-label={`${images().length} execution images`}>
         <For each={imageGroups()} fallback={
           <div data-state={emptyState().state} role={emptyState().state === 'empty' ? 'status' : undefined}>
