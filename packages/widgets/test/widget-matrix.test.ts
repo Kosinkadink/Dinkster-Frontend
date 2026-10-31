@@ -27,6 +27,7 @@ const cases: Array<{
   { type: 'ASSET', options: {}, explicit: asset, intrinsic: undefined, invalid: { ...asset, size: -1 }, view: 'core.asset' },
   { type: 'AUDIO_RECORD', options: {}, explicit: { ...asset, name: 'recording.webm', mediaType: 'audio/webm' }, intrinsic: undefined, invalid: asset, view: 'core.audioRecord' },
   { type: 'MOUNT', options: {}, explicit: 'archive', intrinsic: null, invalid: 'Invalid/Mount', invalidCode: 'widget.MOUNT.invalid', view: 'core.mount' },
+  { type: 'LOAD_3D', options: {}, explicit: { image: asset, mask: '', camera_info: { fov: 53 } }, intrinsic: {}, invalid: [], view: 'core.load3d' },
 ]
 
 const registry = createWidgetRegistry()
@@ -53,6 +54,7 @@ const dispositions = [
   { type: 'COMPOSITOR', compact: 'core.compositor', expanded: 'image editor compositor mode' },
   { type: 'ASSET', compact: 'core.asset', expanded: 'product asset modal' },
   { type: 'MOUNT', compact: 'core.mount', expanded: 'writable mount selection popover' },
+  { type: 'LOAD_3D', compact: 'core.load3d', expanded: '3D camera, transform and capture modal' },
   { type: 'VIDEO_EDIT', compact: 'core.videoEdit', expanded: 'trim and crop modal' },
   { type: 'BUTTON', compact: 'core.button', expanded: 'registered command action popover' },
   { type: 'MARKDOWN', compact: 'core.markdown', expanded: 'safe preview and source popover' },
