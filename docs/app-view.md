@@ -45,6 +45,14 @@ the field without cancelling a submitted command. Leaving Arrange mode,
 switching tabs or replacing the document session discards transient rename UI;
 old completion cannot close a newer rename. Empty labels still clear overrides.
 
+Authored text, group titles and queue labels also await final edit outcomes.
+Pending fields stay read only, with formatting/style and queue target choices
+disabled for the affected placement. Refusal preserves exact drafts with an
+inline notice; submit again to retry. Accepted titles and queue labels are
+trimmed. Changing mode, tab or document session invalidates old completion
+notices without cancelling submitted commands. Text markup remains in the draft
+after refusal, so retry with Ctrl+Enter rather than applying formatting again.
+
 App View uses the shared Product button, text, number, checkbox and select
 controls in both modes. Group and text-style selectors support the same
 combobox keyboard navigation and focus restoration as shell settings.

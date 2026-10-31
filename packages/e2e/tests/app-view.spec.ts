@@ -473,6 +473,159 @@ test('parameter and preview renames await acceptance and preserve refused or new
   }
 })
 
+test('authored text group and queue drafts await final outcomes', {
+  annotation: { type: 'mock-rename-dispatch' },
+}, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    const added = app.dispatchTo(tab, { command: 'node.add', params: { graphId: 'g0', type: 'AppViewTest', title: 'Other queue target', position: { x: 450, y: 100 } } })
+    if (!added.ok) throw new Error(JSON.stringify(added.diagnostics))
+    for (const item of [
+      { id: 'draft-text', kind: 'text', role: 'body', text: 'Original instructions' },
+      { id: 'draft-group', kind: 'group', title: 'Original group', children: [] },
+      { id: 'draft-queue', kind: 'queue', label: 'Original queue', targets: [{ graphId: 'g0', nodeId: 'widgets' }] },
+    ]) {
+      const outcome = app.dispatchTo(tab, { command: 'app.layout.add', params: { item } })
+      if (!outcome.ok) throw new Error(JSON.stringify(outcome.diagnostics))
+    }
+  })
+  await selectView(page, 'App view')
+  await enterArrange(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__draftPending = []
+    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
+      ;(window as any).__draftPending.push((accepted: boolean) => resolve(accepted ? dispatch(tab, invocation) : {
+        ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Authored edit refused for test' }],
+      }))
+    })
+  })
+  const text = page.getByTestId('app-layout-text-input')
+  const group = page.getByTestId('app-layout-group-title')
+  const queue = page.getByTestId('app-layout-queue-label')
+  const controls = [text, group, queue]
+  const draftValues = ['  **Exact instructions**  ', '  Exact group  ', '  Exact queue  ']
+  const settle = (indices: number[], accepted: boolean) => page.evaluate(({ indices, accepted }) => {
+    for (const index of indices) (window as any).__draftPending[index](accepted)
+  }, { indices, accepted })
+  const items = () => page.evaluate(() => (window.__dinksterTest!.app.activeTab()!.store.doc.ext?.['dinkster.appLayout'] as any).desktop.items)
+  const submit = async () => {
+    await text.press('Control+Enter')
+    await group.focus()
+    await group.press('Enter')
+    await queue.focus()
+    await queue.press('Enter')
+  }
+  await page.screenshot({ path: testInfo.outputPath('authored-default.png') })
+  for (let index = 0; index < controls.length; index++) await controls[index]!.fill(draftValues[index]!)
+  await submit()
+  for (const control of controls) await expect(control).toHaveAttribute('readonly', '')
+  await submit()
+  expect(await page.evaluate(() => (window as any).__draftPending.length)).toBe(3)
+  expect(await items()).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: 'draft-text', text: 'Original instructions' }),
+    expect.objectContaining({ id: 'draft-group', title: 'Original group' }),
+    expect.objectContaining({ id: 'draft-queue', label: 'Original queue' }),
+  ]))
+  await page.screenshot({ path: testInfo.outputPath('authored-pending.png') })
+  await settle([0, 1, 2], false)
+  for (let index = 0; index < controls.length; index++) {
+    await expect(controls[index]!).not.toHaveAttribute('readonly')
+    await expect(controls[index]!).toHaveValue(draftValues[index]!)
+    await expect(controls[index]!).toHaveAttribute('aria-invalid', 'true')
+  }
+  await expect(page.getByRole('alert')).toHaveCount(3)
+  await page.screenshot({ path: testInfo.outputPath('authored-refused.png') })
+  await page.setViewportSize({ width: 760, height: 1200 })
+  await page.screenshot({ path: testInfo.outputPath('authored-refused-narrow.png') })
+  await page.getByTestId('app-layout-queue').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: testInfo.outputPath('authored-refused-narrow-queue.png') })
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  await submit()
+  await settle([3, 4, 5], true)
+  for (const control of controls) await expect(control).not.toHaveAttribute('readonly')
+  expect(await items()).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: 'draft-text', text: draftValues[0] }),
+    expect.objectContaining({ id: 'draft-group', title: 'Exact group' }),
+    expect.objectContaining({ id: 'draft-queue', label: 'Exact queue' }),
+  ]))
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('authored-accepted.png') })
+  await page.evaluate(() => { for (let index = 0; index < 3; index++) window.__dinksterTest!.app.activeTab()!.store.undo() })
+  expect(await items()).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: 'draft-text', text: 'Original instructions' }),
+    expect.objectContaining({ id: 'draft-group', title: 'Original group' }),
+    expect.objectContaining({ id: 'draft-queue', label: 'Original queue' }),
+  ]))
+  await text.fill('Old pending text')
+  await text.press('Control+Enter')
+  await page.getByTestId('app-view-arrange-toggle').click()
+  await page.getByTestId('app-view-arrange-toggle').click()
+  await text.fill('New pending text')
+  await text.press('Control+Enter')
+  await settle([6], false)
+  await expect(text).toHaveValue('New pending text')
+  await expect(text).toHaveAttribute('readonly', '')
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await settle([7], true)
+  await expect(text).not.toHaveAttribute('readonly')
+  expect((await items()).find((item: any) => item.id === 'draft-text').text).toBe('New pending text')
+  await text.focus()
+  await text.press('Control+a')
+  const bold = page.getByRole('button', { name: 'Bold', exact: true })
+  const style = page.getByTestId('app-layout-text-role')
+  await bold.click()
+  await expect(text).toHaveValue('**New pending text**')
+  await expect(bold).toBeDisabled()
+  await expect(style).toBeDisabled()
+  await settle([8], false)
+  await expect(text).toHaveValue('**New pending text**')
+  expect((await items()).find((item: any) => item.id === 'draft-text').text).toBe('New pending text')
+  await text.press('Control+Enter')
+  await settle([9], true)
+  await expect(text).not.toHaveAttribute('readonly')
+  expect((await items()).find((item: any) => item.id === 'draft-text').text).toBe('**New pending text**')
+  await style.click()
+  await page.getByRole('option', { name: 'Heading', exact: true }).click()
+  await expect(style).toContainText('Body')
+  await settle([10], false)
+  await expect(style).toContainText('Body')
+  await style.click()
+  await page.getByRole('option', { name: 'Heading', exact: true }).click()
+  await settle([11], true)
+  await expect(style).toContainText('Heading')
+  const target = page.getByRole('checkbox', { name: 'Other queue target', exact: true })
+  await target.click()
+  await expect(target).not.toBeChecked()
+  await expect(target).toBeDisabled()
+  await expect(queue).toHaveAttribute('readonly', '')
+  await settle([12], false)
+  await expect(target).not.toBeChecked()
+  await expect(target).toBeEnabled()
+  await target.click()
+  await settle([13], true)
+  await expect(target).toBeChecked()
+  expect((await items()).find((item: any) => item.id === 'draft-queue').targets).toHaveLength(2)
+  await group.fill('Old accepted group')
+  await group.press('Enter')
+  await queue.fill('Old accepted queue')
+  await queue.press('Enter')
+  await page.getByTestId('app-view-arrange-toggle').click()
+  await page.getByTestId('app-view-arrange-toggle').click()
+  await group.fill('Newer group draft')
+  await queue.fill('Newer queue draft')
+  await settle([14, 15], true)
+  await expect(group).toHaveValue('Newer group draft')
+  await expect(queue).toHaveValue('Newer queue draft')
+  expect(await items()).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: 'draft-group', title: 'Old accepted group' }),
+    expect.objectContaining({ id: 'draft-queue', label: 'Old accepted queue' }),
+  ]))
+})
+
 test('rename and reorder are document commands; stale rows stay removable', async ({ page }) => {
   await exposeViaMenu(page, 'count')
   await exposeViaMenu(page, 'title')

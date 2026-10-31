@@ -697,9 +697,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     })
   }
 
-  const dispatchLayout = (command: string, params: Json): void => {
+  const dispatchLayout = (command: string, params: Json): CommandOutcome | Promise<CommandOutcome> | undefined => {
     const tab = activeTab()
-    if (tab) props.app.dispatchTo(tab, { command, params })
+    if (tab) return props.app.dispatchTo(tab, { command, params })
   }
 
   const freshLayoutId = (kind: string): string =>
@@ -1273,12 +1273,60 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     return tab === undefined ? [] : appViewQueueTargetOptions(tab.store.doc)
   })
 
+  const createLayoutEdit = () => {
+    const [pending, setPending] = createSolidSignal(false)
+    const [refusal, setRefusal] = createSolidSignal<string>()
+    const noticeId = createUniqueId()
+    let generation = 0
+    let current = true
+    onCleanup(() => { current = false; generation++ })
+    createEffect(() => {
+      interactionScope()
+      interactionStore()
+      generation++
+      setPending(false)
+      setRefusal(undefined)
+      onCleanup(() => { generation++ })
+    })
+    const commit = async (command: string, params: Json): Promise<boolean> => {
+      const tab = activeTab()
+      if (!current || !tab || !arrange() || frozen() || pending()) return false
+      const owner = generation
+      const store = tab.store
+      setPending(true)
+      setRefusal(undefined)
+      try {
+        const outcome = await dispatchLayout(command, params)
+        if (owner !== generation || activeTab()?.store !== store) return false
+        if (outcome !== undefined && !outcome.ok) setRefusal(outcome.diagnostics[0]?.message)
+        return outcome?.ok === true
+      } finally {
+        if (owner === generation) setPending(false)
+      }
+    }
+    return { pending, refusal, commit, noticeId }
+  }
+
   const QueuePlacement = (queueProps: {
     readonly flow: Extract<FlowItem, { kind: 'queue' }>
     readonly index: number
     readonly count: number
     readonly inGrid: boolean
   }) => {
+    const edit = createLayoutEdit()
+    const [labelDraft, setLabelDraft] = createSolidSignal(queueProps.flow.item.label)
+    let labelBaseline = queueProps.flow.item.label
+    createEffect(() => {
+      const label = queueProps.flow.item.label
+      if (untrack(labelDraft) === labelBaseline) setLabelDraft(label)
+      labelBaseline = label
+    })
+    const commitLabel = async (): Promise<void> => {
+      const label = labelDraft().trim()
+      if (label.length > 0 && label !== queueProps.flow.item.label) {
+        if (await edit.commit('app.layout.setQueue', { id: queueProps.flow.item.id, label })) setLabelDraft(label)
+      }
+    }
     const stateId = `${draftScopeId}-queue-state-${createUniqueId()}`
     const queueKey = (): string => `${activeTabId()}:${queueProps.flow.item.id}`
     const resolved = createMemo(() => {
@@ -1331,27 +1379,26 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       const targets = selected
         ? [...queueProps.flow.item.targets, { graphId, nodeId }]
         : queueProps.flow.item.targets.filter((target) => target.graphId !== graphId || target.nodeId !== nodeId)
-      dispatchLayout('app.layout.setQueue', {
+      void edit.commit('app.layout.setQueue', {
         id: queueProps.flow.item.id,
         targets: targets.map((target) => ({ graphId: target.graphId, nodeId: target.nodeId })),
       })
     }
     return (
-      <div class="app-layout-queue" data-testid="app-layout-queue">
+      <div class="app-layout-queue" data-testid="app-layout-queue" aria-busy={edit.pending()}>
         <Show when={arrange()}>
           <div class="app-layout-item-toolbar">
             <ProductTextInput
               class="app-layout-queue-label"
               data-testid="app-layout-queue-label"
               aria-label={message('appView.queue.label')}
-              value={queueProps.flow.item.label}
+              value={labelDraft()}
+              readOnly={edit.pending()}
+              aria-invalid={edit.refusal() !== undefined}
+              aria-describedby={edit.refusal() === undefined ? undefined : edit.noticeId}
+              onInput={(event) => setLabelDraft(event.currentTarget.value)}
               onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
-              onBlur={(event) => {
-                const label = event.currentTarget.value.trim()
-                if (label.length > 0 && label !== queueProps.flow.item.label) {
-                  dispatchLayout('app.layout.setQueue', { id: queueProps.flow.item.id, label })
-                }
-              }}
+              onBlur={commitLabel}
             />
             <ParentSelect item={queueProps.flow} />
             <Show when={!queueProps.inGrid && !mobileEditing()}>
@@ -1360,7 +1407,8 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             </Show>
             <ProductButton variant="ghost" size="compact" class="app-view-tool" data-testid="app-layout-remove" aria-label={message('appView.queue.remove', { label: queueProps.flow.item.label })} onClick={() => dispatchLayout('app.layout.remove', { id: queueProps.flow.item.id })}><Icon icon={X} /></ProductButton>
           </div>
-          <fieldset class="app-layout-queue-targets" data-testid="app-layout-queue-targets">
+          <Show when={edit.refusal()}>{(text) => <div id={edit.noticeId}><ProductNotice tone="error">{text()}</ProductNotice></div>}</Show>
+          <fieldset class="app-layout-queue-targets" data-testid="app-layout-queue-targets" disabled={edit.pending()}>
             <legend>{message('appView.queue.targets')}</legend>
             <For each={queueTargetOptions()}>{(option) => {
               const selected = () => queueProps.flow.item.targets.some((target) =>
@@ -1369,7 +1417,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
                 <ProductCheckbox
                   ariaLabel={option.label}
                   checked={selected()}
-                  disabled={selected() && queueProps.flow.item.targets.length === 1}
+                  disabled={edit.pending() || (selected() && queueProps.flow.item.targets.length === 1)}
                   onChange={(checked) => setTargets(option.graphId, option.nodeId, checked)}
                 />
                 <span>{option.label}</span>
@@ -1431,21 +1479,22 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     readonly count: number
     readonly inGrid: boolean
   }) => {
+    const edit = createLayoutEdit()
     const [draft, setDraft] = createSolidSignal(textProps.flow.item.text)
     let editor: HTMLTextAreaElement | undefined
     const commitDraft = (): void => {
       if (draft() !== textProps.flow.item.text) {
-        dispatchLayout('app.layout.setText', { id: textProps.flow.item.id, text: draft() })
+        void edit.commit('app.layout.setText', { id: textProps.flow.item.id, text: draft() })
       }
     }
     const wrap = (before: string, after: string, placeholder: string): void => {
-      if (editor === undefined) return
+      if (editor === undefined || edit.pending()) return
       const start = editor.selectionStart
       const end = editor.selectionEnd
       const selected = draft().slice(start, end) || placeholder
       const next = `${draft().slice(0, start)}${before}${selected}${after}${draft().slice(end)}`
       setDraft(next)
-      dispatchLayout('app.layout.setText', { id: textProps.flow.item.id, text: next })
+      void edit.commit('app.layout.setText', { id: textProps.flow.item.id, text: next })
       queueMicrotask(() => {
         editor?.focus()
         editor?.setSelectionRange(start + before.length, start + before.length + selected.length)
@@ -1453,19 +1502,20 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     }
     return (
       <Show when={arrange()} fallback={<TextContent item={textProps.flow.item} />}>
-        <div class="app-layout-text-editor" data-testid="app-layout-text-editor">
+        <div class="app-layout-text-editor" data-testid="app-layout-text-editor" aria-busy={edit.pending()}>
           <div class="app-layout-item-toolbar">
             <ProductSelect
               class="app-layout-role"
               testId="app-layout-text-role"
               ariaLabel={message('appView.text.style')}
               selectedId={textProps.flow.item.role}
+              disabled={edit.pending()}
               options={[
                 { id: 'heading', label: message('appView.text.heading'), value: 'heading' },
                 { id: 'body', label: message('appView.text.body'), value: 'body' },
                 { id: 'caption', label: message('appView.text.caption'), value: 'caption' },
               ]}
-              onSelect={(option) => dispatchLayout('app.layout.setText', {
+              onSelect={(option) => void edit.commit('app.layout.setText', {
                 id: textProps.flow.item.id,
                 role: option.value,
               })}
@@ -1495,9 +1545,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             ><Icon icon={X} /></ProductButton>
           </div>
           <div class="app-layout-format-toolbar" aria-label={message('appView.text.formatting')}>
-            <ProductButton size="compact" type="button" aria-label={message('appView.text.bold')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('**', '**', message('appView.text.boldPlaceholder'))}>B</ProductButton>
-            <ProductButton size="compact" type="button" aria-label={message('appView.text.italic')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('*', '*', message('appView.text.italicPlaceholder'))}><em>I</em></ProductButton>
-            <ProductButton size="compact" type="button" aria-label={message('appView.text.link')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('[', '](https://)', message('appView.text.linkPlaceholder'))}>{message('appView.text.link')}</ProductButton>
+            <ProductButton size="compact" type="button" disabled={edit.pending()} aria-label={message('appView.text.bold')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('**', '**', message('appView.text.boldPlaceholder'))}>B</ProductButton>
+            <ProductButton size="compact" type="button" disabled={edit.pending()} aria-label={message('appView.text.italic')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('*', '*', message('appView.text.italicPlaceholder'))}><em>I</em></ProductButton>
+            <ProductButton size="compact" type="button" disabled={edit.pending()} aria-label={message('appView.text.link')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('[', '](https://)', message('appView.text.linkPlaceholder'))}>{message('appView.text.link')}</ProductButton>
             <span>{message('appView.text.formattingHint')}</span>
           </div>
           <ProductTextArea
@@ -1506,6 +1556,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             data-testid="app-layout-text-input"
             aria-label={message('appView.text.content')}
             value={draft()}
+            readOnly={edit.pending()}
+            aria-invalid={edit.refusal() !== undefined}
+            aria-describedby={edit.refusal() === undefined ? undefined : edit.noticeId}
             onInput={(event) => setDraft(event.currentTarget.value)}
             onBlur={commitDraft}
             onKeyDown={(event) => {
@@ -1515,6 +1568,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               }
             }}
           />
+          <Show when={edit.refusal()}>{(text) => <div id={edit.noticeId}><ProductNotice tone="error">{text()}</ProductNotice></div>}</Show>
         </div>
       </Show>
     )
@@ -1939,6 +1993,20 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     readonly count: number
     readonly inGrid: boolean
   }) => {
+    const edit = createLayoutEdit()
+    const [titleDraft, setTitleDraft] = createSolidSignal(groupProps.flow.item.title)
+    let titleBaseline = groupProps.flow.item.title
+    createEffect(() => {
+      const title = groupProps.flow.item.title
+      if (untrack(titleDraft) === titleBaseline) setTitleDraft(title)
+      titleBaseline = title
+    })
+    const commitTitle = async (): Promise<void> => {
+      const title = titleDraft().trim()
+      if (title.length > 0 && title !== groupProps.flow.item.title) {
+        if (await edit.commit('app.layout.setGroupTitle', { id: groupProps.flow.item.id, title })) setTitleDraft(title)
+      }
+    }
     const childrenByKey = createMemo((): ReadonlyMap<string, FlowItem> =>
       new Map(groupProps.flow.children.map((child) => [flowItemKey(child), child])))
     const childKeys = createMemo((): readonly string[] => groupProps.flow.children.map(flowItemKey))
@@ -1946,6 +2014,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       <section
         class="app-layout-group"
         data-testid="app-layout-group"
+        aria-busy={edit.pending()}
         aria-label={message('appView.group.ariaLabel', { title: groupProps.flow.item.title })}
       >
         <div class="app-layout-group-header">
@@ -1957,16 +2026,15 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               class="app-layout-group-title"
               data-testid="app-layout-group-title"
               aria-label={message('appView.group.title')}
-              value={groupProps.flow.item.title}
+              value={titleDraft()}
+              readOnly={edit.pending()}
+              aria-invalid={edit.refusal() !== undefined}
+              aria-describedby={edit.refusal() === undefined ? undefined : edit.noticeId}
+              onInput={(event) => setTitleDraft(event.currentTarget.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') event.currentTarget.blur()
               }}
-              onBlur={(event) => {
-                const title = event.currentTarget.value.trim()
-                if (title.length > 0 && title !== groupProps.flow.item.title) {
-                  dispatchLayout('app.layout.setGroupTitle', { id: groupProps.flow.item.id, title })
-                }
-              }}
+              onBlur={commitTitle}
             />
             <div class="app-layout-item-toolbar">
               <Show when={!groupProps.inGrid && !mobileEditing()}>
@@ -1977,6 +2045,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             </div>
           </Show>
         </div>
+        <Show when={arrange() && edit.refusal()}>{(text) => <div id={edit.noticeId}><ProductNotice tone="error">{text()}</ProductNotice></div>}</Show>
         <div class="app-layout-group-children" role="list">
           <For each={childKeys()}>
             {(key, index) => {
