@@ -1,4 +1,5 @@
 {
+  "widgetEditor.commitRefused": "The edit was not accepted. Retry or cancel to keep the stored value.",
   "canvasImport.title": "Import image",
   "canvasImport.description": "Choose where to import {name}. Nothing is uploaded until you confirm.",
   "canvasImport.confirm": "Import image",

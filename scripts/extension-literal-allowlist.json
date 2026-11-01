@@ -299,7 +299,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/ScalarWidgetEditor.tsx",
-      "line": 123,
+      "line": 122,
       "column": 16,
       "symbol": "widgetType:INT",
       "issue": 122

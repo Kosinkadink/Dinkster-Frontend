@@ -1,5 +1,15 @@
 # Widget compact controls and expanded editors
 
+## Command acceptance
+
+Shared value commits and scalar text splices keep the editor open until the
+document command is accepted. Pending content is inert and duplicate commits
+are ignored. A refusal keeps the exact draft and shows an inline error for
+retry. Escape, outside dismissal and modal close dismiss only the editor;
+they do not cancel a submitted command. A completed command cannot close a
+replacement editor. Custom authoring actions that dispatch their own commands
+retain their documented behavior.
+
 ## Descriptor fields
 
 An unknown field on a known widget descriptor produces a

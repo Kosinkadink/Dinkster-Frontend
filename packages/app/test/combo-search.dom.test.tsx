@@ -54,7 +54,7 @@ const mountEditor = (ed: WidgetEditorState, appOverrides: Partial<AppState> = {}
   const outside = document.createElement('button')
   document.body.append(root)
   document.body.append(outside)
-  const dispatchTo = vi.fn()
+  const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
   const onClose = vi.fn()
   const [open, setOpen] = createSignal(true)
   let clickAway: (() => void) | undefined
@@ -260,6 +260,7 @@ describe('combo search', () => {
     await flushMicrotasks()
     mounted.root.querySelector<HTMLElement>('[data-testid="multi-combo-option"]')!.click()
     mounted.root.querySelector<HTMLElement>('[data-testid="multi-combo-apply"]')!.click()
+    await flushMicrotasks()
     expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       command: 'node.setValue', params: expect.objectContaining({ value: ['outside', 'alpha'] }),
     }))

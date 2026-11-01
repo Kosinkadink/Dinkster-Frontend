@@ -1,3 +1,7 @@
+.widget-commit-content {
+  display: contents;
+}
+
 .widget-editor-in-node {
   position: absolute;
   z-index: 10;

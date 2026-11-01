@@ -869,11 +869,14 @@
   ],
   "WidgetEditorController.tsx": [
     "attribute:aria-label:Edit output descriptors",
+    "text:() const commitCommand = async (invocation: CommandInvocation): Promise",
     "text:) : ed.outputDescriptors !== undefined ? (",
     "text:) : null return (",
     "text:) : props.implementation !== undefined ? (",
-    "text:videoDocumentCommand !== undefined ? (",
-    "text:void editor: WidgetEditorProps header: Component"
+    "text:Promise",
+    "text:Promise",
+    "text:string | undefined editor: WidgetEditorProps header: Component",
+    "text:videoDocumentCommand !== undefined ? ("
   ],
   "WorkflowQueueControl.tsx": [
     "attribute:aria-label:Workflow jobs",
