@@ -211,7 +211,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   ).toHaveLength(0)
   expect(
     inputs.filter(({ input }) => input.widget?.['type'] === 'COLOR'),
-  ).toHaveLength(6)
+  ).toHaveLength(7)
   expect(Object.hasOwn(catalog.nodes, 'dinkster.ksampler_advanced')).toBe(false)
   expect(Object.hasOwn(catalog.nodes, 'comfy.KSamplerAdvanced')).toBe(false)
   expect(Object.hasOwn(catalog.nodes, 'KSamplerAdvanced')).toBe(true)
