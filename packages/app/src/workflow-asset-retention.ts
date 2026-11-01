@@ -131,7 +131,8 @@ export function workflowAssetRoots(
     }
     const connectivity = dynamic ? buildGraphConnectivity(graph)(node.id) : EMPTY_CONNECTIVITY
     const active = elaborateInterface(schema, node, connectivity, { promoteGhosts: false })
-    const stored = dynamic ? elaborateInterface(schema, node, connectivity, { promoteGhosts: false, includeDormant: true }) : active
+    const stored = dynamic || Object.keys(node.dynamic ?? {}).length > 0
+      ? elaborateInterface(schema, node, connectivity, { promoteGhosts: false, includeDormant: true }) : active
     if (active.diagnostics.length > 0 || stored.diagnostics.length > 0) complete = false
     const inputs = elabInputsOf(stored)
     for (const { spec } of inputs) {

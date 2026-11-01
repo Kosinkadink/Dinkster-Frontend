@@ -95,7 +95,8 @@ Dynamic inputs use canonical elaborated identities: stored inactive combo branch
 disconnected slot dependents and persisted family members contribute roots, while
 defaults come only from the active interface. Historical connectivity changes
 recheck dynamic nodes even when their objects are shared. Dynamic metadata must
-have the known asset-free shape. Unknown stored keys, elaboration diagnostics or
+have the known asset-free shape, and every stored state key must be read in its
+canonical construct/member scope. Unknown stored keys, elaboration diagnostics or
 budget exhaustion, and dormant wire-15 inputs remain incomplete.
 An effective unresolved selection name is incomplete, not an asset identity.
 Untyped literal producers use every connected static consumer's input type;

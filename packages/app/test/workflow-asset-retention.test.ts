@@ -131,21 +131,41 @@ describe('workflow candidate admission', () => {
       .toEqual({ complete: true, digests: ['a', 'c', 'e', 'f'].map((letter) => asset(letter).digest) })
   })
 
-  it.each(['metadata', 'nested-metadata', 'unknown-value', 'budget', 'wire15'] as const)(
+  it.each(['metadata', 'nested-metadata', 'unknown-value', 'unknown-dynamic', 'static-unknown', 'nested-unknown', 'stale-member', 'budget', 'wire15'] as const)(
     'keeps unsupported dynamic census incomplete: %s', (scenario) => {
       const local = session()
       const node = { id: asNodeId('n0'), type: 'Loader', values: scenario === 'unknown-value' ? { unknown: asset('e') } : {},
         dynamic: scenario === 'metadata' ? { mode: { hidden: asset('e') } }
           : scenario === 'nested-metadata' ? { items: { members: ['m0'], memberState: { m0: { mode: { hidden: asset('e') } } } } }
+            : scenario === 'unknown-dynamic' || scenario === 'static-unknown' ? { future: {} }
+              : scenario === 'nested-unknown' ? { items: { members: ['m0'], memberState: { m0: { future: {} } } } }
+                : scenario === 'stale-member' ? { items: { members: [], memberState: { retired: { future: {} } } } }
             : scenario === 'budget' ? { items: { members: Array.from({ length: 600 }, (_, index) => `m${index}`) } } : {} }
       const document = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: { n0: node } } } } as WorkflowDocument
       const candidate: NodeSchema = scenario === 'wire15' ? { ...dynamicSchema, items: [{
         kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: true,
         dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'a', inputs: [assetInput('file', 'a')] }] },
-      }] } : dynamicSchema
+      }] } : scenario === 'static-unknown' ? schema : dynamicSchema
       expect(workflowAssetRoots(document, local.historySnapshot(), () => candidate).complete).toBe(false)
     },
   )
+
+  it('recognizes nested family state in its canonical member scope', () => {
+    const local = session()
+    const nested: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'items', type: assetType, optional: true,
+      dynamic: { kind: 'autogrow', naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 }, template: [{
+        kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: true,
+        dynamic: { kind: 'dynamicCombo', options: [{ key: 'a', inputs: [assetInput('file', 'a')] },
+          { key: 'b', inputs: [assetInput('file', 'b')] }] },
+      }] } }] }
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Loader', values: {}, dynamic: {
+        items: { members: ['m0'], memberState: { m0: { 'items.mode': { selected: 'b' } } } },
+      } },
+    } } } }
+    expect(workflowAssetRoots(document, local.historySnapshot(), () => nested))
+      .toEqual({ complete: true, digests: [asset('b').digest] })
+  })
 
   it('rechecks shared dynamic nodes when historical connectivity activates slot defaults', () => {
     const local = session()

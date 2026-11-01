@@ -1181,6 +1181,7 @@ const dynamicComboHandler: DynamicKindHandler = {
     const keys = spec.options.map((o) => o.key)
 
     if (ctx.includeDormant) {
+      scope.stateOf(construct)
       if (spec.materialization === 'wire15') {
         ctx.report('error', 'elab.dormant.unsupported', 'Dormant wire15 inputs require branch-specific identity resolution', construct)
         return
@@ -1586,6 +1587,16 @@ export function elaborateInterface(
     diagnostics.push(diag('error', 'schema', code, `${schema.type}: ${message}`))
   }
 
+  const readStateKeys = new WeakMap<object, Set<string>>()
+  const readState = (states: Readonly<Record<string, DynamicPortState>> | undefined, construct: string): DynamicPortState | undefined => {
+    if (options.includeDormant && states !== undefined) {
+      let keys = readStateKeys.get(states)
+      if (keys === undefined) { keys = new Set(); readStateKeys.set(states, keys) }
+      keys.add(construct)
+    }
+    return states?.[construct]
+  }
+
   const ctx: ElabContext = {
     nodeType: schema.type,
     storedValues: node.values,
@@ -1722,7 +1733,7 @@ export function elaborateInterface(
         ancestry: [...parent.ancestry, entry],
         ghost: parent.ghost || entry.ghost === true,
         ...(parent.hidden ? { hidden: true } : {}),
-        stateOf: (construct) => nested?.[construct],
+        stateOf: (construct) => readState(nested, construct),
         ...(frame.displayPrefix !== undefined ? { displayPrefix: frame.displayPrefix } : {}),
         ...(frame.frames !== undefined ? { frames: frame.frames } : {}),
       }
@@ -1927,7 +1938,7 @@ export function elaborateInterface(
     members: [],
     ancestry: [],
     ghost: false,
-    stateOf: (construct) => node.dynamic?.[construct],
+    stateOf: (construct) => readState(node.dynamic, construct),
   }
   for (const input of outputCountInputsOf(schema)) {
     if (connectivity.isInputConnected(input)) {
@@ -1943,6 +1954,22 @@ export function elaborateInterface(
     }
     if (item.kind === 'input') elaborateInput(item, topScope)
     else elaborateOutput(item, topScope)
+  }
+  if (options.includeDormant) {
+    const checkStateKeys = (states: Readonly<Record<string, DynamicPortState>> | undefined, depth: number): void => {
+      if (states === undefined) return
+      if (depth > budget.maxDepth) {
+        exhaust('elab.budget.depth', `dynamic state nesting exceeds ${budget.maxDepth} levels`)
+        return
+      }
+      for (const [construct, state] of Object.entries(states)) {
+        if (!readStateKeys.get(states)?.has(construct)) {
+          ctx.report('error', 'elab.dynamic.unknownState', `${schema.type}: unknown stored dynamic state '${construct}'`, construct)
+        }
+        for (const nested of Object.values(state.memberState ?? {})) checkStateKeys(nested, depth + 1)
+      }
+    }
+    checkStateKeys(node.dynamic, 0)
   }
   const scopeType = (type: TypeExpr, member: string): TypeExpr => {
     if (type.kind === 'variable') return { ...type, templateId: `${member}:${type.templateId}` }

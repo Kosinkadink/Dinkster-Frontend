@@ -57,6 +57,7 @@ const pins = (page: Page) => page.evaluate(() => window.__dinksterTest!.renderer
 
 test('descriptor Apply preserves the draft and exposes command refusal before retry', async ({ page }, info) => {
   await setup(page)
+  await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
   const initial = await stored(page)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as any
