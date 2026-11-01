@@ -11,6 +11,29 @@ export interface NodePreviewAnimation {
   readonly fps: number
 }
 
+type Vector3State = { x: number; y: number; z: number }
+
+export interface Model3dTransform {
+  position: Vector3State
+  quaternion: Vector3State & { w: number }
+  scale: Vector3State
+}
+
+export interface Model3dCameraState {
+  position: Vector3State
+  target: Vector3State
+  zoom: number
+  cameraType: 'perspective' | 'orthographic'
+  quaternion?: Vector3State & { w: number }
+  useCustomUp?: boolean
+  customUp?: Vector3State
+  fov?: number
+  aspect?: number
+  near?: number
+  far?: number
+  frustum?: { left: number; right: number; top: number; bottom: number }
+}
+
 /** Decoded content or an explicit pending/unavailable placeholder. */
 export interface NodePreview {
   readonly kind?: 'image' | 'video' | 'audio' | 'model3d'
@@ -20,6 +43,14 @@ export interface NodePreview {
   /** Host-owned DOM media source. Canvas only paints its region/status. */
   readonly src?: string
   readonly mime?: string
+  /** Original model format and host-owned, explicitly granted sidecar URLs. */
+  readonly model3d?: {
+    readonly format?: string
+    readonly resources?: Readonly<Record<string, string>>
+    readonly pointCloud?: boolean
+    readonly camera?: Model3dCameraState
+    readonly transform?: Model3dTransform
+  }
   /** Bounded audio transport supplied by the host's preview loader. */
   readonly audio?: {
     readonly identity: string

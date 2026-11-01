@@ -277,6 +277,51 @@ const fakeValues = (script: {
 const transientOf = (e: unknown): boolean | undefined => (e as { transient?: boolean }).transient
 
 describe('fetchPeekRendition', () => {
+  it('keeps camera and model metadata on the same runtime occurrence and refuses changed identities', async () => {
+    const schema = { type: 'test.model-preview', items: [
+      { kind: 'output', id: 'model', type: { kind: 'concrete', name: 'FILE_3D_GLTF' }, preview: true },
+      { kind: 'output', id: 'camera', type: { kind: 'concrete', name: 'LOAD3D_CAMERA' } },
+      { kind: 'output', id: 'placement', type: { kind: 'concrete', name: 'LOAD3D_MODEL_INFO' } },
+    ] } as unknown as NodeSchema
+    const candidates = declaredPreviewCandidates(schema, ['region[2]/preview'])
+    const camera = { position: { x: 1, y: 2, z: 6 } }
+    const models = [{ position: { x: 3, y: 4, z: 5 } }]
+    const scripted = (changed: boolean): PeekValues => ({
+      peek: async (query) => {
+        expect(query.nodeId).toBe('region[2]/preview')
+        const typeId = query.outputId === 'model' ? 'FILE_3D_GLTF' : query.outputId === 'camera' ? 'LOAD3D_CAMERA' : 'LOAD3D_MODEL_INFO'
+        return { available: true, descriptor: { typeId, fingerprint: query.outputId },
+          renditions: [{ kind: query.outputId === 'model' ? 'manifest' : 'json', mime: 'application/json' }] }
+      },
+      rendition: async (query, kind) => ({ available: true, kind, mime: 'application/json',
+        fingerprint: changed && query.outputId === 'camera' ? 'different' : query.outputId,
+        bytes: new TextEncoder().encode(JSON.stringify(query.outputId === 'model' ? { format: 'gltf' } : query.outputId === 'camera' ? camera : models)).buffer }),
+    })
+    expect(await fetchPeekRendition(scripted(false), 'job', candidates)).toMatchObject({ file3d: { camera, models } })
+    await expect(fetchPeekRendition(scripted(true), 'job', candidates)).rejects.toThrow('identity changed')
+  })
+
+  it('negotiates only canonical FILE_3D manifests with matching fingerprints, not arbitrary JSON', async () => {
+    const manifest = { format: 'obj', source: { digest: 'original' } }
+    const rendition = { available: true as const, mime: 'application/json', kind: 'manifest', fingerprint: 'fp',
+      bytes: new TextEncoder().encode(JSON.stringify(manifest)).buffer }
+    const values = fakeValues({
+      peek: { 'a.model': { available: true, renditions: [{ kind: 'manifest', mime: 'application/json' }], descriptor: { typeId: 'FILE_3D_OBJ', fingerprint: 'fp' } } },
+      rendition: { 'a.model': rendition },
+    })
+    expect(await fetchPeekRendition(values, 'job', [{ node: 'a', output: 'model' }])).toMatchObject({ file3d: { manifest, typeId: 'FILE_3D_OBJ' } })
+    for (const typeId of ['JSON', 'custom.FILE_3D']) {
+      const unknown = fakeValues({ peek: { 'a.model': { available: true, renditions: [{ kind: 'manifest', mime: 'application/json' }], descriptor: { typeId, fingerprint: 'fp' } } },
+        rendition: { 'a.model': rendition } })
+      await expect(fetchPeekRendition(unknown, 'job', [{ node: 'a', output: 'model' }])).rejects.toThrow('no renderable')
+    }
+    for (const result of [{ ...rendition, fingerprint: 'different' }, { ...rendition, bytes: new TextEncoder().encode('null').buffer }]) {
+      const refused = fakeValues({ peek: { 'a.model': { available: true, renditions: [{ kind: 'manifest', mime: 'application/json' }], descriptor: { typeId: 'FILE_3D', fingerprint: 'fp' } } },
+        rendition: { 'a.model': result } })
+      await expect(fetchPeekRendition(refused, 'job', [{ node: 'a', output: 'model' }])).rejects.toThrow('no renderable')
+    }
+  })
+
   it('returns the first candidate that peeks and renders, in order', async () => {
     const values = fakeValues({
       peek: { 'a.image': refusal('not-retained'), 'b.image': hit([png]) },

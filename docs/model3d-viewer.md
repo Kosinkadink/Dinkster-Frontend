@@ -7,6 +7,26 @@ pipeline for `MODEL3D` and `SPLAT` outputs, the asset browser,
 and the widget editor selection pane. `packages/app/src/model3d-mime.ts` is
 the shared gate for which MIME types route through this pipeline.
 
+Declared `FILE_3D` output previews use the advertised JSON manifest instead
+of a converted GLB or PLY rendition. The preview reads the original source
+and named sidecars through the execution's own backend, including opaque
+local bindings. Missing owners or revoked grants make the preview unavailable;
+the active tab's backend is never a fallback. JSON null has no preview.
+Poster and orbit views share the manifest's original format and granted
+resource map. Declared camera and model-placement outputs come from the same
+runtime occurrence, negotiated through their JSON renditions with matching
+fingerprints. Both views restore that camera and the model's first placement;
+missing or malformed metadata makes the preview unavailable rather than
+silently showing a default view. Preview eviction or cancellation releases
+their blob URLs. Point-cloud output types keep the point-cloud renderer;
+PLY headers distinguish gaussian data from ordinary mesh and point data.
+Only canonical relative sidecar names are accepted; manifests cannot grant
+arbitrary URLs or filesystem paths.
+
+Embedded GLTF and GLB image buffer views use the model's granted bytes.
+Their loader-created URLs remain scoped to that image load and are revoked
+on success or failure; authored blob URLs still require an explicit grant.
+
 ## Rendering model
 
 A 3D preview has two presentation modes:
@@ -31,8 +51,9 @@ download in node and App View previews. Peek renditions use the output ID and
 rendition MIME to derive a safe filename. Live frames and selected inputs do
 not acquire output-download semantics.
 
-Camera state is per-client and never serialized. Poster rendering frames the
-model automatically from its bounding sphere with neutral lighting.
+Orbit changes stay per-client. Unless an output provides authored metadata,
+poster rendering frames the model automatically from its bounding sphere
+with neutral lighting.
 
 ## Lazy loading
 
