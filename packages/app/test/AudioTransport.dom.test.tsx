@@ -58,6 +58,23 @@ describe('shared audio transport lifecycle', () => {
     expect(signal.aborted).toBe(true)
     expect(URL.revokeObjectURL).toHaveBeenCalled()
   })
+  it('keeps a pending seek visible while the previous window emits time updates', async () => {
+    await next()
+    let finish!: (value: Awaited<ReturnType<NonNullable<NodePreview['audio']>['load']>>) => void
+    load.mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
+    const slider = root.querySelector<HTMLElement>('[aria-label="Audio position"]')!
+    const audio = root.querySelector('audio')!
+    slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+    audio.dispatchEvent(new Event('timeupdate'))
+    expect(slider.getAttribute('aria-valuenow')).toBe('0.1')
+    expect(audioPlayhead()?.time).toBe(0.1)
+    finish({ start: 0.1, duration: 3, window: new ArrayBuffer(16), diagnostics: [] })
+    await next()
+    audio.currentTime = 0.25
+    audio.dispatchEvent(new Event('timeupdate'))
+    expect(slider.getAttribute('aria-valuenow')).toBe('0.35')
+    expect(audioPlayhead()?.time).toBe(0.35)
+  })
   it('keeps a late failed window from replacing a newer successful selection', async () => {
     await next()
     let finish!: (value: Awaited<ReturnType<NonNullable<NodePreview['audio']>['load']>>) => void

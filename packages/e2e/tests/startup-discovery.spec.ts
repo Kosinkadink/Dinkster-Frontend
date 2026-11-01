@@ -43,6 +43,48 @@ const RICH_NATIVE_TABLE = {
   },
 }
 
+for (const fullLifecycle of [false, true]) {
+  test(`native file bridge starts the workspace with lifecycle ${fullLifecycle}`, async ({ page }, testInfo) => {
+    const errors: string[] = []
+    page.on('pageerror', (error) => errors.push(error.message))
+    await page.addInitScript((full) => {
+      const calls: string[] = []
+      Reflect.set(window, 'desktopLifecycleCalls', calls)
+      const context = { id: 'primary', kind: 'primary' as const }
+      const layout = { windows: [context] }
+      const files = {
+        fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: true, resolvePath: true }),
+        chooseDirectory: async () => undefined,
+        revealFile: async () => ({ mode: 'selected' as const }),
+        resolveDroppedFile: async () => ({ status: 'refused' as const, reason: 'not-resolvable' as const }),
+      }
+      Reflect.set(window, 'dinksterDesktop', full ? {
+        ...files,
+        locale: async () => { calls.push('locale'); return 'en' },
+        status: async () => { calls.push('status'); return { phase: 'running', detail: '' } },
+        onLog: () => () => {},
+        onStatus: () => () => {},
+        windowContext: async () => context,
+        windowLayout: async () => layout,
+        onWindowLayout: () => () => {},
+        takeDeepLinks: async () => [],
+        onDeepLinkPending: () => () => {},
+        connectionCredentials: async () => ({ custody: false, profiles: [] }),
+      } : files)
+    }, fullLifecycle)
+    await page.routeWebSocket('**/api/events?*', () => {})
+    await page.route('/api/*', (route) => route.fulfill({ status: 503 }))
+    await page.route('/api/nodes*', (route) => route.fulfill({ json: NATIVE_TABLE }))
+    await page.goto('/')
+    await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+    await expect(page.getByTestId('graph-canvas')).toBeVisible()
+    await expect(page.getByTestId('desktop-management-button')).toHaveCount(fullLifecycle ? 1 : 0)
+    expect(await page.evaluate(() => Reflect.get(window, 'desktopLifecycleCalls'))).toEqual(fullLifecycle ? ['locale', 'status'] : [])
+    expect(errors).toEqual([])
+    await page.screenshot({ path: testInfo.outputPath(fullLifecycle ? 'full-desktop-workspace.png' : 'file-only-workspace.png') })
+  })
+}
+
 const lazyNode = (id: string, lazy?: boolean) => ({
   schemaVersion: 1,
   displayName: 'Lazy Socket',

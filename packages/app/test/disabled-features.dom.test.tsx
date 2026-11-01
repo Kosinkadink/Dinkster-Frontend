@@ -15,6 +15,7 @@ afterEach(() => {
   dispose?.()
   dispose = undefined
   app.dispose()
+  delete window.dinksterDesktop
   document.body.replaceChildren()
   localStorage.clear()
   delete window.dinksterDesktop
@@ -80,6 +81,22 @@ it('replaces Assets backend ownership and rejects pending old file locations whe
   ;[...locations.querySelectorAll('button')].find((button) => button.textContent === 'Show file on this computer')!.click()
   await vi.waitFor(() => expect(revealFile).toHaveBeenCalledWith('http://next.test:9000/', { digest: current.digest, scope: 'local', project: 'default' }))
   expect(revealFile).toHaveBeenCalledTimes(1)
+})
+
+it('mounts the ordinary workspace with a file-only bridge and no lifecycle methods', () => {
+  window.dinksterDesktop = {
+    fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: true }),
+    chooseDirectory: async () => undefined,
+    revealFile: async () => ({ mode: 'selected' }),
+    resolveDroppedFile: async () => ({ status: 'refused', reason: 'not-resolvable' }),
+  }
+  app = new AppState()
+  const host = document.createElement('div')
+  document.body.append(host)
+  dispose = render(() => <App app={app} />, host)
+  expect(host.querySelector('[data-testid="canvas-stub"]')).not.toBeNull()
+  expect(host.querySelector('[data-testid="desktop-management-button"]')).toBeNull()
+  expect(app.activeTab()).toBeDefined()
 })
 
 it('does not register disabled template surfaces and withdraws enabled surfaces', async () => {

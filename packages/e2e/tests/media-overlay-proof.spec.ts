@@ -473,10 +473,35 @@ test('real media, controls, zoom transitions, forwarding, clipping, and cleanup'
   await expect(audioElement).toHaveAttribute('data-playing-before-pause', 'true')
   await expect(audioElement).toHaveAttribute('data-paused-by-control', 'true')
   await expect(audioElement).toHaveJSProperty('paused', true)
+  await audioElement.evaluate((node: HTMLAudioElement) => {
+    node.currentTime = 0
+    node.dispatchEvent(new Event('timeupdate'))
+  })
   const seek = page.getByRole('slider', { name: 'Audio position' })
+  let releaseWindow!: () => void
+  let requestedWindow!: () => void
+  const pendingWindow = new Promise<void>((resolve) => { releaseWindow = resolve })
+  const windowRequested = new Promise<void>((resolve) => { requestedWindow = resolve })
+  await page.route('**/api/values*', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.searchParams.get('outputId') === 'audio' && Number(url.searchParams.get('window')?.split(',')[0]) > 0) {
+      requestedWindow()
+      await pendingWindow
+    }
+    await serveValue(route)
+  })
   await seek.focus()
   await page.keyboard.press('ArrowRight')
-  await expect.poll(async () => Number(await seek.getAttribute('aria-valuenow'))).toBeGreaterThan(0)
+  try {
+    await windowRequested
+    await audioElement.evaluate((node) => node.dispatchEvent(new Event('timeupdate')))
+    await expect(seek).toHaveAttribute('aria-valuenow', '0.01')
+    await page.screenshot({ path: `${proofDir}/02-pending-audio-seek.png`, animations: 'disabled' })
+  } finally {
+    releaseWindow()
+  }
+  await expect(page.getByRole('button', { name: 'Play audio' })).toBeEnabled()
+  await expect(seek).toHaveAttribute('aria-valuenow', '0.01')
   await pauseOnPlayback()
   await page.getByRole('button', { name: 'Play audio' }).click()
   await expect(audioElement).toHaveAttribute('data-playing-before-pause', 'true')
