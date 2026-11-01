@@ -646,6 +646,110 @@ test('combo authored menus and refresh selections await final outcomes', {
   await page.screenshot({ path: info.outputPath('combo-refresh-accepted.png') })
 })
 
+test('layout group selection awaits automatic placement and existing move acceptance', {
+  annotation: { type: 'mock-rename-dispatch' },
+}, async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    app.dispatchTo(tab, { command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'title' } })
+    app.dispatchTo(tab, { command: 'app.layout.add', params: {
+      item: { id: 'controls', kind: 'group', title: 'Controls', children: [] },
+    } })
+  })
+  await selectView(page, 'App view')
+  await enterArrange(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__parentPending = []
+    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve, reject) => {
+      ;(window as any).__parentPending.push((result: string) => {
+        if (result === 'throw') reject(new Error('Group transport failed for test'))
+        else resolve(result === 'accept' ? dispatch(tab, invocation) : {
+          ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Group edit refused for test' }],
+        })
+      })
+    })
+  })
+  const parent = page.getByTestId('app-view-row').getByTestId('app-layout-parent')
+  const notice = page.getByTestId('app-layout-gesture-error')
+  const count = () => page.evaluate(() => (window as any).__parentPending.length)
+  const settle = (index: number, result: string) => page.evaluate(({ index, result }) => (window as any).__parentPending[index](result), { index, result })
+  const items = () => page.evaluate(() => (window.__dinksterTest!.app.activeTab()!.store.doc.ext?.['dinkster.appLayout'] as any).desktop.items)
+  const children = async () => (await items()).find((item: any) => item.id === 'controls').children
+  await expect(parent).toHaveText('Top level')
+  await page.screenshot({ path: testInfo.outputPath('group-default.png') })
+  await parent.click()
+  await page.getByRole('option', { name: 'Controls', exact: true }).click()
+  await expect(parent).toHaveAttribute('aria-expanded', 'true')
+  await expect(parent).toHaveAttribute('aria-busy', 'true')
+  await expect(parent).toHaveText('Top level')
+  await page.getByRole('option', { name: 'Controls', exact: true }).dispatchEvent('click')
+  expect(await count()).toBe(1)
+  expect(await children()).toEqual([])
+  expect(await items()).toHaveLength(1)
+  await page.screenshot({ path: testInfo.outputPath('group-pending.png') })
+  await settle(0, 'refuse')
+  await expect(notice).toHaveText('Group edit refused for test')
+  await expect(parent).toHaveAttribute('aria-busy', 'false')
+  await expect(parent).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('option', { name: 'Controls', exact: true })).toHaveClass(/active/)
+  expect(await children()).toEqual([])
+  expect(await items()).toHaveLength(1)
+  await page.screenshot({ path: testInfo.outputPath('group-refused.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await parent.press('Escape')
+  await page.getByRole('button', { name: /^Toggle right rail/ }).click()
+  await parent.click()
+  await parent.press('ArrowDown')
+  await expect(notice).toBeInViewport()
+  await page.screenshot({ path: testInfo.outputPath('group-refused-narrow.png') })
+  await parent.press('Enter')
+  await settle(1, 'accept')
+  await expect(parent).toHaveText('Controls')
+  await expect(parent).toHaveAttribute('aria-expanded', 'false')
+  await expect(notice).toHaveCount(0)
+  expect(await children()).toHaveLength(1)
+  const placement = (await children())[0]
+  expect(await items()).toEqual(expect.arrayContaining([expect.objectContaining({ id: placement, kind: 'control', ref: { graphId: 'g0', nodeId: 'widgets', inputId: 'title' } })]))
+  await page.screenshot({ path: testInfo.outputPath('group-accepted.png') })
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  await expect(parent).toHaveText('Top level')
+  expect(await items()).toHaveLength(1)
+  await parent.click()
+  await page.getByRole('option', { name: 'Controls', exact: true }).click()
+  await parent.press('Escape')
+  await parent.click()
+  await settle(2, 'refuse')
+  await expect(notice).toHaveCount(0)
+  await expect(parent).toHaveAttribute('aria-expanded', 'true')
+  await page.getByRole('option', { name: 'Controls', exact: true }).click()
+  await settle(3, 'accept')
+  await expect(parent).toHaveText('Controls')
+  await parent.click()
+  await page.getByRole('option', { name: 'Top level', exact: true }).click()
+  await expect(parent).toHaveText('Controls')
+  await settle(4, 'refuse')
+  await expect(notice).toHaveText('Group edit refused for test')
+  await expect(parent).toHaveText('Controls')
+  expect(await children()).toHaveLength(1)
+  await page.screenshot({ path: testInfo.outputPath('group-move-refused.png') })
+  await parent.press('Enter')
+  await settle(5, 'accept')
+  await expect(parent).toHaveText('Top level')
+  expect(await children()).toEqual([])
+  expect(await items()).toHaveLength(2)
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  await expect(parent).toHaveText('Controls')
+  await parent.click()
+  await page.getByRole('option', { name: 'Top level', exact: true }).click()
+  await settle(6, 'throw')
+  await expect(notice).toHaveText('Group transport failed for test')
+  await expect(parent).toHaveAttribute('aria-busy', 'false')
+  await expect(parent).toHaveText('Controls')
+})
+
 test('layout gestures await acceptance before focus and stored placement changes', {
   annotation: { type: 'mock-rename-dispatch' },
 }, async ({ page }, testInfo) => {

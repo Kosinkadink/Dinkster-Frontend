@@ -815,7 +815,8 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     parentId: string | undefined,
     index: number,
     grid?: AppLayoutGrid,
-  ): void => {
+    stillWanted: () => boolean = () => true,
+  ) => {
     const id = freshLayoutId(item.kind)
     const preview = item.kind === 'preview'
       ? previewCandidates().find((row) => exposedPreviewKey(row.entry) === item.previewKey)
@@ -823,24 +824,22 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     const placement: Json = item.kind === 'control'
       ? { id, kind: 'control', ref: { ...item.row.entry }, ...(grid ?? {}) }
       : { id, kind: 'preview', ref: { graphId: preview!.entry.graphId, nodeId: preview!.entry.nodeId }, ...(grid ?? {}) }
-    dispatchLayout('app.layout.add', {
+    return gestureEdit.commit('app.layout.add', {
       item: placement,
       parentId: parentId ?? null,
       index,
-    })
+    }, stillWanted)
   }
 
-  const moveFlowItem = (item: FlowItem, parentId: string | undefined, index: number): void => {
+  const moveFlowItem = (item: FlowItem, parentId: string | undefined, index: number, stillWanted: () => boolean = () => true) => {
     if (item.kind === 'group') {
-      dispatchLayout('app.layout.move', { id: item.item.id, parentId: null, index })
-      return
+      return gestureEdit.commit('app.layout.move', { id: item.item.id, parentId: null, index }, stillWanted)
     }
     if (item.kind === 'text' || item.kind === 'queue' || item.kind === 'missing') {
-      dispatchLayout('app.layout.move', { id: item.item.id, parentId: parentId ?? null, index })
-      return
+      return gestureEdit.commit('app.layout.move', { id: item.item.id, parentId: parentId ?? null, index }, stillWanted)
     }
-    if (item.layoutId === undefined) addAutomaticPlacement(item, parentId, index)
-    else dispatchLayout('app.layout.move', { id: item.layoutId, parentId: parentId ?? null, index })
+    if (item.layoutId === undefined) return addAutomaticPlacement(item, parentId, index, undefined, stillWanted)
+    return gestureEdit.commit('app.layout.move', { id: item.layoutId, parentId: parentId ?? null, index }, stillWanted)
   }
 
   const flowLabel = (item: FlowItem): string => {
@@ -1358,13 +1357,13 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             ...groups().map((group) => ({ id: group.id, label: group.title, value: group.id })),
           ]}
           selectedId={parentId() ?? ''}
-          onSelect={(option) => {
+          onSelectAsync={async (option, stillWanted) => {
             const target = option.value || undefined
-            if (target === parentId()) return
+            if (target === parentId()) return true
             const index = target === undefined
               ? topLevelLayoutCount()
               : layoutGroups().find((group) => group.id === target)?.children.length ?? 0
-            moveFlowItem(selectProps.item, target, index)
+            return moveFlowItem(selectProps.item, target, index, stillWanted)
           }}
         />
       </Show>
@@ -1392,20 +1391,20 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       setRefusal(undefined)
       onCleanup(() => { generation++ })
     })
-    const commit = async (command: string, params: Json): Promise<boolean> => {
+    const commit = async (command: string, params: Json, stillWanted: () => boolean = () => true) => {
       const tab = activeTab()
-      if (!current || !tab || !arrange() || frozen() || pending()) return false
+      if (!current || !stillWanted() || !tab || !arrange() || frozen() || pending()) return false
       const owner = generation
       const store = tab.store
       setPending(true)
       setRefusal(undefined)
       try {
         const outcome = await dispatchLayout(command, params)
-        if (owner !== generation || activeTab()?.store !== store) return false
+        if (!stillWanted() || owner !== generation || activeTab()?.store !== store) return false
         if (outcome !== undefined && !outcome.ok) setRefusal(outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))
         return outcome?.ok === true
       } catch (error) {
-        if (owner === generation && activeTab()?.store === store) {
+        if (stillWanted() && owner === generation && activeTab()?.store === store) {
           setRefusal(error instanceof Error ? error.message : String(error))
         }
         return false

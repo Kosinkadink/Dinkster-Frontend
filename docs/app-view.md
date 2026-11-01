@@ -78,6 +78,12 @@ ignored while pending. Escape, Tab or an outside click dismisses the menu
 without cancelling a submitted command, and an old completion cannot close a
 newer menu or show a stale refusal.
 
+The Arrange group selector also waits for final command acceptance. Its menu
+stays open while creating an automatic placement or moving an existing one;
+refusal leaves the stored parent unchanged and shows the layout notice above
+the Arrange controls. Retry the active option with Enter. Dismissing the menu
+invalidates its completion notices without cancelling the submitted command.
+
 Grid move/resize gestures and mobile reorder gestures/buttons wait for final
 command acceptance. While a gesture command is pending, further gestures are
 ignored and mobile reorder buttons are disabled. Stored positions and order
