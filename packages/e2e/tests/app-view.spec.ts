@@ -646,6 +646,101 @@ test('combo authored menus and refresh selections await final outcomes', {
   await page.screenshot({ path: info.outputPath('combo-refresh-accepted.png') })
 })
 
+test('boolean and combo controls wait for final command acceptance', {
+  annotation: { type: 'mock-rename-dispatch' },
+}, async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    for (const inputId of ['enabled', 'choice']) app.dispatchTo(app.activeTab()!, {
+      command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId },
+    })
+  })
+  await selectView(page, 'App view')
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__choicePending = []
+    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
+      ;(window as any).__choicePending.push((accepted: boolean) => resolve(accepted ? dispatch(tab, invocation) : {
+        ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Choice edit refused for test' }],
+      }))
+    })
+  })
+  const toggle = page.getByTestId('app-view-boolean')
+  const combo = page.getByTestId('app-view-combo')
+  const count = () => page.evaluate(() => (window as any).__choicePending.length)
+  const settle = (index: number, accepted: boolean) => page.evaluate(({ index, accepted }) => (window as any).__choicePending[index](accepted), { index, accepted })
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await expect(combo).toHaveText('alpha')
+  await page.screenshot({ path: testInfo.outputPath('choice-default.png') })
+  await toggle.click()
+  await expect(toggle).toBeDisabled()
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await toggle.dispatchEvent('click')
+  expect(await count()).toBe(1)
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.enabled).toBeUndefined()
+  await page.screenshot({ path: testInfo.outputPath('boolean-pending.png') })
+  await settle(0, false)
+  await expect(toggle).toBeEnabled()
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await expect(page.getByTestId('app-view-error')).toHaveText('Choice edit refused for test')
+  await page.screenshot({ path: testInfo.outputPath('boolean-refused.png') })
+  await toggle.click()
+  await settle(1, true)
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  await expect(toggle).toBeEnabled()
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await combo.click()
+  await page.getByRole('option', { name: 'beta', exact: true }).click()
+  await expect(combo).toHaveAttribute('aria-expanded', 'true')
+  await expect(combo).toHaveAttribute('aria-busy', 'true')
+  await expect(combo).toHaveText('alpha')
+  await combo.press('Enter')
+  await page.getByRole('option', { name: 'gamma', exact: true }).dispatchEvent('click')
+  expect(await count()).toBe(3)
+  await page.screenshot({ path: testInfo.outputPath('combo-pending.png') })
+  await settle(2, false)
+  await expect(combo).toHaveAttribute('aria-busy', 'false')
+  await expect(combo).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('option', { name: 'beta', exact: true })).toHaveClass(/active/)
+  await expect(page.getByTestId('app-view-error')).toHaveText('Choice edit refused for test')
+  await expect.poll(async () => {
+    const notice = await page.getByTestId('app-view-error').boundingBox()
+    const trigger = await combo.boundingBox()
+    return notice !== null && trigger !== null && notice.y + notice.height <= trigger.y
+  }).toBe(true)
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.choice).toBeUndefined()
+  await page.screenshot({ path: testInfo.outputPath('combo-refused.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await combo.press('Escape')
+  await page.getByRole('button', { name: /^Toggle right rail/ }).click()
+  await combo.click()
+  await combo.press('ArrowDown')
+  await expect(page.getByTestId('app-view-error')).toBeInViewport()
+  await page.screenshot({ path: testInfo.outputPath('combo-refused-narrow.png') })
+  await combo.press('Enter')
+  await settle(3, true)
+  await expect(combo).toHaveText('beta')
+  await expect(combo).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByTestId('app-view-error')).toHaveCount(0)
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.choice).toBe('beta')
+  await page.screenshot({ path: testInfo.outputPath('choice-accepted.png') })
+  await combo.click()
+  await page.getByRole('option', { name: 'gamma', exact: true }).click()
+  await combo.press('Escape')
+  await combo.click()
+  await page.getByRole('option', { name: 'alpha', exact: true }).click()
+  await settle(4, false)
+  await expect(combo).toHaveAttribute('aria-busy', 'true')
+  await expect(page.getByTestId('app-view-error')).toHaveCount(0)
+  await settle(5, true)
+  await expect(combo).toHaveText('alpha')
+  await expect(combo).toHaveAttribute('aria-expanded', 'false')
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  await expect(combo).toHaveText('beta')
+})
+
 test('inline number drafts await typed and stepped command acceptance', {
   annotation: { type: 'mock-rename-dispatch' },
 }, async ({ page }, testInfo) => {

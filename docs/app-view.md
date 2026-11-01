@@ -71,6 +71,13 @@ the exact typed text or proposed step; Enter retries it and Escape restores the
 stored number and clears its notice. Blur does not retry an unchanged refused
 number. Integer stepping stays exact beyond JavaScript's safe-integer range.
 
+Boolean toggles are disabled while their command is pending and display only
+the stored value. Combo menus remain open during pending selection and refusal;
+the stored selection changes only after acceptance. Duplicate selections are
+ignored while pending. Escape, Tab or an outside click dismisses the menu
+without cancelling a submitted command, and an old completion cannot close a
+newer menu or show a stale refusal.
+
 App View uses the shared Product button, text, number, checkbox and select
 controls in both modes. Group and text-style selectors support the same
 combobox keyboard navigation and focus restoration as shell settings.

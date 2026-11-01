@@ -1210,11 +1210,11 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       }}
       onFocus={() => loadRemoteOptions(controlProps.row)}
       onPointerDown={() => loadRemoteOptions(controlProps.row)}
-      onSelect={async (option) => {
+      onSelectAsync={async (option, stillWanted) => {
         // Committing rebuilds the row list, remounting this trigger; restore
         // focus onto the replacement element once the rebuild has flushed.
         const key = rowKey(controlProps.row.entry)
-        if (!await commit(controlProps.row, option.value)) return
+        if (!await commit(controlProps.row, option.value, stillWanted)) return false
         queueMicrotask(() => {
           // Compare attribute values in JS rather than via a CSS selector:
           // CSS.escape cannot round-trip U+0000, which a valid lineage-derived
@@ -1226,6 +1226,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             }
           }
         })
+        return true
       }}
     />
   }
@@ -1684,6 +1685,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   }) => {
     const row = () => controlProps.flow.row
     const liveRow = (): Extract<ParamRow, { kind: 'live' }> => row() as Extract<ParamRow, { kind: 'live' }>
+    const comboControl = (): boolean => liveRow().spec?.widgetType === 'COMBO'
     const accessibleLabelId = `app-view-control-${createUniqueId()}`
     const label = (): string => {
       const current = row()
@@ -1700,6 +1702,18 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     }
     const InlineControl = () => {
       const spec = () => liveRow().spec!
+      const [booleanPending, setBooleanPending] = createSolidSignal(false)
+      let booleanLive = true
+      onCleanup(() => { booleanLive = false })
+      const commitBoolean = async (checked: boolean): Promise<void> => {
+        if (booleanPending()) return
+        setBooleanPending(true)
+        try {
+          await commit(liveRow(), checked, () => booleanLive)
+        } finally {
+          if (booleanLive) setBooleanPending(false)
+        }
+      }
       const stringValue = (): string => {
         const value = liveRow().value
         return typeof value === 'string' ? value : ''
@@ -1756,7 +1770,8 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               testId="app-view-boolean"
               ariaLabel={message('appView.control.toggle', { label: liveRow().label })}
               checked={liveRow().value === true}
-              onChange={(checked) => commit(liveRow(), checked)}
+              disabled={booleanPending()}
+              onChange={(checked) => void commitBoolean(checked)}
             />
           </Match>
           <Match when={spec().widgetType === 'COLOR'}>
@@ -1767,7 +1782,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               onCommit={(value, stillWanted) => commit(liveRow(), value, stillWanted)}
             />
           </Match>
-          <Match when={spec().widgetType === 'COMBO'}>
+          <Match when={comboControl()}>
             <ComboControl row={liveRow()} />
           </Match>
           <Match when={spec().widgetType === 'VIDEO_EDIT'}>
@@ -1887,6 +1902,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         >
           <>
             <AppWidgetPreview row={liveRow()} registry={widgetRegistry()} />
+            <Show when={comboControl() && errors().get(rowKey(row().entry))}>
+              {(text) => <ProductNotice tone="error" testId="app-view-error">{text()}</ProductNotice>}
+            </Show>
             <Show
               when={editable(liveRow())}
               fallback={
@@ -1898,7 +1916,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             >
               <InlineControl />
             </Show>
-            <Show when={errors().get(rowKey(row().entry))}>
+            <Show when={!comboControl() && errors().get(rowKey(row().entry))}>
               {(message) => <ProductNotice tone="error" testId="app-view-error">{message()}</ProductNotice>}
             </Show>
             <Show when={(() => {

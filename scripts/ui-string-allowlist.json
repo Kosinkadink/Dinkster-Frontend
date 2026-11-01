@@ -697,11 +697,14 @@
     "text:props.integer === true ? safeInteger(raw()) : valid(raw()) ? Number(raw()) : undefined return ("
   ],
   "ProductSelect.tsx": [
-    "text:[] readonly selectedId: string readonly onSelect: (option: ProductSelectOption",
+    "text:): Promise",
+    "text:Promise",
+    "text:[] readonly selectedId: string readonly onSelect?: (option: ProductSelectOption",
     "text:option.id === props.selectedId) const selectedOption = (): ProductSelectOption",
+    "text:readonly id?: string readonly class?: string readonly testId?: string readonly ariaLabel?: string readonly ariaLabelledBy?: string readonly ariaDescribedBy?: string | undefined readonly ariaInvalid?: boolean readonly disabled?: boolean readonly dataAttributes?: Readonly",
     "text:readonly onFocus?: JSX.EventHandlerUnion",
     "text:readonly onPointerDown?: JSX.EventHandlerUnion",
-    "text:void readonly id?: string readonly class?: string readonly testId?: string readonly ariaLabel?: string readonly ariaLabelledBy?: string readonly ariaDescribedBy?: string | undefined readonly ariaInvalid?: boolean readonly disabled?: boolean readonly dataAttributes?: Readonly"
+    "text:void readonly onSelectAsync?: (option: ProductSelectOption"
   ],
   "ProductSlider.tsx": [
     "text:props.min ? ((value() - props.min) / (props.max - props.min)) * 100 : 0 return ("

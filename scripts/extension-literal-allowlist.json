@@ -91,7 +91,15 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1722,
+      "line": 1688,
+      "column": 41,
+      "symbol": "widgetType:COMBO",
+      "issue": 122
+    },
+    {
+      "kind": "widgetTypeComparison",
+      "path": "packages/app/src/AppView.tsx",
+      "line": 1736,
       "column": 24,
       "symbol": "widgetType:LIST",
       "issue": 511
@@ -99,7 +107,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1737,
+      "line": 1751,
       "column": 24,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -107,7 +115,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1737,
+      "line": 1751,
       "column": 55,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -115,7 +123,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1741,
+      "line": 1755,
       "column": 26,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -123,7 +131,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1742,
+      "line": 1756,
       "column": 24,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -131,7 +139,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1747,
+      "line": 1761,
       "column": 52,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -139,7 +147,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1753,
+      "line": 1767,
       "column": 24,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -147,7 +155,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1762,
+      "line": 1777,
       "column": 24,
       "symbol": "widgetType:COLOR",
       "issue": 122
@@ -155,15 +163,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1770,
-      "column": 24,
-      "symbol": "widgetType:COMBO",
-      "issue": 122
-    },
-    {
-      "kind": "widgetTypeComparison",
-      "path": "packages/app/src/AppView.tsx",
-      "line": 1773,
+      "line": 1788,
       "column": 24,
       "symbol": "widgetType:VIDEO_EDIT",
       "issue": 122
