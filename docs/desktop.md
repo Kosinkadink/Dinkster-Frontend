@@ -149,6 +149,10 @@ on the backend machine; the form does not store network credentials.
 
 Native folder choice is offered only when the Desktop shell reports
 `fileCapabilities(backendUrl).nativeFolderChoice` for the current connection.
+Native file methods are detected independently of the full Desktop lifecycle
+bridge. A file-only local engine window uses ordinary backend discovery and
+workspace startup without calling shell locale, setup, management or window
+lifecycle methods. Full-shell workspaces retain those lifecycle controls.
 The empty same-origin connection URL resolves to the window's web host URL;
 the renderer does not infer native access from a local-looking address.
 Picker cancellation leaves the form unchanged; picker errors are displayed.

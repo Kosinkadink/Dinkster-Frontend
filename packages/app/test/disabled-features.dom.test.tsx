@@ -15,8 +15,25 @@ afterEach(() => {
   dispose?.()
   dispose = undefined
   app.dispose()
+  delete window.dinksterDesktop
   document.body.replaceChildren()
   localStorage.clear()
+})
+
+it('mounts the ordinary workspace with a file-only bridge and no lifecycle methods', () => {
+  window.dinksterDesktop = {
+    fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: true }),
+    chooseDirectory: async () => undefined,
+    revealFile: async () => ({ mode: 'selected' }),
+    resolveDroppedFile: async () => ({ status: 'refused', reason: 'not-resolvable' }),
+  }
+  app = new AppState()
+  const host = document.createElement('div')
+  document.body.append(host)
+  dispose = render(() => <App app={app} />, host)
+  expect(host.querySelector('[data-testid="canvas-stub"]')).not.toBeNull()
+  expect(host.querySelector('[data-testid="desktop-management-button"]')).toBeNull()
+  expect(app.activeTab()).toBeDefined()
 })
 
 it('does not register disabled template surfaces and withdraws enabled surfaces', async () => {

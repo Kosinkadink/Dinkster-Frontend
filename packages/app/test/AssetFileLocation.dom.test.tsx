@@ -2,12 +2,48 @@ import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AssetFileLocation } from '../src/AssetFileLocation.js'
-import { resolveDroppedAsset, type DinksterDesktopBridge } from '../src/desktop-bridge.js'
+import { MountFolderForm } from '../src/MountFolderForm.js'
+import { desktopBridge, desktopFileBridge, resolveDroppedAsset, type DinksterDesktopBridge } from '../src/desktop-bridge.js'
 
 const digest = `blake3:${'a'.repeat(64)}`
 afterEach(() => { delete window.dinksterDesktop; document.body.replaceChildren(); vi.restoreAllMocks() })
 
 describe('exact asset location actions', () => {
+  it('detects native files independently while preserving the full lifecycle bridge', () => {
+    expect(desktopBridge()).toBeUndefined()
+    expect(desktopFileBridge()).toBeUndefined()
+    const files = {
+      fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: true }),
+      chooseDirectory: async () => undefined,
+    }
+    window.dinksterDesktop = files
+    expect(desktopBridge()).toBeUndefined()
+    expect(desktopFileBridge()).toBe(files)
+    for (const lifecycle of [{ locale: async () => 'en' }, { status: async () => ({ phase: 'running' }) }, { locale: 'en', status: 'running' }]) {
+      window.dinksterDesktop = { ...files, ...lifecycle } as unknown as DinksterDesktopBridge
+      expect(desktopBridge()).toBeUndefined()
+    }
+    const full = { ...files, locale: async () => 'en', status: async () => ({ phase: 'running', detail: '' }) } as unknown as DinksterDesktopBridge
+    window.dinksterDesktop = full
+    expect(desktopBridge()).toBe(full)
+    expect(desktopFileBridge()).toBe(full)
+  })
+
+  it('offers native folder choice with only the file bridge', async () => {
+    const chooseDirectory = vi.fn(async () => '/native/models')
+    window.dinksterDesktop = { fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: false }), chooseDirectory }
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <MountFolderForm connection={{ addMount: vi.fn() }} backendUrl="" />, root)
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain('Choose folder'))
+      ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Choose folder')!.click()
+      await vi.waitFor(() => expect(root.textContent).toContain('/native/models'))
+      expect(chooseDirectory).toHaveBeenCalledWith(`${window.location.origin}/`)
+      expect(desktopBridge()).toBeUndefined()
+    } finally { dispose() }
+  })
+
   it.each([undefined, false])('does not send a File when resolvePath is %s and fails closed on capability errors', async (resolvePath) => {
     const resolveDroppedFile = vi.fn()
     const file = new File(['original'], 'original.png', { type: 'image/png' })
