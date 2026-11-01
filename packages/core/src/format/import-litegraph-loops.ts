@@ -1,58 +1,57 @@
-import { diag, type Diagnostic } from '../diagnostics.js'
-import { STRUCTURAL_IMPORT_HELPERS } from '../extensions/import-helpers.js'
-import type { LinkEndpoint } from '../ids.js'
-import { traceEndpoint } from '../reroute.js'
-import { deriveBoundarySchema } from '../schema/derive-boundary.js'
+import { diag, type Diagnostic } from "../diagnostics.js";
+import { STRUCTURAL_IMPORT_HELPERS } from "../extensions/import-helpers.js";
+import type { LinkEndpoint } from "../ids.js";
+import { traceEndpoint } from "../reroute.js";
+import { deriveBoundarySchema } from "../schema/derive-boundary.js";
 import {
   elaborateInterface,
   elabInputsOf,
   elabOutputsOf,
   elabKeyOf,
-} from '../schema/elaborate.js'
-import { solveGraphTypes } from '../schema/solve.js'
+} from "../schema/elaborate.js";
+import { solveGraphTypes } from "../schema/solve.js";
 import {
   cardinalityOf,
-  canonicalTypeIdOf,
   inputsOf,
   outputsOf,
   type NodeSchema,
   type TypeExpr,
-} from '../schema/model.js'
-import { typesCompatible } from '../schema/type-relations.js'
+} from "../schema/model.js";
+import { typesCompatible } from "../schema/type-relations.js";
 import type {
   GraphDef,
   Json,
   JsonObject,
   NodeData,
   RegionContract,
-} from './document.js'
+} from "./document.js";
 
-type Mutable = { [key: string]: any }
+type Mutable = { [key: string]: any };
 
 interface RawNode {
-  readonly id: number
-  readonly type: string
-  readonly inputs?: readonly { readonly name?: string }[]
-  readonly outputs?: readonly { readonly name?: string }[]
-  readonly widgets_values?: readonly Json[] | Readonly<Record<string, Json>>
+  readonly id: number;
+  readonly type: string;
+  readonly inputs?: readonly { readonly name?: string }[];
+  readonly outputs?: readonly { readonly name?: string }[];
+  readonly widgets_values?: readonly Json[] | Readonly<Record<string, Json>>;
 }
 
 interface RawLink {
-  readonly id: number
-  readonly from: number
-  readonly fromSlot: number
-  readonly to: number
-  readonly toSlot: number
+  readonly id: number;
+  readonly from: number;
+  readonly fromSlot: number;
+  readonly to: number;
+  readonly toSlot: number;
 }
 
 interface LoopPair {
-  readonly start: number
-  readonly end: number
-  readonly body: ReadonlySet<number>
+  readonly start: number;
+  readonly end: number;
+  readonly body: ReadonlySet<number>;
 }
 
 const object = (value: unknown): value is JsonObject =>
-  value !== null && typeof value === 'object' && !Array.isArray(value)
+  value !== null && typeof value === "object" && !Array.isArray(value);
 
 const walk = (
   starts: Iterable<number>,
@@ -60,69 +59,69 @@ const walk = (
   stops: ReadonlySet<number> = new Set(),
   returnStops = false,
 ): Set<number> => {
-  const found = new Set<number>()
-  const reachedStops = new Set<number>()
-  const pending = [...starts]
+  const found = new Set<number>();
+  const reachedStops = new Set<number>();
+  const pending = [...starts];
   while (pending.length > 0) {
-    const id = pending.pop()!
-    if (found.has(id)) continue
-    found.add(id)
-    if (stops.has(id)) reachedStops.add(id)
-    else pending.push(...(edges.get(id) ?? []))
+    const id = pending.pop()!;
+    if (found.has(id)) continue;
+    found.add(id);
+    if (stops.has(id)) reachedStops.add(id);
+    else pending.push(...(edges.get(id) ?? []));
   }
-  return returnStops ? reachedStops : found
-}
+  return returnStops ? reachedStops : found;
+};
 
 const loopError = (
   diagnostics: Diagnostic[],
   code: string,
   message: string,
 ): void => {
-  diagnostics.push(diag('error', 'import', `import.loop.${code}`, message))
-}
+  diagnostics.push(diag("error", "import", `import.loop.${code}`, message));
+};
 
 function pairLoops(
   nodes: readonly RawNode[],
   links: readonly RawLink[],
   diagnostics: Diagnostic[],
 ): readonly LoopPair[] {
-  const ids = new Set(nodes.map((node) => node.id))
+  const ids = new Set(nodes.map((node) => node.id));
   const children = new Map<number, Set<number>>(
     [...ids].map((id) => [id, new Set()]),
-  )
+  );
   const parents = new Map<number, Set<number>>(
     [...ids].map((id) => [id, new Set()]),
-  )
+  );
   for (const link of links) {
-    if (!ids.has(link.from) || !ids.has(link.to)) continue
-    children.get(link.from)!.add(link.to)
-    parents.get(link.to)!.add(link.from)
+    if (!ids.has(link.from) || !ids.has(link.to)) continue;
+    children.get(link.from)!.add(link.to);
+    parents.get(link.to)!.add(link.from);
   }
   const starts = new Set(
-    nodes.filter((node) => node.type === 'StartLoop').map((node) => node.id),
-  )
+    nodes.filter((node) => node.type === "StartLoop").map((node) => node.id),
+  );
   const ends = new Set(
-    nodes.filter((node) => node.type === 'EndLoop').map((node) => node.id),
-  )
-  if (starts.size === 0 && ends.size === 0) return []
+    nodes.filter((node) => node.type === "EndLoop").map((node) => node.id),
+  );
+  if (starts.size === 0 && ends.size === 0) return [];
   const terminal = new Set(
     [...ids].filter((id) => children.get(id)!.size === 0),
-  )
-  const startDag = new Map<number, Set<number>>()
-  const startDescendants = new Map<number, Set<number>>()
+  );
+  const startDag = new Map<number, Set<number>>();
+  const startDescendants = new Map<number, Set<number>>();
   for (const start of starts) {
-    const direct = walk(children.get(start)!, children, starts, true)
-    startDag.set(start, direct)
+    const direct = walk(children.get(start)!, children, starts, true);
+    startDag.set(start, direct);
   }
   for (const start of starts)
-    startDescendants.set(start, walk(startDag.get(start)!, startDag))
-  const endDag = new Map<number, Set<number>>()
+    startDescendants.set(start, walk(startDag.get(start)!, startDag));
+  const endDag = new Map<number, Set<number>>();
   for (const end of ends)
-    endDag.set(end, walk(parents.get(end)!, parents, ends, true))
+    endDag.set(end, walk(parents.get(end)!, parents, ends, true));
 
-  const remainingStarts = new Set(starts)
-  const remainingEnds = new Set(ends)
-  const paired: { start: number; end: number }[] = []
+  const remainingStarts = new Set(starts);
+  const remainingEnds = new Set(ends);
+  const paired: { start: number; end: number }[] = [];
   while (remainingEnds.size > 0) {
     const end = [...remainingEnds]
       .sort((a, b) => a - b)
@@ -131,175 +130,175 @@ function pairLoops(
           ![...(endDag.get(candidate) ?? [])].some((id) =>
             remainingEnds.has(id),
           ),
-      )
-    if (end === undefined) break
-    const candidates = walk(parents.get(end)!, parents, remainingStarts, true)
+      );
+    if (end === undefined) break;
+    const candidates = walk(parents.get(end)!, parents, remainingStarts, true);
     if (candidates.size === 0) {
       loopError(
         diagnostics,
-        'unmatchedEnd',
+        "unmatchedEnd",
         `End Loop ${end} has no available Start Loop`,
-      )
-      return []
+      );
+      return [];
     }
     const closest = [...candidates].filter((candidate) =>
       [...candidates].every(
         (other) =>
           other === candidate || startDescendants.get(other)?.has(candidate),
       ),
-    )
+    );
     if (closest.length !== 1) {
       loopError(
         diagnostics,
-        'ambiguousNesting',
-        `End Loop ${end} can close multiple unrelated Start Loops: ${[...candidates].sort((a, b) => a - b).join(', ')}`,
-      )
-      return []
+        "ambiguousNesting",
+        `End Loop ${end} can close multiple unrelated Start Loops: ${[...candidates].sort((a, b) => a - b).join(", ")}`,
+      );
+      return [];
     }
-    const start = closest[0]!
-    remainingStarts.delete(start)
-    remainingEnds.delete(end)
-    const stops = new Set([...remainingEnds, ...terminal, end])
-    const escapes = walk(children.get(start)!, children, stops, true)
-    escapes.delete(end)
+    const start = closest[0]!;
+    remainingStarts.delete(start);
+    remainingEnds.delete(end);
+    const stops = new Set([...remainingEnds, ...terminal, end]);
+    const escapes = walk(children.get(start)!, children, stops, true);
+    escapes.delete(end);
     if (escapes.size > 0) {
       loopError(
         diagnostics,
-        'bodyEscape',
-        `Start Loop ${start} reaches ${[...escapes].sort((a, b) => a - b).join(', ')} without passing through End Loop ${end}`,
-      )
-      return []
+        "bodyEscape",
+        `Start Loop ${start} reaches ${[...escapes].sort((a, b) => a - b).join(", ")} without passing through End Loop ${end}`,
+      );
+      return [];
     }
-    paired.push({ start, end })
+    paired.push({ start, end });
   }
   if (remainingStarts.size > 0) {
     loopError(
       diagnostics,
-      'unmatchedStart',
-      `Start Loops without End Loops: ${[...remainingStarts].sort((a, b) => a - b).join(', ')}`,
-    )
-    return []
+      "unmatchedStart",
+      `Start Loops without End Loops: ${[...remainingStarts].sort((a, b) => a - b).join(", ")}`,
+    );
+    return [];
   }
   return paired.map(({ start, end }) => {
-    const body = walk(children.get(start)!, children, new Set([end]))
-    body.delete(end)
+    const body = walk(children.get(start)!, children, new Set([end]));
+    body.delete(end);
     const accumulate = links.find(
       (link) =>
         link.to === end &&
         nodes.find((node) => node.id === end)?.inputs?.[link.toSlot]?.name ===
-          'accumulate',
-    )
+          "accumulate",
+    );
     if (
       accumulate !== undefined &&
       (accumulate.from === start || body.has(accumulate.from))
     ) {
       loopError(
         diagnostics,
-        'accumulateFromBody',
+        "accumulateFromBody",
         `End Loop ${end} accumulate is driven by loop node ${accumulate.from} under Start Loop ${start}`,
-      )
+      );
     }
-    return { start, end, body }
-  })
+    return { start, end, body };
+  });
 }
 
 const widgetRecord = (node: RawNode): Readonly<Record<string, Json>> =>
-  object(node.widgets_values) ? node.widgets_values : {}
+  object(node.widgets_values) ? node.widgets_values : {};
 
 interface StartSettings {
-  readonly mode: Json
-  readonly start: Json
-  readonly stop: Json
-  readonly step: Json
-  readonly cacheIterations: boolean
+  readonly mode: Json;
+  readonly start: Json;
+  readonly stop: Json;
+  readonly step: Json;
+  readonly cacheIterations: boolean;
 }
 
 const startSettings = (node: RawNode): StartSettings => {
-  const widgets = widgetRecord(node)
+  const widgets = widgetRecord(node);
   if (!Array.isArray(node.widgets_values)) {
-    const mode = widgets['mode'] ?? 'simple'
+    const mode = widgets["mode"] ?? "simple";
     return {
       mode,
-      start: mode === 'For' ? (widgets['mode.start_iteration_index'] ?? 0) : 0,
+      start: mode === "For" ? (widgets["mode.start_iteration_index"] ?? 0) : 0,
       stop:
-        mode === 'For'
-          ? (widgets['mode.max_iteration'] ?? 4)
-          : (widgets['mode.num_iterations'] ?? 4),
-      step: mode === 'For' ? (widgets['mode.step'] ?? 1) : 1,
-      cacheIterations: widgets['cache_iterations'] === true,
-    }
+        mode === "For"
+          ? (widgets["mode.max_iteration"] ?? 4)
+          : (widgets["mode.num_iterations"] ?? 4),
+      step: mode === "For" ? (widgets["mode.step"] ?? 1) : 1,
+      cacheIterations: widgets["cache_iterations"] === true,
+    };
   }
-  const [mode = 'simple', first, second, third, fourth] = node.widgets_values
-  if (mode === 'For') {
+  const [mode = "simple", first, second, third, fourth] = node.widgets_values;
+  if (mode === "For") {
     return {
       mode,
       start: first ?? 0,
       stop: second ?? 4,
       step: third ?? 1,
       cacheIterations: fourth === true,
-    }
+    };
   }
-  if (mode === 'List')
+  if (mode === "List")
     return {
       mode,
       start: 0,
       stop: 0,
       step: 1,
       cacheIterations: first === true,
-    }
+    };
   return {
     mode,
     start: 0,
     stop: first ?? 4,
     step: 1,
     cacheIterations: second === true,
-  }
-}
+  };
+};
 
 const rangeValues = (
   node: RawNode,
   diagnostics: Diagnostic[],
 ):
   | {
-      mode: 'range'
-      values: Json[]
-      start: number
-      stop: number
-      step: number
+      mode: "range";
+      values: Json[];
+      start: number;
+      stop: number;
+      step: number;
     }
-  | { mode: 'list' }
+  | { mode: "list" }
   | undefined => {
-  const { mode, start, stop, step } = startSettings(node)
-  if (mode === 'List') return { mode: 'list' }
-  if (mode !== 'simple' && mode !== 'For') {
+  const { mode, start, stop, step } = startSettings(node);
+  if (mode === "List") return { mode: "list" };
+  if (mode !== "simple" && mode !== "For") {
     loopError(
       diagnostics,
-      'modeUnsupported',
+      "modeUnsupported",
       `Start Loop ${node.id} has unsupported mode ${JSON.stringify(mode)}`,
-    )
-    return undefined
+    );
+    return undefined;
   }
   if (
     ![start, stop, step].every(
-      (value) => typeof value === 'number' && Number.isSafeInteger(value),
+      (value) => typeof value === "number" && Number.isSafeInteger(value),
     )
   ) {
     loopError(
       diagnostics,
-      'modeUnsupported',
+      "modeUnsupported",
       `Start Loop ${node.id} has non-integer range widgets`,
-    )
-    return undefined
+    );
+    return undefined;
   }
   if (step === 0) {
     loopError(
       diagnostics,
-      'rangeStep',
+      "rangeStep",
       `Start Loop ${node.id} step must not be zero`,
-    )
-    return undefined
+    );
+    return undefined;
   }
-  const values: Json[] = []
+  const values: Json[] = [];
   for (
     let value = start as number;
     (step as number) > 0 ? value < (stop as number) : value > (stop as number);
@@ -308,333 +307,132 @@ const rangeValues = (
     if (values.length >= 100_000) {
       loopError(
         diagnostics,
-        'budget',
+        "budget",
         `Start Loop ${node.id} exceeds the 100000 iteration import budget`,
-      )
-      return undefined
+      );
+      return undefined;
     }
-    values.push(value)
+    values.push(value);
   }
   return {
-    mode: 'range',
+    mode: "range",
     values,
     start: start as number,
     stop: stop as number,
     step: step as number,
-  }
-}
+  };
+};
 
 const endpointNode = (endpoint: Mutable): string | undefined =>
-  typeof endpoint?.['node'] === 'string' ? endpoint['node'] : undefined
+  typeof endpoint?.["node"] === "string" ? endpoint["node"] : undefined;
 
-const endpointKey = (endpoint: Mutable): string => JSON.stringify(endpoint)
+const endpointKey = (endpoint: Mutable): string => JSON.stringify(endpoint);
 
 const rawPortName = (
   node: RawNode,
-  side: 'inputs' | 'outputs',
+  side: "inputs" | "outputs",
   slot: number,
-): string | undefined => node[side]?.[slot]?.name
+): string | undefined => node[side]?.[slot]?.name;
 
 const startOutputName = (
   port: string,
   resolve: (type: string) => NodeSchema | undefined,
 ): string => {
-  const schema = resolve('StartLoop')
+  const schema = resolve("StartLoop");
   const slot = schema
     ? outputsOf(schema).findIndex((output) => output.id === port)
-    : -1
+    : -1;
   return (
     [
-      'iteration_index',
-      'is_first',
-      'is_last',
-      'list_item',
-      'current_iteration_value',
+      "iteration_index",
+      "is_first",
+      "is_last",
+      "list_item",
+      "current_iteration_value",
     ][slot] ?? port
-  )
-}
+  );
+};
 
 const outputIsList = (
   node: RawNode,
   slot: number,
   resolve: (type: string) => NodeSchema | undefined,
 ): boolean => {
-  const schema = resolve(node.type)
-  if (!schema) return false
-  const name = rawPortName(node, 'outputs', slot)
-  const outputs = outputsOf(schema)
+  const schema = resolve(node.type);
+  if (!schema) return false;
+  const name = rawPortName(node, "outputs", slot);
+  const outputs = outputsOf(schema);
   const output =
     name === undefined
       ? outputs[slot]
-      : (outputs.find((item) => item.id === name) ?? outputs[slot])
-  return output?.isList === true
-}
+      : (outputs.find((item) => item.id === name) ?? outputs[slot]);
+  return output?.isList === true;
+};
 
 const endpointType = (
   graph: Mutable,
   endpoint: Mutable,
-  side: 'input' | 'output',
+  side: "input" | "output",
   resolve: (type: string) => NodeSchema | undefined,
 ): TypeExpr | undefined => {
-  const node = graph['nodes'][endpointNode(endpoint) ?? ''] as
+  const node = graph["nodes"][endpointNode(endpoint) ?? ""] as
     | Mutable
-    | undefined
-  const schema = node && resolve(node['type'])
-  if (!schema || typeof endpoint['port'] !== 'string') return undefined
-  const ports = side === 'input' ? inputsOf(schema) : outputsOf(schema)
-  return ports.find((port) => port.id === endpoint['port'])?.type
-}
-
-/** Lower execution-list utilities to typed list operations, never payload inspection. */
-export function convertLitegraphLists(
-  document: JsonObject,
-  rawNodesValue: readonly unknown[],
-  resolve: (type: string) => NodeSchema | undefined,
-  rawLinksValue: readonly unknown[] = [],
-  diagnostics: Diagnostic[] = [],
-): ReadonlyMap<string, string> {
-  const doc = document as Mutable
-  const graph = doc['graphs']['g0'] as Mutable
-  const view = doc['view']['graphs']['g0'] as Mutable
-  const raw = new Map(
-    rawNodesValue.filter(object).map((node) => [`n${node['id']}`, node]),
-  )
-  const helperOwners = new Map<string, string>()
-  let ordinal = Number(graph['nextOrdinal']) || 1
-  const addLink = (from: Mutable, to: Mutable, ext?: Mutable): void => {
-    const id = `list_link_${ordinal++}`
-    graph['links'][id] = { id, from, to, ...(ext ? { ext } : {}) }
-  }
-  for (const [netId, net] of Object.entries(graph['nets']) as [
-    string,
-    Mutable,
-  ][]) {
-    const previousSinkCount = net['sinks'].length
-    net['sinks'] = net['sinks'].filter((sink: Mutable) => {
-      const type = raw.get(endpointNode(sink) ?? '')?.['type']
-      if (type !== 'CreateList' && type !== 'GetItemFromList') return true
-      addLink({ ...net['source'] }, sink, net['ext'])
-      return false
-    })
-    if (previousSinkCount > 0 && net['sinks'].length === 0)
-      delete graph['nets'][netId]
-  }
-  const links = (): Mutable[] => Object.values(graph['links'])
-  const pairs = pairLoops(
-    rawNodesValue as readonly RawNode[],
-    rawLinksValue.filter(Array.isArray).map((value): RawLink => ({ id: value[0], from: value[1], fromSlot: value[2], to: value[3], toSlot: value[4] })),
-    [],
-  )
-  const incomingTo = (id: string): Mutable[] => links().filter((link) => endpointNode(link['to']) === id)
-  const declaredType = (source: Mutable, seen = new Set<string>()): TypeExpr | undefined => {
-    const trace = traceEndpoint(graph as GraphDef, source as LinkEndpoint)
-    if (trace.kind !== 'output') return undefined
-    source = trace.ref
-    const id = endpointNode(source)
-    if (!id || seen.has(id)) return undefined
-    seen = new Set([...seen, id])
-    const authored = raw.get(id)
-    if (authored?.['type'] === 'CreateList') {
-      const incoming = incomingTo(id)
-      const positions = ((authored['inputs'] as Mutable[]) ?? []).flatMap((input) => incoming.filter((link) => link['to']['port'] === input['name']))
-        .map((link) => declaredType(link['from'], seen))
-      if (positions.some((position) => position === undefined)) return undefined
-      const elements = positions.map((position) => position!.kind === 'list' ? position!.element : position!)
-      const ids = elements.map(canonicalTypeIdOf)
-      if (new Set(ids.filter((type) => type !== undefined)).size > 1) return { kind: 'tuple', elements: positions as TypeExpr[] }
-      return elements[0] === undefined ? undefined : { kind: 'list', element: elements[0] }
-    }
-    if (authored?.['type'] === 'GetItemFromList') {
-      const input = incomingTo(id).find((link) => link['to']['port'] === 'list')
-      const collection = input && declaredType(input['from'], seen)
-      if (collection?.kind === 'list') return collection.element
-      const index = graph['nodes'][id]['values']['index']
-      if (collection?.kind === 'tuple' && Number.isSafeInteger(index)) return collection.elements[index < 0 ? collection.elements.length + index : index]
-      return undefined
-    }
-    if (authored?.['type'] === 'StartLoop' && startOutputName(source['port'], resolve) === 'current_iteration_value') {
-      const initial = incomingTo(id).find((link) => link['to']['port'] === 'initial_iteration_value')
-      const pair = pairs.find((pair) => `n${pair.start}` === id)
-      const next = pair && incomingTo(`n${pair.end}`).find((link) => link['to']['port'] === 'next_iteration_value')
-      return (initial && declaredType(initial['from'], seen)) ?? (next && declaredType(next['from'], seen))
-    }
-    const type = endpointType(graph, source, 'output', resolve)
-    const output = resolve(graph['nodes'][id]['type'])?.items.find((item) => item.kind === 'output' && item.id === source['port'])
-    return type !== undefined && output?.kind === 'output' && output.isList && type.kind !== 'list' ? { kind: 'list', element: type } : type
-  }
-  const collectionTypes = new Map([...raw].map(([id, authored]) => [id, authored['type'] === 'CreateList'
-    ? declaredType({ node: id, port: 'list' })
-    : authored['type'] === 'GetItemFromList' ? (() => { const input = incomingTo(id).find((link) => link['to']['port'] === 'list'); return input && declaredType(input['from']) })() : undefined]))
-  const isList = (source: Mutable, seen = new Set<string>()): boolean => {
-    const trace = traceEndpoint(graph as GraphDef, source as LinkEndpoint)
-    if (trace.kind !== 'output') return false
-    source = trace.ref
-    const id = endpointNode(source)
-    if (!id || seen.has(id)) return false
-    seen.add(id)
-    const authored = raw.get(id)
-    if (authored?.['type'] === 'CreateList') return collectionTypes.get(id)?.kind !== 'tuple'
-    if (authored?.['type'] === 'GetItemFromList') return false
-    if (
-      authored?.['type'] === 'StartLoop' &&
-      startOutputName(source['port'], resolve) === 'current_iteration_value'
-    ) {
-      const initial = links().find(
-        (link) =>
-          endpointNode(link['to']) === id &&
-          link['to']['port'] === 'initial_iteration_value',
-      )
-      return initial !== undefined && isList(initial['from'], seen)
-    }
-    const node = graph['nodes'][id] as Mutable | undefined
-    const schema = node && resolve(node['type'])
-    const output =
-      schema && outputsOf(schema).find((port) => port.id === source['port'])
-    return output?.type.kind === 'list' || output?.isList === true
-  }
-  const singleton = (source: Mutable, owner: string): Mutable => {
-    const id = `list_wrap_${ordinal++}`
-    helperOwners.set(id, owner)
-    graph['nodes'][id] = {
-      id,
-      type: 'std.list.make',
-      values: {},
-      dynamic: { items: { members: ['m0'], seq: 1 } },
-      ...(graph['nodes'][owner]['mode']
-        ? { mode: graph['nodes'][owner]['mode'] }
-        : {}),
-    }
-    view['nodes'][id] = { position: { x: 0, y: 0 } }
-    addLink(source, { node: id, port: 'items.items', members: ['m0'] })
-    return { node: id, port: 'list' }
-  }
-  for (const [id, authored] of raw) {
-    if (
-      authored['type'] !== 'CreateList' &&
-      authored['type'] !== 'GetItemFromList'
-    )
-      continue
-    const node = graph['nodes'][id] as Mutable
-    const incoming = links().filter((link) => endpointNode(link['to']) === id)
-    const collection = collectionTypes.get(id)
-    if (authored['type'] === 'CreateList') {
-      const ordered = ((authored['inputs'] as Mutable[]) ?? []).flatMap(
-        (input) =>
-          incoming.filter((link) => link['to']['port'] === input['name']),
-      )
-      const flatten = ordered.some((link) => isList(link['from']))
-      const tuple = collection?.kind === 'tuple'
-      if (tuple && flatten) {
-        diagnostics.push(diag('error', 'import', 'import.list.variableTuple', `CreateList ${id} cannot form fixed tuple positions from a variable-length execution list.`))
-        continue
-      }
-      const family = flatten ? 'lists' : 'items'
-      node['type'] = tuple ? 'std.tuple.make' : flatten ? 'std.list.concat' : 'std.list.make'
-      node['dynamic'] = {
-        [family]: {
-          members: ordered.map((_, index) => `m${index}`),
-          seq: ordered.length,
-        },
-      }
-      for (const [index, link] of ordered.entries()) {
-        if (flatten && !isList(link['from']))
-          link['from'] = singleton(link['from'], id)
-        link['to'] = {
-          node: id,
-          port: `${family}.${family}`,
-          members: [`m${index}`],
-        }
-      }
-      if (tuple) {
-        for (const link of links()) if (endpointNode(link['from']) === id) link['from']['port'] = 'tuple'
-        for (const net of Object.values(graph['nets']) as Mutable[]) if (endpointNode(net['source']) === id) net['source']['port'] = 'tuple'
-      }
-    } else {
-      const tuple = collection?.kind === 'tuple'
-      node['type'] = tuple ? 'std.tuple.get' : 'std.list.element'
-      if (tuple && (incoming.some((link) => link['to']['port'] === 'index') || !Number.isSafeInteger(node['values']['index']))) {
-        diagnostics.push(diag('error', 'import', 'import.tuple.literalIndex', `GetItemFromList ${id} requires a literal integer index for heterogeneous positions.`))
-      }
-      for (const link of incoming) {
-        if (tuple && link['to']['port'] === 'list') link['to']['port'] = 'tuple'
-        if (!tuple && link['to']['port'] === 'list' && !isList(link['from']))
-          link['from'] = singleton(link['from'], id)
-        if (link['to']['port'] === 'index') {
-          delete node['values']['index']
-          if (isList(link['from'])) {
-            const first = `list_index_${ordinal++}`
-            helperOwners.set(first, id)
-            graph['nodes'][first] = {
-              id: first,
-              type: 'std.list.element',
-              values: { index: 0 },
-              ...(node['mode'] ? { mode: node['mode'] } : {}),
-            }
-            view['nodes'][first] = { position: { x: 0, y: 0 } }
-            addLink(link['from'], { node: first, port: 'list' })
-            link['from'] = { node: first, port: 'item' }
-          }
-        }
-      }
-      for (const link of links())
-        if (endpointNode(link['from']) === id) link['from']['port'] = 'item'
-      for (const net of Object.values(graph['nets']) as Mutable[])
-        if (endpointNode(net['source']) === id) net['source']['port'] = 'item'
-    }
-  }
-  graph['nextOrdinal'] = ordinal
-  return helperOwners
-}
+    | undefined;
+  const schema = node && resolve(node["type"]);
+  if (!schema || typeof endpoint["port"] !== "string") return undefined;
+  const ports = side === "input" ? inputsOf(schema) : outputsOf(schema);
+  return ports.find((port) => port.id === endpoint["port"])?.type;
+};
 
 /** Persist source execution-list boundaries as ordinary, explicitly typed maps. */
 export function convertLitegraphListConsumers(
   document: JsonObject,
   resolve: (type: string) => NodeSchema | undefined,
 ): void {
-  const doc = document as Mutable
-  const graph = doc['graphs']['g0'] as Mutable
-  const generated = new Map<string, NodeSchema>()
+  const doc = document as Mutable;
+  const graph = doc["graphs"]["g0"] as Mutable;
+  const generated = new Map<string, NodeSchema>();
   const localResolve = (type: string): NodeSchema | undefined =>
-    generated.get(type) ?? resolve(type)
+    generated.get(type) ?? resolve(type);
   const controls = new Set([
-    'StartLoop',
-    'EndLoop',
-    'LoopIteration',
-    'LoopProgress',
-    'LoopResult',
-  ])
+    "StartLoop",
+    "EndLoop",
+    "LoopIteration",
+    "LoopProgress",
+    "LoopResult",
+  ]);
   const converted = new Map<
     string,
     { original: Mutable; defId: string; elements: ReadonlySet<string> }
-  >()
+  >();
   const incomingTo = (id: string): Mutable[] => [
-    ...(Object.values(graph['links']) as Mutable[]).filter(
-      (link) => endpointNode(link['to']) === id,
+    ...(Object.values(graph["links"]) as Mutable[]).filter(
+      (link) => endpointNode(link["to"]) === id,
     ),
-    ...(Object.values(graph['nets']) as Mutable[]).flatMap((net) =>
-      net['sinks']
+    ...(Object.values(graph["nets"]) as Mutable[]).flatMap((net) =>
+      net["sinks"]
         .filter((sink: Mutable) => endpointNode(sink) === id)
-        .map((sink: Mutable) => ({ from: net['source'], to: sink })),
+        .map((sink: Mutable) => ({ from: net["source"], to: sink })),
     ),
-  ]
-  const sourceTypes = new Map<string, TypeExpr>()
-  const resolving = new Set<string>()
+  ];
+  const sourceTypes = new Map<string, TypeExpr>();
+  const resolving = new Set<string>();
   // Project upstream declarations without downstream scalar constraints erasing
   // open list constructors at generic inputs.
   const sourceType = (endpoint: Mutable): TypeExpr | undefined => {
-    const traced = traceEndpoint(graph as GraphDef, endpoint as LinkEndpoint)
-    if (traced.kind !== 'output') return undefined
-    const key = `${traced.ref.node}/${elabKeyOf(traced.ref)}`
-    const cached = sourceTypes.get(key)
-    if (cached) return cached
-    const source = graph['nodes'][traced.ref.node] as Mutable | undefined
-    const schema = source && localResolve(source['type'])
-    if (!source || !schema || resolving.has(key)) return undefined
-    resolving.add(key)
+    const traced = traceEndpoint(graph as GraphDef, endpoint as LinkEndpoint);
+    if (traced.kind !== "output") return undefined;
+    const key = `${traced.ref.node}/${elabKeyOf(traced.ref)}`;
+    const cached = sourceTypes.get(key);
+    if (cached) return cached;
+    const source = graph["nodes"][traced.ref.node] as Mutable | undefined;
+    const schema = source && localResolve(source["type"]);
+    if (!source || !schema || resolving.has(key)) return undefined;
+    resolving.add(key);
     const projectedInputs = incomingTo(traced.ref.node).flatMap((link) => {
-      const type = sourceType(link['from'])
-      return type ? [{ type, to: link['to'] }] : []
-    })
+      const type = sourceType(link["from"]);
+      return type ? [{ type, to: link["to"] }] : [];
+    });
     const solved = solveGraphTypes(
       {
         ...graph,
@@ -645,46 +443,46 @@ export function convertLitegraphListConsumers(
       } as GraphDef,
       localResolve,
       { projectedInputs },
-    )
+    );
     const type = solved.portTypeOf(
       traced.ref.node,
-      'output',
+      "output",
       elabKeyOf(traced.ref),
-    )
-    resolving.delete(key)
-    if (type) sourceTypes.set(key, type)
-    return type
-  }
-  const flattened = new Set<string>()
-  let changed = true
+    );
+    resolving.delete(key);
+    if (type) sourceTypes.set(key, type);
+    return type;
+  };
+  const flattened = new Set<string>();
+  let changed = true;
   while (changed) {
-    changed = false
-    for (const [id, node] of Object.entries(graph['nodes']) as [
+    changed = false;
+    for (const [id, node] of Object.entries(graph["nodes"]) as [
       string,
       Mutable,
     ][]) {
       if (
-        node['type'] === 'EndLoop' &&
-        (node['mode'] === undefined || node['mode'] === 'active') &&
+        node["type"] === "EndLoop" &&
+        (node["mode"] === undefined || node["mode"] === "active") &&
         !flattened.has(id) &&
-        localResolve('std.list.concat')
+        localResolve("std.list.concat")
       ) {
         const output = incomingTo(id).find(
-          (link) => link['to']['port'] === 'output_value',
-        )
-        if (output && sourceType(output['from'])?.kind === 'list') {
-          let defId = `loop-result-${id}`
-          for (let suffix = 2; doc['graphs'][defId]; suffix++)
-            defId = `loop-result-${id}-${suffix}`
+          (link) => link["to"]["port"] === "output_value",
+        );
+        if (output && sourceType(output["from"])?.kind === "list") {
+          let defId = `loop-result-${id}`;
+          for (let suffix = 2; doc["graphs"][defId]; suffix++)
+            defId = `loop-result-${id}-${suffix}`;
           const body = {
             id: defId,
-            name: 'Loop Result',
+            name: "Loop Result",
             nodes: {
               body: {
-                id: 'body',
-                type: 'std.list.concat',
+                id: "body",
+                type: "std.list.concat",
                 values: {},
-                dynamic: { lists: { members: ['m0'], seq: 1 } },
+                dynamic: { lists: { members: ["m0"], seq: 1 } },
               },
             },
             links: {},
@@ -694,130 +492,136 @@ export function convertLitegraphListConsumers(
             boundary: {
               inputs: [
                 {
-                  id: 'item',
+                  id: "item",
                   binds: {
-                    kind: 'port',
-                    node: 'body',
-                    port: 'lists.lists',
-                    members: ['m0'],
+                    kind: "port",
+                    node: "body",
+                    port: "lists.lists",
+                    members: ["m0"],
                   },
                 },
               ],
               outputs: [
                 {
-                  id: 'list',
-                  binds: { kind: 'port', node: 'body', port: 'list' },
+                  id: "list",
+                  binds: { kind: "port", node: "body", port: "list" },
                 },
               ],
             },
-          } as unknown as GraphDef
+          } as unknown as GraphDef;
           const region: RegionContract = {
-            kind: 'map',
-            elementPorts: ['item'],
-            outputRoles: { list: { kind: 'flatten' } },
-          }
-          const derived = deriveBoundarySchema(body, localResolve, region)
+            kind: "map",
+            elementPorts: ["item"],
+            outputRoles: { list: { kind: "flatten" } },
+          };
+          const derived = deriveBoundarySchema(body, localResolve, region);
           if (derived.schema) {
-            let helperId = `loop_result_${id}`
-            for (let suffix = 2; graph['nodes'][helperId]; suffix++)
-              helperId = `loop_result_${id}_${suffix}`
-            const replacement = { node: helperId, port: 'list' }
-            for (const link of Object.values(graph['links']) as Mutable[])
-              if (endpointNode(link['from']) === id) link['from'] = replacement
-            for (const net of Object.values(graph['nets']) as Mutable[])
-              if (endpointNode(net['source']) === id)
-                net['source'] = replacement
-            let ordinal = Number(graph['nextOrdinal']) || 1
-            let linkId = `list_link_${ordinal++}`
-            while (graph['links'][linkId]) linkId = `list_link_${ordinal++}`
-            graph['links'][linkId] = {
+            let helperId = `loop_result_${id}`;
+            for (let suffix = 2; graph["nodes"][helperId]; suffix++)
+              helperId = `loop_result_${id}_${suffix}`;
+            const replacement = { node: helperId, port: "list" };
+            for (const link of Object.values(graph["links"]) as Mutable[])
+              if (endpointNode(link["from"]) === id) link["from"] = replacement;
+            for (const net of Object.values(graph["nets"]) as Mutable[])
+              if (endpointNode(net["source"]) === id)
+                net["source"] = replacement;
+            let ordinal = Number(graph["nextOrdinal"]) || 1;
+            let linkId = `list_link_${ordinal++}`;
+            while (graph["links"][linkId]) linkId = `list_link_${ordinal++}`;
+            graph["links"][linkId] = {
               id: linkId,
-              from: { node: id, port: 'outputs' },
-              to: { node: helperId, port: 'item' },
-            }
-            graph['nextOrdinal'] = ordinal
-            graph['nodes'][helperId] = {
+              from: { node: id, port: "outputs" },
+              to: { node: helperId, port: "item" },
+            };
+            graph["nextOrdinal"] = ordinal;
+            graph["nodes"][helperId] = {
               id: helperId,
               type: `#${defId}`,
               values: {},
               region,
-            }
-            doc['graphs'][defId] = body
-            doc['view']['graphs'][defId] = {
+            };
+            doc["graphs"][defId] = body;
+            doc["view"]["graphs"][defId] = {
               nodes: { body: { position: { x: 0, y: 0 } } },
-            }
-            doc['view']['graphs']['g0']['nodes'][helperId] = {
+            };
+            doc["view"]["graphs"]["g0"]["nodes"][helperId] = {
               position: { x: 0, y: 0 },
-            }
-            generated.set(derived.schema.type, derived.schema)
-            flattened.add(id)
-            sourceTypes.clear()
-            changed = true
+            };
+            generated.set(derived.schema.type, derived.schema);
+            flattened.add(id);
+            sourceTypes.clear();
+            changed = true;
           }
         }
       }
-      const previous = converted.get(id)
-      const original = previous?.original ?? node
+      const previous = converted.get(id);
+      const original = previous?.original ?? node;
       if (
-        (!previous && node['region']) ||
-        original['virtual'] ||
-        controls.has(original['type']) ||
-        original['type'].startsWith('std.list.')
+        (!previous && node["region"]) ||
+        original["virtual"] ||
+        controls.has(original["type"]) ||
+        original["type"].startsWith("std.list.")
       )
-        continue
-      const schema = localResolve(original['type'])
-      if (!schema || schema.mayExpandGraph) continue
-      const elaborated = elaborateInterface(schema, original as NodeData)
+        continue;
+      const schema = localResolve(original["type"]);
+      if (!schema || schema.mayExpandGraph) continue;
+      const elaborated = elaborateInterface(schema, original as NodeData);
       const inputs = elabInputsOf(elaborated).filter(
-        (input) => input.apiName !== undefined && input.origin.kind !== 'selector',
-      )
+        (input) =>
+          input.apiName !== undefined && input.origin.kind !== "selector",
+      );
       const sourceIsList = (endpoint: Mutable): boolean => {
-        return sourceType(endpoint)?.kind === 'list'
-      }
-      const incoming = incomingTo(id)
+        return sourceType(endpoint)?.kind === "list";
+      };
+      const incoming = incomingTo(id);
       const elementInputs = new Set(
         incoming
           .filter((link) => {
-            const key = previous ? link['to']['port'] : elabKeyOf(link['to'])
+            const key = previous ? link["to"]["port"] : elabKeyOf(link["to"]);
             const input = inputs.find(
               (input) => elabKeyOf(input.address) === key,
-            )
+            );
             return (
               input !== undefined &&
-              cardinalityOf(input.spec.type) === 'scalar' &&
-              sourceIsList(link['from'])
-            )
+              input.spec.acceptsList !== true &&
+              cardinalityOf(input.spec.type) === "scalar" &&
+              sourceIsList(link["from"])
+            );
           })
           .map((link) =>
-            previous ? (link['to']['port'] as string) : elabKeyOf(link['to']),
+            previous ? (link["to"]["port"] as string) : elabKeyOf(link["to"]),
           ),
-      )
-      if (elementInputs.size === 0) continue
+      );
+      if (elementInputs.size === 0) continue;
       if (
         previous &&
         [...elementInputs].every((key) => previous.elements.has(key))
       )
-        continue
-      for (const key of previous?.elements ?? []) elementInputs.add(key)
-      let defId = previous?.defId ?? `list-map-${id}`
+        continue;
+      for (const key of previous?.elements ?? []) elementInputs.add(key);
+      let defId = previous?.defId ?? `list-map-${id}`;
       if (!previous)
-        for (let suffix = 2; doc['graphs'][defId]; suffix++)
-          defId = `list-map-${id}-${suffix}`
+        for (let suffix = 2; doc["graphs"][defId]; suffix++)
+          defId = `list-map-${id}-${suffix}`;
       const outputs = elabOutputsOf(elaborated).filter(
         (output) => output.wireable !== false,
-      )
-      const boundaryKeys = new Set(inputs.map((input) => elabKeyOf(input.address)))
-      const outputKeys = new Map(outputs.map((output) => {
-        const key = elabKeyOf(output.address)
-        let exposed = key
-        while (boundaryKeys.has(exposed)) exposed = `output.${exposed}`
-        boundaryKeys.add(exposed)
-        return [key, exposed]
-      }))
+      );
+      const boundaryKeys = new Set(
+        inputs.map((input) => elabKeyOf(input.address)),
+      );
+      const outputKeys = new Map(
+        outputs.map((output) => {
+          const key = elabKeyOf(output.address);
+          let exposed = key;
+          while (boundaryKeys.has(exposed)) exposed = `output.${exposed}`;
+          boundaryKeys.add(exposed);
+          return [key, exposed];
+        }),
+      );
       const body = {
         id: defId,
         name: schema.displayName,
-        nodes: { body: { ...original, id: 'body' } },
+        nodes: { body: { ...original, id: "body" } },
         links: {},
         nets: {},
         reroutes: {},
@@ -825,7 +629,7 @@ export function convertLitegraphListConsumers(
         boundary: {
           inputs: inputs.map((input) => ({
             id: elabKeyOf(input.address),
-            binds: { kind: 'port', node: 'body', ...input.address },
+            binds: { kind: "port", node: "body", ...input.address },
             ...(input.spec.widget &&
             !elementInputs.has(elabKeyOf(input.address))
               ? { promoted: true }
@@ -833,65 +637,74 @@ export function convertLitegraphListConsumers(
           })),
           outputs: outputs.map((output) => ({
             id: outputKeys.get(elabKeyOf(output.address))!,
-            binds: { kind: 'port', node: 'body', ...output.address },
+            binds: { kind: "port", node: "body", ...output.address },
           })),
         },
-      } as unknown as GraphDef
+      } as unknown as GraphDef;
       const region: RegionContract = {
-        kind: 'map',
+        kind: "map",
         elementPorts: [...elementInputs],
-        binding: 'broadcast',
+        binding: "broadcast",
         outputRoles: Object.fromEntries(
           outputs.map((output) => [
             outputKeys.get(elabKeyOf(output.address))!,
-            { kind: output.spec.type.kind === 'list' ? 'flatten' : 'gather' },
+            { kind: output.spec.type.kind === "list" ? "flatten" : "gather" },
           ]),
         ),
-      }
-      const derived = deriveBoundarySchema(body, localResolve, region)
-      if (!derived.schema) continue
-      generated.set(derived.schema.type, derived.schema)
-      doc['graphs'][defId] = body
-      doc['view']['graphs'][defId] = {
+      };
+      const derived = deriveBoundarySchema(body, localResolve, region);
+      if (!derived.schema) continue;
+      generated.set(derived.schema.type, derived.schema);
+      doc["graphs"][defId] = body;
+      doc["view"]["graphs"][defId] = {
         nodes: { body: { position: { x: 0, y: 0 } } },
-      }
-      graph['nodes'][id] = {
+      };
+      graph["nodes"][id] = {
         id,
         type: `#${defId}`,
         values: Object.fromEntries(
-          Object.entries(original['values']).filter(
+          Object.entries(original["values"]).filter(
             ([key]) => !elementInputs.has(key),
           ),
         ),
         region,
-        ...(node['mode'] ? { mode: node['mode'] } : {}),
-        ...(node['title'] ? { title: node['title'] } : {}),
-      }
+        ...(node["mode"] ? { mode: node["mode"] } : {}),
+        ...(node["title"] ? { title: node["title"] } : {}),
+      };
       if (!previous) {
-        for (const link of Object.values(graph['links']) as Mutable[]) {
-          for (const side of ['from', 'to'])
+        for (const link of Object.values(graph["links"]) as Mutable[]) {
+          for (const side of ["from", "to"])
             if (endpointNode(link[side]) === id)
-              link[side] = { node: id, port: side === 'from' ? outputKeys.get(elabKeyOf(link[side]))! : elabKeyOf(link[side]) }
+              link[side] = {
+                node: id,
+                port:
+                  side === "from"
+                    ? outputKeys.get(elabKeyOf(link[side]))!
+                    : elabKeyOf(link[side]),
+              };
         }
-        for (const net of Object.values(graph['nets']) as Mutable[]) {
-          if (endpointNode(net['source']) === id)
-            net['source'] = { node: id, port: outputKeys.get(elabKeyOf(net['source']))! }
-          net['sinks'] = net['sinks'].map((sink: Mutable) =>
+        for (const net of Object.values(graph["nets"]) as Mutable[]) {
+          if (endpointNode(net["source"]) === id)
+            net["source"] = {
+              node: id,
+              port: outputKeys.get(elabKeyOf(net["source"]))!,
+            };
+          net["sinks"] = net["sinks"].map((sink: Mutable) =>
             endpointNode(sink) === id
               ? {
                   node: id,
                   port: elabKeyOf({
-                    port: sink['port'],
-                    members: sink['members'],
+                    port: sink["port"],
+                    members: sink["members"],
                   }),
                 }
               : sink,
-          )
+          );
         }
       }
-      converted.set(id, { original, defId, elements: elementInputs })
-      sourceTypes.clear()
-      changed = true
+      converted.set(id, { original, defId, elements: elementInputs });
+      sourceTypes.clear();
+      changed = true;
     }
   }
 }
@@ -903,18 +716,17 @@ export function convertLitegraphLoops(
   rawLinksValue: readonly unknown[],
   resolve: (type: string) => NodeSchema | undefined,
   diagnostics: Diagnostic[],
-  helperOwners: ReadonlyMap<string, string> = new Map(),
 ): void {
-  const startSchema = resolve('StartLoop')
-  if (startSchema?.source === 'v3' && startSchema.mayExpandGraph === true)
-    return
+  const startSchema = resolve("StartLoop");
+  if (startSchema?.source === "v3" && startSchema.mayExpandGraph === true)
+    return;
   const rawNodes = rawNodesValue.filter(
     (value): value is RawNode =>
       object(value) &&
-      typeof value['id'] === 'number' &&
-      Number.isSafeInteger(value['id']) &&
-      typeof value['type'] === 'string',
-  )
+      typeof value["id"] === "number" &&
+      Number.isSafeInteger(value["id"]) &&
+      typeof value["type"] === "string",
+  );
   const rawLinks = rawLinksValue
     .filter(
       (value): value is readonly unknown[] =>
@@ -928,393 +740,393 @@ export function convertLitegraphLoops(
         to: value[3] as number,
         toSlot: value[4] as number,
       }),
-    )
-  const pairs = pairLoops(rawNodes, rawLinks, diagnostics)
+    );
+  const pairs = pairLoops(rawNodes, rawLinks, diagnostics);
   if (
     pairs.length === 0 ||
-    diagnostics.some((item) => item.severity === 'error')
+    diagnostics.some((item) => item.severity === "error")
   )
-    return
-  const byId = new Map(rawNodes.map((node) => [node.id, node]))
-  const doc = document as Mutable
-  const graph = doc['graphs']['g0'] as Mutable
-  const view = doc['view']['graphs']['g0'] as Mutable
+    return;
+  const byId = new Map(rawNodes.map((node) => [node.id, node]));
+  const doc = document as Mutable;
+  const graph = doc["graphs"]["g0"] as Mutable;
+  const view = doc["view"]["graphs"]["g0"] as Mutable;
   if (
-    Object.keys(graph['nets'] ?? {}).length > 0 ||
-    Object.keys(graph['reroutes'] ?? {}).length > 0
+    Object.keys(graph["nets"] ?? {}).length > 0 ||
+    Object.keys(graph["reroutes"] ?? {}).length > 0
   ) {
     loopError(
       diagnostics,
-      'topologySugarUnsupported',
-      'Generic Loop conversion does not cross named nets or reroutes',
-    )
-    return
+      "topologySugarUnsupported",
+      "Generic Loop conversion does not cross named nets or reroutes",
+    );
+    return;
   }
-  doc['occurrenceTopologies'] ??= {}
-  const convertedOutputIsList = new Map<string, boolean>()
-  const generatedSchemas = new Map<string, NodeSchema>()
+  doc["occurrenceTopologies"] ??= {};
+  const convertedOutputIsList = new Map<string, boolean>();
+  const generatedSchemas = new Map<string, NodeSchema>();
   const localResolve = (type: string): NodeSchema | undefined =>
-    generatedSchemas.get(type) ?? resolve(type)
+    generatedSchemas.get(type) ?? resolve(type);
 
   for (const pair of pairs) {
-    const startRaw = byId.get(pair.start)!
-    const endRaw = byId.get(pair.end)!
-    const startId = `n${pair.start}`
-    const endId = `n${pair.end}`
-    const startNode = graph['nodes'][startId] as Mutable | undefined
-    const endNode = graph['nodes'][endId] as Mutable | undefined
+    const startRaw = byId.get(pair.start)!;
+    const endRaw = byId.get(pair.end)!;
+    const startId = `n${pair.start}`;
+    const endId = `n${pair.end}`;
+    const startNode = graph["nodes"][startId] as Mutable | undefined;
+    const endNode = graph["nodes"][endId] as Mutable | undefined;
     if (!startNode || !endNode) {
       loopError(
         diagnostics,
-        'boundaryMissing',
+        "boundaryMissing",
         `loop pair ${pair.start}/${pair.end} was not materialized`,
-      )
-      return
+      );
+      return;
     }
-    const iteration = rangeValues(startRaw, diagnostics)
-    if (!iteration) return
+    const iteration = rangeValues(startRaw, diagnostics);
+    if (!iteration) return;
     const linkedRangeInputs = new Map(
       rawLinks
         .filter(
           (link) =>
             link.to === pair.start &&
-            (rawPortName(startRaw, 'inputs', link.toSlot)?.startsWith(
-              'mode.',
+            (rawPortName(startRaw, "inputs", link.toSlot)?.startsWith(
+              "mode.",
             ) ??
               false),
         )
-        .map((link) => [rawPortName(startRaw, 'inputs', link.toSlot)!, link]),
-    )
+        .map((link) => [rawPortName(startRaw, "inputs", link.toSlot)!, link]),
+    );
     const bodyNodeIds = new Set(
       [...pair.body]
         .map((id) => `n${id}`)
-        .filter((id) => graph['nodes'][id] !== undefined),
-    )
-    for (const [helper, owner] of helperOwners)
-      if (bodyNodeIds.has(owner) && graph['nodes'][helper] !== undefined)
-        bodyNodeIds.add(helper)
+        .filter((id) => graph["nodes"][id] !== undefined),
+    );
     const expandingBodyNode = [...bodyNodeIds]
-      .map((id) => graph['nodes'][id] as Mutable)
-      .find((node) => resolve(node['type'])?.mayExpandGraph === true)
+      .map((id) => graph["nodes"][id] as Mutable)
+      .find((node) => resolve(node["type"])?.mayExpandGraph === true);
     if (expandingBodyNode) {
       loopError(
         diagnostics,
-        'runtimeExpansionUnsupported',
-        `Loop ${pair.start}/${pair.end} contains runtime-expanding node ${expandingBodyNode['id']} (${expandingBodyNode['type']})`,
-      )
-      return
+        "runtimeExpansionUnsupported",
+        `Loop ${pair.start}/${pair.end} contains runtime-expanding node ${expandingBodyNode["id"]} (${expandingBodyNode["type"]})`,
+      );
+      return;
     }
-    const allLinks = Object.values(graph['links']) as Mutable[]
+    const allLinks = Object.values(graph["links"]) as Mutable[];
     const internal = allLinks.filter(
       (link) =>
-        bodyNodeIds.has(endpointNode(link['from']) ?? '') &&
-        bodyNodeIds.has(endpointNode(link['to']) ?? ''),
-    )
+        bodyNodeIds.has(endpointNode(link["from"]) ?? "") &&
+        bodyNodeIds.has(endpointNode(link["to"]) ?? ""),
+    );
     const incoming = allLinks.filter(
       (link) =>
-        !bodyNodeIds.has(endpointNode(link['from']) ?? '') &&
-        bodyNodeIds.has(endpointNode(link['to']) ?? '') &&
-        endpointNode(link['from']) !== startId,
-    )
+        !bodyNodeIds.has(endpointNode(link["from"]) ?? "") &&
+        bodyNodeIds.has(endpointNode(link["to"]) ?? "") &&
+        endpointNode(link["from"]) !== startId,
+    );
     const startLinks = allLinks.filter(
       (link) =>
-        endpointNode(link['from']) === startId &&
-        bodyNodeIds.has(endpointNode(link['to']) ?? ''),
-    )
+        endpointNode(link["from"]) === startId &&
+        bodyNodeIds.has(endpointNode(link["to"]) ?? ""),
+    );
     const endOutputs = allLinks.filter(
-      (link) => endpointNode(link['from']) === endId,
-    )
+      (link) => endpointNode(link["from"]) === endId,
+    );
     const escapes = allLinks.filter(
       (link) =>
-        bodyNodeIds.has(endpointNode(link['from']) ?? '') &&
-        endpointNode(link['to']) !== endId &&
-        !bodyNodeIds.has(endpointNode(link['to']) ?? ''),
-    )
+        bodyNodeIds.has(endpointNode(link["from"]) ?? "") &&
+        endpointNode(link["to"]) !== endId &&
+        !bodyNodeIds.has(endpointNode(link["to"]) ?? ""),
+    );
     if (escapes.length > 0) {
       loopError(
         diagnostics,
-        'bodyEscape',
+        "bodyEscape",
         `Start Loop ${pair.start} body has ${escapes.length} output route(s) outside End Loop ${pair.end}`,
-      )
-      return
+      );
+      return;
     }
     const accumulateLink = rawLinks.find(
       (link) =>
         link.to === pair.end &&
-        rawPortName(endRaw, 'inputs', link.toSlot) === 'accumulate',
-    )
+        rawPortName(endRaw, "inputs", link.toSlot) === "accumulate",
+    );
     if (accumulateLink !== undefined) {
       loopError(
         diagnostics,
-        'accumulateDynamic',
+        "accumulateDynamic",
         `End Loop ${pair.end} has a linked accumulate control; Dinkster output roles are static`,
-      )
-      return
+      );
+      return;
     }
 
-    const defBase = `comfy-loop-${pair.start}`
-    let defId = defBase
-    for (let suffix = 2; doc['graphs'][defId] !== undefined; suffix++)
-      defId = `${defBase}-${suffix}`
+    const defBase = `comfy-loop-${pair.start}`;
+    let defId = defBase;
+    for (let suffix = 2; doc["graphs"][defId] !== undefined; suffix++)
+      defId = `${defBase}-${suffix}`;
     const body: Mutable = {
       id: defId,
       name: `ComfyUI Loop ${pair.start}`,
       nodes: Object.fromEntries(
-        [...bodyNodeIds].map((id) => [id, graph['nodes'][id]]),
+        [...bodyNodeIds].map((id) => [id, graph["nodes"][id]]),
       ),
-      links: Object.fromEntries(internal.map((link) => [link['id'], link])),
+      links: Object.fromEntries(internal.map((link) => [link["id"], link])),
       nets: {},
       reroutes: {},
       boundary: { inputs: [], outputs: [] },
-      nextOrdinal: Math.max(1, Number(graph['nextOrdinal']) || 1),
-    }
+      nextOrdinal: Math.max(1, Number(graph["nextOrdinal"]) || 1),
+    };
     const bodyView: Mutable = {
       nodes: Object.fromEntries(
         [...bodyNodeIds].flatMap((id) =>
-          view['nodes']?.[id] ? [[id, view['nodes'][id]]] : [],
+          view["nodes"]?.[id] ? [[id, view["nodes"][id]]] : [],
         ),
       ),
-    }
-    let ordinal = body['nextOrdinal'] as number
-    const nextNodeId = (label: string): string => `loop_${label}_${ordinal++}`
-    const nextLinkId = (): string => `loop_link_${ordinal++}`
-    const inputBindings = new Map<string, Mutable[]>()
-    const inputSources = new Map<string, Mutable>()
+    };
+    let ordinal = body["nextOrdinal"] as number;
+    const nextNodeId = (label: string): string => `loop_${label}_${ordinal++}`;
+    const nextLinkId = (): string => `loop_link_${ordinal++}`;
+    const inputBindings = new Map<string, Mutable[]>();
+    const inputSources = new Map<string, Mutable>();
     const addInput = (id: string, binding: Mutable, source?: Mutable): void => {
-      const bindings = inputBindings.get(id) ?? []
-      bindings.push(binding)
-      inputBindings.set(id, bindings)
-      if (source !== undefined) inputSources.set(id, source)
-    }
+      const bindings = inputBindings.get(id) ?? [];
+      bindings.push(binding);
+      inputBindings.set(id, bindings);
+      if (source !== undefined) inputSources.set(id, source);
+    };
     const addBodyLink = (from: Mutable, to: Mutable): void => {
-      const id = nextLinkId()
-      body['links'][id] = { id, from, to }
-    }
-    const outputRoles: Mutable = {}
-    const outputPorts: string[] = []
+      const id = nextLinkId();
+      body["links"][id] = { id, from, to };
+    };
+    const outputRoles: Mutable = {};
+    const outputPorts: string[] = [];
     const addOutput = (
       id: string,
       source: Mutable,
-      role?: 'gather' | 'flatten' | 'last',
+      role?: "gather" | "flatten" | "last",
     ): void => {
-      body['boundary']['outputs'].push({
+      body["boundary"]["outputs"].push({
         id,
         displayName: id,
-        binds: { kind: 'port', ...source },
-      })
-      outputPorts.push(id)
-      if (role && role !== 'gather') outputRoles[id] = { kind: role }
-    }
+        binds: { kind: "port", ...source },
+      });
+      outputPorts.push(id);
+      if (role && role !== "gather") outputRoles[id] = { kind: role };
+    };
 
     for (const link of incoming) {
-      const key = endpointKey(link['from'])
+      const key = endpointKey(link["from"]);
       let id = [...inputSources].find(
         ([, source]) => endpointKey(source) === key,
-      )?.[0]
-      if (!id) id = `external_${inputSources.size}`
-      addInput(id, { kind: 'port', ...link['to'] }, link['from'])
+      )?.[0];
+      if (!id) id = `external_${inputSources.size}`;
+      addInput(id, { kind: "port", ...link["to"] }, link["from"]);
     }
 
-    const values: Mutable = {}
-    const elementPorts = new Set<string>()
-    const statePorts = new Set<string>()
-    const occurrenceLinks: Mutable = {}
-    let occurrenceOrdinal = 0
+    const values: Mutable = {};
+    const elementPorts = new Set<string>();
+    const statePorts = new Set<string>();
+    const occurrenceLinks: Mutable = {};
+    let occurrenceOrdinal = 0;
     const addIndexLink = (to: Mutable): void => {
-      const id = `index_${occurrenceOrdinal++}`
+      const id = `index_${occurrenceOrdinal++}`;
       occurrenceLinks[id] = {
         id,
-        from: { kind: 'body', endpoint: { node: '$region', port: 'index' } },
-        to: { kind: 'body', endpoint: to },
-      }
-    }
-    const linkedRange = iteration.mode === 'range' && linkedRangeInputs.size > 0
+        from: { kind: "body", endpoint: { node: "$region", port: "index" } },
+        to: { kind: "body", endpoint: to },
+      };
+    };
+    const linkedRange =
+      iteration.mode === "range" && linkedRangeInputs.size > 0;
     const staticFlags =
-      iteration.mode === 'range' && !linkedRange
+      iteration.mode === "range" && !linkedRange
         ? {
             is_first: iteration.values.map((_, index) => index === 0),
             is_last: iteration.values.map(
               (_, index) => index === iteration.values.length - 1,
             ),
           }
-        : undefined
-    let sequenceSource: Mutable | undefined
-    if (iteration.mode === 'range' && !linkedRange) {
-      values['iteration_index'] = { $typed: { type: 'list<INT>', value: iteration.values } }
-      elementPorts.add('iteration_index')
+        : undefined;
+    let sequenceSource: Mutable | undefined;
+    if (iteration.mode === "range" && !linkedRange) {
+      values["iteration_index"] = {
+        $typed: { type: "list<INT>", value: iteration.values },
+      };
+      elementPorts.add("iteration_index");
     }
 
-    if (iteration.mode === 'range' && linkedRange) {
-      const rangeId = nextNodeId('range')
+    if (iteration.mode === "range" && linkedRange) {
+      const rangeId = nextNodeId("range");
       const rangeValues: Mutable = {
         start: iteration.start,
         stop: iteration.stop,
         step: iteration.step,
-      }
-      graph['nodes'][rangeId] = {
+      };
+      graph["nodes"][rangeId] = {
         id: rangeId,
-        type: 'std.list.range',
+        type: "std.list.range",
         values: rangeValues,
-      }
-      view['nodes'][rangeId] = {
+      };
+      view["nodes"][rangeId] = {
         position: { x: Number(startRaw.id) * 20 - 180, y: -180 },
-      }
+      };
       const rangeNames =
-        startSettings(startRaw).mode === 'For'
+        startSettings(startRaw).mode === "For"
           ? {
-              'mode.start_iteration_index': 'start',
-              'mode.max_iteration': 'stop',
-              'mode.step': 'step',
+              "mode.start_iteration_index": "start",
+              "mode.max_iteration": "stop",
+              "mode.step": "step",
             }
-          : { 'mode.num_iterations': 'stop' }
+          : { "mode.num_iterations": "stop" };
       for (const [sourceName, targetName] of Object.entries(rangeNames)) {
-        const raw = linkedRangeInputs.get(sourceName)
-        const link = raw && graph['links'][`l${raw.id}`]
-        if (!link) continue
-        delete rangeValues[targetName]
-        const id = `loop_outer_${ordinal++}`
-        graph['links'][id] = {
+        const raw = linkedRangeInputs.get(sourceName);
+        const link = raw && graph["links"][`l${raw.id}`];
+        if (!link) continue;
+        delete rangeValues[targetName];
+        const id = `loop_outer_${ordinal++}`;
+        graph["links"][id] = {
           id,
-          from: link['from'],
+          from: link["from"],
           to: { node: rangeId, port: targetName },
-        }
+        };
       }
-      sequenceSource = { node: rangeId, port: 'list' }
-      inputSources.set('iteration_index', sequenceSource)
-      elementPorts.add('iteration_index')
+      sequenceSource = { node: rangeId, port: "list" };
+      inputSources.set("iteration_index", sequenceSource);
+      elementPorts.add("iteration_index");
     }
 
-    let listSource: Mutable | undefined
-    if (iteration.mode === 'list') {
+    let listSource: Mutable | undefined;
+    if (iteration.mode === "list") {
       const listRawLink = rawLinks.find(
         (link) =>
           link.to === pair.start &&
-          rawPortName(startRaw, 'inputs', link.toSlot) === 'mode.list',
-      )
-      const listLink = listRawLink && graph['links'][`l${listRawLink.id}`]
+          rawPortName(startRaw, "inputs", link.toSlot) === "mode.list",
+      );
+      const listLink = listRawLink && graph["links"][`l${listRawLink.id}`];
       if (!listLink) {
         loopError(
           diagnostics,
-          'modeUnsupported',
+          "modeUnsupported",
           `List Start Loop ${pair.start} requires a connected list input`,
-        )
-        return
+        );
+        return;
       }
-      listSource = listLink['from'] as Mutable
-      sequenceSource = listSource
-      inputSources.set('list_item', listSource)
-      elementPorts.add('list_item')
+      listSource = listLink["from"] as Mutable;
+      sequenceSource = listSource;
+      inputSources.set("list_item", listSource);
+      elementPorts.add("list_item");
     }
 
     const startPort = (link: Mutable): string | undefined => {
       const rawId =
-        typeof link['id'] === 'string' && /^l\d+$/.test(link['id'])
-          ? Number(link['id'].slice(1))
-          : undefined
+        typeof link["id"] === "string" && /^l\d+$/.test(link["id"])
+          ? Number(link["id"].slice(1))
+          : undefined;
       const raw =
         rawId === undefined
           ? undefined
-          : rawLinks.find((candidate) => candidate.id === rawId)
+          : rawLinks.find((candidate) => candidate.id === rawId);
       return raw === undefined
-        ? startOutputName(link['from']['port'], resolve)
+        ? startOutputName(link["from"]["port"], resolve)
         : [
-            'iteration_index',
-            'is_first',
-            'is_last',
-            'list_item',
-            'current_iteration_value',
-          ][raw.fromSlot]
-    }
+            "iteration_index",
+            "is_first",
+            "is_last",
+            "list_item",
+            "current_iteration_value",
+          ][raw.fromSlot];
+    };
     for (const link of startLinks) {
-      const port = startPort(link)
-      if (port === 'iteration_index') {
-        if (iteration.mode === 'range')
-          addInput('iteration_index', { kind: 'port', ...link['to'] })
-        else addIndexLink(link['to'])
-      } else if (port === 'list_item') {
-        if (iteration.mode === 'list')
-          addInput('list_item', { kind: 'port', ...link['to'] })
+      const port = startPort(link);
+      if (port === "iteration_index") {
+        if (iteration.mode === "range")
+          addInput("iteration_index", { kind: "port", ...link["to"] });
+        else addIndexLink(link["to"]);
+      } else if (port === "list_item") {
+        if (iteration.mode === "list")
+          addInput("list_item", { kind: "port", ...link["to"] });
         else {
-          values['list_item'] = (iteration as { values: Json[] }).values.map(
+          values["list_item"] = (iteration as { values: Json[] }).values.map(
             () => null,
-          )
-          elementPorts.add('list_item')
-          addInput('list_item', { kind: 'port', ...link['to'] })
+          );
+          elementPorts.add("list_item");
+          addInput("list_item", { kind: "port", ...link["to"] });
         }
-      } else if (port === 'current_iteration_value') {
-        addInput('carry', { kind: 'port', ...link['to'] })
-        statePorts.add('carry')
-      } else if (port === 'is_first' || port === 'is_last') {
+      } else if (port === "current_iteration_value") {
+        addInput("carry", { kind: "port", ...link["to"] });
+        statePorts.add("carry");
+      } else if (port === "is_first" || port === "is_last") {
         if (staticFlags) {
-          values[port] = staticFlags[port]
-          elementPorts.add(port)
-          addInput(port, { kind: 'port', ...link['to'] })
+          values[port] = staticFlags[port];
+          elementPorts.add(port);
+          addInput(port, { kind: "port", ...link["to"] });
         } else {
-          const compareId = nextNodeId(port)
-          body['nodes'][compareId] = {
+          const compareId = nextNodeId(port);
+          body["nodes"][compareId] = {
             id: compareId,
             type: STRUCTURAL_IMPORT_HELPERS.compare,
             values: {
-              b: { $typed: { type: 'INT', value: 0 } },
-              operation: 'eq',
+              b: { $typed: { type: "INT", value: 0 } },
+              operation: "eq",
               epsilon: 0,
             },
-          }
-          bodyView['nodes'][compareId] = {
-            position: { x: 0, y: port === 'is_first' ? -120 : 120 },
-          }
-          addIndexLink({ node: compareId, port: 'a' })
-          if (port === 'is_last') {
-            const countId = nextNodeId('count_minus_one')
-            body['nodes'][countId] = {
+          };
+          bodyView["nodes"][compareId] = {
+            position: { x: 0, y: port === "is_first" ? -120 : 120 },
+          };
+          addIndexLink({ node: compareId, port: "a" });
+          if (port === "is_last") {
+            const countId = nextNodeId("count_minus_one");
+            body["nodes"][countId] = {
               id: countId,
-              type: 'std.math.add_ints',
+              type: "std.math.add_ints",
               values: { b: -1 },
-            }
-            bodyView['nodes'][countId] = { position: { x: -180, y: 120 } }
-            addInput('loop_count', { kind: 'port', node: countId, port: 'a' })
+            };
+            bodyView["nodes"][countId] = { position: { x: -180, y: 120 } };
+            addInput("loop_count", { kind: "port", node: countId, port: "a" });
             addBodyLink(
-              { node: countId, port: 'sum' },
-              { node: compareId, port: 'b' },
-            )
+              { node: countId, port: "sum" },
+              { node: compareId, port: "b" },
+            );
           }
-          addBodyLink({ node: compareId, port: 'result' }, link['to'])
+          addBodyLink({ node: compareId, port: "result" }, link["to"]);
         }
       }
     }
-    if (iteration.mode === 'range' && !inputBindings.has('iteration_index')) {
-      const anchorId = nextNodeId('iteration_anchor')
-      body['nodes'][anchorId] = {
+    if (iteration.mode === "range" && !inputBindings.has("iteration_index")) {
+      const anchorId = nextNodeId("iteration_anchor");
+      body["nodes"][anchorId] = {
         id: anchorId,
-        type: 'std.math.add_ints',
+        type: "std.math.add_ints",
         values: { b: 0 },
-      }
-      bodyView['nodes'][anchorId] = { position: { x: -180, y: 0 } }
-      addInput('iteration_index', { kind: 'port', node: anchorId, port: 'a' })
+      };
+      bodyView["nodes"][anchorId] = { position: { x: -180, y: 0 } };
+      addInput("iteration_index", { kind: "port", node: anchorId, port: "a" });
     }
-    if (iteration.mode === 'list' && !inputBindings.has('list_item')) {
-      const anchorId = nextNodeId('list_item_anchor')
-      body['nodes'][anchorId] = {
+    if (iteration.mode === "list" && !inputBindings.has("list_item")) {
+      const anchorId = nextNodeId("list_item_anchor");
+      body["nodes"][anchorId] = {
         id: anchorId,
         type: STRUCTURAL_IMPORT_HELPERS.compare,
-        values: { operation: 'eq', epsilon: 0 },
-      }
-      bodyView['nodes'][anchorId] = { position: { x: -180, y: 0 } }
-      addInput('list_item', { kind: 'port', node: anchorId, port: 'a' })
-      addInput('list_item', { kind: 'port', node: anchorId, port: 'b' })
+        values: { operation: "eq", epsilon: 0 },
+      };
+      bodyView["nodes"][anchorId] = { position: { x: -180, y: 0 } };
+      addInput("list_item", { kind: "port", node: anchorId, port: "a" });
+      addInput("list_item", { kind: "port", node: anchorId, port: "b" });
     }
 
     const initialCarryRaw = rawLinks.find(
       (link) =>
         link.to === pair.start &&
-        rawPortName(startRaw, 'inputs', link.toSlot) ===
-          'initial_iteration_value',
-    )
+        rawPortName(startRaw, "inputs", link.toSlot) ===
+          "initial_iteration_value",
+    );
     const initialCarry =
-      initialCarryRaw && graph['links'][`l${initialCarryRaw.id}`]
-    if (statePorts.has('carry')) {
-      if (initialCarry) inputSources.set('carry', initialCarry['from'])
-      else values['carry'] = null
+      initialCarryRaw && graph["links"][`l${initialCarryRaw.id}`];
+    if (statePorts.has("carry")) {
+      if (initialCarry) inputSources.set("carry", initialCarry["from"]);
+      else values["carry"] = null;
     }
 
     const endInput = (
@@ -1323,151 +1135,156 @@ export function convertLitegraphLoops(
       const raw = rawLinks.find(
         (candidate) =>
           candidate.to === pair.end &&
-          rawPortName(endRaw, 'inputs', candidate.toSlot) === name,
-      )
-      const link = raw && graph['links'][`l${raw.id}`]
-      return raw && link ? { raw, link } : undefined
-    }
-    const nextCarry = endInput('next_iteration_value')
+          rawPortName(endRaw, "inputs", candidate.toSlot) === name,
+      );
+      const link = raw && graph["links"][`l${raw.id}`];
+      return raw && link ? { raw, link } : undefined;
+    };
+    const nextCarry = endInput("next_iteration_value");
     if (nextCarry) {
-      if (!bodyNodeIds.has(endpointNode(nextCarry.link['from']) ?? '')) {
+      if (!bodyNodeIds.has(endpointNode(nextCarry.link["from"]) ?? "")) {
         loopError(
           diagnostics,
-          'carryTypeIncompatible',
+          "carryTypeIncompatible",
           `End Loop ${pair.end} carry source is not a body node`,
-        )
-        return
+        );
+        return;
       }
       const carries = startLinks.filter(
-        (link) => startPort(link) === 'current_iteration_value',
-      )
+        (link) => startPort(link) === "current_iteration_value",
+      );
       const carrySources = [
-        initialCarry?.['from'],
-        nextCarry.link['from'],
-      ].filter((source): source is Mutable => source !== undefined)
-      const carryTargets = carries.map((link) => link['to'] as Mutable)
+        initialCarry?.["from"],
+        nextCarry.link["from"],
+      ].filter((source): source is Mutable => source !== undefined);
+      const carryTargets = carries.map((link) => link["to"] as Mutable);
       const incompatible = carrySources.some((source) => {
-        const sourceType = endpointType(graph, source, 'output', resolve)
+        const sourceType = endpointType(graph, source, "output", resolve);
         return (
           sourceType !== undefined &&
           carryTargets.some((target) => {
-            const targetType = endpointType(graph, target, 'input', resolve)
+            const targetType = endpointType(graph, target, "input", resolve);
             return (
               targetType !== undefined &&
-              targetType.kind !== 'wildcard' &&
+              targetType.kind !== "wildcard" &&
               !(
-                targetType.kind === 'concrete' &&
-                targetType.name === 'core.value'
+                targetType.kind === "concrete" &&
+                targetType.name === "core.value"
               ) &&
               !typesCompatible(sourceType, targetType)
-            )
+            );
           })
-        )
-      })
+        );
+      });
       if (incompatible) {
         loopError(
           diagnostics,
-          'carryTypeIncompatible',
+          "carryTypeIncompatible",
           `Loop ${pair.start}/${pair.end} carry endpoints do not share a compatible type`,
-        )
-        return
+        );
+        return;
       }
-      if (carries.length > 0) statePorts.add('carry')
-      if (statePorts.has('carry') && !inputBindings.has('carry')) {
+      if (carries.length > 0) statePorts.add("carry");
+      if (statePorts.has("carry") && !inputBindings.has("carry")) {
         const consumers = startLinks.filter(
-          (link) => startPort(link) === 'current_iteration_value',
-        )
+          (link) => startPort(link) === "current_iteration_value",
+        );
         for (const consumer of consumers)
-          addInput('carry', { kind: 'port', ...consumer['to'] })
+          addInput("carry", { kind: "port", ...consumer["to"] });
       }
-      if (statePorts.has('carry')) {
-        if (!initialCarry) values['carry'] = null
-        addOutput('next_carry', nextCarry.link['from'])
-        outputRoles['next_carry'] = { kind: 'state', statePort: 'carry' }
+      if (statePorts.has("carry")) {
+        if (!initialCarry) values["carry"] = null;
+        addOutput("next_carry", nextCarry.link["from"]);
+        outputRoles["next_carry"] = { kind: "state", statePort: "carry" };
       } else {
-        addOutput('next_value', nextCarry.link['from'], 'gather')
+        addOutput("next_value", nextCarry.link["from"], "gather");
       }
     }
 
-    const resultInput = endInput('output_value')
+    const resultInput = endInput("output_value");
     if (resultInput) {
-      const sourceNode = endpointNode(resultInput.link['from'])
+      const sourceNode = endpointNode(resultInput.link["from"]);
       if (!sourceNode || !bodyNodeIds.has(sourceNode)) {
         loopError(
           diagnostics,
-          'outputCardinalityUnknown',
+          "outputCardinalityUnknown",
           `End Loop ${pair.end} output source is not a body node`,
-        )
-        return
+        );
+        return;
       }
       const accumulate = Array.isArray(endRaw.widgets_values)
         ? endRaw.widgets_values[0] === true
-        : widgetRecord(endRaw)['accumulate'] === true
-      const producerRawId = Number(sourceNode.slice(1))
-      const producerRaw = byId.get(producerRawId)
-      const sourceRawLink = resultInput.raw
-      const sourceType = endpointType(graph, resultInput.link['from'], 'output', localResolve)
+        : widgetRecord(endRaw)["accumulate"] === true;
+      const producerRawId = Number(sourceNode.slice(1));
+      const producerRaw = byId.get(producerRawId);
+      const sourceRawLink = resultInput.raw;
+      const sourceType = endpointType(
+        graph,
+        resultInput.link["from"],
+        "output",
+        localResolve,
+      );
       const sourceIsList =
-        graph['nodes'][sourceNode]?.['type'] === 'std.tuple.make' ||
-        sourceType?.kind === 'tuple' ||
-        sourceType?.kind === 'family_tuple'
+        graph["nodes"][sourceNode]?.["type"] === "std.tuple.make" ||
+        sourceType?.kind === "tuple" ||
+        sourceType?.kind === "family_tuple"
           ? false
-          : convertedOutputIsList.get(sourceNode) ??
+          : (convertedOutputIsList.get(sourceNode) ??
             (producerRaw !== undefined &&
-              outputIsList(producerRaw, sourceRawLink.fromSlot, resolve))
-      const role = !accumulate ? 'last' : sourceIsList ? 'flatten' : 'gather'
-      addOutput('result', resultInput.link['from'], role)
-      convertedOutputIsList.set(startId, accumulate && sourceIsList)
+              outputIsList(producerRaw, sourceRawLink.fromSlot, resolve)));
+      const role = !accumulate ? "last" : sourceIsList ? "flatten" : "gather";
+      addOutput("result", resultInput.link["from"], role);
+      convertedOutputIsList.set(startId, accumulate && sourceIsList);
     }
 
     for (const raw of rawLinks.filter(
       (link) =>
         link.to === pair.end &&
-        (rawPortName(endRaw, 'inputs', link.toSlot)?.startsWith(
-          'termination',
+        (rawPortName(endRaw, "inputs", link.toSlot)?.startsWith(
+          "termination",
         ) ??
           false),
     )) {
-      const link = graph['links'][`l${raw.id}`] as Mutable | undefined
-      const sourceNode = link && endpointNode(link['from'])
+      const link = graph["links"][`l${raw.id}`] as Mutable | undefined;
+      const sourceNode = link && endpointNode(link["from"]);
       if (!link || !sourceNode || !bodyNodeIds.has(sourceNode)) {
         loopError(
           diagnostics,
-          'terminationTargetUnsupported',
+          "terminationTargetUnsupported",
           `End Loop ${pair.end} termination ${raw.id} is not produced by its body`,
-        )
-        return
+        );
+        return;
       }
-      addOutput(`termination_${raw.id}`, link['from'], 'gather')
+      addOutput(`termination_${raw.id}`, link["from"], "gather");
     }
 
-    if (sequenceSource && inputBindings.has('loop_count')) {
-      const lengthId = nextNodeId('list_length')
-      graph['nodes'][lengthId] = {
+    if (sequenceSource && inputBindings.has("loop_count")) {
+      const lengthId = nextNodeId("list_length");
+      graph["nodes"][lengthId] = {
         id: lengthId,
-        type: 'std.list.length',
+        type: "std.list.length",
         values: {},
-      }
-      view['nodes'][lengthId] = {
+      };
+      view["nodes"][lengthId] = {
         position: { x: Number(startRaw.id) * 20 - 180, y: -180 },
-      }
-      const sourceLinkId = `loop_outer_${ordinal++}`
-      graph['links'][sourceLinkId] = {
+      };
+      const sourceLinkId = `loop_outer_${ordinal++}`;
+      graph["links"][sourceLinkId] = {
         id: sourceLinkId,
         from: sequenceSource,
-        to: { node: lengthId, port: 'list' },
-      }
-      inputSources.set('loop_count', { node: lengthId, port: 'length' })
+        to: { node: lengthId, port: "list" },
+      };
+      inputSources.set("loop_count", { node: lengthId, port: "length" });
     }
 
     for (const [id, bindings] of inputBindings) {
       for (const binding of bindings) {
-        const target = body['nodes'][binding['node']] as Mutable | undefined
-        if (target?.['region']?.['statePorts']?.includes(binding['port'])) {
-          target['values'][binding['port']] ??= null
+        const target = body["nodes"][binding["node"]] as Mutable | undefined;
+        if (target?.["region"]?.["statePorts"]?.includes(binding["port"])) {
+          target["values"][binding["port"]] ??= null;
         }
       }
-      body['boundary']['inputs'].push({
+      body["boundary"]["inputs"].push({
         id,
         displayName: id,
         binds: bindings[0],
@@ -1475,118 +1292,118 @@ export function convertLitegraphLoops(
         ...(!elementPorts.has(id) &&
         !statePorts.has(id) &&
         bindings.some((binding) => {
-          const target = body['nodes'][binding['node']] as Mutable | undefined
-          const schema = target && localResolve(target['type'])
+          const target = body["nodes"][binding["node"]] as Mutable | undefined;
+          const schema = target && localResolve(target["type"]);
           return (
             schema &&
             inputsOf(schema).some(
               (input) =>
-                input.id === binding['port'] && input.widget !== undefined,
+                input.id === binding["port"] && input.widget !== undefined,
             )
-          )
+          );
         })
           ? { promoted: true }
           : {}),
-      })
+      });
     }
-    for (const node of Object.values(body['nodes']) as Mutable[]) {
-      for (const statePort of node['region']?.['statePorts'] ?? []) {
-        node['values'][statePort] ??= null
+    for (const node of Object.values(body["nodes"]) as Mutable[]) {
+      for (const statePort of node["region"]?.["statePorts"] ?? []) {
+        node["values"][statePort] ??= null;
       }
     }
     if (outputPorts.length === 0) {
       loopError(
         diagnostics,
-        'terminationTargetUnsupported',
+        "terminationTargetUnsupported",
         `Loop ${pair.start}/${pair.end} has no executable output, carry, or termination target`,
-      )
-      return
+      );
+      return;
     }
-    body['nextOrdinal'] = ordinal
+    body["nextOrdinal"] = ordinal;
 
-    const removed = new Set([startId, endId, ...bodyNodeIds])
-    graph['links'] = Object.fromEntries(
-      (Object.values(graph['links']) as Mutable[])
+    const removed = new Set([startId, endId, ...bodyNodeIds]);
+    graph["links"] = Object.fromEntries(
+      (Object.values(graph["links"]) as Mutable[])
         .filter(
           (link) =>
-            !removed.has(endpointNode(link['from']) ?? '') &&
-            !removed.has(endpointNode(link['to']) ?? ''),
+            !removed.has(endpointNode(link["from"]) ?? "") &&
+            !removed.has(endpointNode(link["to"]) ?? ""),
         )
-        .map((link) => [link['id'], link]),
-    )
+        .map((link) => [link["id"], link]),
+    );
     for (const id of bodyNodeIds) {
-      delete graph['nodes'][id]
-      delete view['nodes']?.[id]
+      delete graph["nodes"][id];
+      delete view["nodes"]?.[id];
     }
-    delete graph['nodes'][endId]
-    delete view['nodes']?.[endId]
+    delete graph["nodes"][endId];
+    delete view["nodes"]?.[endId];
 
-    const cacheIterations = startSettings(startRaw).cacheIterations
-    graph['nodes'][startId] = {
+    const cacheIterations = startSettings(startRaw).cacheIterations;
+    graph["nodes"][startId] = {
       id: startId,
       type: `#${defId}`,
       values,
       region: {
-        kind: 'fold',
+        kind: "fold",
         elementPorts: [...elementPorts],
         ...(statePorts.size > 0 ? { statePorts: [...statePorts] } : {}),
         ...(Object.keys(outputRoles).length > 0 ? { outputRoles } : {}),
-        binding: 'zip',
-        cachePolicy: cacheIterations ? 'reuse' : 'rerun',
+        binding: "zip",
+        cachePolicy: cacheIterations ? "reuse" : "rerun",
       },
-      ext: { 'importer.comfyLoop': { start: pair.start, end: pair.end } },
-    }
+      ext: { "importer.comfyLoop": { start: pair.start, end: pair.end } },
+    };
     for (const [id, source] of inputSources) {
-      const linkId = `loop_outer_${ordinal++}`
-      graph['links'][linkId] = {
+      const linkId = `loop_outer_${ordinal++}`;
+      graph["links"][linkId] = {
         id: linkId,
         from: source,
         to: { node: startId, port: id },
-      }
+      };
     }
     for (const link of endOutputs) {
       if (!resultInput) {
         loopError(
           diagnostics,
-          'outputCardinalityUnknown',
+          "outputCardinalityUnknown",
           `End Loop ${pair.end} has consumers but no output_value`,
-        )
-        return
+        );
+        return;
       }
-      graph['links'][link['id']] = {
+      graph["links"][link["id"]] = {
         ...link,
-        from: { node: startId, port: 'result' },
-      }
+        from: { node: startId, port: "result" },
+      };
     }
-    graph['nextOrdinal'] = Math.max(Number(graph['nextOrdinal']) || 1, ordinal)
-    doc['graphs'][defId] = body
-    doc['view']['graphs'][defId] = bodyView
-    const derived = deriveBoundarySchema(body as GraphDef, localResolve)
+    graph["nextOrdinal"] = Math.max(Number(graph["nextOrdinal"]) || 1, ordinal);
+    doc["graphs"][defId] = body;
+    doc["view"]["graphs"][defId] = bodyView;
+    const derived = deriveBoundarySchema(body as GraphDef, localResolve);
     if (derived.schema)
-      generatedSchemas.set(derived.schema.type, derived.schema)
+      generatedSchemas.set(derived.schema.type, derived.schema);
 
     for (const topology of Object.values(
-      doc['occurrenceTopologies'],
+      doc["occurrenceTopologies"],
     ) as Mutable[]) {
       const path = [
-        ...topology['owner']['instancePath'],
-        topology['owner']['node'],
-      ]
+        ...topology["owner"]["instancePath"],
+        topology["owner"]["node"],
+      ];
       if (bodyNodeIds.has(path[0])) {
-        topology['owner'] = {
-          instancePath: [startId, ...topology['owner']['instancePath']],
-          node: topology['owner']['node'],
-        }
+        topology["owner"] = {
+          instancePath: [startId, ...topology["owner"]["instancePath"]],
+          node: topology["owner"]["node"],
+        };
       }
     }
     if (Object.keys(occurrenceLinks).length > 0) {
-      const owner = { instancePath: [], node: startId }
-      doc['occurrenceTopologies'][startId] = {
+      const owner = { instancePath: [], node: startId };
+      doc["occurrenceTopologies"][startId] = {
         owner,
         bodyGraph: defId,
         links: occurrenceLinks,
         nextOrdinal: occurrenceOrdinal,
-      }
+      };
     }
   }
 }

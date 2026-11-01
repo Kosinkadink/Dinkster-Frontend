@@ -23,14 +23,14 @@ are not aliases. Node ids retain their existing pack namespaces.
 
 Dinkster distinguishes fixed types, match types, and `Any` directly on canvas:
 
-| Pin | Meaning |
-| --- | --- |
-| Circle | Definite scalar value |
-| Diamond | Definite list value |
-| Square with an inscribed circle | Unresolved match input that accepts either a scalar or a whole list |
-| Multi-color wedges | Every accepted member of a finite union or constrained match type |
-| Solid dark ring | Standard border for fixed and match-type ports |
-| Dashed dark ring | `Any`; the port accepts independently and never determines another port |
+| Pin                             | Meaning                                                                 |
+| ------------------------------- | ----------------------------------------------------------------------- |
+| Circle                          | Definite scalar value                                                   |
+| Diamond                         | Definite list value                                                     |
+| Square with an inscribed circle | Unresolved match input that accepts either a scalar or a whole list     |
+| Multi-color wedges              | Every accepted member of a finite union or constrained match type       |
+| Solid dark ring                 | Standard border for fixed and match-type ports                          |
+| Dashed dark ring                | `Any`; the port accepts independently and never determines another port |
 
 Finite unions paint one wedge for every member. Constrained match types use
 the same member colors and standard dark border. Hovering a match pin,
@@ -78,6 +78,6 @@ selects a position with a stored integer index; negative indices count from
 the end. Connected indices, nonintegers and out-of-range positions are errors.
 A tuple crossing a region or loop remains one value, not an execution list.
 
-Workflow import lowers homogeneous CreateList values to list operations and
-heterogeneous declared positions to Create Tuple and Tuple Item. This choice
-uses declared source types, never runtime payload inspection.
+Workflow import retains native CreateList and GetItemFromList identities for
+both homogeneous and heterogeneous collections. Their `list<*>` envelopes
+preserve each child's concrete type; they are not positional tuples.

@@ -24,9 +24,9 @@
  *   presentation authored by the user and is preserved
  */
 
-import { canonicalJson } from '../compile/hash.js'
-import { typedLiteralWire } from '../compile/dinkster-graph.js'
-import { diag, type Diagnostic } from '../diagnostics.js'
+import { canonicalJson } from "../compile/hash.js";
+import { typedLiteralWire } from "../compile/dinkster-graph.js";
+import { diag, type Diagnostic } from "../diagnostics.js";
 import {
   comboBranchValuePath,
   effectiveComboOption,
@@ -40,8 +40,12 @@ import {
   type InterfaceItem,
   type NodeSchema,
   type OutputSpec,
-} from '../schema/model.js'
-import { DEFAULT_ELAB_BUDGET, elaborateInterface, elabInputsOf } from '../schema/elaborate.js'
+} from "../schema/model.js";
+import {
+  DEFAULT_ELAB_BUDGET,
+  elaborateInterface,
+  elabInputsOf,
+} from "../schema/elaborate.js";
 import {
   FORMAT_VERSION,
   type ControllerMode,
@@ -53,157 +57,190 @@ import {
   type NodeData,
   type NodeViewState,
   type WorkflowDocument,
-} from './document.js'
-import { ownJson } from './json.js'
-import { validateDocumentShape } from './validate.js'
-import { checkDocument } from '../invariants.js'
-import { isPortEndpoint } from '../ids.js'
-import { isAssetRefValue } from '../schema/widget-defaults.js'
-import { importLitegraphSubgraphs } from './import-litegraph-subgraphs.js'
-import { convertLitegraphLists, convertLitegraphLoops, convertLitegraphListConsumers } from './import-litegraph-loops.js'
+} from "./document.js";
+import { ownJson } from "./json.js";
+import { validateDocumentShape } from "./validate.js";
+import { checkDocument } from "../invariants.js";
+import { isPortEndpoint } from "../ids.js";
+import { isAssetRefValue } from "../schema/widget-defaults.js";
+import { importLitegraphSubgraphs } from "./import-litegraph-subgraphs.js";
+import {
+  convertLitegraphLoops,
+  convertLitegraphListConsumers,
+} from "./import-litegraph-loops.js";
 
 // -- litegraph wire shapes (loose: this is foreign, hostile JSON) ------------
 
 interface LgNode {
-  readonly id: number
-  readonly type: string
-  readonly title?: string
-  readonly flags?: JsonObject
-  readonly pos?: readonly number[] | Readonly<Record<string, number>>
-  readonly size?: readonly number[] | Readonly<Record<string, number>>
-  readonly mode?: number
+  readonly id: number;
+  readonly type: string;
+  readonly title?: string;
+  readonly flags?: JsonObject;
+  readonly pos?: readonly number[] | Readonly<Record<string, number>>;
+  readonly size?: readonly number[] | Readonly<Record<string, number>>;
+  readonly mode?: number;
   readonly inputs?: ReadonlyArray<{
-    readonly name?: string
-    readonly type?: Json
-    readonly link?: number | null
-    readonly widget?: { readonly name?: string }
-  }>
+    readonly name?: string;
+    readonly type?: Json;
+    readonly link?: number | null;
+    readonly widget?: { readonly name?: string };
+  }>;
   readonly outputs?: ReadonlyArray<{
-    readonly name?: string
-    readonly type?: Json
-    readonly links?: readonly number[] | null
-  }>
-  readonly widgets_values?: readonly Json[] | Readonly<Record<string, Json>>
-  readonly properties?: JsonObject
-  readonly color?: string
-  readonly bgcolor?: string
+    readonly name?: string;
+    readonly type?: Json;
+    readonly links?: readonly number[] | null;
+  }>;
+  readonly widgets_values?: readonly Json[] | Readonly<Record<string, Json>>;
+  readonly properties?: JsonObject;
+  readonly color?: string;
+  readonly bgcolor?: string;
 }
 
 /** Widget upgrades are keyed by class name, then the saved node properties.ver. */
-export type ComfyNodeUpgradeTable = ReadonlyMap<string, ReadonlyMap<string,
-  (values: LgNode['widgets_values']) => NonNullable<LgNode['widgets_values']>
->>
+export type ComfyNodeUpgradeTable = ReadonlyMap<
+  string,
+  ReadonlyMap<
+    string,
+    (values: LgNode["widgets_values"]) => NonNullable<LgNode["widgets_values"]>
+  >
+>;
 
 /** Saved source versions whose widget streams predate the current node schema. */
 export const COMFY_NODE_UPGRADES: ComfyNodeUpgradeTable = new Map([
-  ['SaveVideo', new Map([
-    ['0.3.68', (values: LgNode['widgets_values']) => {
-      if (!Array.isArray(values) || values.length !== 3 || !['auto', 'h264', 'av1'].includes(values[2] as string)) return values ?? []
-      // Older streams omit both the codec's encoding mode and the optional
-      // top-level codec fallback. Store their automatic choices explicitly.
-      return [...values, ...(values[2] === 'auto' ? [] : ['auto']), 'auto']
-    }],
-  ])],
-])
+  [
+    "SaveVideo",
+    new Map([
+      [
+        "0.3.68",
+        (values: LgNode["widgets_values"]) => {
+          if (
+            !Array.isArray(values) ||
+            values.length !== 3 ||
+            !["auto", "h264", "av1"].includes(values[2] as string)
+          )
+            return values ?? [];
+          // Older streams omit both the codec's encoding mode and the optional
+          // top-level codec fallback. Store their automatic choices explicitly.
+          return [...values, ...(values[2] === "auto" ? [] : ["auto"]), "auto"];
+        },
+      ],
+    ]),
+  ],
+]);
 
 /** [id, fromNode, fromSlot, toNode, toSlot, type] */
-type LgLink = readonly [number, number, number, number, number, ...unknown[]]
+type LgLink = readonly [number, number, number, number, number, ...unknown[]];
 
 interface LgWire {
-  fromNode: number
-  fromSlot: number
-  toNode: number
-  toSlot: number
-  type?: Json
+  fromNode: number;
+  fromSlot: number;
+  toNode: number;
+  toSlot: number;
+  type?: Json;
 }
 
-const CONTROLLER_MODES: ReadonlySet<string> = new Set(['fixed', 'increment', 'decrement', 'randomize'])
-const MAX_UE_LINKS = 1024
+const CONTROLLER_MODES: ReadonlySet<string> = new Set([
+  "fixed",
+  "increment",
+  "decrement",
+  "randomize",
+]);
+const MAX_UE_LINKS = 1024;
 
 /** Frontend-only litegraph node types with dedicated translations. */
-const REROUTE_TYPES = new Set(['Reroute'])
-const NOTE_TYPES = new Set(['Note', 'MarkdownNote'])
-const SET_TYPES = new Set(['SetNode'])
-const GET_TYPES = new Set(['GetNode'])
-const PRIMITIVE_TYPES = new Set(['PrimitiveNode'])
-const UE_SEED_CONTROLLER_TYPE = 'Seed Everywhere'
+const REROUTE_TYPES = new Set(["Reroute"]);
+const NOTE_TYPES = new Set(["Note", "MarkdownNote"]);
+const SET_TYPES = new Set(["SetNode"]);
+const GET_TYPES = new Set(["GetNode"]);
+const PRIMITIVE_TYPES = new Set(["PrimitiveNode"]);
+const UE_SEED_CONTROLLER_TYPE = "Seed Everywhere";
 const UE_CONTROLLER_TYPES = new Set([
-  'Anything Everywhere', 'Anything Everywhere3', 'Anything Everywhere?',
-  'Prompts Everywhere', UE_SEED_CONTROLLER_TYPE,
-])
+  "Anything Everywhere",
+  "Anything Everywhere3",
+  "Anything Everywhere?",
+  "Prompts Everywhere",
+  UE_SEED_CONTROLLER_TYPE,
+]);
 const UE_INPUT_CONTROLLER_TYPES = new Set(
   [...UE_CONTROLLER_TYPES].filter((type) => type !== UE_SEED_CONTROLLER_TYPE),
-)
+);
 const isUeController = (node: LgNode): boolean =>
-  UE_CONTROLLER_TYPES.has(node.type) || node.properties?.['ue_convert'] === true
+  UE_CONTROLLER_TYPES.has(node.type) ||
+  node.properties?.["ue_convert"] === true;
 const isUeBroadcastInput = (type: string, slot: number): boolean => {
-  if (type === 'Anything Everywhere?') return slot === 0
-  if (type === 'Anything Everywhere3') return slot <= 2
-  if (type === 'Prompts Everywhere') return slot <= 1
-  return type === 'Anything Everywhere'
-}
+  if (type === "Anything Everywhere?") return slot === 0;
+  if (type === "Anything Everywhere3") return slot <= 2;
+  if (type === "Prompts Everywhere") return slot <= 1;
+  return type === "Anything Everywhere";
+};
 
 interface UeLink {
-  readonly downstream: number
-  readonly downstreamSlot: number
-  readonly upstream: number
-  readonly upstreamSlot: number
-  readonly controller: number
-  readonly type: string
+  readonly downstream: number;
+  readonly downstreamSlot: number;
+  readonly upstream: number;
+  readonly upstreamSlot: number;
+  readonly controller: number;
+  readonly type: string;
 }
 
 export interface ImportLitegraphResult {
   /** Present only when there are no error-level diagnostics. */
-  readonly document?: WorkflowDocument
-  readonly diagnostics: readonly Diagnostic[]
+  readonly document?: WorkflowDocument;
+  readonly diagnostics: readonly Diagnostic[];
 }
 
-const imp = (severity: 'error' | 'warning' | 'info', code: string, message: string): Diagnostic =>
-  diag(severity, 'import', code, message)
+const imp = (
+  severity: "error" | "warning" | "info",
+  code: string,
+  message: string,
+): Diagnostic => diag(severity, "import", code, message);
 
 interface PositionalWidgetDecode {
-  readonly values: Record<string, Json>
-  readonly controllers: Record<string, ControllerMode>
-  readonly dynamic: Record<string, DynamicPortState & JsonObject>
-  index: number
-  stopped: boolean
+  readonly values: Record<string, Json>;
+  readonly controllers: Record<string, ControllerMode>;
+  readonly dynamic: Record<string, DynamicPortState & JsonObject>;
+  index: number;
+  stopped: boolean;
 }
 
 interface AutogrowFamilyImport {
-  readonly statePath: string
-  readonly wirePath: string
-  readonly spec: AutogrowSpec
+  readonly statePath: string;
+  readonly wirePath: string;
+  readonly spec: AutogrowSpec;
 }
 
 interface AutogrowWireMatch {
-  readonly family: AutogrowFamilyImport
-  readonly memberKey: string
-  readonly slot: InputSpec
+  readonly family: AutogrowFamilyImport;
+  readonly memberKey: string;
+  readonly slot: InputSpec;
 }
 
 interface DiscoveredAutogrowMembers {
-  readonly order: ReadonlyMap<string, readonly string[]>
-  readonly slots: ReadonlyMap<number, { readonly match: AutogrowWireMatch; readonly memberId: string }>
+  readonly order: ReadonlyMap<string, readonly string[]>;
+  readonly slots: ReadonlyMap<
+    number,
+    { readonly match: AutogrowWireMatch; readonly memberId: string }
+  >;
 }
 
-function normalizeLegacyWidgetValue(
-  item: InputSpec,
-  value: Json,
-): Json {
-  if (typeof value !== 'string') return value
-  const floating = item.widget?.widgetType === 'FLOAT'
-  if (item.widget?.widgetType === 'INT' || floating) {
-    const numericText = value.trim()
-    const numeric = Number(numericText)
-    const decimal = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(numericText)
+function normalizeLegacyWidgetValue(item: InputSpec, value: Json): Json {
+  if (typeof value !== "string") return value;
+  const floating = item.widget?.widgetType === "FLOAT";
+  if (item.widget?.widgetType === "INT" || floating) {
+    const numericText = value.trim();
+    const numeric = Number(numericText);
+    const decimal = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(
+      numericText,
+    );
     if (
       decimal &&
       Number.isFinite(numeric) &&
       (floating || Number.isSafeInteger(numeric))
-    ) return numeric
-    return value
+    )
+      return numeric;
+    return value;
   }
-  return value
+  return value;
 }
 
 function decodeKeyedWidgets(
@@ -217,53 +254,76 @@ function decodeKeyedWidgets(
   known: Set<string>,
 ): void {
   for (const item of items) {
-    if (item.kind !== 'input') continue
-    const stateKey = joinValuePath(statePrefix, item.id)
-    const wireKey = joinValuePath(wirePrefix, item.id)
-    if (item.dynamic?.kind === 'dynamicCombo') {
-      const selected = raw[wireKey]
-      const branch = typeof selected === 'string'
-        ? item.dynamic.options.find((option) => option.key === selected)
-        : undefined
+    if (item.kind !== "input") continue;
+    const stateKey = joinValuePath(statePrefix, item.id);
+    const wireKey = joinValuePath(wirePrefix, item.id);
+    if (item.dynamic?.kind === "dynamicCombo") {
+      const selected = raw[wireKey];
+      const branch =
+        typeof selected === "string"
+          ? item.dynamic.options.find((option) => option.key === selected)
+          : undefined;
       if (branch !== undefined) {
-        known.add(wireKey)
-        state.dynamic[stateKey] = { selected: branch.key }
+        known.add(wireKey);
+        state.dynamic[stateKey] = { selected: branch.key };
         decodeKeyedWidgets(
           branch.inputs,
           raw,
           state,
-          item.dynamic.materialization === 'wire15' ? stateKey : comboBranchValuePath(stateKey, branch.key),
-          item.dynamic.materialization === 'wire15' ? wireKey : comboBranchValuePath(wireKey, branch.key),
+          item.dynamic.materialization === "wire15"
+            ? stateKey
+            : comboBranchValuePath(stateKey, branch.key),
+          item.dynamic.materialization === "wire15"
+            ? wireKey
+            : comboBranchValuePath(wireKey, branch.key),
           nodeLabel,
           diags,
           known,
-        )
+        );
       }
-      continue
+      continue;
     }
-    if (item.dynamic?.kind === 'autogrow') {
-      const members = (state.dynamic[stateKey] as { readonly members?: readonly string[] } | undefined)?.members ?? []
+    if (item.dynamic?.kind === "autogrow") {
+      const members =
+        (
+          state.dynamic[stateKey] as
+            | { readonly members?: readonly string[] }
+            | undefined
+        )?.members ?? [];
       for (const member of members) {
         for (const slot of item.dynamic.template) {
-          if (slot.dynamic !== undefined || slot.widget === undefined || slot.forceInput === true) continue
-          const stateMember = joinValuePath(stateKey, member)
-          const wireMember = joinValuePath(wireKey, member)
-          const stateInput = item.dynamic.template.length === 1
-            ? stateMember
-            : joinValuePath(stateMember, slot.id)
-          const wireInput = item.dynamic.template.length === 1
-            ? wireMember
-            : joinValuePath(wireMember, slot.id)
-          if (!Object.prototype.hasOwnProperty.call(raw, wireInput)) continue
-          known.add(wireInput)
-          state.values[stateInput] = normalizeLegacyWidgetValue(slot, raw[wireInput]!)
+          if (
+            slot.dynamic !== undefined ||
+            slot.widget === undefined ||
+            slot.forceInput === true
+          )
+            continue;
+          const stateMember = joinValuePath(stateKey, member);
+          const wireMember = joinValuePath(wireKey, member);
+          const stateInput =
+            item.dynamic.template.length === 1
+              ? stateMember
+              : joinValuePath(stateMember, slot.id);
+          const wireInput =
+            item.dynamic.template.length === 1
+              ? wireMember
+              : joinValuePath(wireMember, slot.id);
+          if (!Object.prototype.hasOwnProperty.call(raw, wireInput)) continue;
+          known.add(wireInput);
+          state.values[stateInput] = normalizeLegacyWidgetValue(
+            slot,
+            raw[wireInput]!,
+          );
         }
       }
-      continue
+      continue;
     }
-    if (item.widget !== undefined && Object.prototype.hasOwnProperty.call(raw, wireKey)) {
-      known.add(wireKey)
-      state.values[stateKey] = normalizeLegacyWidgetValue(item, raw[wireKey]!)
+    if (
+      item.widget !== undefined &&
+      Object.prototype.hasOwnProperty.call(raw, wireKey)
+    ) {
+      known.add(wireKey);
+      state.values[stateKey] = normalizeLegacyWidgetValue(item, raw[wireKey]!);
     }
   }
 }
@@ -272,32 +332,40 @@ function decodeKeyedWidgets(
 function activeAutogrowFamilies(
   items: readonly InterfaceItem[] | readonly InputSpec[],
   dynamic: Readonly<Record<string, Json>>,
-  statePrefix = '',
-  wirePrefix = '',
+  statePrefix = "",
+  wirePrefix = "",
 ): AutogrowFamilyImport[] {
-  const families: AutogrowFamilyImport[] = []
+  const families: AutogrowFamilyImport[] = [];
   for (const item of items) {
-    if (item.kind !== 'input' || item.dynamic === undefined) continue
-    const statePath = joinValuePath(statePrefix, item.id)
-    const wirePath = joinValuePath(wirePrefix, item.id)
-    if (item.dynamic.kind === 'autogrow') {
-      if (item.dynamic.naming.kind !== 'native') families.push({ statePath, wirePath, spec: item.dynamic })
-      continue
+    if (item.kind !== "input" || item.dynamic === undefined) continue;
+    const statePath = joinValuePath(statePrefix, item.id);
+    const wirePath = joinValuePath(wirePrefix, item.id);
+    if (item.dynamic.kind === "autogrow") {
+      if (item.dynamic.naming.kind !== "native")
+        families.push({ statePath, wirePath, spec: item.dynamic });
+      continue;
     }
-    if (item.dynamic.kind !== 'dynamicCombo') continue
-    const selected = (dynamic[statePath] as { readonly selected?: unknown } | undefined)?.selected
-    const option = typeof selected === 'string'
-      ? item.dynamic.options.find((candidate) => candidate.key === selected)
-      : undefined
-    if (option === undefined) continue
-    families.push(...activeAutogrowFamilies(
-      option.inputs,
-      dynamic,
-      item.dynamic.materialization === 'wire15' ? statePath : comboBranchValuePath(statePath, option.key),
-      wirePath,
-    ))
+    if (item.dynamic.kind !== "dynamicCombo") continue;
+    const selected = (
+      dynamic[statePath] as { readonly selected?: unknown } | undefined
+    )?.selected;
+    const option =
+      typeof selected === "string"
+        ? item.dynamic.options.find((candidate) => candidate.key === selected)
+        : undefined;
+    if (option === undefined) continue;
+    families.push(
+      ...activeAutogrowFamilies(
+        option.inputs,
+        dynamic,
+        item.dynamic.materialization === "wire15"
+          ? statePath
+          : comboBranchValuePath(statePath, option.key),
+        wirePath,
+      ),
+    );
   }
-  return families
+  return families;
 }
 
 /** Match only names derivable from the family's declared vocabulary/template. */
@@ -305,113 +373,142 @@ function matchAutogrowWire(
   name: string,
   family: AutogrowFamilyImport,
 ): AutogrowWireMatch | undefined {
-  const prefix = `${family.wirePath}.`
-  if (!name.startsWith(prefix)) return undefined
-  const relative = name.slice(prefix.length)
-  const { naming, template } = family.spec
-  if (naming.kind === 'native') return undefined
+  const prefix = `${family.wirePath}.`;
+  if (!name.startsWith(prefix)) return undefined;
+  const relative = name.slice(prefix.length);
+  const { naming, template } = family.spec;
+  if (naming.kind === "native") return undefined;
 
-  if (naming.kind === 'names') {
+  if (naming.kind === "names") {
     for (const member of naming.names) {
       if (template.length === 1 && relative === member) {
-        return { family, memberKey: member, slot: template[0]! }
+        return { family, memberKey: member, slot: template[0]! };
       }
-      if (template.length > 1 && family.spec.materialization === 'wire15') {
+      if (template.length > 1 && family.spec.materialization === "wire15") {
         for (const slot of template) {
-          if (relative === `${member}.${slot.id}`) return { family, memberKey: member, slot }
+          if (relative === `${member}.${slot.id}`)
+            return { family, memberKey: member, slot };
         }
       }
     }
-    return undefined
+    return undefined;
   }
 
-  const max = naming.max ?? 10
-  const offset = family.spec.ordinalOffset ?? 0
+  const max = naming.max ?? 10;
+  const offset = family.spec.ordinalOffset ?? 0;
   for (const slot of template) {
-    const grouped = template.length > 1
-      ? new RegExp(`^${escapeRegExp(naming.prefix)}([0-9]+)\\.${escapeRegExp(slot.id)}$`).exec(relative)
-      : null
-    const flat = template.length > 1
-      ? new RegExp(`^${escapeRegExp(slot.id)}([0-9]+)$`).exec(relative)
-      : new RegExp(`^${escapeRegExp(naming.prefix)}([0-9]+)$`).exec(relative)
-    const ordinalText = grouped?.[1] ?? flat?.[1]
-    if (ordinalText === undefined) continue
-    const ordinal = Number(ordinalText)
-    if (ordinalText !== String(ordinal) || !Number.isSafeInteger(ordinal) || ordinal < offset || ordinal >= offset + max) return undefined
-    return { family, memberKey: `${naming.prefix}${ordinalText}`, slot }
+    const grouped =
+      template.length > 1
+        ? new RegExp(
+            `^${escapeRegExp(naming.prefix)}([0-9]+)\\.${escapeRegExp(slot.id)}$`,
+          ).exec(relative)
+        : null;
+    const flat =
+      template.length > 1
+        ? new RegExp(`^${escapeRegExp(slot.id)}([0-9]+)$`).exec(relative)
+        : new RegExp(`^${escapeRegExp(naming.prefix)}([0-9]+)$`).exec(relative);
+    const ordinalText = grouped?.[1] ?? flat?.[1];
+    if (ordinalText === undefined) continue;
+    const ordinal = Number(ordinalText);
+    if (
+      ordinalText !== String(ordinal) ||
+      !Number.isSafeInteger(ordinal) ||
+      ordinal < offset ||
+      ordinal >= offset + max
+    )
+      return undefined;
+    return { family, memberKey: `${naming.prefix}${ordinalText}`, slot };
   }
-  return undefined
+  return undefined;
 }
 
-const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const discoverAutogrowMembers = (
   inputs: readonly { readonly name?: string }[],
   families: readonly AutogrowFamilyImport[],
   targetedSlots: ReadonlySet<number>,
 ): DiscoveredAutogrowMembers => {
-  const allocated = new Map<string, Map<string, string>>()
-  const order = new Map<string, string[]>()
-  const slots = new Map<number, { match: AutogrowWireMatch; memberId: string }>()
+  const allocated = new Map<string, Map<string, string>>();
+  const order = new Map<string, string[]>();
+  const slots = new Map<
+    number,
+    { match: AutogrowWireMatch; memberId: string }
+  >();
   const allocate = (match: AutogrowWireMatch): string => {
-    let familyMembers = allocated.get(match.family.statePath)
+    let familyMembers = allocated.get(match.family.statePath);
     if (familyMembers === undefined) {
-      familyMembers = new Map()
-      allocated.set(match.family.statePath, familyMembers)
-      order.set(match.family.statePath, [])
+      familyMembers = new Map();
+      allocated.set(match.family.statePath, familyMembers);
+      order.set(match.family.statePath, []);
     }
-    const existing = familyMembers.get(match.memberKey)
-    if (existing !== undefined) return existing
-    const memberId = match.family.spec.optionalAfterMinimum || match.family.spec.naming.kind === 'names'
-      ? match.memberKey
-      : `m${familyMembers.size}`
-    familyMembers.set(match.memberKey, memberId)
-    order.get(match.family.statePath)!.push(memberId)
-    return memberId
-  }
+    const existing = familyMembers.get(match.memberKey);
+    if (existing !== undefined) return existing;
+    const memberId =
+      match.family.spec.optionalAfterMinimum ||
+      match.family.spec.naming.kind === "names"
+        ? match.memberKey
+        : `m${familyMembers.size}`;
+    familyMembers.set(match.memberKey, memberId);
+    order.get(match.family.statePath)!.push(memberId);
+    return memberId;
+  };
   for (const [slotIndex, input] of inputs.entries()) {
-    if (typeof input.name !== 'string') continue
+    if (typeof input.name !== "string") continue;
     const candidates = families
       .map((family) => matchAutogrowWire(input.name!, family))
-      .filter((candidate): candidate is AutogrowWireMatch => candidate !== undefined)
-    if (candidates.length !== 1) continue
-    const match = candidates[0]!
-    if (!targetedSlots.has(slotIndex) && !match.family.spec.template.some((item) =>
-      item.kind === 'input' && (item.widget !== undefined || item.dynamic !== undefined))) continue
-    slots.set(slotIndex, { match, memberId: allocate(match) })
+      .filter(
+        (candidate): candidate is AutogrowWireMatch => candidate !== undefined,
+      );
+    if (candidates.length !== 1) continue;
+    const match = candidates[0]!;
+    if (
+      !targetedSlots.has(slotIndex) &&
+      !match.family.spec.template.some(
+        (item) =>
+          item.kind === "input" &&
+          (item.widget !== undefined || item.dynamic !== undefined),
+      )
+    )
+      continue;
+    slots.set(slotIndex, { match, memberId: allocate(match) });
   }
   for (const family of families) {
-    let members = order.get(family.statePath)
+    let members = order.get(family.statePath);
     if (members === undefined) {
-      members = []
-      order.set(family.statePath, members)
+      members = [];
+      order.set(family.statePath, members);
     }
-    const minimum = family.spec.naming.min ?? 0
+    const minimum = family.spec.naming.min ?? 0;
     if (family.spec.optionalAfterMinimum) {
-      if (family.spec.template[0]?.optional) continue
+      if (family.spec.template[0]?.optional) continue;
       for (let index = 0; index < minimum; index++) {
-        const member = family.spec.naming.kind === 'names'
-          ? family.spec.naming.names[index]!
-          : family.spec.naming.kind === 'prefix'
-            ? `${family.spec.naming.prefix}${index + (family.spec.ordinalOffset ?? 0)}` : undefined
-        if (member !== undefined && !members.includes(member)) members.push(member)
+        const member =
+          family.spec.naming.kind === "names"
+            ? family.spec.naming.names[index]!
+            : family.spec.naming.kind === "prefix"
+              ? `${family.spec.naming.prefix}${index + (family.spec.ordinalOffset ?? 0)}`
+              : undefined;
+        if (member !== undefined && !members.includes(member))
+          members.push(member);
       }
-      continue
+      continue;
     }
-    if (family.spec.naming.kind === 'names') {
+    if (family.spec.naming.kind === "names") {
       for (const name of family.spec.naming.names) {
-        if (members.length >= minimum) break
-        if (!members.includes(name)) members.push(name)
+        if (members.length >= minimum) break;
+        if (!members.includes(name)) members.push(name);
       }
-    } else if (family.spec.naming.kind === 'prefix') {
+    } else if (family.spec.naming.kind === "prefix") {
       while (members.length < minimum) {
-        const member = `m${members.length}`
-        if (!members.includes(member)) members.push(member)
+        const member = `m${members.length}`;
+        if (!members.includes(member)) members.push(member);
       }
     }
   }
-  return { order, slots }
-}
+  return { order, slots };
+};
 
 const decodePositionalFamilyWidgets = (
   family: AutogrowFamilyImport,
@@ -423,30 +520,52 @@ const decodePositionalFamilyWidgets = (
 ): void => {
   for (const member of members) {
     for (const item of family.spec.template) {
-      if (item.type.kind === 'concrete' && item.type.name === 'RESOLUTION_PREVIEW') continue
+      if (
+        item.type.kind === "concrete" &&
+        item.type.name === "RESOLUTION_PREVIEW"
+      )
+        continue;
       if (item.dynamic !== undefined) {
-        state.stopped = true
-        diags.push(imp('warning', 'import.dynamic.autogrowUnsupported', `${nodeLabel}: dynamic autogrow '${family.statePath}' has a nested dynamic template; remaining positional values kept for review`))
-        return
+        state.stopped = true;
+        diags.push(
+          imp(
+            "warning",
+            "import.dynamic.autogrowUnsupported",
+            `${nodeLabel}: dynamic autogrow '${family.statePath}' has a nested dynamic template; remaining positional values kept for review`,
+          ),
+        );
+        return;
       }
-      if (item.widget === undefined || item.forceInput === true) continue
-      const memberPath = joinValuePath(family.statePath, member)
-      const key = family.spec.template.length === 1 ? memberPath : joinValuePath(memberPath, item.id)
+      if (item.widget === undefined || item.forceInput === true) continue;
+      const memberPath = joinValuePath(family.statePath, member);
+      const key =
+        family.spec.template.length === 1
+          ? memberPath
+          : joinValuePath(memberPath, item.id);
       if (state.index >= raw.length) {
-        diags.push(imp('warning', 'import.widgets.missing', `${nodeLabel}: no positional value for widget '${key}'; schema default applies`))
-        continue
+        diags.push(
+          imp(
+            "warning",
+            "import.widgets.missing",
+            `${nodeLabel}: no positional value for widget '${key}'; schema default applies`,
+          ),
+        );
+        continue;
       }
-      state.values[key] = normalizeLegacyWidgetValue(item, raw[state.index++] as Json)
+      state.values[key] = normalizeLegacyWidgetValue(
+        item,
+        raw[state.index++] as Json,
+      );
       if (item.widget.controller !== undefined && state.index < raw.length) {
-        const mode = raw[state.index]
-        if (typeof mode === 'string' && CONTROLLER_MODES.has(mode)) {
-          state.controllers[key] = mode as ControllerMode
-          state.index++
+        const mode = raw[state.index];
+        if (typeof mode === "string" && CONTROLLER_MODES.has(mode)) {
+          state.controllers[key] = mode as ControllerMode;
+          state.index++;
         }
       }
     }
   }
-}
+};
 
 /**
  * Decode ComfyUI's ordered widget stream without elaborating a partial node.
@@ -464,55 +583,78 @@ function decodePositionalWidgets(
   following: readonly InterfaceItem[] = [],
 ): void {
   for (const [index, item] of items.entries()) {
-    if (state.stopped) return
-    if (item.kind !== 'input') continue
+    if (state.stopped) return;
+    if (item.kind !== "input") continue;
     // ComfyUI's resolution preview is display-only and serializes no value.
-    if (item.type.kind === 'concrete' && item.type.name === 'RESOLUTION_PREVIEW') continue
-    const key = joinValuePath(prefix, item.id)
-    const dynamic = item.dynamic
+    if (
+      item.type.kind === "concrete" &&
+      item.type.name === "RESOLUTION_PREVIEW"
+    )
+      continue;
+    const key = joinValuePath(prefix, item.id);
+    const dynamic = item.dynamic;
 
     // DynamicCombo's widget describes its selector but does not own a second
     // positional value. Consume the selector once, before ordinary widgets.
-    if (dynamic?.kind === 'dynamicCombo') {
+    if (dynamic?.kind === "dynamicCombo") {
       if (state.index >= raw.length) {
-        diags.push(imp('warning', 'import.widgets.missing', `${nodeLabel}: no positional value for dynamic selector '${key}'; schema default applies`))
-        const fallback = effectiveComboOption(dynamic, undefined)
-        const branch = dynamic.options.find((option) => option.key === fallback)
+        diags.push(
+          imp(
+            "warning",
+            "import.widgets.missing",
+            `${nodeLabel}: no positional value for dynamic selector '${key}'; schema default applies`,
+          ),
+        );
+        const fallback = effectiveComboOption(dynamic, undefined);
+        const branch = dynamic.options.find(
+          (option) => option.key === fallback,
+        );
         if (branch) {
           decodePositionalWidgets(
             branch.inputs,
             raw,
             state,
-            dynamic.materialization === 'wire15' ? key : comboBranchValuePath(key, branch.key),
+            dynamic.materialization === "wire15"
+              ? key
+              : comboBranchValuePath(key, branch.key),
             nodeLabel,
             diags,
             [...items.slice(index + 1), ...following],
-          )
+          );
         }
-        continue
+        continue;
       }
 
-      const selected = raw[state.index++]
-      const branch = typeof selected === 'string'
-        ? dynamic.options.find((option) => option.key === selected)
-        : undefined
+      const selected = raw[state.index++];
+      const branch =
+        typeof selected === "string"
+          ? dynamic.options.find((option) => option.key === selected)
+          : undefined;
       if (branch === undefined) {
-        state.stopped = true
-        diags.push(imp('warning', 'import.dynamic.unknownSelector', `${nodeLabel}: dynamic selector '${key}' has unknown option ${JSON.stringify(selected)}; schema default applies and remaining positional values were kept for review`))
-        return
+        state.stopped = true;
+        diags.push(
+          imp(
+            "warning",
+            "import.dynamic.unknownSelector",
+            `${nodeLabel}: dynamic selector '${key}' has unknown option ${JSON.stringify(selected)}; schema default applies and remaining positional values were kept for review`,
+          ),
+        );
+        return;
       }
 
-      state.dynamic[key] = { selected: branch.key }
+      state.dynamic[key] = { selected: branch.key };
       decodePositionalWidgets(
         branch.inputs,
         raw,
         state,
-        dynamic.materialization === 'wire15' ? key : comboBranchValuePath(key, branch.key),
+        dynamic.materialization === "wire15"
+          ? key
+          : comboBranchValuePath(key, branch.key),
         nodeLabel,
         diags,
         [...items.slice(index + 1), ...following],
-      )
-      continue
+      );
+      continue;
     }
 
     // Current ComfyUI does not materialize forceInput parameters as widgets,
@@ -521,24 +663,60 @@ function decodePositionalWidgets(
     // later widget onto the wrong semantic input.
     if (item.widget !== undefined && item.forceInput !== true) {
       if (state.index >= raw.length) {
-        diags.push(imp('warning', 'import.widgets.missing', `${nodeLabel}: no positional value for widget '${key}'; schema default applies`))
+        diags.push(
+          imp(
+            "warning",
+            "import.widgets.missing",
+            `${nodeLabel}: no positional value for widget '${key}'; schema default applies`,
+          ),
+        );
       } else {
-        state.values[key] = normalizeLegacyWidgetValue(item, raw[state.index++] as Json)
+        state.values[key] = normalizeLegacyWidgetValue(
+          item,
+          raw[state.index++] as Json,
+        );
         if (item.widget.controller !== undefined && state.index < raw.length) {
-          const mode = raw[state.index]
-          if (typeof mode === 'boolean') {
-            const next = [...items.slice(index + 1), ...following].find((candidate) => candidate.kind === 'input' &&
-              !(candidate.type.kind === 'concrete' && candidate.type.name === 'RESOLUTION_PREVIEW') &&
-              (candidate.dynamic !== undefined || (candidate.widget !== undefined && candidate.forceInput !== true)))
-            if (next?.kind === 'input' && (next.dynamic !== undefined || next.type.kind !== 'concrete' || next.type.name === 'BOOLEAN')) {
-              state.stopped = true
-              diags.push(imp('error', 'import.controller.ambiguousBoolean', `${nodeLabel}: boolean after '${key}' could be a controller or the next widget value; use an explicit controller mode or a versioned widget upgrade`))
-              return
+          const mode = raw[state.index];
+          if (typeof mode === "boolean") {
+            const next = [...items.slice(index + 1), ...following].find(
+              (candidate) =>
+                candidate.kind === "input" &&
+                !(
+                  candidate.type.kind === "concrete" &&
+                  candidate.type.name === "RESOLUTION_PREVIEW"
+                ) &&
+                (candidate.dynamic !== undefined ||
+                  (candidate.widget !== undefined &&
+                    candidate.forceInput !== true)),
+            );
+            if (
+              next?.kind === "input" &&
+              (next.dynamic !== undefined ||
+                next.type.kind !== "concrete" ||
+                next.type.name === "BOOLEAN")
+            ) {
+              state.stopped = true;
+              diags.push(
+                imp(
+                  "error",
+                  "import.controller.ambiguousBoolean",
+                  `${nodeLabel}: boolean after '${key}' could be a controller or the next widget value; use an explicit controller mode or a versioned widget upgrade`,
+                ),
+              );
+              return;
             }
           }
-          if (typeof mode === 'boolean' || (typeof mode === 'string' && CONTROLLER_MODES.has(mode))) {
-            state.controllers[key] = typeof mode === 'boolean' ? (mode ? 'randomize' : 'fixed') : mode as ControllerMode
-            state.index++
+          if (
+            typeof mode === "boolean" ||
+            (typeof mode === "string" && CONTROLLER_MODES.has(mode))
+          ) {
+            state.controllers[key] =
+              typeof mode === "boolean"
+                ? mode
+                  ? "randomize"
+                  : "fixed"
+                : (mode as ControllerMode);
+            state.index++;
           }
           // Not a controller value: leave it for the next widget rather than
           // guessing, including for widgets nested under a combo branch.
@@ -546,37 +724,67 @@ function decodePositionalWidgets(
       }
     }
 
-    if (dynamic === undefined) continue
-    if (dynamic.kind === 'autogrow') {
-      const members = (state.dynamic[key] as { readonly members?: readonly string[] } | undefined)?.members
-      if (members === undefined || dynamic.materialization !== 'wire15' || dynamic.naming.kind === 'native') {
-        state.stopped = true
-        diags.push(imp('warning', 'import.dynamic.autogrowUnsupported', `${nodeLabel}: dynamic autogrow '${key}' cannot be reconstructed; remaining positional values kept for review`))
-        return
+    if (dynamic === undefined) continue;
+    if (dynamic.kind === "autogrow") {
+      const members = (
+        state.dynamic[key] as
+          | { readonly members?: readonly string[] }
+          | undefined
+      )?.members;
+      if (
+        members === undefined ||
+        dynamic.materialization !== "wire15" ||
+        dynamic.naming.kind === "native"
+      ) {
+        state.stopped = true;
+        diags.push(
+          imp(
+            "warning",
+            "import.dynamic.autogrowUnsupported",
+            `${nodeLabel}: dynamic autogrow '${key}' cannot be reconstructed; remaining positional values kept for review`,
+          ),
+        );
+        return;
       }
-      decodePositionalFamilyWidgets({ statePath: key, wirePath: key, spec: dynamic }, members, raw, state, nodeLabel, diags)
+      decodePositionalFamilyWidgets(
+        { statePath: key, wirePath: key, spec: dynamic },
+        members,
+        raw,
+        state,
+        nodeLabel,
+        diags,
+      );
     }
   }
 }
 
-const inputPortForSchema = (node: LgNode, slot: number, schema: NodeSchema): string | undefined => {
-  const foreignInput = node.inputs?.[slot]
-  if (foreignInput === undefined) return undefined
-  const foreignName = foreignInput.name
-  const widgetName = foreignInput.widget?.name
-  const inputs = inputsOf(schema)
-  const named = foreignInput.widget !== undefined
-    ? inputs.find((input) => input.id === widgetName) ?? inputs.find((input) => input.id === foreignName)
-    : inputs.find((input) => input.id === foreignName)
-  if (named !== undefined) return named.id
-  if (foreignInput.widget !== undefined) return widgetName ?? foreignName
-  if (schema.source === 'subgraph') return foreignName
-  const sockets = inputs.filter((input) => input.widget === undefined || input.forceInput === true)
-  const ordinal = (node.inputs ?? [])
-    .slice(0, slot + 1)
-    .filter((input) => input.widget === undefined).length - 1
-  return sockets[ordinal]?.id ?? foreignName
-}
+const inputPortForSchema = (
+  node: LgNode,
+  slot: number,
+  schema: NodeSchema,
+): string | undefined => {
+  const foreignInput = node.inputs?.[slot];
+  if (foreignInput === undefined) return undefined;
+  const foreignName = foreignInput.name;
+  const widgetName = foreignInput.widget?.name;
+  const inputs = inputsOf(schema);
+  const named =
+    foreignInput.widget !== undefined
+      ? (inputs.find((input) => input.id === widgetName) ??
+        inputs.find((input) => input.id === foreignName))
+      : inputs.find((input) => input.id === foreignName);
+  if (named !== undefined) return named.id;
+  if (foreignInput.widget !== undefined) return widgetName ?? foreignName;
+  if (schema.source === "subgraph") return foreignName;
+  const sockets = inputs.filter(
+    (input) => input.widget === undefined || input.forceInput === true,
+  );
+  const ordinal =
+    (node.inputs ?? [])
+      .slice(0, slot + 1)
+      .filter((input) => input.widget === undefined).length - 1;
+  return sockets[ordinal]?.id ?? foreignName;
+};
 
 const staticOutputPortForSchema = (
   node: LgNode,
@@ -584,35 +792,47 @@ const staticOutputPortForSchema = (
   schema: NodeSchema,
   allowPositional: boolean,
 ): string | undefined => {
-  const foreignName = node.outputs?.[slot]?.name
-  if (typeof foreignName !== 'string' || foreignName.length === 0) return undefined
+  const foreignName = node.outputs?.[slot]?.name;
+  if (typeof foreignName !== "string" || foreignName.length === 0)
+    return undefined;
   const occurrence = (node.outputs ?? [])
     .slice(0, slot)
-    .filter((output) => output.name === foreignName).length
-  const outputs = outputsOf(schema).filter((output) => output.dynamic === undefined)
-  const exact = outputs.filter((output) => output.id === foreignName)
-  if (exact.length > 0) return exact[occurrence]?.id
-  if (schema.source === 'subgraph') return undefined
-  const displayed = outputs.filter((output) => output.displayName === foreignName)
-  if (displayed.length > 0) return displayed[occurrence]?.id
-  const foldedName = foreignName.toLowerCase()
-  const folded = outputs.filter((output) =>
-    output.id.toLowerCase() === foldedName || output.displayName?.toLowerCase() === foldedName)
-  if (folded.length > 0) return folded[occurrence]?.id
-  if (!allowPositional || outputsOf(schema).some((output) => output.dynamic !== undefined)) return undefined
-  const positional = outputsOf(schema)[slot]
-  return positional?.id
-}
+    .filter((output) => output.name === foreignName).length;
+  const outputs = outputsOf(schema).filter(
+    (output) => output.dynamic === undefined,
+  );
+  const exact = outputs.filter((output) => output.id === foreignName);
+  if (exact.length > 0) return exact[occurrence]?.id;
+  if (schema.source === "subgraph") return undefined;
+  const displayed = outputs.filter(
+    (output) => output.displayName === foreignName,
+  );
+  if (displayed.length > 0) return displayed[occurrence]?.id;
+  const foldedName = foreignName.toLowerCase();
+  const folded = outputs.filter(
+    (output) =>
+      output.id.toLowerCase() === foldedName ||
+      output.displayName?.toLowerCase() === foldedName,
+  );
+  if (folded.length > 0) return folded[occurrence]?.id;
+  if (
+    !allowPositional ||
+    outputsOf(schema).some((output) => output.dynamic !== undefined)
+  )
+    return undefined;
+  const positional = outputsOf(schema)[slot];
+  return positional?.id;
+};
 
 /** FNV-1a 32-bit hash, hex-encoded. Deterministic lineage for imports. */
 const fnv1a = (s: string): string => {
-  let h = 0x811c9dc5
+  let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 0x01000193)
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
   }
-  return (h >>> 0).toString(16).padStart(8, '0')
-}
+  return (h >>> 0).toString(16).padStart(8, "0");
+};
 
 /**
  * Translate a legacy litegraph workflow into a v1 dinkster document. `resolve`
@@ -626,32 +846,53 @@ export function importLitegraph(
   resolve: (type: string) => NodeSchema | undefined,
   upgrades: ComfyNodeUpgradeTable = COMFY_NODE_UPGRADES,
 ): ImportLitegraphResult {
-  const ingress = ownJson(input)
-  if (!ingress.ok) return { diagnostics: [imp('error', 'import.notJson', `workflow rejected: ${ingress.reason}`)] }
-  const result = importLitegraphSubgraphs(ingress.value as JsonObject, (type) => {
-    const schema = resolve(type)
-    return schema?.type === type ? schema : undefined
-  }, (graph, localResolve, definitions) =>
-    importLitegraphGraph(graph, localResolve, definitions, upgrades))
-  if (!result.document) return result
-  const retained = ownJson({ ...result.document,
-    lineage: `lg-${fnv1a(JSON.stringify(ingress.value))}` as WorkflowDocument['lineage'],
-    ext: { ...result.document.ext, 'importer.comfyWorkflow': ingress.value },
-  })
-  if (!retained.ok) return { diagnostics: [...result.diagnostics, imp('error', 'import.notJson', `workflow provenance rejected: ${retained.reason}`)] }
-  return { ...result, document: retained.value as unknown as WorkflowDocument }
+  const ingress = ownJson(input);
+  if (!ingress.ok)
+    return {
+      diagnostics: [
+        imp("error", "import.notJson", `workflow rejected: ${ingress.reason}`),
+      ],
+    };
+  const result = importLitegraphSubgraphs(
+    ingress.value as JsonObject,
+    (type) => {
+      const schema = resolve(type);
+      return schema?.type === type ? schema : undefined;
+    },
+    (graph, localResolve, definitions) =>
+      importLitegraphGraph(graph, localResolve, definitions, upgrades),
+  );
+  if (!result.document) return result;
+  const retained = ownJson({
+    ...result.document,
+    lineage:
+      `lg-${fnv1a(JSON.stringify(ingress.value))}` as WorkflowDocument["lineage"],
+    ext: { ...result.document.ext, "importer.comfyWorkflow": ingress.value },
+  });
+  if (!retained.ok)
+    return {
+      diagnostics: [
+        ...result.diagnostics,
+        imp(
+          "error",
+          "import.notJson",
+          `workflow provenance rejected: ${retained.reason}`,
+        ),
+      ],
+    };
+  return { ...result, document: retained.value as unknown as WorkflowDocument };
 }
 
 export interface ImportedAssetLiteral {
-  readonly graphId: string
-  readonly nodeId: string
-  readonly inputId: string
-  readonly name: string
+  readonly graphId: string;
+  readonly nodeId: string;
+  readonly inputId: string;
+  readonly name: string;
 }
 
 export interface ImportedAssetResolution {
-  readonly document: WorkflowDocument
-  readonly unresolved: readonly ImportedAssetLiteral[]
+  readonly document: WorkflowDocument;
+  readonly unresolved: readonly ImportedAssetLiteral[];
 }
 
 /** Replace legacy filename strings on native ASSET inputs from a trusted catalog lookup. */
@@ -660,193 +901,363 @@ export function resolveImportedAssetLiterals(
   resolve: (type: string) => NodeSchema | undefined,
   assetForName: (name: string) => Json | undefined,
 ): ImportedAssetResolution {
-  const unresolved: ImportedAssetLiteral[] = []
-  const graphs = Object.fromEntries(Object.entries(document.graphs).map(([graphId, graph]) => {
-    const nodes = Object.fromEntries(Object.entries(graph.nodes).map(([nodeId, node]) => {
-      const schema = resolve(node.type)
-      if (!schema) return [nodeId, node]
-      let values: Record<string, Json> | undefined
-      for (const item of schema.items) {
-        if (item.kind !== 'input' || !isAssetWidgetInput(item) || item.widget?.selection === true) continue
-        const value = node.values[item.id]
-        if (typeof value !== 'string') continue
-        const asset = assetForName(value)
+  const unresolved: ImportedAssetLiteral[] = [];
+  const graphs = Object.fromEntries(
+    Object.entries(document.graphs).map(([graphId, graph]) => {
+      const nodes = Object.fromEntries(
+        Object.entries(graph.nodes).map(([nodeId, node]) => {
+          const schema = resolve(node.type);
+          if (!schema) return [nodeId, node];
+          let values: Record<string, Json> | undefined;
+          for (const item of schema.items) {
+            if (
+              item.kind !== "input" ||
+              !isAssetWidgetInput(item) ||
+              item.widget?.selection === true
+            )
+              continue;
+            const value = node.values[item.id];
+            if (typeof value !== "string") continue;
+            const asset = assetForName(value);
+            if (!isAssetRefValue(asset)) {
+              unresolved.push({
+                graphId,
+                nodeId,
+                inputId: item.id,
+                name: value,
+              });
+              continue;
+            }
+            values ??= { ...node.values };
+            values[item.id] = asset as Json;
+          }
+          return [nodeId, values === undefined ? node : { ...node, values }];
+        }),
+      ) as GraphDef["nodes"];
+      let valueSources = graph.valueSources;
+      for (const [sourceId, source] of Object.entries(
+        graph.valueSources ?? {},
+      )) {
+        if (typeof source.value !== "string") continue;
+        const targets = Object.values(graph.links).flatMap((link) => {
+          if (
+            !("valueSource" in link.from) ||
+            link.from.valueSource !== sourceId ||
+            !isPortEndpoint(link.to)
+          )
+            return [];
+          const target = link.to;
+          const node = nodes[target.node];
+          const schema = node === undefined ? undefined : resolve(node.type);
+          const input = schema?.items.find(
+            (item) => item.kind === "input" && item.id === target.port,
+          );
+          return input?.kind === "input" &&
+            isAssetWidgetInput(input) &&
+            input.widget?.selection !== true
+            ? [{ nodeId: target.node, inputId: target.port }]
+            : [];
+        });
+        const outgoing = Object.values(graph.links).filter(
+          (link) =>
+            "valueSource" in link.from && link.from.valueSource === sourceId,
+        );
+        if (targets.length === 0 || targets.length !== outgoing.length)
+          continue;
+        const asset = assetForName(source.value);
         if (!isAssetRefValue(asset)) {
-          unresolved.push({ graphId, nodeId, inputId: item.id, name: value })
-          continue
+          unresolved.push(
+            ...targets.map((target) => ({
+              graphId,
+              ...target,
+              name: source.value as string,
+            })),
+          );
+          continue;
         }
-        values ??= { ...node.values }
-        values[item.id] = asset as Json
+        valueSources = {
+          ...valueSources,
+          [sourceId]: { ...source, value: asset as Json },
+        };
       }
-      return [nodeId, values === undefined ? node : { ...node, values }]
-    })) as GraphDef['nodes']
-    let valueSources = graph.valueSources
-    for (const [sourceId, source] of Object.entries(graph.valueSources ?? {})) {
-      if (typeof source.value !== 'string') continue
-      const targets = Object.values(graph.links).flatMap((link) => {
-        if (!('valueSource' in link.from) || link.from.valueSource !== sourceId || !isPortEndpoint(link.to)) return []
-        const target = link.to
-        const node = nodes[target.node]
-        const schema = node === undefined ? undefined : resolve(node.type)
-        const input = schema?.items.find((item) => item.kind === 'input' && item.id === target.port)
-        return input?.kind === 'input' && isAssetWidgetInput(input) && input.widget?.selection !== true
-          ? [{ nodeId: target.node, inputId: target.port }]
-          : []
-      })
-      const outgoing = Object.values(graph.links).filter((link) =>
-        'valueSource' in link.from && link.from.valueSource === sourceId)
-      if (targets.length === 0 || targets.length !== outgoing.length) continue
-      const asset = assetForName(source.value)
-      if (!isAssetRefValue(asset)) {
-        unresolved.push(...targets.map((target) => ({ graphId, ...target, name: source.value as string })))
-        continue
-      }
-      valueSources = { ...valueSources, [sourceId]: { ...source, value: asset as Json } }
-    }
-    return [graphId, { ...graph, nodes, ...(valueSources === undefined ? {} : { valueSources }) }]
-  })) as WorkflowDocument['graphs']
-  return { document: { ...document, graphs }, unresolved }
+      return [
+        graphId,
+        {
+          ...graph,
+          nodes,
+          ...(valueSources === undefined ? {} : { valueSources }),
+        },
+      ];
+    }),
+  ) as WorkflowDocument["graphs"];
+  return { document: { ...document, graphs }, unresolved };
 }
 
 function importLitegraphGraph(
   input: JsonObject,
   resolve: (type: string) => NodeSchema | undefined,
-  definitions: WorkflowDocument['graphs'],
+  definitions: WorkflowDocument["graphs"],
   upgrades: ComfyNodeUpgradeTable,
 ): ImportLitegraphResult {
   // Ownership boundary (CO1/CO9): the workflow is foreign input. Owning it
   // up front rejects accessors/proxies/cycles/non-finite numbers (e.g. an
   // Infinity widgets_values entry) before ANY translation reads it, and
   // makes every read below safe and side-effect free.
-  const ingress = ownJson(input)
+  const ingress = ownJson(input);
   if (!ingress.ok) {
     return {
-      diagnostics: [imp('error', 'import.notJson', `workflow rejected: ${ingress.reason}`)],
-    }
+      diagnostics: [
+        imp("error", "import.notJson", `workflow rejected: ${ingress.reason}`),
+      ],
+    };
   }
-  const json = ingress.value as JsonObject
-  const diags: Diagnostic[] = []
-  if (json['occurrenceTopologies'] !== undefined) {
+  const json = ingress.value as JsonObject;
+  const diags: Diagnostic[] = [];
+  if (json["occurrenceTopologies"] !== undefined) {
     return {
-      diagnostics: [imp('error', 'import.occurrenceTopologies.unsupported', 'LiteGraph import cannot carry occurrence topology overlays; use the native Dinkster workflow format')],
-    }
+      diagnostics: [
+        imp(
+          "error",
+          "import.occurrenceTopologies.unsupported",
+          "LiteGraph import cannot carry occurrence topology overlays; use the native Dinkster workflow format",
+        ),
+      ],
+    };
   }
-  const rawNodes = Array.isArray(json['nodes']) ? (json['nodes'] as readonly LgNode[]) : []
-  const rawLinks = Array.isArray(json['links']) ? (json['links'] as readonly LgLink[]) : []
+  const rawNodes = Array.isArray(json["nodes"])
+    ? (json["nodes"] as readonly LgNode[])
+    : [];
+  const rawLinks = Array.isArray(json["links"])
+    ? (json["links"] as readonly LgLink[])
+    : [];
   const isId = (value: unknown): value is number =>
-    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
   const isFinitePair = (value: unknown): boolean => {
-    if (Array.isArray(value)) return value.length >= 2 && Number.isFinite(value[0]) && Number.isFinite(value[1])
-    if (value === null || typeof value !== 'object') return false
-    const pair = value as Readonly<Record<string, unknown>>
-    return Number.isFinite(pair['0']) && Number.isFinite(pair['1'])
-  }
+    if (Array.isArray(value))
+      return (
+        value.length >= 2 &&
+        Number.isFinite(value[0]) &&
+        Number.isFinite(value[1])
+      );
+    if (value === null || typeof value !== "object") return false;
+    const pair = value as Readonly<Record<string, unknown>>;
+    return Number.isFinite(pair["0"]) && Number.isFinite(pair["1"]);
+  };
   const canonicalId = (value: unknown): number | undefined => {
-    if (isId(value)) return value
-    if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value)) return undefined
-    const parsed = Number(value)
-    return isId(parsed) ? parsed : undefined
-  }
+    if (isId(value)) return value;
+    if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value))
+      return undefined;
+    const parsed = Number(value);
+    return isId(parsed) ? parsed : undefined;
+  };
 
-  const extra = json['extra']
-  const extraObject = extra !== null && typeof extra === 'object' && !Array.isArray(extra)
-    ? extra as JsonObject
-    : undefined
+  const extra = json["extra"];
+  const extraObject =
+    extra !== null && typeof extra === "object" && !Array.isArray(extra)
+      ? (extra as JsonObject)
+      : undefined;
   const presentLinkIds = new Set(
-    rawLinks.filter(Array.isArray).map((link) => canonicalId(link[0])).filter((id): id is number => id !== undefined),
-  )
-  const temporaryLinks = new Set<number>()
-  const marked = extraObject?.['links_added_by_ue']
+    rawLinks
+      .filter(Array.isArray)
+      .map((link) => canonicalId(link[0]))
+      .filter((id): id is number => id !== undefined),
+  );
+  const temporaryLinks = new Set<number>();
+  const marked = extraObject?.["links_added_by_ue"];
   if (marked !== undefined) {
     if (!Array.isArray(marked) || marked.length > MAX_UE_LINKS) {
-      diags.push(imp('error', 'import.ue.temporaryLinksInvalid', `extra.links_added_by_ue must be an array of at most ${MAX_UE_LINKS} link IDs`))
+      diags.push(
+        imp(
+          "error",
+          "import.ue.temporaryLinksInvalid",
+          `extra.links_added_by_ue must be an array of at most ${MAX_UE_LINKS} link IDs`,
+        ),
+      );
     } else {
       for (const raw of marked) {
-        const id = canonicalId(raw)
+        const id = canonicalId(raw);
         if (id === undefined || temporaryLinks.has(id)) {
-          diags.push(imp('error', 'import.ue.temporaryLinksInvalid', 'extra.links_added_by_ue must contain unique safe non-negative integer link IDs'))
-          continue
+          diags.push(
+            imp(
+              "error",
+              "import.ue.temporaryLinksInvalid",
+              "extra.links_added_by_ue must contain unique safe non-negative integer link IDs",
+            ),
+          );
+          continue;
         }
-        temporaryLinks.add(id)
+        temporaryLinks.add(id);
       }
-      for (const id of temporaryLinks) if (!presentLinkIds.has(id)) {
-        diags.push(imp('error', 'import.ue.temporaryLinkMissing', `extra.links_added_by_ue references missing link ${id}`))
-      }
+      for (const id of temporaryLinks)
+        if (!presentLinkIds.has(id)) {
+          diags.push(
+            imp(
+              "error",
+              "import.ue.temporaryLinkMissing",
+              `extra.links_added_by_ue references missing link ${id}`,
+            ),
+          );
+        }
     }
   }
 
-  const ueLinks: UeLink[] = []
-  const manifest = extraObject?.['ue_links']
+  const ueLinks: UeLink[] = [];
+  const manifest = extraObject?.["ue_links"];
   if (manifest !== undefined) {
     if (!Array.isArray(manifest) || manifest.length > MAX_UE_LINKS) {
-      diags.push(imp('error', 'import.ue.manifestInvalid', `extra.ue_links must be an array of at most ${MAX_UE_LINKS} entries`))
+      diags.push(
+        imp(
+          "error",
+          "import.ue.manifestInvalid",
+          `extra.ue_links must be an array of at most ${MAX_UE_LINKS} entries`,
+        ),
+      );
     } else {
       for (const [index, raw] of manifest.entries()) {
-        if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-          diags.push(imp('error', 'import.ue.entryInvalid', `extra.ue_links entry ${index} is malformed`))
-          continue
+        if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+          diags.push(
+            imp(
+              "error",
+              "import.ue.entryInvalid",
+              `extra.ue_links entry ${index} is malformed`,
+            ),
+          );
+          continue;
         }
-        const entry = raw as JsonObject
-        const keys = Object.keys(entry).sort()
-        const expectedKeys = ['controller', 'downstream', 'downstream_slot', 'type', 'upstream', 'upstream_slot']
-        const downstream = canonicalId(entry['downstream'])
-        const upstream = canonicalId(entry['upstream'])
-        const controller = canonicalId(entry['controller'])
-        const downstreamSlot = entry['downstream_slot']
-        const upstreamSlot = entry['upstream_slot']
-        const type = entry['type']
-        if (canonicalJson(keys) !== canonicalJson(expectedKeys) || downstream === undefined ||
-          upstream === undefined || controller === undefined || !isId(downstreamSlot) ||
-          !isId(upstreamSlot) || typeof type !== 'string' || type.trim().length === 0) {
-          diags.push(imp('error', 'import.ue.entryInvalid', `extra.ue_links entry ${index} must contain exactly canonical node IDs, safe slot indices, and a non-empty type`))
-          continue
+        const entry = raw as JsonObject;
+        const keys = Object.keys(entry).sort();
+        const expectedKeys = [
+          "controller",
+          "downstream",
+          "downstream_slot",
+          "type",
+          "upstream",
+          "upstream_slot",
+        ];
+        const downstream = canonicalId(entry["downstream"]);
+        const upstream = canonicalId(entry["upstream"]);
+        const controller = canonicalId(entry["controller"]);
+        const downstreamSlot = entry["downstream_slot"];
+        const upstreamSlot = entry["upstream_slot"];
+        const type = entry["type"];
+        if (
+          canonicalJson(keys) !== canonicalJson(expectedKeys) ||
+          downstream === undefined ||
+          upstream === undefined ||
+          controller === undefined ||
+          !isId(downstreamSlot) ||
+          !isId(upstreamSlot) ||
+          typeof type !== "string" ||
+          type.trim().length === 0
+        ) {
+          diags.push(
+            imp(
+              "error",
+              "import.ue.entryInvalid",
+              `extra.ue_links entry ${index} must contain exactly canonical node IDs, safe slot indices, and a non-empty type`,
+            ),
+          );
+          continue;
         }
-        ueLinks.push({ downstream, downstreamSlot, upstream, upstreamSlot, controller, type })
+        ueLinks.push({
+          downstream,
+          downstreamSlot,
+          upstream,
+          upstreamSlot,
+          controller,
+          type,
+        });
       }
     }
   }
   if (temporaryLinks.size > 0 && manifest === undefined) {
-    diags.push(imp('error', 'import.ue.manifestMissing', 'extra.links_added_by_ue requires the authoritative extra.ue_links manifest'))
+    diags.push(
+      imp(
+        "error",
+        "import.ue.manifestMissing",
+        "extra.links_added_by_ue requires the authoritative extra.ue_links manifest",
+      ),
+    );
   }
   const ueEndpointKeys = new Set(
-    ueLinks.map((entry) => `${entry.upstream}:${entry.upstreamSlot}:${entry.downstream}:${entry.downstreamSlot}`),
-  )
+    ueLinks.map(
+      (entry) =>
+        `${entry.upstream}:${entry.upstreamSlot}:${entry.downstream}:${entry.downstreamSlot}`,
+    ),
+  );
   const ueEndpointTypes = new Map(
-    ueLinks.map((entry) => [`${entry.upstream}:${entry.upstreamSlot}:${entry.downstream}:${entry.downstreamSlot}`, entry.type]),
-  )
+    ueLinks.map((entry) => [
+      `${entry.upstream}:${entry.upstreamSlot}:${entry.downstream}:${entry.downstreamSlot}`,
+      entry.type,
+    ]),
+  );
 
   // Link endpoints, keyed by litegraph link id.
-  const wires = new Map<number, LgWire>()
-  const seenLinkIds = new Set<number>()
-  const claimedTemporaryLinks = new Set<number>()
+  const wires = new Map<number, LgWire>();
+  const seenLinkIds = new Set<number>();
+  const claimedTemporaryLinks = new Set<number>();
   for (const l of rawLinks) {
     if (!Array.isArray(l) || l.length < 5) {
-      diags.push(imp('warning', 'import.link.malformed', `skipping malformed link entry ${JSON.stringify(l)}`))
-      continue
+      diags.push(
+        imp(
+          "warning",
+          "import.link.malformed",
+          `skipping malformed link entry ${JSON.stringify(l)}`,
+        ),
+      );
+      continue;
     }
-    const linkId = l[0]
-    const fromNode = canonicalId(l[1])
-    const toNode = canonicalId(l[3])
-    if (!isId(linkId) || fromNode === undefined || !isId(l[2]) || toNode === undefined || !isId(l[4])) {
-      diags.push(imp('error', 'import.link.invalidId', `link entry ${JSON.stringify(l)} must use a safe integer link ID and slot indices, and canonical node IDs`))
-      continue
+    const linkId = l[0];
+    const fromNode = canonicalId(l[1]);
+    const toNode = canonicalId(l[3]);
+    if (
+      !isId(linkId) ||
+      fromNode === undefined ||
+      !isId(l[2]) ||
+      toNode === undefined ||
+      !isId(l[4])
+    ) {
+      diags.push(
+        imp(
+          "error",
+          "import.link.invalidId",
+          `link entry ${JSON.stringify(l)} must use a safe integer link ID and slot indices, and canonical node IDs`,
+        ),
+      );
+      continue;
     }
     if (seenLinkIds.has(linkId)) {
-      diags.push(imp('error', 'import.link.duplicateId', `duplicate litegraph link ID ${linkId}`))
-      continue
+      diags.push(
+        imp(
+          "error",
+          "import.link.duplicateId",
+          `duplicate litegraph link ID ${linkId}`,
+        ),
+      );
+      continue;
     }
-    seenLinkIds.add(linkId)
+    seenLinkIds.add(linkId);
     if (temporaryLinks.has(linkId)) {
-      const endpointKey = `${fromNode}:${l[2]}:${toNode}:${l[4]}`
+      const endpointKey = `${fromNode}:${l[2]}:${toNode}:${l[4]}`;
       if (ueEndpointKeys.has(endpointKey)) {
-        claimedTemporaryLinks.add(linkId)
-        const linkType = l[5]
-        const manifestType = ueEndpointTypes.get(endpointKey)
-        if (linkType !== undefined && (typeof linkType !== 'string' || (linkType !== '*' && linkType !== manifestType))) {
-          diags.push(imp('error', 'import.ue.temporaryLinkTypeMismatch', `temporary Use Everywhere link ${linkId} has type '${String(linkType)}', not '${manifestType}'`))
+        claimedTemporaryLinks.add(linkId);
+        const linkType = l[5];
+        const manifestType = ueEndpointTypes.get(endpointKey);
+        if (
+          linkType !== undefined &&
+          (typeof linkType !== "string" ||
+            (linkType !== "*" && linkType !== manifestType))
+        ) {
+          diags.push(
+            imp(
+              "error",
+              "import.ue.temporaryLinkTypeMismatch",
+              `temporary Use Everywhere link ${linkId} has type '${String(linkType)}', not '${manifestType}'`,
+            ),
+          );
         }
       }
-      continue
+      continue;
     }
     wires.set(linkId, {
       fromNode,
@@ -854,42 +1265,87 @@ function importLitegraphGraph(
       toNode,
       toSlot: l[4],
       ...(l[5] !== undefined ? { type: l[5] as Json } : {}),
-    })
+    });
   }
   for (const id of temporaryLinks) {
     if (presentLinkIds.has(id) && !claimedTemporaryLinks.has(id)) {
-      diags.push(imp('error', 'import.ue.temporaryLinkUnclaimed', `temporary Use Everywhere link ${id} does not match an extra.ue_links connection`))
+      diags.push(
+        imp(
+          "error",
+          "import.ue.temporaryLinkUnclaimed",
+          `temporary Use Everywhere link ${id} does not match an extra.ue_links connection`,
+        ),
+      );
     }
   }
 
-  const byId = new Map<number, LgNode>()
+  const byId = new Map<number, LgNode>();
   for (const n of rawNodes) {
-    if (n?.id === undefined || typeof n?.type !== 'string') {
-      diags.push(imp('warning', 'import.node.malformed', `skipping malformed node entry ${JSON.stringify(n).slice(0, 120)}`))
-      continue
+    if (n?.id === undefined || typeof n?.type !== "string") {
+      diags.push(
+        imp(
+          "warning",
+          "import.node.malformed",
+          `skipping malformed node entry ${JSON.stringify(n).slice(0, 120)}`,
+        ),
+      );
+      continue;
     }
-    const nodeId = canonicalId(n.id)
+    const nodeId = canonicalId(n.id);
     if (nodeId === undefined) {
-      diags.push(imp('error', 'import.node.invalidId', `node ID ${String(n.id)} must be a safe non-negative integer`))
-      continue
+      diags.push(
+        imp(
+          "error",
+          "import.node.invalidId",
+          `node ID ${String(n.id)} must be a safe non-negative integer`,
+        ),
+      );
+      continue;
     }
     if (byId.has(nodeId)) {
-      diags.push(imp('error', 'import.node.duplicateId', `duplicate litegraph node ID ${nodeId}`))
-      continue
+      diags.push(
+        imp(
+          "error",
+          "import.node.duplicateId",
+          `duplicate litegraph node ID ${nodeId}`,
+        ),
+      );
+      continue;
     }
-    if ((n.pos !== undefined && !isFinitePair(n.pos)) || (n.size !== undefined && !isFinitePair(n.size))) {
-      diags.push(imp('error', 'import.node.geometry', `node ${nodeId} ('${n.type}') has a non-finite or malformed position or size`))
-      continue
+    if (
+      (n.pos !== undefined && !isFinitePair(n.pos)) ||
+      (n.size !== undefined && !isFinitePair(n.size))
+    ) {
+      diags.push(
+        imp(
+          "error",
+          "import.node.geometry",
+          `node ${nodeId} ('${n.type}') has a non-finite or malformed position or size`,
+        ),
+      );
+      continue;
     }
-    const version = n.properties?.['ver']
-    const upgrade = typeof version === 'string' ? upgrades.get(n.type)?.get(version) : undefined
-    const node = upgrade === undefined ? n : { ...n, widgets_values: upgrade(n.widgets_values) }
-    byId.set(nodeId, nodeId === node.id ? node : { ...node, id: nodeId })
+    const version = n.properties?.["ver"];
+    const upgrade =
+      typeof version === "string"
+        ? upgrades.get(n.type)?.get(version)
+        : undefined;
+    const node =
+      upgrade === undefined
+        ? n
+        : { ...n, widgets_values: upgrade(n.widgets_values) };
+    byId.set(nodeId, nodeId === node.id ? node : { ...node, id: nodeId });
   }
   for (const node of byId.values()) {
-    const ueConvert = node.properties?.['ue_convert']
-    if (ueConvert !== undefined && typeof ueConvert !== 'boolean') {
-      diags.push(imp('error', 'import.ue.controllerStateInvalid', `node ${node.id} has non-boolean ue_convert state`))
+    const ueConvert = node.properties?.["ue_convert"];
+    if (ueConvert !== undefined && typeof ueConvert !== "boolean") {
+      diags.push(
+        imp(
+          "error",
+          "import.ue.controllerStateInvalid",
+          `node ${node.id} has non-boolean ue_convert state`,
+        ),
+      );
     }
   }
   if (
@@ -897,173 +1353,384 @@ function importLitegraphGraph(
     temporaryLinks.size === 0 &&
     [...byId.values()].some(isUeController)
   ) {
-    diags.push(imp('error', 'import.ue.manifestMissing', 'Use Everywhere broadcasters require the authoritative extra.ue_links manifest'))
+    diags.push(
+      imp(
+        "error",
+        "import.ue.manifestMissing",
+        "Use Everywhere broadcasters require the authoritative extra.ue_links manifest",
+      ),
+    );
   }
 
-  const ueControllerIds = new Set<number>()
-  const droppedUeControllerIds = new Set<number>()
-  const authoredWires = [...wires.entries()]
-  const invalidConvertedControllers = new Set<number>()
+  const ueControllerIds = new Set<number>();
+  const droppedUeControllerIds = new Set<number>();
+  const authoredWires = [...wires.entries()];
+  const invalidConvertedControllers = new Set<number>();
   for (const controller of byId.values()) {
-    if (controller.properties?.['ue_convert'] !== true) continue
-    const ueProperties = controller.properties?.['ue_properties']
-    if (ueProperties !== undefined && (ueProperties === null || typeof ueProperties !== 'object' || Array.isArray(ueProperties))) {
-      invalidConvertedControllers.add(controller.id)
-      diags.push(imp('error', 'import.ue.controllerStateInvalid', `converted broadcaster ${controller.id} has malformed ue_properties`))
-      continue
+    if (controller.properties?.["ue_convert"] !== true) continue;
+    const ueProperties = controller.properties?.["ue_properties"];
+    if (
+      ueProperties !== undefined &&
+      (ueProperties === null ||
+        typeof ueProperties !== "object" ||
+        Array.isArray(ueProperties))
+    ) {
+      invalidConvertedControllers.add(controller.id);
+      diags.push(
+        imp(
+          "error",
+          "import.ue.controllerStateInvalid",
+          `converted broadcaster ${controller.id} has malformed ue_properties`,
+        ),
+      );
+      continue;
     }
-    const disabled = (ueProperties as JsonObject | undefined)?.['output_not_broadcasting']
-    if (disabled !== undefined && (disabled === null || typeof disabled !== 'object' || Array.isArray(disabled))) {
-      invalidConvertedControllers.add(controller.id)
-      diags.push(imp('error', 'import.ue.controllerStateInvalid', `converted broadcaster ${controller.id} has malformed output_not_broadcasting state`))
-      continue
+    const disabled = (ueProperties as JsonObject | undefined)?.[
+      "output_not_broadcasting"
+    ];
+    if (
+      disabled !== undefined &&
+      (disabled === null ||
+        typeof disabled !== "object" ||
+        Array.isArray(disabled))
+    ) {
+      invalidConvertedControllers.add(controller.id);
+      diags.push(
+        imp(
+          "error",
+          "import.ue.controllerStateInvalid",
+          `converted broadcaster ${controller.id} has malformed output_not_broadcasting state`,
+        ),
+      );
+      continue;
     }
-    if (disabled !== undefined && Object.values(disabled as JsonObject).some((value) => typeof value !== 'boolean')) {
-      invalidConvertedControllers.add(controller.id)
-      diags.push(imp('error', 'import.ue.controllerStateInvalid', `converted broadcaster ${controller.id} has non-boolean output_not_broadcasting state`))
-      continue
+    if (
+      disabled !== undefined &&
+      Object.values(disabled as JsonObject).some(
+        (value) => typeof value !== "boolean",
+      )
+    ) {
+      invalidConvertedControllers.add(controller.id);
+      diags.push(
+        imp(
+          "error",
+          "import.ue.controllerStateInvalid",
+          `converted broadcaster ${controller.id} has non-boolean output_not_broadcasting state`,
+        ),
+      );
+      continue;
     }
-    const outputNames = (controller.outputs ?? []).map((output) => output.name)
-    if (disabled !== undefined && Object.keys(disabled as JsonObject).some((name) =>
-      outputNames.filter((outputName) => outputName === name).length !== 1)) {
-      invalidConvertedControllers.add(controller.id)
-      diags.push(imp('error', 'import.ue.controllerStateInvalid', `converted broadcaster ${controller.id} has stale or ambiguous output_not_broadcasting keys`))
+    const outputNames = (controller.outputs ?? []).map((output) => output.name);
+    if (
+      disabled !== undefined &&
+      Object.keys(disabled as JsonObject).some(
+        (name) =>
+          outputNames.filter((outputName) => outputName === name).length !== 1,
+      )
+    ) {
+      invalidConvertedControllers.add(controller.id);
+      diags.push(
+        imp(
+          "error",
+          "import.ue.controllerStateInvalid",
+          `converted broadcaster ${controller.id} has stale or ambiguous output_not_broadcasting keys`,
+        ),
+      );
     }
   }
   if (Array.isArray(manifest)) {
     for (const node of byId.values()) {
-      if (!UE_CONTROLLER_TYPES.has(node.type)) continue
-      ueControllerIds.add(node.id)
-      if (node.type !== UE_SEED_CONTROLLER_TYPE) droppedUeControllerIds.add(node.id)
+      if (!UE_CONTROLLER_TYPES.has(node.type)) continue;
+      ueControllerIds.add(node.id);
+      if (node.type !== UE_SEED_CONTROLLER_TYPE)
+        droppedUeControllerIds.add(node.id);
     }
     for (const controller of byId.values()) {
-      if (!UE_INPUT_CONTROLLER_TYPES.has(controller.type)) continue
-      if ((controller.inputs ?? []).some((input, slot) =>
-        input.link !== null && input.link !== undefined && !isUeBroadcastInput(controller.type, slot))) {
-        diags.push(imp('error', 'import.ue.controllerWireUnsupported', `Use Everywhere controller ${controller.id} has a serialized link on a non-broadcast input`))
+      if (!UE_INPUT_CONTROLLER_TYPES.has(controller.type)) continue;
+      if (
+        (controller.inputs ?? []).some(
+          (input, slot) =>
+            input.link !== null &&
+            input.link !== undefined &&
+            !isUeBroadcastInput(controller.type, slot),
+        )
+      ) {
+        diags.push(
+          imp(
+            "error",
+            "import.ue.controllerWireUnsupported",
+            `Use Everywhere controller ${controller.id} has a serialized link on a non-broadcast input`,
+          ),
+        );
       }
       for (const [linkId, wire] of authoredWires) {
-        if (wire.toNode === controller.id && !isUeBroadcastInput(controller.type, wire.toSlot)) {
-          diags.push(imp('error', 'import.ue.controllerWireUnsupported', `Use Everywhere controller ${controller.id} has an incoming ordinary link ${linkId} on non-broadcast input ${wire.toSlot}`))
+        if (
+          wire.toNode === controller.id &&
+          !isUeBroadcastInput(controller.type, wire.toSlot)
+        ) {
+          diags.push(
+            imp(
+              "error",
+              "import.ue.controllerWireUnsupported",
+              `Use Everywhere controller ${controller.id} has an incoming ordinary link ${linkId} on non-broadcast input ${wire.toSlot}`,
+            ),
+          );
         }
       }
       const declaredWires = (controller.inputs ?? []).flatMap((input, slot) =>
-        isUeBroadcastInput(controller.type, slot) && input.link !== null && input.link !== undefined
+        isUeBroadcastInput(controller.type, slot) &&
+        input.link !== null &&
+        input.link !== undefined
           ? [{ linkId: input.link, slot }]
           : [],
-      )
-      const actualWires = authoredWires.filter(([, wire]) =>
-        wire.toNode === controller.id && isUeBroadcastInput(controller.type, wire.toSlot),
-      )
-      const consistent = declaredWires.length === actualWires.length && declaredWires.every((declared) =>
-        isId(declared.linkId) && actualWires.some(([linkId, wire]) =>
-          linkId === declared.linkId && wire.toSlot === declared.slot),
-      )
+      );
+      const actualWires = authoredWires.filter(
+        ([, wire]) =>
+          wire.toNode === controller.id &&
+          isUeBroadcastInput(controller.type, wire.toSlot),
+      );
+      const consistent =
+        declaredWires.length === actualWires.length &&
+        declaredWires.every(
+          (declared) =>
+            isId(declared.linkId) &&
+            actualWires.some(
+              ([linkId, wire]) =>
+                linkId === declared.linkId && wire.toSlot === declared.slot,
+            ),
+        );
       if (!consistent) {
-        diags.push(imp('error', 'import.ue.controllerStateInvalid', `Use Everywhere controller ${controller.id} broadcast inputs do not match their authored links`))
+        diags.push(
+          imp(
+            "error",
+            "import.ue.controllerStateInvalid",
+            `Use Everywhere controller ${controller.id} broadcast inputs do not match their authored links`,
+          ),
+        );
       }
     }
     for (const [linkId, wire] of [...wires]) {
-      const source = byId.get(wire.fromNode)
-      const target = byId.get(wire.toNode)
+      const source = byId.get(wire.fromNode);
+      const target = byId.get(wire.toNode);
       if (source !== undefined && UE_INPUT_CONTROLLER_TYPES.has(source.type)) {
-        diags.push(imp('error', 'import.ue.controllerWireUnsupported', `Use Everywhere controller ${source.id} has an unsupported outgoing ordinary link ${linkId}`))
+        diags.push(
+          imp(
+            "error",
+            "import.ue.controllerWireUnsupported",
+            `Use Everywhere controller ${source.id} has an unsupported outgoing ordinary link ${linkId}`,
+          ),
+        );
       }
       if (target !== undefined && UE_INPUT_CONTROLLER_TYPES.has(target.type)) {
-        wires.delete(linkId)
-        continue
+        wires.delete(linkId);
+        continue;
       }
       if (target?.type === UE_SEED_CONTROLLER_TYPE) {
-        diags.push(imp('error', 'import.ue.controllerWireUnsupported', `Seed Everywhere controller ${target.id} has an unsupported incoming ordinary link ${linkId}`))
+        diags.push(
+          imp(
+            "error",
+            "import.ue.controllerWireUnsupported",
+            `Seed Everywhere controller ${target.id} has an unsupported incoming ordinary link ${linkId}`,
+          ),
+        );
       }
     }
   }
 
-  const ueTargets = new Map<string, UeLink>()
-  const wiredTargets = new Set([...wires.values()].map((wire) => `${wire.toNode}:${wire.toSlot}`))
+  const ueTargets = new Map<string, UeLink>();
+  const wiredTargets = new Set(
+    [...wires.values()].map((wire) => `${wire.toNode}:${wire.toSlot}`),
+  );
   for (const entry of ueLinks) {
-    const upstream = byId.get(entry.upstream)
-    const downstream = byId.get(entry.downstream)
-    const controller = byId.get(entry.controller)
-    if (upstream === undefined || downstream === undefined || controller === undefined) {
-      diags.push(imp('error', 'import.ue.nodeMissing', 'extra.ue_links references a missing producer, consumer, or controller node'))
-      continue
+    const upstream = byId.get(entry.upstream);
+    const downstream = byId.get(entry.downstream);
+    const controller = byId.get(entry.controller);
+    if (
+      upstream === undefined ||
+      downstream === undefined ||
+      controller === undefined
+    ) {
+      diags.push(
+        imp(
+          "error",
+          "import.ue.nodeMissing",
+          "extra.ue_links references a missing producer, consumer, or controller node",
+        ),
+      );
+      continue;
     }
     if (!isUeController(controller)) {
-      diags.push(imp('error', 'import.ue.controllerInvalid', `extra.ue_links controller ${entry.controller} is not a supported Use Everywhere controller`))
-      continue
+      diags.push(
+        imp(
+          "error",
+          "import.ue.controllerInvalid",
+          `extra.ue_links controller ${entry.controller} is not a supported Use Everywhere controller`,
+        ),
+      );
+      continue;
     }
     if (entry.upstream === entry.downstream) {
-      diags.push(imp('error', 'import.ue.selfConnection', `extra.ue_links cannot connect node ${entry.upstream} to itself`))
-      continue
+      diags.push(
+        imp(
+          "error",
+          "import.ue.selfConnection",
+          `extra.ue_links cannot connect node ${entry.upstream} to itself`,
+        ),
+      );
+      continue;
     }
-    const sourceType = upstream.outputs?.[entry.upstreamSlot]?.type
-    if (sourceType !== undefined && (typeof sourceType !== 'string' || (sourceType !== '*' && sourceType !== entry.type))) {
-      diags.push(imp('error', 'import.ue.sourceTypeMismatch', `extra.ue_links source ${entry.upstream}:${entry.upstreamSlot} has type '${String(sourceType)}', not '${entry.type}'`))
-      continue
+    const sourceType = upstream.outputs?.[entry.upstreamSlot]?.type;
+    if (
+      sourceType !== undefined &&
+      (typeof sourceType !== "string" ||
+        (sourceType !== "*" && sourceType !== entry.type))
+    ) {
+      diags.push(
+        imp(
+          "error",
+          "import.ue.sourceTypeMismatch",
+          `extra.ue_links source ${entry.upstream}:${entry.upstreamSlot} has type '${String(sourceType)}', not '${entry.type}'`,
+        ),
+      );
+      continue;
     }
-    const targetType = downstream.inputs?.[entry.downstreamSlot]?.type
-    if (targetType !== undefined && (typeof targetType !== 'string' || (targetType !== '*' && targetType !== entry.type))) {
-      diags.push(imp('error', 'import.ue.targetTypeMismatch', `extra.ue_links target ${entry.downstream}:${entry.downstreamSlot} has type '${String(targetType)}', not '${entry.type}'`))
-      continue
+    const targetType = downstream.inputs?.[entry.downstreamSlot]?.type;
+    if (
+      targetType !== undefined &&
+      (typeof targetType !== "string" ||
+        (targetType !== "*" && targetType !== entry.type))
+    ) {
+      diags.push(
+        imp(
+          "error",
+          "import.ue.targetTypeMismatch",
+          `extra.ue_links target ${entry.downstream}:${entry.downstreamSlot} has type '${String(targetType)}', not '${entry.type}'`,
+        ),
+      );
+      continue;
     }
     if (controller.type === UE_SEED_CONTROLLER_TYPE) {
-      if (entry.controller !== entry.upstream || entry.upstreamSlot !== 0 || entry.type !== 'INT') {
-        diags.push(imp('error', 'import.ue.controllerSourceMismatch', `Seed Everywhere controller ${entry.controller} must broadcast its own INT output 0`))
-        continue
+      if (
+        entry.controller !== entry.upstream ||
+        entry.upstreamSlot !== 0 ||
+        entry.type !== "INT"
+      ) {
+        diags.push(
+          imp(
+            "error",
+            "import.ue.controllerSourceMismatch",
+            `Seed Everywhere controller ${entry.controller} must broadcast its own INT output 0`,
+          ),
+        );
+        continue;
       }
     } else if (UE_INPUT_CONTROLLER_TYPES.has(controller.type)) {
-      const sourceMatches = authoredWires.filter(([, wire]) =>
-        wire.toNode === controller.id && isUeBroadcastInput(controller.type, wire.toSlot) &&
-        wire.fromNode === entry.upstream && wire.fromSlot === entry.upstreamSlot,
-      )
+      const sourceMatches = authoredWires.filter(
+        ([, wire]) =>
+          wire.toNode === controller.id &&
+          isUeBroadcastInput(controller.type, wire.toSlot) &&
+          wire.fromNode === entry.upstream &&
+          wire.fromSlot === entry.upstreamSlot,
+      );
       if (sourceMatches.length !== 1) {
-        diags.push(imp('error', 'import.ue.controllerSourceMismatch', `Use Everywhere controller ${entry.controller} must have exactly one broadcast input connected to source ${entry.upstream}:${entry.upstreamSlot}`))
-        continue
+        diags.push(
+          imp(
+            "error",
+            "import.ue.controllerSourceMismatch",
+            `Use Everywhere controller ${entry.controller} must have exactly one broadcast input connected to source ${entry.upstream}:${entry.upstreamSlot}`,
+          ),
+        );
+        continue;
       }
-      const controllerLinkType = sourceMatches[0]![1].type
-      if (controllerLinkType !== undefined &&
-        (typeof controllerLinkType !== 'string' || (controllerLinkType !== '*' && controllerLinkType !== entry.type))) {
-        diags.push(imp('error', 'import.ue.sourceTypeMismatch', `Use Everywhere controller ${entry.controller} input link has type '${String(controllerLinkType)}', not '${entry.type}'`))
-        continue
+      const controllerLinkType = sourceMatches[0]![1].type;
+      if (
+        controllerLinkType !== undefined &&
+        (typeof controllerLinkType !== "string" ||
+          (controllerLinkType !== "*" && controllerLinkType !== entry.type))
+      ) {
+        diags.push(
+          imp(
+            "error",
+            "import.ue.sourceTypeMismatch",
+            `Use Everywhere controller ${entry.controller} input link has type '${String(controllerLinkType)}', not '${entry.type}'`,
+          ),
+        );
+        continue;
       }
     } else {
-      if (invalidConvertedControllers.has(controller.id)) continue
+      if (invalidConvertedControllers.has(controller.id)) continue;
       if (entry.controller !== entry.upstream) {
-        diags.push(imp('error', 'import.ue.controllerSourceMismatch', `converted broadcaster ${entry.controller} can only broadcast its own outputs`))
-        continue
+        diags.push(
+          imp(
+            "error",
+            "import.ue.controllerSourceMismatch",
+            `converted broadcaster ${entry.controller} can only broadcast its own outputs`,
+          ),
+        );
+        continue;
       }
-      const outputName = controller.outputs?.[entry.upstreamSlot]?.name
-      const outputNames = (controller.outputs ?? []).map((output) => output.name)
-      if (typeof outputName !== 'string' || outputName.trim().length === 0 ||
-        outputNames.filter((name) => name === outputName).length !== 1) {
-        diags.push(imp('error', 'import.ue.controllerOutputInvalid', `converted broadcaster ${entry.controller} has no named output ${entry.upstreamSlot}`))
-        continue
+      const outputName = controller.outputs?.[entry.upstreamSlot]?.name;
+      const outputNames = (controller.outputs ?? []).map(
+        (output) => output.name,
+      );
+      if (
+        typeof outputName !== "string" ||
+        outputName.trim().length === 0 ||
+        outputNames.filter((name) => name === outputName).length !== 1
+      ) {
+        diags.push(
+          imp(
+            "error",
+            "import.ue.controllerOutputInvalid",
+            `converted broadcaster ${entry.controller} has no named output ${entry.upstreamSlot}`,
+          ),
+        );
+        continue;
       }
-      const ueProperties = controller.properties?.['ue_properties']
-      const disabled = (ueProperties as JsonObject | undefined)?.['output_not_broadcasting']
+      const ueProperties = controller.properties?.["ue_properties"];
+      const disabled = (ueProperties as JsonObject | undefined)?.[
+        "output_not_broadcasting"
+      ];
       if (Boolean((disabled as JsonObject | undefined)?.[outputName])) {
-        diags.push(imp('error', 'import.ue.controllerOutputDisabled', `converted broadcaster ${entry.controller} output '${outputName}' is disabled`))
-        continue
+        diags.push(
+          imp(
+            "error",
+            "import.ue.controllerOutputDisabled",
+            `converted broadcaster ${entry.controller} output '${outputName}' is disabled`,
+          ),
+        );
+        continue;
       }
     }
-    const key = `${entry.downstream}:${entry.downstreamSlot}`
+    const key = `${entry.downstream}:${entry.downstreamSlot}`;
     if (ueTargets.has(key)) {
-      diags.push(imp('error', 'import.ue.targetDuplicate', `extra.ue_links assigns target ${key} more than once`))
-      continue
+      diags.push(
+        imp(
+          "error",
+          "import.ue.targetDuplicate",
+          `extra.ue_links assigns target ${key} more than once`,
+        ),
+      );
+      continue;
     }
     if (wiredTargets.has(key)) {
-      diags.push(imp('error', 'import.ue.targetConflict', `extra.ue_links target ${key} already has an ordinary connection`))
-      continue
+      diags.push(
+        imp(
+          "error",
+          "import.ue.targetConflict",
+          `extra.ue_links target ${key} already has an ordinary connection`,
+        ),
+      );
+      continue;
     }
-    ueTargets.set(key, entry)
+    ueTargets.set(key, entry);
   }
   const importedNodeType = (node: LgNode): string =>
-    node.type === UE_SEED_CONTROLLER_TYPE && ueControllerIds.has(node.id) ? 'PrimitiveInt' : node.type
+    node.type === UE_SEED_CONTROLLER_TYPE && ueControllerIds.has(node.id)
+      ? "PrimitiveInt"
+      : node.type;
   const resolveImported = (node: LgNode): NodeSchema | undefined =>
-    node.type === 'CreateList' || node.type === 'GetItemFromList'
-      ? undefined
-      : resolve(importedNodeType(node))
+    resolve(importedNodeType(node));
 
   // -- Upstream resolution (net sources only) -----------------------------------
   // Named nets are port-only: a net's source must be a real producing output.
@@ -1072,219 +1739,347 @@ function importLitegraphGraph(
   // chains nets). Ordinary links do NOT use this; they keep reroutes
   // first-class via resolveFeed below.
   type Upstream =
-    | { kind: 'origin'; node: number; slot: number }
-    | { kind: 'net'; name: string }
-    | { kind: 'valueSource'; id: number }
+    | { kind: "origin"; node: number; slot: number }
+    | { kind: "net"; name: string }
+    | { kind: "valueSource"; id: number };
 
   const netName = (n: LgNode): string | undefined => {
-    const v = Array.isArray(n.widgets_values) ? n.widgets_values[0] : undefined
-    return typeof v === 'string' && v.trim().length > 0 ? v : undefined
-  }
+    const v = Array.isArray(n.widgets_values) ? n.widgets_values[0] : undefined;
+    return typeof v === "string" && v.trim().length > 0 ? v : undefined;
+  };
 
-  const resolveUpstream = (linkId: number, seen: Set<number> = new Set()): Upstream | undefined => {
-    const wire = wires.get(linkId)
-    if (!wire) return undefined
-    const src = byId.get(wire.fromNode)
-    if (!src) return undefined
+  const resolveUpstream = (
+    linkId: number,
+    seen: Set<number> = new Set(),
+  ): Upstream | undefined => {
+    const wire = wires.get(linkId);
+    if (!wire) return undefined;
+    const src = byId.get(wire.fromNode);
+    if (!src) return undefined;
     if (GET_TYPES.has(src.type)) {
-      const name = getNames.get(src.id)
-      if (name === undefined) return undefined
-      return { kind: 'net', name }
+      const name = getNames.get(src.id);
+      if (name === undefined) return undefined;
+      return { kind: "net", name };
     }
     if (PRIMITIVE_TYPES.has(src.type)) {
-      return { kind: 'valueSource', id: src.id }
+      return { kind: "valueSource", id: src.id };
     }
     if (!REROUTE_TYPES.has(src.type) && !SET_TYPES.has(src.type)) {
-      return { kind: 'origin', node: wire.fromNode, slot: wire.fromSlot }
+      return { kind: "origin", node: wire.fromNode, slot: wire.fromSlot };
     }
     // Reroute or SetNode passthrough: continue through its single input.
     if (seen.has(wire.fromNode)) {
       if (SET_TYPES.has(src.type)) {
-        diags.push(imp('error', 'import.net.cycle', `SetNode passthrough cycle at litegraph node ${wire.fromNode}`))
+        diags.push(
+          imp(
+            "error",
+            "import.net.cycle",
+            `SetNode passthrough cycle at litegraph node ${wire.fromNode}`,
+          ),
+        );
       } else {
-        diags.push(imp('warning', 'import.reroute.cycle', `reroute cycle at litegraph node ${wire.fromNode}; dropping the connection`))
+        diags.push(
+          imp(
+            "warning",
+            "import.reroute.cycle",
+            `reroute cycle at litegraph node ${wire.fromNode}; dropping the connection`,
+          ),
+        );
       }
-      return undefined
+      return undefined;
     }
-    seen.add(wire.fromNode)
-    const inLink = src.inputs?.[0]?.link
-    if (inLink === null || inLink === undefined) return undefined // dangling
-    return resolveUpstream(inLink, seen)
-  }
+    seen.add(wire.fromNode);
+    const inLink = src.inputs?.[0]?.link;
+    if (inLink === null || inLink === undefined) return undefined; // dangling
+    return resolveUpstream(inLink, seen);
+  };
 
   // -- Set/Get -> named nets --------------------------------------------------
   // SetNode: input link + widgets_values[0] = name (the net's source).
   // GetNode: widgets_values[0] = name; its output links are the net's sinks.
   // A Set fed by a Get chains nets; the chain collapses to the real origin.
   const outputLinksMatch = (node: LgNode): boolean => {
-    const declared = node.outputs?.[0]?.links
-    if (declared !== undefined && declared !== null &&
-      (!Array.isArray(declared) || declared.some((id) => !isId(id)) || new Set(declared).size !== declared.length)) return false
-    const declaredIds = declared ?? []
+    const declared = node.outputs?.[0]?.links;
+    if (
+      declared !== undefined &&
+      declared !== null &&
+      (!Array.isArray(declared) ||
+        declared.some((id) => !isId(id)) ||
+        new Set(declared).size !== declared.length)
+    )
+      return false;
+    const declaredIds = declared ?? [];
     const actualIds = [...wires.entries()]
       .filter(([, wire]) => wire.fromNode === node.id && wire.fromSlot === 0)
-      .map(([id]) => id)
-    return declaredIds.length === actualIds.length && declaredIds.every((id) => actualIds.includes(id))
-  }
-  const setInputs = new Map<string, number>() // name -> input link id
-  const setNodes = new Map<string, LgNode>()
+      .map(([id]) => id);
+    return (
+      declaredIds.length === actualIds.length &&
+      declaredIds.every((id) => actualIds.includes(id))
+    );
+  };
+  const setInputs = new Map<string, number>(); // name -> input link id
+  const setNodes = new Map<string, LgNode>();
   for (const n of byId.values()) {
-    if (!SET_TYPES.has(n.type)) continue
+    if (!SET_TYPES.has(n.type)) continue;
     if (n.inputs?.length !== 1 || n.outputs?.length !== 1) {
-      diags.push(imp('error', 'import.net.nodeInvalid', `SetNode ${n.id} must have exactly one input and one output`))
-      continue
+      diags.push(
+        imp(
+          "error",
+          "import.net.nodeInvalid",
+          `SetNode ${n.id} must have exactly one input and one output`,
+        ),
+      );
+      continue;
     }
-    const name = netName(n)
-    const inLink = n.inputs?.[0]?.link
+    const name = netName(n);
+    const inLink = n.inputs?.[0]?.link;
     if (name === undefined || inLink === null || inLink === undefined) {
-      diags.push(imp('error', 'import.net.danglingSet', `SetNode ${n.id} has no ${name === undefined ? 'name' : 'input'}`))
-      continue
+      diags.push(
+        imp(
+          "error",
+          "import.net.danglingSet",
+          `SetNode ${n.id} has no ${name === undefined ? "name" : "input"}`,
+        ),
+      );
+      continue;
     }
-    const inputWire = wires.get(inLink)
-    const inputWires = [...wires.entries()].filter(([, wire]) => wire.toNode === n.id && wire.toSlot === 0)
-    if (inputWire === undefined || inputWire.toNode !== n.id || inputWire.toSlot !== 0 ||
-      inputWires.length !== 1 || inputWires[0]![0] !== inLink || !outputLinksMatch(n)) {
-      diags.push(imp('error', 'import.net.wireInvalid', `SetNode ${n.id} serialized links do not exactly match its input and passthrough output wires`))
-      continue
+    const inputWire = wires.get(inLink);
+    const inputWires = [...wires.entries()].filter(
+      ([, wire]) => wire.toNode === n.id && wire.toSlot === 0,
+    );
+    if (
+      inputWire === undefined ||
+      inputWire.toNode !== n.id ||
+      inputWire.toSlot !== 0 ||
+      inputWires.length !== 1 ||
+      inputWires[0]![0] !== inLink ||
+      !outputLinksMatch(n)
+    ) {
+      diags.push(
+        imp(
+          "error",
+          "import.net.wireInvalid",
+          `SetNode ${n.id} serialized links do not exactly match its input and passthrough output wires`,
+        ),
+      );
+      continue;
     }
     if (setInputs.has(name)) {
-      diags.push(imp('error', 'import.net.duplicateSet', `multiple SetNodes named '${name}' make the source ambiguous`))
-      continue
+      diags.push(
+        imp(
+          "error",
+          "import.net.duplicateSet",
+          `multiple SetNodes named '${name}' make the source ambiguous`,
+        ),
+      );
+      continue;
     }
-    setInputs.set(name, inLink)
-    setNodes.set(name, n)
+    setInputs.set(name, inLink);
+    setNodes.set(name, n);
   }
 
-  const getNames = new Map<number, string>()
-  const getNodes = new Map<string, LgNode[]>()
+  const getNames = new Map<number, string>();
+  const getNodes = new Map<string, LgNode[]>();
   for (const n of byId.values()) {
-    if (!GET_TYPES.has(n.type)) continue
+    if (!GET_TYPES.has(n.type)) continue;
     if ((n.inputs?.length ?? 0) !== 0 || n.outputs?.length !== 1) {
-      diags.push(imp('error', 'import.net.nodeInvalid', `GetNode ${n.id} must have no inputs and exactly one output`))
-      continue
+      diags.push(
+        imp(
+          "error",
+          "import.net.nodeInvalid",
+          `GetNode ${n.id} must have no inputs and exactly one output`,
+        ),
+      );
+      continue;
     }
     if (!outputLinksMatch(n)) {
-      diags.push(imp('error', 'import.net.wireInvalid', `GetNode ${n.id} serialized output links do not exactly match its outgoing wires`))
-      continue
+      diags.push(
+        imp(
+          "error",
+          "import.net.wireInvalid",
+          `GetNode ${n.id} serialized output links do not exactly match its outgoing wires`,
+        ),
+      );
+      continue;
     }
-    const name = netName(n)
+    const name = netName(n);
     if (name === undefined) {
-      diags.push(imp('error', 'import.net.danglingGet', `GetNode ${n.id} has no name`))
-      continue
+      diags.push(
+        imp("error", "import.net.danglingGet", `GetNode ${n.id} has no name`),
+      );
+      continue;
     }
-    getNames.set(n.id, name)
-    const namedGets = getNodes.get(name) ?? []
-    namedGets.push(n)
-    getNodes.set(name, namedGets)
+    getNames.set(n.id, name);
+    const namedGets = getNodes.get(name) ?? [];
+    namedGets.push(n);
+    getNodes.set(name, namedGets);
     if (!setInputs.has(name)) {
-      diags.push(imp('error', 'import.net.danglingGet', `GetNode ${n.id} names '${name}', but no matching SetNode exists`))
+      diags.push(
+        imp(
+          "error",
+          "import.net.danglingGet",
+          `GetNode ${n.id} names '${name}', but no matching SetNode exists`,
+        ),
+      );
     }
   }
 
   for (const [linkId, wire] of wires) {
-    const source = byId.get(wire.fromNode)
-    const target = byId.get(wire.toNode)
-    if ((SET_TYPES.has(source?.type ?? '') || GET_TYPES.has(source?.type ?? '')) && wire.fromSlot !== 0) {
-      diags.push(imp('error', 'import.net.wireInvalid', `Set/Get link ${linkId} uses unsupported output slot ${wire.fromSlot}`))
+    const source = byId.get(wire.fromNode);
+    const target = byId.get(wire.toNode);
+    if (
+      (SET_TYPES.has(source?.type ?? "") ||
+        GET_TYPES.has(source?.type ?? "")) &&
+      wire.fromSlot !== 0
+    ) {
+      diags.push(
+        imp(
+          "error",
+          "import.net.wireInvalid",
+          `Set/Get link ${linkId} uses unsupported output slot ${wire.fromSlot}`,
+        ),
+      );
     }
-    if (GET_TYPES.has(target?.type ?? '') || (SET_TYPES.has(target?.type ?? '') && wire.toSlot !== 0)) {
-      diags.push(imp('error', 'import.net.wireInvalid', `Set/Get link ${linkId} uses unsupported input slot ${wire.toSlot}`))
+    if (
+      GET_TYPES.has(target?.type ?? "") ||
+      (SET_TYPES.has(target?.type ?? "") && wire.toSlot !== 0)
+    ) {
+      diags.push(
+        imp(
+          "error",
+          "import.net.wireInvalid",
+          `Set/Get link ${linkId} uses unsupported input slot ${wire.toSlot}`,
+        ),
+      );
     }
   }
 
-  const setSources = new Map<string, { node: number; slot: number }>()
+  const setSources = new Map<string, { node: number; slot: number }>();
   // Nets are port-only: a net fed by a PrimitiveNode instead collapses into
   // direct value-source links to every sink (same delivered value).
-  const netPrimitiveSources = new Map<string, number>() // name -> lg primitive id
-  const resolveNetSource = (name: string, chain: Set<string>): { node: number; slot: number } | undefined => {
-    const cached = setSources.get(name)
-    if (cached) return cached
-    if (netPrimitiveSources.has(name)) return undefined
-    const inLink = setInputs.get(name)
-    if (inLink === undefined) return undefined
-    const up = resolveUpstream(inLink)
-    if (up === undefined) return undefined
-    if (up.kind === 'net') {
+  const netPrimitiveSources = new Map<string, number>(); // name -> lg primitive id
+  const resolveNetSource = (
+    name: string,
+    chain: Set<string>,
+  ): { node: number; slot: number } | undefined => {
+    const cached = setSources.get(name);
+    if (cached) return cached;
+    if (netPrimitiveSources.has(name)) return undefined;
+    const inLink = setInputs.get(name);
+    if (inLink === undefined) return undefined;
+    const up = resolveUpstream(inLink);
+    if (up === undefined) return undefined;
+    if (up.kind === "net") {
       if (chain.has(up.name)) {
-        diags.push(imp('error', 'import.net.cycle', `Set/Get cycle through net '${name}'`))
-        return undefined
+        diags.push(
+          imp(
+            "error",
+            "import.net.cycle",
+            `Set/Get cycle through net '${name}'`,
+          ),
+        );
+        return undefined;
       }
-      chain.add(name)
-      const src = resolveNetSource(up.name, chain)
-      if (src) setSources.set(name, src)
-      else if (netPrimitiveSources.has(up.name)) netPrimitiveSources.set(name, netPrimitiveSources.get(up.name)!)
-      return src
+      chain.add(name);
+      const src = resolveNetSource(up.name, chain);
+      if (src) setSources.set(name, src);
+      else if (netPrimitiveSources.has(up.name))
+        netPrimitiveSources.set(name, netPrimitiveSources.get(up.name)!);
+      return src;
     }
-    if (up.kind === 'valueSource') {
-      netPrimitiveSources.set(name, up.id)
-      return undefined
+    if (up.kind === "valueSource") {
+      netPrimitiveSources.set(name, up.id);
+      return undefined;
     }
-    const src = { node: up.node, slot: up.slot }
-    setSources.set(name, src)
-    return src
-  }
-  for (const name of setInputs.keys()) resolveNetSource(name, new Set())
+    const src = { node: up.node, slot: up.slot };
+    setSources.set(name, src);
+    return src;
+  };
+  for (const name of setInputs.keys()) resolveNetSource(name, new Set());
 
   const concreteType = (value: Json | undefined): string | undefined =>
-    typeof value === 'string' && value !== '*' && value.trim().length > 0 ? value : undefined
-  const wiresBySource = new Map<number, LgWire[]>()
+    typeof value === "string" && value !== "*" && value.trim().length > 0
+      ? value
+      : undefined;
+  const wiresBySource = new Map<number, LgWire[]>();
   for (const wire of wires.values()) {
-    const outgoing = wiresBySource.get(wire.fromNode) ?? []
-    outgoing.push(wire)
-    wiresBySource.set(wire.fromNode, outgoing)
+    const outgoing = wiresBySource.get(wire.fromNode) ?? [];
+    outgoing.push(wire);
+    wiresBySource.set(wire.fromNode, outgoing);
   }
   for (const [name, setNode] of setNodes) {
-    const types = new Set<string>()
-    let malformedType = false
+    const types = new Set<string>();
+    let malformedType = false;
     const addType = (value: Json | undefined) => {
-      if (value !== undefined && (typeof value !== 'string' || value.trim().length === 0)) {
-        malformedType = true
-        return
+      if (
+        value !== undefined &&
+        (typeof value !== "string" || value.trim().length === 0)
+      ) {
+        malformedType = true;
+        return;
       }
-      const type = concreteType(value)
-      if (type !== undefined) types.add(type)
-    }
+      const type = concreteType(value);
+      if (type !== undefined) types.add(type);
+    };
     const addUpstreamTypes = (linkId: number, seen: Set<number>) => {
-      if (seen.has(linkId)) return
-      seen.add(linkId)
-      const wire = wires.get(linkId)
-      if (wire === undefined) return
-      addType(wire.type)
-      const source = byId.get(wire.fromNode)
-      if (source !== undefined && (REROUTE_TYPES.has(source.type) || SET_TYPES.has(source.type))) {
-        const inputLink = source.inputs?.[0]?.link
-        if (inputLink !== null && inputLink !== undefined) addUpstreamTypes(inputLink, seen)
+      if (seen.has(linkId)) return;
+      seen.add(linkId);
+      const wire = wires.get(linkId);
+      if (wire === undefined) return;
+      addType(wire.type);
+      const source = byId.get(wire.fromNode);
+      if (
+        source !== undefined &&
+        (REROUTE_TYPES.has(source.type) || SET_TYPES.has(source.type))
+      ) {
+        const inputLink = source.inputs?.[0]?.link;
+        if (inputLink !== null && inputLink !== undefined)
+          addUpstreamTypes(inputLink, seen);
       }
-    }
+    };
     const addDownstreamTypes = (sourceId: number, seen: Set<number>) => {
-      if (seen.has(sourceId)) return
-      seen.add(sourceId)
+      if (seen.has(sourceId)) return;
+      seen.add(sourceId);
       for (const wire of wiresBySource.get(sourceId) ?? []) {
-        const target = byId.get(wire.toNode)
-        addType(wire.type)
-        addType(target?.inputs?.[wire.toSlot]?.type)
+        const target = byId.get(wire.toNode);
+        addType(wire.type);
+        addType(target?.inputs?.[wire.toSlot]?.type);
         if (target !== undefined && REROUTE_TYPES.has(target.type)) {
-          for (const output of target.outputs ?? []) addType(output.type)
-          addDownstreamTypes(target.id, seen)
+          for (const output of target.outputs ?? []) addType(output.type);
+          addDownstreamTypes(target.id, seen);
         }
       }
-    }
-    addType(setNode.inputs?.[0]?.type)
-    addType(setNode.outputs?.[0]?.type)
-    addUpstreamTypes(setInputs.get(name)!, new Set())
-    addDownstreamTypes(setNode.id, new Set())
+    };
+    addType(setNode.inputs?.[0]?.type);
+    addType(setNode.outputs?.[0]?.type);
+    addUpstreamTypes(setInputs.get(name)!, new Set());
+    addDownstreamTypes(setNode.id, new Set());
     for (const getNode of getNodes.get(name) ?? []) {
-      addType(getNode.outputs?.[0]?.type)
-      addDownstreamTypes(getNode.id, new Set())
+      addType(getNode.outputs?.[0]?.type);
+      addDownstreamTypes(getNode.id, new Set());
     }
-    const source = setSources.get(name)
-    if (source !== undefined) addType(byId.get(source.node)?.outputs?.[source.slot]?.type)
-    const primitive = netPrimitiveSources.get(name)
-    if (primitive !== undefined) addType(byId.get(primitive)?.outputs?.[0]?.type)
+    const source = setSources.get(name);
+    if (source !== undefined)
+      addType(byId.get(source.node)?.outputs?.[source.slot]?.type);
+    const primitive = netPrimitiveSources.get(name);
+    if (primitive !== undefined)
+      addType(byId.get(primitive)?.outputs?.[0]?.type);
     if (malformedType) {
-      diags.push(imp('error', 'import.net.typeMismatch', `Set/Get net '${name}' has a malformed serialized type`))
+      diags.push(
+        imp(
+          "error",
+          "import.net.typeMismatch",
+          `Set/Get net '${name}' has a malformed serialized type`,
+        ),
+      );
     } else if (types.size > 1) {
-      diags.push(imp('error', 'import.net.typeMismatch', `Set/Get net '${name}' has conflicting serialized types: ${[...types].join(', ')}`))
+      diags.push(
+        imp(
+          "error",
+          "import.net.typeMismatch",
+          `Set/Get net '${name}' has conflicting serialized types: ${[...types].join(", ")}`,
+        ),
+      );
     }
   }
 
@@ -1295,71 +2090,90 @@ function importLitegraphGraph(
   // direct net sinks. Cycles among reroutes are broken by dropping the driver
   // link that closes the cycle.
   type Feed =
-    | { kind: 'port'; node: number; slot: number }
-    | { kind: 'reroute'; id: number }
-    | { kind: 'net'; name: string }
-    | { kind: 'valueSource'; id: number }
+    | { kind: "port"; node: number; slot: number }
+    | { kind: "reroute"; id: number }
+    | { kind: "net"; name: string }
+    | { kind: "valueSource"; id: number };
 
-  const droppedCycleLinks = new Set<number>()
-  const rerouteFeed = new Map<number, Feed | undefined>()
-  const classifying = new Set<number>()
+  const droppedCycleLinks = new Set<number>();
+  const rerouteFeed = new Map<number, Feed | undefined>();
+  const classifying = new Set<number>();
 
   /** What actually feeds a litegraph link, with kept reroutes first-class. */
-  const resolveFeed = (linkId: number, seenSets: Set<number>): Feed | undefined => {
-    if (droppedCycleLinks.has(linkId)) return undefined
-    const wire = wires.get(linkId)
-    if (!wire) return undefined
-    const src = byId.get(wire.fromNode)
-    if (!src) return undefined
+  const resolveFeed = (
+    linkId: number,
+    seenSets: Set<number>,
+  ): Feed | undefined => {
+    if (droppedCycleLinks.has(linkId)) return undefined;
+    const wire = wires.get(linkId);
+    if (!wire) return undefined;
+    const src = byId.get(wire.fromNode);
+    if (!src) return undefined;
     if (GET_TYPES.has(src.type)) {
-      const name = getNames.get(src.id)
-      if (name === undefined) return undefined
-      return { kind: 'net', name }
+      const name = getNames.get(src.id);
+      if (name === undefined) return undefined;
+      return { kind: "net", name };
     }
     if (PRIMITIVE_TYPES.has(src.type)) {
-      return { kind: 'valueSource', id: src.id }
+      return { kind: "valueSource", id: src.id };
     }
     if (REROUTE_TYPES.has(src.type)) {
-      const feed = classifyReroute(src.id)
-      if (feed?.kind === 'net') return feed // collapsed with its chain
-      return { kind: 'reroute', id: src.id }
+      const feed = classifyReroute(src.id);
+      if (feed?.kind === "net") return feed; // collapsed with its chain
+      return { kind: "reroute", id: src.id };
     }
     if (SET_TYPES.has(src.type)) {
       // SetNode passthrough output: transparent, continue through its input.
       if (seenSets.has(src.id)) {
-        diags.push(imp('error', 'import.net.cycle', `SetNode passthrough cycle at litegraph node ${src.id}`))
-        return undefined
+        diags.push(
+          imp(
+            "error",
+            "import.net.cycle",
+            `SetNode passthrough cycle at litegraph node ${src.id}`,
+          ),
+        );
+        return undefined;
       }
-      seenSets.add(src.id)
-      const inLink = src.inputs?.[0]?.link
-      if (inLink === null || inLink === undefined) return undefined
-      return resolveFeed(inLink, seenSets)
+      seenSets.add(src.id);
+      const inLink = src.inputs?.[0]?.link;
+      if (inLink === null || inLink === undefined) return undefined;
+      return resolveFeed(inLink, seenSets);
     }
-    return { kind: 'port', node: wire.fromNode, slot: wire.fromSlot }
-  }
+    return { kind: "port", node: wire.fromNode, slot: wire.fromSlot };
+  };
 
   /** A reroute's upstream feed; undefined = undriven (still kept). */
   function classifyReroute(id: number): Feed | undefined {
-    if (rerouteFeed.has(id)) return rerouteFeed.get(id)
-    const n = byId.get(id)
-    const inLink = n?.inputs?.[0]?.link
+    if (rerouteFeed.has(id)) return rerouteFeed.get(id);
+    const n = byId.get(id);
+    const inLink = n?.inputs?.[0]?.link;
     if (classifying.has(id)) {
       // Cycle: break it by dropping this reroute's driver link. The reroute
       // itself survives, undriven.
       if (inLink !== null && inLink !== undefined) {
-        droppedCycleLinks.add(inLink)
-        diags.push(imp('warning', 'import.reroute.cycle', `reroute cycle at litegraph node ${id}; dropped its incoming connection to break it`))
+        droppedCycleLinks.add(inLink);
+        diags.push(
+          imp(
+            "warning",
+            "import.reroute.cycle",
+            `reroute cycle at litegraph node ${id}; dropped its incoming connection to break it`,
+          ),
+        );
       }
-      rerouteFeed.set(id, undefined)
-      return undefined
+      rerouteFeed.set(id, undefined);
+      return undefined;
     }
-    classifying.add(id)
-    const feed = inLink === null || inLink === undefined ? undefined : resolveFeed(inLink, new Set())
-    classifying.delete(id)
-    rerouteFeed.set(id, feed)
-    return feed
+    classifying.add(id);
+    const feed =
+      inLink === null || inLink === undefined
+        ? undefined
+        : resolveFeed(inLink, new Set());
+    classifying.delete(id);
+    rerouteFeed.set(id, feed);
+    return feed;
   }
-  for (const n of byId.values()) if (REROUTE_TYPES.has(n.type)) classifyReroute(n.id)
+  for (const n of byId.values())
+    if (REROUTE_TYPES.has(n.type)) classifyReroute(n.id);
 
   // Reroutes whose entire fan-out feeds SetNodes are absorbed by net
   // resolution (the net delivers straight from the real producer), so
@@ -1368,275 +2182,442 @@ function importLitegraphGraph(
   // (directly or through a kept downstream reroute) keeps the junction. A
   // reroute with no outgoing wires at all stays: it is a visible endpoint
   // dot the author placed, not net plumbing.
-  const rerouteOut = new Map<number, { toNode: number }[]>()
+  const rerouteOut = new Map<number, { toNode: number }[]>();
   for (const wire of wires.values()) {
-    const src = byId.get(wire.fromNode)
-    if (!src || !REROUTE_TYPES.has(src.type)) continue
-    const outs = rerouteOut.get(src.id) ?? []
-    outs.push({ toNode: wire.toNode })
-    rerouteOut.set(src.id, outs)
+    const src = byId.get(wire.fromNode);
+    if (!src || !REROUTE_TYPES.has(src.type)) continue;
+    const outs = rerouteOut.get(src.id) ?? [];
+    outs.push({ toNode: wire.toNode });
+    rerouteOut.set(src.id, outs);
   }
-  const realFanout = new Map<number, boolean>()
+  const realFanout = new Map<number, boolean>();
   const hasRealFanout = (id: number, visiting: Set<number>): boolean => {
-    const cached = realFanout.get(id)
-    if (cached !== undefined) return cached
-    if (visiting.has(id)) return false
-    visiting.add(id)
-    let real = false
+    const cached = realFanout.get(id);
+    if (cached !== undefined) return cached;
+    if (visiting.has(id)) return false;
+    visiting.add(id);
+    let real = false;
     for (const out of rerouteOut.get(id) ?? []) {
-      const target = byId.get(out.toNode)
-      if (!target) continue
-      if (SET_TYPES.has(target.type) || GET_TYPES.has(target.type) || NOTE_TYPES.has(target.type)) continue
+      const target = byId.get(out.toNode);
+      if (!target) continue;
+      if (
+        SET_TYPES.has(target.type) ||
+        GET_TYPES.has(target.type) ||
+        NOTE_TYPES.has(target.type)
+      )
+        continue;
       if (REROUTE_TYPES.has(target.type)) {
-        if (rerouteFeed.get(target.id)?.kind === 'net') continue // collapsed chain
+        if (rerouteFeed.get(target.id)?.kind === "net") continue; // collapsed chain
         if (hasRealFanout(target.id, visiting)) {
-          real = true
-          break
+          real = true;
+          break;
         }
-        continue
+        continue;
       }
-      real = true
-      break
+      real = true;
+      break;
     }
-    visiting.delete(id)
-    realFanout.set(id, real)
-    return real
-  }
-  const absorbedReroutes = new Set<number>()
+    visiting.delete(id);
+    realFanout.set(id, real);
+    return real;
+  };
+  const absorbedReroutes = new Set<number>();
   for (const n of byId.values()) {
-    if (!REROUTE_TYPES.has(n.type)) continue
-    if (rerouteFeed.get(n.id)?.kind === 'net') continue // already collapsing
-    const outs = rerouteOut.get(n.id) ?? []
-    if (outs.length > 0 && !hasRealFanout(n.id, new Set())) absorbedReroutes.add(n.id)
+    if (!REROUTE_TYPES.has(n.type)) continue;
+    if (rerouteFeed.get(n.id)?.kind === "net") continue; // already collapsing
+    const outs = rerouteOut.get(n.id) ?? [];
+    if (outs.length > 0 && !hasRealFanout(n.id, new Set()))
+      absorbedReroutes.add(n.id);
   }
 
   // -- Nodes ------------------------------------------------------------------
-  const nodes: Record<string, Json> = {}
-  const viewNodes: Record<string, NodeViewState> = {}
-  const importedInputEndpoints = new Map<number, Map<number, JsonObject>>()
-  const importedOutputEndpoints = new Map<number, Map<number, JsonObject>>()
-  const unresolvedInputEndpoints = new Set<string>()
-  let maxOrdinal = 0
+  const nodes: Record<string, Json> = {};
+  const viewNodes: Record<string, NodeViewState> = {};
+  const importedInputEndpoints = new Map<number, Map<number, JsonObject>>();
+  const importedOutputEndpoints = new Map<number, Map<number, JsonObject>>();
+  const unresolvedInputEndpoints = new Set<string>();
+  let maxOrdinal = 0;
 
   const posOf = (n: LgNode): { x: number; y: number } => {
-    if (Array.isArray(n.pos) && typeof n.pos[0] === 'number' && typeof n.pos[1] === 'number') {
-      return { x: n.pos[0], y: n.pos[1] }
+    if (
+      Array.isArray(n.pos) &&
+      typeof n.pos[0] === "number" &&
+      typeof n.pos[1] === "number"
+    ) {
+      return { x: n.pos[0], y: n.pos[1] };
     }
     // Some serializations store pos as {"0": x, "1": y}.
-    const o = n.pos as Readonly<Record<string, number>> | undefined
-    if (o && typeof o['0'] === 'number' && typeof o['1'] === 'number') return { x: o['0'], y: o['1'] }
-    return { x: 0, y: 0 }
-  }
+    const o = n.pos as Readonly<Record<string, number>> | undefined;
+    if (o && typeof o["0"] === "number" && typeof o["1"] === "number")
+      return { x: o["0"], y: o["1"] };
+    return { x: 0, y: 0 };
+  };
 
   for (const n of byId.values()) {
-    maxOrdinal = Math.max(maxOrdinal, n.id)
-    if (REROUTE_TYPES.has(n.type) || SET_TYPES.has(n.type) || GET_TYPES.has(n.type) || droppedUeControllerIds.has(n.id)) continue
-    if (PRIMITIVE_TYPES.has(n.type)) continue // materialized as value sources below
+    maxOrdinal = Math.max(maxOrdinal, n.id);
+    if (
+      REROUTE_TYPES.has(n.type) ||
+      SET_TYPES.has(n.type) ||
+      GET_TYPES.has(n.type) ||
+      droppedUeControllerIds.has(n.id)
+    )
+      continue;
+    if (PRIMITIVE_TYPES.has(n.type)) continue; // materialized as value sources below
     if (NOTE_TYPES.has(n.type)) {
-      const text = Array.isArray(n.widgets_values) ? n.widgets_values[0] : undefined
-      const id = `n${n.id}`
+      const text = Array.isArray(n.widgets_values)
+        ? n.widgets_values[0]
+        : undefined;
+      const id = `n${n.id}`;
       nodes[id] = {
         id,
-        type: n.type === 'MarkdownNote' ? 'dinkster.markdown_note' : 'dinkster.note',
+        type:
+          n.type === "MarkdownNote"
+            ? "dinkster.markdown_note"
+            : "dinkster.note",
         virtual: true,
-        values: { text: typeof text === 'string' ? text : '' },
+        values: { text: typeof text === "string" ? text : "" },
         ...(n.title !== undefined ? { title: n.title } : {}),
-      }
-      const size = n.size
-      const sizeObject = size as Readonly<Record<string, number>> | undefined
-      const width = Array.isArray(size) ? size[0] : sizeObject?.['0']
-      const height = Array.isArray(size) ? size[1] : sizeObject?.['1']
+      };
+      const size = n.size;
+      const sizeObject = size as Readonly<Record<string, number>> | undefined;
+      const width = Array.isArray(size) ? size[0] : sizeObject?.["0"];
+      const height = Array.isArray(size) ? size[1] : sizeObject?.["1"];
       viewNodes[id] = {
         position: posOf(n),
-        ...(typeof width === 'number' && typeof height === 'number' ? { size: { width, height } } : {}),
-        ...(typeof n.color === 'string' || typeof n.bgcolor === 'string' ? { color: n.color ?? n.bgcolor } : {}),
-      }
-      continue
+        ...(typeof width === "number" && typeof height === "number"
+          ? { size: { width, height } }
+          : {}),
+        ...(typeof n.color === "string" || typeof n.bgcolor === "string"
+          ? { color: n.color ?? n.bgcolor }
+          : {}),
+      };
+      continue;
     }
 
-    const id = `n${n.id}`
-    if (n.type === 'CreateList' || n.type === 'GetItemFromList') {
-      const index = Array.isArray(n.widgets_values) ? n.widgets_values[0] : (n.widgets_values as Readonly<Record<string, Json>> | undefined)?.['index']
-      const mode = n.mode === 2 ? 'muted' : n.mode === 4 ? 'bypassed' : undefined
-      nodes[id] = { id, type: n.type, values: n.type === 'GetItemFromList' ? { index: index ?? 0 } : {}, ...(mode ? { mode } : {}) }
-      importedOutputEndpoints.set(n.id, new Map((n.outputs ?? []).map((output, slot) =>
-        [slot, { node: id, port: output.name ?? '*' }])))
-      viewNodes[id] = { position: posOf(n) }
-      continue
-    }
-    const schema = resolveImported(n)
-    const values: Record<string, Json> = {}
-    const controllers: Record<string, ControllerMode> = {}
-    const dynamic: Record<string, DynamicPortState & JsonObject> = {}
-    const ext: Record<string, Json> = {}
-    const additionalInputs: string[] = []
-    const targetedSlots = new Set<number>()
-    for (const wire of wires.values()) if (wire.toNode === n.id) targetedSlots.add(wire.toSlot)
-    for (const entry of ueLinks) if (entry.downstream === n.id) targetedSlots.add(entry.downstreamSlot)
+    const id = `n${n.id}`;
+    const schema = resolveImported(n);
+    const values: Record<string, Json> = {};
+    const controllers: Record<string, ControllerMode> = {};
+    const dynamic: Record<string, DynamicPortState & JsonObject> = {};
+    const ext: Record<string, Json> = {};
+    const additionalInputs: string[] = [];
+    const targetedSlots = new Set<number>();
+    for (const wire of wires.values())
+      if (wire.toNode === n.id) targetedSlots.add(wire.toSlot);
+    for (const entry of ueLinks)
+      if (entry.downstream === n.id) targetedSlots.add(entry.downstreamSlot);
 
     if (schema !== undefined) {
-      const families = activeAutogrowFamilies(schema.items, dynamic)
-      const discovered = discoverAutogrowMembers(n.inputs ?? [], families, targetedSlots)
+      const families = activeAutogrowFamilies(schema.items, dynamic);
+      const discovered = discoverAutogrowMembers(
+        n.inputs ?? [],
+        families,
+        targetedSlots,
+      );
       for (const [familyPath, members] of discovered.order) {
         const minted = members
           .map((member) => /^m(\d{1,15})$/.exec(member)?.[1])
           .filter((suffix): suffix is string => suffix !== undefined)
-          .map(Number)
+          .map(Number);
         dynamic[familyPath] = {
           members,
           ...(minted.length > 0 ? { seq: Math.max(...minted) + 1 } : {}),
-        }
+        };
       }
     }
 
     if (schema === undefined) {
-      diags.push(imp('warning', 'import.schema.missing', `node ${n.id} ('${n.type}'): no such node type is installed; widget values kept raw for review`))
-      if (n.widgets_values !== undefined) ext['importer.rawWidgetValues'] = n.widgets_values as Json
-    } else if (n.type === 'CustomCombo' && schema.additionalInputs !== undefined &&
-      inputsOf(schema).find((input) => input.id === 'choice')?.widget?.editableOptions === true) {
-      const raw = n.widgets_values
-      const keyed = raw as Readonly<Record<string, Json>> | undefined
-      const choice = Array.isArray(raw) ? raw[0] : keyed?.['choice']
-      const index = Array.isArray(raw) ? raw[1] : keyed?.['index']
-      if (choice !== undefined) values['choice'] = choice
+      diags.push(
+        imp(
+          "warning",
+          "import.schema.missing",
+          `node ${n.id} ('${n.type}'): no such node type is installed; widget values kept raw for review`,
+        ),
+      );
+      if (n.widgets_values !== undefined)
+        ext["importer.rawWidgetValues"] = n.widgets_values as Json;
+    } else if (
+      n.type === "CustomCombo" &&
+      schema.additionalInputs !== undefined &&
+      inputsOf(schema).find((input) => input.id === "choice")?.widget
+        ?.editableOptions === true
+    ) {
+      const raw = n.widgets_values;
+      const keyed = raw as Readonly<Record<string, Json>> | undefined;
+      const choice = Array.isArray(raw) ? raw[0] : keyed?.["choice"];
+      const index = Array.isArray(raw) ? raw[1] : keyed?.["index"];
+      if (choice !== undefined) values["choice"] = choice;
       const authored = Array.isArray(raw)
         ? raw.slice(2)
-        : Object.entries(raw ?? {}).filter(([name]) => name.startsWith('option')).map(([, value]) => value)
-      dynamic['choice'] = { options: authored.filter((value) =>
-        typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value)) }
+        : Object.entries(raw ?? {})
+            .filter(([name]) => name.startsWith("option"))
+            .map(([, value]) => value);
+      dynamic["choice"] = {
+        options: authored.filter(
+          (value) =>
+            typeof value === "string" ||
+            typeof value === "boolean" ||
+            (typeof value === "number" && Number.isFinite(value)),
+        ),
+      };
       if (index !== undefined) {
-        if (typeof index === 'number' && Number.isSafeInteger(index)) {
-          values['index'] = typedLiteralWire('INT', index) as Json
-          additionalInputs.push('index')
+        if (typeof index === "number" && Number.isSafeInteger(index)) {
+          values["index"] = typedLiteralWire("INT", index) as Json;
+          additionalInputs.push("index");
         } else {
-          diags.push(imp('error', 'import.combo.index', `node ${n.id} ('${n.type}'): authored index must be an integer`))
+          diags.push(
+            imp(
+              "error",
+              "import.combo.index",
+              `node ${n.id} ('${n.type}'): authored index must be an integer`,
+            ),
+          );
         }
       }
       if (raw !== undefined) {
-        if (Array.isArray(raw)) ext['importer.rawWidgetValues'] = raw
+        if (Array.isArray(raw)) ext["importer.rawWidgetValues"] = raw;
         else {
-          const unknown = Object.fromEntries(Object.entries(raw).filter(([name]) =>
-            name !== 'choice' && name !== 'index' && !name.startsWith('option')))
-          if (Object.keys(unknown).length > 0) ext['importer.unknownWidgetValues'] = unknown
-          ext['importer.rawWidgetValues'] = raw
+          const unknown = Object.fromEntries(
+            Object.entries(raw).filter(
+              ([name]) =>
+                name !== "choice" &&
+                name !== "index" &&
+                !name.startsWith("option"),
+            ),
+          );
+          if (Object.keys(unknown).length > 0)
+            ext["importer.unknownWidgetValues"] = unknown;
+          ext["importer.rawWidgetValues"] = raw;
         }
       }
     } else if (Array.isArray(n.widgets_values)) {
-      let raw = n.widgets_values
-      const sourceVersion = n.properties?.['ver']
-      const hasExactUpgrade = typeof sourceVersion === 'string' && upgrades.get(n.type)?.has(sourceVersion) === true
-      if (n.type === 'SaveVideo' && !hasExactUpgrade && raw.length === 3 &&
-        typeof raw[0] === 'string' && typeof raw[1] === 'string' && typeof raw[2] === 'string') {
-        const positional = schema.items.filter((item): item is InputSpec => item.kind === 'input' &&
-          (item.dynamic !== undefined || item.widget !== undefined && item.forceInput !== true))
-        const [prefix, format, codec, mount] = positional
-        const layoutMatches = prefix?.id === 'filename_prefix' && prefix.type.kind === 'concrete' && prefix.type.name === 'STRING' &&
-          prefix.widget?.widgetType === 'STRING' && prefix.widget.controller === undefined && prefix.dynamic === undefined &&
-          format?.id === 'format' && codec?.id === 'codec' &&
-          (positional.length === 3 || positional.length === 4 && mount?.id === 'mount' && mount.optional &&
-            mount.type.kind === 'concrete' && mount.type.name === 'STRING' && mount.widget !== undefined &&
-            mount.widget.controller === undefined && mount.adjacentTo === 'filename_prefix' && mount.dynamic === undefined)
-        const branch = layoutMatches && format?.dynamic?.kind === 'dynamicCombo' && format.dynamic.materialization === 'wire15'
-          ? format.dynamic.options.find((option) => option.key === raw[1]) : undefined
-        const nestedCodec = branch?.inputs.find((item) => item.id === 'codec')
-        if (codec?.dynamic?.kind === 'dynamicCombo' && codec.dynamic.materialization === 'wire15' &&
+      let raw = n.widgets_values;
+      const sourceVersion = n.properties?.["ver"];
+      const hasExactUpgrade =
+        typeof sourceVersion === "string" &&
+        upgrades.get(n.type)?.has(sourceVersion) === true;
+      if (
+        n.type === "SaveVideo" &&
+        !hasExactUpgrade &&
+        raw.length === 3 &&
+        typeof raw[0] === "string" &&
+        typeof raw[1] === "string" &&
+        typeof raw[2] === "string"
+      ) {
+        const positional = schema.items.filter(
+          (item): item is InputSpec =>
+            item.kind === "input" &&
+            (item.dynamic !== undefined ||
+              (item.widget !== undefined && item.forceInput !== true)),
+        );
+        const [prefix, format, codec, mount] = positional;
+        const layoutMatches =
+          prefix?.id === "filename_prefix" &&
+          prefix.type.kind === "concrete" &&
+          prefix.type.name === "STRING" &&
+          prefix.widget?.widgetType === "STRING" &&
+          prefix.widget.controller === undefined &&
+          prefix.dynamic === undefined &&
+          format?.id === "format" &&
+          codec?.id === "codec" &&
+          (positional.length === 3 ||
+            (positional.length === 4 &&
+              mount?.id === "mount" &&
+              mount.optional &&
+              mount.type.kind === "concrete" &&
+              mount.type.name === "STRING" &&
+              mount.widget !== undefined &&
+              mount.widget.controller === undefined &&
+              mount.adjacentTo === "filename_prefix" &&
+              mount.dynamic === undefined));
+        const branch =
+          layoutMatches &&
+          format?.dynamic?.kind === "dynamicCombo" &&
+          format.dynamic.materialization === "wire15"
+            ? format.dynamic.options.find((option) => option.key === raw[1])
+            : undefined;
+        const nestedCodec = branch?.inputs.find((item) => item.id === "codec");
+        if (
+          codec?.dynamic?.kind === "dynamicCombo" &&
+          codec.dynamic.materialization === "wire15" &&
           codec.dynamic.options.some((option) => option.key === raw[2]) &&
-          nestedCodec?.dynamic?.kind === 'dynamicCombo' && nestedCodec.dynamic.materialization === 'wire15' &&
-          nestedCodec.dynamic.options.some((option) => option.key === raw[2])) {
+          nestedCodec?.dynamic?.kind === "dynamicCombo" &&
+          nestedCodec.dynamic.materialization === "wire15" &&
+          nestedCodec.dynamic.options.some((option) => option.key === raw[2])
+        ) {
           // The served layout, not an unlisted version, establishes the two
           // codec choices. Preserve the authored version in the import record.
-          const encoding = raw[2] === 'auto' ? [] : ['auto']
-          raw = [...raw, ...encoding, raw[2], ...encoding]
-          ext['importer.inferredWidgetLayout'] = { layout: 'SaveVideo:filename_prefix,format,codec', sourceVersion: sourceVersion ?? null }
-          diags.push(imp('info', 'import.widgets.layoutInferred', `node ${n.id} ('SaveVideo'): recognized the three-widget layout; stored version ${sourceVersion === undefined ? 'absent' : JSON.stringify(sourceVersion)}`))
+          const encoding = raw[2] === "auto" ? [] : ["auto"];
+          raw = [...raw, ...encoding, raw[2], ...encoding];
+          ext["importer.inferredWidgetLayout"] = {
+            layout: "SaveVideo:filename_prefix,format,codec",
+            sourceVersion: sourceVersion ?? null,
+          };
+          diags.push(
+            imp(
+              "info",
+              "import.widgets.layoutInferred",
+              `node ${n.id} ('SaveVideo'): recognized the three-widget layout; stored version ${sourceVersion === undefined ? "absent" : JSON.stringify(sourceVersion)}`,
+            ),
+          );
         }
       }
-      const state: PositionalWidgetDecode = { values, controllers, dynamic, index: 0, stopped: false }
-      decodePositionalWidgets(schema.items, raw, state, '', `node ${n.id} ('${n.type}')`, diags)
+      const state: PositionalWidgetDecode = {
+        values,
+        controllers,
+        dynamic,
+        index: 0,
+        stopped: false,
+      };
+      decodePositionalWidgets(
+        schema.items,
+        raw,
+        state,
+        "",
+        `node ${n.id} ('${n.type}')`,
+        diags,
+      );
       if (state.index < raw.length) {
-        diags.push(imp('warning', 'import.widgets.excess', `node ${n.id} ('${n.type}'): ${raw.length - state.index} positional widget value(s) beyond the current schema; kept raw for review`))
-        ext['importer.excessWidgetValues'] = raw.slice(state.index) as Json
+        diags.push(
+          imp(
+            "warning",
+            "import.widgets.excess",
+            `node ${n.id} ('${n.type}'): ${raw.length - state.index} positional widget value(s) beyond the current schema; kept raw for review`,
+          ),
+        );
+        ext["importer.excessWidgetValues"] = raw.slice(state.index) as Json;
       }
     } else if (n.widgets_values !== undefined) {
       // Object form (newer serializations): traverse the current schema so
       // active DynamicCombo branch widgets receive the same normalization as
       // positional values. Park every unrecognized key for review.
-      const known = new Set<string>()
-      const state: PositionalWidgetDecode = { values, controllers, dynamic, index: 0, stopped: false }
-      const keyed = n.widgets_values as Readonly<Record<string, Json>>
+      const known = new Set<string>();
+      const state: PositionalWidgetDecode = {
+        values,
+        controllers,
+        dynamic,
+        index: 0,
+        stopped: false,
+      };
+      const keyed = n.widgets_values as Readonly<Record<string, Json>>;
       decodeKeyedWidgets(
         schema.items,
         keyed,
         state,
-        '',
-        '',
+        "",
+        "",
         `node ${n.id} ('${n.type}')`,
         diags,
         known,
-      )
-      const unknown: Record<string, Json> = {}
+      );
+      const unknown: Record<string, Json> = {};
       for (const [k, v] of Object.entries(keyed)) {
-        if (!known.has(k)) unknown[k] = v as Json
+        if (!known.has(k)) unknown[k] = v as Json;
       }
       if (Object.keys(unknown).length > 0) {
-        diags.push(imp('warning', 'import.widgets.unknownKeys', `node ${n.id} ('${n.type}'): widget values for unknown inputs ${Object.keys(unknown).join(', ')}; kept raw for review`))
-        ext['importer.unknownWidgetValues'] = unknown
+        diags.push(
+          imp(
+            "warning",
+            "import.widgets.unknownKeys",
+            `node ${n.id} ('${n.type}'): widget values for unknown inputs ${Object.keys(unknown).join(", ")}; kept raw for review`,
+          ),
+        );
+        ext["importer.unknownWidgetValues"] = unknown;
       }
     }
 
     if (schema !== undefined) {
-      const families = activeAutogrowFamilies(schema.items, dynamic)
-      const endpoints = new Map<number, JsonObject>()
-      const discovered = discoverAutogrowMembers(n.inputs ?? [], families, targetedSlots)
+      const families = activeAutogrowFamilies(schema.items, dynamic);
+      const endpoints = new Map<number, JsonObject>();
+      const discovered = discoverAutogrowMembers(
+        n.inputs ?? [],
+        families,
+        targetedSlots,
+      );
 
       // LiteGraph inputs are an ordered array. This first-observation walk is
       // the identity policy: sparse/out-of-order foreign ordinals are labels,
       // never sorting keys (image2 before image0 becomes m0 then m1).
       for (const [slotIndex, input] of (n.inputs ?? []).entries()) {
-        if (!targetedSlots.has(slotIndex) || typeof input.name !== 'string') continue
-        const found = discovered.slots.get(slotIndex)
+        if (!targetedSlots.has(slotIndex) || typeof input.name !== "string")
+          continue;
+        const found = discovered.slots.get(slotIndex);
         if (found === undefined) {
           const candidates = families
             .map((family) => matchAutogrowWire(input.name!, family))
-            .filter((candidate): candidate is AutogrowWireMatch => candidate !== undefined)
-          const staticInput = schema.items.some((item) =>
-            item.kind === 'input' && item.dynamic === undefined && item.id === input.name)
-          const familyScoped = families.some((family) => input.name!.startsWith(`${family.wirePath}.`))
-          const scoped = !staticInput && familyScoped
+            .filter(
+              (candidate): candidate is AutogrowWireMatch =>
+                candidate !== undefined,
+            );
+          const staticInput = schema.items.some(
+            (item) =>
+              item.kind === "input" &&
+              item.dynamic === undefined &&
+              item.id === input.name,
+          );
+          const familyScoped = families.some((family) =>
+            input.name!.startsWith(`${family.wirePath}.`),
+          );
+          const scoped = !staticInput && familyScoped;
           if (scoped) {
-            diags.push(imp(
-              'warning',
-              candidates.length === 0 ? 'import.dynamic.autogrowWireUnknown' : 'import.dynamic.autogrowWireAmbiguous',
-              `node ${n.id} ('${n.type}'): linked input '${input.name}' does not identify exactly one declared Autogrow member; endpoint left unresolved`,
-            ))
-            unresolvedInputEndpoints.add(`${n.id}:${slotIndex}`)
+            diags.push(
+              imp(
+                "warning",
+                candidates.length === 0
+                  ? "import.dynamic.autogrowWireUnknown"
+                  : "import.dynamic.autogrowWireAmbiguous",
+                `node ${n.id} ('${n.type}'): linked input '${input.name}' does not identify exactly one declared Autogrow member; endpoint left unresolved`,
+              ),
+            );
+            unresolvedInputEndpoints.add(`${n.id}:${slotIndex}`);
           }
-          continue
+          continue;
         }
 
-        const { match, memberId } = found
-        const grouped = match.family.spec.template.length !== 1 || match.family.spec.template[0]!.dynamic !== undefined
-        endpoints.set(slotIndex, match.family.spec.materialization === 'wire15'
-          ? {
-              node: `n${n.id}`,
-              port: grouped
-                ? joinValuePath(joinValuePath(match.family.statePath, memberId), match.slot.id)
-                : joinValuePath(match.family.statePath, memberId),
-            }
-          : { node: `n${n.id}`, port: joinValuePath(match.family.statePath, match.slot.id), members: [memberId] })
+        const { match, memberId } = found;
+        const grouped =
+          match.family.spec.template.length !== 1 ||
+          match.family.spec.template[0]!.dynamic !== undefined;
+        endpoints.set(
+          slotIndex,
+          match.family.spec.materialization === "wire15"
+            ? {
+                node: `n${n.id}`,
+                port: grouped
+                  ? joinValuePath(
+                      joinValuePath(match.family.statePath, memberId),
+                      match.slot.id,
+                    )
+                  : joinValuePath(match.family.statePath, memberId),
+              }
+            : {
+                node: `n${n.id}`,
+                port: joinValuePath(match.family.statePath, match.slot.id),
+                members: [memberId],
+              },
+        );
       }
 
       for (const [familyPath, observedMembers] of discovered.order) {
-        const family = families.find((candidate) => candidate.statePath === familyPath)!
-        let members = [...observedMembers]
-        if (family.spec.naming.kind === 'names' && family.spec.materialization !== 'wire15') {
+        const family = families.find(
+          (candidate) => candidate.statePath === familyPath,
+        )!;
+        let members = [...observedMembers];
+        if (
+          family.spec.naming.kind === "names" &&
+          family.spec.materialization !== "wire15"
+        ) {
           // Legacy elaboration derives API names from member ordinal. Retain
           // the declaration prefix through the furthest observed name so an
           // out-of-order 'right' link cannot silently lower as 'left'.
-          const furthest = Math.max(...observedMembers.map((member) => family.spec.naming.kind === 'names'
-            ? family.spec.naming.names.indexOf(member)
-            : -1))
-          members = family.spec.naming.names.slice(0, furthest + 1)
+          const furthest = Math.max(
+            ...observedMembers.map((member) =>
+              family.spec.naming.kind === "names"
+                ? family.spec.naming.names.indexOf(member)
+                : -1,
+            ),
+          );
+          members = family.spec.naming.names.slice(0, furthest + 1);
         }
         // Prefix-family members use the same minted m<N> identity namespace
         // as native documents. Persist its high-water mark at import time:
@@ -1645,52 +2626,89 @@ function importLitegraphGraph(
         const mintedSuffixes = members
           .map((member) => /^m(\d{1,15})$/.exec(member)?.[1])
           .filter((suffix): suffix is string => suffix !== undefined)
-          .map(Number)
+          .map(Number);
         dynamic[familyPath] = {
           members,
-          ...(mintedSuffixes.length > 0 ? { seq: Math.max(...mintedSuffixes) + 1 } : {}),
-        }
+          ...(mintedSuffixes.length > 0
+            ? { seq: Math.max(...mintedSuffixes) + 1 }
+            : {}),
+        };
       }
       if (schema.additionalInputs !== undefined) {
-        const declared = elabInputsOf(elaborateInterface(schema, { values, dynamic }))
-        const roots = schema.items.filter((item) => item.kind === 'input').map((item) => item.id)
+        const declared = elabInputsOf(
+          elaborateInterface(schema, { values, dynamic }),
+        );
+        const roots = schema.items
+          .filter((item) => item.kind === "input")
+          .map((item) => item.id);
         const linkedNames = (n.inputs ?? []).flatMap((input, slot) => {
-          const name = input.widget?.name ?? input.name
-          return targetedSlots.has(slot) && typeof name === 'string' &&
+          const name = input.widget?.name ?? input.name;
+          return targetedSlots.has(slot) &&
+            typeof name === "string" &&
             !declared.some((item) => item.apiName === name) &&
             !roots.some((root) => name === root || name.startsWith(`${root}.`))
-            ? [name] : []
-        })
-        additionalInputs.splice(0, additionalInputs.length, ...new Set([...linkedNames, ...additionalInputs]))
+            ? [name]
+            : [];
+        });
+        additionalInputs.splice(
+          0,
+          additionalInputs.length,
+          ...new Set([...linkedNames, ...additionalInputs]),
+        );
       }
-      const elaborated = elabInputsOf(elaborateInterface(schema, { values, dynamic, additionalInputs }))
+      const elaborated = elabInputsOf(
+        elaborateInterface(schema, { values, dynamic, additionalInputs }),
+      );
       for (const [slot, input] of (n.inputs ?? []).entries()) {
-        if (endpoints.has(slot)) continue
-        const matches = elaborated.filter((item) => (item.origin.kind === 'branch' || additionalInputs.includes(item.spec.id)) && item.apiName === (input.widget?.name ?? input.name))
-        if (matches.length === 1) endpoints.set(slot, { node: id, ...matches[0]!.address } as unknown as JsonObject)
+        if (endpoints.has(slot)) continue;
+        const matches = elaborated.filter(
+          (item) =>
+            (item.origin.kind === "branch" ||
+              additionalInputs.includes(item.spec.id)) &&
+            item.apiName === (input.widget?.name ?? input.name),
+        );
+        if (matches.length === 1)
+          endpoints.set(slot, {
+            node: id,
+            ...matches[0]!.address,
+          } as unknown as JsonObject);
       }
-      if (endpoints.size > 0) importedInputEndpoints.set(n.id, endpoints)
+      if (endpoints.size > 0) importedInputEndpoints.set(n.id, endpoints);
     }
 
-    const linkedOutputSlots = new Set<number>()
-    for (const wire of wires.values()) if (wire.fromNode === n.id) linkedOutputSlots.add(wire.fromSlot)
-    for (const entry of ueLinks) if (entry.upstream === n.id) linkedOutputSlots.add(entry.upstreamSlot)
-    const outputEndpoints = new Map<number, JsonObject>()
-    const countFamilies = schema === undefined
-      ? []
-      : outputsOf(schema).filter((output): output is OutputSpec & { readonly dynamic: CountBoundOutputAutogrowSpec } =>
-          output.dynamic?.kind === 'autogrow' && 'count' in output.dynamic)
-    const familyCounts = new Map<string, number>()
-    let familyMembers = 0
-    let validFamilyCounts = true
+    const linkedOutputSlots = new Set<number>();
+    for (const wire of wires.values())
+      if (wire.fromNode === n.id) linkedOutputSlots.add(wire.fromSlot);
+    for (const entry of ueLinks)
+      if (entry.upstream === n.id) linkedOutputSlots.add(entry.upstreamSlot);
+    const outputEndpoints = new Map<number, JsonObject>();
+    const countFamilies =
+      schema === undefined
+        ? []
+        : outputsOf(schema).filter(
+            (
+              output,
+            ): output is OutputSpec & {
+              readonly dynamic: CountBoundOutputAutogrowSpec;
+            } =>
+              output.dynamic?.kind === "autogrow" && "count" in output.dynamic,
+          );
+    const familyCounts = new Map<string, number>();
+    let familyMembers = 0;
+    let validFamilyCounts = true;
     for (const family of countFamilies) {
-      const count = values[family.dynamic.count.input]
-      const min = family.dynamic.naming.min ?? 0
-      const max = family.dynamic.naming.kind === 'prefix'
-        ? family.dynamic.naming.max ?? DEFAULT_ELAB_BUDGET.maxMembers
-        : DEFAULT_ELAB_BUDGET.maxMembers
-      const countIsLinked = [...wires.values()].some((wire) =>
-        wire.toNode === n.id && inputPortForSchema(n, wire.toSlot, schema!) === family.dynamic.count.input)
+      const count = values[family.dynamic.count.input];
+      const min = family.dynamic.naming.min ?? 0;
+      const max =
+        family.dynamic.naming.kind === "prefix"
+          ? (family.dynamic.naming.max ?? DEFAULT_ELAB_BUDGET.maxMembers)
+          : DEFAULT_ELAB_BUDGET.maxMembers;
+      const countIsLinked = [...wires.values()].some(
+        (wire) =>
+          wire.toNode === n.id &&
+          inputPortForSchema(n, wire.toSlot, schema!) ===
+            family.dynamic.count.input,
+      );
       if (
         !Number.isSafeInteger(count) ||
         (count as number) < 0 ||
@@ -1701,79 +2719,117 @@ function importLitegraphGraph(
         family.dynamic.template.length !== 1 ||
         family.dynamic.template[0]!.dynamic !== undefined
       ) {
-        validFamilyCounts = false
-        continue
+        validFamilyCounts = false;
+        continue;
       }
-      familyCounts.set(family.id, count as number)
-      familyMembers += count as number
-      if (familyMembers > DEFAULT_ELAB_BUDGET.maxMembers) validFamilyCounts = false
+      familyCounts.set(family.id, count as number);
+      familyMembers += count as number;
+      if (familyMembers > DEFAULT_ELAB_BUDGET.maxMembers)
+        validFamilyCounts = false;
     }
     for (const slot of linkedOutputSlots) {
-      const foreignOutput = n.outputs?.[slot]
-      const foreignName = foreignOutput?.name
-      if (typeof foreignName !== 'string' || foreignName.length === 0) {
-        diags.push(imp(
-          'error',
-          'import.link.outputSlot',
-          `node ${n.id} ('${n.type}'): linked output slot ${slot} has no serialized non-empty name`,
-        ))
-        continue
+      const foreignOutput = n.outputs?.[slot];
+      const foreignName = foreignOutput?.name;
+      if (typeof foreignName !== "string" || foreignName.length === 0) {
+        diags.push(
+          imp(
+            "error",
+            "import.link.outputSlot",
+            `node ${n.id} ('${n.type}'): linked output slot ${slot} has no serialized non-empty name`,
+          ),
+        );
+        continue;
       }
       if (schema === undefined) {
-        const occurrences = (n.outputs ?? []).filter((output) => output.name === foreignName).length
+        const occurrences = (n.outputs ?? []).filter(
+          (output) => output.name === foreignName,
+        ).length;
         if (occurrences !== 1) {
-          diags.push(imp(
-            'error',
-            'import.link.outputSlot',
-            `node ${n.id} ('${n.type}'): linked output '${foreignName}' is ambiguous without a schema`,
-          ))
-          continue
+          diags.push(
+            imp(
+              "error",
+              "import.link.outputSlot",
+              `node ${n.id} ('${n.type}'): linked output '${foreignName}' is ambiguous without a schema`,
+            ),
+          );
+          continue;
         }
-        outputEndpoints.set(slot, { node: id, port: foreignName })
-        continue
+        outputEndpoints.set(slot, { node: id, port: foreignName });
+        continue;
       }
-      const family = outputsOf(schema).find((output): output is OutputSpec & { readonly dynamic: CountBoundOutputAutogrowSpec } =>
-        output.dynamic?.kind === 'autogrow' &&
-        'count' in output.dynamic &&
-        foreignName.startsWith(`${output.id}.`))
+      const family = outputsOf(schema).find(
+        (
+          output,
+        ): output is OutputSpec & {
+          readonly dynamic: CountBoundOutputAutogrowSpec;
+        } =>
+          output.dynamic?.kind === "autogrow" &&
+          "count" in output.dynamic &&
+          foreignName.startsWith(`${output.id}.`),
+      );
       if (family !== undefined) {
-        const suffix = foreignName.slice(family.id.length + 1)
-        const canonical = /^(0|[1-9][0-9]*)$/.test(suffix) && Number.isSafeInteger(Number(suffix))
-        const count = familyCounts.get(family.id)
+        const suffix = foreignName.slice(family.id.length + 1);
+        const canonical =
+          /^(0|[1-9][0-9]*)$/.test(suffix) &&
+          Number.isSafeInteger(Number(suffix));
+        const count = familyCounts.get(family.id);
         if (
           !canonical ||
           !validFamilyCounts ||
           count === undefined ||
           Number(suffix) >= count
         ) {
-          diags.push(imp(
-            'error',
-            'import.link.outputSlot',
-            `node ${n.id} ('${n.type}'): linked output '${foreignName}' is not a current member of '${family.id}'`,
-          ))
-          continue
+          diags.push(
+            imp(
+              "error",
+              "import.link.outputSlot",
+              `node ${n.id} ('${n.type}'): linked output '${foreignName}' is not a current member of '${family.id}'`,
+            ),
+          );
+          continue;
         }
-        outputEndpoints.set(slot, { node: id, port: family.id, members: [suffix] })
-        continue
+        outputEndpoints.set(slot, {
+          node: id,
+          port: family.id,
+          members: [suffix],
+        });
+        continue;
       }
-      const staticPort = staticOutputPortForSchema(n, slot, schema, true)
+      const staticPort = staticOutputPortForSchema(n, slot, schema, true);
       if (staticPort === undefined) {
-        diags.push(imp(
-          'error',
-          'import.link.outputSlot',
-          `node ${n.id} ('${n.type}'): linked output slot ${slot} ('${foreignName}') does not identify a declared output`,
-        ))
-        continue
+        diags.push(
+          imp(
+            "error",
+            "import.link.outputSlot",
+            `node ${n.id} ('${n.type}'): linked output slot ${slot} ('${foreignName}') does not identify a declared output`,
+          ),
+        );
+        continue;
       }
-      outputEndpoints.set(slot, { node: id, port: staticPort })
+      outputEndpoints.set(slot, { node: id, port: staticPort });
     }
-    if (outputEndpoints.size > 0) importedOutputEndpoints.set(n.id, outputEndpoints)
+    if (outputEndpoints.size > 0)
+      importedOutputEndpoints.set(n.id, outputEndpoints);
 
-    const mode = n.mode === 2 ? 'muted' : n.mode === 4 ? 'bypassed' : undefined
-    if (n.mode !== undefined && n.mode !== 0 && n.mode !== 1 && mode === undefined) {
-      diags.push(imp('warning', 'import.node.mode', `node ${n.id} ('${n.type}'): unknown litegraph mode ${n.mode}; imported as active`))
+    const mode = n.mode === 2 ? "muted" : n.mode === 4 ? "bypassed" : undefined;
+    if (
+      n.mode !== undefined &&
+      n.mode !== 0 &&
+      n.mode !== 1 &&
+      mode === undefined
+    ) {
+      diags.push(
+        imp(
+          "warning",
+          "import.node.mode",
+          `node ${n.id} ('${n.type}'): unknown litegraph mode ${n.mode}; imported as active`,
+        ),
+      );
     }
-    const title = typeof n.title === 'string' && n.title !== (schema?.displayName ?? n.type) ? n.title : undefined
+    const title =
+      typeof n.title === "string" && n.title !== (schema?.displayName ?? n.type)
+        ? n.title
+        : undefined;
 
     nodes[id] = {
       id,
@@ -1785,74 +2841,112 @@ function importLitegraphGraph(
       ...(mode ? { mode } : {}),
       ...(title !== undefined ? { title } : {}),
       ...(Object.keys(ext).length > 0 ? { ext } : {}),
-    }
+    };
     viewNodes[id] = {
       position: posOf(n),
       ...(n.flags?.collapsed === true ? { collapsed: true } : {}),
-    }
+    };
   }
 
   // -- Reroutes -----------------------------------------------------------------
   // Kept reroutes become first-class junctions (r{lgId}); positions land in
   // view state. Net-fed chains collapse into direct net sinks below.
-  const reroutes: Record<string, Json> = {}
-  const viewReroutes: Record<string, Json> = {}
-  let netFedReroutes = 0
+  const reroutes: Record<string, Json> = {};
+  const viewReroutes: Record<string, Json> = {};
+  let netFedReroutes = 0;
   for (const n of byId.values()) {
-    if (!REROUTE_TYPES.has(n.type)) continue
-    if (rerouteFeed.get(n.id)?.kind === 'net') {
-      netFedReroutes++
-      continue
+    if (!REROUTE_TYPES.has(n.type)) continue;
+    if (rerouteFeed.get(n.id)?.kind === "net") {
+      netFedReroutes++;
+      continue;
     }
-    if (absorbedReroutes.has(n.id)) continue
-    const id = `r${n.id}`
-    reroutes[id] = { id }
-    viewReroutes[id] = { position: posOf(n) }
+    if (absorbedReroutes.has(n.id)) continue;
+    const id = `r${n.id}`;
+    reroutes[id] = { id };
+    viewReroutes[id] = { position: posOf(n) };
   }
   if (Object.keys(reroutes).length > 0) {
-    diags.push(imp('info', 'import.reroute.converted', `${Object.keys(reroutes).length} Reroute node(s) imported as first-class reroutes`))
+    diags.push(
+      imp(
+        "info",
+        "import.reroute.converted",
+        `${Object.keys(reroutes).length} Reroute node(s) imported as first-class reroutes`,
+      ),
+    );
   }
   if (netFedReroutes > 0) {
-    diags.push(imp('warning', 'import.reroute.netFed', `${netFedReroutes} Reroute node(s) fed by GetNodes collapsed into direct net connections (nets deliver straight to inputs)`))
+    diags.push(
+      imp(
+        "warning",
+        "import.reroute.netFed",
+        `${netFedReroutes} Reroute node(s) fed by GetNodes collapsed into direct net connections (nets deliver straight to inputs)`,
+      ),
+    );
   }
   if (absorbedReroutes.size > 0) {
-    diags.push(imp('warning', 'import.reroute.absorbed', `${absorbedReroutes.size} Reroute node(s) feeding only SetNodes absorbed into their nets (nets deliver straight from the producing output)`))
+    diags.push(
+      imp(
+        "warning",
+        "import.reroute.absorbed",
+        `${absorbedReroutes.size} Reroute node(s) feeding only SetNodes absorbed into their nets (nets deliver straight from the producing output)`,
+      ),
+    );
   }
 
   // -- Value sources (legacy frontend PrimitiveNode) ------------------------------
   // widgets_values = [value, controllerMode?] once a widget was adopted. The
   // declared spec stays empty: the effective spec derives from consumers,
   // which is exactly the legacy adoption semantics - minus the mutation.
-  const valueSources: Record<string, Json> = {}
-  const viewValueSources: Record<string, Json> = {}
-  const wiredSources = new Set<number>()
-  for (const w of wires.values()) wiredSources.add(w.fromNode)
-  let droppedPrimitives = 0
+  const valueSources: Record<string, Json> = {};
+  const viewValueSources: Record<string, Json> = {};
+  const wiredSources = new Set<number>();
+  for (const w of wires.values()) wiredSources.add(w.fromNode);
+  let droppedPrimitives = 0;
   for (const n of byId.values()) {
-    if (!PRIMITIVE_TYPES.has(n.type)) continue
-    const raw = Array.isArray(n.widgets_values) ? n.widgets_values : []
+    if (!PRIMITIVE_TYPES.has(n.type)) continue;
+    const raw = Array.isArray(n.widgets_values) ? n.widgets_values : [];
     if (raw.length === 0 && !wiredSources.has(n.id)) {
       // Never adopted a widget and drives nothing: there is no value to keep.
-      droppedPrimitives++
-      continue
+      droppedPrimitives++;
+      continue;
     }
-    const id = `v${n.id}`
-    const mode = raw[1]
-    const controller = typeof mode === 'string' && CONTROLLER_MODES.has(mode) ? (mode as ControllerMode) : undefined
-    const title = typeof n.title === 'string' && n.title !== n.type && n.title !== 'Primitive' ? n.title : undefined
+    const id = `v${n.id}`;
+    const mode = raw[1];
+    const controller =
+      typeof mode === "string" && CONTROLLER_MODES.has(mode)
+        ? (mode as ControllerMode)
+        : undefined;
+    const title =
+      typeof n.title === "string" &&
+      n.title !== n.type &&
+      n.title !== "Primitive"
+        ? n.title
+        : undefined;
     valueSources[id] = {
       id,
       value: (raw.length > 0 ? raw[0] : null) as Json,
       ...(controller ? { controller } : {}),
       ...(title !== undefined ? { title } : {}),
-    }
-    viewValueSources[id] = { position: posOf(n) }
+    };
+    viewValueSources[id] = { position: posOf(n) };
   }
   if (Object.keys(valueSources).length > 0) {
-    diags.push(imp('info', 'import.primitive.converted', `${Object.keys(valueSources).length} PrimitiveNode(s) imported as value sources`))
+    diags.push(
+      imp(
+        "info",
+        "import.primitive.converted",
+        `${Object.keys(valueSources).length} PrimitiveNode(s) imported as value sources`,
+      ),
+    );
   }
   if (droppedPrimitives > 0) {
-    diags.push(imp('warning', 'import.primitive.dropped', `${droppedPrimitives} never-connected PrimitiveNode(s) had no value to keep; dropped`))
+    diags.push(
+      imp(
+        "warning",
+        "import.primitive.dropped",
+        `${droppedPrimitives} never-connected PrimitiveNode(s) had no value to keep; dropped`,
+      ),
+    );
   }
 
   // -- Links --------------------------------------------------------------------
@@ -1860,192 +2954,299 @@ function importLitegraphGraph(
   // arrays. Schemas interpret those entries by name; they never invent source
   // outputs from a declaration whose runtime arity may differ.
   const inPortId = (node: LgNode, slot: number): string | undefined => {
-    const schema = resolveImported(node)
-    const foreignInput = node.inputs?.[slot]
-    if (foreignInput === undefined) return undefined
-    return schema === undefined ? foreignInput.name : inputPortForSchema(node, slot, schema)
-  }
+    const schema = resolveImported(node);
+    const foreignInput = node.inputs?.[slot];
+    if (foreignInput === undefined) return undefined;
+    return schema === undefined
+      ? foreignInput.name
+      : inputPortForSchema(node, slot, schema);
+  };
 
   // Net feeds are handled by callers before link emission ever gets here.
-  const fromEndpoint = (feed: Exclude<Feed, { kind: 'net' }>): JsonObject | undefined =>
-    feed.kind === 'reroute'
+  const fromEndpoint = (
+    feed: Exclude<Feed, { kind: "net" }>,
+  ): JsonObject | undefined =>
+    feed.kind === "reroute"
       ? { reroute: `r${feed.id}` }
-      : feed.kind === 'valueSource'
+      : feed.kind === "valueSource"
         ? { valueSource: `v${feed.id}` }
-        : importedOutputEndpoints.get(feed.node)?.get(feed.slot)
+        : importedOutputEndpoints.get(feed.node)?.get(feed.slot);
 
-  const links: Record<string, Json> = {}
-  const netSinks = new Map<string, JsonObject[]>()
+  const links: Record<string, Json> = {};
+  const netSinks = new Map<string, JsonObject[]>();
   for (const [lgId, wire] of wires) {
-    maxOrdinal = Math.max(maxOrdinal, lgId)
-    if (droppedCycleLinks.has(lgId)) continue // diagnosed during classification
-    const toNode = byId.get(wire.toNode)
-    const fromNode = byId.get(wire.fromNode)
+    maxOrdinal = Math.max(maxOrdinal, lgId);
+    if (droppedCycleLinks.has(lgId)) continue; // diagnosed during classification
+    const toNode = byId.get(wire.toNode);
+    const fromNode = byId.get(wire.fromNode);
     if (!toNode || !fromNode) {
-      diags.push(imp('warning', 'import.link.dangling', `link ${lgId} references a missing node; dropped`))
-      continue
+      diags.push(
+        imp(
+          "warning",
+          "import.link.dangling",
+          `link ${lgId} references a missing node; dropped`,
+        ),
+      );
+      continue;
     }
     // Links INTO sets/gets are absorbed by net resolution; notes never carry
     // data; primitives never consume (their legacy node has no inputs).
     // Links into KEPT reroutes are emitted as the reroute's driver.
-    if (SET_TYPES.has(toNode.type) || GET_TYPES.has(toNode.type) || NOTE_TYPES.has(toNode.type) || PRIMITIVE_TYPES.has(toNode.type)) continue
-    if (NOTE_TYPES.has(fromNode.type)) continue
+    if (
+      SET_TYPES.has(toNode.type) ||
+      GET_TYPES.has(toNode.type) ||
+      NOTE_TYPES.has(toNode.type) ||
+      PRIMITIVE_TYPES.has(toNode.type)
+    )
+      continue;
+    if (NOTE_TYPES.has(fromNode.type)) continue;
 
     if (REROUTE_TYPES.has(toNode.type)) {
-      if (rerouteFeed.get(toNode.id)?.kind === 'net') continue // collapsed chain
-      if (absorbedReroutes.has(toNode.id)) continue // absorbed into a net
-      const feed = resolveFeed(lgId, new Set())
-      if (feed === undefined || feed.kind === 'net') continue // dangling / absorbed
-      const from = fromEndpoint(feed)
-      if (from === undefined) continue
-      const id = `l${lgId}`
-      links[id] = { id, from, to: { reroute: `r${toNode.id}` } }
-      continue
+      if (rerouteFeed.get(toNode.id)?.kind === "net") continue; // collapsed chain
+      if (absorbedReroutes.has(toNode.id)) continue; // absorbed into a net
+      const feed = resolveFeed(lgId, new Set());
+      if (feed === undefined || feed.kind === "net") continue; // dangling / absorbed
+      const from = fromEndpoint(feed);
+      if (from === undefined) continue;
+      const id = `l${lgId}`;
+      links[id] = { id, from, to: { reroute: `r${toNode.id}` } };
+      continue;
     }
 
-    const feed = resolveFeed(lgId, new Set())
-    const toPort = inPortId(toNode, wire.toSlot)
+    const feed = resolveFeed(lgId, new Set());
+    const toPort = inPortId(toNode, wire.toSlot);
     if (toPort === undefined) {
-      if (feed?.kind === 'net' || SET_TYPES.has(fromNode.type)) {
-        diags.push(imp('error', 'import.net.endpointUnavailable', `translated Set/Get link ${lgId} targets missing input slot ${wire.toNode}:${wire.toSlot}`))
+      if (feed?.kind === "net" || SET_TYPES.has(fromNode.type)) {
+        diags.push(
+          imp(
+            "error",
+            "import.net.endpointUnavailable",
+            `translated Set/Get link ${lgId} targets missing input slot ${wire.toNode}:${wire.toSlot}`,
+          ),
+        );
       } else {
-        diags.push(imp('warning', 'import.link.slot', `link ${lgId}: node ${wire.toNode} has no input slot ${wire.toSlot}; dropped`))
+        diags.push(
+          imp(
+            "warning",
+            "import.link.slot",
+            `link ${lgId}: node ${wire.toNode} has no input slot ${wire.toSlot}; dropped`,
+          ),
+        );
       }
-      continue
+      continue;
     }
-    if (unresolvedInputEndpoints.has(`${wire.toNode}:${wire.toSlot}`)) continue
-    const toEndpoint = importedInputEndpoints.get(wire.toNode)?.get(wire.toSlot) ?? { node: `n${wire.toNode}`, port: toPort }
+    if (unresolvedInputEndpoints.has(`${wire.toNode}:${wire.toSlot}`)) continue;
+    const toEndpoint = importedInputEndpoints
+      .get(wire.toNode)
+      ?.get(wire.toSlot) ?? { node: `n${wire.toNode}`, port: toPort };
 
-    if (feed === undefined) continue // dangling sugar chain: nothing to connect
+    if (feed === undefined) continue; // dangling sugar chain: nothing to connect
 
-    if (feed.kind === 'net') {
+    if (feed.kind === "net") {
       // Primitive-sourced nets collapse into direct value-source links
       // (nets are port-only; the delivered value is identical).
-      const prim = netPrimitiveSources.get(feed.name)
+      const prim = netPrimitiveSources.get(feed.name);
       if (prim !== undefined) {
-        const id = `l${lgId}`
-        links[id] = { id, from: { valueSource: `v${prim}` }, to: toEndpoint }
-        continue
+        const id = `l${lgId}`;
+        links[id] = { id, from: { valueSource: `v${prim}` }, to: toEndpoint };
+        continue;
       }
       // A sink of the named net (if its Set half resolved).
       if (!setSources.has(feed.name)) {
-        continue
+        continue;
       }
-      const sinks = netSinks.get(feed.name) ?? []
-      sinks.push(toEndpoint)
-      netSinks.set(feed.name, sinks)
-      continue
+      const sinks = netSinks.get(feed.name) ?? [];
+      sinks.push(toEndpoint);
+      netSinks.set(feed.name, sinks);
+      continue;
     }
 
-    const from = fromEndpoint(feed)
-    if (from === undefined) continue
-    const id = `l${lgId}`
-    links[id] = { id, from, to: toEndpoint }
+    const from = fromEndpoint(feed);
+    if (from === undefined) continue;
+    const id = `l${lgId}`;
+    links[id] = { id, from, to: toEndpoint };
   }
 
   // -- Materialize nets ---------------------------------------------------------
-  const nets: Record<string, Json> = {}
-  let netCount = 0
+  const nets: Record<string, Json> = {};
+  let netCount = 0;
   for (const name of setInputs.keys()) {
     if (!setSources.has(name) && !netPrimitiveSources.has(name)) {
-      diags.push(imp('error', 'import.net.unresolved', `net '${name}' has no resolvable source`))
+      diags.push(
+        imp(
+          "error",
+          "import.net.unresolved",
+          `net '${name}' has no resolvable source`,
+        ),
+      );
     }
   }
   if (netPrimitiveSources.size > 0) {
-    diags.push(imp('info', 'import.net.primitiveSource', `${netPrimitiveSources.size} PrimitiveNode-fed Set/Get net(s) collapsed into direct value-source connections (nets are port-only)`))
+    diags.push(
+      imp(
+        "info",
+        "import.net.primitiveSource",
+        `${netPrimitiveSources.size} PrimitiveNode-fed Set/Get net(s) collapsed into direct value-source connections (nets are port-only)`,
+      ),
+    );
   }
   for (const [name, src] of setSources) {
-    const source = importedOutputEndpoints.get(src.node)?.get(src.slot)
+    const source = importedOutputEndpoints.get(src.node)?.get(src.slot);
     if (source === undefined) {
-      diags.push(imp('error', 'import.net.endpointUnavailable', `Set/Get net '${name}' resolves to missing output slot ${src.node}:${src.slot}`))
-      continue
+      diags.push(
+        imp(
+          "error",
+          "import.net.endpointUnavailable",
+          `Set/Get net '${name}' resolves to missing output slot ${src.node}:${src.slot}`,
+        ),
+      );
+      continue;
     }
-    maxOrdinal += 1
-    const id = `net${maxOrdinal}`
+    maxOrdinal += 1;
+    const id = `net${maxOrdinal}`;
     nets[id] = {
       id,
       name,
       source,
       sinks: netSinks.get(name) ?? [],
-    }
-    netCount++
+    };
+    netCount++;
   }
-  if (netCount > 0) diags.push(imp('info', 'import.net.converted', `${netCount} Set/Get pair(s) converted to named nets`))
+  if (netCount > 0)
+    diags.push(
+      imp(
+        "info",
+        "import.net.converted",
+        `${netCount} Set/Get pair(s) converted to named nets`,
+      ),
+    );
 
-  const usedNetNames = new Set(Object.values(nets).map((net) => (net as JsonObject)['name']).filter((name): name is string => typeof name === 'string'))
-  const ueGroups = new Map<string, { source: JsonObject; sinks: JsonObject[] }>()
+  const usedNetNames = new Set(
+    Object.values(nets)
+      .map((net) => (net as JsonObject)["name"])
+      .filter((name): name is string => typeof name === "string"),
+  );
+  const ueGroups = new Map<
+    string,
+    { source: JsonObject; sinks: JsonObject[] }
+  >();
   for (const entry of ueTargets.values()) {
-    const source = importedOutputEndpoints.get(entry.upstream)?.get(entry.upstreamSlot)
-    const targetNode = byId.get(entry.downstream)
+    const source = importedOutputEndpoints
+      .get(entry.upstream)
+      ?.get(entry.upstreamSlot);
+    const targetNode = byId.get(entry.downstream);
     if (targetNode === undefined) {
-      diags.push(imp('error', 'import.ue.endpointUnavailable', `extra.ue_links endpoint ${entry.upstream}:${entry.upstreamSlot} -> ${entry.downstream}:${entry.downstreamSlot} is unavailable`))
-      continue
+      diags.push(
+        imp(
+          "error",
+          "import.ue.endpointUnavailable",
+          `extra.ue_links endpoint ${entry.upstream}:${entry.upstreamSlot} -> ${entry.downstream}:${entry.downstreamSlot} is unavailable`,
+        ),
+      );
+      continue;
     }
-    const targetPort = inPortId(targetNode, entry.downstreamSlot)
-    const sink = importedInputEndpoints.get(entry.downstream)?.get(entry.downstreamSlot) ??
-      (targetPort === undefined ? undefined : { node: `n${entry.downstream}`, port: targetPort })
+    const targetPort = inPortId(targetNode, entry.downstreamSlot);
+    const sink =
+      importedInputEndpoints.get(entry.downstream)?.get(entry.downstreamSlot) ??
+      (targetPort === undefined
+        ? undefined
+        : { node: `n${entry.downstream}`, port: targetPort });
     if (source === undefined || sink === undefined) {
-      diags.push(imp('error', 'import.ue.endpointUnavailable', `extra.ue_links endpoint ${entry.upstream}:${entry.upstreamSlot} -> ${entry.downstream}:${entry.downstreamSlot} is unavailable`))
-      continue
+      diags.push(
+        imp(
+          "error",
+          "import.ue.endpointUnavailable",
+          `extra.ue_links endpoint ${entry.upstream}:${entry.upstreamSlot} -> ${entry.downstream}:${entry.downstreamSlot} is unavailable`,
+        ),
+      );
+      continue;
     }
-    const key = canonicalJson(source)
-    const group = ueGroups.get(key) ?? { source, sinks: [] }
-    group.sinks.push(sink)
-    ueGroups.set(key, group)
+    const key = canonicalJson(source);
+    const group = ueGroups.get(key) ?? { source, sinks: [] };
+    group.sinks.push(sink);
+    ueGroups.set(key, group);
   }
-  let ueIndex = 0
+  let ueIndex = 0;
   for (const group of ueGroups.values()) {
-    let name = `use_everywhere_${ueIndex++}`
-    while (usedNetNames.has(name)) name = `use_everywhere_${ueIndex++}`
-    usedNetNames.add(name)
-    maxOrdinal += 1
-    const id = `net${maxOrdinal}`
-    nets[id] = { id, name, source: group.source, sinks: group.sinks }
+    let name = `use_everywhere_${ueIndex++}`;
+    while (usedNetNames.has(name)) name = `use_everywhere_${ueIndex++}`;
+    usedNetNames.add(name);
+    maxOrdinal += 1;
+    const id = `net${maxOrdinal}`;
+    nets[id] = { id, name, source: group.source, sinks: group.sinks };
   }
-  if (ueGroups.size > 0) diags.push(imp('info', 'import.ue.converted', `${ueLinks.length} Use Everywhere connection(s) converted to ${ueGroups.size} named net(s)`))
+  if (ueGroups.size > 0)
+    diags.push(
+      imp(
+        "info",
+        "import.ue.converted",
+        `${ueLinks.length} Use Everywhere connection(s) converted to ${ueGroups.size} named net(s)`,
+      ),
+    );
 
   // -- Groups -------------------------------------------------------------------
-  const groups: Record<string, GroupViewState> = {}
-  if (Array.isArray(json['groups'])) {
-    for (const [i, g] of (json['groups'] as readonly JsonObject[]).entries()) {
-      const b = g['bounding']
-      if (!Array.isArray(b) || b.length < 4 || b.some((v) => typeof v !== 'number' || !Number.isFinite(v))) {
-        diags.push(imp('warning', 'import.group.malformed', `group ${i} has no numeric bounding box; dropped`))
-        continue
+  const groups: Record<string, GroupViewState> = {};
+  if (Array.isArray(json["groups"])) {
+    for (const [i, g] of (json["groups"] as readonly JsonObject[]).entries()) {
+      const b = g["bounding"];
+      if (
+        !Array.isArray(b) ||
+        b.length < 4 ||
+        b.some((v) => typeof v !== "number" || !Number.isFinite(v))
+      ) {
+        diags.push(
+          imp(
+            "warning",
+            "import.group.malformed",
+            `group ${i} has no numeric bounding box; dropped`,
+          ),
+        );
+        continue;
       }
-      const id = `grp${i}`
+      const id = `grp${i}`;
       groups[id] = {
         id,
-        title: typeof g['title'] === 'string' ? g['title'] : '',
-        bounds: { x: b[0] as number, y: b[1] as number, width: b[2] as number, height: b[3] as number },
-        ...(typeof g['color'] === 'string' ? { color: g['color'] } : {}),
-      }
+        title: typeof g["title"] === "string" ? g["title"] : "",
+        bounds: {
+          x: b[0] as number,
+          y: b[1] as number,
+          width: b[2] as number,
+          height: b[3] as number,
+        },
+        ...(typeof g["color"] === "string" ? { color: g["color"] } : {}),
+      };
     }
   }
   // Native (non-node) litegraph reroutes live in extra.reroutes as pure
   // geometry waypoints; the links themselves are still direct node-to-node,
   // so dropping them loses layout only, never topology.
-  if (extra !== null && typeof extra === 'object' && !Array.isArray(extra)) {
-    const nativeReroutes = (extra as JsonObject)['reroutes']
+  if (extra !== null && typeof extra === "object" && !Array.isArray(extra)) {
+    const nativeReroutes = (extra as JsonObject)["reroutes"];
     if (Array.isArray(nativeReroutes) && nativeReroutes.length > 0) {
-      diags.push(imp('warning', 'import.reroute.nativeDropped', `${nativeReroutes.length} native reroute waypoint(s) (extra.reroutes) not translated yet; connections stay intact, only the waypoint geometry is lost`))
+      diags.push(
+        imp(
+          "warning",
+          "import.reroute.nativeDropped",
+          `${nativeReroutes.length} native reroute waypoint(s) (extra.reroutes) not translated yet; connections stay intact, only the waypoint geometry is lost`,
+        ),
+      );
     }
   }
 
   // Deterministic lineage: same legacy JSON -> same lineage, so re-importing
   // the same file lands on the same tab/execution lineage.
-  const lineageHash = fnv1a(JSON.stringify(json))
+  const lineageHash = fnv1a(JSON.stringify(json));
 
   const document = {
-    format: 'dinkster-workflow',
+    format: "dinkster-workflow",
     formatVersion: FORMAT_VERSION,
     lineage: `lg-${lineageHash}`,
-    root: 'g0',
+    root: "g0",
     graphs: {
       ...definitions,
       g0: {
-        id: 'g0',
-        name: 'imported',
+        id: "g0",
+        name: "imported",
         nodes,
         links,
         nets,
@@ -2058,38 +3259,55 @@ function importLitegraphGraph(
       graphs: {
         g0: {
           nodes: viewNodes,
-          ...(Object.keys(viewReroutes).length > 0 ? { reroutes: viewReroutes } : {}),
-          ...(Object.keys(viewValueSources).length > 0 ? { valueSources: viewValueSources } : {}),
+          ...(Object.keys(viewReroutes).length > 0
+            ? { reroutes: viewReroutes }
+            : {}),
+          ...(Object.keys(viewValueSources).length > 0
+            ? { valueSources: viewValueSources }
+            : {}),
           ...(Object.keys(groups).length > 0 ? { groups } : {}),
         },
       },
     },
-  } as unknown as JsonObject
+  } as unknown as JsonObject;
 
-  const listHelperOwners = convertLitegraphLists(document, rawNodes, resolve, rawLinks, diags)
-  convertLitegraphLoops(document, rawNodes, rawLinks, resolve, diags, listHelperOwners)
-  convertLitegraphListConsumers(document, resolve)
+  convertLitegraphLoops(document, rawNodes, rawLinks, resolve, diags);
+  convertLitegraphListConsumers(document, resolve);
 
   // Error-level import diagnostics (e.g. untranslatable subgraph definitions)
   // block the import outright: a partially-translated workflow is corruption.
-  if (diags.some((d) => d.severity === 'error')) return { diagnostics: diags }
+  if (diags.some((d) => d.severity === "error")) return { diagnostics: diags };
 
   // Same gate as loadDocument: the importer's output gets no special trust.
-  const shapeDiags = validateDocumentShape(document)
-  const all = [...diags, ...shapeDiags]
-  if (shapeDiags.some((d) => d.severity === 'error')) return { diagnostics: all }
-  const doc = document as unknown as WorkflowDocument
-  const invariantDiags = checkDocument(doc)
-  all.push(...invariantDiags)
-  if (invariantDiags.some((d) => d.severity === 'error')) return { diagnostics: all }
+  const shapeDiags = validateDocumentShape(document);
+  const all = [...diags, ...shapeDiags];
+  if (shapeDiags.some((d) => d.severity === "error"))
+    return { diagnostics: all };
+  const doc = document as unknown as WorkflowDocument;
+  const invariantDiags = checkDocument(doc);
+  all.push(...invariantDiags);
+  if (invariantDiags.some((d) => d.severity === "error"))
+    return { diagnostics: all };
   // Same ownership contract as loadDocument (CO1): the result is a deep-
   // frozen owned copy, so consumers (stores, blueprint caches) can share it
   // without freezing caller state or carrying mutable importer scratch.
-  const ownedDoc = ownJson(document)
+  const ownedDoc = ownJson(document);
   if (!ownedDoc.ok) {
     // Unreachable after ingress ownership + shape validation; keep it a
     // diagnostic, never a throw.
-    return { diagnostics: [...all, imp('error', 'import.notJson', `translated document rejected: ${ownedDoc.reason}`)] }
+    return {
+      diagnostics: [
+        ...all,
+        imp(
+          "error",
+          "import.notJson",
+          `translated document rejected: ${ownedDoc.reason}`,
+        ),
+      ],
+    };
   }
-  return { document: ownedDoc.value as unknown as WorkflowDocument, diagnostics: all }
+  return {
+    document: ownedDoc.value as unknown as WorkflowDocument,
+    diagnostics: all,
+  };
 }

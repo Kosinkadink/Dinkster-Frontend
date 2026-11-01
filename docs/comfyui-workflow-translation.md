@@ -316,10 +316,10 @@ regions. Simple, For, and List iteration preserve binding order, carried state,
 first and last flags, accumulated scalar or output-list results, final-only
 results, termination targets, nesting, and iteration cache policy. A loop with
 no carried state remains a fold because ComfyUI executes iterations in order.
-Heterogeneous `CreateList` values lower to positional tuples. Accumulating a
-tuple gathers one whole tuple per iteration, yielding a list of tuples; only
-execution-list outputs flatten. Tuple families declare exactly one input per
-member, matching the backend schema contract.
+`CreateList` and `GetItemFromList` retain their native identities, including
+heterogeneous `list<*>` values. EndLoop execution-list outputs retain their
+explicit flatten helper. Authored positional tuple nodes remain ordinary
+scalar values rather than execution lists.
 Compatible lazy switches lower to Dinkster's native selector inside the region,
 so each iteration executes only its selected branch.
 
@@ -350,8 +350,8 @@ cache cases.
 
 ### Conversion limits
 
-| Source behavior | Imported behavior |
-| --- | --- |
+| Source behavior                                                                                                                                                                                             | Imported behavior                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | A nested cache-enabled loop runs a non-idempotent outer probe with `outer_probe_calls=[1,2,2]` over two runs because `StartLoop` contributes a NaN fingerprint to one expanded occurrence's cache ancestry. | Dinkster keeps occurrence reuse and produces `outer_probe_calls=[1,2]`. The ComfyUI rerun is a cache-key artifact that contradicts its single-loop cache contract. Idempotent nodes retain identical outputs; non-idempotent nodes expose the execution-count difference. The importer does not suppress observations, gate conversion, or refuse this case. |
 
 ![Completed imported map region](assets/generic-loop-import/map-gather-completed.png)

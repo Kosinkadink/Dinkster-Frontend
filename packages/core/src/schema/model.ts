@@ -11,9 +11,9 @@
  * symmetrically, including dynamic families.
  */
 
-import type { ReplacementRule } from '../replace/model.js'
+import type { ReplacementRule } from "../replace/model.js";
 
-export type SchemaSource = 'v3' | 'v1' | 'subgraph'
+export type SchemaSource = "v3" | "v1" | "subgraph";
 
 // ---------------------------------------------------------------------------
 // Type expressions
@@ -45,19 +45,28 @@ export type SchemaSource = 'v3' | 'v1' | 'subgraph'
  *   Stream transport and chunk execution remain backend-owned.
  */
 export type TypeExpr =
-  | { readonly kind: 'concrete'; readonly name: string }
-  | { readonly kind: 'union'; readonly names: readonly string[] }
-  | { readonly kind: 'wildcard' }
-  | { readonly kind: 'variable'; readonly templateId: string; readonly allowedTypes?: readonly TypeExpr[] }
-  | { readonly kind: 'list'; readonly element: TypeExpr }
-  | { readonly kind: 'asset'; readonly element: TypeExpr }
-  | { readonly kind: 'stream'; readonly element: TypeExpr }
-  | { readonly kind: 'tuple'; readonly elements: readonly TypeExpr[] }
-  | { readonly kind: 'family_tuple'; readonly input: string }
-  | { readonly kind: 'tuple_element'; readonly input?: string; readonly element?: TypeExpr; readonly index: string | number }
+  | { readonly kind: "concrete"; readonly name: string }
+  | { readonly kind: "union"; readonly names: readonly string[] }
+  | { readonly kind: "wildcard" }
+  | {
+      readonly kind: "variable";
+      readonly templateId: string;
+      readonly allowedTypes?: readonly TypeExpr[];
+    }
+  | { readonly kind: "list"; readonly element: TypeExpr }
+  | { readonly kind: "asset"; readonly element: TypeExpr }
+  | { readonly kind: "stream"; readonly element: TypeExpr }
+  | { readonly kind: "tuple"; readonly elements: readonly TypeExpr[] }
+  | { readonly kind: "family_tuple"; readonly input: string }
+  | {
+      readonly kind: "tuple_element";
+      readonly input?: string;
+      readonly element?: TypeExpr;
+      readonly index: string | number;
+    };
 
 /** COMBO is a concrete type carrying a string, boolean, or finite number. */
-export const COMBO_TYPE = 'COMBO'
+export const COMBO_TYPE = "COMBO";
 
 // ---------------------------------------------------------------------------
 // Canonical parametric type ids ('list<...>', 'asset<...>', 'stream<...>')
@@ -74,58 +83,66 @@ export const COMBO_TYPE = 'COMBO'
 // Structural slot/family ids already forbid '<'/'>' (elaborate.ts), so
 // canonical type ids can never collide with structural ids.
 
-const LIST_TYPE_PREFIX = 'list<'
-const ASSET_TYPE_PREFIX = 'asset<'
-const TYPE_SUFFIX = '>'
+const LIST_TYPE_PREFIX = "list<";
+const ASSET_TYPE_PREFIX = "asset<";
+const TYPE_SUFFIX = ">";
 
-const parseParametricTypeId = (typeId: string, prefix: string): string | undefined =>
+const parseParametricTypeId = (
+  typeId: string,
+  prefix: string,
+): string | undefined =>
   typeId.startsWith(prefix) &&
   typeId.endsWith(TYPE_SUFFIX) &&
   typeId.length > prefix.length + TYPE_SUFFIX.length
     ? typeId.slice(prefix.length, -TYPE_SUFFIX.length)
-    : undefined
+    : undefined;
 
 /** The canonical type id of a list of `elementTypeId`. */
 export const listTypeId = (elementTypeId: string): string =>
-  `${LIST_TYPE_PREFIX}${elementTypeId}${TYPE_SUFFIX}`
+  `${LIST_TYPE_PREFIX}${elementTypeId}${TYPE_SUFFIX}`;
 
 /** The element type id if `typeId` is a canonical list id, else undefined. */
 export const parseListTypeId = (typeId: string): string | undefined =>
-  parseParametricTypeId(typeId, LIST_TYPE_PREFIX)
+  parseParametricTypeId(typeId, LIST_TYPE_PREFIX);
 
 /** The canonical type id of an asset whose decode target is `elementTypeId`. */
 export const assetTypeId = (elementTypeId: string): string =>
-  `${ASSET_TYPE_PREFIX}${elementTypeId}${TYPE_SUFFIX}`
+  `${ASSET_TYPE_PREFIX}${elementTypeId}${TYPE_SUFFIX}`;
 
 /** The decode-target type id if `typeId` is a canonical asset id, else undefined. */
 export const parseAssetTypeId = (typeId: string): string | undefined =>
-  parseParametricTypeId(typeId, ASSET_TYPE_PREFIX)
+  parseParametricTypeId(typeId, ASSET_TYPE_PREFIX);
 
-export const streamTypeId = (elementTypeId: string): string => `stream<${elementTypeId}>`
+export const streamTypeId = (elementTypeId: string): string =>
+  `stream<${elementTypeId}>`;
 export const parseStreamTypeId = (typeId: string): string | undefined =>
-  parseParametricTypeId(typeId, 'stream<')
+  parseParametricTypeId(typeId, "stream<");
 
 /** Split positional ids without splitting commas inside nested constructors. */
-export const parseTupleTypeId = (typeId: string): readonly string[] | undefined => {
-  if (!typeId.startsWith('tuple<') || !typeId.endsWith('>')) return undefined
-  const body = typeId.slice(6, -1)
-  if (body === '') return []
-  const elements: string[] = []
-  let start = 0
-  let depth = 0
+export const parseTupleTypeId = (
+  typeId: string,
+): readonly string[] | undefined => {
+  if (!typeId.startsWith("tuple<") || !typeId.endsWith(">")) return undefined;
+  const body = typeId.slice(6, -1);
+  if (body === "") return [];
+  const elements: string[] = [];
+  let start = 0;
+  let depth = 0;
   for (let index = 0; index < body.length; index++) {
-    const char = body[index]
-    if (char === '<') depth++
-    else if (char === '>') {
-      if (--depth < 0) return undefined
-    } else if (char === ',' && depth === 0) {
-      elements.push(body.slice(start, index))
-      start = index + 1
+    const char = body[index];
+    if (char === "<") depth++;
+    else if (char === ">") {
+      if (--depth < 0) return undefined;
+    } else if (char === "," && depth === 0) {
+      elements.push(body.slice(start, index));
+      start = index + 1;
     }
   }
-  elements.push(body.slice(start))
-  return depth === 0 && elements.every((element) => element !== '') ? elements : undefined
-}
+  elements.push(body.slice(start));
+  return depth === 0 && elements.every((element) => element !== "")
+    ? elements
+    : undefined;
+};
 
 /**
  * The canonical type id a recursively-closed expression denotes (concrete ->
@@ -135,17 +152,20 @@ export const parseTupleTypeId = (typeId: string): readonly string[] | undefined 
  * structured-type identity.
  */
 export const canonicalTypeIdOf = (t: TypeExpr): string | undefined => {
-  if (t.kind === 'concrete') return t.name
-  if (t.kind === 'tuple') {
-    const elements = t.elements.map(canonicalTypeIdOf)
-    return elements.some((element) => element === undefined) ? undefined : `tuple<${elements.join(',')}>`
+  if (t.kind === "concrete") return t.name;
+  if (t.kind === "tuple") {
+    const elements = t.elements.map(canonicalTypeIdOf);
+    return elements.some((element) => element === undefined)
+      ? undefined
+      : `tuple<${elements.join(",")}>`;
   }
-  if (t.kind === 'list' || t.kind === 'asset' || t.kind === 'stream') {
-    const inner = canonicalTypeIdOf(t.element)
-    return inner === undefined ? undefined : `${t.kind}<${inner}>`
+  if (t.kind === "list" && t.element.kind === "wildcard") return "list<*>";
+  if (t.kind === "list" || t.kind === "asset" || t.kind === "stream") {
+    const inner = canonicalTypeIdOf(t.element);
+    return inner === undefined ? undefined : `${t.kind}<${inner}>`;
   }
-  return undefined
-}
+  return undefined;
+};
 
 /**
  * Rebuild the structured expression a canonical type id denotes (inverse of
@@ -154,16 +174,26 @@ export const canonicalTypeIdOf = (t: TypeExpr): string | undefined => {
  * `concrete` directly, so `concrete('list<...>')` never enters the system.
  */
 export const typeExprFromTypeId = (typeId: string): TypeExpr => {
-  const positions = parseTupleTypeId(typeId)
-  if (positions !== undefined) return { kind: 'tuple', elements: positions.map(typeExprFromTypeId) }
-  const listInner = parseListTypeId(typeId)
-  if (listInner !== undefined) return { kind: 'list', element: typeExprFromTypeId(listInner) }
-  const assetInner = parseAssetTypeId(typeId)
-  if (assetInner !== undefined) return { kind: 'asset', element: typeExprFromTypeId(assetInner) }
-  const streamInner = parseStreamTypeId(typeId)
-  if (streamInner !== undefined) return { kind: 'stream', element: typeExprFromTypeId(streamInner) }
-  return { kind: 'concrete', name: typeId }
-}
+  const positions = parseTupleTypeId(typeId);
+  if (positions !== undefined)
+    return { kind: "tuple", elements: positions.map(typeExprFromTypeId) };
+  const listInner = parseListTypeId(typeId);
+  if (listInner !== undefined)
+    return {
+      kind: "list",
+      element:
+        listInner === "*"
+          ? { kind: "wildcard" }
+          : typeExprFromTypeId(listInner),
+    };
+  const assetInner = parseAssetTypeId(typeId);
+  if (assetInner !== undefined)
+    return { kind: "asset", element: typeExprFromTypeId(assetInner) };
+  const streamInner = parseStreamTypeId(typeId);
+  if (streamInner !== undefined)
+    return { kind: "stream", element: typeExprFromTypeId(streamInner) };
+  return { kind: "concrete", name: typeId };
+};
 
 /**
  * True when a canonical type id is an ASSET-SOURCE form the backend's
@@ -177,10 +207,10 @@ export const typeExprFromTypeId = (typeId: string): TypeExpr => {
  * decode target, so a stamp would not make it coercible.
  */
 export const isAssetSourceTypeId = (typeId: string): boolean => {
-  if (parseAssetTypeId(typeId) !== undefined) return true
-  const inner = parseListTypeId(typeId)
-  return inner !== undefined && parseAssetTypeId(inner) !== undefined
-}
+  if (parseAssetTypeId(typeId) !== undefined) return true;
+  const inner = parseListTypeId(typeId);
+  return inner !== undefined && parseAssetTypeId(inner) !== undefined;
+};
 
 /**
  * True when a canonical type id DECLARES an asset-reference destination:
@@ -193,10 +223,13 @@ export const isAssetSourceTypeId = (typeId: string): boolean => {
  * vocabulary and would refuse a delivery the plain ref satisfies.
  */
 export const isAssetRefDestinationTypeId = (typeId: string): boolean => {
-  if (typeId === 'ASSET' || parseAssetTypeId(typeId) !== undefined) return true
-  const inner = parseListTypeId(typeId)
-  return inner !== undefined && (inner === 'ASSET' || parseAssetTypeId(inner) !== undefined)
-}
+  if (typeId === "ASSET" || parseAssetTypeId(typeId) !== undefined) return true;
+  const inner = parseListTypeId(typeId);
+  return (
+    inner !== undefined &&
+    (inner === "ASSET" || parseAssetTypeId(inner) !== undefined)
+  );
+};
 
 /**
  * Multi-select gating for ASSET widgets (typed-assets joint pin (5),
@@ -220,16 +253,19 @@ export const isAssetRefDestinationTypeId = (typeId: string): boolean => {
  * to merge through (and the backend registry holds atoms like
  * comfy.IMAGE, never ASSET).
  */
-export const assetMultiSelect = (t: TypeExpr, mergeableTypes?: readonly string[]): boolean =>
-  (t.kind === 'list' &&
-    (t.element.kind === 'asset' ||
-      (t.element.kind === 'concrete' && t.element.name === 'ASSET'))) ||
-  (t.kind === 'concrete' &&
-    t.name !== 'ASSET' &&
+export const assetMultiSelect = (
+  t: TypeExpr,
+  mergeableTypes?: readonly string[],
+): boolean =>
+  (t.kind === "list" &&
+    (t.element.kind === "asset" ||
+      (t.element.kind === "concrete" && t.element.name === "ASSET"))) ||
+  (t.kind === "concrete" &&
+    t.name !== "ASSET" &&
     parseListTypeId(t.name) === undefined &&
     parseAssetTypeId(t.name) === undefined &&
     mergeableTypes !== undefined &&
-    mergeableTypes.includes(t.name))
+    mergeableTypes.includes(t.name));
 
 /**
  * Structural shape of an expression. Cardinality is authoritative (unlike
@@ -238,33 +274,33 @@ export const assetMultiSelect = (t: TypeExpr, mergeableTypes?: readonly string[]
  * stay 'unknown' and never trigger structural rejection. Mirrors the
  * backend's TypeExpr.cardinality().
  */
-export type Cardinality = 'scalar' | 'list' | 'unknown'
+export type Cardinality = "scalar" | "list" | "unknown";
 
 export const cardinalityOf = (t: TypeExpr): Cardinality => {
   switch (t.kind) {
-    case 'list':
-      return 'list'
-    case 'tuple':
-    case 'stream':
-      return 'scalar'
-    case 'asset':
+    case "list":
+      return "list";
+    case "tuple":
+    case "stream":
+      return "scalar";
+    case "asset":
       // One AssetRef envelope regardless of decode target - even
       // asset<list<T>> is a scalar on the edge (backend pin, typed assets).
-      return 'scalar'
-    case 'concrete':
+      return "scalar";
+    case "concrete":
       // Defensive: a canonical list id smuggled into `concrete` (adapters
       // must use typeExprFromTypeId) still reports its true shape.
-      return parseListTypeId(t.name) === undefined ? 'scalar' : 'list'
-    case 'union':
+      return parseListTypeId(t.name) === undefined ? "scalar" : "list";
+    case "union":
       return t.names.every((n) => parseListTypeId(n) === undefined)
-        ? 'scalar'
+        ? "scalar"
         : t.names.every((n) => parseListTypeId(n) !== undefined)
-          ? 'list'
-          : 'unknown'
+          ? "list"
+          : "unknown";
     default:
-      return 'unknown'
+      return "unknown";
   }
-}
+};
 
 // ---------------------------------------------------------------------------
 // Widgets
@@ -275,59 +311,63 @@ export const cardinalityOf = (t: TypeExpr): Cardinality => {
  * domain; changing descriptors never changes the input's socket or value.
  */
 export interface WidgetDescriptorSpec {
-  readonly widgetType: string
-  readonly options: Readonly<Record<string, unknown>>
+  readonly widgetType: string;
+  readonly options: Readonly<Record<string, unknown>>;
   /** Scalar presentation retained by a one-level primitive LIST widget. */
-  readonly element?: WidgetDescriptorSpec
+  readonly element?: WidgetDescriptorSpec;
   /** Open-vocabulary ASSET classification (wire v7; presentation only). */
-  readonly kind?: string
+  readonly kind?: string;
   /** Source media inputs may acquire bytes through the bounded media ingest route. */
-  readonly allowUpload?: true
+  readonly allowUpload?: true;
   /** Source-named file, pair, directory or file-free option under exact grants. */
-  readonly selection?: true
-  readonly default?: unknown
+  readonly selection?: true;
+  readonly default?: unknown;
   /** Controller slot (control_after_generate / control_after_refresh). */
-  readonly controller?: 'after_generate' | 'after_refresh'
+  readonly controller?: "after_generate" | "after_refresh";
   /**
    * Schema-declared INITIAL controller mode (native wire v11
    * controlAfterGenerate). Presentation seed only: live mode stays
    * client-owned document state (node.controllers); absent falls back to
    * the historical 'randomize' default.
    */
-  readonly controllerInitial?: 'fixed' | 'increment' | 'decrement' | 'randomize'
+  readonly controllerInitial?:
+    | "fixed"
+    | "increment"
+    | "decrement"
+    | "randomize";
   /** Declarative remote option source (combos and kin). */
-  readonly remote?: RemoteSourceSpec
+  readonly remote?: RemoteSourceSpec;
   /** Ordered options derived from one occurrence-local input family. */
-  readonly optionSource?: InputFamilyOptionSourceSpec
+  readonly optionSource?: InputFamilyOptionSourceSpec;
   /** Ordered choices authored on an occurrence, independently of its selected value. */
-  readonly editableOptions?: true
+  readonly editableOptions?: true;
   /** Schema-declared text completion vocabulary (wire 36). */
-  readonly textCompletions?: TextCompletionsSpec
+  readonly textCompletions?: TextCompletionsSpec;
 }
 
 export interface InputFamilyOptionSourceSpec {
   /** Family construct path. Values are stable member suffixes. */
-  readonly inputFamily: string
+  readonly inputFamily: string;
 }
 
 export interface TextCompletionItemSpec {
-  readonly value: string
-  readonly label: string
-  readonly insertText: string
-  readonly detail: string
-  readonly kind: 'identifier' | 'operator'
+  readonly value: string;
+  readonly label: string;
+  readonly insertText: string;
+  readonly detail: string;
+  readonly kind: "identifier" | "operator";
 }
 
 export interface TextCompletionsSpec {
-  readonly items: readonly TextCompletionItemSpec[]
-  readonly inputFamilies: readonly string[]
+  readonly items: readonly TextCompletionItemSpec[];
+  readonly inputFamilies: readonly string[];
 }
 
 /** One stable schema-authored name for one widget presentation. */
 export interface WidgetRepresentationSpec {
-  readonly id: string
-  readonly displayName: string
-  readonly widget: WidgetDescriptorSpec
+  readonly id: string;
+  readonly displayName: string;
+  readonly widget: WidgetDescriptorSpec;
 }
 
 /**
@@ -336,9 +376,9 @@ export interface WidgetRepresentationSpec {
  * of the canonical input value, TypeExpr, links, or execution identity.
  */
 export interface WidgetRepresentationsSpec {
-  readonly default: string
-  readonly userSwitchable: boolean
-  readonly representations: readonly WidgetRepresentationSpec[]
+  readonly default: string;
+  readonly userSwitchable: boolean;
+  readonly representations: readonly WidgetRepresentationSpec[];
 }
 
 /**
@@ -347,12 +387,12 @@ export interface WidgetRepresentationsSpec {
  * presentation selection needs to inspect `representations`.
  */
 export interface WidgetSpec extends WidgetDescriptorSpec {
-  readonly representations?: WidgetRepresentationsSpec
+  readonly representations?: WidgetRepresentationsSpec;
 }
 
 export interface ResolvedWidgetRepresentation {
-  readonly spec: WidgetSpec
-  readonly id?: string
+  readonly spec: WidgetSpec;
+  readonly id?: string;
 }
 
 /**
@@ -360,34 +400,55 @@ export interface ResolvedWidgetRepresentation {
  * explicit representation set takes authority, including a locked set with
  * userSwitchable false or only one representation.
  */
-export function widgetRepresentationsOf(spec: WidgetSpec): WidgetRepresentationsSpec | undefined {
-  if (spec.representations !== undefined) return spec.representations
-  if (spec.widgetType === 'FLOAT') {
-    const { min, max } = spec.options
-    if (typeof min !== 'number' || typeof max !== 'number' || !Number.isFinite(min)
-      || !Number.isFinite(max) || max <= min || !Number.isFinite(max - min)) return undefined
+export function widgetRepresentationsOf(
+  spec: WidgetSpec,
+): WidgetRepresentationsSpec | undefined {
+  if (spec.representations !== undefined) return spec.representations;
+  if (spec.widgetType === "FLOAT") {
+    const { min, max } = spec.options;
+    if (
+      typeof min !== "number" ||
+      typeof max !== "number" ||
+      !Number.isFinite(min) ||
+      !Number.isFinite(max) ||
+      max <= min ||
+      !Number.isFinite(max - min)
+    )
+      return undefined;
     return {
-      default: spec.options['display'] === 'slider' ? 'slider' : 'number',
+      default: spec.options["display"] === "slider" ? "slider" : "number",
       userSwitchable: true,
       representations: [
-        { id: 'number', displayName: 'Number', widget: { ...spec, options: { ...spec.options, display: 'number' } } },
-        { id: 'slider', displayName: 'Slider', widget: { ...spec, options: { ...spec.options, display: 'slider' } } },
+        {
+          id: "number",
+          displayName: "Number",
+          widget: { ...spec, options: { ...spec.options, display: "number" } },
+        },
+        {
+          id: "slider",
+          displayName: "Slider",
+          widget: { ...spec, options: { ...spec.options, display: "slider" } },
+        },
       ],
-    }
+    };
   }
-  if (spec.widgetType !== 'STRING') return undefined
+  if (spec.widgetType !== "STRING") return undefined;
   const descriptor = (multiline: boolean): WidgetDescriptorSpec => ({
     ...spec,
     options: { ...spec.options, multiline },
-  })
+  });
   return {
-    default: spec.options['multiline'] === true ? 'multiline' : 'single-line',
+    default: spec.options["multiline"] === true ? "multiline" : "single-line",
     userSwitchable: true,
     representations: [
-      { id: 'single-line', displayName: 'Single line', widget: descriptor(false) },
-      { id: 'multiline', displayName: 'Multiline', widget: descriptor(true) },
+      {
+        id: "single-line",
+        displayName: "Single line",
+        widget: descriptor(false),
+      },
+      { id: "multiline", displayName: "Multiline", widget: descriptor(true) },
     ],
-  }
+  };
 }
 
 /**
@@ -399,27 +460,28 @@ export function resolveWidgetRepresentation(
   spec: WidgetSpec,
   selected?: string,
 ): ResolvedWidgetRepresentation {
-  const set = widgetRepresentationsOf(spec)
-  if (set === undefined) return { spec }
-  const representation = set.representations.find((candidate) => candidate.id === selected) ??
-    set.representations.find((candidate) => candidate.id === set.default)
-  if (representation === undefined) return { spec }
+  const set = widgetRepresentationsOf(spec);
+  if (set === undefined) return { spec };
+  const representation =
+    set.representations.find((candidate) => candidate.id === selected) ??
+    set.representations.find((candidate) => candidate.id === set.default);
+  if (representation === undefined) return { spec };
   return {
     id: representation.id,
     spec: {
       ...representation.widget,
       representations: set,
     },
-  }
+  };
 }
 
 export interface RemoteSourceSpec {
-  readonly route: string
-  readonly refreshButton?: boolean
-  readonly controlAfterRefresh?: 'first' | 'last'
-  readonly timeoutMs?: number
-  readonly maxRetries?: number
-  readonly refreshMs?: number
+  readonly route: string;
+  readonly refreshButton?: boolean;
+  readonly controlAfterRefresh?: "first" | "last";
+  readonly timeoutMs?: number;
+  readonly maxRetries?: number;
+  readonly refreshMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -437,22 +499,31 @@ export interface RemoteSourceSpec {
  * one slot to a group never reshapes existing document addresses.
  */
 export interface AutogrowSpec {
-  readonly kind: 'autogrow'
-  readonly template: readonly InputSpec[]
+  readonly kind: "autogrow";
+  readonly template: readonly InputSpec[];
   /** Each stored member binds its own variables instead of sharing the family template. */
-  readonly independentTypes?: boolean
+  readonly independentTypes?: boolean;
   /** Only initial vocabulary positions require a required template leaf. */
-  readonly optionalAfterMinimum?: boolean
+  readonly optionalAfterMinimum?: boolean;
   /** Wire-15 document-driven materialization (absent keeps wire-14 identity). */
-  readonly materialization?: 'wire15'
+  readonly materialization?: "wire15";
   readonly naming:
-    | { readonly kind: 'prefix'; readonly prefix: string; readonly min?: number; readonly max?: number }
-    | { readonly kind: 'names'; readonly names: readonly string[]; readonly min?: number }
+    | {
+        readonly kind: "prefix";
+        readonly prefix: string;
+        readonly min?: number;
+        readonly max?: number;
+      }
+    | {
+        readonly kind: "names";
+        readonly names: readonly string[];
+        readonly min?: number;
+      }
     /**
      * Wire-15 native free-suffix vocabulary. The decoder retains its bounds,
      * but document materialization deliberately does not support this arm yet.
      */
-    | { readonly kind: 'native'; readonly min?: number; readonly max?: number }
+    | { readonly kind: "native"; readonly min?: number; readonly max?: number };
   /**
    * Display/api ordinal offset (derived boundary schemas only): a forwarded
    * family whose definition holds N prefix members numbers instance members
@@ -460,64 +531,75 @@ export interface AutogrowSpec {
    * ancestry ordinals report the merged position. Additive across chained
    * forwarding. NEVER identity - member ids stay the identity (hazard F3).
    */
-  readonly ordinalOffset?: number
+  readonly ordinalOffset?: number;
 }
 
 /** A top-level output family's fixed arity, read from an ordinary integer input. */
 export interface CountBoundOutputAutogrowSpec extends AutogrowSpec {
   readonly count: {
-    readonly input: string
-    readonly suffix: 'index'
+    readonly input: string;
+    readonly suffix: "index";
     /**
      * Derived boundary schemas retain a valid definition value as fallback.
      * A fixed projection has no editable instance count input.
      */
-    readonly boundaryProjection?: { readonly fallback?: number; readonly fixed?: true }
-  }
+    readonly boundaryProjection?: {
+      readonly fallback?: number;
+      readonly fixed?: true;
+    };
+  };
 }
 
 /** Effective count for a native or derived count-bound output family. */
 export const outputCountValueOf = (
   spec: CountBoundOutputAutogrowSpec,
   values: Readonly<Record<string, unknown>>,
-): unknown => spec.count.boundaryProjection?.fixed === true
-  ? spec.count.boundaryProjection.fallback
-  : Object.hasOwn(values, spec.count.input)
-    ? values[spec.count.input]
-    : spec.count.boundaryProjection?.fallback
+): unknown =>
+  spec.count.boundaryProjection?.fixed === true
+    ? spec.count.boundaryProjection.fallback
+    : Object.hasOwn(values, spec.count.input)
+      ? values[spec.count.input]
+      : spec.count.boundaryProjection?.fallback;
 
 /**
  * Effective LOCAL member bounds of an autogrow family (before any
  * ordinalOffset). Single source for the prefix-naming default cap - derive
  * and elaboration must never disagree on capacity (hazard F4).
  */
-export const autogrowBounds = (spec: AutogrowSpec): { readonly min: number; readonly max: number } =>
-  spec.naming.kind === 'native'
-    // Wire-15 decode/model foundation only: until a document suffix source is
-    // pinned, existing consumers must not invent ordinal members for a native
-    // free-suffix family. The declaration remains intact on spec.naming.
-    ? { min: 0, max: 0 }
-    : spec.naming.kind === 'names'
-    ? { min: spec.naming.min ?? 0, max: spec.naming.names.length }
-    : { min: spec.naming.min ?? 0, max: spec.naming.max ?? 10 }
+export const autogrowBounds = (
+  spec: AutogrowSpec,
+): { readonly min: number; readonly max: number } =>
+  spec.naming.kind === "native"
+    ? // Wire-15 decode/model foundation only: until a document suffix source is
+      // pinned, existing consumers must not invent ordinal members for a native
+      // free-suffix family. The declaration remains intact on spec.naming.
+      { min: 0, max: 0 }
+    : spec.naming.kind === "names"
+      ? { min: spec.naming.min ?? 0, max: spec.naming.names.length }
+      : { min: spec.naming.min ?? 0, max: spec.naming.max ?? 10 };
 
 /** DynamicCombo: selecting an option swaps in that option's input set. */
 export interface DynamicComboSpec {
-  readonly kind: 'dynamicCombo'
+  readonly kind: "dynamicCombo";
   /** Wire-15 choices persist explicit state; absent legacy state displays the first option. */
-  readonly materialization?: 'wire15'
-  readonly options: readonly { readonly key: string; readonly inputs: readonly InputSpec[] }[]
+  readonly materialization?: "wire15";
+  readonly options: readonly {
+    readonly key: string;
+    readonly inputs: readonly InputSpec[];
+  }[];
   /** Schema-side fallback used when occurrence state has no valid selection. */
-  readonly defaultOption?: string
+  readonly defaultOption?: string;
 }
 
 /** Join one schema item onto its persisted value/dynamic-state path. */
 export const joinValuePath = (prefix: string, item: string): string =>
-  prefix === '' ? item : `${prefix}.${item}`
+  prefix === "" ? item : `${prefix}.${item}`;
 
 /** Persisted value-path prefix for one DynamicCombo branch. */
-export const comboBranchValuePath = (construct: string, option: string): string =>
-  `${construct}.[${option}]`
+export const comboBranchValuePath = (
+  construct: string,
+  option: string,
+): string => `${construct}.[${option}]`;
 
 /**
  * The one selection rule used by elaboration and boundary projection. Keeping
@@ -528,13 +610,14 @@ export const effectiveComboOption = (
   spec: DynamicComboSpec,
   state: { readonly selected?: string } | undefined,
 ): string | undefined => {
-  const keys = spec.options.map((o) => o.key)
-  if (state?.selected !== undefined && keys.includes(state.selected)) return state.selected
-  if (spec.materialization === 'wire15') return keys[0]
+  const keys = spec.options.map((o) => o.key);
+  if (state?.selected !== undefined && keys.includes(state.selected))
+    return state.selected;
+  if (spec.materialization === "wire15") return keys[0];
   return spec.defaultOption !== undefined && keys.includes(spec.defaultOption)
     ? spec.defaultOption
-    : keys[0]
-}
+    : keys[0];
+};
 
 export interface DynamicSlotVariant {
   /**
@@ -545,8 +628,8 @@ export interface DynamicSlotVariant {
    * backend's construction-enforced [A-Za-z0-9_-]+ - dotless because the
    * bracket path syntax and the choice wire both carry it verbatim.
    */
-  readonly key: string
-  readonly type: TypeExpr
+  readonly key: string;
+  readonly type: TypeExpr;
   /**
    * Per-variant nested inputs (each may carry its own widget - "per-type
    * widget specs"). Two variants of one slot may reuse the same local name
@@ -554,28 +637,28 @@ export interface DynamicSlotVariant {
    * naming a variant local must not reuse a frontend-modeled SHARED
    * dependent's id - elaboration skips such an input loudly.
    */
-  readonly inputs: readonly InputSpec[]
+  readonly inputs: readonly InputSpec[];
   /** Variant documentation (wire 'doc'; presentation only, signature-excluded). */
-  readonly tooltip?: string
+  readonly tooltip?: string;
 }
 
 /** DynamicSlot: connecting a typed slot reveals its dependent inputs. */
 export interface DynamicSlotSpec {
-  readonly kind: 'dynamicSlot'
+  readonly kind: "dynamicSlot";
   /** Wire-15 slots materialize from stored values/links or explicit choices. */
-  readonly materialization?: 'wire15'
-  readonly slotType: TypeExpr
-  readonly inputs: readonly InputSpec[]
-  readonly variants?: readonly DynamicSlotVariant[]
+  readonly materialization?: "wire15";
+  readonly slotType: TypeExpr;
+  readonly inputs: readonly InputSpec[];
+  readonly variants?: readonly DynamicSlotVariant[];
   /** Node-level MatchType variable bound by the selected closed-slot variant. */
-  readonly typeTemplateId?: string
+  readonly typeTemplateId?: string;
   // Deliberately no defaultVariant. Specialization is chosen by the connect
   // gesture from the CONNECTED type; a schema fallback would contradict that
   // contract and make an unresolved connection silently type-dependent.
-  readonly forceInput?: boolean
+  readonly forceInput?: boolean;
 }
 
-export type DynamicSpec = AutogrowSpec | DynamicComboSpec | DynamicSlotSpec
+export type DynamicSpec = AutogrowSpec | DynamicComboSpec | DynamicSlotSpec;
 
 // ---------------------------------------------------------------------------
 // Interface items (ordered)
@@ -583,21 +666,21 @@ export type DynamicSpec = AutogrowSpec | DynamicComboSpec | DynamicSlotSpec
 
 interface PortSpecBase {
   /** Schema port id - the key values/links use. Unique within the node. */
-  readonly id: string
-  readonly displayName?: string
-  readonly tooltip?: string
+  readonly id: string;
+  readonly displayName?: string;
+  readonly tooltip?: string;
   /** Alpha handling at this port; undefined is the default 'preserve'. */
-  readonly alphaPolicy?: AlphaPolicy
-  readonly maskPolarity?: MaskPolarity
-  readonly maskSemantic?: MaskSemantic
+  readonly alphaPolicy?: AlphaPolicy;
+  readonly maskPolarity?: MaskPolarity;
+  readonly maskSemantic?: MaskSemantic;
   /** Presentation section this item belongs to (collapsible grouping). */
-  readonly section?: string
-  readonly ext?: Readonly<Record<string, unknown>>
+  readonly section?: string;
+  readonly ext?: Readonly<Record<string, unknown>>;
 }
 
-export type AlphaPolicy = 'preserve' | 'require' | 'create_if_missing' | 'drop'
-export type MaskPolarity = 'coverage' | 'transparency'
-export type MaskSemantic = 'alpha' | 'selection' | 'other'
+export type AlphaPolicy = "preserve" | "require" | "create_if_missing" | "drop";
+export type MaskPolarity = "coverage" | "transparency";
+export type MaskSemantic = "alpha" | "selection" | "other";
 
 /**
  * What happens when a linked input's value arrives ABSENT at runtime (Dinkster
@@ -611,130 +694,144 @@ export type MaskSemantic = 'alpha' | 'selection' | 'other'
  * - 'fail': the run fails loudly, naming the origin. An optional output
  *   feeding a 'fail' input is legal but warned (solve.maybeAbsent).
  */
-export type AbsentPolicy = 'skip' | 'accept' | 'fail' | 'omit'
+export type AbsentPolicy = "skip" | "accept" | "fail" | "omit";
 
 export interface InputSpec extends PortSpecBase {
-  readonly kind: 'input'
-  readonly type: TypeExpr
-  readonly optional: boolean
+  readonly kind: "input";
+  readonly type: TypeExpr;
+  readonly optional: boolean;
   /** Presentation-only placement beside a sibling input; declaration order is unchanged. */
-  readonly adjacentTo?: string
+  readonly adjacentTo?: string;
   /** Derived boundary input forwarding an edit-time schema literal. */
-  readonly outputSchemaSource?: true
+  readonly outputSchemaSource?: true;
   /** Descriptor editor contract projected independently of boundary outputs. */
-  readonly outputDescriptors?: OutputDescriptorsSpec
+  readonly outputDescriptors?: OutputDescriptorsSpec;
   /** Declared absence policy; undefined = the required-ness default. */
-  readonly onAbsent?: AbsentPolicy
+  readonly onAbsent?: AbsentPolicy;
   /** The execution accepts storage-backed values directly (wire 39); true or omitted. */
-  readonly acceptsStorage?: true
-  readonly acceptsStream?: true
+  readonly acceptsStorage?: true;
+  readonly acceptsStream?: true;
+  /** Consume a whole list of the declared type without element mapping or wrapping. */
+  readonly acceptsList?: true;
   /** Widget backing; when present the input has a value unless connected. */
-  readonly widget?: WidgetSpec
+  readonly widget?: WidgetSpec;
   /** Widget-backed input forced to render as a socket. */
-  readonly forceInput?: boolean
+  readonly forceInput?: boolean;
   /** Presentation-only omission of the incoming socket; values and output taps are unchanged. */
-  readonly socketless?: boolean
+  readonly socketless?: boolean;
   /** Backend computation-semantic demand marker (wire 16); true or omitted. */
-  readonly lazy?: true
+  readonly lazy?: true;
   /** Execution binding for a staged Comfy source filename (wire 22). */
-  readonly sourceFilename?: SourceFilenameSpec
-  readonly advanced?: boolean
+  readonly sourceFilename?: SourceFilenameSpec;
+  readonly advanced?: boolean;
   /** Compatibility-only input retained for compile and serialization, but omitted from authoring surfaces. */
-  readonly hidden?: true
-  readonly dynamic?: DynamicSpec
+  readonly hidden?: true;
+  readonly dynamic?: DynamicSpec;
 }
 
 export interface SourceFilenameSpec {
-  readonly kind: 'media/image' | 'media/audio' | 'media/video' | 'data/latent' | 'media/model3d'
-  readonly category: 'input' | 'output' | 'temp'
+  readonly kind:
+    | "media/image"
+    | "media/audio"
+    | "media/video"
+    | "data/latent"
+    | "media/model3d";
+  readonly category: "input" | "output" | "temp";
 }
 
 /** The effective absence policy: the declaration, or the required-ness
  * default (skip for required inputs, omit for optional ones). */
 export const effectiveAbsentPolicy = (spec: InputSpec): AbsentPolicy =>
-  spec.onAbsent ?? (spec.optional ? 'omit' : 'skip')
+  spec.onAbsent ?? (spec.optional ? "omit" : "skip");
 
 /** One selected asset that can estimate an output before execution. */
 export interface OutputRepresents {
   /** Top-level asset-widget input carrying the selected asset. */
-  readonly input: string
+  readonly input: string;
   /** Client-side conversion from the selected asset to the output. */
-  readonly rendition: string
+  readonly rendition: string;
   /** Required DynamicCombo selections for which the representation is sound. */
-  readonly applies?: Readonly<Record<string, readonly string[]>>
+  readonly applies?: Readonly<Record<string, readonly string[]>>;
 }
 
 /** True when this frontend can render the declared output rendition. */
 export const supportsOutputRepresentation = (
   represents: OutputRepresents | undefined,
-): represents is OutputRepresents => represents?.rendition === 'decoded-image'
+): represents is OutputRepresents => represents?.rendition === "decoded-image";
 
 /** An output equal to one same-typed primitive input before execution. */
 export interface OutputKnownValue {
   /** Top-level input whose resolved value is the output value. */
-  readonly input: string
+  readonly input: string;
 }
 
 /** Ordered output schema stored as JSON in an ordinary string input. */
 export interface OutputDescriptorsSpec {
-  readonly input: string
-  readonly choices: readonly (Pick<OutputSpec, 'alphaPolicy' | 'maskPolarity' | 'maskSemantic'> & {
-    readonly id: string
-    readonly type: Extract<TypeExpr, { kind: 'concrete' }>
-    readonly displayName?: string
-    readonly optional?: boolean
-    readonly preview?: true
-    readonly doc?: string
-  })[]
-  readonly minEntries: number
-  readonly maxEntries: number
-  readonly fixedIds: boolean
-  readonly probe?: { readonly input: string; readonly kind: 'model'; readonly revision: string }
+  readonly input: string;
+  readonly choices: readonly (Pick<
+    OutputSpec,
+    "alphaPolicy" | "maskPolarity" | "maskSemantic"
+  > & {
+    readonly id: string;
+    readonly type: Extract<TypeExpr, { kind: "concrete" }>;
+    readonly displayName?: string;
+    readonly optional?: boolean;
+    readonly preview?: true;
+    readonly doc?: string;
+  })[];
+  readonly minEntries: number;
+  readonly maxEntries: number;
+  readonly fixedIds: boolean;
+  readonly probe?: {
+    readonly input: string;
+    readonly kind: "model";
+    readonly revision: string;
+  };
   /** A direct boundary port selects one stable entry, never its position. */
-  readonly selectedId?: string
+  readonly selectedId?: string;
   readonly boundaryProjection?: {
-    readonly fallback?: unknown
-    readonly fixed?: true
-    readonly assetFallback?: unknown
-    readonly assetFixed?: true
-  }
+    readonly fallback?: unknown;
+    readonly fixed?: true;
+    readonly assetFallback?: unknown;
+    readonly assetFixed?: true;
+  };
 }
 
 export interface OutputSpec extends PortSpecBase {
-  readonly kind: 'output'
-  readonly type: TypeExpr
-  readonly isList?: boolean
+  readonly kind: "output";
+  readonly type: TypeExpr;
+  readonly isList?: boolean;
   /**
    * Presentation/discovery-only marker: this final output is offered as a
    * generic run-and-show candidate. It does not promise renderability,
    * retention, caching, liveness, editability, purity, preference, or any
    * runtime preview capability. Wire 16 normalizes this to true or omission.
    */
-  readonly preview?: true
+  readonly preview?: true;
   /**
    * The producer may deliberately emit NO value at runtime (a loader with no
    * VAE, a detector with no match). Declared, so edges from it render
    * maybe-absent and validation warns when it feeds a fail-policy input.
    * Skipped is a normal downstream state, never an error.
    */
-  readonly optional?: boolean
+  readonly optional?: boolean;
   /** Presentation-only pre-execution estimate sourced from a selected asset. */
-  readonly represents?: OutputRepresents
+  readonly represents?: OutputRepresents;
   /** Exact pre-execution value sourced from a typed primitive identity input. */
-  readonly knownValue?: OutputKnownValue
-  readonly dynamic?: DynamicSpec | CountBoundOutputAutogrowSpec
-  readonly outputDescriptors?: OutputDescriptorsSpec
+  readonly knownValue?: OutputKnownValue;
+  readonly dynamic?: DynamicSpec | CountBoundOutputAutogrowSpec;
+  readonly outputDescriptors?: OutputDescriptorsSpec;
 }
 
 /** Pure-presentation constructs may appear in the ordered interface too. */
 export interface SectionSpec {
-  readonly kind: 'section'
-  readonly id: string
-  readonly displayName?: string
-  readonly collapsedByDefault?: boolean
+  readonly kind: "section";
+  readonly id: string;
+  readonly displayName?: string;
+  readonly collapsedByDefault?: boolean;
 }
 
-export type InterfaceItem = InputSpec | OutputSpec | SectionSpec
+export type InterfaceItem = InputSpec | OutputSpec | SectionSpec;
 
 // ---------------------------------------------------------------------------
 // NodeSchema
@@ -748,9 +845,9 @@ export type InterfaceItem = InputSpec | OutputSpec | SectionSpec
  * never by a single hop.
  */
 export interface DeprecationInfo {
-  readonly message: string
-  readonly since?: string
-  readonly replacement?: string
+  readonly message: string;
+  readonly since?: string;
+  readonly replacement?: string;
 }
 
 /**
@@ -759,25 +856,25 @@ export interface DeprecationInfo {
  * 'deprecated' = listed but demoted; 'hidden' = not listed at all (loading
  * old workflows still works). Omitted = normal.
  */
-export type SearchVisibility = 'deprecated' | 'hidden'
+export type SearchVisibility = "deprecated" | "hidden";
 
 export type PackAssetSource =
-  | { readonly type: 'packaged'; readonly pack: string; readonly path: string }
-  | { readonly type: 'remote'; readonly url: string }
+  | { readonly type: "packaged"; readonly pack: string; readonly path: string }
+  | { readonly type: "remote"; readonly url: string };
 
 /** Descriptor for immutable bytes declared by a pack; never the bytes themselves. */
 export interface PackAssetDescriptor {
-  readonly id: string
-  readonly name: string
+  readonly id: string;
+  readonly name: string;
   /** Usually blake3:<64 hex>; kept prefix-tolerant for rolling digest upgrades. */
-  readonly digest: string
-  readonly kind?: string
-  readonly size?: number
-  readonly mediaType?: string
-  readonly metadata?: Readonly<Record<string, unknown>>
-  readonly sources?: readonly PackAssetSource[]
+  readonly digest: string;
+  readonly kind?: string;
+  readonly size?: number;
+  readonly mediaType?: string;
+  readonly metadata?: Readonly<Record<string, unknown>>;
+  readonly sources?: readonly PackAssetSource[];
   /** Node types whose instantiation makes this asset a job requirement. */
-  readonly nodes?: readonly string[]
+  readonly nodes?: readonly string[];
 }
 
 /**
@@ -790,13 +887,13 @@ export interface PackAssetDescriptor {
  * from schema signatures and cache identity on both ends.
  */
 export interface PackInfo {
-  readonly displayName: string
+  readonly displayName: string;
   /** Short ASCII (<= 8) for search/tooltips. */
-  readonly abbr?: string
+  readonly abbr?: string;
   /** Single-grapheme badge glyph (emoji allowed). */
-  readonly mark?: string
+  readonly mark?: string;
   /** #rrggbb chip color. */
-  readonly color?: string
+  readonly color?: string;
   /**
    * Raster chip icon (64x64 static PNG/WebP), served at
    * GET /api/packs/{packId}/icon. The digest is the immutable content
@@ -804,7 +901,7 @@ export interface PackInfo {
    * so decoded bitmaps cache forever. Presence here is the ONLY fetch
    * signal - never probe the endpoint blindly.
    */
-  readonly icon?: PackIcon
+  readonly icon?: PackIcon;
   /**
    * Provenance (environment stamping): all omitted-when-unknown, never
    * null. version appears only for registry releases - unpublished
@@ -814,31 +911,31 @@ export interface PackInfo {
    * 'local:<path>'; publisher is 'local' for unpublished installs.
    * Records, never identity: nothing load-bearing reads these.
    */
-  readonly version?: string
-  readonly artifactDigest?: string
-  readonly source?: string
-  readonly publisher?: string
+  readonly version?: string;
+  readonly artifactDigest?: string;
+  readonly source?: string;
+  readonly publisher?: string;
   /** Pack asset declarations, descriptors only; absent means none declared. */
-  readonly assets?: readonly PackAssetDescriptor[]
+  readonly assets?: readonly PackAssetDescriptor[];
   /**
    * Pack-shipped blueprints (premade subgraph documents): full descriptors
    * inline so search/browse never fetches bodies. The body rides
    * GET /api/packs/{packId}/blueprints/{id} (immutable, digest ETag).
    * Absent when the pack ships none.
    */
-  readonly blueprints?: readonly PackBlueprintDescriptor[]
+  readonly blueprints?: readonly PackBlueprintDescriptor[];
   /** Immutable pack locale catalogs: canonical locale tag -> exact content digest. */
-  readonly locales?: Readonly<Record<string, string>>
+  readonly locales?: Readonly<Record<string, string>>;
   /** Pack declares a validated settings schema available from the pack settings endpoint. */
-  readonly settings?: true
+  readonly settings?: true;
 }
 
 /** Descriptor for a pack's chip icon; bytes are fetched lazily by digest. */
 export interface PackIcon {
   /** 'sha256:<hex>' content digest; the icon endpoint's ETag. */
-  readonly digest: string
+  readonly digest: string;
   /** 'image/png' | 'image/webp' (sniffed server-side from actual bytes). */
-  readonly mediaType: string
+  readonly mediaType: string;
 }
 
 /**
@@ -851,16 +948,16 @@ export interface PackIcon {
  */
 export interface PackBlueprintDescriptor {
   /** Blueprint id within the pack (closed name grammar, backend-validated). */
-  readonly id: string
-  readonly name: string
-  readonly description?: string
-  readonly tags?: readonly string[]
+  readonly id: string;
+  readonly name: string;
+  readonly description?: string;
+  readonly tags?: readonly string[];
   /** 'sha256:<hex>' over the exact body bytes; the body endpoint's ETag. */
-  readonly digest: string
+  readonly digest: string;
   /** Declared boundary input type ids (advisory, verbatim passthrough). */
-  readonly boundaryInputs?: readonly string[]
+  readonly boundaryInputs?: readonly string[];
   /** Declared boundary output type ids (advisory, verbatim passthrough). */
-  readonly boundaryOutputs?: readonly string[]
+  readonly boundaryOutputs?: readonly string[];
 }
 
 /**
@@ -870,36 +967,36 @@ export interface PackBlueprintDescriptor {
  * the full graph for server-owned lowering.
  */
 export interface NodeSelectorSpec {
-  readonly input: string
-  readonly branches: Readonly<{ false: string; true: string }>
+  readonly input: string;
+  readonly branches: Readonly<{ false: string; true: string }>;
 }
 
-export type SelectorBranchDisplay = 'active' | 'inactive' | 'neutral'
+export type SelectorBranchDisplay = "active" | "inactive" | "neutral";
 
-export type ExecutionArm = 'native' | 'comfyui'
+export type ExecutionArm = "native" | "comfyui";
 
-export type ConditionalWidgetValue = null | string | boolean | number
+export type ConditionalWidgetValue = null | string | boolean | number;
 
 export interface ConditionalWidgetCondition {
-  readonly input: string
-  readonly values: readonly ConditionalWidgetValue[]
+  readonly input: string;
+  readonly values: readonly ConditionalWidgetValue[];
 }
 
 export interface ConditionalWidgetGroup {
-  readonly input: string
-  readonly values: readonly ConditionalWidgetValue[]
-  readonly members: readonly string[]
-  readonly requires?: readonly ConditionalWidgetCondition[]
+  readonly input: string;
+  readonly values: readonly ConditionalWidgetValue[];
+  readonly members: readonly string[];
+  readonly requires?: readonly ConditionalWidgetCondition[];
 }
 
-export type MirrorKind = 'expression' | 'glsl'
+export type MirrorKind = "expression" | "glsl";
 
-export type MirrorPrecision = 'exact' | 'bounded'
+export type MirrorPrecision = "exact" | "bounded";
 
 /** Declared accuracy bounds for a bounded mirror; at least one bound is present. */
 export interface MirrorTolerance {
-  readonly relative?: number
-  readonly perChannel?: number
+  readonly relative?: number;
+  readonly perChannel?: number;
 }
 
 /**
@@ -913,11 +1010,11 @@ export interface MirrorTolerance {
  * 'bounded' mirrors declare their tolerance.
  */
 export interface MirrorSpec {
-  readonly kind: MirrorKind
-  readonly precision: MirrorPrecision
-  readonly tolerance?: MirrorTolerance
-  readonly grammarVersion?: number
-  readonly source?: string
+  readonly kind: MirrorKind;
+  readonly precision: MirrorPrecision;
+  readonly tolerance?: MirrorTolerance;
+  readonly grammarVersion?: number;
+  readonly source?: string;
   /**
    * Combo values the mirror covers (wire 30): each key names a declared
    * combo input and maps to the option keys the mirror can reproduce. An
@@ -927,25 +1024,25 @@ export interface MirrorSpec {
    * estimates rather than missing ones. Absent means the mirror covers
    * the node's whole input space.
    */
-  readonly applies?: Readonly<Record<string, readonly string[]>>
+  readonly applies?: Readonly<Record<string, readonly string[]>>;
 }
 
 export interface NodeSchema {
   /** Node type id ('KSampler') or subgraph-derived id ('#<GraphDefId>'). */
-  readonly type: string
+  readonly type: string;
   /** Frontend-owned node kind that is never sent to an execution backend. */
-  readonly virtual?: true
-  readonly displayName: string
-  readonly category: string
+  readonly virtual?: true;
+  readonly displayName: string;
+  readonly category: string;
   /** Backend-declared role used to bind rich editors without node-type knowledge. */
-  readonly editorRole?: string
+  readonly editorRole?: string;
   /**
    * Owning pack id, host-attached by the backend at schema collection
    * (never self-claimed by the schema): 'core' for Dinkster std nodes, the
    * pack's id otherwise. Absent on non-Dinkster sources (ComfyUI V1,
    * subgraph-derived). Presentation/attribution only - never identity.
    */
-  readonly pack?: string
+  readonly pack?: string;
   /**
    * Backend-computed content hash of the node's computational interface
    * (Dinkster native only; presentation/lifecycle/admission hints excluded -
@@ -955,16 +1052,16 @@ export interface NodeSchema {
    * (interface unchanged), or a dev pack's signature can change with no
    * version bump.
    */
-  readonly signature?: string
+  readonly signature?: string;
   /** User-facing execution implementations available for this node type. */
-  readonly executionArms?: readonly ExecutionArm[]
-  readonly description?: string
-  readonly source: SchemaSource
+  readonly executionArms?: readonly ExecutionArm[];
+  readonly description?: string;
+  readonly source: SchemaSource;
   /** Ordered as declared. Inputs, outputs, sections - any order. */
-  readonly items: readonly InterfaceItem[]
+  readonly items: readonly InterfaceItem[];
   /** Type authority for explicit occurrence-authored extra input names. Absent means closed. */
-  readonly additionalInputs?: TypeExpr
-  readonly isOutputNode: boolean
+  readonly additionalInputs?: TypeExpr;
+  readonly isOutputNode: boolean;
   /**
    * This node's execution emits live previews (sampling previews etc.).
    * Declarative capability from the backend schema (wire 24): gates the
@@ -974,51 +1071,54 @@ export interface NodeSchema {
    * (older backends: absent everywhere, and consumers should keep the
    * affordances available rather than hide them all).
    */
-  readonly emitsPreviews?: boolean
+  readonly emitsPreviews?: boolean;
   /** Execution may request unsupported runtime graph expansion (wire 46). */
-  readonly mayExpandGraph?: boolean
+  readonly mayExpandGraph?: boolean;
   /** Full help content is available from the paged docs catalog (wire 42). */
-  readonly hasDocs?: boolean
+  readonly hasDocs?: boolean;
   /**
    * Frontend-renderable mirror of this node's computation (wire 29).
    * Presentation only: excluded from interface signatures, never executed
    * by the backend, and absent on nodes without a declared mirror.
    */
-  readonly mirror?: MirrorSpec
+  readonly mirror?: MirrorSpec;
   readonly chunkSafe?: {
-    readonly inputs: readonly string[]
-    readonly outputs: readonly string[]
-    readonly applies?: Readonly<Record<string, readonly string[]>>
-  }
+    readonly inputs: readonly string[];
+    readonly outputs: readonly string[];
+    readonly applies?: Readonly<Record<string, readonly string[]>>;
+  };
   /** Legacy V1 boolean flag; Dinkster backends use `deprecation` instead. */
-  readonly deprecated?: boolean
+  readonly deprecated?: boolean;
   /** Structured deprecation (message/since/replacement pointer). */
-  readonly deprecation?: DeprecationInfo
+  readonly deprecation?: DeprecationInfo;
   /** Rules shipped by the successor; source node schemas need not be served. */
-  readonly replacements?: readonly ReplacementRule[]
+  readonly replacements?: readonly ReplacementRule[];
   /** Explicit search demotion; omitted = normal. See searchVisibilityOf. */
-  readonly searchVisibility?: SearchVisibility
-  readonly experimental?: boolean
-  readonly searchAliases?: readonly string[]
+  readonly searchVisibility?: SearchVisibility;
+  readonly experimental?: boolean;
+  readonly searchAliases?: readonly string[];
   /** Frontend-only discoverability vocabulary (wire v8; never resolution or identity). */
-  readonly searchTerms?: readonly string[]
+  readonly searchTerms?: readonly string[];
   /**
    * Historical alias metadata retained from schema payloads. Native registry
    * resolution ignores it and accepts only exact registered node IDs.
    */
-  readonly aliases?: readonly string[]
+  readonly aliases?: readonly string[];
   /** Hidden inputs the compiler must inject (V1 wire names preserved). */
-  readonly hidden?: readonly string[]
+  readonly hidden?: readonly string[];
   /** Optional server-owned document-time branch selector (schema wire 15). */
-  readonly selector?: NodeSelectorSpec
+  readonly selector?: NodeSelectorSpec;
   /** Presentation-only visibility groups for top-level static widgets (wire 27). */
-  readonly widgetGroups?: readonly ConditionalWidgetGroup[]
-  readonly ext?: Readonly<Record<string, unknown>>
+  readonly widgetGroups?: readonly ConditionalWidgetGroup[];
+  readonly ext?: Readonly<Record<string, unknown>>;
 }
 
-export function schemaForEditorRole(schemas: Iterable<NodeSchema>, role: string): NodeSchema | undefined {
-  const matches = [...schemas].filter((schema) => schema.editorRole === role)
-  return matches.length === 1 ? matches[0] : undefined
+export function schemaForEditorRole(
+  schemas: Iterable<NodeSchema>,
+  role: string,
+): NodeSchema | undefined {
+  const matches = [...schemas].filter((schema) => schema.editorRole === role);
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 /**
@@ -1030,19 +1130,19 @@ export const selectorBranchDisplay = (
   schema: NodeSchema,
   values: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, SelectorBranchDisplay>> | undefined => {
-  const selector = schema.selector
-  if (selector === undefined) return undefined
-  const selected = values[selector.input]
-  if (typeof selected !== 'boolean') {
+  const selector = schema.selector;
+  if (selector === undefined) return undefined;
+  const selected = values[selector.input];
+  if (typeof selected !== "boolean") {
     return {
-      [selector.branches.false]: 'neutral',
-      [selector.branches.true]: 'neutral',
-    }
+      [selector.branches.false]: "neutral",
+      [selector.branches.true]: "neutral",
+    };
   }
-  const active = selector.branches[String(selected) as 'false' | 'true']
-  const inactive = selector.branches[String(!selected) as 'false' | 'true']
-  return { [active]: 'active', [inactive]: 'inactive' }
-}
+  const active = selector.branches[String(selected) as "false" | "true"];
+  const inactive = selector.branches[String(!selected) as "false" | "true"];
+  return { [active]: "active", [inactive]: "inactive" };
+};
 
 /**
  * Effective search listing for a schema. Explicit `searchVisibility` wins;
@@ -1051,49 +1151,73 @@ export const selectorBranchDisplay = (
  * auto-demotes. (The wire omits 'normal', so a deprecated node cannot
  * currently opt back into normal listing - acceptable until someone asks.)
  */
-export const searchVisibilityOf = (s: NodeSchema): 'normal' | SearchVisibility =>
-  s.searchVisibility ?? (isDeprecated(s) ? 'deprecated' : 'normal')
+export const searchVisibilityOf = (
+  s: NodeSchema,
+): "normal" | SearchVisibility =>
+  s.searchVisibility ?? (isDeprecated(s) ? "deprecated" : "normal");
 
 /** Deprecated via the structured field OR the legacy V1 boolean. */
 export const isDeprecated = (s: NodeSchema): boolean =>
-  s.deprecation !== undefined || s.deprecated === true
+  s.deprecation !== undefined || s.deprecated === true;
 
 /** Convenience accessors (derive, don't store). */
 export const inputsOf = (s: NodeSchema): readonly InputSpec[] =>
-  s.items.filter((i): i is InputSpec => i.kind === 'input')
+  s.items.filter((i): i is InputSpec => i.kind === "input");
 export const outputsOf = (s: NodeSchema): readonly OutputSpec[] =>
-  s.items.filter((i): i is OutputSpec => i.kind === 'output')
+  s.items.filter((i): i is OutputSpec => i.kind === "output");
 export const hasPreviewSurface = (s: NodeSchema): boolean =>
-  s.emitsPreviews === true || outputsOf(s).some((output) => output.preview === true)
-export const outputCountInputsOf = (s: NodeSchema): readonly string[] =>
-  [...new Set(outputsOf(s).flatMap((output) =>
-    output.dynamic?.kind === 'autogrow' && 'count' in output.dynamic
-      ? output.dynamic.count.boundaryProjection?.fixed === true ? [] : [output.dynamic.count.input]
-      : []))]
+  s.emitsPreviews === true ||
+  outputsOf(s).some((output) => output.preview === true);
+export const outputCountInputsOf = (s: NodeSchema): readonly string[] => [
+  ...new Set(
+    outputsOf(s).flatMap((output) =>
+      output.dynamic?.kind === "autogrow" && "count" in output.dynamic
+        ? output.dynamic.count.boundaryProjection?.fixed === true
+          ? []
+          : [output.dynamic.count.input]
+        : [],
+    ),
+  ),
+];
 
 /** Inputs whose literal values determine the edit-time output interface. */
-export const outputSchemaInputsOf = (s: NodeSchema): readonly string[] =>
-  [...new Set([...outputCountInputsOf(s), ...inputsOf(s).filter((input) => input.outputSchemaSource).map((input) => input.id), ...outputsOf(s).flatMap((output) => {
-    const spec = output.outputDescriptors
-    return spec === undefined ? [] : [
-      ...(spec.boundaryProjection?.fixed ? [] : [spec.input]),
-      ...(spec.probe === undefined || spec.boundaryProjection?.assetFixed ? [] : [spec.probe.input]),
-    ]
-  })])]
+export const outputSchemaInputsOf = (s: NodeSchema): readonly string[] => [
+  ...new Set([
+    ...outputCountInputsOf(s),
+    ...inputsOf(s)
+      .filter((input) => input.outputSchemaSource)
+      .map((input) => input.id),
+    ...outputsOf(s).flatMap((output) => {
+      const spec = output.outputDescriptors;
+      return spec === undefined
+        ? []
+        : [
+            ...(spec.boundaryProjection?.fixed ? [] : [spec.input]),
+            ...(spec.probe === undefined || spec.boundaryProjection?.assetFixed
+              ? []
+              : [spec.probe.input]),
+          ];
+    }),
+  ]),
+];
 
 /** An input whose concrete COMBO value is edited by a combo dropdown. */
 export const isComboWidgetInput = (spec: InputSpec): boolean =>
-  spec.widget?.widgetType === 'COMBO'
+  spec.widget?.widgetType === "COMBO";
 
 export const isAssetWidgetInput = (spec: InputSpec): boolean =>
-  spec.widget?.widgetType === 'ASSET'
+  spec.widget?.widgetType === "ASSET";
 
 export const isImageAssetInput = (spec: InputSpec): boolean => {
-  const type = canonicalTypeIdOf(spec.type)
-  return spec.hidden !== true && isAssetWidgetInput(spec) &&
-    (type === 'asset<IMAGE>' || type === 'asset<comfy.IMAGE>' ||
-      (type === 'ASSET' && spec.widget?.kind === 'media/image'))
-}
+  const type = canonicalTypeIdOf(spec.type);
+  return (
+    spec.hidden !== true &&
+    isAssetWidgetInput(spec) &&
+    (type === "asset<IMAGE>" ||
+      type === "asset<comfy.IMAGE>" ||
+      (type === "ASSET" && spec.widget?.kind === "media/image"))
+  );
+};
 
 /**
  * Materialize keyed widget defaults for a FRESH node instance. Visible defaults
@@ -1103,15 +1227,20 @@ export const isImageAssetInput = (spec: InputSpec): boolean => {
  * absent.
  */
 export const defaultValuesOf = (s: NodeSchema): Record<string, unknown> => {
-  const values: Record<string, unknown> = {}
+  const values: Record<string, unknown> = {};
   for (const item of s.items) {
-    if (item.kind === 'input' && item.hidden !== true && item.dynamic?.kind !== 'dynamicCombo' &&
-        item.widget && item.widget.default !== undefined) {
-      values[item.id] = item.widget.default
+    if (
+      item.kind === "input" &&
+      item.hidden !== true &&
+      item.dynamic?.kind !== "dynamicCombo" &&
+      item.widget &&
+      item.widget.default !== undefined
+    ) {
+      values[item.id] = item.widget.default;
     }
   }
-  return values
-}
+  return values;
+};
 
 /**
  * Materialize required wire-15 family members and DynamicCombo selections for
@@ -1120,43 +1249,66 @@ export const defaultValuesOf = (s: NodeSchema): Record<string, unknown> => {
  */
 export const initialDynamicStateOf = (
   s: NodeSchema,
-): Record<string, {
-  readonly selected?: string
-  readonly members?: readonly string[]
-  readonly seq?: number
-}> => {
-  const state: Record<string, {
-    readonly selected?: string
-    readonly members?: readonly string[]
-    readonly seq?: number
-  }> = {}
+): Record<
+  string,
+  {
+    readonly selected?: string;
+    readonly members?: readonly string[];
+    readonly seq?: number;
+  }
+> => {
+  const state: Record<
+    string,
+    {
+      readonly selected?: string;
+      readonly members?: readonly string[];
+      readonly seq?: number;
+    }
+  > = {};
   const visit = (items: readonly InputSpec[], prefix: string): void => {
     for (const item of items) {
-      const dynamic = item.dynamic
-      const construct = joinValuePath(prefix, item.id)
-      if (dynamic?.kind === 'autogrow' && dynamic.materialization === 'wire15') {
-        const { min } = autogrowBounds(dynamic)
-        if (min === 0 || dynamic.naming.kind === 'native' ||
-          (dynamic.optionalAfterMinimum && dynamic.template[0]!.optional)) continue
-        const prefix = dynamic.naming.kind === 'prefix' ? dynamic.naming.prefix : ''
-        const members = dynamic.naming.kind === 'names'
-          ? dynamic.naming.names.slice(0, min)
-          : Array.from({ length: min }, (_, index) => dynamic.optionalAfterMinimum
-            ? `${prefix}${index + (dynamic.ordinalOffset ?? 0)}` : `m${index}`)
+      const dynamic = item.dynamic;
+      const construct = joinValuePath(prefix, item.id);
+      if (
+        dynamic?.kind === "autogrow" &&
+        dynamic.materialization === "wire15"
+      ) {
+        const { min } = autogrowBounds(dynamic);
+        if (
+          min === 0 ||
+          dynamic.naming.kind === "native" ||
+          (dynamic.optionalAfterMinimum && dynamic.template[0]!.optional)
+        )
+          continue;
+        const prefix =
+          dynamic.naming.kind === "prefix" ? dynamic.naming.prefix : "";
+        const members =
+          dynamic.naming.kind === "names"
+            ? dynamic.naming.names.slice(0, min)
+            : Array.from({ length: min }, (_, index) =>
+                dynamic.optionalAfterMinimum
+                  ? `${prefix}${index + (dynamic.ordinalOffset ?? 0)}`
+                  : `m${index}`,
+              );
         state[construct] = {
           members,
-          ...(dynamic.naming.kind === 'prefix' ? { seq: min } : {}),
-        }
-        for (const member of members) visit(dynamic.template, joinValuePath(construct, member))
-        continue
+          ...(dynamic.naming.kind === "prefix" ? { seq: min } : {}),
+        };
+        for (const member of members)
+          visit(dynamic.template, joinValuePath(construct, member));
+        continue;
       }
-      if (dynamic?.kind !== 'dynamicCombo' || dynamic.materialization !== 'wire15') continue
-      const option = dynamic.options[0]
-      if (option === undefined) continue
-      state[construct] = { selected: option.key }
-      visit(option.inputs, construct)
+      if (
+        dynamic?.kind !== "dynamicCombo" ||
+        dynamic.materialization !== "wire15"
+      )
+        continue;
+      const option = dynamic.options[0];
+      if (option === undefined) continue;
+      state[construct] = { selected: option.key };
+      visit(option.inputs, construct);
     }
-  }
-  visit(inputsOf(s), '')
-  return state
-}
+  };
+  visit(inputsOf(s), "");
+  return state;
+};
