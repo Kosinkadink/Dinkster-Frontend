@@ -23,6 +23,10 @@ PLY headers distinguish gaussian data from ordinary mesh and point data.
 Only canonical relative sidecar names are accepted; manifests cannot grant
 arbitrary URLs or filesystem paths.
 
+Embedded GLTF and GLB image buffer views use the model's granted bytes.
+Their loader-created URLs remain scoped to that image load and are revoked
+on success or failure; authored blob URLs still require an explicit grant.
+
 ## Rendering model
 
 A 3D preview has two presentation modes:

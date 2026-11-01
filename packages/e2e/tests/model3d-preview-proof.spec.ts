@@ -403,6 +403,89 @@ test('canonical FILE_3D final peek renders original GLTF with granted sidecars a
   expect(await page.evaluate(() => (window as unknown as { finishFile3dProof: () => Promise<boolean> }).finishFile3dProof())).toBe(true)
 })
 
+test('canonical FILE_3D embedded GLB textures render without granting unrelated blob URLs', async ({ page }) => {
+  const result = await page.evaluate(async (bytes) => {
+    const viewerPath = '/src/model3d-viewer.ts'
+    const { renderModel3dPoster, mountModel3dViewer } = await import(viewerPath)
+    const packed = new Uint8Array(bytes)
+    const length = new DataView(packed.buffer).getUint32(12, true)
+    const json = JSON.parse(new TextDecoder().decode(packed.slice(20, 20 + length)))
+    const image = document.createElement('canvas'); image.width = 2; image.height = 2
+    const paint = image.getContext('2d')!; paint.fillStyle = '#00ff00'; paint.fillRect(0, 0, 2, 2)
+    const png = new Uint8Array(await (await new Promise<Blob>((resolve) => image.toBlob((blob) => resolve(blob!)))).arrayBuffer())
+    const binary = new Uint8Array(60 + png.length)
+    binary.set(packed.slice(28 + length, 28 + length + 36))
+    new Float32Array(binary.buffer, 36, 6).set([0, 0, 1, 0, 0.5, 1])
+    binary.set(png, 60)
+    json.buffers[0].byteLength = binary.length
+    json.bufferViews.push({ buffer: 0, byteOffset: 36, byteLength: 24 }, { buffer: 0, byteOffset: 60, byteLength: png.length })
+    json.accessors.push({ bufferView: 1, componentType: 5126, count: 3, type: 'VEC2' })
+    json.meshes[0].primitives[0].attributes.TEXCOORD_0 = 1
+    json.images = [{ bufferView: 2, mimeType: 'image/png' }]
+    json.textures = [{ source: 0 }]
+    json.materials[0].pbrMetallicRoughness.baseColorFactor = [1, 1, 1, 1]
+    json.materials[0].pbrMetallicRoughness.baseColorTexture = { index: 0 }
+    json.extensionsUsed = ['KHR_materials_unlit']
+    json.materials[0].extensions = { KHR_materials_unlit: {} }
+    const text = new TextEncoder().encode(JSON.stringify(json))
+    const jsonSize = Math.ceil(text.length / 4) * 4; const binarySize = Math.ceil(binary.length / 4) * 4
+    const glb = new Uint8Array(28 + jsonSize + binarySize); const header = new DataView(glb.buffer)
+    header.setUint32(0, 0x46546c67, true); header.setUint32(4, 2, true); header.setUint32(8, glb.length, true)
+    header.setUint32(12, jsonSize, true); header.setUint32(16, 0x4e4f534a, true)
+    glb.fill(0x20, 20, 20 + jsonSize); glb.set(text, 20)
+    header.setUint32(20 + jsonSize, binarySize, true); header.setUint32(24 + jsonSize, 0x004e4942, true); glb.set(binary, 28 + jsonSize)
+    const url = URL.createObjectURL(new Blob([glb])); const host = document.createElement('div')
+    host.style.cssText = 'width:400px;height:300px'; document.body.append(host)
+    const createUrl = URL.createObjectURL.bind(URL)
+    const embeddedUrls: string[] = []
+    URL.createObjectURL = (blob) => { const url = createUrl(blob); embeddedUrls.push(url); return url }
+    const green = (bitmap: ImageBitmap): number => {
+      const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height
+      const context = canvas.getContext('2d')!; context.drawImage(bitmap, 0, 0); bitmap.close()
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+      let count = 0
+      for (let i = 0; i < pixels.length; i += 4) if (pixels[i + 1]! > 200 && pixels[i]! < 30 && pixels[i + 2]! < 30) count++
+      return count
+    }
+    try {
+      const poster = await renderModel3dPoster(url, 'model/gltf-binary', { resources: {} })
+      const posterGreen = green(poster.image)
+      const viewer = await mountModel3dViewer(host, url, 'model/gltf-binary', { resources: {} })
+      try {
+        const capture = await viewer.capture(320, 240)
+        const invalid = glb.slice(); invalid.fill(0, 28 + jsonSize + 60)
+        const invalidUrl = createUrl(new Blob([invalid]))
+        let failure = ''
+        try {
+          const invalidPoster = await renderModel3dPoster(invalidUrl, 'model/gltf-binary', { resources: {} })
+          invalidPoster.image.close()
+        } catch (error) { failure = String(error) }
+        finally { URL.revokeObjectURL(invalidUrl) }
+        const embeddedStillReadable = await Promise.all(embeddedUrls.map((url) => fetch(url).then(() => true, () => false)))
+        const ungrantedImage = createUrl(new Blob([png]))
+        json.images = [{ uri: ungrantedImage }]
+        json.buffers[0].uri = `data:application/octet-stream;base64,${btoa(String.fromCharCode(...binary))}`
+        const ungrantedSource = createUrl(new Blob([JSON.stringify(json)]))
+        let authoredFailure = ''
+        try {
+          const poster = await renderModel3dPoster(ungrantedSource, 'model/gltf+json', { format: 'gltf', resources: {} })
+          poster.image.close()
+        } catch (error) { authoredFailure = String(error) }
+        finally { URL.revokeObjectURL(ungrantedSource); URL.revokeObjectURL(ungrantedImage) }
+        return { posterGreen, orbitGreen: green(await createImageBitmap(capture.image)), failure, embeddedStillReadable, authoredFailure,
+          image: Array.from(new Uint8Array(await capture.image.arrayBuffer())) }
+      } finally { viewer.dispose() }
+    } finally { URL.createObjectURL = createUrl; URL.revokeObjectURL(url); host.remove() }
+  }, Array.from(glb()))
+  expect(result.posterGreen).toBeGreaterThan(100)
+  expect(result.orbitGreen).toBeGreaterThan(100)
+  expect(result.failure).toContain('Embedded 3D texture failed to load')
+  expect(result.embeddedStillReadable).toEqual([false, false, false])
+  expect(result.authoredFailure).toContain('3D resource is not granted')
+  mkdirSync(proofDir, { recursive: true })
+  writeFileSync(`${proofDir}/file3d-embedded-texture.png`, Buffer.from(result.image))
+})
+
 test('canonical FILE_3D refuses undeclared GLTF buffers including unrelated blob URLs', async ({ page }) => {
   await page.goto('/')
   const result = await page.evaluate(async (bytes) => {

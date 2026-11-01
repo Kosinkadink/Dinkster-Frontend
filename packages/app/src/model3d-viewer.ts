@@ -183,6 +183,23 @@ const loadFramedScene = async (modules: ThreeModules, src: string, aspect: numbe
   } else if (format === 'glb' || format === 'gltf') {
     const loader = new modules.GLTFLoader(manager)
     if (resources !== undefined) loader.setResourcePath('https://viewport.invalid/')
+    loader.register((parser) => {
+      const loadImageSource = parser.loadImageSource.bind(parser)
+      parser.loadImageSource = (index, imageLoader) => {
+        if (parser.json.images[index].bufferView === undefined) return loadImageSource(index, imageLoader)
+        // GLTFLoader creates these URLs from already-authorized buffer views,
+        // not authored URIs. Keep their authority local to this image load.
+        const embeddedManager = new THREE.LoadingManager()
+        embeddedManager.onError = (url) => {
+          URL.revokeObjectURL(url)
+          resourceError = new Error('Embedded 3D texture failed to load')
+        }
+        const embeddedLoader = Object.create(imageLoader) as typeof imageLoader
+        embeddedLoader.manager = embeddedManager
+        return loadImageSource(index, embeddedLoader)
+      }
+      return { name: 'embedded-image-authority' }
+    })
     const gltf = await loader.loadAsync(src)
     model = gltf.scene
     animations = gltf.animations
