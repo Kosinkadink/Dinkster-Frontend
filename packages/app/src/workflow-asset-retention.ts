@@ -1,14 +1,21 @@
 import { uuidv4, type DinksterConnection, type RetainedAssets } from '@dinkster/client'
 import {
+  EMPTY_CONNECTIVITY,
   MASK_PAINT_SOURCE_EXT_KEY,
+  MAX_DYNAMIC_STATE_DEPTH,
+  buildGraphConnectivity,
   documentResolver,
+  elabInputsOf,
+  elaborateInterface,
   maskPaintSourceNodeId,
   parseTypedLiteralWire,
   replayHistoryOps,
   typeExprFromTypeId,
   valueSourceConsumersOf,
+  valueKeyOf,
   type CommandOutcome,
   type HistorySnapshot,
+  type GraphDef,
   type Json,
   type NodeData,
   type NodeSchema,
@@ -23,6 +30,23 @@ import { scopedStorageKey } from './projects.js'
 
 const primitiveNames = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO'])
 const widgetTypes = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO', 'ASSET'])
+
+function assetFreeDynamicState(value: unknown, depth = 0): boolean {
+  if (depth > MAX_DYNAMIC_STATE_DEPTH || typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  return Object.entries(value).every(([key, entry]) => {
+    if (key === 'selected') return typeof entry === 'string'
+    if (key === 'seq') return Number.isSafeInteger(entry) && entry >= 0
+    if (key === 'members') return Array.isArray(entry) && entry.every((member) => typeof member === 'string')
+    if (key === 'options') return Array.isArray(entry) && entry.every((option) =>
+      typeof option === 'string' || typeof option === 'boolean' || (typeof option === 'number' && Number.isFinite(option)))
+    if (key === 'memberLabels') return typeof entry === 'object' && entry !== null && !Array.isArray(entry) &&
+      Object.values(entry).every((label) => typeof label === 'string')
+    if (key === 'memberState') return typeof entry === 'object' && entry !== null && !Array.isArray(entry) &&
+      Object.values(entry).every((constructs) => typeof constructs === 'object' && constructs !== null && !Array.isArray(constructs) &&
+        Object.values(constructs).every((state) => assetFreeDynamicState(state, depth + 1)))
+    return false
+  })
+}
 
 /** Strict census: unsupported state is incomplete, never an empty complete set. */
 export function workflowAssetRoots(
@@ -80,12 +104,14 @@ export function workflowAssetRoots(
       }
     }
   }
-  const visitNode = (node: NodeData, schemas: SchemaResolver): void => {
+  const visitNode = (node: NodeData, schemas: SchemaResolver, graph: GraphDef): void => {
     if (node.type.startsWith('#')) hasContextualValues = true
     const schema = schemas(node.type)
+    const dynamic = schema?.items.some((item) => (item.kind === 'input' || item.kind === 'output') && item.dynamic !== undefined)
+    if (dynamic) hasContextualValues = true
     // A stable node can resolve differently after its referenced graph changes.
     let checkedSchemas = checkedNodes.get(node)
-    if (checkedSchemas?.has(schema)) return
+    if (!dynamic && checkedSchemas?.has(schema)) return
     if (checkedSchemas === undefined) {
       checkedSchemas = new Set()
       checkedNodes.set(node, checkedSchemas)
@@ -97,19 +123,31 @@ export function workflowAssetRoots(
         !Object.hasOwn(node.ext, MASK_PAINT_SOURCE_EXT_KEY) || maskPaintSourceNodeId(node) === undefined)) complete = false
     checkedExtensions.add(node)
     for (const [key, value] of Object.entries(node)) if (key !== 'ext') checkExtensions(value as Json)
-    if (schema === undefined || (node.dynamic !== undefined && Object.keys(node.dynamic).length > 0)) complete = false
+    if (schema === undefined) { complete = false; return }
+    checkExtensions(schema as unknown as Json)
+    if (Object.values(node.dynamic ?? {}).some((state) => !assetFreeDynamicState(state))) complete = false
     for (const item of schema?.items ?? []) {
       if (item.kind !== 'input' && item.kind !== 'output') complete = false
-      if (item.kind === 'input') {
-        if (item.dynamic !== undefined || (item.ext !== undefined && Object.keys(item.ext).length > 0)) complete = false
-        if (item.widget !== undefined && !widgetTypes.has(item.widget.widgetType)) complete = false
-        if (!Object.hasOwn(node.values, item.id) && item.widget?.default !== undefined) valueRoots(item.widget.default as Json, item.type)
+    }
+    const connectivity = dynamic ? buildGraphConnectivity(graph)(node.id) : EMPTY_CONNECTIVITY
+    const active = elaborateInterface(schema, node, connectivity, { promoteGhosts: false })
+    const stored = dynamic ? elaborateInterface(schema, node, connectivity, { promoteGhosts: false, includeDormant: true }) : active
+    if (active.diagnostics.length > 0 || stored.diagnostics.length > 0) complete = false
+    const inputs = elabInputsOf(stored)
+    for (const { spec } of inputs) {
+      if (spec.ext !== undefined && Object.keys(spec.ext).length > 0) complete = false
+      if (spec.widget !== undefined && !widgetTypes.has(spec.widget.widgetType)) complete = false
+    }
+    for (const input of elabInputsOf(active)) {
+      if (input.ancestry?.some((ancestor) => ancestor.ghost)) continue
+      if (!Object.hasOwn(node.values, valueKeyOf(input)) && input.spec.widget?.default !== undefined) {
+        valueRoots(input.spec.widget.default as Json, input.spec.type)
       }
     }
     for (const [input, value] of Object.entries(node.values)) {
-      const spec = schema?.items.find((item) => item.kind === 'input' && item.id === input)
-      if (spec?.kind !== 'input') complete = false
-      else valueRoots(value, spec.type)
+      const matching = inputs.filter((item) => valueKeyOf(item) === input)
+      if (matching.length === 0) complete = false
+      for (const item of matching) valueRoots(value, item.spec.type)
     }
   }
   const visit = (snapshot: WorkflowDocument, changes?: readonly PatchOp[]): void => {
@@ -119,17 +157,18 @@ export function workflowAssetRoots(
     if (!hasContextualValues && changes !== undefined && changes.every((op) =>
       op.path.length >= 4 && op.path[0] === 'graphs' && op.path[2] === 'nodes' &&
       !op.path.slice(0, 4).includes('ext'))) {
-      const nodes = new Set(changes.flatMap((op) => {
-        const node = snapshot.graphs[String(op.path[1])]?.nodes[String(op.path[3])]
-        return node === undefined ? [] : [node]
+      const nodes = new Map(changes.flatMap((op) => {
+        const graph = snapshot.graphs[String(op.path[1])]
+        const node = graph?.nodes[String(op.path[3])]
+        return node === undefined ? [] : [[node, graph!] as const]
       }))
-      if ([...nodes].every((node) => !node.type.startsWith('#'))) {
-        for (const node of nodes) visitNode(node, schemas)
+      if ([...nodes.keys()].every((node) => !node.type.startsWith('#'))) {
+        for (const [node, graph] of nodes) visitNode(node, schemas, graph)
         return
       }
     }
     for (const graph of Object.values(snapshot.graphs)) {
-      for (const node of Object.values(graph.nodes)) visitNode(node, schemas)
+      for (const node of Object.values(graph.nodes)) visitNode(node, schemas, graph)
       for (const source of Object.values(graph.valueSources ?? {})) {
         if (source.spec?.options !== undefined) complete = false
         const typed = parseTypedLiteralWire(source.value)

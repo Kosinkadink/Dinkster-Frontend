@@ -105,6 +105,62 @@ describe('retained app dispatch', () => {
 })
 
 describe('workflow candidate admission', () => {
+  const assetType = { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } as const
+  const assetInput = (id: string, letter: string) => ({ kind: 'input' as const, id,
+    type: assetType, optional: true, widget: { widgetType: 'ASSET' as const, options: {}, default: asset(letter) } })
+  const dynamicSchema: NodeSchema = { ...schema, items: [
+    { kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: true,
+      dynamic: { kind: 'dynamicCombo', options: [
+        { key: 'a', inputs: [assetInput('file', 'a')] },
+        { key: 'b', inputs: [assetInput('file', 'b')] },
+      ] } },
+    { kind: 'input', id: 'slot', type: assetType, optional: true,
+      dynamic: { kind: 'dynamicSlot', slotType: assetType, inputs: [assetInput('file', 'c')] } },
+    { kind: 'input', id: 'items', type: assetType, optional: true,
+      dynamic: { kind: 'autogrow', template: [assetInput('file', 'd')],
+        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 } } },
+  ] }
+
+  it('retains inactive branch, disconnected slot and family values but only effective defaults', () => {
+    const local = session()
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Loader', dynamic: { mode: { selected: 'a' }, items: { members: ['m0'] } },
+        values: { 'mode.[b].file': asset('e'), 'slot.file': asset('f'), 'items.file#m0': asset('c') } },
+    } } } }
+    expect(workflowAssetRoots(document, local.historySnapshot(), () => dynamicSchema))
+      .toEqual({ complete: true, digests: ['a', 'c', 'e', 'f'].map((letter) => asset(letter).digest) })
+  })
+
+  it.each(['metadata', 'nested-metadata', 'unknown-value', 'budget', 'wire15'] as const)(
+    'keeps unsupported dynamic census incomplete: %s', (scenario) => {
+      const local = session()
+      const node = { id: asNodeId('n0'), type: 'Loader', values: scenario === 'unknown-value' ? { unknown: asset('e') } : {},
+        dynamic: scenario === 'metadata' ? { mode: { hidden: asset('e') } }
+          : scenario === 'nested-metadata' ? { items: { members: ['m0'], memberState: { m0: { mode: { hidden: asset('e') } } } } }
+            : scenario === 'budget' ? { items: { members: Array.from({ length: 600 }, (_, index) => `m${index}`) } } : {} }
+      const document = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: { n0: node } } } } as WorkflowDocument
+      const candidate: NodeSchema = scenario === 'wire15' ? { ...dynamicSchema, items: [{
+        kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: true,
+        dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'a', inputs: [assetInput('file', 'a')] }] },
+      }] } : dynamicSchema
+      expect(workflowAssetRoots(document, local.historySnapshot(), () => candidate).complete).toBe(false)
+    },
+  )
+
+  it('rechecks shared dynamic nodes when historical connectivity activates slot defaults', () => {
+    const local = session()
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Loader', values: {} },
+      n1: { id: asNodeId('n1'), type: 'Loader', values: {} },
+    } } } }
+    const history = { revision: 1, redo: [], undo: [{ forward: [], inverse: [{ op: 'add' as const,
+      path: ['graphs', 'g0', 'links', 'l0'], value: { id: 'l0', from: { node: 'n1', port: 'out' }, to: { node: 'n0', port: 'slot' } },
+    }] }] }
+    expect(workflowAssetRoots(document, local.historySnapshot(), () => dynamicSchema).digests).toEqual([asset('a').digest])
+    expect(workflowAssetRoots(document, history, () => dynamicSchema))
+      .toEqual({ complete: true, digests: ['a', 'c'].map((letter) => asset(letter).digest) })
+  })
+
   it.each(['asset', 'scalar', 'disconnected', 'unknown-port', 'mixed'] as const)(
     'requires supported types from every literal consumer: %s', (scenario) => {
       const local = session()

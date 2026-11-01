@@ -88,9 +88,15 @@ incomplete and refuse publication.
 The union includes current, undo, redo, proposed and shared pending roots.
 Exact acknowledgment or
 exact owner reconciliation precedes publication; a changed destination or stale
-candidate is refused. Unsupported schemas, dynamic state and unrecognized extension
+candidate is refused. Unsupported schemas, opaque dynamic state and unrecognized extension
 records are incomplete, not empty root sets. Ordinary synchronous dispatch is unchanged.
 Schema defaults contribute roots only when the node has no stored override.
+Dynamic inputs use canonical elaborated identities: stored inactive combo branches,
+disconnected slot dependents and persisted family members contribute roots, while
+defaults come only from the active interface. Historical connectivity changes
+recheck dynamic nodes even when their objects are shared. Dynamic metadata must
+have the known asset-free shape. Unknown stored keys, elaboration diagnostics or
+budget exhaustion, and dormant wire-15 inputs remain incomplete.
 An effective unresolved selection name is incomplete, not an asset identity.
 Untyped literal producers use every connected static consumer's input type;
 unconnected producers, unknown ports and unsupported consumer types remain
