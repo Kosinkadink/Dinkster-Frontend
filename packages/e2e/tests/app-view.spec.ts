@@ -646,6 +646,123 @@ test('combo authored menus and refresh selections await final outcomes', {
   await page.screenshot({ path: info.outputPath('combo-refresh-accepted.png') })
 })
 
+test('layout gestures await acceptance before focus and stored placement changes', {
+  annotation: { type: 'mock-rename-dispatch' },
+}, async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    for (const inputId of ['title', 'enabled']) app.dispatchTo(app.activeTab()!, {
+      command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId },
+    })
+    for (const [id, inputId, x] of [['title-placement', 'title', 0], ['toggle-placement', 'enabled', 6]] as const) {
+      app.dispatchTo(app.activeTab()!, { command: 'app.layout.add', params: {
+        item: { id, kind: 'control', ref: { graphId: 'g0', nodeId: 'widgets', inputId }, x, y: 0, w: 6, h: 3 },
+      } })
+    }
+  })
+  await selectView(page, 'App view')
+  await enterArrange(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__layoutPending = []
+    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve, reject) => {
+      ;(window as any).__layoutPending.push((result: string) => {
+        if (result === 'throw') reject(new Error('Layout transport failed for test'))
+        else resolve(result === 'accept' ? dispatch(tab, invocation) : {
+          ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Layout edit refused for test' }],
+        })
+      })
+    })
+  })
+  const count = () => page.evaluate(() => (window as any).__layoutPending.length)
+  const settle = (index: number, result: string) => page.evaluate(({ index, result }) => (window as any).__layoutPending[index](result), { index, result })
+  const grid = page.locator('[data-app-grid-id="title-placement"]')
+  const notice = page.getByTestId('app-layout-gesture-error')
+  const toggle = page.getByTestId('app-view-arrange-toggle')
+  await page.screenshot({ path: testInfo.outputPath('layout-default.png') })
+  await grid.focus()
+  await grid.press('ArrowRight')
+  await expect(grid).toHaveAttribute('aria-busy', 'true')
+  await expect(grid).toHaveAttribute('data-grid-x', '0')
+  await grid.press('ArrowRight')
+  expect(await count()).toBe(1)
+  await toggle.focus()
+  await page.screenshot({ path: testInfo.outputPath('grid-pending.png') })
+  await settle(0, 'refuse')
+  await expect(notice).toHaveText('Layout edit refused for test')
+  await expect(toggle).toBeFocused()
+  await expect(grid).toHaveAttribute('data-grid-x', '0')
+  await page.screenshot({ path: testInfo.outputPath('grid-refused.png') })
+  await grid.press('ArrowRight')
+  await toggle.focus()
+  await settle(1, 'accept')
+  await expect(grid).toHaveAttribute('data-grid-x', '1')
+  await expect(grid).toBeFocused()
+  await expect(notice).toHaveCount(0)
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  await expect(grid).toHaveAttribute('data-grid-x', '0')
+
+  const resize = grid.getByTestId('app-layout-grid-resize-bottom')
+  const box = await resize.boundingBox()
+  if (box === null) throw new Error('Grid resize geometry unavailable')
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 76)
+  await page.mouse.up()
+  await expect(grid).toHaveAttribute('aria-busy', 'true')
+  await expect(grid).toHaveAttribute('data-grid-h', '3')
+  await settle(2, 'accept')
+  await expect(grid).toHaveAttribute('data-grid-h', '4')
+
+  await page.getByTestId('app-layout-breakpoint-mobile').click()
+  const mobile = page.locator('[data-mobile-id="title-placement"]')
+  const order = () => page.getByTestId('app-layout-mobile-placement').evaluateAll((items) => items.map((item) => item.getAttribute('data-mobile-id')))
+  await mobile.press('ArrowDown')
+  await expect(mobile).toHaveAttribute('aria-busy', 'true')
+  await expect(mobile.getByTestId('app-layout-mobile-down')).toBeDisabled()
+  await mobile.press('ArrowDown')
+  expect(await count()).toBe(4)
+  expect(await order()).toEqual(['title-placement', 'toggle-placement'])
+  await toggle.focus()
+  await page.screenshot({ path: testInfo.outputPath('mobile-pending.png') })
+  await settle(3, 'refuse')
+  await expect(notice).toHaveText('Layout edit refused for test')
+  await expect(toggle).toBeFocused()
+  expect(await order()).toEqual(['title-placement', 'toggle-placement'])
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: /^Toggle right rail/ }).click()
+  await expect(notice).toBeInViewport()
+  await page.screenshot({ path: testInfo.outputPath('mobile-refused-narrow.png') })
+  await mobile.getByTestId('app-layout-mobile-down').click()
+  await settle(4, 'accept')
+  await expect.poll(order).toEqual(['toggle-placement', 'title-placement'])
+  await page.screenshot({ path: testInfo.outputPath('mobile-accepted.png') })
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  await expect.poll(order).toEqual(['title-placement', 'toggle-placement'])
+  await mobile.getByTestId('app-layout-mobile-down').click()
+  await settle(5, 'throw')
+  await expect(notice).toHaveText('Layout transport failed for test')
+  await expect(mobile).toHaveAttribute('aria-busy', 'false')
+
+  await mobile.press('ArrowDown')
+  await page.getByTestId('app-layout-breakpoint-desktop').click()
+  await page.getByTestId('app-layout-breakpoint-mobile').click()
+  await mobile.press('ArrowDown')
+  await settle(6, 'refuse')
+  await expect(mobile).toHaveAttribute('aria-busy', 'true')
+  await expect(notice).toHaveCount(0)
+  await toggle.focus()
+  await settle(7, 'accept')
+  await expect.poll(order).toEqual(['toggle-placement', 'title-placement'])
+  await expect(mobile).toBeFocused()
+  await mobile.press('ArrowUp')
+  await page.getByTestId('app-layout-breakpoint-desktop').click()
+  await settle(8, 'accept')
+  await expect(page.getByTestId('app-layout-breakpoint-desktop')).toBeFocused()
+  await expect(notice).toHaveCount(0)
+})
+
 test('boolean and combo controls wait for final command acceptance', {
   annotation: { type: 'mock-rename-dispatch' },
 }, async ({ page }, testInfo) => {

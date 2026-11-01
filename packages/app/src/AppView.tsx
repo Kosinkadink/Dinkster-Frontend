@@ -910,9 +910,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     })
   }
 
-  const commitGridGesture = (gesture: GridGesture): void => {
+  const commitGridGesture = async (gesture: GridGesture): Promise<void> => {
     if (!sameGrid(gesture.start, gesture.pending)) {
-      dispatchLayout('app.layout.setGrid', { id: gesture.id, grid: { ...gesture.pending } })
+      if (!await gestureEdit.commit('app.layout.setGrid', { id: gesture.id, grid: { ...gesture.pending } })) return
     }
     focusGridTarget(gesture.id, gesture.keyboardTarget)
   }
@@ -922,7 +922,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     item: GridFlowItem,
     mode: GridPointerMode,
   ): void => {
-    if (event.button !== 0 || !arrange()) return
+    if (event.button !== 0 || !arrange() || gestureEdit.pending()) return
     const surface = event.currentTarget.closest<HTMLElement>('[data-testid="app-layout-grid"]')
     if (surface === null) return
     event.preventDefault()
@@ -1016,6 +1016,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       (target === 'right' && !horizontalKey) ||
       (target === 'bottom' && !verticalKey)) return
     event.preventDefault()
+    if (gestureEdit.pending()) return
     const existing = gridGesture()
     const continuing = existing?.source === 'keyboard' && existing.id === id && existing.keyboardTarget === target
     const start = continuing ? existing.start : item.grid
@@ -1401,14 +1402,21 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       try {
         const outcome = await dispatchLayout(command, params)
         if (owner !== generation || activeTab()?.store !== store) return false
-        if (outcome !== undefined && !outcome.ok) setRefusal(outcome.diagnostics[0]?.message)
+        if (outcome !== undefined && !outcome.ok) setRefusal(outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))
         return outcome?.ok === true
+      } catch (error) {
+        if (owner === generation && activeTab()?.store === store) {
+          setRefusal(error instanceof Error ? error.message : String(error))
+        }
+        return false
       } finally {
         if (owner === generation) setPending(false)
       }
     }
     return { pending, refusal, commit, noticeId }
   }
+
+  const gestureEdit = createLayoutEdit()
 
   const QueuePlacement = (queueProps: {
     readonly flow: Extract<FlowItem, { kind: 'queue' }>
@@ -2239,6 +2247,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         data-grid-y={gridProps.item.grid.y}
         data-grid-w={gridProps.item.grid.w}
         data-grid-h={gridProps.item.grid.h}
+        aria-busy={gestureEdit.pending()}
         style={gridStyle(gridProps.item.grid)}
         tabindex={arrange() ? 0 : undefined}
         aria-label={message('appView.grid.placement', { label: flowLabel(gridProps.item) })}
@@ -2290,9 +2299,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   }
 
   const [mobileDragged, setMobileDragged] = createSolidSignal<{ readonly id: string; readonly index: number }>()
-  const moveMobile = (id: string, index: number): void => {
-    dispatchLayout('app.layout.moveMobile', { id, index })
-  }
+  const moveMobile = (id: string, index: number) =>
+    gestureEdit.commit('app.layout.moveMobile', { id, index })
+
   const focusMobilePlacement = (id: string): void => {
     queueMicrotask(() => {
       for (const element of document.querySelectorAll<HTMLElement>('[data-mobile-id]')) {
@@ -2316,6 +2325,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         data-testid="app-layout-mobile-placement"
         role="listitem"
         data-mobile-id={id()}
+        aria-busy={gestureEdit.pending()}
         tabindex={movable() ? 0 : undefined}
         aria-label={movable() ? message('appView.mobile.placement', { label: flowLabel(mobileProps.item) }) : undefined}
         aria-description={movable() ? message('appView.mobile.instructions') : undefined}
@@ -2333,6 +2343,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
           }
           if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
           event.preventDefault()
+          if (gestureEdit.pending()) return
           const existing = mobileKeyboardGesture()
           const start = existing?.id === placementId
             ? existing.start
@@ -2344,7 +2355,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             setMobileKeyboardGesture({ id: placementId, start, pending })
           }
         }}
-        onKeyUp={(event) => {
+        onKeyUp={async (event) => {
           if (event.target !== event.currentTarget || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
           const placementId = id()
           const completed = mobileKeyboardGesture()
@@ -2352,7 +2363,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
           event.preventDefault()
           setMobileKeyboardGesture(undefined)
           if (completed.pending !== completed.start) {
-            moveMobile(placementId, completed.pending)
+            if (!await moveMobile(placementId, completed.pending)) return
           }
           focusMobilePlacement(placementId)
         }}
@@ -2377,6 +2388,10 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               aria-hidden="true"
               draggable={true}
               onDragStart={(event) => {
+                if (gestureEdit.pending()) {
+                  event.preventDefault()
+                  return
+                }
                 const placementId = id()!
                 setMobileKeyboardGesture(undefined)
                 setMobileDragged({ id: placementId, index: mobileProps.index })
@@ -2391,7 +2406,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               class="app-view-tool"
               data-testid="app-layout-mobile-up"
               aria-label={message('appView.mobile.moveUp', { label: flowLabel(mobileProps.item) })}
-              disabled={mobileProps.index === 0}
+              disabled={gestureEdit.pending() || mobileProps.index === 0}
               onClick={() => moveMobile(id()!, mobileProps.index - 1)}
             ><Icon icon={ArrowUp} /></ProductButton>
             <ProductButton variant="ghost" size="compact"
@@ -2399,7 +2414,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               class="app-view-tool"
               data-testid="app-layout-mobile-down"
               aria-label={message('appView.mobile.moveDown', { label: flowLabel(mobileProps.item) })}
-              disabled={mobileProps.index === mobileItems().length - 1}
+              disabled={gestureEdit.pending() || mobileProps.index === mobileItems().length - 1}
               onClick={() => moveMobile(id()!, mobileProps.index + 1)}
             ><Icon icon={ArrowDown} /></ProductButton>
           </div>
@@ -2466,6 +2481,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
           </ProductButton>
         </Show>
       </header>
+      <Show when={arrange() && gestureEdit.refusal()}>
+        {(text) => <ProductNotice tone="error" testId="app-layout-gesture-error">{text()}</ProductNotice>}
+      </Show>
       <Show when={arrange()}>
         <div class="app-layout-arrange-controls" data-testid="app-layout-arrange-controls">
           <div class="app-layout-breakpoint-toggle" role="group" aria-label={message('appView.breakpoint.label')}>

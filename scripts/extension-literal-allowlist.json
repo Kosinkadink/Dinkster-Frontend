@@ -91,7 +91,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1688,
+      "line": 1696,
       "column": 41,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -99,7 +99,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1736,
+      "line": 1744,
       "column": 24,
       "symbol": "widgetType:LIST",
       "issue": 511
@@ -107,7 +107,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1751,
+      "line": 1759,
       "column": 24,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -115,7 +115,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1751,
+      "line": 1759,
       "column": 55,
       "symbol": "widgetType:FLOAT",
       "issue": 122
@@ -123,7 +123,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1755,
+      "line": 1763,
       "column": 26,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -131,7 +131,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1756,
+      "line": 1764,
       "column": 24,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -139,7 +139,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1761,
+      "line": 1769,
       "column": 52,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -147,7 +147,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1767,
+      "line": 1775,
       "column": 24,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -155,7 +155,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1777,
+      "line": 1785,
       "column": 24,
       "symbol": "widgetType:COLOR",
       "issue": 122
@@ -163,7 +163,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/AppView.tsx",
-      "line": 1788,
+      "line": 1796,
       "column": 24,
       "symbol": "widgetType:VIDEO_EDIT",
       "issue": 122

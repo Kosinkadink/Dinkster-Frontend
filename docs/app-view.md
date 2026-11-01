@@ -78,6 +78,14 @@ ignored while pending. Escape, Tab or an outside click dismisses the menu
 without cancelling a submitted command, and an old completion cannot close a
 newer menu or show a stale refusal.
 
+Grid move/resize gestures and mobile reorder gestures/buttons wait for final
+command acceptance. While a gesture command is pending, further gestures are
+ignored and mobile reorder buttons are disabled. Stored positions and order
+remain unchanged on refusal, with a notice above the Arrange controls; repeat
+the gesture to retry. Keyboard focus is restored only after acceptance in the
+same tab, document session and Arrange breakpoint. Changing that scope clears
+the notice without cancelling a submitted command.
+
 App View uses the shared Product button, text, number, checkbox and select
 controls in both modes. Group and text-style selectors support the same
 combobox keyboard navigation and focus restoration as shell settings.
