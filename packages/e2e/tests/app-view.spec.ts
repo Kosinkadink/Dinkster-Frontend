@@ -6,7 +6,7 @@
  * identical document write a canvas widget edit would produce - then the
  * stale/remove recovery path and the round trip back to the graph editor.
  */
-import { expect, appViewTest as test, type Page } from './fixtures.js'
+import { expect, openRailPanel, appViewTest as test, type Page } from './fixtures.js'
 
 const REMOTE_ROUTE = '/api/choices/dinkster-test-app-view-options'
 
@@ -115,6 +115,97 @@ test.beforeEach(async ({ page }, testInfo) => {
     const tab = window.__dinksterTest!.app.tabs.get().find((candidate) => candidate.id === 'app-view-test')
     return tab !== undefined && 'status' in tab.store
   })
+})
+
+test('control surface group binding waits for final acceptance', {
+  annotation: { type: 'mock-rename-dispatch' },
+}, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  const { surfaceId, groupId } = await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    app.settings.set('features.controlSurfaces.enabled', true)
+    const tab = app.activeTab()!
+    for (const invocation of [
+      { command: 'view.createGroup', params: { graphId: 'g0', title: 'Binding target', bounds: { x: 100, y: 100, width: 250, height: 200 } } },
+      { command: 'surface.add', params: { type: 'core.modePanel', config: { title: 'Mode panel', bindings: [] } } },
+    ]) {
+      const outcome = app.dispatchTo(tab, invocation)
+      if (!outcome.ok) throw new Error(JSON.stringify(outcome.diagnostics))
+    }
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__surfaceGroupPending = []
+    app.dispatchTo = (owner: any, invocation: any) => invocation.command !== 'surface.update'
+      ? dispatch(owner, invocation)
+      : new Promise((resolve, reject) => {
+        ;(window as any).__surfaceGroupPending.push((result: string) => result === 'throw'
+          ? reject(new Error('Group transport refused for test'))
+          : resolve(result === 'accept' ? dispatch(owner, invocation) : {
+              ok: false, diagnostics: [{ severity: 'error', phase: 'command', code: 'test.refused', message: 'Group binding refused for test' }],
+            }))
+      })
+    return { surfaceId: Object.keys(tab.store.doc.surfaces!)[0]!, groupId: Object.keys(tab.store.doc.view.graphs.g0.groups)[0]! }
+  })
+  await openRailPanel(page, 'Control surfaces')
+  const trigger = page.getByTestId(`surface-bind-group-${surfaceId}`)
+  const option = page.getByRole('option', { name: 'Binding target', exact: true })
+  const listbox = page.getByRole('listbox', { name: 'Bind group to surface' })
+  const error = page.getByTestId('surface-group-error')
+  const settle = (result: string) => page.evaluate((result) => (window as any).__surfaceGroupPending.shift()(result), result)
+  const bindings = () => page.evaluate((id) => (window.__dinksterTest!.app.activeTab()!.store.doc.surfaces![id]!.config as any).bindings, surfaceId)
+  await trigger.click()
+  await page.screenshot({ path: testInfo.outputPath('surface-group-default.png') })
+  await option.click()
+  await page.screenshot({ path: testInfo.outputPath('surface-group-before-pending.png') })
+  await expect(trigger).toHaveAttribute('aria-busy', 'true')
+  await expect(listbox).toBeVisible()
+  await expect(option).toHaveAttribute('aria-disabled', 'true')
+  await expect(page.getByTestId('surface-add')).toBeDisabled()
+  expect(await bindings()).toEqual([])
+  await page.screenshot({ path: testInfo.outputPath('surface-group-pending.png') })
+  await settle('refuse')
+  await expect(error).toHaveText('Group binding refused for test')
+  await expect(listbox).toBeVisible()
+  expect(await bindings()).toEqual([])
+  await page.screenshot({ path: testInfo.outputPath('surface-group-refused.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(error).toBeInViewport()
+  await expect(option).toBeInViewport()
+  await page.screenshot({ path: testInfo.outputPath('surface-group-refused-narrow.png') })
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await option.click()
+  await settle('accept')
+  await expect(listbox).toBeHidden()
+  await expect(trigger).toBeFocused()
+  await expect(error).toBeHidden()
+  expect(await bindings()).toEqual([{ kind: 'group', graphId: 'g0', groupId }])
+  await page.screenshot({ path: testInfo.outputPath('surface-group-accepted.png') })
+
+  await page.getByTestId(`surface-unbind-${surfaceId}-0`).click()
+  await settle('accept')
+  await trigger.click()
+  await option.click()
+  await trigger.press('Escape')
+  await trigger.click()
+  await expect(option).toHaveAttribute('aria-disabled', 'true')
+  await settle('refuse')
+  await expect(option).toHaveAttribute('aria-disabled', 'false')
+  await expect(error).toBeHidden()
+  await expect(listbox).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('surface-group-dismissed.png') })
+  await option.click()
+  await settle('throw')
+  await expect(error).toHaveText('Group transport refused for test')
+  await expect(listbox).toBeVisible()
+  await option.click()
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    tab.graphStack.set([...tab.graphStack.get()])
+  })
+  await settle('refuse')
+  await expect(error).toBeHidden()
+  await expect(listbox).toBeVisible()
+  expect(await bindings()).toEqual([])
 })
 
 test('shell named-net display changes await final acceptance', {

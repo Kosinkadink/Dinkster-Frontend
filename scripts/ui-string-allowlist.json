@@ -784,6 +784,11 @@
     "text:(): SuggestionInteraction",
     "text:readonly interaction: SuggestionInteraction"
   ],
+  "SurfacePanel.tsx": [
+    "text:() const [groupRefusal, setGroupRefusal] = createSolidSignal",
+    "text:activeTab()?.execution !== undefined const groupTab = createMemo(activeTab) const [groupPending, setGroupPending] = createSolidSignal",
+    "text:boolean): Promise"
+  ],
   "TemplateGallery.tsx": [
     "text:props.app.libraryBackend()?.connection) const [mountSettings, setMountSettings] = createSignal"
   ],
