@@ -134,6 +134,7 @@ jobs:
       - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
         env:
           CUDA_VISIBLE_DEVICES: ""
+          UV_TORCH_BACKEND: cpu
       # Host interface changes must not invalidate Chromium's loopback requests.
       - run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.audit-assets.config.ts
         env:
@@ -216,6 +217,7 @@ jobs:
       - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
         env:
           CUDA_VISIBLE_DEVICES: ""
+          UV_TORCH_BACKEND: cpu
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
       - name: Install software Vulkan for hosted rendering
         run: |
