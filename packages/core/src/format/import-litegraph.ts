@@ -60,10 +60,7 @@ import { checkDocument } from '../invariants.js'
 import { isPortEndpoint } from '../ids.js'
 import { isAssetRefValue } from '../schema/widget-defaults.js'
 import { importLitegraphSubgraphs } from './import-litegraph-subgraphs.js'
-import {
-  convertLitegraphLoops,
-  convertLitegraphListConsumers,
-} from './import-litegraph-loops.js'
+import { convertLitegraphLists, convertLitegraphLoops, convertLitegraphListConsumers } from './import-litegraph-loops.js'
 
 // -- litegraph wire shapes (loose: this is foreign, hostile JSON) ------------
 
@@ -1064,7 +1061,9 @@ function importLitegraphGraph(
   const importedNodeType = (node: LgNode): string =>
     node.type === UE_SEED_CONTROLLER_TYPE && ueControllerIds.has(node.id) ? 'PrimitiveInt' : node.type
   const resolveImported = (node: LgNode): NodeSchema | undefined =>
-    resolve(importedNodeType(node))
+    node.type === 'CreateList' || node.type === 'GetItemFromList'
+      ? undefined
+      : resolve(importedNodeType(node))
 
   // -- Upstream resolution (net sources only) -----------------------------------
   // Named nets are port-only: a net's source must be a real producing output.
@@ -1449,17 +1448,22 @@ function importLitegraphGraph(
       const height = Array.isArray(size) ? size[1] : sizeObject?.['1']
       viewNodes[id] = {
         position: posOf(n),
-        ...(typeof width === 'number' && typeof height === 'number'
-          ? { size: { width, height } }
-          : {}),
-        ...(typeof n.color === 'string' || typeof n.bgcolor === 'string'
-          ? { color: n.color ?? n.bgcolor }
-          : {}),
+        ...(typeof width === 'number' && typeof height === 'number' ? { size: { width, height } } : {}),
+        ...(typeof n.color === 'string' || typeof n.bgcolor === 'string' ? { color: n.color ?? n.bgcolor } : {}),
       }
       continue
     }
 
     const id = `n${n.id}`
+    if (n.type === 'CreateList' || n.type === 'GetItemFromList') {
+      const index = Array.isArray(n.widgets_values) ? n.widgets_values[0] : (n.widgets_values as Readonly<Record<string, Json>> | undefined)?.['index']
+      const mode = n.mode === 2 ? 'muted' : n.mode === 4 ? 'bypassed' : undefined
+      nodes[id] = { id, type: n.type, values: n.type === 'GetItemFromList' ? { index: index ?? 0 } : {}, ...(mode ? { mode } : {}) }
+      importedOutputEndpoints.set(n.id, new Map((n.outputs ?? []).map((output, slot) =>
+        [slot, { node: id, port: output.name ?? '*' }])))
+      viewNodes[id] = { position: posOf(n) }
+      continue
+    }
     const schema = resolveImported(n)
     const values: Record<string, Json> = {}
     const controllers: Record<string, ControllerMode> = {}
@@ -1467,10 +1471,8 @@ function importLitegraphGraph(
     const ext: Record<string, Json> = {}
     const additionalInputs: string[] = []
     const targetedSlots = new Set<number>()
-    for (const wire of wires.values())
-      if (wire.toNode === n.id) targetedSlots.add(wire.toSlot)
-    for (const entry of ueLinks)
-      if (entry.downstream === n.id) targetedSlots.add(entry.downstreamSlot)
+    for (const wire of wires.values()) if (wire.toNode === n.id) targetedSlots.add(wire.toSlot)
+    for (const entry of ueLinks) if (entry.downstream === n.id) targetedSlots.add(entry.downstreamSlot)
 
     if (schema !== undefined) {
       const families = activeAutogrowFamilies(schema.items, dynamic)
@@ -2056,19 +2058,16 @@ function importLitegraphGraph(
       graphs: {
         g0: {
           nodes: viewNodes,
-          ...(Object.keys(viewReroutes).length > 0
-            ? { reroutes: viewReroutes }
-            : {}),
-          ...(Object.keys(viewValueSources).length > 0
-            ? { valueSources: viewValueSources }
-            : {}),
+          ...(Object.keys(viewReroutes).length > 0 ? { reroutes: viewReroutes } : {}),
+          ...(Object.keys(viewValueSources).length > 0 ? { valueSources: viewValueSources } : {}),
           ...(Object.keys(groups).length > 0 ? { groups } : {}),
         },
       },
     },
   } as unknown as JsonObject
 
-  convertLitegraphLoops(document, rawNodes, rawLinks, resolve, diags)
+  const listHelperOwners = convertLitegraphLists(document, rawNodes, resolve, rawLinks, diags)
+  convertLitegraphLoops(document, rawNodes, rawLinks, resolve, diags, listHelperOwners)
   convertLitegraphListConsumers(document, resolve)
 
   // Error-level import diagnostics (e.g. untranslatable subgraph definitions)

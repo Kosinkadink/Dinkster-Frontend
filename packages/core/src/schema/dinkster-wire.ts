@@ -92,7 +92,6 @@ interface WireEntry {
   /** Storage-backed execution marker. */
   readonly acceptsStorage?: unknown
   readonly acceptsStream?: unknown
-  readonly acceptsList?: unknown
   /** Source-filename execution binding. */
   readonly sourceFilename?: unknown
   /** Presentation/discovery marker. */
@@ -121,28 +120,11 @@ function acceptsStorageOf(entry: { readonly role?: unknown; readonly acceptsStor
   return entry.acceptsStorage ? { acceptsStorage: true } : {}
 }
 
-function acceptsStreamOf(
-  entry: { readonly role?: unknown; readonly acceptsStream?: unknown },
-  where: string,
-): Pick<InputSpec, 'acceptsStream'> {
+function acceptsStreamOf(entry: { readonly role?: unknown; readonly acceptsStream?: unknown }, where: string): Pick<InputSpec, 'acceptsStream'> {
   if (!Object.hasOwn(entry, 'acceptsStream')) return {}
-  if (entry.role !== 'input')
-    throw new Error(`${where}.acceptsStream is only valid on ordinary inputs`)
-  if (typeof entry.acceptsStream !== 'boolean')
-    throw new Error(`${where}.acceptsStream must be a boolean`)
+  if (entry.role !== 'input') throw new Error(`${where}.acceptsStream is only valid on ordinary inputs`)
+  if (typeof entry.acceptsStream !== 'boolean') throw new Error(`${where}.acceptsStream must be a boolean`)
   return entry.acceptsStream ? { acceptsStream: true } : {}
-}
-
-function acceptsListOf(
-  entry: { readonly role?: unknown; readonly acceptsList?: unknown },
-  where: string,
-): Pick<InputSpec, 'acceptsList'> {
-  if (!Object.hasOwn(entry, 'acceptsList')) return {}
-  if (entry.role !== 'input')
-    throw new Error(`${where}.acceptsList is only valid on ordinary inputs`)
-  if (typeof entry.acceptsList !== 'boolean')
-    throw new Error(`${where}.acceptsList must be a boolean`)
-  return entry.acceptsList ? { acceptsList: true } : {}
 }
 
 function mediaPolicyOf(
@@ -1885,7 +1867,6 @@ function decodeWireEntry(
 ): InputSpec {
   const acceptsStorage = acceptsStorageOf(entry, where)
   const acceptsStream = acceptsStreamOf(entry, where)
-  const acceptsList = acceptsListOf(entry, where)
   if (entry['role'] !== 'input' && depth >= MAX_DYNAMIC_DEPTH) {
     throw new Error(`${where} exceeds the ${MAX_DYNAMIC_DEPTH}-level dynamic nesting limit`)
   }
@@ -1910,7 +1891,6 @@ function decodeWireEntry(
     ...decoded,
     ...acceptsStorage,
     ...acceptsStream,
-    ...acceptsList,
     ...mediaPolicyOf(entry, where),
   }
 }
@@ -1931,7 +1911,6 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       const entry = wireObject(raw, where)
       if (entry['role'] !== 'input') acceptsStorageOf(entry, where)
       if (entry['role'] !== 'input') acceptsStreamOf(entry, where)
-      if (entry['role'] !== 'input') acceptsListOf(entry, where)
       if (entry['count'] !== undefined && entry['role'] !== 'outputFamily') {
         throw new Error(`${where}.count is only valid on outputFamily`)
       }

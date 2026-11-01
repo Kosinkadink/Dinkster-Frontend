@@ -3563,33 +3563,20 @@ function schemaIdentityWithoutWidgetPresentation(
   const record = value as Record<string, unknown>
   const comboWidget = record['type'] === 'COMBO' || record['type'] === 'MULTI_COMBO'
   const multiComboWidget = record['type'] === 'MULTI_COMBO'
-  return Object.fromEntries(
-    Object.entries(value).flatMap(([key, entry]) =>
-      key === 'hasDocs' ||
-      (record['role'] === 'input' && key === 'socketless') ||
-      (record['role'] === 'input' &&
-        (key === 'acceptsStorage' ||
-          key === 'acceptsStream' ||
-          key === 'acceptsList') &&
-        entry === false) ||
-      (comboOption && COMBO_OPTION_PRESENTATION_FIELDS.has(key)) ||
-      (multiComboWidget && MULTI_COMBO_PRESENTATION_FIELDS.has(key)) ||
-      (remote && REMOTE_POLICY_FIELDS.has(key))
-        ? []
-        : [
-            [
-              key,
-              key === 'default'
-                ? entry
-                : schemaIdentityWithoutWidgetPresentation(
-                    entry,
-                    key === 'remote',
-                    comboWidget && key === 'options',
-                  ),
-            ],
-          ],
-    ),
-  )
+  return Object.fromEntries(Object.entries(value).flatMap(([key, entry]) =>
+    key === 'hasDocs' ||
+    (record['role'] === 'input' && key === 'socketless') ||
+    (record['role'] === 'input' && (key === 'acceptsStorage' || key === 'acceptsStream') && entry === false) ||
+    (comboOption && COMBO_OPTION_PRESENTATION_FIELDS.has(key)) ||
+    (multiComboWidget && MULTI_COMBO_PRESENTATION_FIELDS.has(key)) ||
+    (remote && REMOTE_POLICY_FIELDS.has(key))
+      ? []
+      : [[key, key === 'default' ? entry : schemaIdentityWithoutWidgetPresentation(
+          entry,
+          key === 'remote',
+          comboWidget && key === 'options',
+        )]],
+  ))
 }
 
 /**

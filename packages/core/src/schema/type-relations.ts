@@ -41,7 +41,6 @@ export const atomNamesOf = (t: TypeExpr): readonly string[] | undefined => {
     case 'list':
     case 'asset':
     case 'stream': {
-      if (t.kind === 'list' && t.element.kind === 'wildcard') return [listTypeId('*')]
       // list<union(A,B)> denotes {list<A>, list<B>} - element atoms lifted
       // through the constructor (recursively, so nested closed structures
       // yield 'list<asset<...>>' and kin). Open element -> undefined (NOT

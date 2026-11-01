@@ -39,12 +39,13 @@ The `DinksterConnection.guessAssets` client batches at 64 names per sequential r
 
 ## Dynamic construct compatibility
 
-Imported `CreateList` and `GetItemFromList` retain their registered native
-identities. Their schemas own family members, widgets, and output names;
-the importer adds no collection, tuple, singleton, or index-selection nodes.
-Native node execution concatenates declared list envelopes and treats scalar
-envelopes as single elements, without inspecting payload shape. A list-valued
-index is admitted only when the input declares whole-list consumption.
+Imported `CreateList` nodes become explicit typed list construction and
+concatenation. Connected inputs keep their authored slot order, including
+sparse or out-of-order input names. Declared list outputs are concatenated;
+scalar outputs are wrapped as single elements. Payload shape never decides
+cardinality. `GetItemFromList` becomes explicit element selection, with a
+list-valued index first selecting index zero. These translations do not add
+implicit broadcast behavior to the engine.
 
 Declared list outputs feeding ordinary scalar inputs are persisted as explicit
 map regions. Linked scalar inputs consume elements while other widget values

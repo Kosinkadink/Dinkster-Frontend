@@ -250,15 +250,6 @@ describe('solver: structural cardinality errors', () => {
 })
 
 describe('solver: open lists peel the constructor', () => {
-  it.each(['ListMap', 'Switch'] as const)('preserves a heterogeneous runtime collection through %s', (type) => {
-    const heterogeneous = list({ kind: 'wildcard' })
-    const solved = solveGraphTypes(defOf({ nodes: { node: { type } } }), resolve, {
-      projectedInputs: [{ type: heterogeneous, to: { node: n('node'), port: asPortId('in') } }],
-    })
-    expect(solved.portTypeOf(n('node'), 'output', 'out')).toEqual(heterogeneous)
-    expect(solved.diagnostics).toEqual([])
-  })
-
   it('projects nested list structure through a shared template without flattening it', () => {
     const def = defOf({ nodes: { map: { type: 'ListMap' } } })
     const solved = solveGraphTypes(def, resolve, {

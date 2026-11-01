@@ -18,68 +18,7 @@ import type {
   NodeSchema,
   TypeExpr,
 } from '../src/schema/model.js'
-import { historicalSchemas } from './fixtures/historical-schemas.js'
-
-const nativeListSchemas = new Map<string, NodeSchema>([
-  [
-    'CreateList',
-    parseDinksterSchema('CreateList', {
-      schemaVersion: 1,
-      interface: [
-        {
-          role: 'inputFamily',
-          id: 'inputs',
-          required: true,
-          minMembers: 1,
-          maxMembers: 10,
-          memberPrefix: 'input',
-          template: [
-            {
-              role: 'input',
-              id: 'input',
-              required: true,
-              type: { kind: 'wildcard' },
-            },
-          ],
-        },
-        {
-          role: 'output',
-          id: 'list',
-          type: { kind: 'list', element: { kind: 'wildcard' } },
-        },
-      ],
-    }).schema!,
-  ],
-  [
-    'GetItemFromList',
-    parseDinksterSchema('GetItemFromList', {
-      schemaVersion: 1,
-      interface: [
-        {
-          role: 'input',
-          id: 'list',
-          required: true,
-          type: { kind: 'wildcard' },
-        },
-        {
-          role: 'input',
-          id: 'index',
-          required: true,
-          default: 0,
-          acceptsList: true,
-          type: { kind: 'concrete', types: ['INT'] },
-        },
-        {
-          role: 'output',
-          id: 'item',
-          displayName: '*',
-          type: { kind: 'wildcard' },
-        },
-      ],
-    }).schema!,
-  ],
-])
-const coreSchemas = new Map([...historicalSchemas, ...nativeListSchemas])
+import { historicalSchemas as coreSchemas } from './fixtures/historical-schemas.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const fixtureRoot = join(root, 'test/fixtures/comfyui-generic-loops')
@@ -365,103 +304,46 @@ const workflowFiles = readdirSync(fixtureRoot)
   .sort()
 
 describe('explicit imported list utilities', () => {
-  it.each([0, -1])(
-    'imports heterogeneous native collections using index %s',
-    (index) => {
-      const sink = parseDinksterSchema('Sink', {
-        schemaVersion: 1,
-        outputNode: true,
-        interface: [
-          {
-            role: 'input',
-            id: 'value',
-            required: true,
-            type: { kind: 'concrete', types: [index === 0 ? 'INT' : 'STRING'] },
-          },
-        ],
-      }).schema!
-      const resolve = (type: string) =>
-        type === 'Sink' ? sink : coreSchemas.get(type)
-      const workflow: JsonObject = {
-        nodes: [
-          {
-            id: 1,
-            type: 'PrimitiveInt',
-            outputs: [{ name: 'INT' }],
-            widgets_values: [7],
-          },
-          {
-            id: 2,
-            type: 'PrimitiveString',
-            outputs: [{ name: 'STRING' }],
-            widgets_values: ['label'],
-          },
-          {
-            id: 3,
-            type: 'CreateList',
-            inputs: [{ name: 'inputs.input0' }, { name: 'inputs.input1' }],
-            outputs: [{ name: 'list' }],
-          },
-          {
-            id: 4,
-            type: 'GetItemFromList',
-            inputs: [{ name: 'list' }],
-            outputs: [{ name: '*' }],
-            widgets_values: [index],
-          },
-          { id: 5, type: 'Sink', inputs: [{ name: 'value' }] },
-        ],
-        links: [
-          [1, 1, 0, 3, 0, 'INT'],
-          [2, 2, 0, 3, 1, 'STRING'],
-          [3, 3, 0, 4, 0, '*'],
-          [4, 4, 0, 5, 0, '*'],
-        ],
-      }
-      const imported = importLitegraph(workflow, resolve)
-      expect(
-        imported.diagnostics.filter((item) => item.severity === 'error'),
-      ).toEqual([])
-      expect(imported.document!.graphs.g0!.nodes.n3!.type).toBe('CreateList')
-      expect(imported.document!.graphs.g0!.nodes.n4!.type).toBe(
-        'GetItemFromList',
-      )
-      const compiled = compile({
-        document: imported.document!,
-        revision: 1,
-        resolve,
-        scope: { kind: 'full' },
-        connection: asConnectionId('tuple-import'),
-        schemaHash: 'tuple',
-        graphFeatures: ['regions', 'typedLiteral'],
-      })
-      expect(
-        compiled.ok,
-        compiled.ok ? undefined : JSON.stringify(compiled.diagnostics),
-      ).toBe(true)
-      if (compiled.ok) {
-        expect(compiled.artifact.dinksterGraph!.nodes.n3).toMatchObject({
-          nodeType: 'CreateList',
-        })
-        expect(compiled.artifact.dinksterGraph!.nodes.n4).toMatchObject({
-          nodeType: 'GetItemFromList',
-          inputs: { list: { $link: { node: 'n3', output: 'list' } }, index },
-        })
-      }
-    },
-  )
+  it.each([0, -1])('imports declared heterogeneous positions using a literal tuple index %s', (index) => {
+    const make = parseDinksterSchema('std.tuple.make', { schemaVersion: 1, interface: [
+      { role: 'inputFamily', id: 'items', required: true, independentTypes: true, template: [{ role: 'input', id: 'value', required: true, type: { kind: 'variable', templateId: 'T' } }] },
+      { role: 'output', id: 'tuple', type: { kind: 'family_tuple', input: 'items' } },
+    ] }).schema!
+    const get = parseDinksterSchema('std.tuple.get', { schemaVersion: 1, interface: [
+      { role: 'input', id: 'tuple', required: true, type: { kind: 'variable', templateId: 'Tuple' } },
+      { role: 'input', id: 'index', required: true, default: 0, type: { kind: 'concrete', types: ['INT'] } },
+      { role: 'output', id: 'item', type: { kind: 'tuple_element', input: 'tuple', index: 'index' } },
+    ] }).schema!
+    const sink = parseDinksterSchema('Sink', { schemaVersion: 1, outputNode: true, interface: [{ role: 'input', id: 'value', required: true, type: { kind: 'concrete', types: [index === 0 ? 'INT' : 'STRING'] } }] }).schema!
+    const resolve = (type: string) => type === make.type ? make : type === get.type ? get : type === 'Sink' ? sink : coreSchemas.get(type)
+    const workflow: JsonObject = { nodes: [
+      { id: 1, type: 'PrimitiveInt', outputs: [{ name: 'INT' }], widgets_values: [7] },
+      { id: 2, type: 'PrimitiveString', outputs: [{ name: 'STRING' }], widgets_values: ['label'] },
+      { id: 3, type: 'CreateList', inputs: [{ name: 'inputs.input0' }, { name: 'inputs.input1' }], outputs: [{ name: 'list' }] },
+      { id: 4, type: 'GetItemFromList', inputs: [{ name: 'list' }], outputs: [{ name: '*' }], widgets_values: [index] },
+      { id: 5, type: 'Sink', inputs: [{ name: 'value' }] },
+    ], links: [[1, 1, 0, 3, 0, 'INT'], [2, 2, 0, 3, 1, 'STRING'], [3, 3, 0, 4, 0, '*'], [4, 4, 0, 5, 0, '*']] }
+    const imported = importLitegraph(workflow, resolve)
+    expect(imported.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+    expect(imported.document!.graphs.g0!.nodes.n3!.type).toBe('std.tuple.make')
+    expect(imported.document!.graphs.g0!.nodes.n4!.type).toBe('std.tuple.get')
+    const compiled = compile({ document: imported.document!, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('tuple-import'), schemaHash: 'tuple', graphFeatures: ['regions', 'typedLiteral'] })
+    expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true)
+    if (compiled.ok) {
+      expect(compiled.artifact.dinksterGraph!.nodes.n3).toMatchObject({ nodeType: 'std.tuple.make' })
+      expect(compiled.artifact.dinksterGraph!.nodes.n4).toMatchObject({ inputs: { tuple: { $link: { node: 'n3', output: 'tuple' } }, index } })
+    }
+  })
 
   it.each([
-    [false, 0, false],
-    [true, 0, false],
-    [true, 2, false],
-    [true, 4, false],
-    [true, 0, true],
+    [false, 0],
+    [true, 0],
+    [true, 2],
+    [true, 4],
   ] as const)(
-    'flattens active declared list-backed native loop results only (list: %s, mode: %s, heterogeneous: %s)',
-    (listSource, mode, heterogeneous) => {
+    'flattens active declared list-backed native loop results only (list: %s, mode: %s)',
+    (listSource, mode) => {
       const integer: TypeExpr = { kind: 'concrete', name: 'INT' }
-      const element: TypeExpr = heterogeneous ? { kind: 'wildcard' } : integer
       const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
       const list: TypeExpr = { kind: 'list', element: variable }
       const schema = (type: string, items: InterfaceItem[]): NodeSchema => ({
@@ -479,7 +361,7 @@ describe('explicit imported list utilities', () => {
             {
               kind: 'output',
               id: 'value',
-              type: listSource ? { kind: 'list', element } : integer,
+              type: listSource ? { kind: 'list', element: integer } : integer,
             },
           ]),
         ],
@@ -573,9 +455,7 @@ describe('explicit imported list utilities', () => {
             ports: {
               item: {
                 kind: 'list',
-                element: heterogeneous
-                  ? { kind: 'wildcard' }
-                  : { kind: 'concrete', types: ['INT'] },
+                element: { kind: 'concrete', types: ['INT'] },
               },
             },
             outputs: { list: { mode: 'flatten' } },
@@ -911,11 +791,43 @@ describe('explicit imported list utilities', () => {
         id,
         type,
       })
+      const family = (id: string, type: TypeExpr): InterfaceItem => ({
+        kind: 'input',
+        id,
+        type: { kind: 'wildcard' },
+        optional: false,
+        dynamic: {
+          kind: 'autogrow',
+          template: [input(id, type)],
+          naming: { kind: 'prefix', prefix: id, min: 1 },
+        },
+      })
       const schemas = new Map([
-        ...nativeListSchemas,
         ['Scalar', schema('Scalar', [output('value', integer)])],
         ['Sequence', schema('Sequence', [output('value', list)])],
         ['Sink', schema('Sink', [input('value', integer)], true)],
+        [
+          'std.list.make',
+          schema('std.list.make', [
+            family('items', integer),
+            output('list', list),
+          ]),
+        ],
+        [
+          'std.list.concat',
+          schema('std.list.concat', [
+            family('lists', list),
+            output('list', list),
+          ]),
+        ],
+        [
+          'std.list.element',
+          schema('std.list.element', [
+            input('list', list),
+            input('index', integer),
+            output('item', integer),
+          ]),
+        ],
       ])
       const workflow: JsonObject = {
         nodes: [
@@ -1025,30 +937,31 @@ describe('explicit imported list utilities', () => {
       if (!compiled.ok) throw new Error(JSON.stringify(compiled.diagnostics))
       const nodes = compiled.artifact.dinksterGraph!.nodes
       expect(nodes['n3']).toMatchObject({
-        nodeType: 'CreateList',
+        nodeType: listSource ? 'std.list.concat' : 'std.list.make',
       })
       expect(nodes['n4']).toMatchObject({
-        nodeType: 'GetItemFromList',
-        inputs: {
-          list: { $link: { node: 'n3', output: 'list' } },
-          index: { $link: { node: 'n5', output: 'value' } },
-        },
+        nodeType: 'std.list.element',
+        inputs: { list: { $link: { node: 'n3', output: 'list' } } },
       })
-      expect(
-        Object.values(nodes).some(
-          (node) => 'nodeType' in node && node.nodeType.startsWith('std.list.'),
-        ),
-      ).toBe(false)
+      const selection = nodes['n4'] as { inputs: Record<string, Json> }
+      const firstIndex = (selection.inputs['index'] as JsonObject)[
+        '$link'
+      ] as JsonObject
+      expect(nodes[firstIndex['node'] as string]).toMatchObject({
+        nodeType: 'std.list.element',
+        inputs: { index: 0, list: { $link: { node: 'n5', output: 'value' } } },
+      })
       const collection = nodes['n3'] as { inputs: Record<string, Json> }
       const values = Object.values(collection.inputs).filter(
         (value) =>
           typeof value === 'object' && value !== null && '$link' in value,
       )
       expect(values).toHaveLength(2)
-      expect(values).toEqual([
-        { $link: { node: 'n1', output: 'value' } },
-        { $link: { node: 'n2', output: 'value' } },
-      ])
+      if (!listSource)
+        expect(values).toEqual([
+          { $link: { node: 'n1', output: 'value' } },
+          { $link: { node: 'n2', output: 'value' } },
+        ])
     },
   )
   it.each([2, 4])(
@@ -1239,104 +1152,36 @@ const topologyResolver = (workflow: JsonObject) => {
 }
 
 describe('ComfyUI Generic Loops structural import', () => {
-  it.each(['simple', 'For'])(
-    'gathers heterogeneous native collections in a %s loop',
-    (mode) => {
-      const workflow: JsonObject = {
-        nodes: [
-          {
-            id: 1,
-            type: 'StartLoop',
-            outputs: [{ name: 'iteration_index' }],
-            widgets_values: {
-              mode,
-              'mode.num_iterations': 2,
-              'mode.start_iteration_index': 1,
-              'mode.max_iteration': 4,
-              'mode.step': 2,
-            },
-          },
-          {
-            id: 2,
-            type: 'PrimitiveString',
-            outputs: [{ name: 'STRING' }],
-            widgets_values: ['label'],
-          },
-          {
-            id: 3,
-            type: 'CreateList',
-            inputs: [{ name: 'inputs.input0' }, { name: 'inputs.input1' }],
-            outputs: [{ name: 'list' }],
-          },
-          {
-            id: 4,
-            type: 'EndLoop',
-            inputs: [{ name: 'output_value' }],
-            outputs: [{ name: 'output' }],
-            widgets_values: { accumulate: true },
-          },
-          { id: 5, type: 'Sink', inputs: [{ name: 'value' }] },
-        ],
-        links: [
-          [1, 1, 0, 3, 0, 'INT'],
-          [2, 2, 0, 3, 1, 'STRING'],
-          [3, 3, 0, 4, 0, '*'],
-          [4, 4, 0, 5, 0, '*'],
-        ],
+  it.each(['simple', 'For'])('gathers heterogeneous tuples as single values in a %s loop', (mode) => {
+    const make = parseDinksterSchema('std.tuple.make', { schemaVersion: 1, interface: [
+      { role: 'inputFamily', id: 'items', required: true, independentTypes: true, template: [{ role: 'input', id: 'value', required: true, type: { kind: 'variable', templateId: 'T' } }] },
+      { role: 'output', id: 'tuple', type: { kind: 'family_tuple', input: 'items' } },
+    ] }).schema!
+    const workflow: JsonObject = { nodes: [
+      { id: 1, type: 'StartLoop', outputs: [{ name: 'iteration_index' }], widgets_values: { mode, 'mode.num_iterations': 2, 'mode.start_iteration_index': 1, 'mode.max_iteration': 4, 'mode.step': 2 } },
+      { id: 2, type: 'PrimitiveString', outputs: [{ name: 'STRING' }], widgets_values: ['label'] },
+      { id: 3, type: 'CreateList', inputs: [{ name: 'inputs.input0' }, { name: 'inputs.input1' }], outputs: [{ name: 'list' }] },
+      { id: 4, type: 'EndLoop', inputs: [{ name: 'output_value' }], outputs: [{ name: 'output' }], widgets_values: { accumulate: true } },
+      { id: 5, type: 'Sink', inputs: [{ name: 'value' }] },
+    ], links: [[1, 1, 0, 3, 0, 'INT'], [2, 2, 0, 3, 1, 'STRING'], [3, 3, 0, 4, 0, '*'], [4, 4, 0, 5, 0, '*']] }
+    const tuple: TypeExpr = { kind: 'tuple', elements: [{ kind: 'concrete', name: 'INT' }, { kind: 'concrete', name: 'STRING' }] }
+    const sink: NodeSchema = { type: 'Sink', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: true, items: [{ kind: 'input', id: 'value', optional: false, type: { kind: 'list', element: tuple } }] }
+    const resolve = (type: string) => type === make.type ? make : type === sink.type ? sink : coreSchemas.get(type) ?? helperSchemas.get(type)
+    const imported = importLitegraph(workflow, resolve)
+    expect(imported.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+    const region = regionsOf(imported.document!)[0]!
+    expect(region.region!.outputRoles?.['result']?.kind ?? 'gather').toBe('gather')
+    const compiled = compile({ document: imported.document!, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('tuple-loop'), schemaHash: 'tuple', graphFeatures: ['regions', 'typedLiteral'] })
+    expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true)
+    if (compiled.ok) {
+      const fold = compiled.artifact.dinksterGraph!.nodes[region.id]!
+      expect('region' in fold).toBe(true)
+      if ('region' in fold) {
+        expect(fold.region.outputs['result']?.mode ?? 'gather').toBe('gather')
+        expect(fold.region.outputs['result']?.source).toEqual({ node: 'n3', output: 'tuple' })
       }
-      const sink: NodeSchema = {
-        type: 'Sink',
-        displayName: 'Sink',
-        category: 'test',
-        source: 'v3',
-        isOutputNode: true,
-        items: [
-          {
-            kind: 'input',
-            id: 'value',
-            optional: false,
-            type: { kind: 'list', element: { kind: 'wildcard' } },
-          },
-        ],
-      }
-      const resolve = (type: string) =>
-        type === sink.type
-          ? sink
-          : (coreSchemas.get(type) ?? helperSchemas.get(type))
-      const imported = importLitegraph(workflow, resolve)
-      expect(
-        imported.diagnostics.filter((item) => item.severity === 'error'),
-      ).toEqual([])
-      const region = regionsOf(imported.document!)[0]!
-      expect(region.region!.outputRoles?.['result']?.kind ?? 'gather').toBe(
-        'gather',
-      )
-      const compiled = compile({
-        document: imported.document!,
-        revision: 1,
-        resolve,
-        scope: { kind: 'full' },
-        connection: asConnectionId('tuple-loop'),
-        schemaHash: 'tuple',
-        graphFeatures: ['regions', 'typedLiteral'],
-      })
-      expect(
-        compiled.ok,
-        compiled.ok ? undefined : JSON.stringify(compiled.diagnostics),
-      ).toBe(true)
-      if (compiled.ok) {
-        const fold = compiled.artifact.dinksterGraph!.nodes[region.id]!
-        expect('region' in fold).toBe(true)
-        if ('region' in fold) {
-          expect(fold.region.outputs['result']?.mode ?? 'gather').toBe('gather')
-          expect(fold.region.outputs['result']?.source).toEqual({
-            node: 'n3',
-            output: 'list',
-          })
-        }
-      }
-    },
-  )
+    }
+  })
 
   it('keeps the fixed-SHA acceptance corpus complete', () => {
     expect(workflowFiles).toHaveLength(23)
@@ -1388,7 +1233,7 @@ describe('ComfyUI Generic Loops structural import', () => {
     }
   })
 
-  it('binds the native selection directly to the StartLoop iteration output', () => {
+  it('binds a generated singleton to the actual StartLoop iteration output', () => {
     const workflow = topologyWorkflow({
       start: { type: 'StartLoop' },
       selection: { type: 'Body', inputs: { list: 'start' } },
@@ -1404,21 +1249,22 @@ describe('ComfyUI Generic Loops structural import', () => {
     ).toEqual([])
     const document = imported.document!
     const body = document.graphs['comfy-loop-1']!
-    expect(body.nodes.n2!.type).toBe('GetItemFromList')
-    expect(
-      Object.values(body.nodes).some((node) => node.type === 'std.list.make'),
-    ).toBe(false)
+    const wrapper = Object.values(body.nodes).find(
+      (node) => node.type === 'std.list.make',
+    )!
+    expect(wrapper).toBeDefined()
     const iteration = body.boundary!.inputs.find(
       (input) => input.id === 'iteration_index',
     )!
     expect([iteration.binds, ...(iteration.alsoBinds ?? [])]).toContainEqual({
       kind: 'port',
-      node: 'n2',
-      port: 'list',
+      node: wrapper.id,
+      port: 'items.items',
+      members: ['m0'],
     })
   })
 
-  it('keeps native collection and index selection inside their authored loop', () => {
+  it('keeps scalar wrappers and index selection inside their authored loop', () => {
     const workflow = topologyWorkflow({
       source: { type: 'Source' },
       start: { type: 'StartLoop' },
@@ -1457,7 +1303,11 @@ describe('ComfyUI Generic Loops structural import', () => {
     ).toEqual([])
     const body = imported.document!.graphs['comfy-loop-2']!
     expect(Object.values(body.nodes).map((node) => node.type)).toEqual(
-      expect.arrayContaining(['CreateList', 'GetItemFromList']),
+      expect.arrayContaining([
+        'std.list.make',
+        'std.list.concat',
+        'std.list.element',
+      ]),
     )
     const root = imported.document!.graphs[imported.document!.root]!
     expect(
@@ -1781,33 +1631,20 @@ describe('ComfyUI Generic Loops structural import', () => {
   })
 
   it('gathers scalar tuple outputs despite legacy list metadata', () => {
-    const { workflow, resolve } = importCorpusWorkflow(
-      'accumulate-list-output.json',
-    )
-    const tuple: TypeExpr = {
-      kind: 'tuple',
-      elements: [
-        { kind: 'concrete', name: 'INT' },
-        { kind: 'concrete', name: 'STRING' },
-      ],
-    }
+    const { workflow, resolve } = importCorpusWorkflow('accumulate-list-output.json')
+    const tuple: TypeExpr = { kind: 'tuple', elements: [
+      { kind: 'concrete', name: 'INT' },
+      { kind: 'concrete', name: 'STRING' },
+    ] }
     const tupleResolve = (type: string): NodeSchema | undefined => {
       const schema = resolve(type)
-      return type !== 'Issue408Pair' || schema === undefined
-        ? schema
-        : {
-            ...schema,
-            items: schema.items.map((item) =>
-              item.kind === 'output'
-                ? { ...item, type: tuple, isList: true }
-                : item,
-            ),
-          }
+      return type !== 'Issue408Pair' || schema === undefined ? schema : {
+        ...schema,
+        items: schema.items.map((item) => item.kind === 'output' ? { ...item, type: tuple, isList: true } : item),
+      }
     }
     const imported = importLitegraph(workflow, tupleResolve)
-    expect(
-      imported.diagnostics.filter((item) => item.severity === 'error'),
-    ).toEqual([])
+    expect(imported.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
     expect(imported.document).toBeDefined()
     const region = regionsOf(imported.document!)[0]!.region!
     expect(region.outputRoles?.['result']?.kind ?? 'gather').toBe('gather')
@@ -1856,9 +1693,7 @@ describe('ComfyUI Generic Loops structural import', () => {
     const imported = importLitegraph(positional, resolve)
     expect(imported.document).toBeDefined()
     const region = regionsOf(imported.document!)[0]!
-    expect(region.values['iteration_index']).toEqual({
-      $typed: { type: 'list<INT>', value: [2, 5] },
-    })
+    expect(region.values['iteration_index']).toEqual({ $typed: { type: 'list<INT>', value: [2, 5] } })
     expect(region.region!.cachePolicy).toBe('reuse')
     expect(region.region!.outputRoles?.['result']).toBeUndefined()
   })
