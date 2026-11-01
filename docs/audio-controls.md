@@ -22,10 +22,12 @@ The existing first-batch `wav` rendition is not a bounded `window` fallback.
 The position slider uses the effective timeline; playback advances window by
 window. `element` remains nested-list descent only. Batch Previous/Next sends
 the independent `batch` selector only when advertised, starting at the provider's
-declared batch default. A new window cancels the previous request; unmount releases
-media URLs and pending work. Client rendition caching remains capped at 64 entries
-and 64 MiB, with provider version and selectors in its identity. Refusals and
-browser decode failures remain visible. `X-Dinkster-Waveform: sampled-peak` is labeled
+declared batch default. A new window cancels the previous request and keeps the
+selected position visible while loading, ignoring the old window's late playback
+updates. Unmount releases media URLs and pending work. Client rendition caching
+remains capped at 64 entries and 64 MiB, with provider version and selectors in
+its identity. Refusals and browser decode failures remain visible.
+`X-Dinkster-Waveform: sampled-peak` is labeled
 as sampled, not exhaustive, peaks; absent sampling metadata is not inferred.
 When effective duration is unknown, only the first bounded window is playable;
 the scrubber is disabled rather than presenting that window as the full duration.
