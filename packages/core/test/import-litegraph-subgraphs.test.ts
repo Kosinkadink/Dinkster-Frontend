@@ -692,7 +692,7 @@ describe('LiteGraph subgraphs', () => {
     ] }
     const resolver = (type: string) => type === 'Relay' ? seeded : undefined
     const raw = { nodes: [{ ...instance(10), widgets_values: [value, 29],
-      properties: { proxyWidgets: [['1', 'control_after_generate'], ['-1', 'value']] } }], links: [],
+      properties: { proxyWidgets: [['1', '$$canvas-image-preview'], ['1', 'control_after_generate'], ['-1', 'value']] } }], links: [],
       definitions: { subgraphs: [{ ...definition(), nodes: [{ ...relay(), widgets_values: [7, 'decrement'] }] }] } }
     const before = JSON.stringify(raw)
     const result = importLitegraph(raw as JsonObject, resolver)
@@ -768,6 +768,27 @@ describe('LiteGraph subgraphs', () => {
     const compiled = prompt(doc)
     expect(compiled['n1.n1.n1']!.inputs['value']).toBe(7)
     expect(compiled['n1.n1.n2']!.inputs['value']).toBe(37)
+  })
+
+  it.each([0, 1, 2])('keeps virtual canvas preview proxy %s out of serialized widget positions and executable boundaries', (index) => {
+    const def = definition()
+    def.nodes.push(relay(2))
+    const proxies = [['1', 'value'], ['2', 'value']]
+    proxies.splice(index, 0, ['1', '$$canvas-image-preview'])
+    const raw = { nodes: [{ ...instance(10), inputs: [], widgets_values: [17, 29],
+      properties: { proxyWidgets: proxies } }], definitions: { subgraphs: [def] } }
+    const before = JSON.stringify(raw)
+    const result = importLitegraph(raw as unknown as JsonObject, resolve)
+    expect(result.diagnostics).toEqual([])
+    const doc = result.document!
+    expect(deriveBoundarySchema(doc.graphs.inner!, resolve).schema).toBeDefined()
+    expect(doc.graphs.inner!.boundary!.inputs).toHaveLength(2)
+    expect(Object.values(doc.graphs.inner!.nodes).map((node) => node.type)).toEqual(['Relay', 'Relay'])
+    const compiled = prompt(doc)
+    expect(compiled['n10.n1']!.inputs['value']).toBe(17)
+    expect(compiled['n10.n2']!.inputs['value']).toBe(29)
+    expect(doc.graphs.g0!.nodes.n10!.ext!['importer.subgraphWidgets']).toEqual({ values: [17, 29], proxies })
+    expect(JSON.stringify(raw)).toBe(before)
   })
 
   it('includes definition contents in deterministic lineage', () => {

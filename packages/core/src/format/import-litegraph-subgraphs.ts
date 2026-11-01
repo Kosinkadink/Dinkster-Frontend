@@ -266,7 +266,10 @@ export function importLitegraphSubgraphs(
     if (!def || !Array.isArray(proxies) || !proxies.length) continue
     const controllers = new Map<number, string>()
     proxyControllers.set(node, controllers)
-    proxySlots.set(node, proxies.map((entry, index) => {
+    // Canvas previews are serialize:false widgets, not executable inputs or
+    // entries in widgets_values. Keep their raw promotion metadata only.
+    const serialized = proxies.filter((entry) => !Array.isArray(entry) || entry[1] !== '$$canvas-image-preview')
+    proxySlots.set(node, serialized.map((entry, index) => {
       if (!Array.isArray(entry) || !integerId(entry[0]) || typeof entry[1] !== 'string') return undefined
       if (entry[1] === 'control_after_generate') {
         const target = def.raw['nodes'].find((candidate: Mutable) => String(candidate['id']) === String(entry[0]))
