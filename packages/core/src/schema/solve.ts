@@ -51,23 +51,12 @@
  * one elaboration pass per node, one union-find over edges.
  */
 
-import { diag, type Diagnostic } from "../diagnostics.js";
-import type { GraphDef, LinkData, NodeData } from "../format/document.js";
-import {
-  asPortId,
-  isPortEndpoint,
-  type LinkId,
-  type NodeId,
-  type PortRef,
-} from "../ids.js";
-import { buildRerouteIndex, traceEndpointAll } from "../reroute.js";
-import {
-  assetCoercible,
-  atomNamesOf,
-  coercionTargetsOf,
-  typesCompatible,
-} from "./type-relations.js";
-import type { SchemaResolver } from "./derive-boundary.js";
+import { diag, type Diagnostic } from '../diagnostics.js'
+import type { GraphDef, LinkData, NodeData } from '../format/document.js'
+import { asPortId, isPortEndpoint, type LinkId, type NodeId, type PortRef } from '../ids.js'
+import { buildRerouteIndex, traceEndpointAll } from '../reroute.js'
+import { assetCoercible, atomNamesOf, coercionTargetsOf, typesCompatible } from './type-relations.js'
+import type { SchemaResolver } from './derive-boundary.js'
 import {
   buildGraphConnectivity,
   elabInputsOf,
@@ -76,53 +65,28 @@ import {
   elaborateInterface,
   type Connectivity,
   type ElaborateOptions,
-} from "./elaborate.js";
-import {
-  canonicalTypeIdOf,
-  cardinalityOf,
-  effectiveAbsentPolicy,
-  parseAssetTypeId,
-  parseListTypeId,
-  parseStreamTypeId,
-  typeExprFromTypeId,
-  type NodeSchema,
-  type TypeExpr,
-} from "./model.js";
+} from './elaborate.js'
+import { canonicalTypeIdOf, cardinalityOf, effectiveAbsentPolicy, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type NodeSchema, type TypeExpr } from './model.js'
 
 /** Every variable occurring in `t`, including inside list/asset elements. */
-function* nestedVariablesOf(
-  t: TypeExpr,
-): Generator<TypeExpr & { kind: "variable" }> {
-  if (t.kind === "variable") yield t;
-  else if (t.kind === "tuple")
-    for (const element of t.elements) yield* nestedVariablesOf(element);
-  else if (t.kind === "tuple_element" && t.element !== undefined)
-    yield* nestedVariablesOf(t.element);
-  else if (t.kind === "list" || t.kind === "asset" || t.kind === "stream")
-    yield* nestedVariablesOf(t.element);
+function* nestedVariablesOf(t: TypeExpr): Generator<TypeExpr & { kind: 'variable' }> {
+  if (t.kind === 'variable') yield t
+  else if (t.kind === 'tuple') for (const element of t.elements) yield* nestedVariablesOf(element)
+  else if (t.kind === 'tuple_element' && t.element !== undefined) yield* nestedVariablesOf(t.element)
+  else if (t.kind === 'list' || t.kind === 'asset' || t.kind === 'stream') yield* nestedVariablesOf(t.element)
 }
 
 const substituteTypeBindings = (
   type: TypeExpr,
   bindings: ReadonlyMap<string, TypeExpr>,
 ): TypeExpr => {
-  if (type.kind === "variable") return bindings.get(type.templateId) ?? type;
-  if (type.kind === "tuple")
-    return {
-      ...type,
-      elements: type.elements.map((element) =>
-        substituteTypeBindings(element, bindings),
-      ),
-    };
-  if (type.kind === "tuple_element")
-    return type.element === undefined
-      ? type
-      : { ...type, element: substituteTypeBindings(type.element, bindings) };
-  if (type.kind !== "list" && type.kind !== "asset" && type.kind !== "stream")
-    return type;
-  const element = substituteTypeBindings(type.element, bindings);
-  return element === type.element ? type : { kind: type.kind, element };
-};
+  if (type.kind === 'variable') return bindings.get(type.templateId) ?? type
+  if (type.kind === 'tuple') return { ...type, elements: type.elements.map((element) => substituteTypeBindings(element, bindings)) }
+  if (type.kind === 'tuple_element') return type.element === undefined ? type : { ...type, element: substituteTypeBindings(type.element, bindings) }
+  if (type.kind !== 'list' && type.kind !== 'asset' && type.kind !== 'stream') return type
+  const element = substituteTypeBindings(type.element, bindings)
+  return element === type.element ? type : { kind: type.kind, element }
+}
 
 // ---------------------------------------------------------------------------
 // Results
@@ -130,41 +94,36 @@ const substituteTypeBindings = (
 
 export type VarResolution =
   /** No concrete constraint binds it; render the declared expression. */
-  | { readonly kind: "unconstrained" }
-  | { readonly kind: "resolved"; readonly name: string }
+  | { readonly kind: 'unconstrained' }
+  | { readonly kind: 'resolved'; readonly name: string }
   /** Valid but not pinned to one atom; render as the union of `names`. */
-  | { readonly kind: "ambiguous"; readonly names: readonly string[] }
-  | { readonly kind: "conflict" };
+  | { readonly kind: 'ambiguous'; readonly names: readonly string[] }
+  | { readonly kind: 'conflict' }
 
 /**
  * Per-edge verdict. 'unknown' means the solver could not type an endpoint
  * (unresolvable schema, port not currently elaborated) - structurally the
  * validator's business, not a type mismatch.
  */
-export type EdgeVerdict = "ok" | "mismatch" | "unknown";
+export type EdgeVerdict = 'ok' | 'mismatch' | 'unknown'
 
 /** Key for a named-net sink's verdict: the net id plus sink ordinal. */
-export const netSinkKey = (netId: string, sinkIndex: number): string =>
-  `${netId}[${sinkIndex}]`;
+export const netSinkKey = (netId: string, sinkIndex: number): string => `${netId}[${sinkIndex}]`
 
 export interface SolveResult {
   /** Resolution of variable `templateId` as it occurs on node `node`. */
-  resolutionOf(node: NodeId, templateId: string): VarResolution;
+  resolutionOf(node: NodeId, templateId: string): VarResolution
   /**
    * Display type of an elaborated port with solved variables substituted
    * (resolved -> concrete, ambiguous -> union, otherwise the declared
    * expression). Undefined when the node/port is not elaborated.
    */
-  portTypeOf(
-    node: NodeId,
-    side: "input" | "output",
-    elabKey: string,
-  ): TypeExpr | undefined;
+  portTypeOf(node: NodeId, side: 'input' | 'output', elabKey: string): TypeExpr | undefined
   /** Verdicts for consumer-delivering links (structural feeds absent). */
-  readonly linkVerdicts: ReadonlyMap<LinkId, EdgeVerdict>;
+  readonly linkVerdicts: ReadonlyMap<LinkId, EdgeVerdict>
   /** Verdicts per named-net sink, keyed by netSinkKey(). */
-  readonly netSinkVerdicts: ReadonlyMap<string, EdgeVerdict>;
-  readonly diagnostics: readonly Diagnostic[];
+  readonly netSinkVerdicts: ReadonlyMap<string, EdgeVerdict>
+  readonly diagnostics: readonly Diagnostic[]
 }
 
 // ---------------------------------------------------------------------------
@@ -172,132 +131,111 @@ export interface SolveResult {
 // ---------------------------------------------------------------------------
 
 type EdgeSource =
-  | { readonly kind: "link"; readonly id: LinkId }
-  | { readonly kind: "net"; readonly id: string; readonly sinkIndex: number }
-  | {
-      readonly kind: "projectedInput";
-      readonly index: number;
-      readonly to: PortRef;
-      readonly label?: string;
-    };
-type SlotBindingSource = { readonly ref: PortRef; readonly variant: string };
+  | { readonly kind: 'link'; readonly id: LinkId }
+  | { readonly kind: 'net'; readonly id: string; readonly sinkIndex: number }
+  | { readonly kind: 'projectedInput'; readonly index: number; readonly to: PortRef; readonly label?: string }
+type SlotBindingSource = { readonly ref: PortRef; readonly variant: string }
 
-type VarKey = string | symbol;
+type VarKey = string | symbol
 type VarOwner =
-  | {
-      readonly kind: "node";
-      readonly node: NodeId;
-      readonly templateId: string;
-    }
-  | {
-      readonly kind: "projected";
-      readonly to: PortRef;
-      readonly templateId: string;
-    };
+  | { readonly kind: 'node'; readonly node: NodeId; readonly templateId: string }
+  | { readonly kind: 'projected'; readonly to: PortRef; readonly templateId: string }
 
 interface VarRecord {
-  parent: VarKey;
-  readonly owner: VarOwner;
-  rank: number;
+  parent: VarKey
+  readonly owner: VarOwner
+  rank: number
   /** Remaining atom candidates; undefined = unrestricted. */
-  domain?: ReadonlySet<string>;
+  domain?: ReadonlySet<string>
   /** True once an edge or persisted DynamicSlot selection constrained this class. */
-  constrained: boolean;
+  constrained: boolean
   /** Contributing edges, for deterministic conflict blame. */
-  sources: EdgeSource[];
+  sources: EdgeSource[]
   /** Authoritative stored slot choices constraining this class. */
-  slotBindings: SlotBindingSource[];
+  slotBindings: SlotBindingSource[]
 }
 
-const varKeyOf = (node: NodeId, templateId: string): string =>
-  `${node.length}:${node}${templateId}`;
+const varKeyOf = (node: NodeId, templateId: string): string => `${node.length}:${node}${templateId}`
 
 class VarStore {
-  private readonly vars = new Map<VarKey, VarRecord>();
+  private readonly vars = new Map<VarKey, VarRecord>()
 
-  ensure(
-    key: VarKey,
-    declared: TypeExpr & { kind: "variable" },
-    owner: VarOwner,
-  ): void {
-    const existing = this.vars.get(key);
-    const declaredAtoms = atomNamesOf(declared);
+  ensure(key: VarKey, declared: TypeExpr & { kind: 'variable' }, owner: VarOwner): void {
+    const existing = this.vars.get(key)
+    const declaredAtoms = atomNamesOf(declared)
     if (!existing) {
       this.vars.set(key, {
         parent: key,
         owner,
         rank: 0,
-        ...(declaredAtoms !== undefined
-          ? { domain: new Set(declaredAtoms) }
-          : {}),
+        ...(declaredAtoms !== undefined ? { domain: new Set(declaredAtoms) } : {}),
         constrained: false,
         sources: [],
         slotBindings: [],
-      });
-      return;
+      })
+      return
     }
     // Multiple declarations of one template on one node must agree; if a
     // schema declares differing allowed sets, the variable honors all of
     // them (intersection) - declaration alone never marks it constrained.
     if (declaredAtoms !== undefined) {
-      const root = this.find(key);
-      root.domain = intersect(root.domain, declaredAtoms);
+      const root = this.find(key)
+      root.domain = intersect(root.domain, declaredAtoms)
     }
   }
 
   find(key: VarKey): VarRecord {
-    let rec = this.vars.get(key);
-    if (!rec) throw new Error(`unregistered type variable '${String(key)}'`);
+    let rec = this.vars.get(key)
+    if (!rec) throw new Error(`unregistered type variable '${String(key)}'`)
     // Path halving.
     while (rec.parent !== key) {
-      const parent: VarRecord = this.vars.get(rec.parent)!;
-      rec.parent = parent.parent;
-      key = rec.parent;
-      rec = this.vars.get(key)!;
+      const parent: VarRecord = this.vars.get(rec.parent)!
+      rec.parent = parent.parent
+      key = rec.parent
+      rec = this.vars.get(key)!
     }
-    return rec;
+    return rec
   }
 
   constrain(key: VarKey, atoms: readonly string[], source: EdgeSource): void {
-    const root = this.find(key);
-    root.domain = intersect(root.domain, atoms);
-    root.constrained = true;
-    root.sources.push(source);
+    const root = this.find(key)
+    root.domain = intersect(root.domain, atoms)
+    root.constrained = true
+    root.sources.push(source)
   }
 
   bind(key: VarKey, atom: string, source: SlotBindingSource): void {
-    const root = this.find(key);
-    root.domain = intersect(root.domain, [atom]);
-    root.constrained = true;
-    root.slotBindings.push(source);
+    const root = this.find(key)
+    root.domain = intersect(root.domain, [atom])
+    root.constrained = true
+    root.slotBindings.push(source)
   }
 
   merge(a: VarKey, b: VarKey, source: EdgeSource): void {
-    const ra = this.find(a);
-    const rb = this.find(b);
+    const ra = this.find(a)
+    const rb = this.find(b)
     if (ra === rb) {
-      ra.sources.push(source);
-      return;
+      ra.sources.push(source)
+      return
     }
-    const [winner, loser] = ra.rank >= rb.rank ? [ra, rb] : [rb, ra];
-    if (winner.rank === loser.rank) winner.rank++;
-    loser.parent = winner.parent;
-    if (loser.domain !== undefined)
-      winner.domain = intersect(winner.domain, [...loser.domain]);
-    winner.constrained = winner.constrained || loser.constrained;
-    winner.sources.push(...loser.sources, source);
-    winner.slotBindings.push(...loser.slotBindings);
+    const [winner, loser] = ra.rank >= rb.rank ? [ra, rb] : [rb, ra]
+    if (winner.rank === loser.rank) winner.rank++
+    loser.parent = winner.parent
+    if (loser.domain !== undefined) winner.domain = intersect(winner.domain, [...loser.domain])
+    winner.constrained = winner.constrained || loser.constrained
+    winner.sources.push(...loser.sources, source)
+    winner.slotBindings.push(...loser.slotBindings)
   }
 
   roots(): IterableIterator<VarRecord> {
-    const seen = new Set<VarRecord>();
-    for (const key of this.vars.keys()) seen.add(this.find(key));
-    return seen.values();
+    const seen = new Set<VarRecord>()
+    for (const key of this.vars.keys()) seen.add(this.find(key))
+    return seen.values()
   }
 
   resolutionOf(key: VarKey): VarResolution {
-    if (!this.vars.has(key)) return { kind: "unconstrained" };
-    return resolutionOfRoot(this.find(key));
+    if (!this.vars.has(key)) return { kind: 'unconstrained' }
+    return resolutionOfRoot(this.find(key))
   }
 }
 
@@ -305,20 +243,19 @@ const intersect = (
   domain: ReadonlySet<string> | undefined,
   atoms: readonly string[],
 ): ReadonlySet<string> => {
-  if (domain === undefined) return new Set(atoms);
-  return new Set(atoms.filter((a) => domain.has(a)));
-};
+  if (domain === undefined) return new Set(atoms)
+  return new Set(atoms.filter((a) => domain.has(a)))
+}
 
 const resolutionOfRoot = (root: VarRecord): VarResolution => {
-  if (root.domain !== undefined && root.domain.size === 0)
-    return { kind: "conflict" };
-  if (!root.constrained) return { kind: "unconstrained" };
-  const names = [...(root.domain ?? [])];
-  if (names.length === 1) return { kind: "resolved", name: names[0]! };
-  if (names.length > 1) return { kind: "ambiguous", names };
+  if (root.domain !== undefined && root.domain.size === 0) return { kind: 'conflict' }
+  if (!root.constrained) return { kind: 'unconstrained' }
+  const names = [...(root.domain ?? [])]
+  if (names.length === 1) return { kind: 'resolved', name: names[0]! }
+  if (names.length > 1) return { kind: 'ambiguous', names }
   // A constrained class without a finite domain cannot resolve to an atom.
-  return { kind: "unconstrained" };
-};
+  return { kind: 'unconstrained' }
+}
 
 // ---------------------------------------------------------------------------
 // Solver
@@ -326,24 +263,24 @@ const resolutionOfRoot = (root: VarRecord): VarResolution => {
 
 export interface SolveOptions extends ElaborateOptions {
   /** Observe node, elaborated-port and type-pair visits without timing the host. */
-  readonly onWork?: (kind: "node" | "port" | "constraint") => void;
+  readonly onWork?: (kind: 'node' | 'port' | 'constraint') => void
   /** Resolve a concrete node when its schema depends on occurrence-local data. */
-  readonly resolveNode?: (node: NodeData) => NodeSchema | undefined;
+  readonly resolveNode?: (node: NodeData) => NodeSchema | undefined
   /** Optional occurrence-aware connectivity used by scene projections. */
-  readonly connectivityOf?: (nodeId: NodeId) => Connectivity;
+  readonly connectivityOf?: (nodeId: NodeId) => Connectivity
   /** Producer types projected through a parent occurrence input. */
   readonly projectedInputs?: readonly {
-    readonly type: TypeExpr;
-    readonly to: PortRef;
-    readonly label?: string;
+    readonly type: TypeExpr
+    readonly to: PortRef
+    readonly label?: string
     /** Shared identity for multiple edges from one projected producer node. */
-    readonly variableSource?: symbol;
-  }[];
+    readonly variableSource?: symbol
+  }[]
 }
 
 interface PortTypes {
-  readonly inputs: ReadonlyMap<string, TypeExpr>;
-  readonly outputs: ReadonlyMap<string, TypeExpr>;
+  readonly inputs: ReadonlyMap<string, TypeExpr>
+  readonly outputs: ReadonlyMap<string, TypeExpr>
 }
 
 /**
@@ -356,93 +293,87 @@ export function solveGraphTypes(
   resolve: SchemaResolver,
   options: SolveOptions = {},
 ): SolveResult {
-  const diagnostics: Diagnostic[] = [];
-  const linkVerdicts = new Map<LinkId, EdgeVerdict>();
-  const netSinkVerdicts = new Map<string, EdgeVerdict>();
-  const vars = new VarStore();
+  const diagnostics: Diagnostic[] = []
+  const linkVerdicts = new Map<LinkId, EdgeVerdict>()
+  const netSinkVerdicts = new Map<string, EdgeVerdict>()
+  const vars = new VarStore()
 
   // -- 1. Elaborate every resolvable node once; index port types by elabKey.
   // Absence metadata rides along: which outputs may deliberately emit no
   // value, and which inputs declare on_absent='fail' - the edge walk below
   // warns where they meet (legal, but worth surfacing: solve.maybeAbsent).
-  const connectivityOf = options.connectivityOf ?? buildGraphConnectivity(def);
-  const portTypes = new Map<NodeId, PortTypes>();
+  const connectivityOf = options.connectivityOf ?? buildGraphConnectivity(def)
+  const portTypes = new Map<NodeId, PortTypes>()
   const specializedSlots: {
-    node: NodeId;
-    ref: PortRef;
-    selectedType: TypeExpr;
-  }[] = [];
-  const optionalOutputs = new Map<NodeId, Set<string>>();
-  const failInputs = new Map<NodeId, Set<string>>();
-  const wholeListInputs = new Map<NodeId, Set<string>>();
+    node: NodeId
+    ref: PortRef
+    selectedType: TypeExpr
+  }[] = []
+  const optionalOutputs = new Map<NodeId, Set<string>>()
+  const failInputs = new Map<NodeId, Set<string>>()
+  const wholeListInputs = new Map<NodeId, Set<string>>()
   for (const node of Object.values(def.nodes) as NodeData[]) {
-    options.onWork?.("node");
-    const schema =
-      options.resolveNode === undefined
-        ? resolve(node.type)
-        : options.resolveNode(node);
-    if (!schema) continue; // structural validators own "unresolvable type"
-    const e = elaborateInterface(
-      schema,
-      node,
-      connectivityOf(node.id),
-      options,
-    );
-    const inputs = new Map<string, TypeExpr>();
-    const outputs = new Map<string, TypeExpr>();
+    options.onWork?.('node')
+    const schema = options.resolveNode === undefined
+      ? resolve(node.type)
+      : options.resolveNode(node)
+    if (!schema) continue // structural validators own "unresolvable type"
+    const e = elaborateInterface(schema, node, connectivityOf(node.id), options)
+    const inputs = new Map<string, TypeExpr>()
+    const outputs = new Map<string, TypeExpr>()
     const slotBindings: {
-      readonly templateId: string;
-      readonly type: TypeExpr;
-      readonly source: SlotBindingSource;
-    }[] = [];
+      readonly templateId: string
+      readonly type: TypeExpr
+      readonly source: SlotBindingSource
+    }[] = []
     for (const item of elabInputsOf(e)) {
-      options.onWork?.("port");
-      const key = elabKeyOf(item.address);
-      inputs.set(key, item.spec.type);
+      options.onWork?.('port')
+      const key = elabKeyOf(item.address)
+      inputs.set(key, item.spec.type)
       if (item.spec.acceptsList) {
-        let set = wholeListInputs.get(node.id);
-        if (!set) wholeListInputs.set(node.id, (set = new Set()));
-        set.add(key);
+        let set = wholeListInputs.get(node.id)
+        if (!set) wholeListInputs.set(node.id, (set = new Set()))
+        set.add(key)
       }
-      if (item.origin.kind === "slot" && item.origin.selected !== undefined) {
-        const selected = item.origin.selected;
+      if (item.origin.kind === 'slot' && item.origin.selected !== undefined) {
+        const selected = item.origin.selected
         const variant = item.origin.variants?.find(
           (candidate) => candidate.key === selected,
-        );
+        )
         if (variant) {
           const ref = {
             node: node.id,
             port: asPortId(item.address.port),
             ...(item.address.members ? { members: item.address.members } : {}),
-          };
+          }
           specializedSlots.push({
             node: node.id,
             ref,
             selectedType: variant.type,
-          });
+          })
           if (item.origin.typeTemplateId !== undefined) {
             slotBindings.push({
               templateId: item.origin.typeTemplateId,
               type: variant.type,
               source: { ref, variant: selected },
-            });
+            })
           }
         }
       }
-      if (effectiveAbsentPolicy(item.spec) === "fail") {
-        let set = failInputs.get(node.id);
-        if (!set) failInputs.set(node.id, (set = new Set()));
-        set.add(key);
+      if (effectiveAbsentPolicy(item.spec) === 'fail') {
+        let set = failInputs.get(node.id)
+        if (!set) failInputs.set(node.id, (set = new Set()))
+        set.add(key)
       }
     }
     for (const item of elabOutputsOf(e)) {
-      options.onWork?.("port");
-      const key = elabKeyOf(item.address);
-      outputs.set(key, item.spec.type);
+      options.onWork?.('port')
+      const key = elabKeyOf(item.address)
+      outputs.set(key, item.spec.type)
       if (item.spec.optional) {
-        let set = optionalOutputs.get(node.id);
-        if (!set) optionalOutputs.set(node.id, (set = new Set()));
-        set.add(key);
+        let set = optionalOutputs.get(node.id)
+        if (!set) optionalOutputs.set(node.id, (set = new Set()))
+        set.add(key)
       }
     }
     // Register every variable occurrence (including variables nested inside
@@ -450,96 +381,53 @@ export function solveGraphTypes(
     // multi-declaration domains intersect up front.
     for (const type of [...inputs.values(), ...outputs.values()]) {
       for (const v of nestedVariablesOf(type)) {
-        vars.ensure(varKeyOf(node.id, v.templateId), v, {
-          kind: "node",
-          node: node.id,
-          templateId: v.templateId,
-        });
+        vars.ensure(varKeyOf(node.id, v.templateId), v, { kind: 'node', node: node.id, templateId: v.templateId })
       }
     }
     for (const binding of slotBindings) {
-      const key = varKeyOf(node.id, binding.templateId);
+      const key = varKeyOf(node.id, binding.templateId)
       // A count-bound output family may currently have zero members, leaving
       // no elaborated variable occurrence even though the slot still binds it.
-      vars.ensure(
-        key,
-        { kind: "variable", templateId: binding.templateId },
-        {
-          kind: "node",
-          node: node.id,
-          templateId: binding.templateId,
-        },
-      );
-      const typeId = canonicalTypeIdOf(binding.type);
-      if (typeId !== undefined) vars.bind(key, typeId, binding.source);
+      vars.ensure(key, { kind: 'variable', templateId: binding.templateId }, {
+        kind: 'node', node: node.id, templateId: binding.templateId,
+      })
+      const typeId = canonicalTypeIdOf(binding.type)
+      if (typeId !== undefined) vars.bind(key, typeId, binding.source)
     }
     if (slotBindings.length > 0) {
-      const bindings = new Map(
-        slotBindings.map(({ templateId, type }) => [templateId, type]),
-      );
-      for (const [key, type] of inputs)
-        inputs.set(key, substituteTypeBindings(type, bindings));
-      for (const [key, type] of outputs)
-        outputs.set(key, substituteTypeBindings(type, bindings));
+      const bindings = new Map(slotBindings.map(({ templateId, type }) => [templateId, type]))
+      for (const [key, type] of inputs) inputs.set(key, substituteTypeBindings(type, bindings))
+      for (const [key, type] of outputs) outputs.set(key, substituteTypeBindings(type, bindings))
     }
-    portTypes.set(node.id, { inputs, outputs });
+    portTypes.set(node.id, { inputs, outputs })
   }
 
-  const typeAt = (
-    ref: PortRef,
-    side: "input" | "output",
-  ): TypeExpr | undefined => {
-    const entry = portTypes.get(ref.node);
-    if (!entry) return undefined;
-    const key = elabKeyOf({
-      port: ref.port,
-      ...(ref.members !== undefined ? { members: ref.members } : {}),
-    });
-    return (side === "input" ? entry.inputs : entry.outputs).get(key);
-  };
+  const typeAt = (ref: PortRef, side: 'input' | 'output'): TypeExpr | undefined => {
+    const entry = portTypes.get(ref.node)
+    if (!entry) return undefined
+    const key = elabKeyOf({ port: ref.port, ...(ref.members !== undefined ? { members: ref.members } : {}) })
+    return (side === 'input' ? entry.inputs : entry.outputs).get(key)
+  }
 
   const substitute = (type: TypeExpr, node: NodeId): TypeExpr => {
-    if (type.kind === "tuple")
-      return {
-        ...type,
-        elements: type.elements.map((element) => substitute(element, node)),
-      };
-    if (type.kind === "tuple_element" && type.element !== undefined) {
-      const element = substitute(type.element, node);
-      if (element.kind === "tuple" && typeof type.index === "number") {
-        return (
-          element.elements[
-            type.index < 0 ? element.elements.length + type.index : type.index
-          ] ?? { ...type, element }
-        );
+    if (type.kind === 'tuple') return { ...type, elements: type.elements.map((element) => substitute(element, node)) }
+    if (type.kind === 'tuple_element' && type.element !== undefined) {
+      const element = substitute(type.element, node)
+      if (element.kind === 'tuple' && typeof type.index === 'number') {
+        return element.elements[type.index < 0 ? element.elements.length + type.index : type.index] ?? { ...type, element }
       }
-      return { ...type, element };
+      return { ...type, element }
     }
-    if (type.kind === "list" || type.kind === "asset" || type.kind === "stream")
-      return { ...type, element: substitute(type.element, node) };
-    if (type.kind !== "variable") return type;
-    const resolution = vars.resolutionOf(varKeyOf(node, type.templateId));
-    if (resolution.kind === "resolved")
-      return typeExprFromTypeId(resolution.name);
-    if (resolution.kind === "ambiguous")
-      return { kind: "union", names: resolution.names };
-    return type;
-  };
-  const dependentEdges: {
-    fromType: TypeExpr;
-    toType: TypeExpr;
-    from: PortRef;
-    to: PortRef;
-    source: EdgeSource;
-    signature?: string;
-  }[] = [];
-  const hasTuple = (type: TypeExpr): boolean =>
-    type.kind === "tuple" ||
-    type.kind === "tuple_element" ||
-    ((type.kind === "list" ||
-      type.kind === "asset" ||
-      type.kind === "stream") &&
-      hasTuple(type.element));
+    if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') return { ...type, element: substitute(type.element, node) }
+    if (type.kind !== 'variable') return type
+    const resolution = vars.resolutionOf(varKeyOf(node, type.templateId))
+    if (resolution.kind === 'resolved') return typeExprFromTypeId(resolution.name)
+    if (resolution.kind === 'ambiguous') return { kind: 'union', names: resolution.names }
+    return type
+  }
+  const dependentEdges: { fromType: TypeExpr; toType: TypeExpr; from: PortRef; to: PortRef; source: EdgeSource; signature?: string }[] = []
+  const hasTuple = (type: TypeExpr): boolean => type.kind === 'tuple' || type.kind === 'tuple_element' ||
+    ((type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') && hasTuple(type.element))
 
   // -- 2. Process type-carrying edges.
   //
@@ -547,23 +435,17 @@ export function solveGraphTypes(
   // output checks against every candidate branch), so verdicts are
   // sticky-worst: mismatch > unknown > ok. Single-constraint sources behave
   // exactly as before.
-  const verdictRank: Record<EdgeVerdict, number> = {
-    ok: 0,
-    unknown: 1,
-    mismatch: 2,
-  };
+  const verdictRank: Record<EdgeVerdict, number> = { ok: 0, unknown: 1, mismatch: 2 }
   const setVerdict = (source: EdgeSource, verdict: EdgeVerdict): void => {
-    if (source.kind === "link") {
-      const prev = linkVerdicts.get(source.id);
-      if (prev === undefined || verdictRank[verdict] > verdictRank[prev])
-        linkVerdicts.set(source.id, verdict);
-    } else if (source.kind === "net") {
-      const key = netSinkKey(source.id, source.sinkIndex);
-      const prev = netSinkVerdicts.get(key);
-      if (prev === undefined || verdictRank[verdict] > verdictRank[prev])
-        netSinkVerdicts.set(key, verdict);
+    if (source.kind === 'link') {
+      const prev = linkVerdicts.get(source.id)
+      if (prev === undefined || verdictRank[verdict] > verdictRank[prev]) linkVerdicts.set(source.id, verdict)
+    } else if (source.kind === 'net') {
+      const key = netSinkKey(source.id, source.sinkIndex)
+      const prev = netSinkVerdicts.get(key)
+      if (prev === undefined || verdictRank[verdict] > verdictRank[prev]) netSinkVerdicts.set(key, verdict)
     }
-  };
+  }
 
   const admittedInputType = (
     from: TypeExpr | undefined,
@@ -571,82 +453,54 @@ export function solveGraphTypes(
     type: TypeExpr | undefined,
   ): TypeExpr | undefined =>
     type !== undefined &&
-    type.kind !== "list" &&
+    type.kind !== 'list' &&
     from !== undefined &&
-    cardinalityOf(from) === "list" &&
+    cardinalityOf(from) === 'list' &&
     wholeListInputs.get(to.node)?.has(elabKeyOf(to))
-      ? { kind: "list", element: type }
-      : type;
+      ? { kind: 'list', element: type }
+      : type
 
   const constrain = (
     from: PortRef,
     to: PortRef,
     source: EdgeSource,
-    fromSide: "input" | "output" = "output",
+    fromSide: 'input' | 'output' = 'output',
   ): void => {
-    const fromType = typeAt(from, fromSide);
-    const toType = admittedInputType(fromType, to, typeAt(to, "input"));
+    const fromType = typeAt(from, fromSide)
+    const toType = admittedInputType(fromType, to, typeAt(to, 'input'))
     if (fromType !== undefined && toType !== undefined && hasTuple(fromType))
-      dependentEdges.push({ fromType, toType, from, to, source });
+      dependentEdges.push({ fromType, toType, from, to, source })
     if (fromType === undefined || toType === undefined) {
-      setVerdict(source, "unknown");
-      const missing = fromType === undefined ? from : to;
+      setVerdict(source, 'unknown')
+      const missing = fromType === undefined ? from : to
       if (portTypes.has(missing.node)) {
         // The node elaborated but this port does not currently exist
         // (inactive branch, removed member, renamed schema port).
         diagnostics.push(
-          diag(
-            "info",
-            "schema",
-            "solve.portMissing",
-            `${missing.node}.${elabKeyOf(missing)}: connected port is unavailable`,
-            {
-              anchor:
-                source.kind === "link"
-                  ? { link: source.id, port: missing }
-                  : { port: missing },
-            },
-          ),
-        );
+          diag('info', 'schema', 'solve.portMissing', `${missing.node}.${elabKeyOf(missing)}: connected port is unavailable`, {
+            anchor: source.kind === 'link' ? { link: source.id, port: missing } : { port: missing },
+          }),
+        )
       }
-      return;
+      return
     }
 
     // Absence advisory (schema wire v3): a maybe-absent producer feeding a
     // fail-policy input is LEGAL - the type verdict is untouched - but worth
     // surfacing before the run fails at runtime. Keyed to the traced REAL
     // producer, so the warning survives reroute chains.
-    const fromKey = elabKeyOf({
-      port: from.port,
-      ...(from.members !== undefined ? { members: from.members } : {}),
-    });
-    const toKey = elabKeyOf({
-      port: to.port,
-      ...(to.members !== undefined ? { members: to.members } : {}),
-    });
-    if (
-      fromSide === "output" &&
-      optionalOutputs.get(from.node)?.has(fromKey) &&
-      failInputs.get(to.node)?.has(toKey)
-    ) {
+    const fromKey = elabKeyOf({ port: from.port, ...(from.members !== undefined ? { members: from.members } : {}) })
+    const toKey = elabKeyOf({ port: to.port, ...(to.members !== undefined ? { members: to.members } : {}) })
+    if (fromSide === 'output' && optionalOutputs.get(from.node)?.has(fromKey) && failInputs.get(to.node)?.has(toKey)) {
       diagnostics.push(
-        diag(
-          "warning",
-          "schema",
-          "solve.maybeAbsent",
-          `${to.node}.${to.port}: required value comes from optional output ${from.node}.${from.port}`,
-          {
-            anchor:
-              source.kind === "link"
-                ? { link: source.id, port: to }
-                : { port: to },
-          },
-        ),
-      );
+        diag('warning', 'schema', 'solve.maybeAbsent', `${to.node}.${to.port}: required value comes from optional output ${from.node}.${from.port}`, {
+          anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
+        }),
+      )
     }
 
-    unify(fromType, toType, from, to, source);
-  };
+    unify(fromType, toType, from, to, source)
+  }
 
   /**
    * Structural unification of one edge's endpoint types. Constructor-aware
@@ -679,38 +533,20 @@ export function solveGraphTypes(
     allowCoercion = true,
     fromVariableKeys?: ReadonlyMap<string, VarKey>,
   ): void => {
-    options.onWork?.("constraint");
-    if (fromType.kind === "wildcard" || toType.kind === "wildcard") {
-      setVerdict(source, "ok"); // no constraint, no capture
-      return;
+    options.onWork?.('constraint')
+    if (fromType.kind === 'wildcard' || toType.kind === 'wildcard') {
+      setVerdict(source, 'ok') // no constraint, no capture
+      return
     }
 
-    if (fromType.kind === "tuple" && toType.kind === "tuple") {
+    if (fromType.kind === 'tuple' && toType.kind === 'tuple') {
       if (fromType.elements.length !== toType.elements.length) {
-        setVerdict(source, "mismatch");
-        diagnostics.push(
-          diag(
-            "warning",
-            "schema",
-            "solve.tupleArity",
-            "Tuple positions must have the same length.",
-            { anchor: { port: to } },
-          ),
-        );
+        setVerdict(source, 'mismatch')
+        diagnostics.push(diag('warning', 'schema', 'solve.tupleArity', 'Tuple positions must have the same length.', { anchor: { port: to } }))
       } else {
-        fromType.elements.forEach((element, index) =>
-          unify(
-            element,
-            toType.elements[index]!,
-            from,
-            to,
-            source,
-            allowCoercion,
-            fromVariableKeys,
-          ),
-        );
+        fromType.elements.forEach((element, index) => unify(element, toType.elements[index]!, from, to, source, allowCoercion, fromVariableKeys))
       }
-      return;
+      return
     }
 
     // Structural cardinality gate (variables/wildcards are 'unknown' and pass).
@@ -719,97 +555,60 @@ export function solveGraphTypes(
     // list<asset<T>> -> T), so a coercible edge passes the gate. Open
     // structured forms peel structurally with the step consumed; closed
     // forms resolve through the atom vocabulary.
-    const cf = cardinalityOf(fromType);
-    const ct = cardinalityOf(toType);
-    if (cf !== "unknown" && ct !== "unknown" && cf !== ct) {
+    const cf = cardinalityOf(fromType)
+    const ct = cardinalityOf(toType)
+    if (cf !== 'unknown' && ct !== 'unknown' && cf !== ct) {
       if (allowCoercion) {
-        if (fromType.kind === "asset") {
+        if (fromType.kind === 'asset') {
           // decode asset<X> -> X (only asset<list<...>> can reach a list
           // destination); recursion is NON-coercing: the step is spent.
-          unify(
-            fromType.element,
-            toType,
-            from,
-            to,
-            source,
-            false,
-            fromVariableKeys,
-          );
-          return;
+          unify(fromType.element, toType, from, to, source, false, fromVariableKeys)
+          return
         }
-        if (fromType.kind === "list" && fromType.element.kind === "asset") {
+        if (fromType.kind === 'list' && fromType.element.kind === 'asset') {
           // registry-gated merge list<asset<X>> -> scalar X. Maybe-legal
           // here: the merge-provider registry is server-side, so 'ok' means
           // "no frontend-known mismatch" and backend document validation
           // owns the final refusal.
-          unify(
-            fromType.element.element,
-            toType,
-            from,
-            to,
-            source,
-            false,
-            fromVariableKeys,
-          );
-          return;
+          unify(fromType.element.element, toType, from, to, source, false, fromVariableKeys)
+          return
         }
         if (assetCoercible(fromType, toType)) {
-          setVerdict(source, "ok"); // closed coercion target is exact; no domain capture needed
-          return;
+          setVerdict(source, 'ok') // closed coercion target is exact; no domain capture needed
+          return
         }
       }
-      setVerdict(source, "mismatch");
+      setVerdict(source, 'mismatch')
       const [code, msg] =
-        cf === "list"
-          ? [
-              "solve.listIntoScalar",
-              `expects one value but is driven by a list; apply the node per element with a Map region, reduce the list, or pick one element explicitly`,
-            ]
-          : [
-              "solve.scalarIntoList",
-              `expects a list but is driven by one value; collect values into a list explicitly`,
-            ];
+        cf === 'list'
+          ? ['solve.listIntoScalar', `expects one value but is driven by a list; apply the node per element with a Map region, reduce the list, or pick one element explicitly`]
+          : ['solve.scalarIntoList', `expects a list but is driven by one value; collect values into a list explicitly`]
       diagnostics.push(
-        diag(
-          "error",
-          "schema",
-          code,
-          `[${def.id}] ${sourceLabel(source)}: input '${to.port}' on node '${to.node}' ${msg}`,
-          {
-            anchor:
-              source.kind === "link"
-                ? { link: source.id, port: to }
-                : { port: to },
-          },
-        ),
-      );
-      return;
+        diag('error', 'schema', code, `[${def.id}] ${sourceLabel(source)}: input '${to.port}' on node '${to.node}' ${msg}`, {
+          anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
+        }),
+      )
+      return
     }
 
-    const fromVar =
-      fromType.kind === "variable"
-        ? (fromVariableKeys?.get(fromType.templateId) ??
-          varKeyOf(from.node, fromType.templateId))
-        : undefined;
-    const toVar =
-      toType.kind === "variable"
-        ? varKeyOf(to.node, toType.templateId)
-        : undefined;
+    const fromVar = fromType.kind === 'variable'
+      ? fromVariableKeys?.get(fromType.templateId) ?? varKeyOf(from.node, fromType.templateId)
+      : undefined
+    const toVar = toType.kind === 'variable' ? varKeyOf(to.node, toType.templateId) : undefined
 
     if (fromVar !== undefined && toVar !== undefined) {
-      if (source.kind === "projectedInput" && fromVariableKeys !== undefined)
-        vars.merge(toVar, fromVar, source);
-      else vars.merge(fromVar, toVar, source);
-      setVerdict(source, "ok"); // downgraded to 'mismatch' if the class conflicts
-      return;
+      if (source.kind === 'projectedInput' && fromVariableKeys !== undefined) vars.merge(toVar, fromVar, source)
+      else vars.merge(fromVar, toVar, source)
+      setVerdict(source, 'ok') // downgraded to 'mismatch' if the class conflicts
+      return
     }
     if (fromVar !== undefined || toVar !== undefined) {
-      const varKey = (fromVar ?? toVar)!;
-      let atoms = atomNamesOf(fromVar !== undefined ? toType : fromType);
+      const varKey = (fromVar ?? toVar)!
+      let atoms = atomNamesOf(fromVar !== undefined ? toType : fromType)
       if (atoms === undefined) {
         // Unrestricted (or open-list) other side: no constraint, no capture.
-        setVerdict(source, "ok");
-        return;
+        setVerdict(source, 'ok')
+        return
       }
       if (toVar !== undefined && allowCoercion) {
         // Exact-first (backend parity): a MATCHING variable destination
@@ -820,18 +619,15 @@ export function solveGraphTypes(
         // directly does the one coercion step apply: the input then resolves
         // to a coercion target and the engine decodes/lifts/merges at input
         // resolution.
-        const declared = atomNamesOf(toType);
-        if (
-          declared !== undefined &&
-          !atoms.some((n) => declared.includes(n))
-        ) {
-          const coerced = atoms.flatMap((n) => coercionTargetsOf(n));
-          if (coerced.some((n) => declared.includes(n))) atoms = coerced;
+        const declared = atomNamesOf(toType)
+        if (declared !== undefined && !atoms.some((n) => declared.includes(n))) {
+          const coerced = atoms.flatMap((n) => coercionTargetsOf(n))
+          if (coerced.some((n) => declared.includes(n))) atoms = coerced
         }
       }
-      vars.constrain(varKey, atoms, source);
-      setVerdict(source, "ok"); // downgraded on conflict
-      return;
+      vars.constrain(varKey, atoms, source)
+      setVerdict(source, 'ok') // downgraded on conflict
+      return
     }
 
     // Structured-vs-structured of the SAME constructor (list or asset) where
@@ -840,162 +636,74 @@ export function solveGraphTypes(
     // unify the elements on the same edge source - this is how "asset<T>
     // binds T" works, mirroring the backend's unification through the
     // constructor.
-    if (
-      fromType.kind === toType.kind &&
-      (fromType.kind === "list" ||
-        fromType.kind === "asset" ||
-        fromType.kind === "stream")
-    ) {
-      const a = atomNamesOf(fromType);
-      const b = atomNamesOf(toType);
+    if (fromType.kind === toType.kind && (fromType.kind === 'list' || fromType.kind === 'asset' || fromType.kind === 'stream')) {
+      const a = atomNamesOf(fromType)
+      const b = atomNamesOf(toType)
       if (a === undefined || b === undefined) {
         // Shared-constructor peel is free: the coercion budget is inherited
         // (that is the elementwise lift when a list element then decodes).
-        unify(
-          fromType.element,
-          (toType as TypeExpr & { kind: "list" | "asset" | "stream" }).element,
-          from,
-          to,
-          source,
-          allowCoercion,
-          fromVariableKeys,
-        );
-        return;
+        unify(fromType.element, (toType as TypeExpr & { kind: 'list' | 'asset' | 'stream' }).element, from, to, source, allowCoercion, fromVariableKeys)
+        return
       }
       // Both closed: exact canonical-id overlap, handled below.
-    } else if (
-      fromType.kind === "list" ||
-      fromType.kind === "asset" ||
-      fromType.kind === "stream" ||
-      toType.kind === "list" ||
-      toType.kind === "asset" ||
-      toType.kind === "stream"
-    ) {
+    } else if (fromType.kind === 'list' || fromType.kind === 'asset' || fromType.kind === 'stream' || toType.kind === 'list' || toType.kind === 'asset' || toType.kind === 'stream') {
       // Open structured side against a concrete/union side (closed
       // structures fell through the gate only when the other side has
       // matching atoms too): peel by parsing the atom side's parametric ids
       // and unify elements. Mixed constructors never meet here - the
       // cardinality gate already resolved list-vs-asset edges.
-      const structuredIsFrom =
-        fromType.kind === "list" ||
-        fromType.kind === "asset" ||
-        fromType.kind === "stream";
-      const structured = (structuredIsFrom ? fromType : toType) as TypeExpr & {
-        kind: "list" | "asset" | "stream";
-      };
-      const other = structuredIsFrom ? toType : fromType;
+      const structuredIsFrom = fromType.kind === 'list' || fromType.kind === 'asset' || fromType.kind === 'stream'
+      const structured = (structuredIsFrom ? fromType : toType) as TypeExpr & { kind: 'list' | 'asset' | 'stream' }
+      const other = structuredIsFrom ? toType : fromType
       if (atomNamesOf(structured) === undefined) {
-        const parse =
-          structured.kind === "list"
-            ? parseListTypeId
-            : structured.kind === "asset"
-              ? parseAssetTypeId
-              : parseStreamTypeId;
-        const elems = (atomNamesOf(other) ?? [])
-          .map(parse)
-          .filter((n): n is string => n !== undefined);
+        const parse = structured.kind === 'list' ? parseListTypeId : structured.kind === 'asset' ? parseAssetTypeId : parseStreamTypeId
+        const elems = (atomNamesOf(other) ?? []).map(parse).filter((n): n is string => n !== undefined)
         if (elems.length === 0) {
           // An open ASSET producer can still feed a concrete input through
           // the one decode step (asset<V> -> V): bind the element against
           // the input's atoms instead of reporting a mismatch. The step is
           // spent - the recursion is non-coercing, so asset<asset<V>> never
           // chains through.
-          if (
-            allowCoercion &&
-            structuredIsFrom &&
-            structured.kind === "asset"
-          ) {
-            unify(
-              structured.element,
-              toType,
-              from,
-              to,
-              source,
-              false,
-              fromVariableKeys,
-            );
-            return;
+          if (allowCoercion && structuredIsFrom && structured.kind === 'asset') {
+            unify(structured.element, toType, from, to, source, false, fromVariableKeys)
+            return
           }
           // Mixed-cardinality union with no matching members left: mismatch.
-          setVerdict(source, "mismatch");
+          setVerdict(source, 'mismatch')
           diagnostics.push(
-            diag(
-              "warning",
-              "schema",
-              "solve.linkMismatch",
-              `${to.node}.${to.port}: no ${structured.kind}-typed candidate matches this input`,
-              {
-                anchor:
-                  source.kind === "link"
-                    ? { link: source.id, port: to }
-                    : { port: to },
-              },
-            ),
-          );
-          return;
+            diag('warning', 'schema', 'solve.linkMismatch', `${to.node}.${to.port}: no ${structured.kind}-typed candidate matches this input`, {
+              anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
+            }),
+          )
+          return
         }
-        const elemExpr: TypeExpr =
-          elems.length === 1
-            ? typeExprFromTypeId(elems[0]!)
-            : { kind: "union", names: elems };
-        if (structuredIsFrom)
-          unify(
-            structured.element,
-            elemExpr,
-            from,
-            to,
-            source,
-            allowCoercion,
-            fromVariableKeys,
-          );
-        else
-          unify(
-            elemExpr,
-            structured.element,
-            from,
-            to,
-            source,
-            allowCoercion,
-            fromVariableKeys,
-          );
-        return;
+        const elemExpr: TypeExpr = elems.length === 1 ? typeExprFromTypeId(elems[0]!) : { kind: 'union', names: elems }
+        if (structuredIsFrom) unify(structured.element, elemExpr, from, to, source, allowCoercion, fromVariableKeys)
+        else unify(elemExpr, structured.element, from, to, source, allowCoercion, fromVariableKeys)
+        return
       }
     }
 
     // Atom-vs-atom: per-edge overlap; unions never collapse. Closed lists
     // and assets compare here by exact canonical id, plus the one asset
     // coercion step (decode asset<T> -> T and kin) counts as overlap.
-    const a = atomNamesOf(fromType);
-    const b = atomNamesOf(toType);
-    if (
-      a === undefined ||
-      b === undefined ||
-      a.some((n) => b.includes(n)) ||
-      (allowCoercion && assetCoercible(fromType, toType))
-    ) {
-      setVerdict(source, "ok");
-      return;
+    const a = atomNamesOf(fromType)
+    const b = atomNamesOf(toType)
+    if (a === undefined || b === undefined || a.some((n) => b.includes(n)) || (allowCoercion && assetCoercible(fromType, toType))) {
+      setVerdict(source, 'ok')
+      return
     }
-    setVerdict(source, "mismatch");
+    setVerdict(source, 'mismatch')
     diagnostics.push(
-      diag(
-        "warning",
-        "schema",
-        "solve.linkMismatch",
-        `${to.node}.${to.port}: ${a.join(",")} cannot feed ${b.join(",")}`,
-        {
-          anchor:
-            source.kind === "link"
-              ? { link: source.id, port: to }
-              : { port: to },
-        },
-      ),
-    );
-  };
+      diag('warning', 'schema', 'solve.linkMismatch', `${to.node}.${to.port}: ${a.join(',')} cannot feed ${b.join(',')}`, {
+        anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
+      }),
+    )
+  }
 
-  const rerouteIndex = buildRerouteIndex(def);
+  const rerouteIndex = buildRerouteIndex(def)
   for (const link of Object.values(def.links) as LinkData[]) {
-    if (!isPortEndpoint(link.to)) continue; // structural feed into a reroute/selector
+    if (!isPortEndpoint(link.to)) continue // structural feed into a reroute/selector
     // A consumer fed by a selector OUTPUT constrains against EVERY candidate
     // branch's producer - policy can change at any moment, so editing-time
     // compatibility must hold for all of them (a selector is a type-agnostic
@@ -1003,166 +711,111 @@ export function solveGraphTypes(
     // one trace, preserving prior behavior. Value sources carry values, not
     // types; undriven/cyclic branches constrain nothing.
     for (const trace of traceEndpointAll(def, link.from, rerouteIndex)) {
-      if (trace.kind === "output") {
-        constrain(trace.ref, link.to, { kind: "link", id: link.id });
-      } else if (trace.kind === "tapValue") {
+      if (trace.kind === 'output') {
+        constrain(trace.ref, link.to, { kind: 'link', id: link.id })
+      } else if (trace.kind === 'tapValue') {
         constrain(
           { node: trace.node, port: trace.input },
           link.to,
-          { kind: "link", id: link.id },
-          "input",
-        );
+          { kind: 'link', id: link.id },
+          'input',
+        )
       }
     }
   }
   for (const net of Object.values(def.nets)) {
     net.sinks.forEach((sink, i) => {
-      constrain(net.source, sink, { kind: "net", id: net.id, sinkIndex: i });
-    });
+      constrain(net.source, sink, { kind: 'net', id: net.id, sinkIndex: i })
+    })
   }
-  const projectedVariablesBySource = new Map<symbol, Map<string, VarKey>>();
+  const projectedVariablesBySource = new Map<symbol, Map<string, VarKey>>()
   for (const [index, projected] of (options.projectedInputs ?? []).entries()) {
     const toType = admittedInputType(
       projected.type,
       projected.to,
-      typeAt(projected.to, "input"),
-    );
+      typeAt(projected.to, 'input'),
+    )
     if (toType === undefined) {
       if (portTypes.has(projected.to.node)) {
         diagnostics.push(
-          diag(
-            "info",
-            "schema",
-            "solve.portMissing",
-            `${projected.to.node}.${elabKeyOf(projected.to)}: connected port is unavailable`,
-            {
-              anchor: { port: projected.to },
-            },
-          ),
-        );
+          diag('info', 'schema', 'solve.portMissing', `${projected.to.node}.${elabKeyOf(projected.to)}: connected port is unavailable`, {
+            anchor: { port: projected.to },
+          }),
+        )
       }
-      continue;
+      continue
     }
-    const externalRef: PortRef = {
-      node: projected.to.node,
-      port: projected.to.port,
-    };
-    let projectedVariableKeys: Map<string, VarKey>;
+    const externalRef: PortRef = { node: projected.to.node, port: projected.to.port }
+    let projectedVariableKeys: Map<string, VarKey>
     if (projected.variableSource === undefined) {
-      projectedVariableKeys = new Map();
+      projectedVariableKeys = new Map()
     } else {
-      projectedVariableKeys =
-        projectedVariablesBySource.get(projected.variableSource) ?? new Map();
-      projectedVariablesBySource.set(
-        projected.variableSource,
-        projectedVariableKeys,
-      );
+      projectedVariableKeys = projectedVariablesBySource.get(projected.variableSource) ?? new Map()
+      projectedVariablesBySource.set(projected.variableSource, projectedVariableKeys)
     }
     for (const variable of nestedVariablesOf(projected.type)) {
-      let key = projectedVariableKeys.get(variable.templateId);
+      let key = projectedVariableKeys.get(variable.templateId)
       if (key === undefined) {
-        key = Symbol(`projected-input:${index}:${variable.templateId}`);
-        projectedVariableKeys.set(variable.templateId, key);
+        key = Symbol(`projected-input:${index}:${variable.templateId}`)
+        projectedVariableKeys.set(variable.templateId, key)
       }
-      vars.ensure(key, variable, {
-        kind: "projected",
-        to: projected.to,
-        templateId: variable.templateId,
-      });
+      vars.ensure(key, variable, { kind: 'projected', to: projected.to, templateId: variable.templateId })
     }
-    unify(
-      projected.type,
-      toType,
-      externalRef,
-      projected.to,
-      {
-        kind: "projectedInput",
-        index,
-        to: projected.to,
-        ...(projected.label === undefined ? {} : { label: projected.label }),
-      },
-      true,
-      projectedVariableKeys,
-    );
+    unify(projected.type, toType, externalRef, projected.to, {
+      kind: 'projectedInput',
+      index,
+      to: projected.to,
+      ...(projected.label === undefined ? {} : { label: projected.label }),
+    }, true, projectedVariableKeys)
   }
 
   // Tuple construction and projection depend on upstream bindings, not edge order.
   // Each pass propagates at least one closed product along the dependency chain.
   for (let pass = 0; pass <= dependentEdges.length; pass++) {
-    let changed = false;
+    let changed = false
     for (const edge of dependentEdges) {
-      const resolved = substitute(edge.fromType, edge.from.node);
-      if (atomNamesOf(resolved) === undefined) continue;
-      const signature = JSON.stringify(resolved);
-      if (edge.signature === signature) continue;
-      edge.signature = signature;
-      changed = true;
-      unify(resolved, edge.toType, edge.from, edge.to, edge.source);
+      const resolved = substitute(edge.fromType, edge.from.node)
+      if (atomNamesOf(resolved) === undefined) continue
+      const signature = JSON.stringify(resolved)
+      if (edge.signature === signature) continue
+      edge.signature = signature
+      changed = true
+      unify(resolved, edge.toType, edge.from, edge.to, edge.source)
     }
-    if (!changed) break;
+    if (!changed) break
   }
   for (const [node, ports] of portTypes) {
     for (const [port, type] of ports.outputs) {
-      const resolved = substitute(type, node);
-      if (
-        resolved.kind !== "tuple_element" ||
-        resolved.element === undefined ||
-        atomNamesOf(resolved.element) === undefined
-      )
-        continue;
-      diagnostics.push(
-        diag(
-          "error",
-          "schema",
-          "solve.tupleProjection",
-          `Tuple output '${port}' requires a tuple source and an in-range literal index.`,
-          { anchor: { port: { node, port: asPortId(port) } } },
-        ),
-      );
+      const resolved = substitute(type, node)
+      if (resolved.kind !== 'tuple_element' || resolved.element === undefined || atomNamesOf(resolved.element) === undefined) continue
+      diagnostics.push(diag('error', 'schema', 'solve.tupleProjection', `Tuple output '${port}' requires a tuple source and an in-range literal index.`, { anchor: { port: { node, port: asPortId(port) } } }))
     }
   }
 
   // -- 3. Conflicted classes: mark every contributing edge, one diagnostic each.
   for (const root of vars.roots()) {
-    if (root.domain === undefined || root.domain.size > 0) continue;
-    for (const source of root.sources) setVerdict(source, "mismatch");
-    const firstLink = root.sources.find(
-      (s): s is Extract<EdgeSource, { kind: "link" }> => s.kind === "link",
-    );
-    const firstProjected = root.sources.find(
-      (s): s is Extract<EdgeSource, { kind: "projectedInput" }> =>
-        s.kind === "projectedInput",
-    );
-    const firstSlotBinding = root.slotBindings[0];
-    const subject =
-      root.owner.kind === "node"
-        ? `${root.owner.node}.${root.owner.templateId}`
-        : `${root.owner.to.node}.${root.owner.to.port}`;
-    const message =
-      firstSlotBinding !== undefined
-        ? `${subject}: connected types conflict with selected variant '${firstSlotBinding.variant}'`
-        : `${subject}: connected types have no common match`;
+    if (root.domain === undefined || root.domain.size > 0) continue
+    for (const source of root.sources) setVerdict(source, 'mismatch')
+    const firstLink = root.sources.find((s): s is Extract<EdgeSource, { kind: 'link' }> => s.kind === 'link')
+    const firstProjected = root.sources.find((s): s is Extract<EdgeSource, { kind: 'projectedInput' }> => s.kind === 'projectedInput')
+    const firstSlotBinding = root.slotBindings[0]
+    const subject = root.owner.kind === 'node'
+      ? `${root.owner.node}.${root.owner.templateId}`
+      : `${root.owner.to.node}.${root.owner.to.port}`
+    const message = firstSlotBinding !== undefined
+      ? `${subject}: connected types conflict with selected variant '${firstSlotBinding.variant}'`
+      : `${subject}: connected types have no common match`
     diagnostics.push(
-      diag("warning", "schema", "solve.varConflict", message, {
-        ...(firstLink
-          ? { anchor: { link: firstLink.id } }
-          : firstProjected
-            ? { anchor: { port: firstProjected.to } }
-            : firstSlotBinding
-              ? { anchor: { port: firstSlotBinding.ref } }
-              : {}),
+      diag('warning', 'schema', 'solve.varConflict', message, {
+        ...(firstLink ? { anchor: { link: firstLink.id } } : firstProjected ? { anchor: { port: firstProjected.to } } : firstSlotBinding ? { anchor: { port: firstSlotBinding.ref } } : {}),
         data: {
           edges: root.sources.map(sourceLabel),
           ...(root.slotBindings.length > 0
-            ? {
-                slotSelections: root.slotBindings.map(
-                  ({ ref, variant }) => `${ref.node}/${ref.port}=${variant}`,
-                ),
-              }
+            ? { slotSelections: root.slotBindings.map(({ ref, variant }) => `${ref.node}/${ref.port}=${variant}`) }
             : {}),
         },
       }),
-    );
+    )
   }
 
   // -- 4. Result surface.
@@ -1171,76 +824,46 @@ export function solveGraphTypes(
   // topology tracing policy used by edge checks, including all selector
   // candidates, and abstain for generic or wildcard producers.
   const isKnown = (type: TypeExpr): boolean =>
-    type.kind === "concrete" ||
-    type.kind === "union" ||
-    ((type.kind === "list" ||
-      type.kind === "asset" ||
-      type.kind === "stream") &&
-      isKnown(type.element));
-  const reroutes = buildRerouteIndex(def);
-  const checkProducer = (
-    slot: (typeof specializedSlots)[number],
-    from: Parameters<typeof traceEndpointAll>[1],
-  ): void => {
+    type.kind === 'concrete' || type.kind === 'union' || ((type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') && isKnown(type.element))
+  const reroutes = buildRerouteIndex(def)
+  const checkProducer = (slot: typeof specializedSlots[number], from: Parameters<typeof traceEndpointAll>[1]): void => {
     for (const trace of traceEndpointAll(def, from, reroutes)) {
-      if (trace.kind !== "output") continue;
-      const declared = typeAt(trace.ref, "output");
-      if (declared === undefined) continue;
-      const solved = substitute(declared, trace.ref.node);
-      if (!isKnown(solved) || typesCompatible(solved, slot.selectedType))
-        continue;
-      diagnostics.push(
-        diag(
-          "warning",
-          "schema",
-          "solve.slot.staleSpecialization",
-          `${slot.node}.${slot.ref.port}: slot variant is incompatible with ${trace.ref.node}.${trace.ref.port}`,
-          {
-            anchor: { port: slot.ref },
-          },
-        ),
-      );
+      if (trace.kind !== 'output') continue
+      const declared = typeAt(trace.ref, 'output')
+      if (declared === undefined) continue
+      const solved = substitute(declared, trace.ref.node)
+      if (!isKnown(solved) || typesCompatible(solved, slot.selectedType)) continue
+      diagnostics.push(diag('warning', 'schema', 'solve.slot.staleSpecialization', `${slot.node}.${slot.ref.port}: slot variant is incompatible with ${trace.ref.node}.${trace.ref.port}`, {
+        anchor: { port: slot.ref },
+      }))
     }
-  };
+  }
   for (const slot of specializedSlots) {
-    const slotKey = elabKeyOf(slot.ref);
+    const slotKey = elabKeyOf(slot.ref)
     for (const link of Object.values(def.links) as LinkData[]) {
-      if (
-        isPortEndpoint(link.to) &&
-        link.to.node === slot.node &&
-        elabKeyOf(link.to) === slotKey
-      )
-        checkProducer(slot, link.from);
+      if (isPortEndpoint(link.to) && link.to.node === slot.node && elabKeyOf(link.to) === slotKey) checkProducer(slot, link.from)
     }
     for (const net of Object.values(def.nets)) {
-      if (
-        net.sinks.some(
-          (sink) => sink.node === slot.node && elabKeyOf(sink) === slotKey,
-        )
-      )
-        checkProducer(slot, net.source);
+      if (net.sinks.some((sink) => sink.node === slot.node && elabKeyOf(sink) === slotKey)) checkProducer(slot, net.source)
     }
   }
 
   return {
-    resolutionOf: (node, templateId) =>
-      vars.resolutionOf(varKeyOf(node, templateId)),
+    resolutionOf: (node, templateId) => vars.resolutionOf(varKeyOf(node, templateId)),
     portTypeOf: (node, side, elabKey) => {
-      const entry = portTypes.get(node);
-      const declared = entry
-        ? (side === "input" ? entry.inputs : entry.outputs).get(elabKey)
-        : undefined;
-      return declared === undefined ? undefined : substitute(declared, node);
+      const entry = portTypes.get(node)
+      const declared = entry ? (side === 'input' ? entry.inputs : entry.outputs).get(elabKey) : undefined
+      return declared === undefined ? undefined : substitute(declared, node)
     },
     linkVerdicts,
     netSinkVerdicts,
     diagnostics,
-  };
+  }
 }
 
 const sourceLabel = (s: EdgeSource): string =>
-  s.kind === "link"
+  s.kind === 'link'
     ? `link '${s.id}'`
-    : s.kind === "net"
+    : s.kind === 'net'
       ? `net '${s.id}' sink ${s.sinkIndex}`
-      : (s.label ?? `projected input ${s.index}`);
+      : s.label ?? `projected input ${s.index}`

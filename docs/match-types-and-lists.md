@@ -23,14 +23,14 @@ are not aliases. Node ids retain their existing pack namespaces.
 
 Dinkster distinguishes fixed types, match types, and `Any` directly on canvas:
 
-| Pin                             | Meaning                                                                 |
-| ------------------------------- | ----------------------------------------------------------------------- |
-| Circle                          | Definite scalar value                                                   |
-| Diamond                         | Definite list value                                                     |
-| Square with an inscribed circle | Unresolved match input that accepts either a scalar or a whole list     |
-| Multi-color wedges              | Every accepted member of a finite union or constrained match type       |
-| Solid dark ring                 | Standard border for fixed and match-type ports                          |
-| Dashed dark ring                | `Any`; the port accepts independently and never determines another port |
+| Pin | Meaning |
+| --- | --- |
+| Circle | Definite scalar value |
+| Diamond | Definite list value |
+| Square with an inscribed circle | Unresolved match input that accepts either a scalar or a whole list |
+| Multi-color wedges | Every accepted member of a finite union or constrained match type |
+| Solid dark ring | Standard border for fixed and match-type ports |
+| Dashed dark ring | `Any`; the port accepts independently and never determines another port |
 
 Finite unions paint one wedge for every member. Constrained match types use
 the same member colors and standard dark border. Hovering a match pin,

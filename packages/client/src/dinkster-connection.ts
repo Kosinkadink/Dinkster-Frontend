@@ -23,14 +23,8 @@
  * legacy prompts without them. Region artifacts carry a native graph directly.
  */
 
-import {
-  credentialFetch,
-  mintDelegation,
-  type CollabCredentials,
-  type Delegation,
-  type MintDelegation,
-} from "./credentials.js";
-import { requestWithDeadline } from "./request-deadline.js";
+import { credentialFetch, mintDelegation, type CollabCredentials, type Delegation, type MintDelegation } from './credentials.js'
+import { requestWithDeadline } from './request-deadline.js'
 import {
   asPromptId,
   createSignal,
@@ -77,29 +71,22 @@ import {
   type SchemaResolver,
   type WorkflowDocument,
   loadDocument,
-} from "@dinkster/core";
-import type {
-  FetchLike,
-  SchemaRegistry,
-  SubmitResult,
-} from "./connection-contract.js";
-import type {
-  ExecutionArtifact,
-  ExecutionSubmitter,
-} from "./execution-store.js";
-import { EngineNotReadyError, parseEngineNotReady } from "./supervisor.js";
+} from '@dinkster/core'
+import type { FetchLike, SchemaRegistry, SubmitResult } from './connection-contract.js'
+import type { ExecutionArtifact, ExecutionSubmitter } from './execution-store.js'
+import { EngineNotReadyError, parseEngineNotReady } from './supervisor.js'
 import {
   ReconnectingSocket,
   type CancelFn,
   type ConnectionStatus,
   type ScheduleFn,
   type WebSocketFactory,
-} from "./reconnecting-socket.js";
-import { DinksterValuesClient } from "./values.js";
-import { expandDynamicPrompt } from "./dynamic-prompts.js";
+} from './reconnecting-socket.js'
+import { DinksterValuesClient } from './values.js'
+import { expandDynamicPrompt } from './dynamic-prompts.js'
 
 /** Existing /api/nodes capability flag for the placement submission sidecar. */
-export const DINKSTER_GRAPH_FEATURE_PLACEMENT = "placement";
+export const DINKSTER_GRAPH_FEATURE_PLACEMENT = 'placement'
 
 // ---------------------------------------------------------------------------
 // Prompt -> native graph wire
@@ -107,18 +94,15 @@ export const DINKSTER_GRAPH_FEATURE_PLACEMENT = "placement";
 
 export type PromptToGraphResult =
   | { readonly ok: true; readonly graph: DinksterGraphWire }
-  | { readonly ok: false; readonly diagnostics: readonly Diagnostic[] };
+  | { readonly ok: false; readonly diagnostics: readonly Diagnostic[] }
 
 /** A V1 link is exactly a [producerId, outputIndex] tuple (compiler output). */
 const asLinkTuple = (v: unknown): readonly [string, number] | undefined =>
-  Array.isArray(v) &&
-  v.length === 2 &&
-  typeof v[0] === "string" &&
-  typeof v[1] === "number"
+  Array.isArray(v) && v.length === 2 && typeof v[0] === 'string' && typeof v[1] === 'number'
     ? (v as [string, number])
-    : undefined;
+    : undefined
 
-type MaterializedPathKind = "combo" | "other" | "missing";
+type MaterializedPathKind = 'combo' | 'other' | 'missing'
 
 /** Classify a materialized path through only the stored active branches. */
 function materializedPathKind(
@@ -127,45 +111,39 @@ function materializedPathKind(
   choices: Readonly<Record<string, string>>,
   prefix: readonly string[] = [],
 ): MaterializedPathKind {
-  if (parts.length === 0) return "missing";
-  const input = inputs.find((candidate) => candidate.id === parts[0]);
-  if (input === undefined) return "missing";
-  const rest = parts.slice(1);
-  const path = [...prefix, input.id];
-  const construct = path.join(".");
-  const dynamic = input.dynamic;
-  if (dynamic?.kind === "dynamicCombo") {
-    const selected = choices[construct];
-    const active =
-      dynamic.materialization === "wire15"
-        ? dynamic.options.find((option) => option.key === selected)
-        : undefined;
-    if (active === undefined) return "other";
+  if (parts.length === 0) return 'missing'
+  const input = inputs.find((candidate) => candidate.id === parts[0])
+  if (input === undefined) return 'missing'
+  const rest = parts.slice(1)
+  const path = [...prefix, input.id]
+  const construct = path.join('.')
+  const dynamic = input.dynamic
+  if (dynamic?.kind === 'dynamicCombo') {
+    const selected = choices[construct]
+    const active = dynamic.materialization === 'wire15'
+      ? dynamic.options.find((option) => option.key === selected)
+      : undefined
+    if (active === undefined) return 'other'
     return rest.length === 0
-      ? "combo"
-      : materializedPathKind(active.inputs, rest, choices, path);
+      ? 'combo'
+      : materializedPathKind(active.inputs, rest, choices, path)
   }
-  if (dynamic?.kind === "autogrow") {
+  if (dynamic?.kind === 'autogrow') {
     return rest.length >= 2
-      ? materializedPathKind(dynamic.template, rest.slice(1), choices, [
-          ...path,
-          rest[0]!,
-        ])
-      : "other";
+      ? materializedPathKind(dynamic.template, rest.slice(1), choices, [...path, rest[0]!])
+      : 'other'
   }
-  if (dynamic?.kind === "dynamicSlot") {
-    if (rest.length === 0) return "other";
-    const shared = materializedPathKind(dynamic.inputs, rest, choices, path);
-    if (shared !== "missing") return shared;
-    const selected = choices[construct];
-    const active = dynamic.variants?.find(
-      (variant) => variant.key === selected,
-    );
+  if (dynamic?.kind === 'dynamicSlot') {
+    if (rest.length === 0) return 'other'
+    const shared = materializedPathKind(dynamic.inputs, rest, choices, path)
+    if (shared !== 'missing') return shared
+    const selected = choices[construct]
+    const active = dynamic.variants?.find((variant) => variant.key === selected)
     return active === undefined
-      ? "missing"
-      : materializedPathKind(active.inputs, rest, choices, path);
+      ? 'missing'
+      : materializedPathKind(active.inputs, rest, choices, path)
   }
-  return rest.length === 0 ? "other" : "missing";
+  return rest.length === 0 ? 'other' : 'missing'
 }
 
 /**
@@ -174,106 +152,64 @@ function materializedPathKind(
  * legacy prompts use the catalog's declared outputs. DynamicCombo selectors stay in the V1
  * prompt but move to slotVariants instead of remaining native inputs.
  */
-export function promptToDinksterGraph(
-  prompt: Prompt,
-  resolve: SchemaResolver,
-): PromptToGraphResult {
-  const nodes: Record<
-    string,
-    {
-      nodeType: string;
-      inputs: Record<string, DinksterInputWire>;
-      outputMembers?: Readonly<Record<string, readonly string[]>>;
-      slotVariants?: Readonly<Record<string, string>>;
-    }
-  > = {};
-  const diagnostics: Diagnostic[] = [];
-  const compilerOutputs = new Map<string, readonly string[]>();
+export function promptToDinksterGraph(prompt: Prompt, resolve: SchemaResolver): PromptToGraphResult {
+  const nodes: Record<string, { nodeType: string; inputs: Record<string, DinksterInputWire>; outputMembers?: Readonly<Record<string, readonly string[]>>; slotVariants?: Readonly<Record<string, string>> }> = {}
+  const diagnostics: Diagnostic[] = []
+  const compilerOutputs = new Map<string, readonly string[]>()
   for (const [nodeId, node] of Object.entries(prompt)) {
-    if (node.outputIds === undefined) continue;
-    const ids: unknown = node.outputIds;
-    if (
-      !Array.isArray(ids) ||
-      Array.from(ids).some(
-        (id) => typeof id !== "string" || id.trim().length === 0,
-      ) ||
-      new Set(ids).size !== ids.length
-    ) {
-      diagnostics.push(
-        diag(
-          "error",
-          "compile",
-          "submit.invalidOutputIds",
-          `node '${nodeId}' has malformed compiler outputIds; expected unique non-empty strings`,
-        ),
-      );
+    if (node.outputIds === undefined) continue
+    const ids: unknown = node.outputIds
+    if (!Array.isArray(ids) ||
+        Array.from(ids).some((id) => typeof id !== 'string' || id.trim().length === 0) ||
+        new Set(ids).size !== ids.length) {
+      diagnostics.push(diag('error', 'compile', 'submit.invalidOutputIds',
+        `node '${nodeId}' has malformed compiler outputIds; expected unique non-empty strings`))
     } else {
-      compilerOutputs.set(nodeId, ids);
+      compilerOutputs.set(nodeId, ids)
     }
   }
-  if (diagnostics.length > 0) return { ok: false, diagnostics };
+  if (diagnostics.length > 0) return { ok: false, diagnostics }
   for (const [nodeId, node] of Object.entries(prompt)) {
-    const inputs: Record<string, DinksterInputWire> = {};
-    const nodeSchema = resolve(node.class_type);
+    const inputs: Record<string, DinksterInputWire> = {}
+    const nodeSchema = resolve(node.class_type)
     for (const [inputId, value] of Object.entries(node.inputs)) {
-      if (
-        nodeSchema !== undefined &&
-        materializedPathKind(
-          inputsOf(nodeSchema),
-          inputId.split("."),
-          node.slotVariants ?? {},
-        ) === "combo"
-      )
-        continue;
-      const link = asLinkTuple(value);
+      if (nodeSchema !== undefined &&
+          materializedPathKind(inputsOf(nodeSchema), inputId.split('.'), node.slotVariants ?? {}) === 'combo') continue
+      const link = asLinkTuple(value)
       if (link === undefined) {
-        inputs[inputId] = value;
-        continue;
+        inputs[inputId] = value
+        continue
       }
-      const [producerId, outputIndex] = link;
-      const producer = prompt[producerId];
-      const schema = producer ? resolve(producer.class_type) : undefined;
-      const outputIds =
-        compilerOutputs.get(producerId) ??
-        (schema === undefined || producer === undefined
-          ? []
-          : outputsOf(schema).flatMap((output) => {
-              const members = producer.outputMembers?.[output.id];
-              return members === undefined
-                ? [output.id]
-                : members.map((suffix) => `${output.id}.${suffix}`);
-            }));
-      const outputId =
-        Number.isSafeInteger(outputIndex) && outputIndex >= 0
-          ? outputIds[outputIndex]
-          : undefined;
+      const [producerId, outputIndex] = link
+      const producer = prompt[producerId]
+      const schema = producer ? resolve(producer.class_type) : undefined
+      const outputIds = compilerOutputs.get(producerId) ?? (schema === undefined || producer === undefined
+        ? []
+        : outputsOf(schema).flatMap((output) => {
+            const members = producer.outputMembers?.[output.id]
+            return members === undefined ? [output.id] : members.map((suffix) => `${output.id}.${suffix}`)
+          }))
+      const outputId = Number.isSafeInteger(outputIndex) && outputIndex >= 0 ? outputIds[outputIndex] : undefined
       if (producer === undefined || outputId === undefined) {
         diagnostics.push(
           diag(
-            "error",
-            "compile",
-            "submit.unresolvedLink",
+            'error',
+            'compile',
+            'submit.unresolvedLink',
             producer === undefined
               ? `node '${nodeId}' input '${inputId}' links to missing node '${producerId}'`
               : `${nodeId}.${inputId}: ${producer.class_type} has no output #${outputIndex}`,
           ),
-        );
-        continue;
+        )
+        continue
       }
-      inputs[inputId] = { $link: { node: producerId, output: outputId } };
+      inputs[inputId] = { $link: { node: producerId, output: outputId } }
     }
     // Stored dynamic choices pass through verbatim; the compiler owns their
     // materialized paths and validation.
-    nodes[nodeId] = {
-      nodeType: node.class_type,
-      inputs,
-      ...(node.outputMembers ? { outputMembers: node.outputMembers } : {}),
-      ...(node.slotVariants ? { slotVariants: node.slotVariants } : {}),
-    };
+    nodes[nodeId] = { nodeType: node.class_type, inputs, ...(node.outputMembers ? { outputMembers: node.outputMembers } : {}), ...(node.slotVariants ? { slotVariants: node.slotVariants } : {}) }
   }
-  return diagnostics.length > 0
-    ? { ok: false, diagnostics }
-    : { ok: true, graph: { nodes } };
+  return diagnostics.length > 0 ? { ok: false, diagnostics } : { ok: true, graph: { nodes } }
 }
 
 export function expandDynamicPromptsInGraph(
@@ -283,67 +219,43 @@ export function expandDynamicPromptsInGraph(
   enabledInputs?: ReadonlySet<string>,
   prefix: readonly string[] = [],
 ): DinksterGraphWire {
-  const nodes = Object.fromEntries(
-    Object.entries(graph.nodes).map(([nodeId, entry]) => {
-      const runtimeId = [...prefix, nodeId].join(".");
-      const expandInputs = (
-        inputs: Readonly<Record<string, DinksterInputWire>>,
-        dynamicInputs: ReadonlySet<string>,
-      ): Record<string, DinksterInputWire> =>
-        Object.fromEntries(
-          Object.entries(inputs).map(([inputId, value]) => [
-            inputId,
-            (enabledInputs?.has(`${runtimeId}\u0000${inputId}`) ??
-              dynamicInputs.has(inputId)) &&
-            typeof value === "string"
-              ? expandDynamicPrompt(value, random)
-              : value,
-          ]),
-        );
-      if ("region" in entry)
-        return [
-          nodeId,
-          {
-            ...entry,
-            region: {
-              ...entry.region,
-              inputs: expandInputs(entry.region.inputs, new Set()),
-              body: expandDynamicPromptsInGraph(
-                entry.region.body,
-                resolve,
-                random,
-                enabledInputs,
-                [...prefix, nodeId],
-              ),
-            },
-          },
-        ];
-      const schema = resolve(entry.nodeType);
-      if (schema === undefined) return [nodeId, entry];
-      const dynamicInputs = new Set(
-        inputsOf(schema)
-          .filter((input) => input.widget?.options["dynamicPrompts"] === true)
-          .map((input) => input.id),
-      );
-      if (dynamicInputs.size === 0 && enabledInputs === undefined)
-        return [nodeId, entry];
-      const inputs = expandInputs(entry.inputs, dynamicInputs);
-      return [nodeId, { ...entry, inputs }];
-    }),
-  );
-  return { nodes };
+  const nodes = Object.fromEntries(Object.entries(graph.nodes).map(([nodeId, entry]) => {
+    const runtimeId = [...prefix, nodeId].join('.')
+    const expandInputs = (inputs: Readonly<Record<string, DinksterInputWire>>, dynamicInputs: ReadonlySet<string>): Record<string, DinksterInputWire> =>
+      Object.fromEntries(Object.entries(inputs).map(([inputId, value]) => [
+        inputId,
+        (enabledInputs?.has(`${runtimeId}\u0000${inputId}`) ?? dynamicInputs.has(inputId)) && typeof value === 'string'
+          ? expandDynamicPrompt(value, random)
+          : value,
+      ]))
+    if ('region' in entry) return [nodeId, {
+      ...entry,
+      region: {
+        ...entry.region,
+        inputs: expandInputs(entry.region.inputs, new Set()),
+        body: expandDynamicPromptsInGraph(entry.region.body, resolve, random, enabledInputs, [...prefix, nodeId]),
+      },
+    }]
+    const schema = resolve(entry.nodeType)
+    if (schema === undefined) return [nodeId, entry]
+    const dynamicInputs = new Set(inputsOf(schema)
+      .filter((input) => input.widget?.options['dynamicPrompts'] === true)
+      .map((input) => input.id))
+    if (dynamicInputs.size === 0 && enabledInputs === undefined) return [nodeId, entry]
+    const inputs = expandInputs(entry.inputs, dynamicInputs)
+    return [nodeId, { ...entry, inputs }]
+  }))
+  return { nodes }
 }
 
 export function dynamicPromptInputsForArtifact(
   artifact: CompileArtifact,
 ): ReadonlySet<string> {
-  const enabled = new Set<string>();
-  for (const [runtimeId, inputs] of Object.entries(
-    artifact.provenance.dynamicPromptInputs ?? {},
-  )) {
-    for (const input of inputs) enabled.add(`${runtimeId}\u0000${input}`);
+  const enabled = new Set<string>()
+  for (const [runtimeId, inputs] of Object.entries(artifact.provenance.dynamicPromptInputs ?? {})) {
+    for (const input of inputs) enabled.add(`${runtimeId}\u0000${input}`)
   }
-  return enabled;
+  return enabled
 }
 
 /**
@@ -356,11 +268,11 @@ export function targetsForArtifact(
   artifact: CompileArtifact,
   resolve: SchemaResolver,
 ): readonly string[] {
-  if (artifact.dinksterTargets !== undefined) return artifact.dinksterTargets;
-  if (artifact.partialTargets !== undefined) return artifact.partialTargets;
+  if (artifact.dinksterTargets !== undefined) return artifact.dinksterTargets
+  if (artifact.partialTargets !== undefined) return artifact.partialTargets
   return Object.entries(artifact.prompt)
     .filter(([, node]) => resolve(node.class_type)?.isOutputNode === true)
-    .map(([id]) => id);
+    .map(([id]) => id)
 }
 
 // ---------------------------------------------------------------------------
@@ -372,7 +284,7 @@ export function targetsForArtifact(
  * @dinkster/core beside the document override fields; re-exported here because
  * this module owns the wire that carries it.
  */
-export type { PreviewMode } from "@dinkster/core";
+export type { PreviewMode } from '@dinkster/core'
 
 /**
  * One replacement rule the server could not validate against its installed
@@ -382,18 +294,18 @@ export type { PreviewMode } from "@dinkster/core";
  */
 export interface ReplacementProblem {
   /** Schema whose wire entry carries the rule. */
-  readonly carrier: string;
+  readonly carrier: string
   /** The rule's predecessor type (rule "from"). */
-  readonly from: string;
-  readonly caseIndex: number;
+  readonly from: string
+  readonly caseIndex: number
   /** The invalid static interface id. */
-  readonly ref: string;
+  readonly ref: string
   /** Which id namespace was checked. */
-  readonly refKind: "input" | "output";
+  readonly refKind: 'input' | 'output'
   /** Schema the ref was checked against (predecessor or the case's "to"). */
-  readonly target: string;
+  readonly target: string
   /** Full human-readable explanation. */
-  readonly message: string;
+  readonly message: string
 }
 
 /**
@@ -402,15 +314,15 @@ export interface ReplacementProblem {
  * reason is presentation text rather than a client-side parse contract.
  */
 export interface CompatSkip {
-  readonly packId: string;
-  readonly nodeId: string;
-  readonly reason: string;
+  readonly packId: string
+  readonly nodeId: string
+  readonly reason: string
 }
 
 export interface DinksterDiagnostics {
-  readonly replacementProblems: readonly ReplacementProblem[];
-  readonly compatSkips: readonly CompatSkip[];
-  readonly packInferenceUnavailable: readonly PackInferenceUnavailable[];
+  readonly replacementProblems: readonly ReplacementProblem[]
+  readonly compatSkips: readonly CompatSkip[]
+  readonly packInferenceUnavailable: readonly PackInferenceUnavailable[]
 }
 
 /**
@@ -422,600 +334,317 @@ export interface DinksterDiagnostics {
  * its pack in its own ``packId`` field.
  */
 export interface PackInferenceUnavailable {
-  readonly pack: string;
-  readonly reason: string;
-  readonly entry?: string;
-  readonly worker?: string;
-  readonly providers: readonly {
-    readonly registry: string;
-    readonly id: string;
-  }[];
+  readonly pack: string
+  readonly reason: string
+  readonly entry?: string
+  readonly worker?: string
+  readonly providers: readonly { readonly registry: string; readonly id: string }[]
 }
 
 function emptyDiagnostics(): DinksterDiagnostics {
-  return {
-    replacementProblems: [],
-    compatSkips: [],
-    packInferenceUnavailable: [],
-  };
+  return { replacementProblems: [], compatSkips: [], packInferenceUnavailable: [] }
 }
 
-function readUnavailableInference(
-  value: unknown,
-): Omit<PackInferenceUnavailable, "pack"> | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return undefined;
-  const record = value as Record<string, unknown>;
-  if (typeof record["reason"] !== "string") return undefined;
-  if (record["entry"] !== undefined && typeof record["entry"] !== "string")
-    return undefined;
-  if (record["worker"] !== undefined && typeof record["worker"] !== "string")
-    return undefined;
-  const providers = record["providers"];
-  if (!Array.isArray(providers)) return undefined;
+function readUnavailableInference(value: unknown): Omit<PackInferenceUnavailable, 'pack'> | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  if (typeof record['reason'] !== 'string') return undefined
+  if (record['entry'] !== undefined && typeof record['entry'] !== 'string') return undefined
+  if (record['worker'] !== undefined && typeof record['worker'] !== 'string') return undefined
+  const providers = record['providers']
+  if (!Array.isArray(providers)) return undefined
   const readable = providers.every((provider) => {
-    if (
-      typeof provider !== "object" ||
-      provider === null ||
-      Array.isArray(provider)
-    )
-      return false;
-    const row = provider as Record<string, unknown>;
-    return typeof row["registry"] === "string" && typeof row["id"] === "string";
-  });
-  if (!readable) return undefined;
+    if (typeof provider !== 'object' || provider === null || Array.isArray(provider)) return false
+    const row = provider as Record<string, unknown>
+    return typeof row['registry'] === 'string' && typeof row['id'] === 'string'
+  })
+  if (!readable) return undefined
   return {
-    reason: record["reason"],
-    ...(typeof record["entry"] === "string" ? { entry: record["entry"] } : {}),
-    ...(typeof record["worker"] === "string"
-      ? { worker: record["worker"] }
-      : {}),
+    reason: record['reason'],
+    ...(typeof record['entry'] === 'string' ? { entry: record['entry'] } : {}),
+    ...(typeof record['worker'] === 'string' ? { worker: record['worker'] } : {}),
     providers: providers.map((provider) => {
-      const row = provider as { registry: string; id: string };
-      return { registry: row.registry, id: row.id };
+      const row = provider as { registry: string; id: string }
+      return { registry: row.registry, id: row.id }
     }),
-  };
+  }
 }
 
 /** One process-lifetime pack failure retained by GET /api/composition. */
 export interface DinksterPackFailure {
-  readonly pack: string;
-  readonly error: string;
+  readonly pack: string
+  readonly error: string
 }
 
-export type RuntimeSettingSource =
-  | "cli"
-  | "persisted"
-  | "config"
-  | "default"
-  | "runtime";
-export type RuntimeSettingMutability = "live" | "on-worker-restart";
+export type RuntimeSettingSource = 'cli' | 'persisted' | 'config' | 'default' | 'runtime'
+export type RuntimeSettingMutability = 'live' | 'on-worker-restart'
 
 export interface RuntimeSettingSection {
-  readonly value: unknown;
-  readonly source: RuntimeSettingSource;
-  readonly mutability: RuntimeSettingMutability;
-  readonly writable: boolean;
+  readonly value: unknown
+  readonly source: RuntimeSettingSource
+  readonly mutability: RuntimeSettingMutability
+  readonly writable: boolean
   readonly persistence: {
-    readonly available: boolean;
-    readonly persisted: boolean;
-  };
+    readonly available: boolean
+    readonly persisted: boolean
+  }
 }
 
 export interface RuntimeSettings {
   readonly features?: {
-    readonly templates?: { readonly enabled: boolean };
-  };
+    readonly templates?: { readonly enabled: boolean }
+  }
   readonly categories: {
-    readonly granted: readonly string[];
-    readonly available: readonly string[];
-  };
-  readonly settings: Readonly<Record<string, RuntimeSettingSection>>;
+    readonly granted: readonly string[]
+    readonly available: readonly string[]
+  }
+  readonly settings: Readonly<Record<string, RuntimeSettingSection>>
 }
 
 export interface PackSettingSchema {
-  readonly type: "string" | "integer" | "number" | "boolean";
-  readonly title: string;
-  readonly description?: string;
-  readonly default: string | number | boolean;
-  readonly enum?: readonly string[];
-  readonly minimum?: number;
-  readonly maximum?: number;
-  readonly multipleOf?: number;
+  readonly type: 'string' | 'integer' | 'number' | 'boolean'
+  readonly title: string
+  readonly description?: string
+  readonly default: string | number | boolean
+  readonly enum?: readonly string[]
+  readonly minimum?: number
+  readonly maximum?: number
+  readonly multipleOf?: number
 }
 
 export interface PackSettings {
-  readonly packId: string;
-  readonly displayName: string;
+  readonly packId: string
+  readonly displayName: string
   readonly schema: {
-    readonly type: "object";
-    readonly additionalProperties: false;
-    readonly properties: Readonly<Record<string, PackSettingSchema>>;
-    readonly required: readonly string[];
-  };
-  readonly values: Readonly<Record<string, string | number | boolean>>;
+    readonly type: 'object'
+    readonly additionalProperties: false
+    readonly properties: Readonly<Record<string, PackSettingSchema>>
+    readonly required: readonly string[]
+  }
+  readonly values: Readonly<Record<string, string | number | boolean>>
 }
 
-function validPackSettingValue(
-  field: PackSettingSchema,
-  value: unknown,
-): value is string | number | boolean {
-  if (field.type === "string")
-    return (
-      typeof value === "string" &&
-      (field.enum === undefined || field.enum.includes(value))
-    );
-  if (field.type === "boolean") return typeof value === "boolean";
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    (field.type === "integer" && !Number.isSafeInteger(value))
-  )
-    return false;
-  return (
-    (field.minimum === undefined || value >= field.minimum) &&
-    (field.maximum === undefined || value <= field.maximum) &&
-    (field.multipleOf === undefined ||
-      Math.abs(
-        value / field.multipleOf - Math.round(value / field.multipleOf),
-      ) <= 1e-12)
-  );
+function validPackSettingValue(field: PackSettingSchema, value: unknown): value is string | number | boolean {
+  if (field.type === 'string') return typeof value === 'string' && (field.enum === undefined || field.enum.includes(value))
+  if (field.type === 'boolean') return typeof value === 'boolean'
+  if (typeof value !== 'number' || !Number.isFinite(value) || (field.type === 'integer' && !Number.isSafeInteger(value))) return false
+  return (field.minimum === undefined || value >= field.minimum)
+    && (field.maximum === undefined || value <= field.maximum)
+    && (field.multipleOf === undefined || Math.abs(value / field.multipleOf - Math.round(value / field.multipleOf)) <= 1e-12)
 }
 
 function decodePackSettings(raw: unknown): PackSettings | undefined {
-  if (
-    !record(raw) ||
-    !exactKeys(raw, ["packId", "displayName", "schema", "values"]) ||
-    typeof raw["packId"] !== "string" ||
-    raw["packId"] === "" ||
-    typeof raw["displayName"] !== "string" ||
-    raw["displayName"] === "" ||
-    !record(raw["schema"]) ||
-    !record(raw["values"])
-  )
-    return undefined;
-  const schema = raw["schema"];
-  if (
-    !exactKeys(schema, [
-      "type",
-      "additionalProperties",
-      "properties",
-      "required",
-    ]) ||
-    schema["type"] !== "object" ||
-    schema["additionalProperties"] !== false ||
-    !record(schema["properties"]) ||
-    !Array.isArray(schema["required"])
-  )
-    return undefined;
-  const schemaProperties = schema["properties"];
-  const required = schema["required"];
-  if (
-    !required.every((name): name is string => typeof name === "string") ||
-    required.length !== Object.keys(schemaProperties).length ||
-    required.some(
-      (name, index) => name !== Object.keys(schemaProperties)[index],
-    )
-  )
-    return undefined;
-  const properties: Record<string, PackSettingSchema> = {};
+  if (!record(raw) || !exactKeys(raw, ['packId', 'displayName', 'schema', 'values'])
+    || typeof raw['packId'] !== 'string' || raw['packId'] === ''
+    || typeof raw['displayName'] !== 'string' || raw['displayName'] === ''
+    || !record(raw['schema']) || !record(raw['values'])) return undefined
+  const schema = raw['schema']
+  if (!exactKeys(schema, ['type', 'additionalProperties', 'properties', 'required'])
+    || schema['type'] !== 'object' || schema['additionalProperties'] !== false
+    || !record(schema['properties']) || !Array.isArray(schema['required'])) return undefined
+  const schemaProperties = schema['properties']
+  const required = schema['required']
+  if (!required.every((name): name is string => typeof name === 'string')
+    || required.length !== Object.keys(schemaProperties).length
+    || required.some((name, index) => name !== Object.keys(schemaProperties)[index])) return undefined
+  const properties: Record<string, PackSettingSchema> = {}
   for (const [name, candidate] of Object.entries(schemaProperties)) {
-    if (
-      !record(candidate) ||
-      !requiredAndOptionalKeys(
-        candidate,
-        ["type", "title", "default"],
-        ["description", "enum", "minimum", "maximum", "multipleOf"],
-      ) ||
-      typeof candidate["title"] !== "string" ||
-      candidate["title"] === "" ||
-      !["string", "integer", "number", "boolean"].includes(
-        String(candidate["type"]),
-      ) ||
-      !Object.hasOwn(candidate, "default")
-    )
-      return undefined;
-    const type = candidate["type"] as PackSettingSchema["type"];
-    if (
-      (candidate["description"] !== undefined &&
-        typeof candidate["description"] !== "string") ||
-      (candidate["enum"] !== undefined &&
-        (!Array.isArray(candidate["enum"]) ||
-          !candidate["enum"].every((value) => typeof value === "string"))) ||
-      (candidate["enum"] !== undefined &&
-        (type !== "string" ||
-          new Set(candidate["enum"]).size !== candidate["enum"].length)) ||
-      ["minimum", "maximum", "multipleOf"].some(
-        (key) =>
-          candidate[key] !== undefined &&
-          (typeof candidate[key] !== "number" ||
-            !Number.isFinite(candidate[key])),
-      ) ||
-      ((type === "string" || type === "boolean") &&
-        ["minimum", "maximum", "multipleOf"].some(
-          (key) => candidate[key] !== undefined,
-        )) ||
-      (typeof candidate["multipleOf"] === "number" &&
-        candidate["multipleOf"] <= 0) ||
-      (typeof candidate["minimum"] === "number" &&
-        typeof candidate["maximum"] === "number" &&
-        candidate["minimum"] > candidate["maximum"])
-    )
-      return undefined;
-    const field = candidate as unknown as PackSettingSchema;
-    if (!validPackSettingValue(field, candidate["default"])) return undefined;
-    properties[name] = field;
+    if (!record(candidate)
+      || !requiredAndOptionalKeys(candidate, ['type', 'title', 'default'], ['description', 'enum', 'minimum', 'maximum', 'multipleOf'])
+      || typeof candidate['title'] !== 'string' || candidate['title'] === ''
+      || !['string', 'integer', 'number', 'boolean'].includes(String(candidate['type']))
+      || !Object.hasOwn(candidate, 'default')) return undefined
+    const type = candidate['type'] as PackSettingSchema['type']
+    if ((candidate['description'] !== undefined && typeof candidate['description'] !== 'string')
+      || (candidate['enum'] !== undefined && (!Array.isArray(candidate['enum']) || !candidate['enum'].every((value) => typeof value === 'string')))
+      || (candidate['enum'] !== undefined && (type !== 'string' || new Set(candidate['enum']).size !== candidate['enum'].length))
+      || ['minimum', 'maximum', 'multipleOf'].some((key) => candidate[key] !== undefined && (typeof candidate[key] !== 'number' || !Number.isFinite(candidate[key])))
+      || (type === 'string' || type === 'boolean') && ['minimum', 'maximum', 'multipleOf'].some((key) => candidate[key] !== undefined)
+      || typeof candidate['multipleOf'] === 'number' && candidate['multipleOf'] <= 0
+      || typeof candidate['minimum'] === 'number' && typeof candidate['maximum'] === 'number' && candidate['minimum'] > candidate['maximum']) return undefined
+    const field = candidate as unknown as PackSettingSchema
+    if (!validPackSettingValue(field, candidate['default'])) return undefined
+    properties[name] = field
   }
-  const values: Record<string, string | number | boolean> = {};
-  if (Object.keys(raw["values"]).length !== required.length) return undefined;
+  const values: Record<string, string | number | boolean> = {}
+  if (Object.keys(raw['values']).length !== required.length) return undefined
   for (const name of required) {
-    const field = properties[name];
-    const value = raw["values"][name];
-    if (field === undefined || !validPackSettingValue(field, value))
-      return undefined;
-    values[name] = value;
+    const field = properties[name]
+    const value = raw['values'][name]
+    if (field === undefined || !validPackSettingValue(field, value)) return undefined
+    values[name] = value
   }
   return {
-    packId: raw["packId"],
-    displayName: raw["displayName"],
-    schema: {
-      type: "object",
-      additionalProperties: false,
-      properties,
-      required,
-    },
+    packId: raw['packId'],
+    displayName: raw['displayName'],
+    schema: { type: 'object', additionalProperties: false, properties, required },
     values,
-  };
+  }
 }
 
-const record = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-const finiteNonnegative = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value) && value >= 0;
-const integerNonnegative = (value: unknown): value is number =>
-  finiteNonnegative(value) && Number.isInteger(value);
-const oneOf = <T extends string>(
-  value: unknown,
-  values: readonly T[],
-): value is T => typeof value === "string" && values.includes(value as T);
-const exactKeys = (
-  value: Record<string, unknown>,
-  keys: readonly string[],
-): boolean =>
-  Object.keys(value).length === keys.length &&
-  keys.every((key) => Object.hasOwn(value, key));
-const requiredAndOptionalKeys = (
-  value: Record<string, unknown>,
-  required: readonly string[],
-  optional: readonly string[],
-): boolean =>
-  required.every((key) => Object.hasOwn(value, key)) &&
-  Object.keys(value).every(
-    (key) => required.includes(key) || optional.includes(key),
-  );
-const nonemptyString = (value: unknown): value is string =>
-  typeof value === "string" && value.length > 0;
+const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+const finiteNonnegative = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
+const integerNonnegative = (value: unknown): value is number => finiteNonnegative(value) && Number.isInteger(value)
+const oneOf = <T extends string>(value: unknown, values: readonly T[]): value is T => typeof value === 'string' && values.includes(value as T)
+const exactKeys = (value: Record<string, unknown>, keys: readonly string[]): boolean =>
+  Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key))
+const requiredAndOptionalKeys = (value: Record<string, unknown>, required: readonly string[], optional: readonly string[]): boolean =>
+  required.every((key) => Object.hasOwn(value, key)) && Object.keys(value).every((key) => required.includes(key) || optional.includes(key))
+const nonemptyString = (value: unknown): value is string => typeof value === 'string' && value.length > 0
 
 export interface MemoryMeasurement {
-  readonly freeBytes: number;
-  readonly totalBytes: number;
-  readonly driverFreeBytes?: number;
-  readonly torchAllocatedBytes?: number;
-  readonly torchReservedBytes?: number;
-  readonly processRssBytes?: number;
-  readonly pinnedHostBytes?: number;
-  readonly gpuName?: string;
-  readonly gpuUtilizationPercent?: number;
-  readonly gpuTemperatureCelsius?: number;
-  readonly gpuPowerMilliwatts?: number;
-  readonly gpuPowerLimitMilliwatts?: number;
+  readonly freeBytes: number
+  readonly totalBytes: number
+  readonly driverFreeBytes?: number
+  readonly torchAllocatedBytes?: number
+  readonly torchReservedBytes?: number
+  readonly processRssBytes?: number
+  readonly pinnedHostBytes?: number
+  readonly gpuName?: string
+  readonly gpuUtilizationPercent?: number
+  readonly gpuTemperatureCelsius?: number
+  readonly gpuPowerMilliwatts?: number
+  readonly gpuPowerLimitMilliwatts?: number
 }
 
 export interface MemoryGovernorDevice {
-  readonly budgetBytes: number | null;
-  readonly reservedBytes: number;
-  readonly consumerFootprintBytes: number;
-  readonly availableBytes: number | null;
-  readonly measured: MemoryMeasurement | null;
-  readonly peakUsedBytes?: number | null;
-  readonly consumers: Readonly<Record<string, number>>;
+  readonly budgetBytes: number | null
+  readonly reservedBytes: number
+  readonly consumerFootprintBytes: number
+  readonly availableBytes: number | null
+  readonly measured: MemoryMeasurement | null
+  readonly peakUsedBytes?: number | null
+  readonly consumers: Readonly<Record<string, number>>
 }
 
 export interface MemoryConsumerItem {
-  readonly itemId: string;
-  readonly displayName: string;
-  readonly bytesByResidency: Readonly<Record<string, number>>;
-  readonly pages?: {
-    readonly pageBytes: number;
-    readonly pageCount: number;
-    readonly flags: readonly number[];
-  };
+  readonly itemId: string
+  readonly displayName: string
+  readonly bytesByResidency: Readonly<Record<string, number>>
+  readonly pages?: { readonly pageBytes: number; readonly pageCount: number; readonly flags: readonly number[] }
 }
 
 export interface MemoryStatus {
-  readonly devices: Readonly<
-    Record<
-      string,
-      { readonly executionCapacity: number; readonly executionInUse: number }
-    >
-  >;
-  readonly queue: {
-    readonly queued: number;
-    readonly running: readonly string[];
-    readonly maxRunningJobs: number;
-    readonly paused: boolean;
-  };
-  readonly memoryGovernor: Readonly<
-    Record<string, MemoryGovernorDevice>
-  > | null;
-  readonly leases:
-    | readonly {
-        readonly reservationId: string;
-        readonly device: string;
-        readonly bytes: number;
-        readonly expiresInSeconds: number;
-      }[]
-    | null;
-  readonly consumerDetails?: Readonly<
-    Record<string, readonly MemoryConsumerItem[]>
-  >;
+  readonly devices: Readonly<Record<string, { readonly executionCapacity: number; readonly executionInUse: number }>>
+  readonly queue: { readonly queued: number; readonly running: readonly string[]; readonly maxRunningJobs: number; readonly paused: boolean }
+  readonly memoryGovernor: Readonly<Record<string, MemoryGovernorDevice>> | null
+  readonly leases: readonly { readonly reservationId: string; readonly device: string; readonly bytes: number; readonly expiresInSeconds: number }[] | null
+  readonly consumerDetails?: Readonly<Record<string, readonly MemoryConsumerItem[]>>
   readonly acceleratorPolicy?: {
-    readonly physicalHeadroomBytes: number;
-    readonly aimdoConfiguredPolicy?: string;
-    readonly aimdoPoliciesByWorker?: Readonly<Record<string, string>>;
-    readonly devices: Readonly<
-      Record<
-        string,
-        {
-          readonly governorAdmission: {
-            readonly budgetBytes: number | null;
-            readonly effectiveBudgetBytes?: number;
-          };
-          readonly residencyApplied: {
-            readonly budgetsByWorker: Readonly<Record<string, number | null>>;
-          };
-        }
-      >
-    >;
-  };
+    readonly physicalHeadroomBytes: number
+    readonly aimdoConfiguredPolicy?: string
+    readonly aimdoPoliciesByWorker?: Readonly<Record<string, string>>
+    readonly devices: Readonly<Record<string, {
+      readonly governorAdmission: { readonly budgetBytes: number | null; readonly effectiveBudgetBytes?: number }
+      readonly residencyApplied: { readonly budgetsByWorker: Readonly<Record<string, number | null>> }
+    }>>
+  }
 }
 
 function decodeMemoryStatus(value: unknown): MemoryStatus | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return undefined;
-  const status = value as Record<string, unknown>;
-  const queue = status["queue"] as Record<string, unknown> | undefined;
-  const record = (item: unknown): item is Record<string, unknown> =>
-    typeof item === "object" && item !== null && !Array.isArray(item);
-  const finite = (item: unknown): item is number =>
-    typeof item === "number" && Number.isFinite(item);
-  const numberRecord = (item: unknown): boolean =>
-    record(item) && Object.values(item).every(finite);
-  if (
-    typeof status["devices"] !== "object" ||
-    status["devices"] === null ||
-    Array.isArray(status["devices"]) ||
-    typeof queue !== "object" ||
-    queue === null ||
-    typeof queue["queued"] !== "number" ||
-    !Array.isArray(queue["running"]) ||
-    !queue["running"].every((item) => typeof item === "string") ||
-    typeof queue["maxRunningJobs"] !== "number" ||
-    typeof queue["paused"] !== "boolean" ||
-    (status["memoryGovernor"] !== null &&
-      (typeof status["memoryGovernor"] !== "object" ||
-        Array.isArray(status["memoryGovernor"]))) ||
-    (status["leases"] !== null && !Array.isArray(status["leases"]))
-  )
-    return undefined;
-  if (
-    !Object.values(status["devices"]).every(
-      (device) =>
-        record(device) &&
-        finite(device["executionCapacity"]) &&
-        finite(device["executionInUse"]),
-    )
-  )
-    return undefined;
-  if (
-    record(status["memoryGovernor"]) &&
-    !Object.values(status["memoryGovernor"]).every((device) => {
-      if (
-        !record(device) ||
-        (device["budgetBytes"] !== null && !finite(device["budgetBytes"])) ||
-        !finite(device["reservedBytes"]) ||
-        !finite(device["consumerFootprintBytes"]) ||
-        (device["availableBytes"] !== null &&
-          !finite(device["availableBytes"])) ||
-        !numberRecord(device["consumers"])
-      )
-        return false;
-      if (
-        device["peakUsedBytes"] !== undefined &&
-        device["peakUsedBytes"] !== null &&
-        !finite(device["peakUsedBytes"])
-      )
-        return false;
-      const measured = device["measured"];
-      return (
-        measured === null ||
-        (record(measured) &&
-          finite(measured["freeBytes"]) &&
-          finite(measured["totalBytes"]) &&
-          [
-            "driverFreeBytes",
-            "torchAllocatedBytes",
-            "torchReservedBytes",
-            "processRssBytes",
-            "pinnedHostBytes",
-            "gpuUtilizationPercent",
-            "gpuTemperatureCelsius",
-            "gpuPowerMilliwatts",
-            "gpuPowerLimitMilliwatts",
-          ].every(
-            (key) =>
-              measured[key] === undefined ||
-              (finite(measured[key]) && measured[key] >= 0),
-          ) &&
-          (measured["gpuName"] === undefined ||
-            typeof measured["gpuName"] === "string"))
-      );
-    })
-  )
-    return undefined;
-  if (
-    Array.isArray(status["leases"]) &&
-    !status["leases"].every(
-      (lease) =>
-        record(lease) &&
-        typeof lease["reservationId"] === "string" &&
-        typeof lease["device"] === "string" &&
-        finite(lease["bytes"]) &&
-        finite(lease["expiresInSeconds"]),
-    )
-  )
-    return undefined;
-  const policy = status["acceleratorPolicy"];
-  if (
-    policy !== undefined &&
-    (!record(policy) ||
-      !finite(policy["physicalHeadroomBytes"]) ||
-      !record(policy["devices"]) ||
-      (policy["aimdoConfiguredPolicy"] !== undefined &&
-        typeof policy["aimdoConfiguredPolicy"] !== "string") ||
-      (policy["aimdoPoliciesByWorker"] !== undefined &&
-        (!record(policy["aimdoPoliciesByWorker"]) ||
-          !Object.values(policy["aimdoPoliciesByWorker"]).every(
-            (value) => typeof value === "string",
-          ))) ||
-      !Object.values(policy["devices"]).every(
-        (device) =>
-          record(device) &&
-          record(device["governorAdmission"]) &&
-          (device["governorAdmission"]["budgetBytes"] === null ||
-            finite(device["governorAdmission"]["budgetBytes"])) &&
-          (device["governorAdmission"]["effectiveBudgetBytes"] === undefined ||
-            finite(device["governorAdmission"]["effectiveBudgetBytes"])) &&
-          record(device["residencyApplied"]) &&
-          record(device["residencyApplied"]["budgetsByWorker"]) &&
-          Object.values(device["residencyApplied"]["budgetsByWorker"]).every(
-            (budget) => budget === null || finite(budget),
-          ),
-      ))
-  )
-    return undefined;
-  if (
-    status["consumerDetails"] !== undefined &&
-    (!record(status["consumerDetails"]) ||
-      !Object.values(status["consumerDetails"]).every(
-        (items) =>
-          Array.isArray(items) &&
-          items.every((item) => {
-            if (
-              !record(item) ||
-              typeof item["itemId"] !== "string" ||
-              typeof item["displayName"] !== "string" ||
-              !numberRecord(item["bytesByResidency"])
-            )
-              return false;
-            const pages = item["pages"];
-            return (
-              pages === undefined ||
-              (record(pages) &&
-                finite(pages["pageBytes"]) &&
-                finite(pages["pageCount"]) &&
-                Array.isArray(pages["flags"]) &&
-                pages["flags"].every(finite) &&
-                pages["flags"].length === pages["pageCount"])
-            );
-          }),
-      ))
-  )
-    return undefined;
-  return value as MemoryStatus;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const status = value as Record<string, unknown>
+  const queue = status['queue'] as Record<string, unknown> | undefined
+  const record = (item: unknown): item is Record<string, unknown> => typeof item === 'object' && item !== null && !Array.isArray(item)
+  const finite = (item: unknown): item is number => typeof item === 'number' && Number.isFinite(item)
+  const numberRecord = (item: unknown): boolean => record(item) && Object.values(item).every(finite)
+  if (typeof status['devices'] !== 'object' || status['devices'] === null || Array.isArray(status['devices']) ||
+    typeof queue !== 'object' || queue === null || typeof queue['queued'] !== 'number' ||
+    !Array.isArray(queue['running']) || !queue['running'].every((item) => typeof item === 'string') ||
+    typeof queue['maxRunningJobs'] !== 'number' || typeof queue['paused'] !== 'boolean' ||
+    (status['memoryGovernor'] !== null && (typeof status['memoryGovernor'] !== 'object' || Array.isArray(status['memoryGovernor']))) ||
+    (status['leases'] !== null && !Array.isArray(status['leases']))) return undefined
+  if (!Object.values(status['devices']).every((device) => record(device) && finite(device['executionCapacity']) && finite(device['executionInUse']))) return undefined
+  if (record(status['memoryGovernor']) && !Object.values(status['memoryGovernor']).every((device) => {
+    if (!record(device) || (device['budgetBytes'] !== null && !finite(device['budgetBytes'])) ||
+      !finite(device['reservedBytes']) || !finite(device['consumerFootprintBytes']) ||
+      (device['availableBytes'] !== null && !finite(device['availableBytes'])) || !numberRecord(device['consumers'])) return false
+    if (device['peakUsedBytes'] !== undefined && device['peakUsedBytes'] !== null && !finite(device['peakUsedBytes'])) return false
+    const measured = device['measured']
+    return measured === null || (record(measured) && finite(measured['freeBytes']) && finite(measured['totalBytes']) &&
+      ['driverFreeBytes', 'torchAllocatedBytes', 'torchReservedBytes', 'processRssBytes', 'pinnedHostBytes', 'gpuUtilizationPercent', 'gpuTemperatureCelsius', 'gpuPowerMilliwatts', 'gpuPowerLimitMilliwatts'].every((key) => measured[key] === undefined || (finite(measured[key]) && measured[key] >= 0)) &&
+      (measured['gpuName'] === undefined || typeof measured['gpuName'] === 'string'))
+  })) return undefined
+  if (Array.isArray(status['leases']) && !status['leases'].every((lease) => record(lease) &&
+    typeof lease['reservationId'] === 'string' && typeof lease['device'] === 'string' && finite(lease['bytes']) && finite(lease['expiresInSeconds']))) return undefined
+  const policy = status['acceleratorPolicy']
+  if (policy !== undefined && (!record(policy) || !finite(policy['physicalHeadroomBytes']) || !record(policy['devices']) ||
+    (policy['aimdoConfiguredPolicy'] !== undefined && typeof policy['aimdoConfiguredPolicy'] !== 'string') ||
+    (policy['aimdoPoliciesByWorker'] !== undefined && (!record(policy['aimdoPoliciesByWorker']) || !Object.values(policy['aimdoPoliciesByWorker']).every((value) => typeof value === 'string'))) ||
+    !Object.values(policy['devices']).every((device) => record(device) && record(device['governorAdmission']) &&
+      (device['governorAdmission']['budgetBytes'] === null || finite(device['governorAdmission']['budgetBytes'])) &&
+      (device['governorAdmission']['effectiveBudgetBytes'] === undefined || finite(device['governorAdmission']['effectiveBudgetBytes'])) &&
+      record(device['residencyApplied']) && record(device['residencyApplied']['budgetsByWorker']) &&
+      Object.values(device['residencyApplied']['budgetsByWorker']).every((budget) => budget === null || finite(budget))))) return undefined
+  if (status['consumerDetails'] !== undefined && (!record(status['consumerDetails']) || !Object.values(status['consumerDetails']).every((items) => Array.isArray(items) && items.every((item) => {
+    if (!record(item) || typeof item['itemId'] !== 'string' || typeof item['displayName'] !== 'string' || !numberRecord(item['bytesByResidency'])) return false
+    const pages = item['pages']
+    return pages === undefined || (record(pages) && finite(pages['pageBytes']) && finite(pages['pageCount']) &&
+      Array.isArray(pages['flags']) && pages['flags'].every(finite) && pages['flags'].length === pages['pageCount'])
+  })))) return undefined
+  return value as MemoryStatus
 }
 
 export type RuntimeSettingsErrorBody =
+  | { readonly error: 'settings-changes-disabled'; readonly category: string; readonly granted: readonly string[] }
   | {
-      readonly error: "settings-changes-disabled";
-      readonly category: string;
-      readonly granted: readonly string[];
+      readonly error: 'invalid-settings'
+      readonly category: string
+      readonly message: string
+      readonly offendingFlag?: string
+      readonly owner?: string
     }
-  | {
-      readonly error: "invalid-settings";
-      readonly category: string;
-      readonly message: string;
-      readonly offendingFlag?: string;
-      readonly owner?: string;
-    };
 
-function decodeRuntimeSettingsError(
-  status: number,
-  value: unknown,
-): RuntimeSettingsErrorBody | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return undefined;
-  const body = value as Record<string, unknown>;
+function decodeRuntimeSettingsError(status: number, value: unknown): RuntimeSettingsErrorBody | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const body = value as Record<string, unknown>
   if (
-    status === 400 &&
-    body["error"] === "invalid-settings" &&
-    typeof body["category"] === "string" &&
-    typeof body["message"] === "string"
-  )
-    return {
-      error: "invalid-settings",
-      category: body["category"],
-      message: body["message"],
-      ...(typeof body["offendingFlag"] === "string"
-        ? { offendingFlag: body["offendingFlag"] }
-        : {}),
-      ...(typeof body["owner"] === "string" ? { owner: body["owner"] } : {}),
-    };
+    status === 400 && body['error'] === 'invalid-settings' &&
+    typeof body['category'] === 'string' && typeof body['message'] === 'string'
+  ) return {
+    error: 'invalid-settings',
+    category: body['category'],
+    message: body['message'],
+    ...(typeof body['offendingFlag'] === 'string' ? { offendingFlag: body['offendingFlag'] } : {}),
+    ...(typeof body['owner'] === 'string' ? { owner: body['owner'] } : {}),
+  }
   if (
-    status === 403 &&
-    body["error"] === "settings-changes-disabled" &&
-    typeof body["category"] === "string" &&
-    Array.isArray(body["granted"]) &&
-    body["granted"].every((category) => typeof category === "string")
-  )
-    return {
-      error: "settings-changes-disabled",
-      category: body["category"],
-      granted: body["granted"] as string[],
-    };
-  return undefined;
+    status === 403 && body['error'] === 'settings-changes-disabled' &&
+    typeof body['category'] === 'string' && Array.isArray(body['granted']) &&
+    body['granted'].every((category) => typeof category === 'string')
+  ) return { error: 'settings-changes-disabled', category: body['category'], granted: body['granted'] as string[] }
+  return undefined
 }
 
 export class RuntimeSettingsError extends Error {
-  readonly offendingFlag?: string;
-  readonly owner?: string;
+  readonly offendingFlag?: string
+  readonly owner?: string
 
   constructor(
     readonly status: number,
     readonly body: RuntimeSettingsErrorBody | undefined,
   ) {
     super(
-      body?.error === "invalid-settings"
+      body?.error === 'invalid-settings'
         ? body.message
-        : body?.error === "settings-changes-disabled"
-          ? `Changes to ${body.category} are not granted (granted: ${body.granted.join(", ") || "none"})`
+        : body?.error === 'settings-changes-disabled'
+          ? `Changes to ${body.category} are not granted (granted: ${body.granted.join(', ') || 'none'})`
           : `runtime settings request failed: ${status}`,
-    );
-    if (body?.error === "invalid-settings") {
-      if (body.offendingFlag !== undefined)
-        this.offendingFlag = body.offendingFlag;
-      if (body.owner !== undefined) this.owner = body.owner;
+    )
+    if (body?.error === 'invalid-settings') {
+      if (body.offendingFlag !== undefined) this.offendingFlag = body.offendingFlag
+      if (body.owner !== undefined) this.owner = body.owner
     }
   }
 }
 
 export interface PrincipalSummary {
-  readonly principalId: string;
-  readonly kind: string;
-  readonly local?: boolean;
-  readonly categories: Readonly<Record<string, boolean>>;
-  readonly scopes?: readonly string[];
-  readonly self?: boolean;
+  readonly principalId: string
+  readonly kind: string
+  readonly local?: boolean
+  readonly categories: Readonly<Record<string, boolean>>
+  readonly scopes?: readonly string[]
+  readonly self?: boolean
 }
 
 export class PrincipalsError extends Error {
@@ -1023,194 +652,110 @@ export class PrincipalsError extends Error {
     readonly status: number,
     readonly serverError?: string,
   ) {
-    super(serverError ?? `principals request failed: ${status}`);
+    super(serverError ?? `principals request failed: ${status}`)
   }
 }
 
-function decodePermissionCategories(
-  value: unknown,
-): Readonly<Record<string, boolean>> {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return {};
-  return Object.fromEntries(
-    Object.entries(value).filter(
-      (entry): entry is [string, boolean] => typeof entry[1] === "boolean",
-    ),
-  );
+function decodePermissionCategories(value: unknown): Readonly<Record<string, boolean>> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean'))
 }
 
 function decodePrincipalSummary(value: unknown): PrincipalSummary | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return undefined;
-  const principal = value as Record<string, unknown>;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const principal = value as Record<string, unknown>
   if (
-    typeof principal["principalId"] !== "string" ||
-    typeof principal["kind"] !== "string" ||
-    typeof principal["categories"] !== "object" ||
-    principal["categories"] === null ||
-    Array.isArray(principal["categories"])
-  )
-    return undefined;
+    typeof principal['principalId'] !== 'string' ||
+    typeof principal['kind'] !== 'string' ||
+    typeof principal['categories'] !== 'object' ||
+    principal['categories'] === null ||
+    Array.isArray(principal['categories'])
+  ) return undefined
   return {
-    principalId: principal["principalId"],
-    kind: principal["kind"],
-    ...(typeof principal["local"] === "boolean"
-      ? { local: principal["local"] }
-      : {}),
-    categories: decodePermissionCategories(principal["categories"]),
-    ...(Array.isArray(principal["scopes"])
-      ? {
-          scopes: principal["scopes"].filter(
-            (scope): scope is string => typeof scope === "string",
-          ),
-        }
-      : {}),
-    ...(typeof principal["self"] === "boolean"
-      ? { self: principal["self"] }
-      : {}),
-  };
+    principalId: principal['principalId'],
+    kind: principal['kind'],
+    ...(typeof principal['local'] === 'boolean' ? { local: principal['local'] } : {}),
+    categories: decodePermissionCategories(principal['categories']),
+    ...(Array.isArray(principal['scopes']) ? { scopes: principal['scopes'].filter((scope): scope is string => typeof scope === 'string') } : {}),
+    ...(typeof principal['self'] === 'boolean' ? { self: principal['self'] } : {}),
+  }
 }
 
 function isReplacementProblem(v: unknown): v is ReplacementProblem {
-  if (typeof v !== "object" || v === null) return false;
-  const p = v as Record<string, unknown>;
+  if (typeof v !== 'object' || v === null) return false
+  const p = v as Record<string, unknown>
   return (
-    typeof p["carrier"] === "string" &&
-    typeof p["from"] === "string" &&
-    typeof p["caseIndex"] === "number" &&
-    typeof p["ref"] === "string" &&
-    (p["refKind"] === "input" || p["refKind"] === "output") &&
-    typeof p["target"] === "string" &&
-    typeof p["message"] === "string"
-  );
+    typeof p['carrier'] === 'string' &&
+    typeof p['from'] === 'string' &&
+    typeof p['caseIndex'] === 'number' &&
+    typeof p['ref'] === 'string' &&
+    (p['refKind'] === 'input' || p['refKind'] === 'output') &&
+    typeof p['target'] === 'string' &&
+    typeof p['message'] === 'string'
+  )
 }
 
 function isCompatSkip(v: unknown): v is CompatSkip {
-  if (typeof v !== "object" || v === null) return false;
-  const skip = v as Record<string, unknown>;
+  if (typeof v !== 'object' || v === null) return false
+  const skip = v as Record<string, unknown>
   return (
-    typeof skip["packId"] === "string" &&
-    typeof skip["nodeId"] === "string" &&
-    typeof skip["reason"] === "string"
-  );
+    typeof skip['packId'] === 'string' &&
+    typeof skip['nodeId'] === 'string' &&
+    typeof skip['reason'] === 'string'
+  )
 }
 
-const JOB_ARTIFACT_NODE_ID_CAP = 512;
-const JOB_ARTIFACT_NAME_CAP = 1024;
-const JOB_ARTIFACT_MEDIA_TYPE_CAP = 255;
-const JOB_ARTIFACT_VIRTUAL_PATH_CAP = 4096;
-const JOB_ARTIFACT_KEYS = [
-  "nodeId",
-  "digest",
-  "name",
-  "size",
-  "mediaType",
-  "virtualPath",
-] as const;
-const JOB_ARTIFACT_DIGEST = /^blake3:[0-9a-f]{64}$/;
-const JOB_ARTIFACT_MEDIA_TYPE = /^[\w!#$&^.+-]+\/[\w!#$&^.+-]+$/;
-const hasControlCharacter = (value: string): boolean =>
-  /[\u0000-\u001f\u007f]/.test(value);
+const JOB_ARTIFACT_NODE_ID_CAP = 512
+const JOB_ARTIFACT_NAME_CAP = 1024
+const JOB_ARTIFACT_MEDIA_TYPE_CAP = 255
+const JOB_ARTIFACT_VIRTUAL_PATH_CAP = 4096
+const JOB_ARTIFACT_KEYS = ['nodeId', 'digest', 'name', 'size', 'mediaType', 'virtualPath'] as const
+const JOB_ARTIFACT_DIGEST = /^blake3:[0-9a-f]{64}$/
+const JOB_ARTIFACT_MEDIA_TYPE = /^[\w!#$&^.+-]+\/[\w!#$&^.+-]+$/
+const hasControlCharacter = (value: string): boolean => /[\u0000-\u001f\u007f]/.test(value)
 
-function decodeArtifactFile(
-  row: Record<string, unknown>,
-): ExecutionArtifact["preview"] {
-  const digest = row["digest"];
-  const name = row["name"];
-  const size = row["size"];
-  const mediaType = row["mediaType"];
-  const virtualPath = row["virtualPath"];
-  if (
-    typeof digest !== "string" ||
-    !JOB_ARTIFACT_DIGEST.test(digest) ||
-    typeof name !== "string" ||
-    name.length === 0 ||
-    name.length > JOB_ARTIFACT_NAME_CAP ||
-    hasControlCharacter(name) ||
-    typeof size !== "number" ||
-    !Number.isSafeInteger(size) ||
-    size < 0 ||
-    typeof mediaType !== "string" ||
-    mediaType.length === 0 ||
-    mediaType.length > JOB_ARTIFACT_MEDIA_TYPE_CAP ||
-    !JOB_ARTIFACT_MEDIA_TYPE.test(mediaType) ||
-    typeof virtualPath !== "string" ||
-    virtualPath.length > JOB_ARTIFACT_VIRTUAL_PATH_CAP ||
-    hasControlCharacter(virtualPath)
-  )
-    return undefined;
-  return { digest, name, size, mediaType, virtualPath };
+function decodeArtifactFile(row: Record<string, unknown>): ExecutionArtifact['preview'] {
+  const digest = row['digest']
+  const name = row['name']
+  const size = row['size']
+  const mediaType = row['mediaType']
+  const virtualPath = row['virtualPath']
+  if (typeof digest !== 'string' || !JOB_ARTIFACT_DIGEST.test(digest) ||
+    typeof name !== 'string' || name.length === 0 || name.length > JOB_ARTIFACT_NAME_CAP || hasControlCharacter(name) ||
+    typeof size !== 'number' || !Number.isSafeInteger(size) || size < 0 ||
+    typeof mediaType !== 'string' || mediaType.length === 0 || mediaType.length > JOB_ARTIFACT_MEDIA_TYPE_CAP || !JOB_ARTIFACT_MEDIA_TYPE.test(mediaType) ||
+    typeof virtualPath !== 'string' || virtualPath.length > JOB_ARTIFACT_VIRTUAL_PATH_CAP || hasControlCharacter(virtualPath)) return undefined
+  return { digest, name, size, mediaType, virtualPath }
 }
 
 /** Malformed required file metadata discards the list; optional previews are isolated. */
-function decodeJobArtifacts(
-  value: unknown,
-): readonly ExecutionArtifact[] | undefined {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value)) return undefined;
-  const decoded: ExecutionArtifact[] = [];
+function decodeJobArtifacts(value: unknown): readonly ExecutionArtifact[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value)) return undefined
+  const decoded: ExecutionArtifact[] = []
   for (const candidate of value) {
-    if (
-      typeof candidate !== "object" ||
-      candidate === null ||
-      Array.isArray(candidate)
-    )
-      return undefined;
-    const row = candidate as Record<string, unknown>;
-    if (
-      Object.keys(row).some(
-        (key) =>
-          key !== "preview" &&
-          !JOB_ARTIFACT_KEYS.includes(
-            key as (typeof JOB_ARTIFACT_KEYS)[number],
-          ),
-      ) ||
-      JOB_ARTIFACT_KEYS.some((key) => !Object.hasOwn(row, key))
-    )
-      return undefined;
-    const nodeId = row["nodeId"];
-    const file = decodeArtifactFile(row);
-    if (
-      typeof nodeId !== "string" ||
-      nodeId.length === 0 ||
-      nodeId.length > JOB_ARTIFACT_NODE_ID_CAP ||
-      hasControlCharacter(nodeId) ||
-      file === undefined
-    )
-      return undefined;
-    let preview: ExecutionArtifact["preview"];
-    const rawPreview = row["preview"];
-    if (
-      typeof rawPreview === "object" &&
-      rawPreview !== null &&
-      !Array.isArray(rawPreview)
-    ) {
-      const fields = rawPreview as Record<string, unknown>;
-      if (
-        Object.keys(fields).length === JOB_ARTIFACT_KEYS.length - 1 &&
-        JOB_ARTIFACT_KEYS.slice(1).every((key) => Object.hasOwn(fields, key))
-      ) {
-        const attachment = decodeArtifactFile(fields);
-        if (
-          attachment !== undefined &&
-          attachment.size > 0 &&
-          attachment.size <= 16 * 1024 * 1024 &&
-          !/[\\/]/.test(attachment.name) &&
-          attachment.name !== "." &&
-          attachment.name !== ".." &&
-          attachment.virtualPath ===
-            `previews/${attachment.digest.slice(7)}/${attachment.name}`
-        )
-          preview = attachment;
+    if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) return undefined
+    const row = candidate as Record<string, unknown>
+    if (Object.keys(row).some((key) => key !== 'preview' && !JOB_ARTIFACT_KEYS.includes(key as typeof JOB_ARTIFACT_KEYS[number])) ||
+      JOB_ARTIFACT_KEYS.some((key) => !Object.hasOwn(row, key))) return undefined
+    const nodeId = row['nodeId']
+    const file = decodeArtifactFile(row)
+    if (typeof nodeId !== 'string' || nodeId.length === 0 || nodeId.length > JOB_ARTIFACT_NODE_ID_CAP || hasControlCharacter(nodeId) || file === undefined) return undefined
+    let preview: ExecutionArtifact['preview']
+    const rawPreview = row['preview']
+    if (typeof rawPreview === 'object' && rawPreview !== null && !Array.isArray(rawPreview)) {
+      const fields = rawPreview as Record<string, unknown>
+      if (Object.keys(fields).length === JOB_ARTIFACT_KEYS.length - 1 &&
+        JOB_ARTIFACT_KEYS.slice(1).every((key) => Object.hasOwn(fields, key))) {
+        const attachment = decodeArtifactFile(fields)
+        if (attachment !== undefined && attachment.size > 0 && attachment.size <= 16 * 1024 * 1024 &&
+          !/[\\/]/.test(attachment.name) && attachment.name !== '.' && attachment.name !== '..' &&
+          attachment.virtualPath === `previews/${attachment.digest.slice(7)}/${attachment.name}`) preview = attachment
       }
     }
-    decoded.push({
-      nodeId,
-      ...file,
-      ...(preview === undefined ? {} : { preview }),
-    });
+    decoded.push({ nodeId, ...file, ...(preview === undefined ? {} : { preview }) })
   }
-  return decoded;
+  return decoded
 }
 
 // ---------------------------------------------------------------------------
@@ -1218,26 +763,26 @@ function decodeJobArtifacts(
 // ---------------------------------------------------------------------------
 
 export interface DinksterConnectionConfig extends CollabCredentials {
-  readonly id: ConnectionId;
+  readonly id: ConnectionId
   /** HTTP base, no trailing slash. '' = same origin (dev proxy). */
-  readonly baseUrl: string;
+  readonly baseUrl: string
   /** Stable per-session client id; jobs and WS routing are keyed by it. */
-  readonly clientId: string;
+  readonly clientId: string
   /** Immutable window project; folder preferences never change global priorities. */
-  readonly project?: string;
+  readonly project?: string
   /** WS endpoint override; defaults to baseUrl with ws(s) scheme + /api/events. */
-  readonly wsUrl?: string;
-  readonly fetchFn?: FetchLike;
-  readonly webSocketFactory?: WebSocketFactory;
-  readonly scheduleFn?: ScheduleFn;
-  readonly cancelFn?: CancelFn;
+  readonly wsUrl?: string
+  readonly fetchFn?: FetchLike
+  readonly webSocketFactory?: WebSocketFactory
+  readonly scheduleFn?: ScheduleFn
+  readonly cancelFn?: CancelFn
   /** Job id allocator; injectable so tests are deterministic. */
-  readonly jobIdFactory?: () => string;
+  readonly jobIdFactory?: () => string
 }
 
 export class ExecutionRequestError extends Error {
   constructor(readonly diagnostic: Diagnostic) {
-    super(diagnostic.message);
+    super(diagnostic.message)
   }
 }
 
@@ -1246,128 +791,96 @@ const responseDiagnostic = (
   payload: Record<string, unknown> | undefined,
   operation: string,
 ): Diagnostic => {
-  const serverCode =
-    typeof payload?.["error"] === "string" && payload["error"].length <= 128
-      ? payload["error"]
-      : `http-${status}`;
-  const message =
-    typeof payload?.["message"] === "string"
-      ? payload["message"]
-      : `HTTP ${status}: ${serverCode}`;
-  return diag(
-    "error",
-    "runtime",
-    `execution.${operation}.${serverCode}`,
-    message,
-    {
-      data: {
-        status,
-        code: serverCode,
-        operation,
-        ...(typeof payload?.["capability"] === "string"
-          ? { capability: payload["capability"] }
-          : {}),
-        ...(typeof payload?.["scope"] === "string"
-          ? { scope: payload["scope"] }
-          : {}),
-      },
+  const serverCode = typeof payload?.['error'] === 'string' && payload['error'].length <= 128
+    ? payload['error']
+    : `http-${status}`
+  const message = typeof payload?.['message'] === 'string'
+    ? payload['message']
+    : `HTTP ${status}: ${serverCode}`
+  return diag('error', 'runtime', `execution.${operation}.${serverCode}`, message, {
+    data: {
+      status,
+      code: serverCode,
+      operation,
+      ...(typeof payload?.['capability'] === 'string' ? { capability: payload['capability'] } : {}),
+      ...(typeof payload?.['scope'] === 'string' ? { scope: payload['scope'] } : {}),
     },
-  );
-};
+  })
+}
 
-const responsePayload = async (
-  response: Response,
-): Promise<Record<string, unknown> | undefined> => {
-  const value: unknown = await response.json().catch(() => undefined);
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-};
+const responsePayload = async (response: Response): Promise<Record<string, unknown> | undefined> => {
+  const value: unknown = await response.json().catch(() => undefined)
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
+}
 
 /** One execution location reported by GET /api/workers. */
 export interface WorkerInfo {
-  readonly name: string;
-  readonly status: string;
-  readonly routedNodeTypes: readonly string[];
-  readonly deviceQualifiers: readonly string[];
+  readonly name: string
+  readonly status: string
+  readonly routedNodeTypes: readonly string[]
+  readonly deviceQualifiers: readonly string[]
 }
 
 const decodeWorkers = (value: unknown): readonly WorkerInfo[] | undefined => {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return undefined;
-  const workers = (value as Record<string, unknown>)["workers"];
-  if (!Array.isArray(workers)) return undefined;
-  const decoded: WorkerInfo[] = [];
-  const names = new Set<string>();
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const workers = (value as Record<string, unknown>)['workers']
+  if (!Array.isArray(workers)) return undefined
+  const decoded: WorkerInfo[] = []
+  const names = new Set<string>()
   for (const candidate of workers) {
+    if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) return undefined
+    const worker = candidate as Record<string, unknown>
+    const name = worker['name']
+    const status = worker['status']
+    const routedNodeTypes = worker['routedNodeTypes']
+    const deviceQualifiers = worker['deviceQualifiers']
     if (
-      typeof candidate !== "object" ||
-      candidate === null ||
-      Array.isArray(candidate)
-    )
-      return undefined;
-    const worker = candidate as Record<string, unknown>;
-    const name = worker["name"];
-    const status = worker["status"];
-    const routedNodeTypes = worker["routedNodeTypes"];
-    const deviceQualifiers = worker["deviceQualifiers"];
-    if (
-      typeof name !== "string" ||
-      name.length === 0 ||
-      names.has(name) ||
-      typeof status !== "string" ||
-      status.length === 0 ||
-      !Array.isArray(routedNodeTypes) ||
-      !routedNodeTypes.every((entry) => typeof entry === "string") ||
-      !Array.isArray(deviceQualifiers) ||
-      !deviceQualifiers.every((entry) => typeof entry === "string")
-    )
-      return undefined;
-    names.add(name);
+      typeof name !== 'string' || name.length === 0 || names.has(name) ||
+      typeof status !== 'string' || status.length === 0 ||
+      !Array.isArray(routedNodeTypes) || !routedNodeTypes.every((entry) => typeof entry === 'string') ||
+      !Array.isArray(deviceQualifiers) || !deviceQualifiers.every((entry) => typeof entry === 'string')
+    ) return undefined
+    names.add(name)
     decoded.push({
       name,
       status,
       routedNodeTypes: routedNodeTypes as string[],
       deviceQualifiers: deviceQualifiers as string[],
-    });
+    })
   }
-  return decoded;
-};
+  return decoded
+}
 
 /** One job's wire record plus the identity it is keyed by. */
 export interface DinksterJobRecord extends DinksterJobWire {
-  readonly jobId?: unknown;
-  readonly outputs?: unknown;
-  readonly artifacts?: readonly ExecutionArtifact[];
-  readonly submittedBy?: ExecutionSubmitter;
-  readonly sourceDocument?: string;
+  readonly jobId?: unknown
+  readonly outputs?: unknown
+  readonly artifacts?: readonly ExecutionArtifact[]
+  readonly submittedBy?: ExecutionSubmitter
+  readonly sourceDocument?: string
 }
 
-const decodeExecutionSubmitter = (
-  value: unknown,
-): ExecutionSubmitter | undefined => {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return undefined;
-  const record = value as Record<string, unknown>;
-  if (
-    typeof record["principalId"] !== "string" ||
-    (record["kind"] !== "human" && record["kind"] !== "agent")
-  )
-    return undefined;
-  return { principalId: record["principalId"], kind: record["kind"] };
-};
+const decodeExecutionSubmitter = (value: unknown): ExecutionSubmitter | undefined => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  if (typeof record['principalId'] !== 'string' ||
+    (record['kind'] !== 'human' && record['kind'] !== 'agent')) return undefined
+  return { principalId: record['principalId'], kind: record['kind'] }
+}
 
 /** One record from GET /api/runs/{runId}/journal: the exact published wire dict. */
 export interface RunJournalRecord {
-  readonly seq: number;
-  readonly name: string;
-  readonly payload?: Readonly<Record<string, unknown>>;
+  readonly seq: number
+  readonly name: string
+  readonly payload?: Readonly<Record<string, unknown>>
 }
 
 export interface RunJournalPage {
-  readonly records: readonly RunJournalRecord[];
-  readonly latestSeq: number;
-  readonly coalescedBelow: number;
+  readonly records: readonly RunJournalRecord[]
+  readonly latestSeq: number
+  readonly coalescedBelow: number
 }
 
 /**
@@ -1379,362 +892,260 @@ export function runJournalIdentity(
   job: DinksterJobRecord,
 ): { readonly runId: string; readonly scope: string } | undefined {
   const runId =
-    typeof job.jobRef === "string" && job.jobRef !== ""
+    typeof job.jobRef === 'string' && job.jobRef !== ''
       ? job.jobRef
-      : typeof job.runId === "string" && job.runId !== ""
+      : typeof job.runId === 'string' && job.runId !== ''
         ? job.runId
-        : undefined;
-  if (runId === undefined) return undefined;
-  return {
-    runId,
-    scope:
-      typeof job.scope === "string" && job.scope !== "" ? job.scope : "local",
-  };
+        : undefined
+  if (runId === undefined) return undefined
+  return { runId, scope: typeof job.scope === 'string' && job.scope !== '' ? job.scope : 'local' }
 }
 
 /** Server caps journal pages at 1000 records; ask for full pages. */
-const RUN_JOURNAL_PAGE_LIMIT = 1000;
+const RUN_JOURNAL_PAGE_LIMIT = 1000
 /** Upper bound on pages per backfill pass; the cursor resumes on the next pass. */
-const RUN_JOURNAL_MAX_PAGES = 20;
+const RUN_JOURNAL_MAX_PAGES = 20
 
 export interface MissingAsset {
-  readonly digest: string;
-  readonly name: string;
-  readonly status: "missing" | "failed";
-  readonly sources: readonly string[];
-  readonly fetchable: boolean;
-  readonly detail?: string;
-  readonly kind?: string;
-  readonly size?: number;
-  readonly packagedFrom?: readonly string[];
+  readonly digest: string
+  readonly name: string
+  readonly status: 'missing' | 'failed'
+  readonly sources: readonly string[]
+  readonly fetchable: boolean
+  readonly detail?: string
+  readonly kind?: string
+  readonly size?: number
+  readonly packagedFrom?: readonly string[]
 }
 
 export interface WorkflowRequirementPlan {
-  readonly packs: readonly {
-    readonly pack: string;
-    readonly version: string | null;
-  }[];
+  readonly packs: readonly { readonly pack: string; readonly version: string | null }[]
   readonly assets: readonly {
-    readonly digest: string;
-    readonly name: string;
-    readonly sources: readonly string[];
-    readonly packagedFrom?: readonly string[];
-  }[];
-  readonly errors: readonly string[];
+    readonly digest: string
+    readonly name: string
+    readonly sources: readonly string[]
+    readonly packagedFrom?: readonly string[]
+  }[]
+  readonly errors: readonly string[]
 }
 
 export interface AssetSelectionOption {
-  readonly name: string;
-  readonly shape: "file" | "pair" | "directory" | "literal";
+  readonly name: string
+  readonly shape: 'file' | 'pair' | 'directory' | 'literal'
 }
 
 export interface MountDescriptor {
-  readonly id: string;
+  readonly id: string
   /**
    * Server vocabulary (dinkster_assets MOUNT_MODES): 'read' | 'readwrite'.
    * The frontend briefly invented 'readonly' here, which silently hid
    * every read mount the real server returned - the decoder is now the
    * single owner of this vocabulary and tests pin the server's words.
    */
-  readonly mode: "read" | "readwrite";
-  readonly state: string;
-  readonly path?: string;
+  readonly mode: 'read' | 'readwrite'
+  readonly state: string
+  readonly path?: string
   /** Optional semantic scope for homogeneous mounts (for example model/checkpoint). */
-  readonly kind?: string;
+  readonly kind?: string
   /** Server-reported catalog size when the mount index provides it. */
-  readonly entryCount?: number;
-  readonly scanProgress?: MountScanProgress;
+  readonly entryCount?: number
+  readonly scanProgress?: MountScanProgress
 }
 
 export interface MountGrantOptions {
-  readonly project?: string;
-  readonly shared?: boolean;
-  readonly kind?: string;
+  readonly project?: string
+  readonly shared?: boolean
+  readonly kind?: string
 }
 
 export interface MountLocations {
-  readonly mounts: readonly { readonly id: string; readonly path: string }[];
-  readonly activeMounts?: readonly (MountDescriptor & {
-    readonly path: string;
-  })[];
-  readonly importMount?: string | null;
+  readonly mounts: readonly { readonly id: string; readonly path: string }[]
+  readonly activeMounts?: readonly (MountDescriptor & { readonly path: string })[]
+  readonly importMount?: string | null
 }
 
 export interface MountSettings {
-  readonly mounts: readonly MountDescriptor[];
-  readonly outputMount?: string;
-  readonly activeOutputMount?: string;
-  readonly restartRequired?: boolean;
-  readonly pendingRemovals?: readonly string[];
+  readonly mounts: readonly MountDescriptor[]
+  readonly outputMount?: string
+  readonly activeOutputMount?: string
+  readonly restartRequired?: boolean
+  readonly pendingRemovals?: readonly string[]
   /**
    * Server's gate on mutating mount configuration (add/remove grants,
    * select the output mount). A response that omits it (an older backend)
    * decodes as false so such servers degrade safely to read-only; a
    * present non-boolean is malformed, never a silent default.
    */
-  readonly mountChangesAllowed: boolean;
+  readonly mountChangesAllowed: boolean
 }
 
 export interface MountScanProgress {
-  readonly filesDone: number;
-  readonly filesTotal: number;
-  readonly bytesDone: number;
-  readonly bytesTotal: number;
-  readonly elapsedSeconds: number;
+  readonly filesDone: number
+  readonly filesTotal: number
+  readonly bytesDone: number
+  readonly bytesTotal: number
+  readonly elapsedSeconds: number
 }
 
 export interface MountEntry {
-  readonly virtualPath: string;
-  readonly name: string;
-  readonly digest: string;
-  readonly size: number;
-  readonly mediaType: string;
-  readonly kind?: string;
+  readonly virtualPath: string
+  readonly name: string
+  readonly digest: string
+  readonly size: number
+  readonly mediaType: string
+  readonly kind?: string
 }
 
 export interface MountEntryPage {
-  readonly entries: readonly MountEntry[];
+  readonly entries: readonly MountEntry[]
   /** Immediate subfolder names, present only on a non-recursive first page. */
-  readonly folders?: readonly string[];
-  readonly cursor?: string;
-  readonly total?: number;
+  readonly folders?: readonly string[]
+  readonly cursor?: string
+  readonly total?: number
 }
 
 export interface MountFolderEntry {
-  readonly name: string;
-  readonly virtualPath: string;
-  readonly folder: boolean;
-  readonly childCount?: number;
+  readonly name: string
+  readonly virtualPath: string
+  readonly folder: boolean
+  readonly childCount?: number
 }
 
-export type AssetGuessConfidence =
-  | "digest"
-  | "path"
-  | "name"
-  | "name-insensitive"
-  | "stem"
-  | "other";
+export type AssetGuessConfidence = 'digest' | 'path' | 'name' | 'name-insensitive' | 'stem' | 'other'
 
 export interface AssetGuessCandidate {
-  readonly digest: string;
-  readonly name: string;
-  readonly confidence: AssetGuessConfidence;
-  readonly held: boolean;
-  readonly virtualPath?: string;
-  readonly mountId?: string;
-  readonly size?: number;
-  readonly mediaType?: string;
-  readonly declaredBy?: readonly string[];
-  readonly kind?: string;
+  readonly digest: string
+  readonly name: string
+  readonly confidence: AssetGuessConfidence
+  readonly held: boolean
+  readonly virtualPath?: string
+  readonly mountId?: string
+  readonly size?: number
+  readonly mediaType?: string
+  readonly declaredBy?: readonly string[]
+  readonly kind?: string
 }
 
 export interface AssetGuessMatch {
-  readonly query: string;
-  readonly candidates: readonly AssetGuessCandidate[];
+  readonly query: string
+  readonly candidates: readonly AssetGuessCandidate[]
 }
 
 export interface MediaAssetRef extends JsonObject {
-  readonly digest: string;
-  readonly name: string;
-  readonly size: number;
-  readonly mediaType: string;
-  readonly virtualPath: string;
+  readonly digest: string
+  readonly name: string
+  readonly size: number
+  readonly mediaType: string
+  readonly virtualPath: string
 }
 
 export interface AssetUploadDestination {
-  readonly mount?: string;
-  readonly folder?: string;
+  readonly mount?: string
+  readonly folder?: string
 }
 
-const uploadedAssetRef = (
-  payload: unknown,
-  kind: string | undefined,
-  endpoint: string,
-): MediaAssetRef => {
-  if (
-    typeof payload !== "object" ||
-    payload === null ||
-    Array.isArray(payload)
-  ) {
-    throw new Error(`${endpoint}: malformed response`);
+const uploadedAssetRef = (payload: unknown, kind: string | undefined, endpoint: string): MediaAssetRef => {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    throw new Error(`${endpoint}: malformed response`)
   }
-  const body = payload as Record<string, unknown>;
-  const asset = body["asset"];
-  if (
-    (kind !== undefined && body["kind"] !== kind) ||
-    typeof asset !== "object" ||
-    asset === null ||
-    Array.isArray(asset)
-  ) {
-    throw new Error(`${endpoint}: malformed response`);
+  const body = payload as Record<string, unknown>
+  const asset = body['asset']
+  if ((kind !== undefined && body['kind'] !== kind) || typeof asset !== 'object' || asset === null || Array.isArray(asset)) {
+    throw new Error(`${endpoint}: malformed response`)
   }
-  const value = asset as Record<string, unknown>;
-  if (
-    typeof value["digest"] !== "string" ||
-    !/^blake3:[0-9a-f]{64}$/.test(value["digest"]) ||
-    typeof value["name"] !== "string" ||
-    value["name"] === "" ||
-    typeof value["size"] !== "number" ||
-    !Number.isSafeInteger(value["size"]) ||
-    value["size"] < 0 ||
-    typeof value["mediaType"] !== "string" ||
-    value["mediaType"] === "" ||
-    typeof value["virtualPath"] !== "string"
-  ) {
-    throw new Error(`${endpoint}: malformed response`);
+  const value = asset as Record<string, unknown>
+  if (typeof value['digest'] !== 'string' || !/^blake3:[0-9a-f]{64}$/.test(value['digest']) ||
+      typeof value['name'] !== 'string' || value['name'] === '' ||
+      typeof value['size'] !== 'number' || !Number.isSafeInteger(value['size']) || value['size'] < 0 ||
+      typeof value['mediaType'] !== 'string' || value['mediaType'] === '' ||
+      typeof value['virtualPath'] !== 'string') {
+    throw new Error(`${endpoint}: malformed response`)
   }
-  return {
-    digest: value["digest"],
-    name: value["name"],
-    size: value["size"],
-    mediaType: value["mediaType"],
-    virtualPath: value["virtualPath"],
-  };
-};
+  return { digest: value['digest'], name: value['name'], size: value['size'], mediaType: value['mediaType'], virtualPath: value['virtualPath'] }
+}
 
-const GUESS_CONFIDENCE = new Set<AssetGuessConfidence>([
-  "digest",
-  "path",
-  "name",
-  "name-insensitive",
-  "stem",
-]);
+const GUESS_CONFIDENCE = new Set<AssetGuessConfidence>(['digest', 'path', 'name', 'name-insensitive', 'stem'])
 
 function parseAssetGuessMatches(value: unknown): readonly AssetGuessMatch[] {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !Array.isArray((value as Record<string, unknown>)["matches"])
-  )
-    throw new Error("POST /api/assets/guess: malformed response");
-  return (value as { matches: unknown[] }).matches.map((raw) => {
-    if (typeof raw !== "object" || raw === null)
-      throw new Error("POST /api/assets/guess: malformed match");
-    const match = raw as Record<string, unknown>;
-    if (
-      typeof match["query"] !== "string" ||
-      !Array.isArray(match["candidates"])
-    )
-      throw new Error("POST /api/assets/guess: malformed match");
-    const candidates = match["candidates"].map((entry): AssetGuessCandidate => {
-      if (typeof entry !== "object" || entry === null)
-        throw new Error("POST /api/assets/guess: malformed candidate");
-      const c = entry as Record<string, unknown>;
-      if (
-        typeof c["digest"] !== "string" ||
-        typeof c["name"] !== "string" ||
-        typeof c["confidence"] !== "string" ||
-        typeof c["held"] !== "boolean"
-      )
-        throw new Error("POST /api/assets/guess: malformed candidate");
-      const optionalString = (key: string) =>
-        c[key] === undefined || typeof c[key] === "string";
-      if (
-        !optionalString("virtualPath") ||
-        !optionalString("mountId") ||
-        !optionalString("mediaType") ||
-        !optionalString("kind") ||
-        (c["size"] !== undefined &&
-          (typeof c["size"] !== "number" ||
-            !Number.isInteger(c["size"]) ||
-            c["size"] < 0)) ||
-        (c["declaredBy"] !== undefined &&
-          (!Array.isArray(c["declaredBy"]) ||
-            !c["declaredBy"].every((id) => typeof id === "string")))
-      )
-        throw new Error("POST /api/assets/guess: malformed candidate");
+  if (typeof value !== 'object' || value === null || !Array.isArray((value as Record<string, unknown>)['matches']))
+    throw new Error('POST /api/assets/guess: malformed response')
+  return ((value as { matches: unknown[] }).matches).map((raw) => {
+    if (typeof raw !== 'object' || raw === null) throw new Error('POST /api/assets/guess: malformed match')
+    const match = raw as Record<string, unknown>
+    if (typeof match['query'] !== 'string' || !Array.isArray(match['candidates'])) throw new Error('POST /api/assets/guess: malformed match')
+    const candidates = match['candidates'].map((entry): AssetGuessCandidate => {
+      if (typeof entry !== 'object' || entry === null) throw new Error('POST /api/assets/guess: malformed candidate')
+      const c = entry as Record<string, unknown>
+      if (typeof c['digest'] !== 'string' || typeof c['name'] !== 'string' || typeof c['confidence'] !== 'string' || typeof c['held'] !== 'boolean')
+        throw new Error('POST /api/assets/guess: malformed candidate')
+      const optionalString = (key: string) => c[key] === undefined || typeof c[key] === 'string'
+      if (!optionalString('virtualPath') || !optionalString('mountId') || !optionalString('mediaType') || !optionalString('kind') ||
+        (c['size'] !== undefined && (typeof c['size'] !== 'number' || !Number.isInteger(c['size']) || c['size'] < 0)) ||
+        (c['declaredBy'] !== undefined && (!Array.isArray(c['declaredBy']) || !c['declaredBy'].every((id) => typeof id === 'string'))))
+        throw new Error('POST /api/assets/guess: malformed candidate')
       return {
-        digest: c["digest"],
-        name: c["name"],
-        held: c["held"],
-        confidence: GUESS_CONFIDENCE.has(
-          c["confidence"] as AssetGuessConfidence,
-        )
-          ? (c["confidence"] as AssetGuessConfidence)
-          : "other",
-        ...(typeof c["virtualPath"] === "string"
-          ? { virtualPath: c["virtualPath"] }
-          : {}),
-        ...(typeof c["mountId"] === "string" ? { mountId: c["mountId"] } : {}),
-        ...(typeof c["size"] === "number" ? { size: c["size"] } : {}),
-        ...(typeof c["mediaType"] === "string"
-          ? { mediaType: c["mediaType"] }
-          : {}),
-        ...(Array.isArray(c["declaredBy"])
-          ? { declaredBy: c["declaredBy"] as string[] }
-          : {}),
-        ...(typeof c["kind"] === "string" ? { kind: c["kind"] } : {}),
-      };
-    });
-    return { query: match["query"], candidates };
-  });
+        digest: c['digest'], name: c['name'], held: c['held'],
+        confidence: GUESS_CONFIDENCE.has(c['confidence'] as AssetGuessConfidence) ? c['confidence'] as AssetGuessConfidence : 'other',
+        ...(typeof c['virtualPath'] === 'string' ? { virtualPath: c['virtualPath'] } : {}),
+        ...(typeof c['mountId'] === 'string' ? { mountId: c['mountId'] } : {}),
+        ...(typeof c['size'] === 'number' ? { size: c['size'] } : {}),
+        ...(typeof c['mediaType'] === 'string' ? { mediaType: c['mediaType'] } : {}),
+        ...(Array.isArray(c['declaredBy']) ? { declaredBy: c['declaredBy'] as string[] } : {}),
+        ...(typeof c['kind'] === 'string' ? { kind: c['kind'] } : {}),
+      }
+    })
+    return { query: match['query'], candidates }
+  })
 }
 
 export interface AssetsMissingRejection {
-  readonly error: "assets-missing";
-  readonly assets: readonly MissingAsset[];
+  readonly error: 'assets-missing'
+  readonly assets: readonly MissingAsset[]
 }
 
-export type DinksterSubmitResult =
-  | SubmitResult
-  | {
-      readonly ok: false;
-      /** Retained for headless consumers that surface submission diagnostics. */
-      readonly diagnostics: readonly Diagnostic[];
-      readonly assetsMissing: AssetsMissingRejection;
-      /** Retry the exact rejected job body with per-digest acquisition consent. */
-      readonly retryWithAssets: (
-        digests: readonly string[],
-      ) => Promise<DinksterSubmitResult>;
-    };
+export type DinksterSubmitResult = SubmitResult | {
+  readonly ok: false
+  /** Retained for headless consumers that surface submission diagnostics. */
+  readonly diagnostics: readonly Diagnostic[]
+  readonly assetsMissing: AssetsMissingRejection
+  /** Retry the exact rejected job body with per-digest acquisition consent. */
+  readonly retryWithAssets: (digests: readonly string[]) => Promise<DinksterSubmitResult>
+}
 
 /** Strictly decode the machine-readable job preflight rejection. */
-export function parseAssetsMissingRejection(
-  value: unknown,
-): AssetsMissingRejection | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const body = value as Record<string, unknown>;
-  if (body["error"] !== "assets-missing" || !Array.isArray(body["assets"]))
-    return undefined;
-  const assets: MissingAsset[] = [];
-  for (const raw of body["assets"]) {
-    if (typeof raw !== "object" || raw === null) return undefined;
-    const asset = raw as Record<string, unknown>;
+export function parseAssetsMissingRejection(value: unknown): AssetsMissingRejection | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const body = value as Record<string, unknown>
+  if (body['error'] !== 'assets-missing' || !Array.isArray(body['assets'])) return undefined
+  const assets: MissingAsset[] = []
+  for (const raw of body['assets']) {
+    if (typeof raw !== 'object' || raw === null) return undefined
+    const asset = raw as Record<string, unknown>
     if (
-      typeof asset["digest"] !== "string" ||
-      typeof asset["name"] !== "string" ||
-      (asset["status"] !== "missing" && asset["status"] !== "failed") ||
-      !Array.isArray(asset["sources"]) ||
-      !asset["sources"].every((source) => typeof source === "string") ||
-      typeof asset["fetchable"] !== "boolean" ||
-      (asset["detail"] !== undefined && typeof asset["detail"] !== "string") ||
-      (asset["kind"] !== undefined && typeof asset["kind"] !== "string") ||
-      (asset["size"] !== undefined &&
-        (typeof asset["size"] !== "number" ||
-          !Number.isInteger(asset["size"]) ||
-          asset["size"] < 0)) ||
-      (asset["packagedFrom"] !== undefined &&
-        (!Array.isArray(asset["packagedFrom"]) ||
-          !asset["packagedFrom"].every((pack) => typeof pack === "string")))
-    )
-      return undefined;
+      typeof asset['digest'] !== 'string' ||
+      typeof asset['name'] !== 'string' ||
+      (asset['status'] !== 'missing' && asset['status'] !== 'failed') ||
+      !Array.isArray(asset['sources']) ||
+      !asset['sources'].every((source) => typeof source === 'string') ||
+      typeof asset['fetchable'] !== 'boolean' ||
+      (asset['detail'] !== undefined && typeof asset['detail'] !== 'string') ||
+      (asset['kind'] !== undefined && typeof asset['kind'] !== 'string') ||
+      (asset['size'] !== undefined && (typeof asset['size'] !== 'number' || !Number.isInteger(asset['size']) || asset['size'] < 0)) ||
+      (asset['packagedFrom'] !== undefined && (!Array.isArray(asset['packagedFrom']) || !asset['packagedFrom'].every((pack) => typeof pack === 'string')))
+    ) return undefined
     assets.push({
-      digest: asset["digest"],
-      name: asset["name"],
-      status: asset["status"],
-      sources: asset["sources"] as string[],
-      fetchable: asset["fetchable"],
-      ...(typeof asset["detail"] === "string"
-        ? { detail: asset["detail"] }
-        : {}),
-      ...(typeof asset["kind"] === "string" ? { kind: asset["kind"] } : {}),
-      ...(typeof asset["size"] === "number" ? { size: asset["size"] } : {}),
-      ...(Array.isArray(asset["packagedFrom"])
-        ? { packagedFrom: asset["packagedFrom"] as string[] }
-        : {}),
-    });
+      digest: asset['digest'],
+      name: asset['name'],
+      status: asset['status'],
+      sources: asset['sources'] as string[],
+      fetchable: asset['fetchable'],
+      ...(typeof asset['detail'] === 'string' ? { detail: asset['detail'] } : {}),
+      ...(typeof asset['kind'] === 'string' ? { kind: asset['kind'] } : {}),
+      ...(typeof asset['size'] === 'number' ? { size: asset['size'] } : {}),
+      ...(Array.isArray(asset['packagedFrom']) ? { packagedFrom: asset['packagedFrom'] as string[] } : {}),
+    })
   }
-  return { error: "assets-missing", assets };
+  return { error: 'assets-missing', assets }
 }
 
 // ---------------------------------------------------------------------------
@@ -1748,497 +1159,352 @@ export function parseAssetsMissingRejection(
  * PATCH must present.
  */
 export interface LibraryRecord {
-  readonly id: string;
-  readonly scope: string;
-  readonly name: string;
+  readonly id: string
+  readonly scope: string
+  readonly name: string
   /** blake3:<64 hex> content digest; the bytes live at /api/assets/{digest}. */
-  readonly digest: string;
-  readonly mediaType: string;
-  readonly labels: readonly string[];
-  readonly created: number;
-  readonly modified: number;
-  readonly revision: number;
-  readonly folder?: string;
+  readonly digest: string
+  readonly mediaType: string
+  readonly labels: readonly string[]
+  readonly created: number
+  readonly modified: number
+  readonly revision: number
+  readonly folder?: string
 }
 
-export const IMAGE_DOCUMENT_MEDIA_TYPE =
-  "application/vnd.dinkster.image-document+json";
+export const IMAGE_DOCUMENT_MEDIA_TYPE = 'application/vnd.dinkster.image-document+json'
 
 export interface ImageDocumentDependency {
-  readonly resourceId: string;
-  readonly digest: string;
-  readonly byteSize: number;
-  readonly mediaType: "image/png" | "image/jpeg" | "image/webp";
-  readonly width: number;
-  readonly height: number;
-  readonly colorSpace: "srgb";
-  readonly channelDepth: 8;
-  readonly alphaMode: "straight" | "premultiplied" | "opaque";
+  readonly resourceId: string
+  readonly digest: string
+  readonly byteSize: number
+  readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp'
+  readonly width: number
+  readonly height: number
+  readonly colorSpace: 'srgb'
+  readonly channelDepth: 8
+  readonly alphaMode: 'straight' | 'premultiplied' | 'opaque'
 }
 
 export interface AdoptedImageDocument {
-  readonly digest: string;
-  readonly mediaType: typeof IMAGE_DOCUMENT_MEDIA_TYPE;
-  readonly byteSize: number;
-  readonly dependencies: readonly ImageDocumentDependency[];
+  readonly digest: string
+  readonly mediaType: typeof IMAGE_DOCUMENT_MEDIA_TYPE
+  readonly byteSize: number
+  readonly dependencies: readonly ImageDocumentDependency[]
 }
 
-export const IMAGE_DOCUMENT_RENDER_PROFILE =
-  "dinkster-image-document-v2-cpu-reference";
-export const IMAGE_DOCUMENT_RENDER_ENCODING = "image/png;dinkster-canonical=1";
+export const IMAGE_DOCUMENT_RENDER_PROFILE = 'dinkster-image-document-v2-cpu-reference'
+export const IMAGE_DOCUMENT_RENDER_ENCODING = 'image/png;dinkster-canonical=1'
 
 export interface ImageDocumentRenderProvenance {
-  readonly documentDigest: string;
-  readonly selector: string;
-  readonly profile: typeof IMAGE_DOCUMENT_RENDER_PROFILE;
-  readonly rendererContract: string;
-  readonly encoding: typeof IMAGE_DOCUMENT_RENDER_ENCODING;
+  readonly documentDigest: string
+  readonly selector: string
+  readonly profile: typeof IMAGE_DOCUMENT_RENDER_PROFILE
+  readonly rendererContract: string
+  readonly encoding: typeof IMAGE_DOCUMENT_RENDER_ENCODING
   readonly source: {
-    readonly digest: string;
-    readonly mediaType: typeof IMAGE_DOCUMENT_MEDIA_TYPE;
-    readonly dependencies: readonly ImageDocumentDependency[];
-  };
+    readonly digest: string
+    readonly mediaType: typeof IMAGE_DOCUMENT_MEDIA_TYPE
+    readonly dependencies: readonly ImageDocumentDependency[]
+  }
   readonly output: {
-    readonly digest: string;
-    readonly byteSize: number;
-    readonly mediaType: "image/png";
-    readonly width: number;
-    readonly height: number;
-    readonly encoding: typeof IMAGE_DOCUMENT_RENDER_ENCODING;
-  };
+    readonly digest: string
+    readonly byteSize: number
+    readonly mediaType: 'image/png'
+    readonly width: number
+    readonly height: number
+    readonly encoding: typeof IMAGE_DOCUMENT_RENDER_ENCODING
+  }
 }
 
 export interface RenderedImageDocument {
-  readonly cacheKey: string;
-  readonly cached: boolean;
-  readonly asset: MediaAssetRef;
-  readonly provenance: ImageDocumentRenderProvenance;
+  readonly cacheKey: string
+  readonly cached: boolean
+  readonly asset: MediaAssetRef
+  readonly provenance: ImageDocumentRenderProvenance
 }
 
-const IMAGE_DOCUMENT_DIGEST = /^blake3:[0-9a-f]{64}$/;
-const IMAGE_DOCUMENT_RESOURCE_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-]);
-const IMAGE_DOCUMENT_ALPHA_MODES = new Set([
-  "straight",
-  "premultiplied",
-  "opaque",
-]);
+const IMAGE_DOCUMENT_DIGEST = /^blake3:[0-9a-f]{64}$/
+const IMAGE_DOCUMENT_RESOURCE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
+const IMAGE_DOCUMENT_ALPHA_MODES = new Set(['straight', 'premultiplied', 'opaque'])
 
-function imageDocumentDependencies(
-  value: unknown,
-): readonly ImageDocumentDependency[] | undefined {
-  if (!Array.isArray(value) || value.length > 8_192) return undefined;
-  const decoded: ImageDocumentDependency[] = [];
-  const resourceIds = new Set<string>();
+function imageDocumentDependencies(value: unknown): readonly ImageDocumentDependency[] | undefined {
+  if (!Array.isArray(value) || value.length > 8_192) return undefined
+  const decoded: ImageDocumentDependency[] = []
+  const resourceIds = new Set<string>()
   for (const candidate of value) {
+    if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) return undefined
+    const row = candidate as Record<string, unknown>
+    const resourceId = row['resourceId']
+    const digest = row['digest']
+    const byteSize = row['byteSize']
+    const mediaType = row['mediaType']
+    const width = row['width']
+    const height = row['height']
+    const alphaMode = row['alphaMode']
     if (
-      typeof candidate !== "object" ||
-      candidate === null ||
-      Array.isArray(candidate)
-    )
-      return undefined;
-    const row = candidate as Record<string, unknown>;
-    const resourceId = row["resourceId"];
-    const digest = row["digest"];
-    const byteSize = row["byteSize"];
-    const mediaType = row["mediaType"];
-    const width = row["width"];
-    const height = row["height"];
-    const alphaMode = row["alphaMode"];
-    if (
-      typeof resourceId !== "string" ||
-      resourceId === "" ||
-      resourceIds.has(resourceId) ||
-      typeof digest !== "string" ||
-      !IMAGE_DOCUMENT_DIGEST.test(digest) ||
-      typeof byteSize !== "number" ||
-      !Number.isSafeInteger(byteSize) ||
-      byteSize < 1 ||
-      typeof mediaType !== "string" ||
-      !IMAGE_DOCUMENT_RESOURCE_TYPES.has(mediaType) ||
-      typeof width !== "number" ||
-      !Number.isSafeInteger(width) ||
-      width < 1 ||
-      width > 16_384 ||
-      typeof height !== "number" ||
-      !Number.isSafeInteger(height) ||
-      height < 1 ||
-      height > 16_384 ||
-      width * height > 100_000_000 ||
-      row["colorSpace"] !== "srgb" ||
-      row["channelDepth"] !== 8 ||
-      typeof alphaMode !== "string" ||
-      !IMAGE_DOCUMENT_ALPHA_MODES.has(alphaMode)
-    )
-      return undefined;
-    resourceIds.add(resourceId);
+      typeof resourceId !== 'string' || resourceId === '' || resourceIds.has(resourceId) ||
+      typeof digest !== 'string' || !IMAGE_DOCUMENT_DIGEST.test(digest) ||
+      typeof byteSize !== 'number' || !Number.isSafeInteger(byteSize) || byteSize < 1 ||
+      typeof mediaType !== 'string' || !IMAGE_DOCUMENT_RESOURCE_TYPES.has(mediaType) ||
+      typeof width !== 'number' || !Number.isSafeInteger(width) || width < 1 || width > 16_384 ||
+      typeof height !== 'number' || !Number.isSafeInteger(height) || height < 1 || height > 16_384 ||
+      width * height > 100_000_000 || row['colorSpace'] !== 'srgb' || row['channelDepth'] !== 8 ||
+      typeof alphaMode !== 'string' || !IMAGE_DOCUMENT_ALPHA_MODES.has(alphaMode)
+    ) return undefined
+    resourceIds.add(resourceId)
     decoded.push({
       resourceId,
       digest,
       byteSize,
-      mediaType: mediaType as ImageDocumentDependency["mediaType"],
+      mediaType: mediaType as ImageDocumentDependency['mediaType'],
       width,
       height,
-      colorSpace: "srgb",
+      colorSpace: 'srgb',
       channelDepth: 8,
-      alphaMode: alphaMode as ImageDocumentDependency["alphaMode"],
-    });
+      alphaMode: alphaMode as ImageDocumentDependency['alphaMode'],
+    })
   }
-  return decoded;
+  return decoded
 }
 
-function adoptedImageDocument(
-  value: unknown,
-): AdoptedImageDocument | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return undefined;
-  const row = value as Record<string, unknown>;
-  const dependencies = imageDocumentDependencies(row["dependencies"]);
-  return typeof row["digest"] === "string" &&
-    IMAGE_DOCUMENT_DIGEST.test(row["digest"]) &&
-    row["mediaType"] === IMAGE_DOCUMENT_MEDIA_TYPE &&
-    typeof row["byteSize"] === "number" &&
-    Number.isSafeInteger(row["byteSize"]) &&
-    row["byteSize"] > 0 &&
-    dependencies !== undefined
+function adoptedImageDocument(value: unknown): AdoptedImageDocument | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const row = value as Record<string, unknown>
+  const dependencies = imageDocumentDependencies(row['dependencies'])
+  return typeof row['digest'] === 'string' && IMAGE_DOCUMENT_DIGEST.test(row['digest']) &&
+      row['mediaType'] === IMAGE_DOCUMENT_MEDIA_TYPE &&
+      typeof row['byteSize'] === 'number' && Number.isSafeInteger(row['byteSize']) && row['byteSize'] > 0 &&
+      dependencies !== undefined
     ? {
-        digest: row["digest"],
+        digest: row['digest'],
         mediaType: IMAGE_DOCUMENT_MEDIA_TYPE,
-        byteSize: row["byteSize"],
+        byteSize: row['byteSize'],
         dependencies,
       }
-    : undefined;
+    : undefined
 }
 
-function renderedImageDocument(
-  value: unknown,
-): RenderedImageDocument | undefined {
-  if (
-    !record(value) ||
-    !exactKeys(value, ["cacheKey", "cached", "asset", "provenance"]) ||
-    typeof value["cacheKey"] !== "string" ||
-    !IMAGE_DOCUMENT_DIGEST.test(value["cacheKey"]) ||
-    typeof value["cached"] !== "boolean" ||
-    !record(value["asset"]) ||
-    !record(value["provenance"])
-  ) {
-    return undefined;
+function renderedImageDocument(value: unknown): RenderedImageDocument | undefined {
+  if (!record(value) || !exactKeys(value, ['cacheKey', 'cached', 'asset', 'provenance']) ||
+    typeof value['cacheKey'] !== 'string' || !IMAGE_DOCUMENT_DIGEST.test(value['cacheKey']) ||
+    typeof value['cached'] !== 'boolean' || !record(value['asset']) || !record(value['provenance'])) {
+    return undefined
   }
-  const asset = value["asset"];
-  const provenance = value["provenance"];
-  if (
-    !exactKeys(asset, ["digest", "name", "size", "mediaType", "virtualPath"]) ||
-    typeof asset["digest"] !== "string" ||
-    !IMAGE_DOCUMENT_DIGEST.test(asset["digest"]) ||
-    !nonemptyString(asset["name"]) ||
-    !integerNonnegative(asset["size"]) ||
-    asset["size"] < 1 ||
-    asset["mediaType"] !== "image/png" ||
-    typeof asset["virtualPath"] !== "string" ||
+  const asset = value['asset']
+  const provenance = value['provenance']
+  if (!exactKeys(asset, ['digest', 'name', 'size', 'mediaType', 'virtualPath']) ||
+    typeof asset['digest'] !== 'string' || !IMAGE_DOCUMENT_DIGEST.test(asset['digest']) ||
+    !nonemptyString(asset['name']) || !integerNonnegative(asset['size']) || asset['size'] < 1 ||
+    asset['mediaType'] !== 'image/png' || typeof asset['virtualPath'] !== 'string' ||
     !exactKeys(provenance, [
-      "documentDigest",
-      "selector",
-      "profile",
-      "rendererContract",
-      "encoding",
-      "source",
-      "output",
-    ]) ||
-    typeof provenance["documentDigest"] !== "string" ||
-    !IMAGE_DOCUMENT_DIGEST.test(provenance["documentDigest"]) ||
-    !nonemptyString(provenance["selector"]) ||
-    provenance["profile"] !== IMAGE_DOCUMENT_RENDER_PROFILE ||
-    !nonemptyString(provenance["rendererContract"]) ||
-    provenance["encoding"] !== IMAGE_DOCUMENT_RENDER_ENCODING ||
-    !record(provenance["source"]) ||
-    !record(provenance["output"])
-  )
-    return undefined;
-  const source = provenance["source"];
-  const output = provenance["output"];
-  const dependencies = imageDocumentDependencies(source["dependencies"]);
-  if (
-    !exactKeys(source, ["digest", "mediaType", "dependencies"]) ||
-    source["digest"] !== provenance["documentDigest"] ||
-    source["mediaType"] !== IMAGE_DOCUMENT_MEDIA_TYPE ||
-    dependencies === undefined ||
-    !exactKeys(output, [
-      "digest",
-      "byteSize",
-      "mediaType",
-      "width",
-      "height",
-      "encoding",
-    ]) ||
-    output["digest"] !== asset["digest"] ||
-    output["byteSize"] !== asset["size"] ||
-    output["mediaType"] !== "image/png" ||
-    !integerNonnegative(output["width"]) ||
-    output["width"] < 1 ||
-    !integerNonnegative(output["height"]) ||
-    output["height"] < 1 ||
-    output["width"] * output["height"] > 4_194_304 ||
-    output["encoding"] !== IMAGE_DOCUMENT_RENDER_ENCODING
-  )
-    return undefined;
+      'documentDigest', 'selector', 'profile', 'rendererContract', 'encoding', 'source', 'output',
+    ]) || typeof provenance['documentDigest'] !== 'string' ||
+    !IMAGE_DOCUMENT_DIGEST.test(provenance['documentDigest']) ||
+    !nonemptyString(provenance['selector']) ||
+    provenance['profile'] !== IMAGE_DOCUMENT_RENDER_PROFILE ||
+    !nonemptyString(provenance['rendererContract']) ||
+    provenance['encoding'] !== IMAGE_DOCUMENT_RENDER_ENCODING ||
+    !record(provenance['source']) || !record(provenance['output'])) return undefined
+  const source = provenance['source']
+  const output = provenance['output']
+  const dependencies = imageDocumentDependencies(source['dependencies'])
+  if (!exactKeys(source, ['digest', 'mediaType', 'dependencies']) ||
+    source['digest'] !== provenance['documentDigest'] ||
+    source['mediaType'] !== IMAGE_DOCUMENT_MEDIA_TYPE || dependencies === undefined ||
+    !exactKeys(output, ['digest', 'byteSize', 'mediaType', 'width', 'height', 'encoding']) ||
+    output['digest'] !== asset['digest'] || output['byteSize'] !== asset['size'] ||
+    output['mediaType'] !== 'image/png' || !integerNonnegative(output['width']) || output['width'] < 1 ||
+    !integerNonnegative(output['height']) || output['height'] < 1 ||
+    output['width'] * output['height'] > 4_194_304 ||
+    output['encoding'] !== IMAGE_DOCUMENT_RENDER_ENCODING) return undefined
   return {
-    cacheKey: value["cacheKey"],
-    cached: value["cached"],
+    cacheKey: value['cacheKey'],
+    cached: value['cached'],
     asset: {
-      digest: asset["digest"],
-      name: asset["name"],
-      size: asset["size"],
-      mediaType: "image/png",
-      virtualPath: asset["virtualPath"],
+      digest: asset['digest'],
+      name: asset['name'],
+      size: asset['size'],
+      mediaType: 'image/png',
+      virtualPath: asset['virtualPath'],
     },
     provenance: {
-      documentDigest: provenance["documentDigest"],
-      selector: provenance["selector"],
+      documentDigest: provenance['documentDigest'],
+      selector: provenance['selector'],
       profile: IMAGE_DOCUMENT_RENDER_PROFILE,
-      rendererContract: provenance["rendererContract"],
+      rendererContract: provenance['rendererContract'],
       encoding: IMAGE_DOCUMENT_RENDER_ENCODING,
       source: {
-        digest: source["digest"],
+        digest: source['digest'],
         mediaType: IMAGE_DOCUMENT_MEDIA_TYPE,
         dependencies,
       },
       output: {
-        digest: asset["digest"],
-        byteSize: asset["size"],
-        mediaType: "image/png",
-        width: output["width"],
-        height: output["height"],
+        digest: asset['digest'],
+        byteSize: asset['size'],
+        mediaType: 'image/png',
+        width: output['width'],
+        height: output['height'],
         encoding: IMAGE_DOCUMENT_RENDER_ENCODING,
       },
     },
-  };
+  }
 }
 
 /** Structural gate for wire records; non-conforming entries are skipped. */
 const isLibraryRecord = (v: unknown): v is LibraryRecord => {
-  if (typeof v !== "object" || v === null) return false;
-  const r = v as Record<string, unknown>;
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
   return (
-    typeof r["id"] === "string" &&
-    typeof r["scope"] === "string" &&
-    typeof r["name"] === "string" &&
-    typeof r["digest"] === "string" &&
-    typeof r["mediaType"] === "string" &&
-    Array.isArray(r["labels"]) &&
-    (r["labels"] as unknown[]).every((label) => typeof label === "string") &&
-    typeof r["created"] === "number" &&
-    Number.isFinite(r["created"]) &&
-    typeof r["modified"] === "number" &&
-    Number.isFinite(r["modified"]) &&
-    typeof r["revision"] === "number" &&
-    Number.isSafeInteger(r["revision"]) &&
-    r["revision"] >= 0
-  );
-};
+    typeof r['id'] === 'string' &&
+    typeof r['scope'] === 'string' &&
+    typeof r['name'] === 'string' &&
+    typeof r['digest'] === 'string' &&
+    typeof r['mediaType'] === 'string' &&
+    Array.isArray(r['labels']) &&
+    (r['labels'] as unknown[]).every((label) => typeof label === 'string') &&
+    typeof r['created'] === 'number' && Number.isFinite(r['created']) &&
+    typeof r['modified'] === 'number' &&
+    Number.isFinite(r['modified']) &&
+    typeof r['revision'] === 'number' && Number.isSafeInteger(r['revision']) && r['revision'] >= 0
+  )
+}
 
 /** One page of library records; cursor absent = exhausted (query-bound). */
 export interface LibraryPage {
-  readonly records: readonly LibraryRecord[];
-  readonly cursor?: string;
+  readonly records: readonly LibraryRecord[]
+  readonly cursor?: string
 }
 
 /** Browse-only pack template descriptor; omitted arrays mean no values. */
 export interface TemplateDescriptor {
-  readonly pack: string;
-  readonly id: string;
-  readonly name: string;
-  readonly description?: string;
-  readonly tags?: readonly string[];
-  readonly family?: string;
-  readonly models?: readonly string[];
-  readonly thumbnail?: { readonly digest: string; readonly mediaType: string };
+  readonly pack: string
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+  readonly tags?: readonly string[]
+  readonly family?: string
+  readonly models?: readonly string[]
+  readonly thumbnail?: { readonly digest: string; readonly mediaType: string }
   /** Pack-local asset ids, joined against PackInfo.assets by consumers. */
-  readonly assets?: readonly string[];
-  readonly digest: string;
+  readonly assets?: readonly string[]
+  readonly digest: string
 }
 
 export interface TemplatePage {
-  readonly templates: readonly TemplateDescriptor[];
-  readonly cursor?: string;
+  readonly templates: readonly TemplateDescriptor[]
+  readonly cursor?: string
 }
 
 const templateDescriptor = (value: unknown): TemplateDescriptor | undefined => {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return undefined;
-  const r = value as Record<string, unknown>;
-  if (
-    typeof r["pack"] !== "string" ||
-    typeof r["id"] !== "string" ||
-    typeof r["name"] !== "string" ||
-    typeof r["digest"] !== "string"
-  )
-    return undefined;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const r = value as Record<string, unknown>
+  if (typeof r['pack'] !== 'string' || typeof r['id'] !== 'string' || typeof r['name'] !== 'string' || typeof r['digest'] !== 'string') return undefined
   const strings = (v: unknown): readonly string[] | undefined =>
-    Array.isArray(v) && v.every((x) => typeof x === "string")
-      ? (v as readonly string[])
-      : undefined;
+    Array.isArray(v) && v.every((x) => typeof x === 'string') ? v as readonly string[] : undefined
   return {
-    pack: r["pack"],
-    id: r["id"],
-    name: r["name"],
-    digest: r["digest"],
-    ...(typeof r["description"] === "string"
-      ? { description: r["description"] }
+    pack: r['pack'], id: r['id'], name: r['name'], digest: r['digest'],
+    ...(typeof r['description'] === 'string' ? { description: r['description'] } : {}),
+    ...(strings(r['tags']) !== undefined ? { tags: strings(r['tags'])! } : {}),
+    ...(typeof r['family'] === 'string' ? { family: r['family'] } : {}),
+    ...(strings(r['models']) !== undefined ? { models: strings(r['models'])! } : {}),
+    ...(typeof r['thumbnail'] === 'object' && r['thumbnail'] !== null &&
+      typeof (r['thumbnail'] as Record<string, unknown>)['digest'] === 'string' &&
+      typeof (r['thumbnail'] as Record<string, unknown>)['mediaType'] === 'string'
+      ? { thumbnail: r['thumbnail'] as { digest: string; mediaType: string } }
       : {}),
-    ...(strings(r["tags"]) !== undefined ? { tags: strings(r["tags"])! } : {}),
-    ...(typeof r["family"] === "string" ? { family: r["family"] } : {}),
-    ...(strings(r["models"]) !== undefined
-      ? { models: strings(r["models"])! }
-      : {}),
-    ...(typeof r["thumbnail"] === "object" &&
-    r["thumbnail"] !== null &&
-    typeof (r["thumbnail"] as Record<string, unknown>)["digest"] === "string" &&
-    typeof (r["thumbnail"] as Record<string, unknown>)["mediaType"] === "string"
-      ? { thumbnail: r["thumbnail"] as { digest: string; mediaType: string } }
-      : {}),
-    ...(strings(r["assets"]) !== undefined
-      ? { assets: strings(r["assets"])! }
-      : {}),
-  };
-};
+    ...(strings(r['assets']) !== undefined ? { assets: strings(r['assets'])! } : {}),
+  }
+}
 
 export interface DocsAssetDescriptor {
-  readonly digest: string;
-  readonly mediaType: string;
+  readonly digest: string
+  readonly mediaType: string
 }
 
 export interface DocsLocaleDescriptor {
-  readonly title: string;
-  readonly summary: string;
-  readonly digest: string;
-  readonly schemaVersion?: number;
+  readonly title: string
+  readonly summary: string
+  readonly digest: string
+  readonly schemaVersion?: number
   /** Keys are exact pack-relative Markdown sources beginning with assets/. */
-  readonly assets: Readonly<Record<string, DocsAssetDescriptor>>;
+  readonly assets: Readonly<Record<string, DocsAssetDescriptor>>
 }
 
 export interface DocsDescriptor {
-  readonly pack: string;
-  readonly kind: "node" | "guide";
-  readonly id: string;
-  readonly defaultLocale: string;
-  readonly locales: Readonly<Record<string, DocsLocaleDescriptor>>;
-  readonly guideKind?: "tour";
-  readonly order?: number;
-  readonly tags?: readonly string[];
+  readonly pack: string
+  readonly kind: 'node' | 'guide'
+  readonly id: string
+  readonly defaultLocale: string
+  readonly locales: Readonly<Record<string, DocsLocaleDescriptor>>
+  readonly guideKind?: 'tour'
+  readonly order?: number
+  readonly tags?: readonly string[]
 }
 
 export interface DocsPage {
-  readonly docs: readonly DocsDescriptor[];
-  readonly cursor?: string;
+  readonly docs: readonly DocsDescriptor[]
+  readonly cursor?: string
 }
 
-const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/;
-const DOCS_PAGE_CACHE_MAX = 64;
+const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/
+const DOCS_PAGE_CACHE_MAX = 64
 
 const docsDescriptor = (value: unknown): DocsDescriptor | undefined => {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return undefined;
-  const record = value as Record<string, unknown>;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
   if (
-    typeof record["pack"] !== "string" ||
-    record["pack"] === "" ||
-    (record["kind"] !== "node" && record["kind"] !== "guide") ||
-    typeof record["id"] !== "string" ||
-    record["id"] === "" ||
-    typeof record["defaultLocale"] !== "string" ||
-    record["defaultLocale"] === "" ||
-    typeof record["locales"] !== "object" ||
-    record["locales"] === null ||
-    Array.isArray(record["locales"])
-  )
-    return undefined;
-  const locales: Record<string, DocsLocaleDescriptor> = {};
-  for (const [locale, rawLocale] of Object.entries(record["locales"])) {
+    typeof record['pack'] !== 'string' || record['pack'] === '' ||
+    (record['kind'] !== 'node' && record['kind'] !== 'guide') ||
+    typeof record['id'] !== 'string' || record['id'] === '' ||
+    typeof record['defaultLocale'] !== 'string' || record['defaultLocale'] === '' ||
+    typeof record['locales'] !== 'object' || record['locales'] === null || Array.isArray(record['locales'])
+  ) return undefined
+  const locales: Record<string, DocsLocaleDescriptor> = {}
+  for (const [locale, rawLocale] of Object.entries(record['locales'])) {
+    if (locale === '' || typeof rawLocale !== 'object' || rawLocale === null || Array.isArray(rawLocale)) return undefined
+    const entry = rawLocale as Record<string, unknown>
     if (
-      locale === "" ||
-      typeof rawLocale !== "object" ||
-      rawLocale === null ||
-      Array.isArray(rawLocale)
-    )
-      return undefined;
-    const entry = rawLocale as Record<string, unknown>;
-    if (
-      typeof entry["title"] !== "string" ||
-      entry["title"] === "" ||
-      typeof entry["summary"] !== "string" ||
-      typeof entry["digest"] !== "string" ||
-      !SHA256_DIGEST.test(entry["digest"]) ||
-      typeof entry["assets"] !== "object" ||
-      entry["assets"] === null ||
-      Array.isArray(entry["assets"]) ||
-      (record["kind"] !== "node" && entry["schemaVersion"] !== undefined) ||
-      (entry["schemaVersion"] !== undefined &&
-        (!Number.isSafeInteger(entry["schemaVersion"]) ||
-          (entry["schemaVersion"] as number) < 1))
-    )
-      return undefined;
-    const assets: Record<string, DocsAssetDescriptor> = {};
-    for (const [source, rawAsset] of Object.entries(entry["assets"])) {
+      typeof entry['title'] !== 'string' || entry['title'] === '' ||
+      typeof entry['summary'] !== 'string' ||
+      typeof entry['digest'] !== 'string' || !SHA256_DIGEST.test(entry['digest']) ||
+      typeof entry['assets'] !== 'object' || entry['assets'] === null || Array.isArray(entry['assets']) ||
+      (record['kind'] !== 'node' && entry['schemaVersion'] !== undefined) ||
+      (entry['schemaVersion'] !== undefined && (!Number.isSafeInteger(entry['schemaVersion']) || (entry['schemaVersion'] as number) < 1))
+    ) return undefined
+    const assets: Record<string, DocsAssetDescriptor> = {}
+    for (const [source, rawAsset] of Object.entries(entry['assets'])) {
+      if (!source.startsWith('assets/') || typeof rawAsset !== 'object' || rawAsset === null || Array.isArray(rawAsset)) return undefined
+      const asset = rawAsset as Record<string, unknown>
       if (
-        !source.startsWith("assets/") ||
-        typeof rawAsset !== "object" ||
-        rawAsset === null ||
-        Array.isArray(rawAsset)
-      )
-        return undefined;
-      const asset = rawAsset as Record<string, unknown>;
-      if (
-        typeof asset["digest"] !== "string" ||
-        !SHA256_DIGEST.test(asset["digest"]) ||
-        typeof asset["mediaType"] !== "string" ||
-        asset["mediaType"] === ""
-      )
-        return undefined;
-      assets[source] = {
-        digest: asset["digest"],
-        mediaType: asset["mediaType"],
-      };
+        typeof asset['digest'] !== 'string' || !SHA256_DIGEST.test(asset['digest']) ||
+        typeof asset['mediaType'] !== 'string' || asset['mediaType'] === ''
+      ) return undefined
+      assets[source] = { digest: asset['digest'], mediaType: asset['mediaType'] }
     }
     locales[locale] = {
-      title: entry["title"],
-      summary: entry["summary"],
-      digest: entry["digest"],
-      ...(entry["schemaVersion"] !== undefined
-        ? { schemaVersion: entry["schemaVersion"] as number }
-        : {}),
+      title: entry['title'],
+      summary: entry['summary'],
+      digest: entry['digest'],
+      ...(entry['schemaVersion'] !== undefined ? { schemaVersion: entry['schemaVersion'] as number } : {}),
       assets,
-    };
+    }
   }
-  if (locales[record["defaultLocale"]] === undefined) return undefined;
-  if (
-    record["guideKind"] !== undefined &&
-    (record["kind"] !== "guide" || record["guideKind"] !== "tour")
-  )
-    return undefined;
-  if (record["order"] !== undefined && !Number.isFinite(record["order"]))
-    return undefined;
-  if (
-    record["tags"] !== undefined &&
-    (!Array.isArray(record["tags"]) ||
-      !record["tags"].every((tag) => typeof tag === "string"))
-  )
-    return undefined;
+  if (locales[record['defaultLocale']] === undefined) return undefined
+  if (record['guideKind'] !== undefined && (record['kind'] !== 'guide' || record['guideKind'] !== 'tour')) return undefined
+  if (record['order'] !== undefined && !Number.isFinite(record['order'])) return undefined
+  if (record['tags'] !== undefined && (!Array.isArray(record['tags']) || !record['tags'].every((tag) => typeof tag === 'string'))) return undefined
   return {
-    pack: record["pack"],
-    kind: record["kind"],
-    id: record["id"],
-    defaultLocale: record["defaultLocale"],
+    pack: record['pack'],
+    kind: record['kind'],
+    id: record['id'],
+    defaultLocale: record['defaultLocale'],
     locales,
-    ...(record["guideKind"] === "tour" ? { guideKind: "tour" as const } : {}),
-    ...(typeof record["order"] === "number" ? { order: record["order"] } : {}),
-    ...(Array.isArray(record["tags"])
-      ? { tags: record["tags"] as string[] }
-      : {}),
-  };
-};
+    ...(record['guideKind'] === 'tour' ? { guideKind: 'tour' as const } : {}),
+    ...(typeof record['order'] === 'number' ? { order: record['order'] } : {}),
+    ...(Array.isArray(record['tags']) ? { tags: record['tags'] as string[] } : {}),
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Persistent execution history wire (/api/history, additive b0484be/4d861cc)
@@ -2251,47 +1517,39 @@ const docsDescriptor = (value: unknown): DocsDescriptor | undefined => {
  * relied on for display, everything else passes through.
  */
 export interface HistoryRunRecord {
-  readonly runId: string;
+  readonly runId: string
   /**
    * Server-assigned global job identity (Dinkster 258382e). Carries the same
    * value as runId (jobRef IS the promoted run_id); key off jobRef where
    * present, runId is the legacy alias. Absent on pre-jobRef servers.
    */
-  readonly jobRef?: string;
-  readonly scope: string;
-  readonly clientId: string;
-  readonly jobId: string;
-  readonly state: "completed" | "failed" | "cancelled" | "interrupted";
-  readonly priority: number;
-  readonly submittedAt: number;
-  readonly finishedAt: number;
-  readonly executed: number;
-  readonly cached: number;
-  readonly skipped: number;
-  readonly startedAt?: number;
+  readonly jobRef?: string
+  readonly scope: string
+  readonly clientId: string
+  readonly jobId: string
+  readonly state: 'completed' | 'failed' | 'cancelled' | 'interrupted'
+  readonly priority: number
+  readonly submittedAt: number
+  readonly finishedAt: number
+  readonly executed: number
+  readonly cached: number
+  readonly skipped: number
+  readonly startedAt?: number
   /** blake3:<64 hex> digest of the producing workflow document asset. */
-  readonly sourceDocument?: string;
-  readonly principalId?: string;
-  readonly principalKind?: "human" | "agent";
-  readonly nodeReceipts?: readonly NodeExecutionReceipt[];
-  readonly error?: {
-    readonly kind?: string;
-    readonly message?: string;
-  } & Record<string, unknown>;
+  readonly sourceDocument?: string
+  readonly principalId?: string
+  readonly principalKind?: 'human' | 'agent'
+  readonly nodeReceipts?: readonly NodeExecutionReceipt[]
+  readonly error?: { readonly kind?: string; readonly message?: string } & Record<string, unknown>
 }
 
 export interface NodeExecutionReceipt {
-  readonly nodeId: string;
-  readonly disposition:
-    | "executed"
-    | "cached"
-    | "failed"
-    | "skipped"
-    | "interrupted";
-  readonly executionArm?: ExecutionArm;
-  readonly provider?: string;
-  readonly pack?: string;
-  readonly worker?: string;
+  readonly nodeId: string
+  readonly disposition: 'executed' | 'cached' | 'failed' | 'skipped' | 'interrupted'
+  readonly executionArm?: ExecutionArm
+  readonly provider?: string
+  readonly pack?: string
+  readonly worker?: string
 }
 
 /**
@@ -2300,81 +1558,59 @@ export interface NodeExecutionReceipt {
  * it was queued or running when the process died, was NOT re-run, and
  * carries error.phase ('queued' | 'running') telling which.
  */
-export const HISTORY_STATES = [
-  "completed",
-  "failed",
-  "cancelled",
-  "interrupted",
-] as const;
+export const HISTORY_STATES = ['completed', 'failed', 'cancelled', 'interrupted'] as const
 
 /** Structural gate for wire records; non-conforming entries are skipped. */
 const decodeHistoryRun = (v: unknown): HistoryRunRecord | undefined => {
-  if (typeof v !== "object" || v === null) return undefined;
-  const r = v as Record<string, unknown>;
-  const receipts = r["nodeReceipts"];
-  const receiptsValid =
-    receipts === undefined ||
-    (Array.isArray(receipts) &&
-      receipts.every((receipt) => {
-        if (typeof receipt !== "object" || receipt === null) return false;
-        const item = receipt as Record<string, unknown>;
-        return (
-          typeof item["nodeId"] === "string" &&
-          ["executed", "cached", "failed", "skipped", "interrupted"].includes(
-            String(item["disposition"]),
-          ) &&
-          (item["executionArm"] === undefined ||
-            item["executionArm"] === "native" ||
-            item["executionArm"] === "comfyui") &&
-          (item["provider"] === undefined ||
-            (typeof item["provider"] === "string" &&
-              item["provider"] !== "")) &&
-          (item["pack"] === undefined ||
-            (typeof item["pack"] === "string" && item["pack"] !== "")) &&
-          (item["worker"] === undefined ||
-            (typeof item["worker"] === "string" && item["worker"] !== ""))
-        );
-      }));
-  if (
-    !(
-      typeof r["runId"] === "string" &&
-      typeof r["scope"] === "string" &&
-      typeof r["clientId"] === "string" &&
-      typeof r["jobId"] === "string" &&
-      (HISTORY_STATES as readonly string[]).includes(r["state"] as string) &&
-      typeof r["priority"] === "number" &&
-      Number.isFinite(r["priority"]) &&
-      typeof r["submittedAt"] === "number" &&
-      Number.isFinite(r["submittedAt"]) &&
-      typeof r["finishedAt"] === "number" &&
-      Number.isFinite(r["finishedAt"]) &&
-      typeof r["executed"] === "number" &&
-      typeof r["cached"] === "number" &&
-      typeof r["skipped"] === "number" &&
-      receiptsValid
-    )
+  if (typeof v !== 'object' || v === null) return undefined
+  const r = v as Record<string, unknown>
+  const receipts = r['nodeReceipts']
+  const receiptsValid = receipts === undefined || (
+    Array.isArray(receipts) && receipts.every((receipt) => {
+      if (typeof receipt !== 'object' || receipt === null) return false
+      const item = receipt as Record<string, unknown>
+      return (
+        typeof item['nodeId'] === 'string' &&
+        ['executed', 'cached', 'failed', 'skipped', 'interrupted'].includes(String(item['disposition'])) &&
+        (item['executionArm'] === undefined || item['executionArm'] === 'native' || item['executionArm'] === 'comfyui') &&
+        (item['provider'] === undefined || (typeof item['provider'] === 'string' && item['provider'] !== '')) &&
+        (item['pack'] === undefined || (typeof item['pack'] === 'string' && item['pack'] !== '')) &&
+        (item['worker'] === undefined || (typeof item['worker'] === 'string' && item['worker'] !== ''))
+      )
+    })
   )
-    return undefined;
+  if (!(
+    typeof r['runId'] === 'string' &&
+    typeof r['scope'] === 'string' &&
+    typeof r['clientId'] === 'string' &&
+    typeof r['jobId'] === 'string' &&
+    (HISTORY_STATES as readonly string[]).includes(r['state'] as string) &&
+    typeof r['priority'] === 'number' && Number.isFinite(r['priority']) &&
+    typeof r['submittedAt'] === 'number' && Number.isFinite(r['submittedAt']) &&
+    typeof r['finishedAt'] === 'number' && Number.isFinite(r['finishedAt']) &&
+    typeof r['executed'] === 'number' &&
+    typeof r['cached'] === 'number' &&
+    typeof r['skipped'] === 'number' &&
+    receiptsValid
+  )) return undefined
   const {
     principalId: _wirePrincipalId,
     principalKind: _wirePrincipalKind,
     ...record
-  } = r;
+  } = r
   return {
     ...record,
-    ...(typeof r["principalId"] === "string"
-      ? { principalId: r["principalId"] }
+    ...(typeof r['principalId'] === 'string' ? { principalId: r['principalId'] } : {}),
+    ...(r['principalKind'] === 'human' || r['principalKind'] === 'agent'
+      ? { principalKind: r['principalKind'] }
       : {}),
-    ...(r["principalKind"] === "human" || r["principalKind"] === "agent"
-      ? { principalKind: r["principalKind"] }
-      : {}),
-  } as unknown as HistoryRunRecord;
-};
+  } as unknown as HistoryRunRecord
+}
 
 /** One page of history runs; cursor absent = exhausted (query-bound). */
 export interface HistoryPage {
-  readonly records: readonly HistoryRunRecord[];
-  readonly cursor?: string;
+  readonly records: readonly HistoryRunRecord[]
+  readonly cursor?: string
 }
 
 /**
@@ -2384,247 +1620,196 @@ export interface HistoryPage {
  * derive the UUID from it instead of failing every submit.
  */
 export function uuidv4(): string {
-  const c = globalThis.crypto as Crypto | undefined;
-  if (typeof c?.randomUUID === "function") return c.randomUUID();
-  const bytes = new Uint8Array(16);
-  if (typeof c?.getRandomValues === "function") c.getRandomValues(bytes);
-  else for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256); // last-resort (non-browser shims)
-  bytes[6] = (bytes[6]! & 0x0f) | 0x40; // version 4
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80; // RFC 4122 variant
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(
-    "",
-  );
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  const c = globalThis.crypto as Crypto | undefined
+  if (typeof c?.randomUUID === 'function') return c.randomUUID()
+  const bytes = new Uint8Array(16)
+  if (typeof c?.getRandomValues === 'function') c.getRandomValues(bytes)
+  else for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256) // last-resort (non-browser shims)
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40 // version 4
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80 // RFC 4122 variant
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
 export class DinksterConnection {
-  readonly id: ConnectionId;
-  private readonly baseUrl: string;
-  private readonly clientId: string;
-  private readonly project: string | undefined;
-  private readonly fetchFn: FetchLike;
-  private readonly normalizer: DinksterNormalizer;
-  private readonly extensionSnapshots = new Map<
-    string,
-    EffectiveExtensionSnapshot
-  >();
-  private readonly listeners = new Set<(e: NormalizedEvent) => void>();
-  private readonly problemListeners = new Set<(problem: Diagnostic) => void>();
-  private readonly liveCompletionListeners = new Set<
-    (execution: ExecutionRef) => void
-  >();
-  private readonly memoryListeners = new Set<(status: MemoryStatus) => void>();
-  private readonly mountListeners = new Set<() => void>();
-  private readonly socket: ReconnectingSocket;
-  private readonly jobIdFactory: () => string;
-  private protocolErrors = 0;
+  readonly id: ConnectionId
+  private readonly baseUrl: string
+  private readonly clientId: string
+  private readonly project: string | undefined
+  private readonly fetchFn: FetchLike
+  private readonly normalizer: DinksterNormalizer
+  private readonly extensionSnapshots = new Map<string, EffectiveExtensionSnapshot>()
+  private readonly listeners = new Set<(e: NormalizedEvent) => void>()
+  private readonly problemListeners = new Set<(problem: Diagnostic) => void>()
+  private readonly liveCompletionListeners = new Set<(execution: ExecutionRef) => void>()
+  private readonly memoryListeners = new Set<(status: MemoryStatus) => void>()
+  private readonly mountListeners = new Set<() => void>()
+  private readonly socket: ReconnectingSocket
+  private readonly jobIdFactory: () => string
+  private protocolErrors = 0
   /**
    * The registry from this connection's last fetchSchemas(): submit resolves
    * link output ids against it, and artifact.schemaHash must match it (the
    * artifact contract: prompts are only valid against the registry they
    * compiled with).
    */
-  private registry: SchemaRegistry | undefined;
-  private schemaRequestGeneration = 0;
-  private newestSchemaFetch:
-    | { generation: number; promise: Promise<SchemaRegistry> }
-    | undefined;
+  private registry: SchemaRegistry | undefined
+  private schemaRequestGeneration = 0
+  private newestSchemaFetch: { generation: number; promise: Promise<SchemaRegistry> } | undefined
   /** Lazy: the peek client shares this connection's identity + fetch, and
    * its immutable rendition cache lives as long as the connection does. */
-  private valuesClient: DinksterValuesClient | undefined;
+  private valuesClient: DinksterValuesClient | undefined
   /** Jobs whose live events this connection has seen at least once. */
-  private readonly seenLiveJobs = new Set<string>();
+  private readonly seenLiveJobs = new Set<string>()
   /** In-flight journal backfills, keyed by runId: concurrent triggers coalesce. */
-  private readonly runLogBackfills = new Map<string, Promise<void>>();
+  private readonly runLogBackfills = new Map<string, Promise<void>>()
   /** Highest journal seq already replayed per runId; the next pass resumes past it. */
-  private readonly runLogCursors = new Map<string, number>();
+  private readonly runLogCursors = new Map<string, number>()
   /** Pack-scoped immutable Markdown bodies; promises coalesce concurrent readers. */
-  private readonly docsPages = new Map<string, Promise<string | undefined>>();
+  private readonly docsPages = new Map<string, Promise<string | undefined>>()
   /** Pack-scoped immutable locale catalogs; promises coalesce concurrent readers. */
-  private readonly packLocaleCatalogs = new Map<
-    string,
-    Promise<unknown | undefined>
-  >();
+  private readonly packLocaleCatalogs = new Map<string, Promise<unknown | undefined>>()
 
-  readonly status: ReadonlySignal<ConnectionStatus>;
-  private readonly mountErrors = createSignal<string | undefined>(undefined);
-  readonly mountError: ReadonlySignal<string | undefined> = this.mountErrors;
-  private mountRequestGeneration = 0;
-  private newestMountFetch:
-    | { generation: number; promise: Promise<MountSettings> }
-    | undefined;
+  readonly status: ReadonlySignal<ConnectionStatus>
+  private readonly mountErrors = createSignal<string | undefined>(undefined)
+  readonly mountError: ReadonlySignal<string | undefined> = this.mountErrors
+  private mountRequestGeneration = 0
+  private newestMountFetch: { generation: number; promise: Promise<MountSettings> } | undefined
 
   constructor(config: DinksterConnectionConfig) {
-    this.id = config.id;
-    this.baseUrl = config.baseUrl;
-    this.clientId = config.clientId;
-    this.project = config.project;
-    const fetchFn =
-      config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init));
-    this.fetchFn =
-      config.token !== undefined || config.actorKind !== undefined
-        ? credentialFetch(config, fetchFn)
-        : fetchFn;
-    this.jobIdFactory = config.jobIdFactory ?? uuidv4;
+    this.id = config.id
+    this.baseUrl = config.baseUrl
+    this.clientId = config.clientId
+    this.project = config.project
+    const fetchFn = config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
+    this.fetchFn = config.token !== undefined || config.actorKind !== undefined
+      ? credentialFetch(config, fetchFn)
+      : fetchFn
+    this.jobIdFactory = config.jobIdFactory ?? uuidv4
     // Malformed KNOWN events (recognized type, missing required fields) are
     // protocol errors, never silent drops; unknown kinds and uncorrelated
     // runId-only stragglers stay silent (forward compatibility).
-    this.normalizer = new DinksterNormalizer(
-      config.id,
-      undefined,
-      (detail) => this.reportProtocolError(detail),
+    this.normalizer = new DinksterNormalizer(config.id, undefined, (detail) =>
+      this.reportProtocolError(detail),
       (digest) => this.extensionSnapshots.get(digest),
-    );
-    const wsUrl =
-      config.wsUrl ??
-      `${config.baseUrl.replace(/^http/, "ws")}/api/events?clientId=${encodeURIComponent(config.clientId)}`;
-    const eventsUrl = `${config.baseUrl}/api/events?clientId=${encodeURIComponent(config.clientId)}`;
+    )
+    const wsUrl = config.wsUrl ??
+      `${config.baseUrl.replace(/^http/, 'ws')}/api/events?clientId=${encodeURIComponent(config.clientId)}`
+    const eventsUrl = `${config.baseUrl}/api/events?clientId=${encodeURIComponent(config.clientId)}`
     this.socket = new ReconnectingSocket({
       url: wsUrl,
-      ...((config.token !== undefined || config.actorKind === "agent") && {
+      ...((config.token !== undefined || config.actorKind === 'agent') && {
         resolveUrl: async () => {
-          const preflight = await this.fetchFn(eventsUrl);
+          const preflight = await this.fetchFn(eventsUrl)
           if (preflight.status === 401 || preflight.status === 403) {
-            throw await this.failExecutionRequest(preflight, "events");
+            throw await this.failExecutionRequest(preflight, 'events')
           }
-          const response = await this.fetchFn(
-            `${this.baseUrl}/api/auth/ws-ticket`,
-            { method: "POST" },
-          );
+          const response = await this.fetchFn(`${this.baseUrl}/api/auth/ws-ticket`, { method: 'POST' })
           if (response.status === 401 || response.status === 403) {
-            throw await this.failExecutionRequest(response, "ws-ticket");
+            throw await this.failExecutionRequest(response, 'ws-ticket')
           }
-          if (!response.ok)
-            throw new Error(
-              `WebSocket authentication failed: HTTP ${response.status}`,
-            );
-          const body = (await response.json()) as { ticket?: unknown };
-          if (typeof body.ticket !== "string")
-            throw new Error("WebSocket authentication returned no ticket");
-          return `${wsUrl}${wsUrl.includes("?") ? "&" : "?"}ticket=${encodeURIComponent(body.ticket)}`;
+          if (!response.ok) throw new Error(`WebSocket authentication failed: HTTP ${response.status}`)
+          const body = await response.json() as { ticket?: unknown }
+          if (typeof body.ticket !== 'string') throw new Error('WebSocket authentication returned no ticket')
+          return `${wsUrl}${wsUrl.includes('?') ? '&' : '?'}ticket=${encodeURIComponent(body.ticket)}`
         },
       }),
-      ...(config.webSocketFactory
-        ? { webSocketFactory: config.webSocketFactory }
-        : {}),
+      ...(config.webSocketFactory ? { webSocketFactory: config.webSocketFactory } : {}),
       ...(config.scheduleFn ? { scheduleFn: config.scheduleFn } : {}),
       ...(config.cancelFn ? { cancelFn: config.cancelFn } : {}),
       onData: (data) => this.handleWsData(data),
-    });
-    this.status = this.socket.status;
+    })
+    this.status = this.socket.status
   }
 
   /** Subscribe to normalized events. Returns unsubscribe. */
   onEvent(listener: (e: NormalizedEvent) => void): () => void {
-    this.listeners.add(listener);
+    this.listeners.add(listener)
     return () => {
-      this.listeners.delete(listener);
-    };
+      this.listeners.delete(listener)
+    }
   }
 
   onProblem(listener: (problem: Diagnostic) => void): () => void {
-    this.problemListeners.add(listener);
+    this.problemListeners.add(listener)
     return () => {
-      this.problemListeners.delete(listener);
-    };
+      this.problemListeners.delete(listener)
+    }
   }
 
   private emitProblem(problem: Diagnostic): void {
-    for (const listener of this.problemListeners) listener(problem);
+    for (const listener of this.problemListeners) listener(problem)
   }
 
-  private async failExecutionRequest(
-    response: Response,
-    operation: string,
-  ): Promise<ExecutionRequestError> {
-    const problem = responseDiagnostic(
-      response.status,
-      await responsePayload(response),
-      operation,
-    );
-    this.emitProblem(problem);
-    if (operation === "events" || operation === "ws-ticket")
-      this.socket.disconnect();
-    return new ExecutionRequestError(problem);
+  private async failExecutionRequest(response: Response, operation: string): Promise<ExecutionRequestError> {
+    const problem = responseDiagnostic(response.status, await responsePayload(response), operation)
+    this.emitProblem(problem)
+    if (operation === 'events' || operation === 'ws-ticket') this.socket.disconnect()
+    return new ExecutionRequestError(problem)
   }
 
   /** Subscribe to persisted completed job_state messages, excluding fetched replays. */
   onLiveCompletion(listener: (execution: ExecutionRef) => void): () => void {
-    this.liveCompletionListeners.add(listener);
-    return () => this.liveCompletionListeners.delete(listener);
+    this.liveCompletionListeners.add(listener)
+    return () => this.liveCompletionListeners.delete(listener)
   }
 
   /** Subscribe to the server's droppable memory telemetry stream. */
   onMemoryStatus(listener: (status: MemoryStatus) => void): () => void {
-    this.memoryListeners.add(listener);
-    return () => this.memoryListeners.delete(listener);
+    this.memoryListeners.add(listener)
+    return () => this.memoryListeners.delete(listener)
   }
 
   /** Mount notifications invalidate the project snapshot, never carry host paths. */
   onMountsChanged(listener: () => void): () => void {
-    this.mountListeners.add(listener);
-    return () => this.mountListeners.delete(listener);
+    this.mountListeners.add(listener)
+    return () => this.mountListeners.delete(listener)
   }
 
   private emit(events: readonly NormalizedEvent[]): void {
-    for (const e of events) for (const l of [...this.listeners]) l(e);
+    for (const e of events) for (const l of [...this.listeners]) l(e)
   }
 
   private emitRaw(raw: DinksterRawMessage, live: boolean): void {
-    if (
-      live &&
-      !(raw instanceof ArrayBuffer) &&
-      raw.type === "mounts_changed"
-    ) {
-      for (const listener of [...this.mountListeners]) listener();
-      return;
+    if (live && !(raw instanceof ArrayBuffer) && raw.type === 'mounts_changed') {
+      for (const listener of [...this.mountListeners]) listener()
+      return
     }
-    if (live && !(raw instanceof ArrayBuffer)) this.noteLiveJobEvent(raw);
-    const events = this.normalizer.normalize(raw);
-    this.emit(events);
-    if (
-      !live ||
-      raw instanceof ArrayBuffer ||
-      raw.type !== "job_state" ||
-      raw["state"] !== "completed"
-    )
-      return;
-    const jobId = raw["jobId"];
-    if (typeof jobId !== "string" || jobId === "") return;
-    for (const listener of [...this.liveCompletionListeners])
-      listener(this.executionFor(jobId));
+    if (live && !(raw instanceof ArrayBuffer)) this.noteLiveJobEvent(raw)
+    const events = this.normalizer.normalize(raw)
+    this.emit(events)
+    if (!live || raw instanceof ArrayBuffer || raw.type !== 'job_state' || raw['state'] !== 'completed') return
+    const jobId = raw['jobId']
+    if (typeof jobId !== 'string' || jobId === '') return
+    for (const listener of [...this.liveCompletionListeners]) listener(this.executionFor(jobId))
   }
 
   // -- Schemas ----------------------------------------------------------------
 
   async fetchSchemas(): Promise<SchemaRegistry> {
-    const generation = ++this.schemaRequestGeneration;
-    const promise = requestWithDeadline((signal) =>
-      this.fetchSchemasPass(generation, signal),
-    );
-    this.newestSchemaFetch = { generation, promise };
+    const generation = ++this.schemaRequestGeneration
+    const promise = requestWithDeadline((signal) => this.fetchSchemasPass(generation, signal))
+    this.newestSchemaFetch = { generation, promise }
     // A superseded invocation must hand back the registry the connection
     // actually committed, not its own stale decode: follow the newest fetch
     // until this invocation IS the newest. A stale fetch's failure is
     // likewise answered by the newer fetch.
-    let current = { generation, promise };
+    let current = { generation, promise }
     for (;;) {
-      const newest = (): {
-        generation: number;
-        promise: Promise<SchemaRegistry>;
-      } => this.newestSchemaFetch ?? current;
+      const newest = (): { generation: number; promise: Promise<SchemaRegistry> } =>
+        this.newestSchemaFetch ?? current
       try {
-        const registry = await current.promise;
+        const registry = await current.promise
         if (newest().generation === current.generation) {
           if (current.generation !== this.schemaRequestGeneration) {
-            throw new Error("schema fetch invalidated by server reconnect");
+            throw new Error('schema fetch invalidated by server reconnect')
           }
-          return registry;
+          return registry
         }
       } catch (error) {
-        if (newest().generation === current.generation) throw error;
+        if (newest().generation === current.generation) throw error
       }
-      current = newest();
+      current = newest()
     }
   }
 
@@ -2633,134 +1818,92 @@ export class DinksterConnection {
     signal: AbortSignal,
     pairingAttempts = 3,
   ): Promise<SchemaRegistry> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/nodes`, { signal });
+    const res = await this.fetchFn(`${this.baseUrl}/api/nodes`, { signal })
     if (res.status === 503) {
       // A supervisor gates every proxied route with 503 engine-not-ready
       // until the engine answers healthy. Surface that as its own error so
       // the app renders "starting", never a connection failure.
-      const gate = parseEngineNotReady(await res.json().catch(() => undefined));
-      if (gate) throw new EngineNotReadyError(gate.state);
+      const gate = parseEngineNotReady(await res.json().catch(() => undefined))
+      if (gate) throw new EngineNotReadyError(gate.state)
     }
-    if (!res.ok) throw new Error(`GET /api/nodes failed: ${res.status}`);
-    const raw: unknown = await res.json();
-    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-      throw new Error("GET /api/nodes: malformed schema payload");
+    if (!res.ok) throw new Error(`GET /api/nodes failed: ${res.status}`)
+    const raw: unknown = await res.json()
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw new Error('GET /api/nodes: malformed schema payload')
     }
-    const payload = raw as DinksterNodesPayload;
+    const payload = raw as DinksterNodesPayload
     // Wire version rides the dinkster header (schemaWire) on current backends;
     // top-level schemaVersion is the API surface version there. Older shapes
     // carry the wire version top-level. Same resolution as parseDinksterNodes.
-    const wireVersion =
-      serverInfoFromDinksterWire(payload)?.schemaWire ?? payload.schemaVersion;
+    const wireVersion = serverInfoFromDinksterWire(payload)?.schemaWire ?? payload.schemaVersion
     if (wireVersion !== DINKSTER_SCHEMA_WIRE_VERSION) {
       throw new Error(
         `schema wire version mismatch: this build decodes ${DINKSTER_SCHEMA_WIRE_VERSION}; the server encodes ${String(wireVersion)}`,
-      );
+      )
     }
-    if (
-      typeof payload.nodes !== "object" ||
-      payload.nodes === null ||
-      Array.isArray(payload.nodes)
-    ) {
-      throw new Error(
-        "GET /api/nodes: malformed or unsupported schema payload",
-      );
+    if (typeof payload.nodes !== 'object' || payload.nodes === null || Array.isArray(payload.nodes)) {
+      throw new Error('GET /api/nodes: malformed or unsupported schema payload')
     }
-    let extensionSnapshotPair:
-      | {
-          readonly digest: string;
-          readonly snapshot: EffectiveExtensionSnapshot;
-        }
-      | undefined;
+    let extensionSnapshotPair: { readonly digest: string; readonly snapshot: EffectiveExtensionSnapshot } | undefined
     if (payload.extensionSnapshotDigest !== undefined) {
-      if (
-        typeof payload.extensionSnapshotDigest !== "string" ||
-        !/^sha256:[0-9a-f]{64}$/.test(payload.extensionSnapshotDigest)
-      ) {
-        throw new Error("GET /api/nodes: malformed extensionSnapshotDigest");
+      if (typeof payload.extensionSnapshotDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(payload.extensionSnapshotDigest)) {
+        throw new Error('GET /api/nodes: malformed extensionSnapshotDigest')
       }
-      const extensionSnapshotDigest = payload.extensionSnapshotDigest;
-      const snapshotResponse = await this.fetchFn(
-        `${this.baseUrl}/api/extensions/snapshot`,
-        { signal },
-      );
-      if (!snapshotResponse.ok)
-        throw new Error(
-          `GET /api/extensions/snapshot failed: ${snapshotResponse.status}`,
-        );
-      const snapshotBuffer = await snapshotResponse.arrayBuffer();
-      const snapshotBytes = new Uint8Array(snapshotBuffer);
-      const actualDigest = await sha256Digest(snapshotBuffer);
+      const extensionSnapshotDigest = payload.extensionSnapshotDigest
+      const snapshotResponse = await this.fetchFn(`${this.baseUrl}/api/extensions/snapshot`, { signal })
+      if (!snapshotResponse.ok) throw new Error(`GET /api/extensions/snapshot failed: ${snapshotResponse.status}`)
+      const snapshotBuffer = await snapshotResponse.arrayBuffer()
+      const snapshotBytes = new Uint8Array(snapshotBuffer)
+      const actualDigest = await sha256Digest(snapshotBuffer)
       if (actualDigest !== extensionSnapshotDigest) {
         if (pairingAttempts > 1) {
-          return this.fetchSchemasPass(generation, signal, pairingAttempts - 1);
+          return this.fetchSchemasPass(generation, signal, pairingAttempts - 1)
         }
-        throw new Error(
-          `schema/snapshot pairing failed: schema names '${extensionSnapshotDigest}', snapshot hashes to '${actualDigest}'`,
-        );
+        throw new Error(`schema/snapshot pairing failed: schema names '${extensionSnapshotDigest}', snapshot hashes to '${actualDigest}'`)
       }
-      let snapshotValue: unknown;
+      let snapshotValue: unknown
       try {
-        const snapshotText = new TextDecoder("utf-8", { fatal: true }).decode(
-          snapshotBytes,
-        );
-        snapshotValue = JSON.parse(snapshotText);
+        const snapshotText = new TextDecoder('utf-8', { fatal: true }).decode(snapshotBytes)
+        snapshotValue = JSON.parse(snapshotText)
       } catch {
-        throw new Error("GET /api/extensions/snapshot: malformed JSON");
+        throw new Error('GET /api/extensions/snapshot: malformed JSON')
       }
-      const decoded = decodeEffectiveExtensionSnapshot(snapshotValue);
-      if (decoded.snapshot === undefined)
-        throw new Error(
-          `GET /api/extensions/snapshot: ${decoded.diagnostics.map((item) => item.message).join("; ")}`,
-        );
-      extensionSnapshotPair = {
-        digest: extensionSnapshotDigest,
-        snapshot: decoded.snapshot,
-      };
+      const decoded = decodeEffectiveExtensionSnapshot(snapshotValue)
+      if (decoded.snapshot === undefined) throw new Error(`GET /api/extensions/snapshot: ${decoded.diagnostics.map((item) => item.message).join('; ')}`)
+      extensionSnapshotPair = { digest: extensionSnapshotDigest, snapshot: decoded.snapshot }
     }
     const registry = buildDinksterRegistry(
       this.id,
       payload,
       extensionSnapshotPair,
-    );
-    if (
-      registry.diagnostics.some(
-        (entry) => entry.code === "schema.dinkster.wireVersion",
-      )
-    ) {
-      const selected =
-        serverInfoFromDinksterWire(payload)?.schemaWire ??
-        payload.schemaVersion;
+    )
+    if (registry.diagnostics.some((entry) => entry.code === 'schema.dinkster.wireVersion')) {
+      const selected = serverInfoFromDinksterWire(payload)?.schemaWire ?? payload.schemaVersion
       throw new Error(
         `schema wire version mismatch: this build decodes ${DINKSTER_SCHEMA_WIRE_VERSION}; the server encodes ${String(selected)}`,
-      );
+      )
     }
-    signal.throwIfAborted();
+    signal.throwIfAborted()
     if (generation === this.schemaRequestGeneration) {
-      this.registry = registry;
-      if (extensionSnapshotPair)
-        this.extensionSnapshots.set(
-          extensionSnapshotPair.digest,
-          extensionSnapshotPair.snapshot,
-        );
+      this.registry = registry
+      if (extensionSnapshotPair) this.extensionSnapshots.set(extensionSnapshotPair.digest, extensionSnapshotPair.snapshot)
     }
-    return registry;
+    return registry
   }
 
   /** The registry the connection currently submits against (last committed
    * fetchSchemas result; a superseded fetch never overwrites a fresher one). */
   get currentRegistry(): SchemaRegistry | undefined {
-    return this.registry;
+    return this.registry
   }
 
   /** Fetch the complete current execution-location catalog. */
   async fetchWorkers(): Promise<readonly WorkerInfo[]> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/workers`);
-    if (!res.ok) throw new Error(`GET /api/workers failed: ${res.status}`);
-    const workers = decodeWorkers(await res.json());
-    if (workers === undefined)
-      throw new Error("GET /api/workers: malformed response");
-    return workers;
+    const res = await this.fetchFn(`${this.baseUrl}/api/workers`)
+    if (!res.ok) throw new Error(`GET /api/workers failed: ${res.status}`)
+    const workers = decodeWorkers(await res.json())
+    if (workers === undefined) throw new Error('GET /api/workers: malformed response')
+    return workers
   }
 
   /** A connected transition starts a new server lifetime; old extension authority is invalid immediately. */
@@ -2768,12 +1911,12 @@ export class DinksterConnection {
     // A fetch issued under the previous server lifetime may still resolve.
     // Supersede it even when no pair is currently held so it cannot publish
     // stale authority after this boundary.
-    this.schemaRequestGeneration += 1;
-    this.extensionSnapshots.clear();
-    if (this.registry?.extensionSnapshotPair === undefined) return;
-    const registry = { ...this.registry };
-    delete registry.extensionSnapshotPair;
-    this.registry = registry;
+    this.schemaRequestGeneration += 1
+    this.extensionSnapshots.clear()
+    if (this.registry?.extensionSnapshotPair === undefined) return
+    const registry = { ...this.registry }
+    delete registry.extensionSnapshotPair
+    this.registry = registry
   }
 
   /**
@@ -2788,31 +1931,23 @@ export class DinksterConnection {
    */
   async fetchDiagnostics(): Promise<DinksterDiagnostics> {
     try {
-      const res = await this.fetchFn(`${this.baseUrl}/api/diagnostics`);
-      if (!res.ok) return emptyDiagnostics();
+      const res = await this.fetchFn(`${this.baseUrl}/api/diagnostics`)
+      if (!res.ok) return emptyDiagnostics()
       const raw = (await res.json()) as {
-        replacementProblems?: unknown;
-        compatSkips?: unknown;
-        packInferenceUnavailable?: unknown;
-      };
-      const packInferenceUnavailable: PackInferenceUnavailable[] = [];
+        replacementProblems?: unknown
+        compatSkips?: unknown
+        packInferenceUnavailable?: unknown
+      }
+      const packInferenceUnavailable: PackInferenceUnavailable[] = []
       if (Array.isArray(raw.packInferenceUnavailable)) {
         for (const value of raw.packInferenceUnavailable) {
-          if (
-            typeof value !== "object" ||
-            value === null ||
-            Array.isArray(value)
-          ) {
-            continue;
+          if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+            continue
           }
-          const pack = (value as Record<string, unknown>)["packId"];
-          const payload = readUnavailableInference(value);
-          if (
-            payload !== undefined &&
-            typeof pack === "string" &&
-            pack !== ""
-          ) {
-            packInferenceUnavailable.push({ pack, ...payload });
+          const pack = (value as Record<string, unknown>)['packId']
+          const payload = readUnavailableInference(value)
+          if (payload !== undefined && typeof pack === 'string' && pack !== '') {
+            packInferenceUnavailable.push({ pack, ...payload })
           }
         }
       }
@@ -2824,9 +1959,9 @@ export class DinksterConnection {
           ? raw.compatSkips.filter(isCompatSkip)
           : [],
         packInferenceUnavailable,
-      };
+      }
     } catch {
-      return emptyDiagnostics();
+      return emptyDiagnostics()
     }
   }
 
@@ -2835,223 +1970,149 @@ export class DinksterConnection {
    * and malformed snapshots are not authoritative and must not clear a
    * previously observed failure.
    */
-  async fetchCompositionFailures(): Promise<
-    readonly DinksterPackFailure[] | undefined
-  > {
+  async fetchCompositionFailures(): Promise<readonly DinksterPackFailure[] | undefined> {
     try {
-      const res = await this.fetchFn(`${this.baseUrl}/api/composition`);
-      if (!res.ok) return undefined;
-      const raw: unknown = await res.json();
-      if (typeof raw !== "object" || raw === null || Array.isArray(raw))
-        return undefined;
-      const packs = (raw as Record<string, unknown>)["packs"];
-      if (typeof packs !== "object" || packs === null || Array.isArray(packs))
-        return undefined;
-      const failures: DinksterPackFailure[] = [];
+      const res = await this.fetchFn(`${this.baseUrl}/api/composition`)
+      if (!res.ok) return undefined
+      const raw: unknown = await res.json()
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined
+      const packs = (raw as Record<string, unknown>)['packs']
+      if (typeof packs !== 'object' || packs === null || Array.isArray(packs)) return undefined
+      const failures: DinksterPackFailure[] = []
       for (const [pack, value] of Object.entries(packs)) {
-        if (
-          pack === "" ||
-          typeof value !== "object" ||
-          value === null ||
-          Array.isArray(value)
-        )
-          return undefined;
-        const row = value as Record<string, unknown>;
-        if (row["state"] === "failed") {
-          if (typeof row["error"] !== "string" || row["error"] === "")
-            return undefined;
-          failures.push({ pack, error: row["error"] });
-          continue;
+        if (pack === '' || typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+        const row = value as Record<string, unknown>
+        if (row['state'] === 'failed') {
+          if (typeof row['error'] !== 'string' || row['error'] === '') return undefined
+          failures.push({ pack, error: row['error'] })
+          continue
         }
-        if (
-          row["state"] !== "pending" &&
-          row["state"] !== "announced" &&
-          row["state"] !== "removed"
-        ) {
-          return undefined;
+        if (row['state'] !== 'pending' && row['state'] !== 'announced' && row['state'] !== 'removed') {
+          return undefined
         }
       }
-      return failures;
+      return failures
     } catch {
-      return undefined;
+      return undefined
     }
   }
 
   /** Read the server-discovered runtime settings surface. */
   async fetchRuntimeSettings(): Promise<RuntimeSettings> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/settings`);
-    if (!res.ok) throw new RuntimeSettingsError(res.status, undefined);
-    return (await res.json()) as RuntimeSettings;
+    const res = await this.fetchFn(`${this.baseUrl}/api/settings`)
+    if (!res.ok) throw new RuntimeSettingsError(res.status, undefined)
+    return await res.json() as RuntimeSettings
   }
 
   async fetchPackSettings(packId: string): Promise<PackSettings> {
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/settings`,
-    );
-    if (!res.ok) throw new Error(`pack settings request failed: ${res.status}`);
-    const decoded = decodePackSettings(await res.json());
-    if (decoded === undefined)
-      throw new Error("pack settings response is malformed");
-    return decoded;
+    const res = await this.fetchFn(`${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/settings`)
+    if (!res.ok) throw new Error(`pack settings request failed: ${res.status}`)
+    const decoded = decodePackSettings(await res.json())
+    if (decoded === undefined) throw new Error('pack settings response is malformed')
+    return decoded
   }
 
   async updatePackSettings(
     packId: string,
     values: Readonly<Record<string, string | number | boolean>>,
   ): Promise<PackSettings> {
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/settings`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      },
-    );
+    const res = await this.fetchFn(`${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(values),
+    })
     if (!res.ok) {
-      const body = (await res.json().catch(() => undefined)) as
-        | { error?: unknown }
-        | undefined;
-      throw new Error(
-        typeof body?.error === "string"
-          ? body.error
-          : `pack settings update failed: ${res.status}`,
-      );
+      const body = await res.json().catch(() => undefined) as { error?: unknown } | undefined
+      throw new Error(typeof body?.error === 'string' ? body.error : `pack settings update failed: ${res.status}`)
     }
-    const decoded = decodePackSettings(await res.json());
-    if (decoded === undefined)
-      throw new Error("pack settings response is malformed");
-    return decoded;
+    const decoded = decodePackSettings(await res.json())
+    if (decoded === undefined) throw new Error('pack settings response is malformed')
+    return decoded
   }
 
   /** Read memory telemetry. Item-level consumer details are opt-in. */
   async fetchMemoryStatus(details = false): Promise<MemoryStatus> {
-    const res = await this.fetchFn(
-      `${this.baseUrl}/memory/status${details ? "?details=1" : ""}`,
-    );
-    if (!res.ok) throw new Error(`GET /memory/status failed: ${res.status}`);
-    const status = decodeMemoryStatus(await res.json());
-    if (status === undefined)
-      throw new Error("GET /memory/status: malformed response");
-    return status;
+    const res = await this.fetchFn(`${this.baseUrl}/memory/status${details ? '?details=1' : ''}`)
+    if (!res.ok) throw new Error(`GET /memory/status failed: ${res.status}`)
+    const status = decodeMemoryStatus(await res.json())
+    if (status === undefined) throw new Error('GET /memory/status: malformed response')
+    return status
   }
 
   async resetMemoryPeak(device: string): Promise<void> {
     const res = await this.fetchFn(`${this.baseUrl}/memory/reset-peak`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ device }),
-    });
-    if (!res.ok)
-      throw new Error(`POST /memory/reset-peak failed: ${res.status}`);
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device }),
+    })
+    if (!res.ok) throw new Error(`POST /memory/reset-peak failed: ${res.status}`)
   }
 
-  async unloadMemory(
-    device: string,
-    consumer?: string,
-    item?: string,
-  ): Promise<{ readonly requestedBytes: number; readonly freedBytes: number }> {
+  async unloadMemory(device: string, consumer?: string, item?: string): Promise<{ readonly requestedBytes: number; readonly freedBytes: number }> {
     const res = await this.fetchFn(`${this.baseUrl}/cache/trim`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        device,
-        ...(consumer === undefined ? {} : { consumers: [consumer] }),
-        ...(item === undefined ? {} : { items: [item] }),
-      }),
-    });
-    if (!res.ok) throw new Error(`POST /cache/trim failed: ${res.status}`);
-    const result: unknown = await res.json();
-    if (
-      !record(result) ||
-      typeof result["requestedBytes"] !== "number" ||
-      typeof result["freedBytes"] !== "number"
-    )
-      throw new Error("POST /cache/trim: malformed response");
-    return {
-      requestedBytes: result["requestedBytes"],
-      freedBytes: result["freedBytes"],
-    };
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device, ...(consumer === undefined ? {} : { consumers: [consumer] }), ...(item === undefined ? {} : { items: [item] }) }),
+    })
+    if (!res.ok) throw new Error(`POST /cache/trim failed: ${res.status}`)
+    const result: unknown = await res.json()
+    if (!record(result) || typeof result['requestedBytes'] !== 'number' || typeof result['freedBytes'] !== 'number') throw new Error('POST /cache/trim: malformed response')
+    return { requestedBytes: result['requestedBytes'], freedBytes: result['freedBytes'] }
   }
 
   /** Update one discovered category; the server owns validation and gating. */
-  async updateRuntimeSetting(
-    category: string,
-    value: unknown,
-  ): Promise<RuntimeSettingSection> {
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/settings/${encodeURIComponent(category)}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(value),
-      },
-    );
+  async updateRuntimeSetting(category: string, value: unknown): Promise<RuntimeSettingSection> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/settings/${encodeURIComponent(category)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(value),
+    })
     if (!res.ok) {
-      const raw: unknown = await res.json().catch(() => undefined);
-      throw new RuntimeSettingsError(
-        res.status,
-        decodeRuntimeSettingsError(res.status, raw),
-      );
+      const raw: unknown = await res.json().catch(() => undefined)
+      throw new RuntimeSettingsError(res.status, decodeRuntimeSettingsError(res.status, raw))
     }
-    return (await res.json()) as RuntimeSettingSection;
+    return await res.json() as RuntimeSettingSection
   }
 
   async fetchPrincipals(): Promise<readonly PrincipalSummary[]> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/principals`);
-    if (!res.ok) throw new PrincipalsError(res.status);
-    const value: unknown = await res.json();
+    const res = await this.fetchFn(`${this.baseUrl}/api/principals`)
+    if (!res.ok) throw new PrincipalsError(res.status)
+    const value: unknown = await res.json()
     return Array.isArray(value)
-      ? value
-          .map(decodePrincipalSummary)
-          .filter(
-            (principal): principal is PrincipalSummary =>
-              principal !== undefined,
-          )
-      : [];
+      ? value.map(decodePrincipalSummary).filter((principal): principal is PrincipalSummary => principal !== undefined)
+      : []
   }
 
   mintDelegation(options: MintDelegation): ReturnType<typeof mintDelegation> {
-    return mintDelegation(this.baseUrl, options, this.fetchFn);
+    return mintDelegation(this.baseUrl, options, this.fetchFn)
   }
 
   async fetchDelegations(): Promise<readonly Delegation[]> {
-    const response = await this.fetchFn(`${this.baseUrl}/api/auth/delegations`);
-    if (!response.ok) throw new PrincipalsError(response.status);
-    return response.json();
+    const response = await this.fetchFn(`${this.baseUrl}/api/auth/delegations`)
+    if (!response.ok) throw new PrincipalsError(response.status)
+    return response.json()
   }
 
   async revokeDelegation(id: string): Promise<void> {
-    const response = await this.fetchFn(
-      `${this.baseUrl}/api/auth/delegations/${encodeURIComponent(id)}`,
-      { method: "DELETE" },
-    );
-    if (!response.ok) throw new PrincipalsError(response.status);
+    const response = await this.fetchFn(`${this.baseUrl}/api/auth/delegations/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (!response.ok) throw new PrincipalsError(response.status)
   }
 
   async updatePrincipalPermissions(
     principalId: string,
     changes: Readonly<Record<string, boolean>>,
   ): Promise<Readonly<Record<string, boolean>>> {
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/principals/${encodeURIComponent(principalId)}/permissions`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(changes),
-      },
-    );
+    const res = await this.fetchFn(`${this.baseUrl}/api/principals/${encodeURIComponent(principalId)}/permissions`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(changes),
+    })
     if (!res.ok) {
-      const value: unknown = await res.json().catch(() => undefined);
-      const serverError =
-        typeof value === "object" &&
-        value !== null &&
-        !Array.isArray(value) &&
-        typeof (value as Record<string, unknown>)["error"] === "string"
-          ? (value as Record<string, string>)["error"]
-          : undefined;
-      throw new PrincipalsError(res.status, serverError);
+      const value: unknown = await res.json().catch(() => undefined)
+      const serverError = typeof value === 'object' && value !== null && !Array.isArray(value) &&
+        typeof (value as Record<string, unknown>)['error'] === 'string'
+        ? (value as Record<string, string>)['error']
+        : undefined
+      throw new PrincipalsError(res.status, serverError)
     }
-    return decodePermissionCategories(await res.json());
+    return decodePermissionCategories(await res.json())
   }
 
   // -- Job submission -----------------------------------------------------------
@@ -3064,15 +2125,12 @@ export class DinksterConnection {
        * (uploaded via uploadAsset). Advisory reproduction record: echoed on
        * the job wire and history, never part of execution identity.
        */
-      readonly sourceDocument?: string;
+      readonly sourceDocument?: string
       /**
        * Retained original import metadata, not a representation of native
        * edits. An absent original prompt stays absent, distinct from {}.
        */
-      readonly exportSnapshot?: {
-        readonly prompt?: JsonObject;
-        readonly extraPnginfo?: JsonObject;
-      };
+      readonly exportSnapshot?: { readonly prompt?: JsonObject; readonly extraPnginfo?: JsonObject }
       /**
        * Live sampling preview policy for this run. Sent verbatim as the
        * submit body's `previews` field; servers without preview support
@@ -3080,83 +2138,55 @@ export class DinksterConnection {
        * carries per-node overrides keyed by runtime node id.
        */
       readonly previews?: {
-        readonly mode: PreviewMode;
-        readonly nodes?: Readonly<Record<string, PreviewMode>>;
-      };
+        readonly mode: PreviewMode
+        readonly nodes?: Readonly<Record<string, PreviewMode>>
+      }
       /** Transient top-level node placement by configured worker name. */
-      readonly placement?: Readonly<Record<string, string>>;
+      readonly placement?: Readonly<Record<string, string>>
     },
   ): Promise<DinksterSubmitResult> {
     if (artifact.connection !== this.id) {
       return {
         ok: false,
         diagnostics: [
-          diag(
-            "error",
-            "compile",
-            "submit.wrongConnection",
-            `artifact compiled for connection '${artifact.connection}', submitted to '${this.id}'`,
-          ),
+          diag('error', 'compile', 'submit.wrongConnection', `artifact compiled for connection '${artifact.connection}', submitted to '${this.id}'`),
         ],
-      };
+      }
     }
-    const registry = this.registry;
+    const registry = this.registry
     if (registry === undefined || registry.hash !== artifact.schemaHash) {
       return {
         ok: false,
         diagnostics: [
           diag(
-            "error",
-            "compile",
-            "submit.staleSchemas",
+            'error',
+            'compile',
+            'submit.staleSchemas',
             registry === undefined
-              ? "schemas have not been fetched on this connection"
+              ? 'schemas have not been fetched on this connection'
               : `Compiled workflow: backend ${this.id} schemas have changed`,
           ),
         ],
-      };
+      }
     }
-    const placement =
-      options?.placement === undefined ? undefined : { ...options.placement };
-    const placementNodeIds =
-      placement === undefined ? [] : Object.keys(placement);
-    if (
-      placementNodeIds.length > 0 &&
-      !registry.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_PLACEMENT)
-    ) {
+    const placement = options?.placement === undefined ? undefined : { ...options.placement }
+    const placementNodeIds = placement === undefined ? [] : Object.keys(placement)
+    if (placementNodeIds.length > 0 && !registry.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_PLACEMENT)) {
       return {
         ok: false,
-        diagnostics: [
-          diag(
-            "error",
-            "compile",
-            "submit.placementUnsupported",
-            "this backend does not advertise manual worker placement support",
-          ),
-        ],
-      };
+        diagnostics: [diag('error', 'compile', 'submit.placementUnsupported', 'this backend does not advertise manual worker placement support')],
+      }
     }
-    if (
-      artifact.dinksterGraph !== undefined &&
-      !registry.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_REGIONS)
-    ) {
+    if (artifact.dinksterGraph !== undefined && !registry.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_REGIONS)) {
       return {
         ok: false,
-        diagnostics: [
-          diag(
-            "error",
-            "compile",
-            "compile.region.backendUnsupported",
-            "this backend no longer advertises first-class region execution support",
-          ),
-        ],
-      };
+        diagnostics: [diag('error', 'compile', 'compile.region.backendUnsupported', 'this backend no longer advertises first-class region execution support')],
+      }
     }
-    const converted =
-      artifact.dinksterGraph === undefined
-        ? promptToDinksterGraph(artifact.prompt, registry.resolve)
-        : { ok: true as const, graph: artifact.dinksterGraph };
-    if (!converted.ok) return { ok: false, diagnostics: converted.diagnostics };
+    const converted = artifact.dinksterGraph === undefined
+      ? promptToDinksterGraph(artifact.prompt, registry.resolve)
+      : { ok: true as const, graph: artifact.dinksterGraph }
+    if (!converted.ok) return { ok: false, diagnostics: converted.diagnostics }
     // Pre-flight structural validation of the lowered wire (same checks the
     // server runs at admission: id grammar, region shape, cycles). Compiled
     // prompts satisfy these by construction, so a hit here is a lowering bug
@@ -3166,75 +2196,54 @@ export class DinksterConnection {
       registry.resolve,
       Math.random,
       dynamicPromptInputsForArtifact(artifact),
-    );
-    const structural = validateDinksterGraph(graph);
-    if (structural.some((d) => d.severity === "error")) {
-      return { ok: false, diagnostics: structural };
+    )
+    const structural = validateDinksterGraph(graph)
+    if (structural.some((d) => d.severity === 'error')) {
+      return { ok: false, diagnostics: structural }
     }
-    const missingPlacementNodes = placementNodeIds.filter(
-      (nodeId) => !Object.hasOwn(graph.nodes, nodeId),
-    );
+    const missingPlacementNodes = placementNodeIds.filter((nodeId) => !Object.hasOwn(graph.nodes, nodeId))
     if (missingPlacementNodes.length > 0) {
       return {
         ok: false,
-        diagnostics: [
-          diag(
-            "error",
-            "compile",
-            "submit.placementInvalid",
-            `Worker placement: nodes ${missingPlacementNodes.join(", ")} are not active at the root`,
-          ),
-        ],
-      };
+        diagnostics: [diag(
+          'error',
+          'compile',
+          'submit.placementInvalid',
+          `Worker placement: nodes ${missingPlacementNodes.join(', ')} are not active at the root`,
+        )],
+      }
     }
-    const targets = targetsForArtifact(artifact, registry.resolve);
+    const targets = targetsForArtifact(artifact, registry.resolve)
     if (targets.length === 0) {
       return {
         ok: false,
         diagnostics: [
-          diag(
-            "error",
-            "compile",
-            "submit.noTargets",
-            "nothing to execute: the graph has no output nodes and no partial targets",
-          ),
+          diag('error', 'compile', 'submit.noTargets', 'nothing to execute: the graph has no output nodes and no partial targets'),
         ],
-      };
+      }
     }
-    const jobId = this.jobIdFactory();
+    const jobId = this.jobIdFactory()
     const body = {
       clientId: this.clientId,
       ...(this.project !== undefined ? { project: this.project } : {}),
       jobId,
       targets,
       graph: graph as unknown as Json,
-      ...(options?.sourceDocument !== undefined
-        ? { sourceDocument: options.sourceDocument }
-        : {}),
-      ...(options?.exportSnapshot !== undefined
-        ? { exportSnapshot: options.exportSnapshot }
-        : {}),
-      ...(options?.previews !== undefined
-        ? { previews: options.previews }
-        : {}),
+      ...(options?.sourceDocument !== undefined ? { sourceDocument: options.sourceDocument } : {}),
+      ...(options?.exportSnapshot !== undefined ? { exportSnapshot: options.exportSnapshot } : {}),
+      ...(options?.previews !== undefined ? { previews: options.previews } : {}),
       ...(placementNodeIds.length > 0 ? { placement } : {}),
-    };
-    const post = async (
-      acquireAssets?: readonly string[],
-    ): Promise<DinksterSubmitResult> => {
+    }
+    const post = async (acquireAssets?: readonly string[]): Promise<DinksterSubmitResult> => {
       const res = await this.fetchFn(`${this.baseUrl}/api/jobs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...body,
-          ...(acquireAssets !== undefined ? { acquireAssets } : {}),
-        }),
-      });
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, ...(acquireAssets !== undefined ? { acquireAssets } : {}) }),
+      })
       if (!res.ok) {
-        const rejection = await rejectionDetails(res, artifact);
+        const rejection = await rejectionDetails(res, artifact)
         if (res.status === 401 || res.status === 403) {
-          for (const problem of rejection.diagnostics)
-            this.emitProblem(problem);
+          for (const problem of rejection.diagnostics) this.emitProblem(problem)
         }
         if (rejection.assetsMissing !== undefined) {
           return {
@@ -3242,9 +2251,9 @@ export class DinksterConnection {
             diagnostics: rejection.diagnostics,
             assetsMissing: rejection.assetsMissing,
             retryWithAssets: post,
-          };
+          }
         }
-        return { ok: false, diagnostics: rejection.diagnostics };
+        return { ok: false, diagnostics: rejection.diagnostics }
       }
       // jobRef (Dinkster 258382e): server-assigned global job identity on the
       // 202 body. Same value as runId (promoted run_id); a rerun of the same
@@ -3252,18 +2261,15 @@ export class DinksterConnection {
       // pre-jobRef servers, and a malformed body never fails an accepted job.
       const accepted = (await res.json().catch(() => undefined)) as
         | Record<string, unknown>
-        | undefined;
-      const jobRef =
-        typeof accepted?.["jobRef"] === "string"
-          ? accepted["jobRef"]
-          : undefined;
+        | undefined
+      const jobRef = typeof accepted?.['jobRef'] === 'string' ? accepted['jobRef'] : undefined
       return {
         ok: true,
         execution: this.executionFor(jobId),
         ...(jobRef !== undefined ? { jobRef } : {}),
-      };
-    };
-    return post();
+      }
+    }
+    return post()
     // Native validation runs when the job is admitted and fails the JOB (a
     // job_state 'failed' event with diagnostics) - acceptance here is only
     // "queued", exactly what an ExecutionRef means.
@@ -3271,85 +2277,66 @@ export class DinksterConnection {
 
   private executionFor(jobId: string): ExecutionRef {
     // Same convention as DinksterNormalizer: ExecutionRef.prompt = jobId.
-    return { connection: this.id, prompt: asPromptId(jobId) };
+    return { connection: this.id, prompt: asPromptId(jobId) }
   }
 
   /** Cancel one job (the native protocol has no global interrupt). */
   async cancel(execution: ExecutionRef): Promise<void> {
-    if (execution.connection !== this.id)
-      throw new Error(
-        `cannot cancel execution from connection '${execution.connection}' on '${this.id}'`,
-      );
-    const res = await this.fetchFn(this.jobUrl(execution.prompt), {
-      method: "DELETE",
-    });
-    if (!res.ok) throw await this.failExecutionRequest(res, "cancel");
+    if (execution.connection !== this.id) throw new Error(`cannot cancel execution from connection '${execution.connection}' on '${this.id}'`)
+    const res = await this.fetchFn(this.jobUrl(execution.prompt), { method: 'DELETE' })
+    if (!res.ok) throw await this.failExecutionRequest(res, 'cancel')
   }
 
   // -- Job hydration --------------------------------------------------------------
 
   private jobUrl(jobId: string): string {
-    return `${this.baseUrl}/api/jobs/${encodeURIComponent(this.clientId)}/${encodeURIComponent(jobId)}`;
+    return `${this.baseUrl}/api/jobs/${encodeURIComponent(this.clientId)}/${encodeURIComponent(jobId)}`
   }
 
   /**
    * Fetch one job record, or undefined when the server has none (bounded
    * history eviction or a restart).
    */
-  async fetchJob(
-    jobId: string,
-    operation = "inspect",
-  ): Promise<DinksterJobRecord | undefined> {
-    const res = await this.fetchFn(this.jobUrl(jobId));
-    if (res.status === 404 || res.status === 410) return undefined;
-    if (!res.ok) throw await this.failExecutionRequest(res, operation);
-    const payload: unknown = await res.json();
-    const state = (payload as { state?: unknown } | null)?.state;
-    if (
-      typeof payload !== "object" ||
-      payload === null ||
-      Array.isArray(payload) ||
-      typeof state !== "string" ||
-      !["queued", "running", "completed", "failed", "cancelled"].includes(state)
-    ) {
-      throw new Error("GET job: malformed response");
+  async fetchJob(jobId: string, operation = 'inspect'): Promise<DinksterJobRecord | undefined> {
+    const res = await this.fetchFn(this.jobUrl(jobId))
+    if (res.status === 404 || res.status === 410) return undefined
+    if (!res.ok) throw await this.failExecutionRequest(res, operation)
+    const payload: unknown = await res.json()
+    const state = (payload as { state?: unknown } | null)?.state
+    if (typeof payload !== 'object' || payload === null || Array.isArray(payload) ||
+      typeof state !== 'string' ||
+      !['queued', 'running', 'completed', 'failed', 'cancelled'].includes(state)) {
+      throw new Error('GET job: malformed response')
     }
     const record = payload as DinksterJobWire & {
-      readonly clientId?: unknown;
-      readonly jobId?: unknown;
-      readonly artifacts?: unknown;
-    };
+      readonly clientId?: unknown
+      readonly jobId?: unknown
+      readonly artifacts?: unknown
+    }
     // Identity check: a record carrying a DIFFERENT identity than the one
     // requested must never reconcile this job (e.g. a proxy or cache slip).
     // Absent identity fields are fine - the URL is the request's identity.
     if (record.jobId !== undefined && record.jobId !== jobId) {
-      throw new Error(
-        `GET job: response identity mismatch (expected ${jobId})`,
-      );
+      throw new Error(`GET job: response identity mismatch (expected ${jobId})`)
     }
     if (record.clientId !== undefined && record.clientId !== this.clientId) {
-      throw new Error("GET job: response clientId mismatch");
+      throw new Error('GET job: response clientId mismatch')
     }
-    const artifacts = decodeJobArtifacts(record.artifacts);
-    const submittedBy = decodeExecutionSubmitter(
-      (record as Record<string, unknown>)["submittedBy"],
-    );
-    const sourceDocument =
-      typeof record.sourceDocument === "string"
-        ? record.sourceDocument
-        : undefined;
+    const artifacts = decodeJobArtifacts(record.artifacts)
+    const submittedBy = decodeExecutionSubmitter((record as Record<string, unknown>)['submittedBy'])
+    const sourceDocument = typeof record.sourceDocument === 'string' ? record.sourceDocument : undefined
     const {
       artifacts: _wireArtifacts,
       submittedBy: _wireSubmittedBy,
       sourceDocument: _wireSourceDocument,
       ...withoutOptionalFields
-    } = record as DinksterJobRecord & { readonly submittedBy?: unknown };
+    } = record as DinksterJobRecord & { readonly submittedBy?: unknown }
     return {
       ...withoutOptionalFields,
       ...(artifacts !== undefined ? { artifacts } : {}),
       ...(submittedBy !== undefined ? { submittedBy } : {}),
       ...(sourceDocument !== undefined ? { sourceDocument } : {}),
-    };
+    }
   }
 
   /**
@@ -3360,37 +2347,22 @@ export class DinksterConnection {
    * so error mapping/dedupe stay in one place.
    */
   replayJob(jobId: string, job: DinksterJobRecord): void {
-    const timestamp = Date.now();
-    const nodes = nodeStatesFromDinksterJob(job);
+    const timestamp = Date.now()
+    const nodes = nodeStatesFromDinksterJob(job)
     if (Object.keys(nodes).length > 0) {
       // snapshot: the fetched record may be OLDER than live events that
       // raced past the fetch - the store merges it conservatively.
       this.emit([
-        {
-          kind: "nodeStates",
-          execution: this.executionFor(jobId),
-          timestamp,
-          nodes,
-          snapshot: true,
-        },
-      ]);
+        { kind: 'nodeStates', execution: this.executionFor(jobId), timestamp, nodes, snapshot: true },
+      ])
     }
-    if (
-      job.state === "completed" ||
-      job.state === "failed" ||
-      job.state === "cancelled"
-    ) {
-      this.emitRaw(
-        {
-          type: "job_state",
-          jobId,
-          state: job.state,
-          ...(job.error !== undefined && job.error !== null
-            ? { error: job.error }
-            : {}),
-        },
-        false,
-      );
+    if (job.state === 'completed' || job.state === 'failed' || job.state === 'cancelled') {
+      this.emitRaw({
+        type: 'job_state',
+        jobId,
+        state: job.state,
+        ...(job.error !== undefined && job.error !== null ? { error: job.error } : {}),
+      }, false)
     }
   }
 
@@ -3408,51 +2380,37 @@ export class DinksterConnection {
     after = 0,
     limit = RUN_JOURNAL_PAGE_LIMIT,
   ): Promise<RunJournalPage | undefined> {
-    const url = `${this.baseUrl}/api/runs/${encodeURIComponent(runId)}/journal?scope=${encodeURIComponent(scope)}&after=${after}&limit=${limit}`;
-    const res = await this.fetchFn(url);
-    if (res.status === 404) return undefined;
-    if (!res.ok) throw new Error(`GET run journal failed: ${res.status}`);
-    const payload: unknown = await res.json();
-    if (
-      typeof payload !== "object" ||
-      payload === null ||
-      Array.isArray(payload)
-    ) {
-      throw new Error("GET run journal: malformed response");
+    const url = `${this.baseUrl}/api/runs/${encodeURIComponent(runId)}/journal?scope=${encodeURIComponent(scope)}&after=${after}&limit=${limit}`
+    const res = await this.fetchFn(url)
+    if (res.status === 404) return undefined
+    if (!res.ok) throw new Error(`GET run journal failed: ${res.status}`)
+    const payload: unknown = await res.json()
+    if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+      throw new Error('GET run journal: malformed response')
     }
-    const page = payload as {
-      records?: unknown;
-      latestSeq?: unknown;
-      coalescedBelow?: unknown;
-    };
-    if (!Array.isArray(page.records) || typeof page.latestSeq !== "number") {
-      throw new Error("GET run journal: malformed response");
+    const page = payload as { records?: unknown; latestSeq?: unknown; coalescedBelow?: unknown }
+    if (!Array.isArray(page.records) || typeof page.latestSeq !== 'number') {
+      throw new Error('GET run journal: malformed response')
     }
-    const records: RunJournalRecord[] = [];
+    const records: RunJournalRecord[] = []
     for (const entry of page.records) {
-      if (typeof entry !== "object" || entry === null || Array.isArray(entry))
-        continue;
-      const record = entry as {
-        seq?: unknown;
-        name?: unknown;
-        payload?: unknown;
-      };
-      if (typeof record.seq !== "number") continue;
-      const wire = record.payload;
+      if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue
+      const record = entry as { seq?: unknown; name?: unknown; payload?: unknown }
+      if (typeof record.seq !== 'number') continue
+      const wire = record.payload
       records.push({
         seq: record.seq,
-        name: typeof record.name === "string" ? record.name : "",
-        ...(typeof wire === "object" && wire !== null && !Array.isArray(wire)
+        name: typeof record.name === 'string' ? record.name : '',
+        ...(typeof wire === 'object' && wire !== null && !Array.isArray(wire)
           ? { payload: wire as Readonly<Record<string, unknown>> }
           : {}),
-      });
+      })
     }
     return {
       records,
       latestSeq: page.latestSeq,
-      coalescedBelow:
-        typeof page.coalescedBelow === "number" ? page.coalescedBelow : 0,
-    };
+      coalescedBelow: typeof page.coalescedBelow === 'number' ? page.coalescedBelow : 0,
+    }
   }
 
   /**
@@ -3464,35 +2422,32 @@ export class DinksterConnection {
    * and a per-run cursor makes repeat calls fetch only newer records.
    */
   backfillRunLog(runId: string, scope: string): Promise<void> {
-    const inFlight = this.runLogBackfills.get(runId);
-    if (inFlight !== undefined) return inFlight;
+    const inFlight = this.runLogBackfills.get(runId)
+    if (inFlight !== undefined) return inFlight
     const pass = this.backfillRunLogPass(runId, scope).finally(() => {
-      this.runLogBackfills.delete(runId);
-    });
-    this.runLogBackfills.set(runId, pass);
-    return pass;
+      this.runLogBackfills.delete(runId)
+    })
+    this.runLogBackfills.set(runId, pass)
+    return pass
   }
 
-  private async backfillRunLogPass(
-    runId: string,
-    scope: string,
-  ): Promise<void> {
-    let after = this.runLogCursors.get(runId) ?? 0;
+  private async backfillRunLogPass(runId: string, scope: string): Promise<void> {
+    let after = this.runLogCursors.get(runId) ?? 0
     for (let pages = 0; pages < RUN_JOURNAL_MAX_PAGES; pages++) {
-      const page = await this.fetchRunJournal(runId, scope, after);
-      if (page === undefined) return;
+      const page = await this.fetchRunJournal(runId, scope, after)
+      if (page === undefined) return
       for (const record of page.records) {
-        if (record.name !== "log") continue;
-        const wire = record.payload;
-        if (wire === undefined || typeof wire["type"] !== "string") continue;
-        this.emitRaw(wire as DinksterRawJson, false);
+        if (record.name !== 'log') continue
+        const wire = record.payload
+        if (wire === undefined || typeof wire['type'] !== 'string') continue
+        this.emitRaw(wire as DinksterRawJson, false)
       }
-      const tail = page.records[page.records.length - 1];
+      const tail = page.records[page.records.length - 1]
       if (tail !== undefined && tail.seq > after) {
-        after = tail.seq;
-        this.runLogCursors.set(runId, after);
+        after = tail.seq
+        this.runLogCursors.set(runId, after)
       }
-      if (tail === undefined || after >= page.latestSeq) return;
+      if (tail === undefined || after >= page.latestSeq) return
     }
   }
 
@@ -3505,26 +2460,21 @@ export class DinksterConnection {
    * and a miss never disturbs the live stream.
    */
   private noteLiveJobEvent(raw: DinksterRawJson): void {
-    const jobId = raw["jobId"];
-    if (
-      typeof jobId !== "string" ||
-      jobId === "" ||
-      this.seenLiveJobs.has(jobId)
-    )
-      return;
-    this.seenLiveJobs.add(jobId);
-    const seq = raw["seq"];
-    if (typeof seq !== "number" || seq <= 1) return;
-    void this.backfillJobRunLog(jobId);
+    const jobId = raw['jobId']
+    if (typeof jobId !== 'string' || jobId === '' || this.seenLiveJobs.has(jobId)) return
+    this.seenLiveJobs.add(jobId)
+    const seq = raw['seq']
+    if (typeof seq !== 'number' || seq <= 1) return
+    void this.backfillJobRunLog(jobId)
   }
 
   private async backfillJobRunLog(jobId: string): Promise<void> {
     try {
-      const job = await this.fetchJob(jobId);
-      if (job === undefined) return;
-      const identity = runJournalIdentity(job);
-      if (identity === undefined) return;
-      await this.backfillRunLog(identity.runId, identity.scope);
+      const job = await this.fetchJob(jobId)
+      if (job === undefined) return
+      const identity = runJournalIdentity(job)
+      if (identity === undefined) return
+      await this.backfillRunLog(identity.runId, identity.scope)
     } catch {
       // Journal-less or older servers: the live stream stays authoritative.
     }
@@ -3538,13 +2488,11 @@ export class DinksterConnection {
   async fetchJobOutputs(
     jobId: string,
   ): Promise<Readonly<Record<string, Readonly<Record<string, unknown>>>>> {
-    const job = await this.fetchJob(jobId, "outputs");
-    const outputs = job?.outputs;
-    return typeof outputs === "object" &&
-      outputs !== null &&
-      !Array.isArray(outputs)
+    const job = await this.fetchJob(jobId, 'outputs')
+    const outputs = job?.outputs
+    return typeof outputs === 'object' && outputs !== null && !Array.isArray(outputs)
       ? (outputs as Record<string, Readonly<Record<string, unknown>>>)
-      : {};
+      : {}
   }
 
   // -- Workflow library (POST /api/assets + /api/library) --------------------
@@ -3558,88 +2506,63 @@ export class DinksterConnection {
    * dismissal while a POST is pending needs a recovery path when the
    * server never answers (the fetch is otherwise unbounded).
    */
-  async uploadAsset(
-    bytes: Blob | ArrayBuffer | Uint8Array | string,
-    signal?: AbortSignal,
-  ): Promise<string> {
+  async uploadAsset(bytes: Blob | ArrayBuffer | Uint8Array | string, signal?: AbortSignal): Promise<string> {
     const res = await this.fetchFn(`${this.baseUrl}/api/assets`, {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
       // Uint8Array is accepted by Fetch at runtime but older DOM typings omit
       // it from BodyInit; preserve the caller's exact view rather than copy.
       body: bytes as BodyInit,
       ...(signal !== undefined ? { signal } : {}),
-    });
-    if (!res.ok) throw new Error(`POST /api/assets failed: ${res.status}`);
-    const payload = (await res.json()) as { digest?: unknown };
-    if (typeof payload.digest !== "string")
-      throw new Error("POST /api/assets: malformed response");
-    return payload.digest;
+    })
+    if (!res.ok) throw new Error(`POST /api/assets failed: ${res.status}`)
+    const payload = (await res.json()) as { digest?: unknown }
+    if (typeof payload.digest !== 'string') throw new Error('POST /api/assets: malformed response')
+    return payload.digest
   }
 
   /** Import a named file into the current project's writable folder, not the workflow vault. */
   async uploadNamedAsset(
     file: File,
-    options: AssetUploadDestination & {
-      readonly scope: string;
-      readonly name: string;
-      readonly signal?: AbortSignal;
-    },
+    options: AssetUploadDestination & { readonly scope: string; readonly name: string; readonly signal?: AbortSignal },
   ): Promise<MediaAssetRef> {
-    const query = new URLSearchParams({
-      scope: options.scope,
-      name: options.name,
+    const query = new URLSearchParams({ scope: options.scope, name: options.name,
       ...(this.project !== undefined ? { project: this.project } : {}),
       ...(options.mount !== undefined ? { mount: options.mount } : {}),
       ...(options.folder !== undefined ? { folder: options.folder } : {}),
-    });
+    })
     const res = await this.fetchFn(`${this.baseUrl}/api/assets?${query}`, {
-      method: "POST",
-      headers: { "Content-Type": file.type || "application/octet-stream" },
-      body: file,
+      method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file,
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
-    });
-    if (!res.ok) throw new Error(`POST /api/assets failed: ${res.status}`);
-    const payload: unknown = await res.json();
-    const asset = uploadedAssetRef(payload, undefined, "POST /api/assets");
-    if ((payload as Record<string, unknown>)["digest"] !== asset.digest)
-      throw new Error("POST /api/assets: malformed response");
-    return asset;
+    })
+    if (!res.ok) throw new Error(`POST /api/assets failed: ${res.status}`)
+    const payload: unknown = await res.json()
+    const asset = uploadedAssetRef(payload, undefined, 'POST /api/assets')
+    if ((payload as Record<string, unknown>)['digest'] !== asset.digest) throw new Error('POST /api/assets: malformed response')
+    return asset
   }
 
   /** Validate and adopt canonical ImageDocument bytes plus their scoped dependencies. */
   async adoptImageDocument(
     bytes: Blob | ArrayBuffer | Uint8Array | string,
-    options: {
-      readonly scope: string;
-      readonly expectedDigest?: string;
-      readonly signal?: AbortSignal;
-    },
+    options: { readonly scope: string; readonly expectedDigest?: string; readonly signal?: AbortSignal },
   ): Promise<AdoptedImageDocument> {
-    const headers = new Headers({ "Content-Type": IMAGE_DOCUMENT_MEDIA_TYPE });
-    if (options.expectedDigest !== undefined)
-      headers.set("X-Dinkster-Digest", options.expectedDigest);
-    const query = new URLSearchParams({ scope: options.scope });
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/assets/image-document?${query}`,
-      {
-        method: "POST",
-        headers,
-        body: bytes as BodyInit,
-        ...(options.signal !== undefined ? { signal: options.signal } : {}),
-      },
-    );
-    if (!res.ok)
-      throw new Error(`POST /api/assets/image-document failed: ${res.status}`);
-    const adopted = adoptedImageDocument(await res.json());
-    if (
-      adopted === undefined ||
-      (options.expectedDigest !== undefined &&
-        adopted.digest !== options.expectedDigest)
-    ) {
-      throw new Error("POST /api/assets/image-document: malformed response");
+    const headers = new Headers({ 'Content-Type': IMAGE_DOCUMENT_MEDIA_TYPE })
+    if (options.expectedDigest !== undefined) headers.set('X-Dinkster-Digest', options.expectedDigest)
+    const query = new URLSearchParams({ scope: options.scope })
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/image-document?${query}`, {
+      method: 'POST',
+      headers,
+      body: bytes as BodyInit,
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
+    })
+    if (!res.ok) throw new Error(`POST /api/assets/image-document failed: ${res.status}`)
+    const adopted = adoptedImageDocument(await res.json())
+    if (adopted === undefined ||
+      (options.expectedDigest !== undefined && adopted.digest !== options.expectedDigest)) {
+      throw new Error('POST /api/assets/image-document: malformed response')
     }
-    return adopted;
+    return adopted
   }
 
   /** Read an adopted asset's immutable dependency manifest. */
@@ -3650,744 +2573,415 @@ export class DinksterConnection {
     const res = await this.fetchFn(
       `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}/dependencies`,
       signal !== undefined ? { signal } : undefined,
-    );
-    if (res.status === 404 || res.status === 410) return undefined;
-    if (!res.ok)
-      throw new Error(
-        `GET /api/assets/${digest}/dependencies failed: ${res.status}`,
-      );
-    const payload: unknown = await res.json();
-    if (
-      typeof payload !== "object" ||
-      payload === null ||
-      Array.isArray(payload)
-    ) {
-      throw new Error("GET ImageDocument dependencies: malformed response");
+    )
+    if (res.status === 404 || res.status === 410) return undefined
+    if (!res.ok) throw new Error(`GET /api/assets/${digest}/dependencies failed: ${res.status}`)
+    const payload: unknown = await res.json()
+    if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+      throw new Error('GET ImageDocument dependencies: malformed response')
     }
-    const row = payload as Record<string, unknown>;
-    const dependencies = imageDocumentDependencies(row["dependencies"]);
-    if (row["digest"] !== digest || dependencies === undefined) {
-      throw new Error("GET ImageDocument dependencies: malformed response");
+    const row = payload as Record<string, unknown>
+    const dependencies = imageDocumentDependencies(row['dependencies'])
+    if (row['digest'] !== digest || dependencies === undefined) {
+      throw new Error('GET ImageDocument dependencies: malformed response')
     }
-    return dependencies;
+    return dependencies
   }
 
   /** Render one adopted ImageDocument through the backend CPU reference profile. */
   async renderImageDocument(
     digest: string,
     options: {
-      readonly scope: string;
-      readonly selector?: string;
-      readonly signal?: AbortSignal;
+      readonly scope: string
+      readonly selector?: string
+      readonly signal?: AbortSignal
     },
   ): Promise<RenderedImageDocument> {
-    const query = new URLSearchParams({ scope: options.scope });
+    const query = new URLSearchParams({ scope: options.scope })
     const res = await this.fetchFn(
       `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}/render?${query}`,
       {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          selector: options.selector ?? "composite",
+          selector: options.selector ?? 'composite',
           profile: IMAGE_DOCUMENT_RENDER_PROFILE,
         }),
         ...(options.signal !== undefined ? { signal: options.signal } : {}),
       },
-    );
-    if (!res.ok)
-      throw new Error(
-        `POST /api/assets/${digest}/render failed: ${res.status}`,
-      );
-    const rendered = renderedImageDocument(await res.json());
-    if (
-      rendered === undefined ||
-      rendered.provenance.documentDigest !== digest ||
-      rendered.provenance.selector !== (options.selector ?? "composite")
-    ) {
-      throw new Error("POST ImageDocument render: malformed response");
+    )
+    if (!res.ok) throw new Error(`POST /api/assets/${digest}/render failed: ${res.status}`)
+    const rendered = renderedImageDocument(await res.json())
+    if (rendered === undefined || rendered.provenance.documentDigest !== digest ||
+      rendered.provenance.selector !== (options.selector ?? 'composite')) {
+      throw new Error('POST ImageDocument render: malformed response')
     }
-    return rendered;
+    return rendered
   }
 
   /** Upload classified source media and return only the server-authored AssetRef. */
   async uploadMediaAsset(
     file: File,
     options: AssetUploadDestination & {
-      readonly scope: string;
-      readonly kind: "media/image" | "media/audio" | "media/video";
-      readonly name: string;
-      readonly expectedDigest?: string;
-      readonly signal?: AbortSignal;
+      readonly scope: string
+      readonly kind: 'media/image' | 'media/audio' | 'media/video'
+      readonly name: string
+      readonly expectedDigest?: string
+      readonly signal?: AbortSignal
     },
   ): Promise<MediaAssetRef> {
-    const query = new URLSearchParams({
-      scope: options.scope,
-      kind: options.kind,
-      name: options.name,
+    const query = new URLSearchParams({ scope: options.scope, kind: options.kind, name: options.name,
       ...(this.project !== undefined ? { project: this.project } : {}),
       ...(options.mount !== undefined ? { mount: options.mount } : {}),
       ...(options.folder !== undefined ? { folder: options.folder } : {}),
-    });
-    const headers = new Headers({ "Content-Type": file.type });
-    if (options.expectedDigest !== undefined)
-      headers.set("X-Dinkster-Digest", options.expectedDigest);
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/assets/media?${query}`,
-      {
-        method: "POST",
-        headers,
-        body: file,
-        ...(options.signal !== undefined ? { signal: options.signal } : {}),
-      },
-    );
-    if (!res.ok)
-      throw new Error(`POST /api/assets/media failed: ${res.status}`);
-    return uploadedAssetRef(
-      await res.json(),
-      options.kind,
-      "POST /api/assets/media",
-    );
+    })
+    const headers = new Headers({ 'Content-Type': file.type })
+    if (options.expectedDigest !== undefined) headers.set('X-Dinkster-Digest', options.expectedDigest)
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/media?${query}`, {
+      method: 'POST',
+      headers,
+      body: file,
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
+    })
+    if (!res.ok) throw new Error(`POST /api/assets/media failed: ${res.status}`)
+    return uploadedAssetRef(await res.json(), options.kind, 'POST /api/assets/media')
   }
 
   /** Upload a validated safetensors latent and adopt the server-authored AssetRef. */
   async uploadLatentAsset(
     file: File,
-    options: {
-      readonly scope: string;
-      readonly name: string;
-      readonly signal?: AbortSignal;
-    },
+    options: { readonly scope: string; readonly name: string; readonly signal?: AbortSignal },
   ): Promise<MediaAssetRef> {
-    const query = new URLSearchParams({
-      scope: options.scope,
-      name: options.name,
-    });
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/assets/latent?${query}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/x-comfy-latent" },
-        body: file,
-        ...(options.signal !== undefined ? { signal: options.signal } : {}),
-      },
-    );
-    if (!res.ok)
-      throw new Error(`POST /api/assets/latent failed: ${res.status}`);
-    return uploadedAssetRef(
-      await res.json(),
-      "data/latent",
-      "POST /api/assets/latent",
-    );
+    const query = new URLSearchParams({ scope: options.scope, name: options.name })
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/latent?${query}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-comfy-latent' },
+      body: file,
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
+    })
+    if (!res.ok) throw new Error(`POST /api/assets/latent failed: ${res.status}`)
+    return uploadedAssetRef(await res.json(), 'data/latent', 'POST /api/assets/latent')
   }
 
   /** Resolve legacy asset names without acquiring bytes or changing a document. */
-  async guessAssets(
-    names: readonly string[],
-    digestHints?: Readonly<Record<string, string>>,
-  ): Promise<readonly AssetGuessMatch[]> {
-    const matches: AssetGuessMatch[] = [];
+  async guessAssets(names: readonly string[], digestHints?: Readonly<Record<string, string>>): Promise<readonly AssetGuessMatch[]> {
+    const matches: AssetGuessMatch[] = []
     for (let offset = 0; offset < names.length; offset += 64) {
-      const batch = names.slice(offset, offset + 64);
-      const batchNames = new Set(batch);
-      const batchHints = Object.fromEntries(
-        Object.entries(digestHints ?? {})
-          .filter(
-            ([name, digest]) =>
-              batchNames.has(name) && /^blake3:[0-9a-f]{64}$/i.test(digest),
-          )
-          .map(([name, digest]) => [name, digest.toLowerCase()]),
-      );
-      const hinted = Object.keys(batchHints).length > 0;
-      const request = (includeHints: boolean) =>
-        this.fetchFn(`${this.baseUrl}/api/assets/guess`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            names: batch,
-            ...(includeHints ? { digestHints: batchHints } : {}),
-          }),
-        });
-      let res = await request(hinted);
-      if (hinted && res.status === 400) res = await request(false);
-      if (!res.ok)
-        throw new Error(`POST /api/assets/guess failed: ${res.status}`);
-      matches.push(...parseAssetGuessMatches(await res.json()));
+      const batch = names.slice(offset, offset + 64)
+      const batchNames = new Set(batch)
+      const batchHints = Object.fromEntries(Object.entries(digestHints ?? {})
+        .filter(([name, digest]) => batchNames.has(name) && /^blake3:[0-9a-f]{64}$/i.test(digest))
+        .map(([name, digest]) => [name, digest.toLowerCase()]))
+      const hinted = Object.keys(batchHints).length > 0
+      const request = (includeHints: boolean) => this.fetchFn(`${this.baseUrl}/api/assets/guess`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+          names: batch,
+          ...(includeHints ? { digestHints: batchHints } : {}),
+        }),
+      })
+      let res = await request(hinted)
+      if (hinted && res.status === 400) res = await request(false)
+      if (!res.ok) throw new Error(`POST /api/assets/guess failed: ${res.status}`)
+      matches.push(...parseAssetGuessMatches(await res.json()))
     }
-    return matches;
+    return matches
   }
 
   /** Read host requirements without granting download or installation consent. */
-  async planWorkflowRequirements(
-    document: WorkflowDocument,
-  ): Promise<WorkflowRequirementPlan> {
+  async planWorkflowRequirements(document: WorkflowDocument): Promise<WorkflowRequirementPlan> {
     const res = await this.fetchFn(`${this.baseUrl}/api/workflows/plan`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ workflows: [document] }),
-    });
-    if (!res.ok)
-      throw new Error(`POST /api/workflows/plan failed: ${res.status}`);
-    const raw: unknown = await res.json();
-    const invalid = () => new Error("invalid workflow requirement plan");
-    if (typeof raw !== "object" || raw === null) throw invalid();
-    const body = raw as Record<string, unknown>;
-    if (
-      !Array.isArray(body["packs"]) ||
-      !Array.isArray(body["assets"]) ||
-      !Array.isArray(body["errors"]) ||
-      !body["errors"].every((error) => typeof error === "string")
-    )
-      throw invalid();
-    const packs = body["packs"].map((raw: unknown) => {
-      if (typeof raw !== "object" || raw === null) throw invalid();
-      const pack = raw as Record<string, unknown>;
-      if (
-        typeof pack["pack"] !== "string" ||
-        pack["pack"] === "" ||
-        (pack["version"] !== null &&
-          (typeof pack["version"] !== "string" || pack["version"] === ""))
-      )
-        throw invalid();
-      return { pack: pack["pack"], version: pack["version"] };
-    });
-    const assets = body["assets"].map((raw: unknown) => {
-      if (typeof raw !== "object" || raw === null) throw invalid();
-      const asset = raw as Record<string, unknown>;
-      if (
-        typeof asset["digest"] !== "string" ||
-        !/^blake3:[0-9a-f]{64}$/.test(asset["digest"]) ||
-        typeof asset["name"] !== "string" ||
-        !Array.isArray(asset["sources"]) ||
-        !asset["sources"].every((source) => typeof source === "string") ||
-        (asset["packagedFrom"] !== undefined &&
-          (!Array.isArray(asset["packagedFrom"]) ||
-            !asset["packagedFrom"].every((pack) => typeof pack === "string")))
-      )
-        throw invalid();
+    })
+    if (!res.ok) throw new Error(`POST /api/workflows/plan failed: ${res.status}`)
+    const raw: unknown = await res.json()
+    const invalid = () => new Error('invalid workflow requirement plan')
+    if (typeof raw !== 'object' || raw === null) throw invalid()
+    const body = raw as Record<string, unknown>
+    if (!Array.isArray(body['packs']) || !Array.isArray(body['assets']) ||
+      !Array.isArray(body['errors']) || !body['errors'].every((error) => typeof error === 'string')) throw invalid()
+    const packs = body['packs'].map((raw: unknown) => {
+      if (typeof raw !== 'object' || raw === null) throw invalid()
+      const pack = raw as Record<string, unknown>
+      if (typeof pack['pack'] !== 'string' || pack['pack'] === '' ||
+        (pack['version'] !== null && (typeof pack['version'] !== 'string' || pack['version'] === ''))) throw invalid()
+      return { pack: pack['pack'], version: pack['version'] }
+    })
+    const assets = body['assets'].map((raw: unknown) => {
+      if (typeof raw !== 'object' || raw === null) throw invalid()
+      const asset = raw as Record<string, unknown>
+      if (typeof asset['digest'] !== 'string' || !/^blake3:[0-9a-f]{64}$/.test(asset['digest']) ||
+        typeof asset['name'] !== 'string' || !Array.isArray(asset['sources']) ||
+        !asset['sources'].every((source) => typeof source === 'string') ||
+        (asset['packagedFrom'] !== undefined && (!Array.isArray(asset['packagedFrom']) ||
+          !asset['packagedFrom'].every((pack) => typeof pack === 'string')))) throw invalid()
       return {
-        digest: asset["digest"],
-        name: asset["name"],
-        sources: asset["sources"] as string[],
-        ...(Array.isArray(asset["packagedFrom"])
-          ? { packagedFrom: asset["packagedFrom"] as string[] }
-          : {}),
-      };
-    });
-    return { packs, assets, errors: body["errors"] as string[] };
+        digest: asset['digest'], name: asset['name'], sources: asset['sources'] as string[],
+        ...(Array.isArray(asset['packagedFrom']) ? { packagedFrom: asset['packagedFrom'] as string[] } : {}),
+      }
+    })
+    return { packs, assets, errors: body['errors'] as string[] }
   }
 
   /** Fetch asset bytes as text; undefined when not held (or no library). */
   async fetchAssetText(digest: string): Promise<string | undefined> {
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`,
-    );
-    if (res.status === 404 || res.status === 410) return undefined;
-    if (!res.ok)
-      throw new Error(`GET /api/assets/${digest} failed: ${res.status}`);
-    return res.text();
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`)
+    if (res.status === 404 || res.status === 410) return undefined
+    if (!res.ok) throw new Error(`GET /api/assets/${digest} failed: ${res.status}`)
+    return res.text()
   }
 
   /** Fetch opaque asset bytes without corrupting images through text decoding. */
   async fetchAssetBytes(digest: string): Promise<ArrayBuffer | undefined> {
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`,
-    );
-    if (res.status === 404 || res.status === 410) return undefined;
-    if (!res.ok)
-      throw new Error(`GET /api/assets/${digest} failed: ${res.status}`);
-    return res.arrayBuffer();
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`)
+    if (res.status === 404 || res.status === 410) return undefined
+    if (!res.ok) throw new Error(`GET /api/assets/${digest} failed: ${res.status}`)
+    return res.arrayBuffer()
   }
 
   /** Read a host-granted revision without caching or claiming content identity. */
-  async fetchLocalAssetBytes(
-    binding: string,
-    signal?: AbortSignal,
-  ): Promise<ArrayBuffer | undefined> {
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/assets/local/${encodeURIComponent(binding)}`,
-      {
-        cache: "no-store",
-        ...(signal ? { signal } : {}),
-      },
-    );
-    if (res.status === 404) return undefined;
-    if (!res.ok) throw new Error(`GET /api/assets/local failed: ${res.status}`);
-    return res.arrayBuffer();
+  async fetchLocalAssetBytes(binding: string, signal?: AbortSignal): Promise<ArrayBuffer | undefined> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/local/${encodeURIComponent(binding)}`, {
+      cache: 'no-store', ...(signal ? { signal } : {}),
+    })
+    if (res.status === 404) return undefined
+    if (!res.ok) throw new Error(`GET /api/assets/local failed: ${res.status}`)
+    return res.arrayBuffer()
   }
 
   assetUrl(digest: string): string {
-    return `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`;
+    return `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`
   }
 
   async fetchMountSettings(): Promise<MountSettings> {
-    const generation = ++this.mountRequestGeneration;
-    const promise = requestWithDeadline((signal) =>
-      this.readMountSettings(signal),
-    );
-    this.newestMountFetch = { generation, promise };
+    const generation = ++this.mountRequestGeneration
+    const promise = requestWithDeadline((signal) => this.readMountSettings(signal))
+    this.newestMountFetch = { generation, promise }
     // Every consumer must see the newest snapshot, including callers whose
     // earlier response arrives after another consumer has refreshed mounts.
-    let current = { generation, promise };
+    let current = { generation, promise }
     for (;;) {
-      const newest = (): {
-        generation: number;
-        promise: Promise<MountSettings>;
-      } => this.newestMountFetch ?? current;
+      const newest = (): { generation: number; promise: Promise<MountSettings> } =>
+        this.newestMountFetch ?? current
       try {
-        const settings = await current.promise;
+        const settings = await current.promise
         if (newest().generation === current.generation) {
-          this.mountErrors.set(undefined);
-          return settings;
+          this.mountErrors.set(undefined)
+          return settings
         }
       } catch (error) {
         if (newest().generation === current.generation) {
-          this.mountErrors.set(
-            error instanceof Error ? error.message : String(error),
-          );
-          throw error;
+          this.mountErrors.set(error instanceof Error ? error.message : String(error))
+          throw error
         }
       }
-      current = newest();
+      current = newest()
     }
   }
 
   private async readMountSettings(signal: AbortSignal): Promise<MountSettings> {
-    const query =
-      this.project && this.project !== "default"
-        ? `?${new URLSearchParams({ project: this.project })}`
-        : "";
-    const res = await this.fetchFn(`${this.baseUrl}/api/mounts${query}`, {
-      signal,
-    });
-    if (!res.ok) throw new Error(`GET /api/mounts failed: ${res.status}`);
-    const payload = (await res.json()) as {
-      mounts?: unknown;
-      outputMount?: unknown;
-      activeOutputMount?: unknown;
-      mountChangesAllowed?: unknown;
-      restartRequired?: unknown;
-      pendingRemovals?: unknown;
-    };
+    const query = this.project && this.project !== 'default' ? `?${new URLSearchParams({ project: this.project })}` : ''
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts${query}`, { signal })
+    if (!res.ok) throw new Error(`GET /api/mounts failed: ${res.status}`)
+    const payload = await res.json() as { mounts?: unknown; outputMount?: unknown; activeOutputMount?: unknown; mountChangesAllowed?: unknown; restartRequired?: unknown; pendingRemovals?: unknown }
     // Compatibility: a response without the field (older backend) decodes
     // as false - read-only; a present non-boolean is a protocol error.
-    if (
-      payload.mountChangesAllowed !== undefined &&
-      typeof payload.mountChangesAllowed !== "boolean"
-    ) {
-      throw new Error("GET /api/mounts: malformed mountChangesAllowed");
+    if (payload.mountChangesAllowed !== undefined && typeof payload.mountChangesAllowed !== 'boolean') {
+      throw new Error('GET /api/mounts: malformed mountChangesAllowed')
     }
-    const rows = payload.mounts;
-    if (!Array.isArray(rows))
-      throw new Error("GET /api/mounts: malformed response");
+    const rows = payload.mounts
+    if (!Array.isArray(rows)) throw new Error('GET /api/mounts: malformed response')
     const mounts = rows.filter((value): value is MountDescriptor => {
-      if (typeof value !== "object" || value === null) return false;
-      const row = value as Record<string, unknown>;
-      const scanProgress = row["scanProgress"];
-      const progress =
-        typeof scanProgress === "object" && scanProgress !== null
-          ? (scanProgress as Record<string, unknown>)
-          : undefined;
-      const validProgress =
-        scanProgress === undefined ||
-        (progress !== undefined &&
-          ["filesDone", "filesTotal", "bytesDone", "bytesTotal"].every(
-            (field) => {
-              const number = progress[field];
-              return (
-                typeof number === "number" &&
-                Number.isSafeInteger(number) &&
-                number >= 0
-              );
-            },
-          ) &&
-          typeof progress["elapsedSeconds"] === "number" &&
-          Number.isFinite(progress["elapsedSeconds"]) &&
-          progress["elapsedSeconds"] >= 0 &&
-          (progress["filesDone"] as number) <=
-            (progress["filesTotal"] as number) &&
-          (progress["bytesDone"] as number) <=
-            (progress["bytesTotal"] as number));
-      return (
-        typeof row["id"] === "string" &&
-        (row["mode"] === "read" || row["mode"] === "readwrite") &&
-        typeof row["state"] === "string" &&
-        (row["path"] === undefined || typeof row["path"] === "string") &&
-        (row["kind"] === undefined || typeof row["kind"] === "string") &&
-        (row["entryCount"] === undefined ||
-          (typeof row["entryCount"] === "number" &&
-            Number.isSafeInteger(row["entryCount"]) &&
-            row["entryCount"] >= 0)) &&
-        validProgress
-      );
-    });
-    if (payload.outputMount != null && typeof payload.outputMount !== "string")
-      throw new Error("GET /api/mounts: malformed output mount");
-    if (
-      payload.activeOutputMount != null &&
-      typeof payload.activeOutputMount !== "string"
-    )
-      throw new Error("GET /api/mounts: malformed active output mount");
-    if (
-      payload.restartRequired !== undefined &&
-      typeof payload.restartRequired !== "boolean"
-    )
-      throw new Error("GET /api/mounts: malformed restartRequired");
-    if (
-      payload.pendingRemovals !== undefined &&
-      (!Array.isArray(payload.pendingRemovals) ||
-        !payload.pendingRemovals.every((id) => typeof id === "string"))
-    )
-      throw new Error("GET /api/mounts: malformed pendingRemovals");
+      if (typeof value !== 'object' || value === null) return false
+      const row = value as Record<string, unknown>
+      const scanProgress = row['scanProgress']
+      const progress = typeof scanProgress === 'object' && scanProgress !== null
+        ? scanProgress as Record<string, unknown>
+        : undefined
+      const validProgress = scanProgress === undefined || (progress !== undefined &&
+        ['filesDone', 'filesTotal', 'bytesDone', 'bytesTotal'].every((field) => {
+          const number = progress[field]
+          return typeof number === 'number' && Number.isSafeInteger(number) && number >= 0
+        }) && typeof progress['elapsedSeconds'] === 'number' && Number.isFinite(progress['elapsedSeconds']) &&
+        progress['elapsedSeconds'] >= 0 && (progress['filesDone'] as number) <= (progress['filesTotal'] as number) &&
+        (progress['bytesDone'] as number) <= (progress['bytesTotal'] as number))
+      return typeof row['id'] === 'string' && (row['mode'] === 'read' || row['mode'] === 'readwrite') &&
+        typeof row['state'] === 'string' && (row['path'] === undefined || typeof row['path'] === 'string') &&
+        (row['kind'] === undefined || typeof row['kind'] === 'string') &&
+        (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
+    })
+    if (payload.outputMount != null && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')
+    if (payload.activeOutputMount != null && typeof payload.activeOutputMount !== 'string') throw new Error('GET /api/mounts: malformed active output mount')
+    if (payload.restartRequired !== undefined && typeof payload.restartRequired !== 'boolean') throw new Error('GET /api/mounts: malformed restartRequired')
+    if (payload.pendingRemovals !== undefined && (!Array.isArray(payload.pendingRemovals) || !payload.pendingRemovals.every((id) => typeof id === 'string'))) throw new Error('GET /api/mounts: malformed pendingRemovals')
     return {
       mounts,
-      mountChangesAllowed:
-        payload.mountChangesAllowed === undefined
-          ? false
-          : payload.mountChangesAllowed,
-      ...(typeof payload.outputMount === "string"
-        ? { outputMount: payload.outputMount }
-        : {}),
-      ...(typeof payload.activeOutputMount === "string"
-        ? { activeOutputMount: payload.activeOutputMount }
-        : {}),
-      ...(typeof payload.restartRequired === "boolean"
-        ? { restartRequired: payload.restartRequired }
-        : {}),
-      ...(Array.isArray(payload.pendingRemovals)
-        ? { pendingRemovals: payload.pendingRemovals as string[] }
-        : {}),
-    };
+      mountChangesAllowed: payload.mountChangesAllowed === undefined ? false : payload.mountChangesAllowed,
+      ...(typeof payload.outputMount === 'string' ? { outputMount: payload.outputMount } : {}),
+      ...(typeof payload.activeOutputMount === 'string' ? { activeOutputMount: payload.activeOutputMount } : {}),
+      ...(typeof payload.restartRequired === 'boolean' ? { restartRequired: payload.restartRequired } : {}),
+      ...(Array.isArray(payload.pendingRemovals) ? { pendingRemovals: payload.pendingRemovals as string[] } : {}),
+    }
   }
 
   async fetchAssetLocations(digest: string): Promise<readonly string[]> {
-    const query = new URLSearchParams({
-      digest,
-      scope: "local",
-      project: this.project ?? "default",
-    });
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/mounts/locations?${query}`,
-    );
-    if (!res.ok) throw new Error(`GET asset locations failed: ${res.status}`);
-    const payload = (await res.json()) as { locations?: unknown };
-    if (!Array.isArray(payload.locations))
-      throw new Error("GET asset locations: malformed response");
+    const query = new URLSearchParams({ digest, scope: 'local', project: this.project ?? 'default' })
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/locations?${query}`)
+    if (!res.ok) throw new Error(`GET asset locations failed: ${res.status}`)
+    const payload = await res.json() as { locations?: unknown }
+    if (!Array.isArray(payload.locations)) throw new Error('GET asset locations: malformed response')
     return payload.locations.map((value: unknown) => {
-      if (
-        typeof value !== "object" ||
-        value === null ||
-        typeof (value as Record<string, unknown>)["path"] !== "string"
-      ) {
-        throw new Error("GET asset locations: malformed location");
+      if (typeof value !== 'object' || value === null || typeof (value as Record<string, unknown>)['path'] !== 'string') {
+        throw new Error('GET asset locations: malformed location')
       }
-      return (value as { path: string }).path;
-    });
+      return (value as { path: string }).path
+    })
   }
 
   async fetchMountLocations(): Promise<MountLocations> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/locations`);
-    if (!res.ok)
-      throw new Error(`GET /api/mounts/locations failed: ${res.status}`);
-    const payload = (await res.json()) as {
-      mounts?: unknown;
-      activeMounts?: unknown;
-      importMount?: unknown;
-    };
-    if (!Array.isArray(payload.mounts))
-      throw new Error("GET /api/mounts/locations: malformed response");
-    if (
-      payload.importMount !== undefined &&
-      payload.importMount !== null &&
-      (typeof payload.importMount !== "string" || payload.importMount === "")
-    )
-      throw new Error("GET /api/mounts/locations: malformed import mount");
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/locations`)
+    if (!res.ok) throw new Error(`GET /api/mounts/locations failed: ${res.status}`)
+    const payload = await res.json() as { mounts?: unknown; activeMounts?: unknown; importMount?: unknown }
+    if (!Array.isArray(payload.mounts)) throw new Error('GET /api/mounts/locations: malformed response')
+    if (payload.importMount !== undefined && payload.importMount !== null &&
+        (typeof payload.importMount !== 'string' || payload.importMount === '')) throw new Error('GET /api/mounts/locations: malformed import mount')
     const location = (value: unknown) => {
-      const row = value as Record<string, unknown> | null;
-      if (
-        row === null ||
-        typeof row !== "object" ||
-        typeof row["id"] !== "string" ||
-        typeof row["path"] !== "string"
-      )
-        throw new Error("GET /api/mounts/locations: malformed location");
-      return { id: row["id"], path: row["path"] };
-    };
-    if (
-      payload.activeMounts !== undefined &&
-      !Array.isArray(payload.activeMounts)
-    )
-      throw new Error("GET /api/mounts/locations: malformed active mounts");
-    const activeMounts = (payload.activeMounts as unknown[] | undefined)?.map(
-      (value): MountDescriptor & { readonly path: string } => {
-        const path = location(value);
-        const row = value as Record<string, unknown>;
-        if (
-          (row["mode"] !== "read" && row["mode"] !== "readwrite") ||
-          typeof row["state"] !== "string"
-        )
-          throw new Error("GET /api/mounts/locations: malformed active mount");
-        return { ...path, mode: row["mode"], state: row["state"] };
-      },
-    );
-    return {
-      mounts: payload.mounts.map(location),
-      ...(activeMounts !== undefined ? { activeMounts } : {}),
-      ...(payload.importMount !== undefined
-        ? { importMount: payload.importMount as string | null }
-        : {}),
-    };
+      const row = value as Record<string, unknown> | null
+      if (row === null || typeof row !== 'object' || typeof row['id'] !== 'string' || typeof row['path'] !== 'string') throw new Error('GET /api/mounts/locations: malformed location')
+      return { id: row['id'], path: row['path'] }
+    }
+    if (payload.activeMounts !== undefined && !Array.isArray(payload.activeMounts)) throw new Error('GET /api/mounts/locations: malformed active mounts')
+    const activeMounts = (payload.activeMounts as unknown[] | undefined)?.map((value): MountDescriptor & { readonly path: string } => {
+      const path = location(value)
+      const row = value as Record<string, unknown>
+      if ((row['mode'] !== 'read' && row['mode'] !== 'readwrite') || typeof row['state'] !== 'string') throw new Error('GET /api/mounts/locations: malformed active mount')
+      return { ...path, mode: row['mode'], state: row['state'] }
+    })
+    return { mounts: payload.mounts.map(location), ...(activeMounts !== undefined ? { activeMounts } : {}),
+      ...(payload.importMount !== undefined ? { importMount: payload.importMount as string | null } : {}) }
   }
 
-  async updateProjectFolders(
-    mounts: readonly string[],
-    outputMount: string | null,
-  ): Promise<void> {
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/mounts/projects/${encodeURIComponent(this.project ?? "default")}`,
-      {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mounts, outputMount }),
-      },
-    );
-    if (!res.ok) throw new Error(`PUT project folders failed: ${res.status}`);
+  async updateProjectFolders(mounts: readonly string[], outputMount: string | null): Promise<void> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/projects/${encodeURIComponent(this.project ?? 'default')}`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mounts, outputMount }),
+    })
+    if (!res.ok) throw new Error(`PUT project folders failed: ${res.status}`)
   }
 
   async retryMount(id: string): Promise<void> {
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/mounts/${encodeURIComponent(id)}/retry`,
-      { method: "POST" },
-    );
-    if (!res.ok) throw new Error(`POST mount retry failed: ${res.status}`);
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/${encodeURIComponent(id)}/retry`, { method: 'POST' })
+    if (!res.ok) throw new Error(`POST mount retry failed: ${res.status}`)
   }
 
   async listMounts(): Promise<readonly MountDescriptor[]> {
-    return (await this.fetchMountSettings()).mounts;
+    return (await this.fetchMountSettings()).mounts
   }
 
-  async listAssetSelections(
-    kind: string,
-    signal?: AbortSignal,
-    project = this.project,
-  ): Promise<readonly AssetSelectionOption[]> {
-    if (
-      ![
-        "model/vae",
-        "model/diffusers",
-        "directory/input",
-        "directory/dataset",
-      ].includes(kind)
-    ) {
-      throw new Error("Unsupported asset selection kind");
+  async listAssetSelections(kind: string, signal?: AbortSignal, project = this.project): Promise<readonly AssetSelectionOption[]> {
+    if (!['model/vae', 'model/diffusers', 'directory/input', 'directory/dataset'].includes(kind)) {
+      throw new Error('Unsupported asset selection kind')
     }
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/assets/selections?${new URLSearchParams({ kind, ...(project === undefined ? {} : { project }) })}`,
-      signal === undefined ? undefined : { signal },
-    );
-    if (!res.ok) throw new Error(`GET asset selections failed: ${res.status}`);
-    const payload: unknown = await res.json();
-    if (
-      typeof payload !== "object" ||
-      payload === null ||
-      Array.isArray(payload)
-    )
-      throw new Error("Malformed asset selections");
-    const body = payload as Record<string, unknown>;
-    if (
-      Object.keys(body).some((key) => key !== "kind" && key !== "options") ||
-      body["kind"] !== kind ||
-      !Array.isArray(body["options"])
-    ) {
-      throw new Error("Malformed asset selections");
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/selections?${new URLSearchParams({ kind, ...(project === undefined ? {} : { project }) })}`, signal === undefined ? undefined : { signal })
+    if (!res.ok) throw new Error(`GET asset selections failed: ${res.status}`)
+    const payload: unknown = await res.json()
+    if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) throw new Error('Malformed asset selections')
+    const body = payload as Record<string, unknown>
+    if (Object.keys(body).some((key) => key !== 'kind' && key !== 'options') || body['kind'] !== kind || !Array.isArray(body['options'])) {
+      throw new Error('Malformed asset selections')
     }
-    const names = new Set<string>();
-    return body["options"].map((value: unknown) => {
-      if (typeof value !== "object" || value === null || Array.isArray(value))
-        throw new Error("Malformed asset selection option");
-      const option = value as Record<string, unknown>;
-      const shapes =
-        kind === "model/vae" ? ["file", "pair", "literal"] : ["directory"];
-      if (
-        Object.keys(option).some((key) => key !== "name" && key !== "shape") ||
-        typeof option["name"] !== "string" ||
-        option["name"] === "" ||
-        names.has(option["name"]) ||
-        typeof option["shape"] !== "string" ||
-        !shapes.includes(option["shape"])
-      )
-        throw new Error("Malformed asset selection option");
-      names.add(option["name"]);
-      return {
-        name: option["name"],
-        shape: option["shape"] as AssetSelectionOption["shape"],
-      };
-    });
+    const names = new Set<string>()
+    return body['options'].map((value: unknown) => {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Malformed asset selection option')
+      const option = value as Record<string, unknown>
+      const shapes = kind === 'model/vae' ? ['file', 'pair', 'literal'] : ['directory']
+      if (Object.keys(option).some((key) => key !== 'name' && key !== 'shape') ||
+        typeof option['name'] !== 'string' || option['name'] === '' || names.has(option['name']) ||
+        typeof option['shape'] !== 'string' || !shapes.includes(option['shape'])) throw new Error('Malformed asset selection option')
+      names.add(option['name'])
+      return { name: option['name'], shape: option['shape'] as AssetSelectionOption['shape'] }
+    })
   }
 
   async selectOutputMount(id: string): Promise<void> {
-    const settings = await this.fetchMountSettings();
-    if (this.project === undefined || this.project === "default") {
+    const settings = await this.fetchMountSettings()
+    if (this.project === undefined || this.project === 'default') {
       const res = await this.fetchFn(`${this.baseUrl}/api/mounts/output`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id }),
-      });
-      if (!res.ok)
-        throw new Error(`PUT /api/mounts/output failed: ${res.status}`);
+      })
+      if (!res.ok) throw new Error(`PUT /api/mounts/output failed: ${res.status}`)
     }
     // Folder ordering can already have pinned the default project's output.
     // Keep that override in sync with the persisted library default.
-    await this.updateProjectFolders(
-      settings.mounts.map((mount) => mount.id),
-      id,
-    );
+    await this.updateProjectFolders(settings.mounts.map((mount) => mount.id), id)
   }
 
-  async addMount(
-    id: string,
-    path: string,
-    mode: "read" | "readwrite" = "read",
-    options: MountGrantOptions = {},
-  ): Promise<MountDescriptor> {
+  async addMount(id: string, path: string, mode: 'read' | 'readwrite' = 'read', options: MountGrantOptions = {}): Promise<MountDescriptor> {
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        id,
-        path,
-        mode,
-        ...(this.project !== undefined ? { project: this.project } : {}),
-        ...options,
-      }),
-    });
-    if (!res.ok) throw new Error(`POST /api/mounts failed: ${res.status}`);
-    const value = (await res.json()) as Record<string, unknown>;
-    if (
-      typeof value["id"] !== "string" ||
-      (value["mode"] !== "read" && value["mode"] !== "readwrite") ||
-      typeof value["state"] !== "string"
-    )
-      throw new Error("POST /api/mounts: malformed response");
-    return value as unknown as MountDescriptor;
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, path, mode, ...(this.project !== undefined ? { project: this.project } : {}), ...options }),
+    })
+    if (!res.ok) throw new Error(`POST /api/mounts failed: ${res.status}`)
+    const value = await res.json() as Record<string, unknown>
+    if (typeof value['id'] !== 'string' || (value['mode'] !== 'read' && value['mode'] !== 'readwrite') ||
+      typeof value['state'] !== 'string') throw new Error('POST /api/mounts: malformed response')
+    return value as unknown as MountDescriptor
   }
 
   async removeMount(id: string): Promise<void> {
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/mounts/${encodeURIComponent(id)}`,
-      { method: "DELETE" },
-    );
-    if (!res.ok)
-      throw new Error(`DELETE /api/mounts/${id} failed: ${res.status}`);
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(`DELETE /api/mounts/${id} failed: ${res.status}`)
   }
 
-  async listMountEntries(
-    mountId: string,
-    req: {
-      readonly q?: string;
-      readonly path?: string;
-      readonly recursive?: boolean;
-      readonly cursor?: string;
-      readonly limit?: number;
-      readonly kind?: string;
-      readonly signal?: AbortSignal;
-    } = {},
-  ): Promise<MountEntryPage> {
-    const params = new URLSearchParams();
-    if (req.q) params.set("q", req.q);
-    if (req.path !== undefined) params.set("path", req.path);
-    if (req.recursive !== undefined)
-      params.set("recursive", req.recursive ? "true" : "false");
-    if (req.cursor) params.set("cursor", req.cursor);
-    if (req.limit !== undefined) params.set("limit", String(req.limit));
-    if (req.kind) params.set("kind", req.kind);
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/mounts/${encodeURIComponent(mountId)}/entries?${params}`,
-      req.signal !== undefined ? { signal: req.signal } : undefined,
-    );
-    if (!res.ok) throw new Error(`GET mount entries failed: ${res.status}`);
-    const payload = (await res.json()) as {
-      entries?: unknown;
-      folders?: unknown;
-      cursor?: unknown;
-      total?: unknown;
-    };
-    const entries = Array.isArray(payload.entries)
-      ? payload.entries.filter((value): value is MountEntry => {
-          if (typeof value !== "object" || value === null) return false;
-          const row = value as Record<string, unknown>;
-          return (
-            typeof row["virtualPath"] === "string" &&
-            typeof row["name"] === "string" &&
-            typeof row["digest"] === "string" &&
-            typeof row["size"] === "number" &&
-            typeof row["mediaType"] === "string" &&
-            (row["kind"] === undefined || typeof row["kind"] === "string")
-          );
-        })
-      : [];
-    const folders = Array.isArray(payload.folders)
-      ? payload.folders.filter(
-          (value): value is string => typeof value === "string",
-        )
-      : undefined;
+  async listMountEntries(mountId: string, req: { readonly q?: string; readonly path?: string; readonly recursive?: boolean; readonly cursor?: string; readonly limit?: number; readonly kind?: string; readonly signal?: AbortSignal } = {}): Promise<MountEntryPage> {
+    const params = new URLSearchParams()
+    if (req.q) params.set('q', req.q)
+    if (req.path !== undefined) params.set('path', req.path)
+    if (req.recursive !== undefined) params.set('recursive', req.recursive ? 'true' : 'false')
+    if (req.cursor) params.set('cursor', req.cursor)
+    if (req.limit !== undefined) params.set('limit', String(req.limit))
+    if (req.kind) params.set('kind', req.kind)
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/${encodeURIComponent(mountId)}/entries?${params}`, req.signal !== undefined ? { signal: req.signal } : undefined)
+    if (!res.ok) throw new Error(`GET mount entries failed: ${res.status}`)
+    const payload = await res.json() as { entries?: unknown; folders?: unknown; cursor?: unknown; total?: unknown }
+    const entries = Array.isArray(payload.entries) ? payload.entries.filter((value): value is MountEntry => {
+      if (typeof value !== 'object' || value === null) return false
+      const row = value as Record<string, unknown>
+      return typeof row['virtualPath'] === 'string' && typeof row['name'] === 'string' && typeof row['digest'] === 'string' &&
+        typeof row['size'] === 'number' && typeof row['mediaType'] === 'string' && (row['kind'] === undefined || typeof row['kind'] === 'string')
+    }) : []
+    const folders = Array.isArray(payload.folders) ? payload.folders.filter((value): value is string => typeof value === 'string') : undefined
     return {
       entries,
       ...(folders !== undefined ? { folders } : {}),
-      ...(typeof payload.cursor === "string" ? { cursor: payload.cursor } : {}),
-      ...(typeof payload.total === "number" ? { total: payload.total } : {}),
-    };
+      ...(typeof payload.cursor === 'string' ? { cursor: payload.cursor } : {}),
+      ...(typeof payload.total === 'number' ? { total: payload.total } : {}),
+    }
   }
 
-  async listMountFolder(
-    mountId: string,
-    path = "",
-  ): Promise<readonly MountFolderEntry[]> {
-    const params = new URLSearchParams({ path });
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/mounts/${encodeURIComponent(mountId)}/list?${params}`,
-    );
-    if (!res.ok) throw new Error(`GET mount folder failed: ${res.status}`);
-    const payload = (await res.json()) as { entries?: unknown };
-    return Array.isArray(payload.entries)
-      ? payload.entries.flatMap((value): MountFolderEntry[] => {
-          if (typeof value !== "object" || value === null) return [];
-          const row = value as Record<string, unknown>;
-          const name =
-            typeof row["name"] === "string" ? row["name"] : undefined;
-          const virtualPath =
-            typeof row["virtualPath"] === "string"
-              ? row["virtualPath"]
-              : typeof row["path"] === "string"
-                ? row["path"]
-                : undefined;
-          const folder =
-            row["folder"] === true ||
-            row["type"] === "folder" ||
-            row["kind"] === "folder";
-          return name && virtualPath
-            ? [
-                {
-                  name,
-                  virtualPath,
-                  folder,
-                  ...(typeof row["childCount"] === "number"
-                    ? { childCount: row["childCount"] }
-                    : {}),
-                },
-              ]
-            : [];
-        })
-      : [];
+  async listMountFolder(mountId: string, path = ''): Promise<readonly MountFolderEntry[]> {
+    const params = new URLSearchParams({ path })
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/${encodeURIComponent(mountId)}/list?${params}`)
+    if (!res.ok) throw new Error(`GET mount folder failed: ${res.status}`)
+    const payload = await res.json() as { entries?: unknown }
+    return Array.isArray(payload.entries) ? payload.entries.flatMap((value): MountFolderEntry[] => {
+      if (typeof value !== 'object' || value === null) return []
+      const row = value as Record<string, unknown>
+      const name = typeof row['name'] === 'string' ? row['name'] : undefined
+      const virtualPath = typeof row['virtualPath'] === 'string' ? row['virtualPath'] : typeof row['path'] === 'string' ? row['path'] : undefined
+      const folder = row['folder'] === true || row['type'] === 'folder' || row['kind'] === 'folder'
+      return name && virtualPath ? [{ name, virtualPath, folder, ...(typeof row['childCount'] === 'number' ? { childCount: row['childCount'] } : {}) }] : []
+    }) : []
   }
 
   async fetchAssetMetadata(digest: string): Promise<unknown | undefined> {
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/assets/${encodeURIComponent(digest)}/metadata`,
-    );
-    if (res.status === 404 || res.status === 415 || res.status === 501)
-      return undefined;
-    if (!res.ok) throw new Error(`GET asset metadata failed: ${res.status}`);
-    return res.json();
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/${encodeURIComponent(digest)}/metadata`)
+    if (res.status === 404 || res.status === 415 || res.status === 501) return undefined
+    if (!res.ok) throw new Error(`GET asset metadata failed: ${res.status}`)
+    return res.json()
   }
 
   /**
@@ -4397,253 +2991,195 @@ export class DinksterConnection {
    * from page one). Malformed entries are skipped, never surfaced.
    */
   async listLibrary(req: {
-    readonly scope: string;
-    readonly query?: string;
-    readonly label?: string;
-    readonly limit?: number;
-    readonly cursor?: string;
+    readonly scope: string
+    readonly query?: string
+    readonly label?: string
+    readonly limit?: number
+    readonly cursor?: string
   }): Promise<LibraryPage> {
-    const params = new URLSearchParams({ scope: req.scope });
-    if (req.query !== undefined && req.query !== "") params.set("q", req.query);
-    if (req.label !== undefined) params.set("label", req.label);
-    if (req.limit !== undefined) params.set("limit", String(req.limit));
-    if (req.cursor !== undefined) params.set("cursor", req.cursor);
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/library?${params.toString()}`,
-    );
-    if (!res.ok) throw new Error(`GET /api/library failed: ${res.status}`);
-    const payload = (await res.json()) as {
-      records?: unknown;
-      cursor?: unknown;
-    };
-    const records = Array.isArray(payload.records)
-      ? payload.records.filter(isLibraryRecord)
-      : [];
+    const params = new URLSearchParams({ scope: req.scope })
+    if (req.query !== undefined && req.query !== '') params.set('q', req.query)
+    if (req.label !== undefined) params.set('label', req.label)
+    if (req.limit !== undefined) params.set('limit', String(req.limit))
+    if (req.cursor !== undefined) params.set('cursor', req.cursor)
+    const res = await this.fetchFn(`${this.baseUrl}/api/library?${params.toString()}`)
+    if (!res.ok) throw new Error(`GET /api/library failed: ${res.status}`)
+    const payload = (await res.json()) as { records?: unknown; cursor?: unknown }
+    const records = Array.isArray(payload.records) ? payload.records.filter(isLibraryRecord) : []
     return {
       records,
-      ...(typeof payload.cursor === "string" ? { cursor: payload.cursor } : {}),
-    };
+      ...(typeof payload.cursor === 'string' ? { cursor: payload.cursor } : {}),
+    }
   }
 
   /** Query-first templates collection; server errors (including cursor mismatch) surface verbatim. */
-  async listTemplates(
-    req: {
-      readonly q?: string;
-      readonly tag?: string;
-      readonly pack?: string;
-      readonly limit?: number;
-      readonly cursor?: string;
-    } = {},
-  ): Promise<TemplatePage> {
-    const params = new URLSearchParams();
-    if (req.q !== undefined && req.q !== "") params.set("q", req.q);
-    if (req.tag !== undefined && req.tag !== "") params.set("tag", req.tag);
-    if (req.pack !== undefined && req.pack !== "") params.set("pack", req.pack);
-    if (req.limit !== undefined) params.set("limit", String(req.limit));
-    if (req.cursor !== undefined) params.set("cursor", req.cursor);
-    const suffix = params.size > 0 ? `?${params.toString()}` : "";
-    const res = await this.fetchFn(`${this.baseUrl}/api/templates${suffix}`);
-    if (!res.ok) throw new Error(`GET /api/templates failed: ${res.status}`);
-    const payload = (await res.json()) as {
-      templates?: unknown;
-      cursor?: unknown;
-    };
+  async listTemplates(req: {
+    readonly q?: string
+    readonly tag?: string
+    readonly pack?: string
+    readonly limit?: number
+    readonly cursor?: string
+  } = {}): Promise<TemplatePage> {
+    const params = new URLSearchParams()
+    if (req.q !== undefined && req.q !== '') params.set('q', req.q)
+    if (req.tag !== undefined && req.tag !== '') params.set('tag', req.tag)
+    if (req.pack !== undefined && req.pack !== '') params.set('pack', req.pack)
+    if (req.limit !== undefined) params.set('limit', String(req.limit))
+    if (req.cursor !== undefined) params.set('cursor', req.cursor)
+    const suffix = params.size > 0 ? `?${params.toString()}` : ''
+    const res = await this.fetchFn(`${this.baseUrl}/api/templates${suffix}`)
+    if (!res.ok) throw new Error(`GET /api/templates failed: ${res.status}`)
+    const payload = await res.json() as { templates?: unknown; cursor?: unknown }
     return {
       templates: Array.isArray(payload.templates)
-        ? payload.templates
-            .map(templateDescriptor)
-            .filter((v): v is TemplateDescriptor => v !== undefined)
+        ? payload.templates.map(templateDescriptor).filter((v): v is TemplateDescriptor => v !== undefined)
         : [],
-      ...(typeof payload.cursor === "string" ? { cursor: payload.cursor } : {}),
-    };
+      ...(typeof payload.cursor === 'string' ? { cursor: payload.cursor } : {}),
+    }
   }
 
   /** Fetch and validate one immutable native-format template body. */
-  async fetchTemplateBody(
-    packId: string,
-    templateId: string,
-  ): Promise<WorkflowDocument | undefined> {
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/templates/${encodeURIComponent(templateId)}`,
-    );
-    if (res.status === 404 || res.status === 410) return undefined;
-    if (!res.ok) throw new Error(`GET template failed: ${res.status}`);
-    let loaded;
+  async fetchTemplateBody(packId: string, templateId: string): Promise<WorkflowDocument | undefined> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/templates/${encodeURIComponent(templateId)}`)
+    if (res.status === 404 || res.status === 410) return undefined
+    if (!res.ok) throw new Error(`GET template failed: ${res.status}`)
+    let loaded
     try {
-      loaded = loadDocument((await res.json()) as unknown);
+      loaded = loadDocument(await res.json() as unknown)
     } catch (error) {
-      throw new Error(`GET template: malformed response`, { cause: error });
+      throw new Error(`GET template: malformed response`, { cause: error })
     }
     if (loaded.document === undefined) {
       // loadDocument reports shape failures as diagnostics, not throws: a
       // 200 body that fails to load is a protocol error, never absence.
-      const detail = loaded.diagnostics[0]?.message;
-      throw new Error(
-        `GET template: malformed response${detail !== undefined ? ` (${detail})` : ""}`,
-      );
+      const detail = loaded.diagnostics[0]?.message
+      throw new Error(`GET template: malformed response${detail !== undefined ? ` (${detail})` : ''}`)
     }
-    return loaded.document;
+    return loaded.document
   }
 
   /** Query the grouped-locale docs catalog; an absent cursor means exhausted. */
-  async listDocs(
-    req: {
-      readonly q?: string;
-      readonly kind?: "node" | "guide";
-      readonly pack?: string;
-      readonly id?: string;
-      readonly limit?: number;
-      readonly cursor?: string;
-    } = {},
-  ): Promise<DocsPage> {
-    const params = new URLSearchParams();
-    if (req.q !== undefined && req.q !== "") params.set("q", req.q);
-    if (req.kind !== undefined) params.set("kind", req.kind);
-    if (req.pack !== undefined && req.pack !== "") params.set("pack", req.pack);
-    if (req.id !== undefined && req.id !== "") params.set("id", req.id);
-    if (req.limit !== undefined) params.set("limit", String(req.limit));
-    if (req.cursor !== undefined) params.set("cursor", req.cursor);
-    const suffix = params.size > 0 ? `?${params.toString()}` : "";
-    const res = await this.fetchFn(`${this.baseUrl}/api/docs${suffix}`);
-    if (!res.ok) throw new Error(`GET /api/docs failed: ${res.status}`);
-    const payload = (await res.json()) as { docs?: unknown; cursor?: unknown };
+  async listDocs(req: {
+    readonly q?: string
+    readonly kind?: 'node' | 'guide'
+    readonly pack?: string
+    readonly id?: string
+    readonly limit?: number
+    readonly cursor?: string
+  } = {}): Promise<DocsPage> {
+    const params = new URLSearchParams()
+    if (req.q !== undefined && req.q !== '') params.set('q', req.q)
+    if (req.kind !== undefined) params.set('kind', req.kind)
+    if (req.pack !== undefined && req.pack !== '') params.set('pack', req.pack)
+    if (req.id !== undefined && req.id !== '') params.set('id', req.id)
+    if (req.limit !== undefined) params.set('limit', String(req.limit))
+    if (req.cursor !== undefined) params.set('cursor', req.cursor)
+    const suffix = params.size > 0 ? `?${params.toString()}` : ''
+    const res = await this.fetchFn(`${this.baseUrl}/api/docs${suffix}`)
+    if (!res.ok) throw new Error(`GET /api/docs failed: ${res.status}`)
+    const payload = await res.json() as { docs?: unknown; cursor?: unknown }
     return {
       docs: Array.isArray(payload.docs)
-        ? payload.docs
-            .map(docsDescriptor)
-            .filter(
-              (descriptor): descriptor is DocsDescriptor =>
-                descriptor !== undefined,
-            )
+        ? payload.docs.map(docsDescriptor).filter((descriptor): descriptor is DocsDescriptor => descriptor !== undefined)
         : [],
-      ...(typeof payload.cursor === "string" ? { cursor: payload.cursor } : {}),
-    };
+      ...(typeof payload.cursor === 'string' ? { cursor: payload.cursor } : {}),
+    }
   }
 
   /** Fetch one immutable Markdown page by its pack-scoped digest. */
-  async fetchDocsPage(
-    packId: string,
-    digest: string,
-  ): Promise<string | undefined> {
-    const key = `${packId}\u0000${digest}`;
-    const cached = this.docsPages.get(key);
-    if (cached !== undefined) return cached;
+  async fetchDocsPage(packId: string, digest: string): Promise<string | undefined> {
+    const key = `${packId}\u0000${digest}`
+    const cached = this.docsPages.get(key)
+    if (cached !== undefined) return cached
     const pending = this.fetchFn(
       `${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/docs/pages/${encodeURIComponent(digest)}`,
-    )
-      .then(async (res) => {
-        if (res.status === 404) return undefined;
-        if (!res.ok) throw new Error(`GET docs page failed: ${res.status}`);
-        const contentType = res.headers
-          .get("Content-Type")
-          ?.split(";", 1)[0]
-          ?.trim()
-          .toLowerCase();
-        if (contentType !== "text/markdown")
-          throw new Error("GET docs page: expected text/markdown");
-        return res.text();
-      })
-      .catch((error: unknown) => {
-        this.docsPages.delete(key);
-        throw error;
-      });
-    this.docsPages.set(key, pending);
+    ).then(async (res) => {
+      if (res.status === 404) return undefined
+      if (!res.ok) throw new Error(`GET docs page failed: ${res.status}`)
+      const contentType = res.headers.get('Content-Type')?.split(';', 1)[0]?.trim().toLowerCase()
+      if (contentType !== 'text/markdown') throw new Error('GET docs page: expected text/markdown')
+      return res.text()
+    }).catch((error: unknown) => {
+      this.docsPages.delete(key)
+      throw error
+    })
+    this.docsPages.set(key, pending)
     while (this.docsPages.size > DOCS_PAGE_CACHE_MAX) {
-      const oldest = this.docsPages.keys().next().value;
-      if (oldest === undefined) break;
-      this.docsPages.delete(oldest);
+      const oldest = this.docsPages.keys().next().value
+      if (oldest === undefined) break
+      this.docsPages.delete(oldest)
     }
-    return pending;
+    return pending
   }
 
   /** Fetch one immutable locale catalog by its advertised digest. */
-  async fetchPackLocaleCatalog(
-    packId: string,
-    digest: string,
-  ): Promise<unknown | undefined> {
-    const key = `${packId}\u0000${digest}`;
-    const cached = this.packLocaleCatalogs.get(key);
-    if (cached !== undefined) return cached;
+  async fetchPackLocaleCatalog(packId: string, digest: string): Promise<unknown | undefined> {
+    const key = `${packId}\u0000${digest}`
+    const cached = this.packLocaleCatalogs.get(key)
+    if (cached !== undefined) return cached
     const pending = this.fetchFn(
       `${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/locales/${encodeURIComponent(digest)}`,
-    )
-      .then(async (res) => {
-        if (res.status === 404) return undefined;
-        if (!res.ok)
-          throw new Error(`GET pack locale catalog failed: ${res.status}`);
-        const contentType = res.headers
-          .get("Content-Type")
-          ?.split(";", 1)[0]
-          ?.trim()
-          .toLowerCase();
-        if (contentType !== "application/json") {
-          throw new Error("GET pack locale catalog: expected application/json");
-        }
-        try {
-          const text = new TextDecoder("utf-8", { fatal: true }).decode(
-            await res.arrayBuffer(),
-          );
-          return JSON.parse(text) as unknown;
-        } catch (error) {
-          throw new Error("GET pack locale catalog: malformed response", {
-            cause: error,
-          });
-        }
-      })
-      .catch((error: unknown) => {
-        this.packLocaleCatalogs.delete(key);
-        throw error;
-      });
-    this.packLocaleCatalogs.set(key, pending);
+    ).then(async (res) => {
+      if (res.status === 404) return undefined
+      if (!res.ok) throw new Error(`GET pack locale catalog failed: ${res.status}`)
+      const contentType = res.headers.get('Content-Type')?.split(';', 1)[0]?.trim().toLowerCase()
+      if (contentType !== 'application/json') {
+        throw new Error('GET pack locale catalog: expected application/json')
+      }
+      try {
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(await res.arrayBuffer())
+        return JSON.parse(text) as unknown
+      } catch (error) {
+        throw new Error('GET pack locale catalog: malformed response', { cause: error })
+      }
+    }).catch((error: unknown) => {
+      this.packLocaleCatalogs.delete(key)
+      throw error
+    })
+    this.packLocaleCatalogs.set(key, pending)
     while (this.packLocaleCatalogs.size > DOCS_PAGE_CACHE_MAX) {
-      const oldest = this.packLocaleCatalogs.keys().next().value;
-      if (oldest === undefined) break;
-      this.packLocaleCatalogs.delete(oldest);
+      const oldest = this.packLocaleCatalogs.keys().next().value
+      if (oldest === undefined) break
+      this.packLocaleCatalogs.delete(oldest)
     }
-    return pending;
+    return pending
   }
 
   /** Browser-safe URL for a descriptor-validated immutable docs asset. */
   docsAssetUrl(packId: string, digest: string): string {
-    return `${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/docs/assets/${encodeURIComponent(digest)}`;
+    return `${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/docs/assets/${encodeURIComponent(digest)}`
   }
 
   /** One record by id; undefined on miss/wrong scope (a plain 404 by contract). */
-  async getLibraryRecord(
-    id: string,
-    scope: string,
-  ): Promise<LibraryRecord | undefined> {
+  async getLibraryRecord(id: string, scope: string): Promise<LibraryRecord | undefined> {
     const res = await this.fetchFn(
       `${this.baseUrl}/api/library/${encodeURIComponent(id)}?scope=${encodeURIComponent(scope)}`,
-    );
-    if (res.status === 404) return undefined;
-    if (!res.ok)
-      throw new Error(`GET /api/library/${id} failed: ${res.status}`);
-    const payload: unknown = await res.json();
-    if (!isLibraryRecord(payload))
-      throw new Error("GET /api/library: malformed response");
-    return payload;
+    )
+    if (res.status === 404) return undefined
+    if (!res.ok) throw new Error(`GET /api/library/${id} failed: ${res.status}`)
+    const payload: unknown = await res.json()
+    if (!isLibraryRecord(payload)) throw new Error('GET /api/library: malformed response')
+    return payload
   }
 
   /** Create a record over an already-held digest (409 = upload first). */
   async createLibraryRecord(args: {
-    readonly scope: string;
-    readonly name: string;
-    readonly digest: string;
-    readonly mediaType: string;
-    readonly labels?: readonly string[];
-    readonly folder?: string;
+    readonly scope: string
+    readonly name: string
+    readonly digest: string
+    readonly mediaType: string
+    readonly labels?: readonly string[]
+    readonly folder?: string
   }): Promise<LibraryRecord> {
     const res = await this.fetchFn(`${this.baseUrl}/api/library`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(args),
-    });
-    if (!res.ok) throw new Error(`POST /api/library failed: ${res.status}`);
-    const payload: unknown = await res.json();
-    if (!isLibraryRecord(payload))
-      throw new Error("POST /api/library: malformed response");
-    return payload;
+    })
+    if (!res.ok) throw new Error(`POST /api/library failed: ${res.status}`)
+    const payload: unknown = await res.json()
+    if (!isLibraryRecord(payload)) throw new Error('POST /api/library: malformed response')
+    return payload
   }
 
   /**
@@ -4654,32 +3190,25 @@ export class DinksterConnection {
   async patchLibraryRecord(
     id: string,
     patch: {
-      readonly scope: string;
-      readonly revision: number;
-      readonly name?: string;
-      readonly digest?: string;
-      readonly mediaType?: string;
-      readonly labels?: readonly string[];
-      readonly folder?: string;
+      readonly scope: string
+      readonly revision: number
+      readonly name?: string
+      readonly digest?: string
+      readonly mediaType?: string
+      readonly labels?: readonly string[]
+      readonly folder?: string
     },
-  ): Promise<
-    { ok: true; record: LibraryRecord } | { ok: false; conflict: boolean }
-  > {
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/library/${encodeURIComponent(id)}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      },
-    );
-    if (res.status === 409) return { ok: false, conflict: true };
-    if (!res.ok)
-      throw new Error(`PATCH /api/library/${id} failed: ${res.status}`);
-    const payload: unknown = await res.json();
-    if (!isLibraryRecord(payload))
-      throw new Error("PATCH /api/library: malformed response");
-    return { ok: true, record: payload };
+  ): Promise<{ ok: true; record: LibraryRecord } | { ok: false; conflict: boolean }> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/library/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    if (res.status === 409) return { ok: false, conflict: true }
+    if (!res.ok) throw new Error(`PATCH /api/library/${id} failed: ${res.status}`)
+    const payload: unknown = await res.json()
+    if (!isLibraryRecord(payload)) throw new Error('PATCH /api/library: malformed response')
+    return { ok: true, record: payload }
   }
 
   // -- Persistent execution history (GET/DELETE /api/history) ---------------
@@ -4692,56 +3221,45 @@ export class DinksterConnection {
    * are skipped, never surfaced.
    */
   async listHistory(req: {
-    readonly scope: string;
-    readonly clientId?: string;
-    readonly sourceDocument?: string;
-    readonly state?: string;
-    readonly limit?: number;
-    readonly cursor?: string;
+    readonly scope: string
+    readonly clientId?: string
+    readonly sourceDocument?: string
+    readonly state?: string
+    readonly limit?: number
+    readonly cursor?: string
   }): Promise<HistoryPage> {
-    const params = new URLSearchParams({ scope: req.scope });
-    if (req.clientId !== undefined) params.set("clientId", req.clientId);
-    if (req.sourceDocument !== undefined)
-      params.set("sourceDocument", req.sourceDocument);
-    if (req.state !== undefined) params.set("state", req.state);
-    if (req.limit !== undefined) params.set("limit", String(req.limit));
-    if (req.cursor !== undefined) params.set("cursor", req.cursor);
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/history?${params.toString()}`,
-    );
-    if (!res.ok) throw new Error(`GET /api/history failed: ${res.status}`);
-    const payload = (await res.json()) as {
-      records?: unknown;
-      cursor?: unknown;
-    };
+    const params = new URLSearchParams({ scope: req.scope })
+    if (req.clientId !== undefined) params.set('clientId', req.clientId)
+    if (req.sourceDocument !== undefined) params.set('sourceDocument', req.sourceDocument)
+    if (req.state !== undefined) params.set('state', req.state)
+    if (req.limit !== undefined) params.set('limit', String(req.limit))
+    if (req.cursor !== undefined) params.set('cursor', req.cursor)
+    const res = await this.fetchFn(`${this.baseUrl}/api/history?${params.toString()}`)
+    if (!res.ok) throw new Error(`GET /api/history failed: ${res.status}`)
+    const payload = (await res.json()) as { records?: unknown; cursor?: unknown }
     const records = Array.isArray(payload.records)
       ? payload.records.flatMap((record) => {
-          const decoded = decodeHistoryRun(record);
-          return decoded === undefined ? [] : [decoded];
+          const decoded = decodeHistoryRun(record)
+          return decoded === undefined ? [] : [decoded]
         })
-      : [];
+      : []
     return {
       records,
-      ...(typeof payload.cursor === "string" ? { cursor: payload.cursor } : {}),
-    };
+      ...(typeof payload.cursor === 'string' ? { cursor: payload.cursor } : {}),
+    }
   }
 
   /** One durable run by id; undefined on miss/wrong scope (plain 404 by contract). */
-  async getHistoryRun(
-    runId: string,
-    scope: string,
-  ): Promise<HistoryRunRecord | undefined> {
+  async getHistoryRun(runId: string, scope: string): Promise<HistoryRunRecord | undefined> {
     const res = await this.fetchFn(
       `${this.baseUrl}/api/history/${encodeURIComponent(runId)}?scope=${encodeURIComponent(scope)}`,
-    );
-    if (res.status === 404 || res.status === 410) return undefined;
-    if (!res.ok)
-      throw new Error(`GET /api/history/${runId} failed: ${res.status}`);
-    const payload: unknown = await res.json();
-    const record = decodeHistoryRun(payload);
-    if (record === undefined)
-      throw new Error("GET /api/history: malformed response");
-    return record;
+    )
+    if (res.status === 404 || res.status === 410) return undefined
+    if (!res.ok) throw new Error(`GET /api/history/${runId} failed: ${res.status}`)
+    const payload: unknown = await res.json()
+    const record = decodeHistoryRun(payload)
+    if (record === undefined) throw new Error('GET /api/history: malformed response')
+    return record
   }
 
   /**
@@ -4752,11 +3270,11 @@ export class DinksterConnection {
   async deleteHistoryRun(runId: string, scope: string): Promise<boolean> {
     const res = await this.fetchFn(
       `${this.baseUrl}/api/history/${encodeURIComponent(runId)}?scope=${encodeURIComponent(scope)}`,
-      { method: "DELETE" },
-    );
-    if (res.status === 204) return true;
-    if (res.status === 404) return false;
-    throw new Error(`DELETE /api/history/${runId} failed: ${res.status}`);
+      { method: 'DELETE' },
+    )
+    if (res.status === 204) return true
+    if (res.status === 404) return false
+    throw new Error(`DELETE /api/history/${runId} failed: ${res.status}`)
   }
 
   /**
@@ -4766,27 +3284,23 @@ export class DinksterConnection {
    * Returns the deleted count.
    */
   async clearHistory(req: {
-    readonly scope: string;
-    readonly clientId?: string;
-    readonly sourceDocument?: string;
-    readonly state?: string;
-    readonly before?: number;
+    readonly scope: string
+    readonly clientId?: string
+    readonly sourceDocument?: string
+    readonly state?: string
+    readonly before?: number
   }): Promise<number> {
-    const params = new URLSearchParams({ scope: req.scope });
-    if (req.clientId !== undefined) params.set("clientId", req.clientId);
-    if (req.sourceDocument !== undefined)
-      params.set("sourceDocument", req.sourceDocument);
-    if (req.state !== undefined) params.set("state", req.state);
-    if (req.before !== undefined) params.set("before", String(req.before));
-    const res = await this.fetchFn(
-      `${this.baseUrl}/api/history?${params.toString()}`,
-      {
-        method: "DELETE",
-      },
-    );
-    if (!res.ok) throw new Error(`DELETE /api/history failed: ${res.status}`);
-    const payload = (await res.json()) as { deleted?: unknown };
-    return typeof payload.deleted === "number" ? payload.deleted : 0;
+    const params = new URLSearchParams({ scope: req.scope })
+    if (req.clientId !== undefined) params.set('clientId', req.clientId)
+    if (req.sourceDocument !== undefined) params.set('sourceDocument', req.sourceDocument)
+    if (req.state !== undefined) params.set('state', req.state)
+    if (req.before !== undefined) params.set('before', String(req.before))
+    const res = await this.fetchFn(`${this.baseUrl}/api/history?${params.toString()}`, {
+      method: 'DELETE',
+    })
+    if (!res.ok) throw new Error(`DELETE /api/history failed: ${res.status}`)
+    const payload = (await res.json()) as { deleted?: unknown }
+    return typeof payload.deleted === 'number' ? payload.deleted : 0
   }
 
   // -- Value peeks (GET /api/values) -----------------------------------------
@@ -4800,77 +3314,70 @@ export class DinksterConnection {
       baseUrl: this.baseUrl,
       clientId: this.clientId,
       fetchFn: this.fetchFn,
-    });
-    return this.valuesClient;
+    })
+    return this.valuesClient
   }
 
   // -- WebSocket -----------------------------------------------------------------
 
   connect(): void {
-    this.socket.connect();
+    this.socket.connect()
   }
 
   disconnect(): void {
-    this.socket.disconnect();
+    this.socket.disconnect()
   }
 
   /** See ReconnectingSocket.simulateConnectionLoss. */
   simulateConnectionLoss(): void {
-    this.socket.simulateConnectionLoss();
+    this.socket.simulateConnectionLoss()
   }
 
   /** Feed one raw WS message through the normalizer (used by tests/replays too). */
   ingest(raw: DinksterRawMessage): void {
-    this.emitRaw(raw, true);
+    this.emitRaw(raw, true)
   }
 
   private handleWsData(data: unknown): void {
-    if (typeof data === "string") {
-      let parsed: unknown;
+    if (typeof data === 'string') {
+      let parsed: unknown
       try {
-        parsed = JSON.parse(data);
+        parsed = JSON.parse(data)
       } catch {
-        this.reportProtocolError("malformed JSON WebSocket frame");
-        return;
+        this.reportProtocolError('malformed JSON WebSocket frame')
+        return
       }
-      if (
-        parsed &&
-        typeof parsed === "object" &&
-        typeof (parsed as { type?: unknown }).type === "string"
-      ) {
-        if ((parsed as { type: string }).type === "memory_status") {
-          const { type: _type, ...status } = parsed as {
-            type: string;
-          } & MemoryStatus;
-          const decoded = decodeMemoryStatus(status);
+      if (parsed && typeof parsed === 'object' && typeof (parsed as { type?: unknown }).type === 'string') {
+        if ((parsed as { type: string }).type === 'memory_status') {
+          const { type: _type, ...status } = parsed as { type: string } & MemoryStatus
+          const decoded = decodeMemoryStatus(status)
           if (decoded === undefined) {
-            this.reportProtocolError("malformed memory_status event");
-            return;
+            this.reportProtocolError('malformed memory_status event')
+            return
           }
-          for (const listener of [...this.memoryListeners]) listener(decoded);
-          return;
+          for (const listener of [...this.memoryListeners]) listener(decoded)
+          return
         }
-        this.ingest(parsed as DinksterRawMessage);
-        return;
+        this.ingest(parsed as DinksterRawMessage)
+        return
       }
-      this.reportProtocolError("malformed WebSocket envelope");
-      return;
+      this.reportProtocolError('malformed WebSocket envelope')
+      return
     }
     // Binary frames are self-describing (length-prefixed header + blob); the
     // normalizer decodes them whole - never pair with a preceding text frame.
     // An undecodable frame is a protocol error, not a silent no-op.
     if (data instanceof ArrayBuffer) {
       if (decodeDinksterBinaryFrame(data) === undefined) {
-        this.reportProtocolError("malformed binary WebSocket frame");
-        return;
+        this.reportProtocolError('malformed binary WebSocket frame')
+        return
       }
-      this.ingest(data);
-    } else this.reportProtocolError("unsupported WebSocket frame");
+      this.ingest(data)
+    } else this.reportProtocolError('unsupported WebSocket frame')
   }
 
   private reportProtocolError(message: string): void {
-    if (this.protocolErrors++ < 10)
-      console.warn(`[${this.id}] protocol error: ${message}`);
+    if (this.protocolErrors++ < 10) console.warn(`[${this.id}] protocol error: ${message}`)
   }
 }
 
@@ -4878,221 +3385,154 @@ function regionSourceKeys(
   graph: DinksterGraphWire | undefined,
   runtimeId: string,
 ): { readonly exact?: string; readonly enclosingRegion?: string } {
-  if (graph === undefined || !runtimeId.includes("/")) return {};
-  const segments = runtimeId.split("/");
-  if (segments.some((segment) => segment.length === 0)) return {};
-  let scope = graph;
-  let enclosingRegion: string | undefined;
+  if (graph === undefined || !runtimeId.includes('/')) return {}
+  const segments = runtimeId.split('/')
+  if (segments.some((segment) => segment.length === 0)) return {}
+  let scope = graph
+  let enclosingRegion: string | undefined
   for (let index = 0; index < segments.length; index += 1) {
-    const entry = scope.nodes[segments[index]!];
-    if (entry === undefined) return {};
-    const exact = segments.slice(0, index + 1).join(".");
+    const entry = scope.nodes[segments[index]!]
+    if (entry === undefined) return {}
+    const exact = segments.slice(0, index + 1).join('.')
     if (index === segments.length - 1) {
-      return {
-        exact,
-        ...(enclosingRegion === undefined ? {} : { enclosingRegion }),
-      };
+      return { exact, ...(enclosingRegion === undefined ? {} : { enclosingRegion }) }
     }
-    if (!("region" in entry)) return {};
-    enclosingRegion = exact;
-    scope = entry.region.body;
+    if (!('region' in entry)) return {}
+    enclosingRegion = exact
+    scope = entry.region.body
   }
-  return {};
+  return {}
 }
 
 /** Map a POST /api/jobs rejection body to diagnostics. */
 async function rejectionDetails(
   res: Response,
   artifact: CompileArtifact,
-): Promise<{
-  diagnostics: readonly Diagnostic[];
-  assetsMissing?: AssetsMissingRejection;
-}> {
-  let payload: Record<string, unknown> | undefined;
+): Promise<{ diagnostics: readonly Diagnostic[]; assetsMissing?: AssetsMissingRejection }> {
+  let payload: Record<string, unknown> | undefined
   try {
-    payload = (await res.json()) as Record<string, unknown>;
+    payload = (await res.json()) as Record<string, unknown>
   } catch {
-    payload = undefined;
+    payload = undefined
   }
-  const assetsMissing =
-    res.status === 409 ? parseAssetsMissingRejection(payload) : undefined;
+  const assetsMissing = res.status === 409 ? parseAssetsMissingRejection(payload) : undefined
   if (assetsMissing !== undefined) {
     const lines = assetsMissing.assets.map((asset) => {
-      const digest = asset.digest.includes(":")
-        ? asset.digest.split(":", 2)[1]!
-        : asset.digest;
-      const sourceNote =
-        asset.packagedFrom !== undefined && asset.packagedFrom.length > 0
-          ? ` - ships with pack ${asset.packagedFrom.join(", ")}`
-          : asset.fetchable && asset.sources.length > 0
-            ? ` - ${asset.sources.length} known download source${asset.sources.length === 1 ? "" : "s"}`
-            : "";
-      const details = [digest.slice(0, 12), asset.status, asset.kind]
-        .filter(Boolean)
-        .join(", ");
-      return `${asset.name} (${details})${sourceNote}`;
-    });
-    return {
-      assetsMissing,
-      diagnostics: [
-        diag(
-          "error",
-          "validation",
-          "submit.assetsMissing",
-          `job not queued because required assets are unavailable:\n${lines.map((line) => `- ${line}`).join("\n")}`,
-          { data: { assets: assetsMissing.assets } },
-        ),
-      ],
-    };
+      const digest = asset.digest.includes(':') ? asset.digest.split(':', 2)[1]! : asset.digest
+      const sourceNote = asset.packagedFrom !== undefined && asset.packagedFrom.length > 0
+        ? ` - ships with pack ${asset.packagedFrom.join(', ')}`
+        : asset.fetchable && asset.sources.length > 0
+        ? ` - ${asset.sources.length} known download source${asset.sources.length === 1 ? '' : 's'}`
+        : ''
+      const details = [digest.slice(0, 12), asset.status, asset.kind].filter(Boolean).join(', ')
+      return `${asset.name} (${details})${sourceNote}`
+    })
+    return { assetsMissing, diagnostics: [diag(
+      'error',
+      'validation',
+      'submit.assetsMissing',
+      `job not queued because required assets are unavailable:\n${lines.map((line) => `- ${line}`).join('\n')}`,
+      { data: { assets: assetsMissing.assets } },
+    )] }
   }
   // Unbound source names have no digest and cannot enter acquisition consent.
-  const nameRefusals =
-    res.status === 409 &&
-    payload?.["error"] === "assets-missing" &&
-    Array.isArray(payload["assets"])
-      ? payload["assets"].flatMap((raw: unknown) => {
-          if (typeof raw !== "object" || raw === null) return [];
-          const asset = raw as Record<string, unknown>;
-          if (
-            typeof asset["name"] !== "string" ||
-            typeof asset["kind"] !== "string" ||
-            asset["digest"] !== undefined
-          )
-            return [];
-          return [
-            {
-              code: "asset.nameUnavailable",
-              message: `Required asset '${asset["name"]}' (${asset["kind"]}) is unavailable through a mounted folder. Grant the folder containing the original file or select an available source.`,
-              remedy: `Grant a mounted folder containing '${asset["name"]}' (${asset["kind"]}) or select an available source.`,
-              nodeId: asset["nodeId"],
-              inputId: asset["inputId"],
-            },
-          ];
-        })
-      : [];
+  const nameRefusals = res.status === 409 && payload?.['error'] === 'assets-missing' && Array.isArray(payload['assets'])
+    ? payload['assets'].flatMap((raw: unknown) => {
+        if (typeof raw !== 'object' || raw === null) return []
+        const asset = raw as Record<string, unknown>
+        if (typeof asset['name'] !== 'string' || typeof asset['kind'] !== 'string' || asset['digest'] !== undefined) return []
+        return [{
+          code: 'asset.nameUnavailable',
+          message: `Required asset '${asset['name']}' (${asset['kind']}) is unavailable through a mounted folder. Grant the folder containing the original file or select an available source.`,
+          remedy: `Grant a mounted folder containing '${asset['name']}' (${asset['kind']}) or select an available source.`,
+          nodeId: asset['nodeId'],
+          inputId: asset['inputId'],
+        }]
+      })
+    : []
   // Structured diagnostics (validation-shaped errors), anchored via provenance.
-  const rawDiags =
-    nameRefusals.length > 0 ? nameRefusals : payload?.["diagnostics"];
+  const rawDiags = nameRefusals.length > 0 ? nameRefusals : payload?.['diagnostics']
   if (Array.isArray(rawDiags) && rawDiags.length > 0) {
-    return {
-      diagnostics: rawDiags.map((d) => {
-        const entry = (typeof d === "object" && d !== null ? d : {}) as Record<
-          string,
-          unknown
-        >;
-        const runtimeId =
-          typeof entry["nodeId"] === "string" ? entry["nodeId"] : undefined;
-        // Consumer-side input id the diagnostic anchors to (a link is addressed
-        // as (nodeId, inputId) - the native wire has no link ids).
-        const inputId =
-          typeof entry["inputId"] === "string" ? entry["inputId"] : undefined;
-        const sourceKeys =
-          runtimeId === undefined
-            ? {}
-            : regionSourceKeys(artifact.dinksterGraph, runtimeId);
-        const provenanceKey =
-          runtimeId === undefined
-            ? undefined
-            : artifact.provenance.toSource[runtimeId] !== undefined
-              ? runtimeId
-              : sourceKeys.exact !== undefined &&
-                  artifact.provenance.toSource[sourceKeys.exact] !== undefined
-                ? sourceKeys.exact
-                : sourceKeys.enclosingRegion;
-        const occKey =
-          provenanceKey === undefined
-            ? undefined
-            : artifact.provenance.toSource[provenanceKey];
-        const occurrence =
-          occKey === undefined ? undefined : parseOccurrenceKey(occKey);
-        const port =
-          provenanceKey === undefined || inputId === undefined
-            ? undefined
-            : artifact.provenance.inputSources?.[provenanceKey]?.[inputId];
-        const data = {
-          ...(runtimeId !== undefined ? { runtimeId } : {}),
-          ...(inputId !== undefined ? { inputId } : {}),
-          ...(typeof entry["nodeType"] === "string"
-            ? { nodeType: entry["nodeType"] }
-            : {}),
-          ...(typeof entry["title"] === "string"
-            ? { title: entry["title"] }
-            : {}),
-          ...(typeof entry["capability"] === "string"
-            ? { capability: entry["capability"] }
-            : {}),
-          ...(typeof entry["remedy"] === "string"
-            ? { remedy: entry["remedy"] }
-            : {}),
-        };
-        return diag(
-          entry["severity"] === "warning" ? "warning" : "error",
-          "validation",
-          `validation.${typeof entry["code"] === "string" ? entry["code"] : "unknown"}`,
-          typeof entry["message"] === "string"
-            ? entry["message"]
-            : "job rejected",
-          {
-            ...(occurrence !== undefined
-              ? {
-                  anchor: {
-                    occurrence,
-                    ...(port === undefined ? {} : { port }),
-                  },
-                }
-              : {}),
-            ...(Object.keys(data).length > 0 ? { data } : {}),
-          },
-        );
-      }),
-    };
+    return { diagnostics: rawDiags.map((d) => {
+      const entry = (typeof d === 'object' && d !== null ? d : {}) as Record<string, unknown>
+      const runtimeId = typeof entry['nodeId'] === 'string' ? entry['nodeId'] : undefined
+      // Consumer-side input id the diagnostic anchors to (a link is addressed
+      // as (nodeId, inputId) - the native wire has no link ids).
+      const inputId = typeof entry['inputId'] === 'string' ? entry['inputId'] : undefined
+      const sourceKeys = runtimeId === undefined
+        ? {}
+        : regionSourceKeys(artifact.dinksterGraph, runtimeId)
+      const provenanceKey = runtimeId === undefined
+        ? undefined
+        : artifact.provenance.toSource[runtimeId] !== undefined
+          ? runtimeId
+          : sourceKeys.exact !== undefined && artifact.provenance.toSource[sourceKeys.exact] !== undefined
+            ? sourceKeys.exact
+            : sourceKeys.enclosingRegion
+      const occKey = provenanceKey === undefined
+        ? undefined
+        : artifact.provenance.toSource[provenanceKey]
+      const occurrence = occKey === undefined ? undefined : parseOccurrenceKey(occKey)
+      const port = provenanceKey === undefined || inputId === undefined
+        ? undefined
+        : artifact.provenance.inputSources?.[provenanceKey]?.[inputId]
+      const data = {
+        ...(runtimeId !== undefined ? { runtimeId } : {}),
+        ...(inputId !== undefined ? { inputId } : {}),
+        ...(typeof entry['nodeType'] === 'string' ? { nodeType: entry['nodeType'] } : {}),
+        ...(typeof entry['title'] === 'string' ? { title: entry['title'] } : {}),
+        ...(typeof entry['capability'] === 'string' ? { capability: entry['capability'] } : {}),
+        ...(typeof entry['remedy'] === 'string' ? { remedy: entry['remedy'] } : {}),
+      }
+      return diag(
+        entry['severity'] === 'warning' ? 'warning' : 'error',
+        'validation',
+        `validation.${typeof entry['code'] === 'string' ? entry['code'] : 'unknown'}`,
+        typeof entry['message'] === 'string' ? entry['message'] : 'job rejected',
+        {
+          ...(occurrence !== undefined ? {
+            anchor: {
+              occurrence,
+              ...(port === undefined ? {} : { port }),
+            },
+          } : {}),
+          ...(Object.keys(data).length > 0 ? { data } : {}),
+        },
+      )
+    }) }
   }
-  const message =
-    typeof payload?.["message"] === "string"
-      ? payload["message"]
-      : typeof payload?.["error"] === "string"
-        ? payload["error"]
-        : undefined;
-  const problem = responseDiagnostic(res.status, payload, "submit");
-  return {
-    diagnostics: [message === undefined ? problem : { ...problem, message }],
-  };
+  const message = typeof payload?.['message'] === 'string'
+    ? payload['message']
+    : typeof payload?.['error'] === 'string'
+      ? payload['error']
+      : undefined
+  const problem = responseDiagnostic(res.status, payload, 'submit')
+  return { diagnostics: [
+    message === undefined ? problem : { ...problem, message },
+  ] }
 }
 
 /** Build a SchemaRegistry from a native /api/nodes payload. */
 export function buildDinksterRegistry(
   connection: ConnectionId,
   raw: DinksterNodesPayload,
-  extensionSnapshotPair?: {
-    readonly digest: string;
-    readonly snapshot: EffectiveExtensionSnapshot;
-  },
+  extensionSnapshotPair?: { readonly digest: string; readonly snapshot: EffectiveExtensionSnapshot },
 ): SchemaRegistry {
-  const parsed = parseDinksterNodes(raw);
-  const schemas = new Map(parsed.schemas);
-  const server = serverInfoFromDinksterWire(raw);
-  const graphFeatures = graphFeaturesFromDinksterWire(raw);
-  const mergeableTypes = mergeableTypesFromDinksterWire(raw);
+  const parsed = parseDinksterNodes(raw)
+  const schemas = new Map(parsed.schemas)
+  const server = serverInfoFromDinksterWire(raw)
+  const graphFeatures = graphFeaturesFromDinksterWire(raw)
+  const mergeableTypes = mergeableTypesFromDinksterWire(raw)
   // Additive fields, absent on older backends: epoch is a positive int
   // (surface generation), composing is present-only-when-true.
   const epoch =
-    typeof raw.epoch === "number" &&
-    Number.isInteger(raw.epoch) &&
-    raw.epoch > 0
-      ? raw.epoch
-      : undefined;
-  const resolve: SchemaResolver = Object.assign(
-    (type: string) => schemas.get(type),
-    {
-      forEditorRole: (role: string) =>
-        schemaForEditorRole(schemas.values(), role),
-    },
-  );
+    typeof raw.epoch === 'number' && Number.isInteger(raw.epoch) && raw.epoch > 0 ? raw.epoch : undefined
+  const resolve: SchemaResolver = Object.assign((type: string) => schemas.get(type), {
+    forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
+  })
   return {
     connection,
-    hash: fnv1a64(
-      canonicalJson(schemaIdentityWithoutWidgetPresentation(raw) as Json),
-    ),
+    hash: fnv1a64(canonicalJson(schemaIdentityWithoutWidgetPresentation(raw) as Json)),
     schemas,
     diagnostics: parsed.diagnostics,
     resolve,
@@ -5103,17 +3543,12 @@ export function buildDinksterRegistry(
     ...(extensionSnapshotPair !== undefined ? { extensionSnapshotPair } : {}),
     ...(epoch !== undefined ? { epoch } : {}),
     ...(raw.composing === true ? { composing: true as const } : {}),
-  };
+  }
 }
 
-const REMOTE_POLICY_FIELDS = new Set([
-  "controlAfterRefresh",
-  "timeoutMs",
-  "maxRetries",
-  "refreshMs",
-]);
-const COMBO_OPTION_PRESENTATION_FIELDS = new Set(["label", "info", "folder"]);
-const MULTI_COMBO_PRESENTATION_FIELDS = new Set(["placeholder", "chip"]);
+const REMOTE_POLICY_FIELDS = new Set(['controlAfterRefresh', 'timeoutMs', 'maxRetries', 'refreshMs'])
+const COMBO_OPTION_PRESENTATION_FIELDS = new Set(['label', 'info', 'folder'])
+const MULTI_COMBO_PRESENTATION_FIELDS = new Set(['placeholder', 'chip'])
 
 /** Widget policy/catalog presentation is never schema cache identity. */
 function schemaIdentityWithoutWidgetPresentation(
@@ -5122,23 +3557,20 @@ function schemaIdentityWithoutWidgetPresentation(
   comboOption = false,
 ): unknown {
   if (Array.isArray(value)) {
-    return value.map((entry) =>
-      schemaIdentityWithoutWidgetPresentation(entry, false, comboOption),
-    );
+    return value.map((entry) => schemaIdentityWithoutWidgetPresentation(entry, false, comboOption))
   }
-  if (typeof value !== "object" || value === null) return value;
-  const record = value as Record<string, unknown>;
-  const comboWidget =
-    record["type"] === "COMBO" || record["type"] === "MULTI_COMBO";
-  const multiComboWidget = record["type"] === "MULTI_COMBO";
+  if (typeof value !== 'object' || value === null) return value
+  const record = value as Record<string, unknown>
+  const comboWidget = record['type'] === 'COMBO' || record['type'] === 'MULTI_COMBO'
+  const multiComboWidget = record['type'] === 'MULTI_COMBO'
   return Object.fromEntries(
     Object.entries(value).flatMap(([key, entry]) =>
-      key === "hasDocs" ||
-      (record["role"] === "input" && key === "socketless") ||
-      (record["role"] === "input" &&
-        (key === "acceptsStorage" ||
-          key === "acceptsStream" ||
-          key === "acceptsList") &&
+      key === 'hasDocs' ||
+      (record['role'] === 'input' && key === 'socketless') ||
+      (record['role'] === 'input' &&
+        (key === 'acceptsStorage' ||
+          key === 'acceptsStream' ||
+          key === 'acceptsList') &&
         entry === false) ||
       (comboOption && COMBO_OPTION_PRESENTATION_FIELDS.has(key)) ||
       (multiComboWidget && MULTI_COMBO_PRESENTATION_FIELDS.has(key)) ||
@@ -5147,17 +3579,17 @@ function schemaIdentityWithoutWidgetPresentation(
         : [
             [
               key,
-              key === "default"
+              key === 'default'
                 ? entry
                 : schemaIdentityWithoutWidgetPresentation(
                     entry,
-                    key === "remote",
-                    comboWidget && key === "options",
+                    key === 'remote',
+                    comboWidget && key === 'options',
                   ),
             ],
           ],
     ),
-  );
+  )
 }
 
 /**
@@ -5167,8 +3599,8 @@ function schemaIdentityWithoutWidgetPresentation(
  * SHA-256 there so schema fetches never die on 'reading digest of undefined'.
  */
 async function sha256Digest(bytes: ArrayBuffer): Promise<string> {
-  const subtle = (globalThis.crypto as Crypto | undefined)?.subtle;
-  if (subtle === undefined) return `sha256:${sha256Hex(new Uint8Array(bytes))}`;
-  const digest = await subtle.digest("SHA-256", bytes);
-  return `sha256:${[...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+  const subtle = (globalThis.crypto as Crypto | undefined)?.subtle
+  if (subtle === undefined) return `sha256:${sha256Hex(new Uint8Array(bytes))}`
+  const digest = await subtle.digest('SHA-256', bytes)
+  return `sha256:${[...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')}`
 }
