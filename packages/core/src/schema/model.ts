@@ -140,6 +140,7 @@ export const canonicalTypeIdOf = (t: TypeExpr): string | undefined => {
     const elements = t.elements.map(canonicalTypeIdOf)
     return elements.some((element) => element === undefined) ? undefined : `tuple<${elements.join(',')}>`
   }
+  if (t.kind === 'list' && t.element.kind === 'wildcard') return 'list<*>'
   if (t.kind === 'list' || t.kind === 'asset' || t.kind === 'stream') {
     const inner = canonicalTypeIdOf(t.element)
     return inner === undefined ? undefined : `${t.kind}<${inner}>`
@@ -157,7 +158,14 @@ export const typeExprFromTypeId = (typeId: string): TypeExpr => {
   const positions = parseTupleTypeId(typeId)
   if (positions !== undefined) return { kind: 'tuple', elements: positions.map(typeExprFromTypeId) }
   const listInner = parseListTypeId(typeId)
-  if (listInner !== undefined) return { kind: 'list', element: typeExprFromTypeId(listInner) }
+  if (listInner !== undefined)
+    return {
+      kind: 'list',
+      element:
+        listInner === '*'
+          ? { kind: 'wildcard' }
+          : typeExprFromTypeId(listInner),
+    }
   const assetInner = parseAssetTypeId(typeId)
   if (assetInner !== undefined) return { kind: 'asset', element: typeExprFromTypeId(assetInner) }
   const streamInner = parseStreamTypeId(typeId)
@@ -628,6 +636,8 @@ export interface InputSpec extends PortSpecBase {
   /** The execution accepts storage-backed values directly (wire 39); true or omitted. */
   readonly acceptsStorage?: true
   readonly acceptsStream?: true
+  /** Consume a whole list of the declared type without element mapping or wrapping. */
+  readonly acceptsList?: true
   /** Widget backing; when present the input has a value unless connected. */
   readonly widget?: WidgetSpec
   /** Widget-backed input forced to render as a socket. */
