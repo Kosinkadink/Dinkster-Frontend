@@ -89,7 +89,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
             const selected = control === 'first' ? result[0]! : result[result.length - 1]!
             props.commitCommand(withMaterializeFrames(target.graphId, target.nodeId, ed.target.kind === 'input' ? ed.target.materialize : undefined, { command: 'node.setValue', params: { ...target, value: multi ? [selected] : selected } }), multi)
           }
-        } else if (refresh) props.editor.app.completeComboRefresh(plan, result)
+        } else if (refresh) return props.editor.app.completeComboRefresh(plan, result)
       })
       .catch((error: unknown) => {
         if (!live || token !== requestToken) return

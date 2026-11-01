@@ -7790,7 +7790,7 @@ export class AppState {
     return registry ? comboRefreshAdvancementPlan(tab.store, route, backend, registry) : undefined
   }
 
-  completeComboRefresh(plan: ComboRefreshPlan | undefined, options: readonly string[], random: () => number = Math.random): void {
+  completeComboRefresh(plan: ComboRefreshPlan | undefined, options: readonly string[], random: () => number = Math.random): CommandOutcome | Promise<CommandOutcome> | undefined {
     if (!plan || this.completedComboRefreshPlans.has(plan)) return
     this.completedComboRefreshPlans.add(plan)
     if (!this.settings.get<boolean>('features.seedController.enabled')) return
@@ -7798,7 +7798,7 @@ export class AppState {
     if (!tab) return
     if (this.backendForTab(tab) !== plan.backend || this.registryForTab(tab) !== plan.registry) return
     const invocation = comboRefreshAdvancement(tab.store.doc, plan, options, plan.registry.resolve, random)
-    if (invocation) this.dispatchTo(tab, invocation)
+    if (invocation) return this.dispatchTo(tab, invocation)
   }
 
   /**

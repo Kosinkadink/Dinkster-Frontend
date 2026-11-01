@@ -22,6 +22,10 @@ use the same acceptance path. Explicit refresh selection closes a multi-combo
 only after acceptance. Single refresh does not request closure, but a document
 change can still dismiss its stale canvas anchor.
 
+Refresh-controller completion forwards the document command outcome, including
+delayed acceptance or refusal. A transport rejection returns remote options to
+their prior stale state without closing the editor or replacing its draft.
+
 Output-descriptor Apply shows command refusals and transport errors above the
 draft, separately from descriptor validation and metadata-probe errors. The
 draft remains available for retry and closes only after command acceptance.

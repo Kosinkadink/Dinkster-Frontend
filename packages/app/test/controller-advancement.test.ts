@@ -1313,6 +1313,32 @@ describe('control_after_refresh advancement', () => {
     })
   })
 
+  it.each([true, false])('forwards delayed refresh acceptance %s without publishing early or applying twice', async (accepted) => {
+    const { app, tab } = comboHarness()
+    const baseline = structuredClone(tab.store.doc)
+    const dispatch = app.dispatchTo.bind(app)
+    let release!: () => void
+    const admission = new Promise<void>((resolve) => { release = resolve })
+    app.dispatchTo = async (destination, invocation) => {
+      await admission
+      return accepted ? dispatch(destination, invocation) : { ok: false, diagnostics: [] }
+    }
+    const plan = app.prepareComboRefresh(tab, route)
+    const completion = app.completeComboRefresh(plan, ['a', 'b', 'c'], () => 0.5)
+    expect(tab.store.doc).toEqual(baseline)
+    app.completeComboRefresh(plan, ['x', 'y'], () => 0)
+    release()
+    expect(await completion).toMatchObject({ ok: accepted })
+    if (accepted) {
+      expect(tab.store.doc.graphs.g0!.nodes.combo!.values).toEqual({
+        up: 'a', down: 'c', random: 'b', fixed: 'b', shrunk: 'a',
+      })
+      expect(tab.store.undo()).toBe(true)
+    }
+    expect(tab.store.doc).toEqual(baseline)
+    expect(tab.store.undo()).toBe(false)
+  })
+
   it('uses first/last wrap anchors when refreshed options no longer contain the stored value', () => {
     const { app, tab } = comboHarness()
     tab.store.dispatch({ command: 'node.setController', params: { graphId: 'g0', nodeId: 'combo', inputId: 'shrunk', mode: 'decrement' } })

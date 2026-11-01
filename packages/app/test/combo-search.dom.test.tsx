@@ -268,6 +268,35 @@ describe('combo search', () => {
     mounted.unmount()
   })
 
+  it('keeps the editor and prior options when delayed refresh advancement rejects', async () => {
+    const initial = deferred<readonly string[]>()
+    const refresh = deferred<readonly string[]>()
+    const completion = deferred<never>()
+    const remoteChoices = vi.fn().mockReturnValueOnce(initial.promise).mockReturnValueOnce(refresh.promise)
+    const scopedClient = { remoteChoices, remoteChoiceAuthority: () => 0 }
+    const mounted = mountEditor(editorState({
+      widgetType: 'MULTI_COMBO', options: {},
+      remote: { route: '/api/choices/models', refreshButton: true },
+    }, ['old-a']), {
+      backendForTab: () => ({ scopedClient }),
+      prepareComboRefresh: () => undefined,
+      completeComboRefresh: () => completion.promise,
+    } as unknown as Partial<AppState>)
+    try {
+      initial.resolve(['old-a', 'old-b'])
+      await vi.waitFor(() => expect(optionLabels(mounted.root)).toEqual(['old-a', 'old-b']))
+      mounted.root.querySelector<HTMLButtonElement>('[data-testid="multi-combo-refresh"]')!.click()
+      refresh.resolve(['new-a'])
+      await vi.waitFor(() => expect(optionLabels(mounted.root)).toEqual(['new-a']))
+      expect(mounted.onClose).not.toHaveBeenCalled()
+      completion.reject(new Error('Command transport unavailable'))
+      await vi.waitFor(() => expect(mounted.root.textContent).toContain('remote options stale'))
+      expect(optionLabels(mounted.root)).toEqual(['old-a', 'old-b'])
+      expect(mounted.onClose).not.toHaveBeenCalled()
+      expect(mounted.root.querySelector('[data-testid="multi-combo-value"]')?.textContent).toBe('old-a')
+    } finally { mounted.unmount() }
+  })
+
   it('MULTI_COMBO refresh policy commits one list and closes the synchronized editor', async () => {
     const initial = deferred<readonly string[]>()
     const refresh = deferred<readonly string[]>()
