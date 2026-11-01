@@ -3435,8 +3435,22 @@ async function rejectionDetails(
       { data: { assets: assetsMissing.assets } },
     )] }
   }
+  // Unbound source names have no digest and cannot enter acquisition consent.
+  const nameRefusals = res.status === 409 && payload?.['error'] === 'assets-missing' && Array.isArray(payload['assets'])
+    ? payload['assets'].flatMap((raw: unknown) => {
+        if (typeof raw !== 'object' || raw === null) return []
+        const asset = raw as Record<string, unknown>
+        if (typeof asset['name'] !== 'string' || typeof asset['kind'] !== 'string' || asset['digest'] !== undefined) return []
+        return [{
+          code: 'asset.nameUnavailable',
+          message: `Required asset '${asset['name']}' (${asset['kind']}) is unavailable through a mounted folder. Grant the folder containing the original file or select an available source.`,
+          nodeId: asset['nodeId'],
+          inputId: asset['inputId'],
+        }]
+      })
+    : []
   // Structured diagnostics (validation-shaped errors), anchored via provenance.
-  const rawDiags = payload?.['diagnostics']
+  const rawDiags = nameRefusals.length > 0 ? nameRefusals : payload?.['diagnostics']
   if (Array.isArray(rawDiags) && rawDiags.length > 0) {
     return { diagnostics: rawDiags.map((d) => {
       const entry = (typeof d === 'object' && d !== null ? d : {}) as Record<string, unknown>
