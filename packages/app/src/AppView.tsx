@@ -1590,6 +1590,14 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     readonly inGrid: boolean
   }) => {
     const edit = createLayoutEdit()
+    const [stylePending, setStylePending] = createSolidSignal(false)
+    let styleGeneration = 0
+    createEffect(() => {
+      interactionScope()
+      interactionStore()
+      styleGeneration++
+      setStylePending(false)
+    })
     const [draft, setDraft] = createSolidSignal(textProps.flow.item.text)
     let editor: HTMLTextAreaElement | undefined
     const commitDraft = (): void => {
@@ -1613,22 +1621,34 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     return (
       <Show when={arrange()} fallback={<TextContent item={textProps.flow.item} />}>
         <div class="app-layout-text-editor" data-testid="app-layout-text-editor" aria-busy={edit.pending()}>
+          <Show when={edit.refusal()}>{(text) => <div id={edit.noticeId}><ProductNotice tone="error">{text()}</ProductNotice></div>}</Show>
           <div class="app-layout-item-toolbar">
             <ProductSelect
               class="app-layout-role"
               testId="app-layout-text-role"
               ariaLabel={message('appView.text.style')}
+              ariaInvalid={edit.refusal() !== undefined}
+              ariaDescribedBy={edit.refusal() === undefined ? undefined : edit.noticeId}
               selectedId={textProps.flow.item.role}
-              disabled={edit.pending()}
+              disabled={edit.pending() && !stylePending()}
               options={[
                 { id: 'heading', label: message('appView.text.heading'), value: 'heading' },
                 { id: 'body', label: message('appView.text.body'), value: 'body' },
                 { id: 'caption', label: message('appView.text.caption'), value: 'caption' },
               ]}
-              onSelect={(option) => void edit.commit('app.layout.setText', {
-                id: textProps.flow.item.id,
-                role: option.value,
-              })}
+              onSelectAsync={async (option, stillWanted) => {
+                if (edit.pending()) return false
+                const owner = styleGeneration
+                setStylePending(true)
+                try {
+                  return await edit.commit('app.layout.setText', {
+                    id: textProps.flow.item.id,
+                    role: option.value,
+                  }, stillWanted)
+                } finally {
+                  if (owner === styleGeneration) setStylePending(false)
+                }
+              }}
             />
             <ParentSelect item={textProps.flow} />
             <Show when={!textProps.inGrid && !mobileEditing()}>
@@ -1678,7 +1698,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               }
             }}
           />
-          <Show when={edit.refusal()}>{(text) => <div id={edit.noticeId}><ProductNotice tone="error">{text()}</ProductNotice></div>}</Show>
         </div>
       </Show>
     )

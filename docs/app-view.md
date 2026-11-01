@@ -84,6 +84,13 @@ refusal leaves the stored parent unchanged and shows the layout notice above
 the Arrange controls. Retry the active option with Enter. Dismissing the menu
 invalidates its completion notices without cancelling the submitted command.
 
+Text-style selection also keeps its menu open until acceptance. Pending choices
+are not repeated; refusal preserves the stored role and shows a notice above
+the text controls. Retry an option without reopening the menu. Escape, Tab or
+an outside click dismisses it without cancelling the command or allowing its
+late refusal to appear in a newer menu. Other text edits disable style changes
+while pending, but a pending style choice still permits keyboard dismissal.
+
 Grid move/resize gestures and mobile reorder gestures/buttons wait for final
 command acceptance. While a gesture command is pending, further gestures are
 ignored and mobile reorder buttons are disabled. Stored positions and order
