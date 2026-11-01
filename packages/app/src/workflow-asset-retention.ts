@@ -6,6 +6,7 @@ import {
   parseTypedLiteralWire,
   replayHistoryOps,
   typeExprFromTypeId,
+  valueSourceConsumersOf,
   type CommandOutcome,
   type HistorySnapshot,
   type Json,
@@ -34,8 +35,7 @@ export function workflowAssetRoots(
   let complete = true
   const checkedExtensions = new WeakSet<object>()
   const checkedNodes = new WeakMap<object, Set<NodeSchema | undefined>>()
-  const checkedSources = new WeakSet<object>()
-  let hasInstances = false
+  let hasContextualValues = false
   const supported = (type: TypeExpr): boolean => {
     if (type.kind === 'asset') return true
     if (type.kind === 'list') return supported(type.element)
@@ -81,7 +81,7 @@ export function workflowAssetRoots(
     }
   }
   const visitNode = (node: NodeData, schemas: SchemaResolver): void => {
-    if (node.type.startsWith('#')) hasInstances = true
+    if (node.type.startsWith('#')) hasContextualValues = true
     const schema = schemas(node.type)
     // A stable node can resolve differently after its referenced graph changes.
     let checkedSchemas = checkedNodes.get(node)
@@ -114,8 +114,9 @@ export function workflowAssetRoots(
   }
   const visit = (snapshot: WorkflowDocument, changes?: readonly PatchOp[]): void => {
     const schemas = documentResolver(snapshot, resolve)
-    // Without instances, node-only patches cannot change another node's schema or values.
-    if (!hasInstances && changes !== undefined && changes.every((op) =>
+    if (Object.values(snapshot.graphs).some((graph) => Object.keys(graph.valueSources ?? {}).length > 0)) hasContextualValues = true
+    // Instances and literal producers depend on schemas outside the changed node.
+    if (!hasContextualValues && changes !== undefined && changes.every((op) =>
       op.path.length >= 4 && op.path[0] === 'graphs' && op.path[2] === 'nodes' &&
       !op.path.slice(0, 4).includes('ext'))) {
       const nodes = new Set(changes.flatMap((op) => {
@@ -130,12 +131,20 @@ export function workflowAssetRoots(
     for (const graph of Object.values(snapshot.graphs)) {
       for (const node of Object.values(graph.nodes)) visitNode(node, schemas)
       for (const source of Object.values(graph.valueSources ?? {})) {
-        if (checkedSources.has(source)) continue
-        checkedSources.add(source)
         if (source.spec?.options !== undefined) complete = false
         const typed = parseTypedLiteralWire(source.value)
-        if (typed === undefined) complete = false
-        else valueRoots(source.value, typeExprFromTypeId(typed.type))
+        if (typed !== undefined) valueRoots(source.value, typeExprFromTypeId(typed.type))
+        else {
+          const consumers = valueSourceConsumersOf(graph, source.id)
+          if (consumers.length === 0) complete = false
+          for (const consumer of consumers) {
+            const node = graph.nodes[consumer.node]
+            const input = node === undefined ? undefined : schemas(node.type)?.items.find((item) =>
+              item.kind === 'input' && item.id === consumer.port)
+            if (consumer.members !== undefined || input?.kind !== 'input' || input.dynamic !== undefined) complete = false
+            else valueRoots(source.value, input.type)
+          }
+        }
       }
     }
     checkExtensions(snapshot as unknown as Json)

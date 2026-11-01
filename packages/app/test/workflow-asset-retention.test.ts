@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  MASK_PAINT_SOURCE_EXT_KEY, asGraphDefId, asLineageId, asNodeId, coreCommandRegistry, createLocalSession,
+  MASK_PAINT_SOURCE_EXT_KEY, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asValueSourceId, coreCommandRegistry, createLocalSession,
   type GraphDef, type NodeSchema, type WorkflowDocument,
 } from '@dinkster/core'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
@@ -105,6 +105,56 @@ describe('retained app dispatch', () => {
 })
 
 describe('workflow candidate admission', () => {
+  it.each(['asset', 'scalar', 'disconnected', 'unknown-port', 'mixed'] as const)(
+    'requires supported types from every literal consumer: %s', (scenario) => {
+      const local = session()
+      const source = { id: asValueSourceId('literal'), value: scenario === 'scalar' ? 7 : [asset('e')] }
+      const loader: NodeSchema = scenario === 'scalar' ? { ...schema, items: [{
+        kind: 'input', id: 'files', optional: false, type: { kind: 'concrete', name: 'INT' },
+      }] } : schema
+      const opaque: NodeSchema = { ...schema, type: 'Opaque', items: [{
+        kind: 'input', id: 'files', optional: false, type: { kind: 'wildcard' },
+      }] }
+      const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!,
+        nodes: {
+          n0: { id: asNodeId('n0'), type: 'Loader', values: {} },
+          ...(scenario === 'mixed' ? { n1: { id: asNodeId('n1'), type: 'Opaque', values: {} } } : {}),
+        },
+        valueSources: { literal: source },
+        links: scenario === 'disconnected' ? {} : {
+          l0: { id: asLinkId('l0'), from: { valueSource: source.id },
+            to: { node: asNodeId('n0'), port: asPortId(scenario === 'unknown-port' ? 'missing' : 'files') } },
+          ...(scenario === 'mixed' ? { l1: { id: asLinkId('l1'), from: { valueSource: source.id },
+            to: { node: asNodeId('n1'), port: asPortId('files') } } } : {}),
+        },
+      } } }
+      const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] },
+        (type) => type === 'Loader' ? loader : type === 'Opaque' ? opaque : undefined)
+      expect(roots.complete).toBe(scenario === 'asset' || scenario === 'scalar')
+      if (scenario === 'asset') expect(roots.digests).toEqual([asset('e').digest])
+      if (scenario === 'scalar') expect(roots.digests).toEqual([])
+    },
+  )
+
+  it('rechecks a shared literal source when historical node edits change its consumer type', () => {
+    const local = session()
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!,
+      nodes: { n0: { id: asNodeId('n0'), type: 'Loader', values: {} } },
+      valueSources: { literal: { id: asValueSourceId('literal'), value: [asset('e')] } },
+      links: { l0: { id: asLinkId('l0'), from: { valueSource: asValueSourceId('literal') },
+        to: { node: asNodeId('n0'), port: asPortId('files') } } },
+    } } }
+    const strings: NodeSchema = { ...schema, type: 'StringLoader', items: [{
+      kind: 'input', id: 'files', optional: false, type: { kind: 'concrete', name: 'STRING' },
+    }] }
+    const schemas = (type: string) => type === 'StringLoader' ? strings : resolve(type)
+    expect(workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, schemas))
+      .toEqual({ complete: true, digests: [asset('e').digest] })
+    expect(workflowAssetRoots(document, { revision: 1, redo: [], undo: [{ forward: [], inverse: [{
+      op: 'replace', path: ['graphs', 'g0', 'nodes', 'n0', 'type'], oldValue: 'Loader', value: 'StringLoader',
+    }] }] }, schemas).complete).toBe(false)
+  })
+
   it('includes shared confirmed and pending document roots outside local history', async () => {
     const local = session()
     const prepared = local.prepareDispatch!(replace('b'))

@@ -92,6 +92,10 @@ candidate is refused. Unsupported schemas, dynamic state and unrecognized extens
 records are incomplete, not empty root sets. Ordinary synchronous dispatch is unchanged.
 Schema defaults contribute roots only when the node has no stored override.
 An effective unresolved selection name is incomplete, not an asset identity.
+Untyped literal producers use every connected static consumer's input type;
+unconnected producers, unknown ports and unsupported consumer types remain
+incomplete. Their roots are rechecked against each historical document's
+consumer schemas, even when the literal object itself is unchanged.
 
 Delayed blueprint, clipboard, image-drop and latent-drop insertion await their
 owner-routed dispatch result before announcing inserted ids or completing the
