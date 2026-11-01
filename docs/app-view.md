@@ -59,11 +59,17 @@ draft. Change and blur submit new edits, but retrying an unchanged refused draft
 requires the submit shortcut. Pending fields are read only and ignore duplicate
 submissions. Refusal preserves the exact text for retry,
 including list formatting; only accepted list values become stored arrays.
-Unaccepted text/list drafts defer the desktop/mobile presentation switch so
+Unaccepted text/list/number drafts defer the desktop/mobile presentation switch so
 resizing does not discard them.
 Escape restores the stored value and clears the local notice without cancelling
 an already submitted command. Old completion cannot alter a reverted or
 unmounted field.
+
+Inline numbers use final command acceptance for typed and stepped values.
+While pending, the field is read only and steppers are disabled. Refusal retains
+the exact typed text or proposed step; Enter retries it and Escape restores the
+stored number and clears its notice. Blur does not retry an unchanged refused
+number. Integer stepping stays exact beyond JavaScript's safe-integer range.
 
 App View uses the shared Product button, text, number, checkbox and select
 controls in both modes. Group and text-style selectors support the same

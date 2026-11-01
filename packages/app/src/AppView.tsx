@@ -372,8 +372,8 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   const [arrangeBreakpoint, setArrangeBreakpoint] = createSolidSignal<'desktop' | 'mobile'>('desktop')
   const [pendingArrangeBreakpoint, setPendingArrangeBreakpoint] = createSolidSignal<'desktop' | 'mobile'>()
   const [responsivePresentationMobile, setResponsivePresentationMobile] = createSolidSignal(false)
-  const [activeStringDrafts, setActiveStringDrafts] = createSolidSignal(0)
-  const stringDraftActive = (active: boolean): void => { setActiveStringDrafts((count) => count + (active ? 1 : -1)) }
+  const [activeInlineDrafts, setActiveInlineDrafts] = createSolidSignal(0)
+  const inlineDraftActive = (active: boolean): void => { setActiveInlineDrafts((count) => count + (active ? 1 : -1)) }
   let appViewElement!: HTMLDivElement
   let syncMobilePresentationOrder: (() => void) | undefined
   let presentationFocusTimer: ReturnType<typeof setTimeout> | undefined
@@ -421,7 +421,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     if (presentationFocusTimer !== undefined) clearTimeout(presentationFocusTimer)
     presentationFocusTimer = setTimeout(() => {
       presentationFocusTimer = undefined
-      if (focusedDraftScope() !== undefined || activeStringDrafts() > 0) return
+      if (focusedDraftScope() !== undefined || activeInlineDrafts() > 0) return
       const pending = pendingArrangeBreakpoint()
       if (arrange() && pending !== undefined) setArrangeBreakpoint(pending)
       setPendingArrangeBreakpoint(undefined)
@@ -431,7 +431,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   }
   createEffect(() => {
     const desired = responsiveMobile()
-    if (!arrange() && desired !== responsivePresentationMobile() && focusedDraftScope() === undefined && activeStringDrafts() === 0) {
+    if (!arrange() && desired !== responsivePresentationMobile() && focusedDraftScope() === undefined && activeInlineDrafts() === 0) {
       setResponsivePresentationMobile(desired)
     }
   })
@@ -772,13 +772,13 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     }
   }
 
-  const commitNumeric = (row: Extract<ParamRow, { kind: 'live' }>, raw: string, widgetType: 'INT' | 'FLOAT'): void => {
+  const commitNumeric = async (row: Extract<ParamRow, { kind: 'live' }>, raw: string, widgetType: 'INT' | 'FLOAT', stillWanted: () => boolean): Promise<boolean> => {
     const parsed = parseNumericCommit(raw, widgetType, row.spec?.options['round'], row.spec?.options['precision'])
     if (!parsed.ok) {
       setError(row.entry, parsed.error)
-      return
+      return false
     }
-    commit(row, parsed.value)
+    return commit(row, parsed.value, stillWanted)
   }
 
   const dispatchEntry = (command: string, entry: ExposedParameter, extra: Record<string, Json> = {}): CommandOutcome | Promise<CommandOutcome> | undefined => {
@@ -1716,7 +1716,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             ariaLabelledBy={accessibleLabelId}
             onCommit={(value, stillWanted) => commit(liveRow(), value, stillWanted)}
             onRevert={() => setError(liveRow().entry, undefined)}
-            onDraftActive={stringDraftActive}
+            onDraftActive={inlineDraftActive}
           />}
         >
           <Match when={spec().widgetType === 'LIST'}>
@@ -1731,7 +1731,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
                 return false
               }}
               onRevert={() => setError(liveRow().entry, undefined)}
-              onDraftActive={stringDraftActive}
+              onDraftActive={inlineDraftActive}
             />
           </Match>
           <Match when={spec().widgetType === 'INT' || spec().widgetType === 'FLOAT'}>
@@ -1745,7 +1745,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               min={numberAttr(spec(), 'min')}
               max={numberAttr(spec(), 'max')}
               step={numberAttr(spec(), 'step') ?? (spec().widgetType === 'INT' ? 1 : 'any')}
-              onCommit={(raw) => commitNumeric(liveRow(), raw, spec().widgetType as 'INT' | 'FLOAT')}
+              onCommitAsync={(raw, stillWanted) => commitNumeric(liveRow(), raw, spec().widgetType as 'INT' | 'FLOAT', stillWanted)}
+              onDraftActive={inlineDraftActive}
+              onRevert={() => setError(liveRow().entry, undefined)}
             />
           </Match>
           <Match when={spec().widgetType === 'BOOLEAN'}>

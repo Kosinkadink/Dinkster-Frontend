@@ -549,6 +549,7 @@ test('App view validation and remote failures keep editable controls', async ({ 
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
     await page.mouse.move(0, 0)
+    await expect(page.getByTestId('app-view-number')).toHaveValue('invalid')
     await screenshot(page, `app-control-errors-${width}`)
   }
   await page.getByTestId('app-view-number').fill('11')

@@ -161,6 +161,14 @@ restores blank input and clamps/truncates image numbers before displaying them,
 including when the selected image does not change. Grid and toolbar CSS owns
 layout only; shared primitives own control colors, borders and focus states.
 
+Document-backed number fields use `onCommitAsync` instead of synchronous
+`onCommit`. It returns final acceptance and receives a `stillWanted` guard
+for caller-owned notices. While pending the field is read only and steppers
+are disabled; refusal retains exact text for explicit Enter retry. Escape
+restores the controlled value without cancelling the command. Callers present
+errors, and `onDraftActive` lets the owning layout preserve unaccepted drafts.
+Synchronous local-draft and continuous `onInput` behavior is unchanged.
+
 The compositor editor uses the same buttons, number inputs, checkboxes,
 sliders, text input and select controls as the Image document workspace.
 Layer selection and flips expose pressed state with the primary variant.
