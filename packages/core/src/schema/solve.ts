@@ -421,7 +421,7 @@ export function solveGraphTypes(
     if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') return { ...type, element: substitute(type.element, node) }
     if (type.kind !== 'variable') return type
     const resolution = vars.resolutionOf(varKeyOf(node, type.templateId))
-    if (resolution.kind === 'resolved') return typeExprFromTypeId(resolution.name)
+    if (resolution.kind === 'resolved') return resolution.name === '*' ? { kind: 'wildcard' } : typeExprFromTypeId(resolution.name)
     if (resolution.kind === 'ambiguous') return { kind: 'union', names: resolution.names }
     return type
   }
@@ -642,7 +642,12 @@ export function solveGraphTypes(
       if (a === undefined || b === undefined) {
         // Shared-constructor peel is free: the coercion budget is inherited
         // (that is the elementwise lift when a list element then decodes).
-        unify(fromType.element, (toType as TypeExpr & { kind: 'list' | 'asset' | 'stream' }).element, from, to, source, allowCoercion, fromVariableKeys)
+        // A closed heterogeneous list binds its runtime element marker, not
+        // an unconstrained wildcard edge. Bare wildcards still never capture.
+        const element = fromType.kind === 'list' && fromType.element.kind === 'wildcard'
+          ? { kind: 'concrete' as const, name: '*' }
+          : fromType.element
+        unify(element, (toType as TypeExpr & { kind: 'list' | 'asset' | 'stream' }).element, from, to, source, allowCoercion, fromVariableKeys)
         return
       }
       // Both closed: exact canonical-id overlap, handled below.

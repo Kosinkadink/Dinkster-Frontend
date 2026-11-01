@@ -452,14 +452,16 @@ describe('explicit imported list utilities', () => {
   )
 
   it.each([
-    [false, 0],
-    [true, 0],
-    [true, 2],
-    [true, 4],
+    [false, 0, false],
+    [true, 0, false],
+    [true, 2, false],
+    [true, 4, false],
+    [true, 0, true],
   ] as const)(
-    'flattens active declared list-backed native loop results only (list: %s, mode: %s)',
-    (listSource, mode) => {
+    'flattens active declared list-backed native loop results only (list: %s, mode: %s, heterogeneous: %s)',
+    (listSource, mode, heterogeneous) => {
       const integer: TypeExpr = { kind: 'concrete', name: 'INT' }
+      const element: TypeExpr = heterogeneous ? { kind: 'wildcard' } : integer
       const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
       const list: TypeExpr = { kind: 'list', element: variable }
       const schema = (type: string, items: InterfaceItem[]): NodeSchema => ({
@@ -477,7 +479,7 @@ describe('explicit imported list utilities', () => {
             {
               kind: 'output',
               id: 'value',
-              type: listSource ? { kind: 'list', element: integer } : integer,
+              type: listSource ? { kind: 'list', element } : integer,
             },
           ]),
         ],
@@ -571,7 +573,9 @@ describe('explicit imported list utilities', () => {
             ports: {
               item: {
                 kind: 'list',
-                element: { kind: 'concrete', types: ['INT'] },
+                element: heterogeneous
+                  ? { kind: 'wildcard' }
+                  : { kind: 'concrete', types: ['INT'] },
               },
             },
             outputs: { list: { mode: 'flatten' } },
