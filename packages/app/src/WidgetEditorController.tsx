@@ -228,7 +228,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
   let popoverResize: ResizeObserver | undefined
   const clampPopover = (): void => {
     const el = popoverEl
-    const layer = el?.parentElement
+    const layer = el?.closest('.widget-popover-layer')
     if (!el || !layer) return
     const margin = semanticDesignTokens.space[4]
     const layerRect = layer.getBoundingClientRect()
@@ -272,7 +272,8 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     }
     queueMicrotask(() => {
       clampPopover()
-      if (el.parentElement) popoverResize?.observe(el.parentElement)
+      const layer = el.closest('.widget-popover-layer')
+      if (layer) popoverResize?.observe(layer)
     })
   }
   onCleanup(() => {
