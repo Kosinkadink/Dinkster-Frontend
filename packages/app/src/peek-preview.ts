@@ -30,6 +30,7 @@ import type { RenditionInfo, RenditionResult, ValuePeekResult, ValueQuery, Value
 import { parseAssetTypeId } from '@dinkster/core'
 import type { CompanionSourceMap, NodeProgress, NodeSchema, TypeExpr } from '@dinkster/core'
 import { isModel3dMime } from './model3d-mime.js'
+import { isFile3dType } from './file3d-preview.js'
 
 /** Runtime identity of one output to peek (jobId comes from the execution). */
 export interface PeekCandidate {
@@ -44,6 +45,7 @@ const mediaKindOfType = (type: TypeExpr): 'image' | 'video' | 'audio' | 'model3d
   if (type.kind !== 'concrete') return undefined
   if (type.name === 'VIDEO') return 'video'
   if (type.name === 'AUDIO') return 'audio'
+  if (isFile3dType(type.name)) return 'model3d'
   const name = type.name.toLowerCase()
   return name === 'image' || name.endsWith('.image')
     ? 'image'
@@ -147,6 +149,7 @@ export async function fetchPeekRendition(
   readonly colorTransform?: string
   readonly previewOnly?: true
   readonly imageBatch?: PeekImageBatch
+  readonly file3d?: { readonly manifest: unknown; readonly typeId: string }
   readonly video?: { readonly query: ValueQuery; readonly descriptor: ValueDescriptor; readonly renditions: readonly RenditionInfo[]; readonly notice?: string }
   readonly audio?: { readonly descriptor: ValueDescriptor; readonly query: ValueQuery; readonly renditions: readonly RenditionInfo[] }
 }> {
@@ -179,6 +182,26 @@ export async function fetchPeekRendition(
       continue
     }
     if (peeked.descriptor.length !== undefined) continue
+    if (isFile3dType(peeked.descriptor.typeId)) {
+      const info = peeked.renditions.find((entry) => entry.kind === 'manifest' && entry.mime === 'application/json')
+      if (!info) continue
+      const result = await values.rendition(query, info.kind, {
+        ...(options?.signal === undefined ? {} : { signal: options.signal }),
+        ...(info.version === undefined ? {} : { rendererVersion: info.version }),
+      })
+      options?.signal?.throwIfAborted()
+      if (!result.available) {
+        if (!definitiveStatus(result.status)) negativeCache = false
+        continue
+      }
+      if (result.mime !== info.mime || result.fingerprint !== peeked.descriptor.fingerprint) continue
+      let manifest: unknown
+      try { manifest = JSON.parse(new TextDecoder().decode(result.bytes)) }
+      catch { continue }
+      if (manifest === null) continue
+      return { bytes: result.bytes, mime: result.mime, node: c.node, output: c.output,
+        file3d: { manifest, typeId: peeked.descriptor.typeId }, ...(count === undefined ? {} : { count }) }
+    }
     const imageCount = imageBatchCount(peeked.descriptor)
     const batchRenditions = peeked.renditions.filter((rendition) => rendition.kind === 'png' && rendition.mime === 'image/png' && rendition.parameters?.includes('batch'))
     if (imageCount !== undefined && imageCount > 1 && batchRenditions.length === 0) throw new ImageBatchUnsupportedError()

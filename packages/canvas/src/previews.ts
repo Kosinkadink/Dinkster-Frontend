@@ -20,6 +20,12 @@ export interface NodePreview {
   /** Host-owned DOM media source. Canvas only paints its region/status. */
   readonly src?: string
   readonly mime?: string
+  /** Original model format and host-owned, explicitly granted sidecar URLs. */
+  readonly model3d?: {
+    readonly format?: string
+    readonly resources?: Readonly<Record<string, string>>
+    readonly pointCloud?: boolean
+  }
   /** Bounded audio transport supplied by the host's preview loader. */
   readonly audio?: {
     readonly identity: string

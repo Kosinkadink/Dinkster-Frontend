@@ -326,7 +326,7 @@ const POSTER_WIDTH = 512
 const POSTER_HEIGHT = 384
 
 /** One offscreen render of the model at `src`, framed to its bounds. */
-export function renderModel3dPoster(src: string, mime: string = GLB_MIME): Promise<Model3dPoster> {
+export function renderModel3dPoster(src: string, mime: string = GLB_MIME, options: Model3dLoadOptions = {}): Promise<Model3dPoster> {
   return withPosterSlot(async () => {
     const modules = await loadThree()
     const canvas = document.createElement('canvas')
@@ -335,7 +335,7 @@ export function renderModel3dPoster(src: string, mime: string = GLB_MIME): Promi
     const renderer = new modules.THREE.WebGLRenderer({ canvas, antialias: true, alpha: true })
     try {
       renderer.setSize(POSTER_WIDTH, POSTER_HEIGHT, false)
-      const framed = await loadFramedSceneFor(modules, src, POSTER_WIDTH / POSTER_HEIGHT, mime)
+      const framed = await loadFramedSceneFor(modules, src, POSTER_WIDTH / POSTER_HEIGHT, mime, options)
       let sparkView: import('@sparkjsdev/spark').SparkRenderer | undefined
       try {
         if (framed.attachSpark !== undefined) {

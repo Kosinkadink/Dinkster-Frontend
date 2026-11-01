@@ -7,6 +7,16 @@ pipeline for `MODEL3D` and `SPLAT` outputs, the asset browser,
 and the widget editor selection pane. `packages/app/src/model3d-mime.ts` is
 the shared gate for which MIME types route through this pipeline.
 
+Declared `FILE_3D` output previews use the advertised JSON manifest instead
+of a converted GLB or PLY rendition. The preview reads the original source
+and named sidecars through the execution's own backend, including opaque
+local bindings. Missing owners or revoked grants make the preview unavailable;
+the active tab's backend is never a fallback. JSON null has no preview.
+Poster and orbit views share the manifest's original format and granted
+resource map. Preview eviction or cancellation releases their blob URLs.
+Only canonical relative sidecar names are accepted; manifests cannot grant
+arbitrary URLs or filesystem paths.
+
 ## Rendering model
 
 A 3D preview has two presentation modes:

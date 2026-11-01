@@ -4507,6 +4507,18 @@ export class AppState {
     return backend?.protocol === 'dinkster' ? backend.connection.values() : undefined
   }
 
+  /** Granted original model bytes stay bound to the execution's native owner. */
+  async readFile3dAssetForExecution(ref: ExecutionRef, asset: Readonly<Record<string, Json>>, signal?: AbortSignal): Promise<ArrayBuffer | undefined> {
+    const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
+    if (backend?.protocol !== 'dinkster') return undefined
+    signal?.throwIfAborted()
+    const bytes = asset.verification === 'unverified'
+      ? await backend.connection.fetchLocalAssetBytes(asset.localBinding as string, signal)
+      : await backend.connection.fetchAssetBytes(asset.digest as string)
+    signal?.throwIfAborted()
+    return bytes
+  }
+
   /**
    * The backend a tab works against: frozen tabs follow their execution's
    * connection; live tabs follow their target (default when unset or stale).
