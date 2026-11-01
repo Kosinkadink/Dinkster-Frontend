@@ -25,23 +25,6 @@ const validAsset = (value: unknown): boolean => {
   })
 }
 
-const formatFromBytes = (bytes: Uint8Array): string | undefined => {
-  const head = new TextDecoder().decode(bytes.subarray(0, 512))
-  if (head.startsWith('glTF')) return 'glb'
-  if (head.startsWith('ply')) return 'ply'
-  if (/^solid\b/i.test(head.trimStart())) return 'stl'
-  if (head.startsWith('Kaydara FBX Binary') || /^;\s*FBX\s/m.test(head)) return 'fbx'
-  if (bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 3 && bytes[3] === 4) return 'usdz'
-  if (bytes.length >= 84 && 84 + new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(80, true) * 50 === bytes.length) return 'stl'
-  if (bytes[0] === 0x1f && bytes[1] === 0x8b) return 'spz'
-  if (bytes[0] === 0 && (bytes[1] ?? 0) >= 1) return 'ksplat'
-  const text = new TextDecoder().decode(bytes)
-  if (text.trimStart().startsWith('{')) return 'gltf'
-  if (/^v[ \t]+[+-]?(?:\d|\.)/m.test(text)) return 'obj'
-  if (bytes.length > 0 && bytes.length % 32 === 0) return 'splat'
-  return undefined
-}
-
 const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props) => {
   const message = useAppMessage()
   const ed = props.editor.ed
@@ -191,7 +174,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       const resourcesValue = file3d.resources
       const resourceRefs = Object.entries(object(resourcesValue))
       if (manifest !== undefined && (
-        typeof file3d.format !== 'string' || !/^[a-z0-9]*$/.test(file3d.format)
+        typeof file3d.format !== 'string' || !/^[a-z0-9]+$/.test(file3d.format)
         || Object.keys(file3d).some((key) => { return !['format', 'source', 'resources'].includes(key) })
         || [file3d.source, ...resourceRefs.map(([, ref]) => ref)].some((ref) => { return !validAsset(ref) })
         || (resourcesValue !== undefined && (resourcesValue === null || typeof resourcesValue !== 'object' || Array.isArray(resourcesValue)))
@@ -212,33 +195,14 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         if (!live || !sourcesCurrent() || !bytes) throw new Error(message('load3dWidget.unavailable'))
         const url = URL.createObjectURL(new Blob([bytes], { type: String(ref.mediaType ?? 'application/octet-stream') }))
         urls.push(url)
-        return { url, bytes: new Uint8Array(bytes) }
+        return url
       }
-      const primary = await assetUrl(model)
-      const unspecified = manifest !== undefined && file3d.format === ''
-      const format = unspecified ? formatFromBytes(primary.bytes)
-        : typeof file3d.format === 'string' ? file3d.format : String(model.name ?? '').split('.').pop()?.toLowerCase()
-      if (unspecified && !format) throw new Error(message('load3dWidget.unavailable'))
+      const url = await assetUrl(model)
       const resources: Record<string, string> = Object.create(null)
-      for (const [name, ref] of resourceRefs) resources[name] = (await assetUrl(object(ref))).url
-      const lines: string[] = []
-      if (unspecified && format === 'ply') {
-        const decoder = new TextDecoder()
-        for (let start = 0; start < primary.bytes.length;) {
-          const end = primary.bytes.indexOf(10, start)
-          if (end < 0) break
-          const line = decoder.decode(primary.bytes.subarray(start, end))
-          if (line.trim() === 'end_header') break
-          lines.push(line)
-          start = end + 1
-        }
-      }
-      const header = lines.join('\n')
-      const gaussian = /^property\s+float\s+f_dc_0\s*$/m.test(header)
-        && /^property\s+float\s+scale_0\s*$/m.test(header)
-        && /^property\s+float\s+rot_0\s*$/m.test(header)
-      const mime = format === 'gltf' ? 'model/gltf+json' : unspecified ? gaussian ? 'model/ply' : 'application/octet-stream' : String(model.mediaType ?? 'model/gltf-binary')
-      const mounted = await mountModel3dViewer(viewport, primary.url, mime, { resources,
+      for (const [name, ref] of resourceRefs) resources[name] = await assetUrl(object(ref))
+      const mime = file3d.format === 'gltf' ? 'model/gltf+json' : String(model.mediaType ?? 'model/gltf-binary')
+      const format = typeof file3d.format === 'string' ? file3d.format : String(model.name ?? '').split('.').pop()?.toLowerCase()
+      const mounted = await mountModel3dViewer(viewport, url, mime, { resources,
         ...(format ? { format } : {}), pointCloud: node?.type === 'PreviewPointCloud' })
       if (!live || !sourcesCurrent()) { mounted.dispose(); return }
       viewer = mounted
