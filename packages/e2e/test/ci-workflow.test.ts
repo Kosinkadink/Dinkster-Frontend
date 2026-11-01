@@ -505,6 +505,22 @@ describe('fast pull-request and full validation workflows', () => {
     expect(hostedConfig).not.toContain('main.py --cpu')
   })
 
+  it('resolves CPU wheels in every CPU catalog preparation subprocess', () => {
+    for (const workflow of [fast, full]) {
+      const preparations = Object.values(workflow.jobs).flatMap((job) =>
+        (job.steps ?? []).filter((step) =>
+          step.run?.includes('prepare-catalogs'),
+        ),
+      )
+      expect(preparations.length).toBeGreaterThan(0)
+      for (const step of preparations) {
+        expect(step.run).toContain('--accelerator cpu')
+        expect(step.env?.['UV_TORCH_BACKEND']).toBe('cpu')
+        expect(step.env?.['CUDA_VISIBLE_DEVICES']).toBe('')
+      }
+    }
+  })
+
   it('retains clean checkouts, ref selection, read-only credentials and isolated browser ports', () => {
     for (const workflow of [fast, full]) {
       expect(workflow.permissions['contents']).toBe('read')

@@ -33,6 +33,11 @@ Linux runner image as full validation, without a live backend. It discovers
 specs containing screenshot assertions so new screenshot specs join the check.
 PR labels do not enable heavy jobs.
 
+CPU catalog preparation sets `UV_TORCH_BACKEND=cpu` for its child package
+installers. `--accelerator cpu` selects pack requirements, while the uv
+setting selects CPU PyTorch wheels and avoids installing CUDA runtimes on
+the hosted CPU runners.
+
 The subset uses synthetic inputs and checked-in fixtures:
 
 - Core `format.schema.test.ts`: document schema/runtime validator agreement.
