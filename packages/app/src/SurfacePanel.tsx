@@ -99,7 +99,7 @@ export function SurfacePanel(props: { app: AppState }) {
     return out
   }
 
-  const updateConfig = (surface: ControlSurfaceData, config: ModePanelConfig): CommandOutcome | undefined => {
+  const updateConfig = (surface: ControlSurfaceData, config: ModePanelConfig): CommandOutcome | Promise<CommandOutcome> | undefined => {
     const tab = activeTab()
     if (!tab) return
     return props.app.dispatchTo(tab, {
