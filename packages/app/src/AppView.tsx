@@ -145,7 +145,7 @@ function AppViewColorPicker(props: {
   readonly value: string
   readonly draftScopeId: string
   readonly label: string
-  readonly onCommit: (value: string) => void
+  readonly onCommit: (value: string, stillWanted: () => boolean) => Promise<boolean>
 }) {
   const message = useAppMessage()
   const popupId = `app-view-color-popup-${createUniqueId()}`
@@ -153,10 +153,34 @@ function AppViewColorPicker(props: {
   const [open, setOpen] = createSolidSignal(false)
   const [draft, setDraft] = createSolidSignal(props.value)
   const [position, setPosition] = createSolidSignal({ left: 0, top: 0 })
+  const [pending, setPending] = createSolidSignal(false)
+  const [refusal, setRefusal] = createSolidSignal<string>()
+  let live = true
+  let generation = 0
+  onCleanup(() => { live = false })
   let trigger: HTMLButtonElement | undefined
   let field: HTMLInputElement | undefined
+  let popup: HTMLDivElement | undefined
+  createEffect(() => {
+    if (!open()) return
+    refusal()
+    const place = (): void => {
+      if (!trigger || !popup) return
+      const anchor = trigger.getBoundingClientRect()
+      const bounds = popup.getBoundingClientRect()
+      setPosition({
+        left: Math.max(8, Math.min(anchor.left, window.innerWidth - bounds.width - 8)),
+        top: Math.max(8, Math.min(anchor.bottom + 4, window.innerHeight - bounds.height - 8)),
+      })
+    }
+    place()
+    window.addEventListener('resize', place)
+    onCleanup(() => window.removeEventListener('resize', place))
+  })
   const presets = ['#ffffff', '#000000', '#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#3498db', '#9b59b6']
   const close = (): void => {
+    generation++
+    setPending(false)
     setOpen(false)
     queueMicrotask(() => trigger?.focus())
   }
@@ -164,14 +188,27 @@ function AppViewColorPicker(props: {
     if (!trigger) return
     const rect = trigger.getBoundingClientRect()
     setDraft(props.value)
+    setRefusal(undefined)
     setPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 230)), top: rect.bottom + 4 })
     setOpen(true)
     queueMicrotask(() => field?.focus())
   }
-  const commit = (value: string): void => {
-    if (!/^#[0-9a-f]{6}$/i.test(value)) return
-    props.onCommit(value)
-    close()
+  const commit = async (value: string): Promise<void> => {
+    if (!live || pending() || !/^#[0-9a-f]{6}$/i.test(value)) return
+    const current = ++generation
+    setDraft(value)
+    setPending(true)
+    setRefusal(undefined)
+    try {
+      const accepted = await props.onCommit(value, () => live && current === generation)
+      if (!live || current !== generation) return
+      if (accepted) close()
+      else setRefusal(message('widgetEditor.commitRefused'))
+    } catch (error) {
+      if (live && current === generation) setRefusal(error instanceof Error ? error.message : String(error))
+    } finally {
+      if (live && current === generation) setPending(false)
+    }
   }
   const escape = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape') return
@@ -199,20 +236,23 @@ function AppViewColorPicker(props: {
       <Show when={open()}>
         <Portal mount={trigger?.closest('dialog') ?? document.body}>
           <div
+            ref={popup}
             id={popupId}
             class="product-color-popover"
             data-app-view-draft-scope={props.draftScopeId}
             role="dialog"
             aria-label={message('appView.color.choose')}
+            aria-busy={pending()}
             style={{ left: `${position().left}px`, top: `${position().top}px` }}
             onPointerDown={(event) => event.stopPropagation()}
             onKeyDown={escape}
           >
-            <label>{message('appView.color.hex')}<ProductTextInput ref={field} aria-label={message('appView.color.hex')} value={draft()} onInput={(event) => setDraft(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') commit(draft()) }} /></label>
+            <label>{message('appView.color.hex')}<ProductTextInput ref={field} aria-label={message('appView.color.hex')} value={draft()} readOnly={pending()} onInput={(event) => setDraft(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') void commit(draft()) }} /></label>
             <div class="product-color-grid" aria-label={message('appView.color.presets')}>
-              <For each={presets}>{(color) => <ProductButton type="button" aria-label={message('appView.color.select', { color })} style={{ background: color }} onClick={() => commit(color)} />}</For>
+              <For each={presets}>{(color) => <ProductButton type="button" disabled={pending()} aria-label={message('appView.color.select', { color })} style={{ background: color }} onClick={() => void commit(color)} />}</For>
             </div>
-            <ProductButton type="button" variant="primary" disabled={!/^#[0-9a-f]{6}$/i.test(draft())} onClick={() => commit(draft())}>{message('appView.color.apply')}</ProductButton>
+            <ProductButton type="button" variant="primary" disabled={pending() || !/^#[0-9a-f]{6}$/i.test(draft())} onClick={() => void commit(draft())}>{message('appView.color.apply')}</ProductButton>
+            <Show when={refusal()}>{(text) => <ProductNotice tone="error">{text()}</ProductNotice>}</Show>
           </div>
         </Portal>
       </Show>
@@ -228,6 +268,8 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   // When hosted inside a split group, this view shows the group's active
   // tab, which may differ from the app-global active tab.
   const activeTabId = (): string => props.host?.tabId() ?? globalActiveTabId()
+  let commitOwner = 0
+  createEffect(() => { activeTabId(); commitOwner++ })
   const backendsTick = useSignal(props.app.backendsTick)
   const tabTargets = useSignal(props.app.tabTargets)
   const extensionsTick = useSignal(props.app.extensions.changed)
@@ -648,18 +690,20 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   }
 
   /** All controls converge on the same undoable document command. */
-  const commit = (row: Extract<ParamRow, { kind: 'live' }>, value: Json): void => {
+  const commit = async (row: Extract<ParamRow, { kind: 'live' }>, value: Json, stillWanted: () => boolean = () => true): Promise<boolean> => {
     const tab = activeTab()
-    if (!tab || frozen()) return
+    if (!tab || frozen()) return false
     if (row.spec !== undefined) {
       const error = widgetCommitError(widgetRegistry().kind(row.spec.widgetType), value, row.spec)
       if (error !== undefined) {
         setError(row.entry, error)
-        return
+        return false
       }
     }
     setError(row.entry, undefined)
-    props.app.dispatchTo(tab, {
+    const store = tab.store
+    const owner = commitOwner
+    const outcome = await props.app.dispatchTo(tab, {
       command: 'node.setValue',
       params: {
         graphId: row.entry.graphId,
@@ -668,6 +712,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         value,
       },
     })
+    if (!live || !stillWanted() || owner !== commitOwner || activeTab() !== tab || tab.store !== store) return false
+    if (!outcome.ok) setError(row.entry, outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))
+    return outcome.ok
   }
 
   const commitNumeric = (row: Extract<ParamRow, { kind: 'live' }>, raw: string, widgetType: 'INT' | 'FLOAT'): void => {
@@ -1108,11 +1155,11 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       }}
       onFocus={() => loadRemoteOptions(controlProps.row)}
       onPointerDown={() => loadRemoteOptions(controlProps.row)}
-      onSelect={(option) => {
+      onSelect={async (option) => {
         // Committing rebuilds the row list, remounting this trigger; restore
         // focus onto the replacement element once the rebuild has flushed.
         const key = rowKey(controlProps.row.entry)
-        commit(controlProps.row, option.value)
+        if (!await commit(controlProps.row, option.value)) return
         queueMicrotask(() => {
           // Compare attribute values in JS rather than via a CSS selector:
           // CSS.escape cannot round-trip U+0000, which a valid lineage-derived
@@ -1655,7 +1702,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               value={stringValue()}
               draftScopeId={draftScopeId}
               label={liveRow().label}
-              onCommit={(value) => commit(liveRow(), value)}
+              onCommit={(value, stillWanted) => commit(liveRow(), value, stillWanted)}
             />
           </Match>
           <Match when={spec().widgetType === 'COMBO'}>

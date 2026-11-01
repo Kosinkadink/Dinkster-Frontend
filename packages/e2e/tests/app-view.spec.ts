@@ -858,6 +858,73 @@ test('COLOR edits inline through the shared document commit path', async ({ page
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.color).toBeUndefined()
 })
 
+test('inline color drafts wait for final command acceptance', {
+  annotation: { type: 'mock-rename-dispatch' },
+}, async ({ page }, testInfo) => {
+  await exposeViaMenu(page, 'color')
+  await selectView(page, 'App view')
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__colorPending = []
+    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
+      ;(window as any).__colorPending.push((accepted: boolean) => resolve(accepted ? dispatch(tab, invocation) : {
+        ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Color edit refused for test' }],
+      }))
+    })
+  })
+  const settle = (index: number, accepted: boolean) => page.evaluate(({ index, accepted }) => (window as any).__colorPending[index](accepted), { index, accepted })
+  const color = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.widgets!.values.color)
+  await page.getByTestId('app-view-color').click()
+  const popup = page.getByRole('dialog', { name: 'Choose color' })
+  const hex = page.getByRole('textbox', { name: 'Hex color' })
+  const apply = page.getByRole('button', { name: 'Apply color' })
+  await page.screenshot({ path: testInfo.outputPath('color-default.png') })
+  await hex.fill('#336699')
+  await apply.click()
+  await expect(popup).toHaveAttribute('aria-busy', 'true')
+  await expect(hex).toHaveAttribute('readonly', '')
+  await expect(apply).toBeDisabled()
+  await hex.press('Enter')
+  expect(await page.evaluate(() => (window as any).__colorPending.length)).toBe(1)
+  expect(await color()).toBeUndefined()
+  await page.screenshot({ path: testInfo.outputPath('color-pending.png') })
+  await settle(0, false)
+  await expect(popup.getByRole('alert')).toBeVisible()
+  await expect(hex).toHaveValue('#336699')
+  await expect(apply).toBeEnabled()
+  await page.screenshot({ path: testInfo.outputPath('color-refused.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(async () => {
+    const bounds = await popup.boundingBox()
+    return bounds !== null && bounds.x >= 0 && bounds.x + bounds.width <= 390 && bounds.y + bounds.height <= 844
+  }).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('color-refused-narrow.png') })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await apply.click()
+  await settle(1, true)
+  await expect(popup).toHaveCount(0)
+  expect(await color()).toBe('#336699')
+  await page.screenshot({ path: testInfo.outputPath('color-accepted.png') })
+  await page.keyboard.press('Control+z')
+  expect(await color()).toBeUndefined()
+  await page.getByTestId('app-view-color').click()
+  await popup.getByRole('button', { name: 'Select #e74c3c', exact: true }).click()
+  await expect(hex).toHaveValue('#e74c3c')
+  await expect(popup).toHaveAttribute('aria-busy', 'true')
+  await hex.press('Escape')
+  await page.getByTestId('app-view-color').click()
+  await hex.fill('#123456')
+  await settle(2, false)
+  await expect(hex).toHaveValue('#123456')
+  await expect(popup.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByTestId('app-view-error')).toHaveCount(0)
+  await apply.click()
+  await settle(3, true)
+  await expect(popup).toHaveCount(0)
+  expect(await color()).toBe('#123456')
+})
+
 test('remote COMBO fetches on open, preserves an OOV placeholder, and commits a fetched option', async ({ page }) => {
   await page.route(`**${REMOTE_ROUTE}*`, (route) =>
     void route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(['alpha', 'beta']) }))

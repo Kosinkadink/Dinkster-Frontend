@@ -315,7 +315,9 @@ open while scrubbing.
 
 AppView COLOR uses a product swatch trigger and an anchored popup mounted in
 the owning dialog when present. The popup accepts exact six-digit hex text and
-offers 32px preset swatches. Invalid text does not commit. Escape discards the
+offers 32px preset swatches. Apply and presets wait for final command acceptance;
+pending submissions cannot duplicate the write, and a refusal keeps the exact
+color draft open with a retry notice. Invalid text does not commit. Escape discards the
 draft, closes the popup, and restores trigger focus. A non-color stored value
 displays white without writing that fallback into the document.
 
