@@ -22,6 +22,10 @@ use the same acceptance path. Explicit refresh selection closes a multi-combo
 only after acceptance. Single refresh does not request closure, but a document
 change can still dismiss its stale canvas anchor.
 
+Output-descriptor Apply shows command refusals and transport errors above the
+draft, separately from descriptor validation and metadata-probe errors. The
+draft remains available for retry and closes only after command acceptance.
+
 ## Descriptor fields
 
 An unknown field on a known widget descriptor produces a

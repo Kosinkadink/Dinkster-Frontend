@@ -455,6 +455,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     />
   ) : ed.outputDescriptors !== undefined ? (
     <div ref={bindPopover} class="widget-editor floating-surface widget-editor-popover output-descriptor-popover" data-testid="widget-editor" role="dialog" aria-label="Edit output descriptors" style={popoverStyle}>
+      <Show when={commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
       <OutputDescriptorEditor
         spec={ed.outputDescriptors.spec}
         initial={ed.initial}

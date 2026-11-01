@@ -55,6 +55,78 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
 const stored = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.nodes.n!.values.entries as string)
 const pins = (page: Page) => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'n')!.layout.pins.filter((pin) => pin.direction === 'out' && !pin.widgetTap).map((pin) => pin.address.port))
 
+test('descriptor Apply preserves the draft and exposes command refusal before retry', async ({ page }, info) => {
+  await setup(page)
+  const initial = await stored(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__descriptorPending = []
+    app.dispatchTo = (tab: any, invocation: any) => {
+      if (invocation.command !== 'node.setValue' || invocation.params.inputId !== 'entries') return dispatch(tab, invocation)
+      return new Promise((resolve, reject) => {
+        ;(window as any).__descriptorPending.push((result: string) => {
+          if (result === 'error') reject(new Error('Descriptor transport unavailable'))
+          else resolve(result === 'accept' ? dispatch(tab, invocation) : {
+            ok: false, diagnostics: [{ message: 'Descriptor command refused' }],
+          })
+        })
+      })
+    }
+  })
+  const settle = (index: number, result: string) => page.evaluate(({ index, result }) => {
+    ;(window as any).__descriptorPending[index](result)
+  }, { index, result })
+  await openDescriptors(page)
+  const name = page.getByLabel('Output 1 name', { exact: true })
+  await name.fill('Accepted sum')
+  await name.press('Tab')
+  await page.screenshot({ path: info.outputPath('descriptor-default.png'), animations: 'disabled' })
+  const apply = page.getByTestId('output-descriptors-apply')
+  await apply.click()
+  await expect(page.locator('.widget-commit-content')).toHaveAttribute('aria-busy', 'true')
+  await expect(page.locator('.widget-commit-content')).toHaveJSProperty('inert', true)
+  expect(await stored(page)).toBe(initial)
+  await page.screenshot({ path: info.outputPath('descriptor-pending.png'), animations: 'disabled' })
+  await settle(0, 'refuse')
+  const notice = page.getByTestId('widget-commit-error')
+  await expect(notice).toHaveText('Descriptor command refused')
+  await expect(name).toHaveValue('Accepted sum')
+  expect(await stored(page)).toBe(initial)
+  await page.screenshot({ path: info.outputPath('descriptor-refused.png'), animations: 'disabled' })
+  await page.setViewportSize({ width: 760, height: 900 })
+  await expect(notice).toBeVisible()
+  await expect(notice).toBeInViewport()
+  expect(await page.getByTestId('widget-editor').evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+  await page.screenshot({ path: info.outputPath('descriptor-refused-narrow.png'), animations: 'disabled' })
+  await apply.click()
+  await expect(notice).toBeHidden()
+  await settle(1, 'error')
+  await expect(notice).toHaveText('Descriptor transport unavailable')
+  await expect(name).toHaveValue('Accepted sum')
+  expect(await stored(page)).toBe(initial)
+  await page.setViewportSize({ width: 1600, height: 950 })
+  await apply.click()
+  await settle(2, 'accept')
+  await expect(page.getByTestId('output-descriptor-editor')).toBeHidden()
+  expect(JSON.parse(await stored(page))).toEqual({
+    entries: [
+      { id: 'm0', name: 'Accepted sum', type: 'float', expression: 'a+b' },
+      { id: 'm1', name: 'Caption', type: 'string', value: 'hello' },
+    ], extra: { preserved: true },
+  })
+  await page.screenshot({ path: info.outputPath('descriptor-accepted.png'), animations: 'disabled' })
+  await openDescriptors(page)
+  await apply.click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('output-descriptor-editor')).toBeHidden()
+  await openDescriptors(page)
+  await settle(3, 'refuse')
+  await expect(notice).toBeHidden()
+  await expect(name).toHaveValue('Accepted sum')
+  await page.screenshot({ path: info.outputPath('descriptor-dismissed.png'), animations: 'disabled' })
+})
+
 test('descriptor controls and stored JSON at desktop and compact widths', async ({ page }) => {
   await setup(page)
   await page.evaluate(async () => {
