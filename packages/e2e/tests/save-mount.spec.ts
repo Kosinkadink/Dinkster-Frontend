@@ -15,6 +15,51 @@ async function mountPoint(page: Page, inputId = 'destination', nodeId = 'save') 
   }, { inputId, nodeId })
 }
 
+test('native SaveImage and SaveVideo keep imported prefixes beside independent mount controls', async ({ page }, testInfo) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  const response = await page.request.get('/api/nodes')
+  expect(response.ok()).toBe(true)
+  const catalog = await response.json() as { nodes: Record<string, unknown> }
+  expect(catalog.nodes).toHaveProperty('SaveImage')
+  expect(catalog.nodes).toHaveProperty('SaveVideo')
+  expect(catalog.nodes).not.toHaveProperty('Set Save Target Prefix')
+  await page.goto('/')
+  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
+  await expect.poll(() => page.evaluate(() => !!window.__dinksterTest?.app.activeTab())).toBe(true)
+  const imported = await page.evaluate(async () => {
+    const workflow = { version: 0.4, nodes: [
+      { id: 1, type: 'SaveImage', pos: [60, 60], size: [350, 180], inputs: [{ name: 'images', type: 'IMAGE', link: null }], outputs: [], widgets_values: ['images/first'], properties: { ver: '0.3.68' } },
+      { id: 2, type: 'SaveVideo', pos: [520, 60], size: [350, 240], inputs: [{ name: 'video', type: 'VIDEO', link: null }], outputs: [], widgets_values: ['video/second', 'auto', 'auto'], properties: { ver: '0.3.68' } },
+    ], links: [] }
+    const result = await window.__dinksterTest!.app.importWorkflowFile({ name: 'native-save-mounts.json', text: async () => JSON.stringify(workflow) })
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    return result
+  })
+  expect(imported).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.map((node) => node.id).sort())).toEqual(['n1', 'n2'])
+  const before = await page.evaluate(() => structuredClone(window.__dinksterTest!.app.activeTab()!.store.doc))
+  expect(Object.values(before.graphs.g0!.nodes).map((node) => [node.type, node.values.filename_prefix, node.values.mount ?? null])).toEqual([
+    ['SaveImage', 'images/first', null], ['SaveVideo', 'video/second', null],
+  ])
+  await page.screenshot({ path: testInfo.outputPath('native-save-mounts.png') })
+  for (const nodeId of ['n1', 'n2']) {
+    const prefix = await mountPoint(page, 'filename_prefix', nodeId)
+    const mount = await mountPoint(page, 'mount', nodeId)
+    expect(mount.y).toBe(prefix.y)
+    expect(mount.x).toBeGreaterThan(prefix.x)
+    await page.mouse.click(prefix.x, prefix.y)
+    await expect(page.getByTestId('widget-editor')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await page.mouse.click(mount.x, mount.y)
+    await expect(page.getByTestId('mount-widget-editor')).toHaveAttribute('data-mounts', 'ready')
+    await expect(page.getByTestId('mount-widget-choice')).toHaveText('Default output mount')
+    await page.keyboard.press('Escape')
+  }
+  expect(await page.evaluate(() => structuredClone(window.__dinksterTest!.app.activeTab()!.store.doc))).toEqual(before)
+  expect(pageErrors).toEqual([])
+})
+
 test('SaveImage and SaveVideo contract fixtures render mount beside filename_prefix without helper nodes', async ({ page }, testInfo) => {
   await page.route('/api/*', (route) => route.fulfill({ status: 503, body: 'No backend in this frontend contract test' }))
   await page.route('/system_stats', (route) => route.fulfill({ status: 503 }))

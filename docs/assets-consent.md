@@ -8,6 +8,8 @@ Dialog chrome follows the active application locale while mounted, including sou
 
 Fetchable rows start selected. `Acquire selected and retry` resubmits the exact rejected job body with `acquireAssets` containing exactly the selected digests. Cancel submits nothing. A repeated preflight rejection replaces the plan in the same dialog; success closes it and enters the normal execution flow. Other failures use the normal Problems path.
 
+An unavailable source name without a digest appears in Problems with its filename, asset kind, and original node/input location. Grant a mounted folder containing the original file or select an available source. A symlink outside a granted folder does not grant its target. These refusals do not offer acquisition or retry because there is no verified asset identity to acquire.
+
 Each row uses the product checkbox. Clicking the row label or the control stages its digest without changing the queued request. The control is keyboard reachable, exposes checked state through `aria-checked`, and is disabled when the asset is unresolvable or a retry is busy. A polite status announces selection and retry progress.
 
 Acquisition runs inside the retry request and may take a while. While it is busy, selection, the close button, Escape, and backdrop dismissal are blocked. The explicit Dismiss action hides the decision without cancelling the in-flight retry; a later failure appears in Problems. There is no mid-flight cancellation because the backend does not provide one.

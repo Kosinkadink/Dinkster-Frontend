@@ -966,7 +966,8 @@ describe('peekSource negative cache', () => {
 
   it('keys by execution, scene node, and candidate set', () => {
     const s = loader().peekSource(values, exec({}), candidates, 'scene1')
-    expect(s?.key).toBe('peek:["k1","scene1",[["n1","image"]]]:batch:0')
+    expect(loader().peekSource(values, exec({}), candidates, 'scene1')?.key).toBe(s?.key)
+    expect(loader().peekSource(values, exec({}), [{ ...candidates[0]!, model3d: { cameraOutput: 'camera' } }], 'scene1')?.key).not.toBe(s?.key)
     expect(loader().peekSource(values, exec({}), candidates, 'scene1', 1)?.key).not.toBe(s?.key)
     expect(loader().peekSource(values, exec({}), [{ node: 'n1.image', output: 'a' }], 'scene1')?.key)
       .not.toBe(loader().peekSource(values, exec({}), [{ node: 'n1', output: 'image.a' }], 'scene1')?.key)

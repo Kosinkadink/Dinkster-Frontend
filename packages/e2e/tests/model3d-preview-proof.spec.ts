@@ -319,6 +319,207 @@ test('authored captures retain material alpha and camera state across projection
   expect(result.images.normal!.opaque).toBe(257 * 143)
 })
 
+test('canonical FILE_3D final peek renders original GLTF with granted sidecars and releases resources', async ({ page }) => {
+  await page.goto('/')
+  const result = await page.evaluate(async (bytes) => {
+    const loaderPath = '/src/node-previews.ts'
+    const viewerPath = '/src/model3d-viewer.ts'
+    const { createPreviewLoader } = await import(loaderPath)
+    const { mountModel3dViewer } = await import(viewerPath)
+    const packed = new Uint8Array(bytes)
+    const length = new DataView(packed.buffer).getUint32(12, true)
+    const json = JSON.parse(new TextDecoder().decode(packed.slice(20, 20 + length)))
+    json.buffers[0].uri = 'buffers/mesh.bin'
+    const binary = packed.slice(28 + length).buffer
+    const manifest = { format: 'gltf', source: { digest: `blake3:${'a'.repeat(64)}`, name: 'original.gltf',
+      size: 1, mediaType: 'model/gltf+json', virtualPath: 'original.gltf' }, resources: {
+      'buffers/mesh.bin': { verification: 'unverified', localBinding: 'granted-buffer', name: 'mesh.bin',
+        size: binary.byteLength, mediaType: 'application/octet-stream', virtualPath: 'buffers/mesh.bin' },
+    } }
+    const reads: string[] = []
+    let decoded!: () => void
+    const ready = new Promise<void>((resolve) => { decoded = resolve })
+    const loader = createPreviewLoader({
+      assetUrlForExecution: () => { throw new Error('must use declared grants') },
+      assetUrlForInput: () => undefined,
+      onDecoded: decoded,
+      readFile3dAsset: async (ref: { connection: string }, asset: { digest?: string; localBinding?: string }) => {
+        if (ref.connection !== 'original-owner') throw new Error('wrong owner')
+        reads.push(asset.digest ?? asset.localBinding!)
+        return asset.digest ? new TextEncoder().encode(JSON.stringify(json)).buffer : binary
+      },
+    })
+    const descriptor = { typeId: 'FILE_3D_GLTF', fingerprint: 'file-identity' }
+    const camera = { position: { x: 0, y: 0, z: 6 }, target: { x: 0, y: 0, z: 0 }, zoom: 1,
+      cameraType: 'orthographic', frustum: { left: -2, right: 2, top: 1.5, bottom: -1.5 } }
+    const models = [{ position: { x: 0.5, y: 0.2, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 1, z: 1 } }]
+    const values = {
+      peek: async (query: { outputId: string }) => query.outputId === 'model'
+        ? { available: true, descriptor, renditions: [{ kind: 'manifest', mime: 'application/json' }] }
+        : { available: true, descriptor: { typeId: query.outputId === 'camera' ? 'LOAD3D_CAMERA' : 'LOAD3D_MODEL_INFO', fingerprint: query.outputId },
+          renditions: [{ kind: 'json', mime: 'application/json' }] },
+      rendition: async (query: { outputId: string }) => ({ available: true,
+        fingerprint: query.outputId === 'model' ? descriptor.fingerprint : query.outputId, kind: query.outputId === 'model' ? 'manifest' : 'json', mime: 'application/json',
+        bytes: new TextEncoder().encode(JSON.stringify(query.outputId === 'model' ? manifest : query.outputId === 'camera' ? camera : models)).buffer }),
+    }
+    const source = loader.peekSource(values, { key: 'run', ref: { connection: 'original-owner', prompt: 'job' } },
+      [{ node: 'preview', output: 'model', declaredIntent: true, mediaKind: 'model3d', model3d: { cameraOutput: 'camera', modelsOutput: 'placement' } }], 'preview')
+    loader.resolve(source)
+    await ready
+    const preview = loader.resolve(source)
+    if (!preview.image || preview.status) throw new Error('final FILE_3D poster failed')
+    if (preview.download?.src !== preview.src || preview.download?.name !== 'original.gltf') throw new Error('original FILE_3D download is unavailable')
+    const row = document.createElement('section')
+    row.id = 'file3d-final-proof'
+    row.style.cssText = 'position:fixed;inset:50px;background:#20232a;color:white;z-index:99999;padding:24px;display:flex;gap:24px;align-items:center'
+    const poster = document.createElement('canvas'); poster.width = preview.width; poster.height = preview.height
+    poster.getContext('2d')!.drawImage(preview.image, 0, 0)
+    const host = document.createElement('div'); host.style.cssText = 'width:512px;height:384px'
+    row.append(poster, host); document.body.append(row)
+    const viewer = await mountModel3dViewer(host, preview.src, preview.mime, preview.model3d)
+    const pixels = poster.getContext('2d')!.getImageData(0, 0, poster.width, poster.height).data
+    let visible = 0; let sumX = 0
+    for (let i = 3; i < pixels.length; i += 4) if (pixels[i]) { visible++; sumX += ((i - 3) / 4) % poster.width }
+    const sidecar = preview.model3d.resources['buffers/mesh.bin']
+    ;(window as unknown as { finishFile3dProof: () => Promise<boolean> }).finishFile3dProof = async () => {
+      viewer.dispose(); loader.dispose()
+      try { await fetch(sidecar); return false } catch { return true }
+    }
+    return { visible, reads, format: preview.model3d.format, camera: viewer.cameraState(), placement: viewer.modelTransform(), centerX: sumX / visible }
+  }, Array.from(glb()))
+  expect(result.visible).toBeGreaterThan(100)
+  expect(result.reads).toEqual([`blake3:${'a'.repeat(64)}`, 'granted-buffer'])
+  expect(result.format).toBe('gltf')
+  expect(result.camera.cameraType).toBe('orthographic')
+  expect(result.camera.position.x).toBe(0)
+  expect(result.camera.position.z).toBe(6)
+  // OrbitControls' polar reconstruction measured y=3.674e-16 at distance 6; one relative epsilon bounds that roundoff.
+  expect(Math.abs(result.camera.position.y)).toBeLessThanOrEqual(6 * Number.EPSILON)
+  expect(result.placement.position).toEqual({ x: 0.5, y: 0.2, z: 0 })
+  // Four world units span 512 pixels; the supplied 0.5-unit translation moves the triangle's center to x=320.
+  expect(result.centerX).toBeGreaterThan(315)
+  expect(result.centerX).toBeLessThan(325)
+  mkdirSync(proofDir, { recursive: true })
+  await page.locator('#file3d-final-proof').screenshot({ path: `${proofDir}/file3d-final-gltf-metadata.png` })
+  expect(await page.evaluate(() => (window as unknown as { finishFile3dProof: () => Promise<boolean> }).finishFile3dProof())).toBe(true)
+})
+
+test('canonical FILE_3D embedded GLB textures render without granting unrelated blob URLs', async ({ page }) => {
+  const result = await page.evaluate(async (bytes) => {
+    const viewerPath = '/src/model3d-viewer.ts'
+    const { renderModel3dPoster, mountModel3dViewer } = await import(viewerPath)
+    const packed = new Uint8Array(bytes)
+    const length = new DataView(packed.buffer).getUint32(12, true)
+    const json = JSON.parse(new TextDecoder().decode(packed.slice(20, 20 + length)))
+    const image = document.createElement('canvas'); image.width = 2; image.height = 2
+    const paint = image.getContext('2d')!; paint.fillStyle = '#00ff00'; paint.fillRect(0, 0, 2, 2)
+    const png = new Uint8Array(await (await new Promise<Blob>((resolve) => image.toBlob((blob) => resolve(blob!)))).arrayBuffer())
+    const binary = new Uint8Array(60 + png.length)
+    binary.set(packed.slice(28 + length, 28 + length + 36))
+    new Float32Array(binary.buffer, 36, 6).set([0, 0, 1, 0, 0.5, 1])
+    binary.set(png, 60)
+    json.buffers[0].byteLength = binary.length
+    json.bufferViews.push({ buffer: 0, byteOffset: 36, byteLength: 24 }, { buffer: 0, byteOffset: 60, byteLength: png.length })
+    json.accessors.push({ bufferView: 1, componentType: 5126, count: 3, type: 'VEC2' })
+    json.meshes[0].primitives[0].attributes.TEXCOORD_0 = 1
+    json.images = [{ bufferView: 2, mimeType: 'image/png' }]
+    json.textures = [{ source: 0 }]
+    json.materials[0].pbrMetallicRoughness.baseColorFactor = [1, 1, 1, 1]
+    json.materials[0].pbrMetallicRoughness.baseColorTexture = { index: 0 }
+    json.extensionsUsed = ['KHR_materials_unlit']
+    json.materials[0].extensions = { KHR_materials_unlit: {} }
+    const text = new TextEncoder().encode(JSON.stringify(json))
+    const jsonSize = Math.ceil(text.length / 4) * 4; const binarySize = Math.ceil(binary.length / 4) * 4
+    const glb = new Uint8Array(28 + jsonSize + binarySize); const header = new DataView(glb.buffer)
+    header.setUint32(0, 0x46546c67, true); header.setUint32(4, 2, true); header.setUint32(8, glb.length, true)
+    header.setUint32(12, jsonSize, true); header.setUint32(16, 0x4e4f534a, true)
+    glb.fill(0x20, 20, 20 + jsonSize); glb.set(text, 20)
+    header.setUint32(20 + jsonSize, binarySize, true); header.setUint32(24 + jsonSize, 0x004e4942, true); glb.set(binary, 28 + jsonSize)
+    const url = URL.createObjectURL(new Blob([glb])); const host = document.createElement('div')
+    host.style.cssText = 'width:400px;height:300px'; document.body.append(host)
+    const createUrl = URL.createObjectURL.bind(URL)
+    const embeddedUrls: string[] = []
+    URL.createObjectURL = (blob) => { const url = createUrl(blob); embeddedUrls.push(url); return url }
+    const green = (bitmap: ImageBitmap): number => {
+      const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height
+      const context = canvas.getContext('2d')!; context.drawImage(bitmap, 0, 0); bitmap.close()
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+      let count = 0
+      for (let i = 0; i < pixels.length; i += 4) if (pixels[i + 1]! > 200 && pixels[i]! < 30 && pixels[i + 2]! < 30) count++
+      return count
+    }
+    try {
+      const poster = await renderModel3dPoster(url, 'model/gltf-binary', { resources: {} })
+      const posterGreen = green(poster.image)
+      const viewer = await mountModel3dViewer(host, url, 'model/gltf-binary', { resources: {} })
+      try {
+        const capture = await viewer.capture(320, 240)
+        const invalid = glb.slice(); invalid.fill(0, 28 + jsonSize + 60)
+        const invalidUrl = createUrl(new Blob([invalid]))
+        let failure = ''
+        try {
+          const invalidPoster = await renderModel3dPoster(invalidUrl, 'model/gltf-binary', { resources: {} })
+          invalidPoster.image.close()
+        } catch (error) { failure = String(error) }
+        finally { URL.revokeObjectURL(invalidUrl) }
+        const embeddedStillReadable = await Promise.all(embeddedUrls.map((url) => fetch(url).then(() => true, () => false)))
+        const ungrantedImage = createUrl(new Blob([png]))
+        json.images = [{ uri: ungrantedImage }]
+        json.buffers[0].uri = `data:application/octet-stream;base64,${btoa(String.fromCharCode(...binary))}`
+        const ungrantedSource = createUrl(new Blob([JSON.stringify(json)]))
+        let authoredFailure = ''
+        try {
+          const poster = await renderModel3dPoster(ungrantedSource, 'model/gltf+json', { format: 'gltf', resources: {} })
+          poster.image.close()
+        } catch (error) { authoredFailure = String(error) }
+        finally { URL.revokeObjectURL(ungrantedSource); URL.revokeObjectURL(ungrantedImage) }
+        return { posterGreen, orbitGreen: green(await createImageBitmap(capture.image)), failure, embeddedStillReadable, authoredFailure,
+          image: Array.from(new Uint8Array(await capture.image.arrayBuffer())) }
+      } finally { viewer.dispose() }
+    } finally { URL.createObjectURL = createUrl; URL.revokeObjectURL(url); host.remove() }
+  }, Array.from(glb()))
+  expect(result.posterGreen).toBeGreaterThan(100)
+  expect(result.orbitGreen).toBeGreaterThan(100)
+  expect(result.failure).toContain('Embedded 3D texture failed to load')
+  expect(result.embeddedStillReadable).toEqual([false, false, false])
+  expect(result.authoredFailure).toContain('3D resource is not granted')
+  mkdirSync(proofDir, { recursive: true })
+  writeFileSync(`${proofDir}/file3d-embedded-texture.png`, Buffer.from(result.image))
+})
+
+test('canonical FILE_3D refuses undeclared GLTF buffers including unrelated blob URLs', async ({ page }) => {
+  await page.goto('/')
+  const result = await page.evaluate(async (bytes) => {
+    const previewPath = '/src/file3d-preview.ts'
+    const viewerPath = '/src/model3d-viewer.ts'
+    const { loadFile3dPreview } = await import(previewPath)
+    const { renderModel3dPoster } = await import(viewerPath)
+    const packed = new Uint8Array(bytes)
+    const length = new DataView(packed.buffer).getUint32(12, true)
+    const json = JSON.parse(new TextDecoder().decode(packed.slice(20, 20 + length)))
+    const binary = packed.slice(28 + length)
+    const unrelated = URL.createObjectURL(new Blob([binary]))
+    const rejected: string[] = []
+    try {
+      for (const uri of ['buffers/missing.bin', 'https://ungranted.invalid/mesh.bin', unrelated]) {
+        json.buffers[0].uri = uri
+        const model = await loadFile3dPreview({ format: 'gltf', source: {
+          digest: `blake3:${'a'.repeat(64)}`, name: 'original.gltf', virtualPath: 'original.gltf', size: 1, mediaType: 'model/gltf+json',
+        } }, async () => new TextEncoder().encode(JSON.stringify(json)).buffer)
+        try {
+          const poster = await renderModel3dPoster(model.src, model.mime, model.options)
+          poster.image.close()
+          rejected.push('unexpected success')
+        } catch (error) { rejected.push(String(error)) }
+        finally { model.release() }
+      }
+      return rejected
+    } finally { URL.revokeObjectURL(unrelated) }
+  }, Array.from(glb()))
+  expect(result).toHaveLength(3)
+  for (const rejection of result) expect(rejection).toContain('3D resource is not granted')
+})
+
 test('GLTF sidecars use granted bytes and an ungranted external buffer cannot load', async ({ page }) => {
   const result = await page.evaluate(async (bytes) => {
     const modulePath = '/src/model3d-viewer.ts'

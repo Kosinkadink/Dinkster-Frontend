@@ -23,6 +23,8 @@ import { declaredPreviewCandidates, fetchPeekRendition, ImageBatchUnsupportedErr
 import { executedImageInventory, type ExecutedImage, type ExecutedImageBatch } from './executed-image-inventory.js'
 import { videoInspectionFor } from './video-preview.js'
 import { audioPreview } from './audio-preview.js'
+import { file3dViewOptions, loadFile3dPreview } from './file3d-preview.js'
+import type { Model3dLoadOptions } from './model3d-viewer.js'
 
 // Sized for animated live previews: one video node's frame ring can hold
 // ~20 decoded slots alongside the ordinary per-node stills and thumbnails.
@@ -407,6 +409,10 @@ export function deriveNodePreviewSurface(args: {
       const declared = declaredPreviewCandidates(args.schema, ownIds).map((candidate) => ({
         ...candidate,
         output: aliases?.[candidate.node]?.[candidate.output] ?? candidate.output,
+        ...(candidate.model3d === undefined ? {} : { model3d: {
+          ...(candidate.model3d.cameraOutput === undefined ? {} : { cameraOutput: aliases?.[candidate.node]?.[candidate.model3d.cameraOutput] ?? candidate.model3d.cameraOutput }),
+          ...(candidate.model3d.modelsOutput === undefined ? {} : { modelsOutput: aliases?.[candidate.node]?.[candidate.model3d.modelsOutput] ?? candidate.model3d.modelsOutput }),
+        } }),
       })).filter((candidate) =>
         exec.nodes[candidate.node]?.outputs?.[candidate.output] !== undefined ||
         exec.outputs[candidate.node]?.[candidate.output] !== undefined)
@@ -506,12 +512,13 @@ export function createPreviewLoader(deps: {
   assetUrlForExecution: (ref: ExecutionState['ref'], digest: string) => string
   /** Current editable tab's native asset URL; undefined on non-native tabs. */
   assetUrlForInput: (digest: string) => string | undefined
+  readFile3dAsset?: (execution: ExecutionState['ref'], asset: Readonly<Record<string, Json>>, signal?: AbortSignal) => Promise<ArrayBuffer | undefined>
   /** A finished async decode: re-assemble the preview map. */
   onDecoded: () => void
   /** Browser metadata validation lets corrupt AV fall through to the next candidate; the loop's shared deadline bounds the whole sequence. */
   validateMediaRendition?: (result: { readonly bytes: ArrayBuffer; readonly mime: string }, deadline?: number) => Promise<boolean>
   /** Injectable GLB poster render; the default lazy-loads three.js. Tests inject a fake (no WebGL in jsdom). */
-  renderModel3dPoster?: (src: string, mime?: string) => Promise<{ readonly image: CanvasImageSource; readonly width: number; readonly height: number }>
+  renderModel3dPoster?: (src: string, mime?: string, options?: Model3dLoadOptions) => Promise<{ readonly image: CanvasImageSource; readonly width: number; readonly height: number }>
   /** Injectable fetch for recorded outputs, which become owned blob URLs so downloads work across origins. */
   fetchRecordedOutput?: (url: string, options?: RequestInit) => Promise<Response>
 }): PreviewLoader & { dispose(): void } {
@@ -522,9 +529,11 @@ export function createPreviewLoader(deps: {
   const imageBatches = new Map<string, ExecutedImageBatch>()
   const imageRefusals = new Map<string, string>()
   const requests = new Map<string, { readonly key: string; readonly controller: AbortController }>()
+  const file3dResources = new WeakMap<NodePreview, () => void>()
   let disposed = false
 
   const release = (preview: NodePreview): void => {
+    file3dResources.get(preview)?.()
     // A Set dedupes the still against animation frame 0 (the same bitmap);
     // closing twice is an error in some engines.
     const resources = new Set([preview.image, ...(preview.animation?.frames ?? [])])
@@ -678,13 +687,14 @@ export function createPreviewLoader(deps: {
   // its GLB src (mounted as an orbit viewport on demand). A poster failure
   // (no WebGL, undecodable scene) degrades to a failed-status preview; the
   // src stays usable by the overlay.
-  const model3dPreview = async (src: string, mime: string): Promise<NodePreview> => {
+  const model3dPreview = async (src: string, mime: string, options?: Model3dLoadOptions): Promise<NodePreview> => {
+    const model3d = options === undefined ? {} : { model3d: options }
     try {
       const render = deps.renderModel3dPoster ?? (await import('./model3d-viewer.js')).renderModel3dPoster
-      const poster = await render(src, mime)
-      return { kind: 'model3d', mime, src, image: poster.image, width: poster.width, height: poster.height }
+      const poster = options === undefined ? await render(src, mime) : await render(src, mime, options)
+      return { kind: 'model3d', mime, src, ...model3d, image: poster.image, width: poster.width, height: poster.height }
     } catch {
-      return { kind: 'model3d', mime, src, status: 'failed' }
+      return { kind: 'model3d', mime, src, ...model3d, status: 'failed' }
     }
   }
 
@@ -904,7 +914,7 @@ export function createPreviewLoader(deps: {
     },
 
     peekSource(values, exec, candidates, sceneNodeId, batchIndex = 0) {
-      const baseKey = `peek:${JSON.stringify([exec.key, sceneNodeId, candidates.map((c) => [c.node, c.output])])}`
+      const baseKey = `peek:${JSON.stringify([exec.key, sceneNodeId, candidates.map((c) => [c.node, c.output, c.model3d])])}`
       const key = `${baseKey}:batch:${batchIndex}`
       const declaredIntent = candidates.some((candidate) => candidate.declaredIntent === true)
       if (peekMisses.has(key) && !declaredIntent && !imageBatches.has(baseKey) && !imageRefusals.has(baseKey)) return undefined
@@ -940,6 +950,21 @@ export function createPreviewLoader(deps: {
           })
           if (typeof result === 'string') {
             return { kind: 'video', status: 'unavailable', statusMessage: `Video unavailable: ${result}` }
+          }
+          if (result.file3d !== undefined) {
+            const read = deps.readFile3dAsset
+            if (!read) throw new Error('3D preview has no execution asset reader')
+            const view = file3dViewOptions(result.file3d.camera, result.file3d.models)
+            const model = await loadFile3dPreview(result.file3d.manifest, (ref) => read(exec.ref, ref, signal), {
+              pointCloud: result.file3d.typeId === 'FILE_3D_POINT_CLOUD_ANY', ...(signal === undefined ? {} : { signal }),
+            })
+            try {
+              const preview = { ...await model3dPreview(model.src, model.mime, { ...model.options, ...view }),
+                download: { src: model.src, name: safeDownloadName(model.name, result.output) } }
+              file3dResources.set(preview, model.release)
+              if (signal?.aborted) { release(preview); signal.throwIfAborted() }
+              return preview
+            } catch (error) { model.release(); throw error }
           }
           if (result.audio !== undefined) return {
             kind: 'audio', src: '',

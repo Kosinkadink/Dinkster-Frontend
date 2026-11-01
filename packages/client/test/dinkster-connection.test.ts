@@ -2842,6 +2842,33 @@ describe('submit', () => {
     expect((diagnostic.data?.['assets'] as { packagedFrom?: string[] }[])[1]?.packagedFrom).toEqual(['models.base'])
   })
 
+  it('reports name-only asset refusals with their original node and input, without acquisition consent', async () => {
+    const { conn } = submitHarness(
+      (url, init) => nodesRoute(url) ??
+        (url.endsWith('/api/jobs') && init?.method === 'POST'
+          ? jsonResponse(409, {
+              error: 'assets-missing',
+              assets: [{ name: 'wan_2.1_vae.safetensors', kind: 'model/vae', status: 'missing',
+                verification: 'unverified', sources: [], fetchable: false, nodeId: 'n0', inputId: 'a' }],
+            })
+          : undefined),
+    )
+    await conn.fetchSchemas()
+    const result = await conn.submit(chainArtifact())
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('unreachable')
+    expect(result.diagnostics).toHaveLength(1)
+    expect(result.diagnostics[0]).toMatchObject({
+      severity: 'error', code: 'validation.asset.nameUnavailable',
+      anchor: { occurrence: { instancePath: [], node: 'n0' } },
+      data: { runtimeId: 'n0', inputId: 'a' },
+    })
+    expect(result.diagnostics[0]!.message).toContain('wan_2.1_vae.safetensors')
+    expect(result.diagnostics[0]!.message).toContain('model/vae')
+    expect(result.diagnostics[0]!.message).toContain('mounted folder')
+    expect(result).not.toHaveProperty('retryWithAssets')
+  })
+
   it('keeps the legacy assets-missing shape valid when enriched fields are absent', () => {
     expect(parseAssetsMissingRejection({
       error: 'assets-missing',

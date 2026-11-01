@@ -78,6 +78,7 @@ jobs:
       - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
         env:
           CUDA_VISIBLE_DEVICES: ""
+          UV_TORCH_BACKEND: cpu
       - name: Require every native pack to announce
         timeout-minutes: 4
         env:

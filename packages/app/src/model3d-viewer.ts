@@ -14,6 +14,8 @@
  *   state and capture images before committing them to the document.
  */
 import { GLB_MIME, SPLAT_PLY_MIME } from './model3d-mime.js'
+import type { Model3dCameraState, Model3dTransform } from '@dinkster/canvas'
+export type { Model3dCameraState, Model3dTransform } from '@dinkster/canvas'
 
 type ThreeModules = {
   readonly THREE: typeof import('three')
@@ -88,10 +90,41 @@ const frameCamera = (
   return { camera, center }
 }
 
+const cameraForState = (THREE: ThreeModules['THREE'], perspective: import('three').PerspectiveCamera, state: Model3dCameraState) => {
+  const bounds = state.frustum ?? { left: -10, right: 10, top: 10, bottom: -10 }
+  const camera = state.cameraType === 'orthographic'
+    ? new THREE.OrthographicCamera(bounds.left, bounds.right, bounds.top, bounds.bottom, state.near ?? perspective.near, state.far ?? perspective.far)
+    : perspective
+  if (camera instanceof THREE.PerspectiveCamera) camera.fov = state.fov ?? camera.fov
+  camera.near = state.near ?? camera.near
+  camera.far = state.far ?? camera.far
+  camera.position.copy(state.position)
+  camera.zoom = state.zoom
+  const customUp = state.customUp ?? (state.useCustomUp && state.quaternion
+    ? new THREE.Vector3(0, 1, 0).applyQuaternion(new THREE.Quaternion().copy(state.quaternion).normalize()) : undefined)
+  const useCustomUp = state.useCustomUp === true && customUp !== undefined
+  camera.up.copy(useCustomUp ? customUp! : { x: 0, y: 1, z: 0 })
+  camera.lookAt(new THREE.Vector3().copy(state.target))
+  return { camera, customUp, useCustomUp }
+}
+
+const fitCameraAspect = (THREE: ThreeModules['THREE'], camera: import('three').PerspectiveCamera | import('three').OrthographicCamera, aspect: number): void => {
+  if (camera instanceof THREE.PerspectiveCamera) camera.aspect = aspect
+  else {
+    const center = (camera.left + camera.right) / 2
+    const halfWidth = (camera.top - camera.bottom) * aspect / 2
+    camera.left = center - halfWidth
+    camera.right = center + halfWidth
+  }
+  camera.updateProjectionMatrix()
+}
+
 export interface Model3dLoadOptions {
   readonly resources?: Readonly<Record<string, string>>
   readonly format?: string
   readonly pointCloud?: boolean
+  readonly camera?: Model3dCameraState
+  readonly transform?: Model3dTransform
 }
 
 /** Load a mesh or point cloud and frame its bounds in a lit scene. */
@@ -106,7 +139,7 @@ const loadFramedScene = async (modules: ThreeModules, src: string, aspect: numbe
   manager.onLoad = () => resourcesLoaded()
   manager.onError = (url) => { resourceError = new Error(`3D resource failed to load: ${url}`) }
   if (resources !== undefined) manager.setURLModifier((url) => {
-    if (url === src || url.startsWith('data:') || url.startsWith('blob:')) return url
+    if (url === src || url.startsWith('data:') || Object.values(resources).includes(url)) return url
     const key = decodeURIComponent(new URL(url, 'https://viewport.invalid/').pathname.slice(1))
     const granted = Object.hasOwn(resources, key) ? resources[key] : undefined
     if (!granted || new URL(url, 'https://viewport.invalid/').origin !== 'https://viewport.invalid') {
@@ -150,6 +183,23 @@ const loadFramedScene = async (modules: ThreeModules, src: string, aspect: numbe
   } else if (format === 'glb' || format === 'gltf') {
     const loader = new modules.GLTFLoader(manager)
     if (resources !== undefined) loader.setResourcePath('https://viewport.invalid/')
+    loader.register((parser) => {
+      const loadImageSource = parser.loadImageSource.bind(parser)
+      parser.loadImageSource = (index, imageLoader) => {
+        if (parser.json.images[index].bufferView === undefined) return loadImageSource(index, imageLoader)
+        // GLTFLoader creates these URLs from already-authorized buffer views,
+        // not authored URIs. Keep their authority local to this image load.
+        const embeddedManager = new THREE.LoadingManager()
+        embeddedManager.onError = (url) => {
+          URL.revokeObjectURL(url)
+          resourceError = new Error('Embedded 3D texture failed to load')
+        }
+        const embeddedLoader = Object.create(imageLoader) as typeof imageLoader
+        embeddedLoader.manager = embeddedManager
+        return loadImageSource(index, embeddedLoader)
+      }
+      return { name: 'embedded-image-authority' }
+    })
     const gltf = await loader.loadAsync(src)
     model = gltf.scene
     animations = gltf.animations
@@ -326,7 +376,7 @@ const POSTER_WIDTH = 512
 const POSTER_HEIGHT = 384
 
 /** One offscreen render of the model at `src`, framed to its bounds. */
-export function renderModel3dPoster(src: string, mime: string = GLB_MIME): Promise<Model3dPoster> {
+export function renderModel3dPoster(src: string, mime: string = GLB_MIME, options: Model3dLoadOptions = {}): Promise<Model3dPoster> {
   return withPosterSlot(async () => {
     const modules = await loadThree()
     const canvas = document.createElement('canvas')
@@ -335,19 +385,27 @@ export function renderModel3dPoster(src: string, mime: string = GLB_MIME): Promi
     const renderer = new modules.THREE.WebGLRenderer({ canvas, antialias: true, alpha: true })
     try {
       renderer.setSize(POSTER_WIDTH, POSTER_HEIGHT, false)
-      const framed = await loadFramedSceneFor(modules, src, POSTER_WIDTH / POSTER_HEIGHT, mime)
+      const framed = await loadFramedSceneFor(modules, src, POSTER_WIDTH / POSTER_HEIGHT, mime, options)
       let sparkView: import('@sparkjsdev/spark').SparkRenderer | undefined
       try {
+        if (options.transform !== undefined) {
+          framed.model.position.copy(options.transform.position)
+          framed.model.quaternion.copy(options.transform.quaternion).normalize()
+          framed.model.scale.copy(options.transform.scale)
+          framed.model.updateMatrixWorld(true)
+        }
+        const camera = options.camera === undefined ? framed.camera : cameraForState(modules.THREE, framed.camera, options.camera).camera
+        fitCameraAspect(modules.THREE, camera, POSTER_WIDTH / POSTER_HEIGHT)
         if (framed.attachSpark !== undefined) {
           // Splat sorting is asynchronous; with autoUpdate off, the awaited
           // update() installs the first sorted ordering so the single render
           // below is capturable.
           sparkView = framed.attachSpark(renderer, false)
           framed.scene.updateMatrixWorld(true)
-          framed.camera.updateMatrixWorld(true)
-          await sparkView.update({ scene: framed.scene, camera: framed.camera })
+          camera.updateMatrixWorld(true)
+          await sparkView.update({ scene: framed.scene, camera })
         }
-        renderer.render(framed.scene, framed.camera)
+        renderer.render(framed.scene, camera)
         const image = await createImageBitmap(canvas)
         return { image, width: POSTER_WIDTH, height: POSTER_HEIGHT }
       } finally {
@@ -426,27 +484,6 @@ export interface Model3dViewerHandle {
 
 type Vector3State = { x: number; y: number; z: number }
 
-export interface Model3dTransform {
-  position: Vector3State
-  quaternion: Vector3State & { w: number }
-  scale: Vector3State
-}
-
-export interface Model3dCameraState {
-  position: Vector3State
-  target: Vector3State
-  zoom: number
-  cameraType: 'perspective' | 'orthographic'
-  quaternion?: Vector3State & { w: number }
-  useCustomUp?: boolean
-  customUp?: Vector3State
-  fov?: number
-  aspect?: number
-  near?: number
-  far?: number
-  frustum?: { left: number; right: number; top: number; bottom: number }
-}
-
 /**
  * Mount an interactive orbit viewport for the model at `src` into
  * `container`. The scene loads before any WebGL context exists, so a slow
@@ -487,14 +524,7 @@ export async function mountModel3dViewer(
   let cancelCapture: ((reason: Error) => void) | undefined
   let activeCamera: import('three').PerspectiveCamera | import('three').OrthographicCamera = framed.camera
   const updateProjection = (width: number, height: number): void => {
-    if (activeCamera instanceof modules.THREE.PerspectiveCamera) activeCamera.aspect = width / height
-    else {
-      const center = (activeCamera.left + activeCamera.right) / 2
-      const halfWidth = (activeCamera.top - activeCamera.bottom) * width / height / 2
-      activeCamera.left = center - halfWidth
-      activeCamera.right = center + halfWidth
-    }
-    activeCamera.updateProjectionMatrix()
+    fitCameraAspect(modules.THREE, activeCamera, width / height)
   }
   const setOutputSize = (width: number, height: number): void => {
     renderer!.setPixelRatio(1)
@@ -602,7 +632,7 @@ export async function mountModel3dViewer(
   }
 
   const vector = (value: Vector3State): Vector3State => ({ x: value.x, y: value.y, z: value.z })
-  return {
+  const handle: Model3dViewerHandle = {
     dispose,
     cameraState: () => ({
       position: vector(activeCamera.position), target: vector(controls!.target),
@@ -618,25 +648,10 @@ export async function mountModel3dViewer(
     setCameraState(state) {
       if (disposed || capturing) return
       if (recording && state.cameraType !== (activeCamera instanceof modules.THREE.PerspectiveCamera ? 'perspective' : 'orthographic')) return
-      if (state.cameraType === 'orthographic') {
-        const bounds = state.frustum ?? { left: -10, right: 10, top: 10, bottom: -10 }
-        activeCamera = new modules.THREE.OrthographicCamera(bounds.left, bounds.right, bounds.top, bounds.bottom,
-          state.near ?? framed.camera.near, state.far ?? framed.camera.far)
-      } else {
-        activeCamera = framed.camera
-        activeCamera.fov = state.fov ?? activeCamera.fov
-        activeCamera.near = state.near ?? activeCamera.near
-        activeCamera.far = state.far ?? activeCamera.far
-      }
-      activeCamera.position.copy(state.position)
-      activeCamera.zoom = state.zoom
-      customUp = state.customUp ? vector(state.customUp) : undefined
-      if (!customUp && state.useCustomUp && state.quaternion) {
-        customUp = vector(new modules.THREE.Vector3(0, 1, 0).applyQuaternion(
-          new modules.THREE.Quaternion().copy(state.quaternion).normalize()))
-      }
-      useCustomUp = state.useCustomUp === true && customUp !== undefined
-      activeCamera.up.copy(useCustomUp ? customUp! : { x: 0, y: 1, z: 0 })
+      const restored = cameraForState(modules.THREE, framed.camera, state)
+      activeCamera = restored.camera
+      customUp = restored.customUp ? vector(restored.customUp) : undefined
+      useCustomUp = restored.useCustomUp
       // OrbitControls caches the camera-up basis when it is constructed.
       controls!.dispose()
       controls = new modules.OrbitControls(activeCamera, renderer!.domElement)
@@ -769,4 +784,9 @@ export async function mountModel3dViewer(
       }
     },
   }
+  try {
+    if (options.transform !== undefined) handle.setModelTransform(options.transform)
+    if (options.camera !== undefined) handle.setCameraState(options.camera)
+    return handle
+  } catch (error) { dispose(); throw error }
 }

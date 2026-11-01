@@ -1138,7 +1138,7 @@ export function NodeModel3dOverlay(props: {
     try {
       const { mountModel3dViewer } = await import('./model3d-viewer.js')
       if (token !== mountToken || container === undefined) return
-      const handle = await mountModel3dViewer(container, src, props.media.mime)
+      const handle = await mountModel3dViewer(container, src, props.media.mime, props.media.model3d)
       if (token !== mountToken) {
         handle.dispose()
         return
@@ -2219,6 +2219,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [previewTick, setPreviewTick] = createSolidSignal(0)
   const previewLoader = createPreviewLoader({
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
+    readFile3dAsset: (ref, asset, signal) => props.app.readFile3dAssetForExecution(ref, asset, signal),
     assetUrlForInput: (digest) => {
       const tab = activeTab()
       if (tab === undefined) return undefined
