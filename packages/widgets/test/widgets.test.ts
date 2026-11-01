@@ -711,6 +711,25 @@ describe('compact views', () => {
     expect(ops.some((op) => op.op === 'hitRegion')).toBe(true)
   })
 
+  it.each([
+    ['STRING', 'core.line'],
+    ['STRING', 'core.text'],
+    ['MARKDOWN', 'core.markdown'],
+  ])('renders invalid imported %s values in %s without replacing them with a default', (type, viewId) => {
+    const r = registry()
+    const view = r.viewsFor(type).find((v) => v.id === viewId)!
+    const widget = spec(type, { placeholder: 'Enter text' }, 'schema default')
+    for (const [value, expected] of [[null, 'null'], [42, '42'], [{ bad: true }, '{"bad":true}']] as const) {
+      const before = JSON.stringify(value)
+      const { ops, builder } = recordingBuilder()
+      view.drawCompact(builder, value, widget, { focused: false, connected: false, readonly: false })
+      expect(ops.filter((op) => op.op === 'text').map((op) => op.args[2])).toEqual([expected])
+      expect(ops.some((op) => op.op === 'text' && (op.args[3] as Record<string, unknown>)['placeholder'] === true)).toBe(false)
+      expect(r.kind(type)!.valueSchema.validate(value)).toBe(false)
+      expect(JSON.stringify(value)).toBe(before)
+    }
+  })
+
   it('multiline preview measures two rows and emits every canonical line', () => {
     const r = registry()
     const view = r.viewsFor('STRING').find((v) => v.id === 'core.text')!

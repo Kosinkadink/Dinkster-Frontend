@@ -1,5 +1,10 @@
 # Widget compact controls and expanded editors
 
+Compact STRING and MARKDOWN views display non-string imported values using
+the shared value formatter (for example, null displays as `null`). Rendering
+does not replace them with schema defaults, mark them as empty placeholders,
+or make them valid text values. Multiline strings keep their original lines.
+
 ## Command acceptance
 
 Shared value commits and scalar text splices keep the editor open until the
@@ -105,6 +110,11 @@ and model metadata inputs override the stored viewport state on opening.
 Preview FILE_3D values load their primary `source` and declared `resources`
 through asset authority. GLTF sidecars resolve only to these granted resources,
 never arbitrary external URLs or filesystem paths.
+An explicitly empty format selects the container from the granted primary bytes,
+not its name or MIME declaration. Explicit formats keep precedence. Unsupported
+bytes leave the editor unavailable without changing the authored manifest.
+Text detection accepts GLTF JSON after leading whitespace and OBJ vertices after
+leading comments or material declarations, without a fixed prefix-length limit.
 Unverified sources and sidecars use the granting server's local-binding byte
 route, with browser caching disabled. They never enter digest lookup or acquire
 a synthetic digest. A revoked or changed binding leaves the viewport unavailable.
