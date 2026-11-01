@@ -67,7 +67,7 @@ describe('legacy boolean normalization on open', () => {
     loadSchemas()
     expect(app.openDocument(docJson('lin-lb-a', { tapered_corners: 'enable' }, { tapered_corners: 'OFF' }), 'T')).toEqual([])
     const tab = app.activeTab()!
-    expect(valueOf(tab, 'g0')).toBe(true) // 'enable' -> true
+    await expect.poll(() => valueOf(tab, 'g0')).toBe(true) // 'enable' -> true
     expect(valueOf(tab, 'g1')).toBe(false) // case-insensitive: 'OFF' -> false
     await Promise.resolve()
     expect(app.problems.get().some((d) => d.code === 'upgrade.legacyBoolean')).toBe(true)
@@ -86,12 +86,12 @@ describe('legacy boolean normalization on open', () => {
     expect(app.problems.get().some((d) => d.code === 'upgrade.legacyBoolean')).toBe(false)
   })
 
-  it('defers until schemas arrive when the document opens first', () => {
+  it('defers until schemas arrive when the document opens first', async () => {
     expect(app.openDocument(docJson('lin-lb-c', { tapered_corners: 'yes' }), 'T')).toEqual([])
     const tab = app.activeTab()!
     expect(valueOf(tab, 'g0')).toBe('yes') // nothing to resolve against yet
     loadSchemas()
-    expect(valueOf(tab, 'g0')).toBe(true)
+    await expect.poll(() => valueOf(tab, 'g0')).toBe(true)
   })
 
   it('re-arms on retarget but never on a mere schema refresh', async () => {
@@ -108,7 +108,7 @@ describe('legacy boolean normalization on open', () => {
     expect(valueOf(tab, 'g0')).toBe('enable')
     // An explicit retarget re-arms it; the new target's schemas convert.
     app.setTabTarget(tab.id, backend.id)
-    expect(valueOf(tab, 'g0')).toBe(true)
+    await expect.poll(() => valueOf(tab, 'g0')).toBe(true)
     await Promise.resolve()
     expect(app.problems.get().some((d) => d.code === 'upgrade.legacyBoolean')).toBe(true)
   })

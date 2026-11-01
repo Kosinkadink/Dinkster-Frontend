@@ -47,6 +47,8 @@ describe('native open-time replacement', () => {
       expect(tab.store.doc.graphs.g0!.nodes.first!.type).toBe('Previous')
       loadSchemas(app)
     }
+    await expect.poll(() => [tab.store.doc.graphs.g0!.nodes.first!.type, tab.store.doc.graphs.g0!.nodes.second!.type])
+      .toEqual(['Current', 'Current'])
     const graph = tab.store.doc.graphs.g0!
     expect([graph.nodes.first!.type, graph.nodes.second!.type]).toEqual(['Current', 'Current'])
     expect([graph.nodes.first!.values, graph.nodes.second!.values]).toEqual([{ amount: 11 }, { amount: 29 }])
