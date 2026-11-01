@@ -64,6 +64,7 @@
     "text:CommandOutcome | Promise",
     "text:I",
     "text:Promise",
+    "text:Promise",
     "text:byId.get(id)?.kind !== 'group'))) const renderedChildren = new Set",
     "text:childrenByKey().get(key)! return (",
     "text:containerWidth()",

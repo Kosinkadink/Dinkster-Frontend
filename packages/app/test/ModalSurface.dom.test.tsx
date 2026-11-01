@@ -91,7 +91,7 @@ function mountWidget(ed: WidgetEditorState) {
   const root = document.createElement('div')
   document.body.append(root)
   const close = vi.fn()
-  const dispatchTo = vi.fn()
+  const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
   let clickAway: (() => void) | undefined
   const [open, setOpen] = createSignal(true)
   const [viewport, setViewport] = createSignal({ x: 0, y: 0, scale: 1 })
@@ -787,7 +787,7 @@ describe('ASSET widget modal integration', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const close = vi.fn()
-    const dispatchTo = vi.fn()
+    const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
     const connection = {
       ...assetLocationMethods,
       listMounts: vi.fn().mockResolvedValue([]),
@@ -836,7 +836,7 @@ describe('ASSET widget modal integration', () => {
     expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({
       command: 'node.setValue', params: { value: 'taesd' },
     })
-    expect(mounted.close).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(mounted.close).toHaveBeenCalledOnce())
     expect(mounted.connection.guessAssets).not.toHaveBeenCalled()
     mounted.unmount()
   })
@@ -1071,7 +1071,7 @@ describe('ASSET widget modal integration', () => {
     let resolveUpload!: (asset: typeof canonical) => void
     const pendingUpload = new Promise<typeof canonical>((resolve) => { resolveUpload = resolve })
     const uploadNamedAsset = vi.fn((_body: File, _options: unknown) => pendingUpload)
-    const dispatchTo = vi.fn()
+    const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
     const close = vi.fn()
     const ed: WidgetEditorState = {
       tab: {} as Tab,
@@ -1137,7 +1137,7 @@ describe('ASSET widget modal integration', () => {
     expect(dispatchTo).not.toHaveBeenCalled()
     expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain('byte-proof.bin')
     root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
-    expect(close).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
     expect(dispatchTo).toHaveBeenCalledOnce()
     expect(dispatchTo).toHaveBeenCalledWith(ed.tab, {
       command: 'node.setValue',
@@ -1165,7 +1165,7 @@ describe('ASSET widget modal integration', () => {
     }
     const uploadLatentAsset = vi.fn(async () => canonical)
     const uploadAsset = vi.fn()
-    const dispatchTo = vi.fn()
+    const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
     const close = vi.fn()
     const ed: WidgetEditorState = {
       tab: {} as Tab,
@@ -1233,7 +1233,7 @@ describe('ASSET widget modal integration', () => {
     })
     expect(dispatchTo).not.toHaveBeenCalled()
     root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
-    expect(close).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
     expect(dispatchTo).toHaveBeenCalledWith(ed.tab, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'latent', inputId: 'samples', value: canonical },
@@ -1344,7 +1344,7 @@ describe('ASSET widget modal integration', () => {
     )
     const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:video-upload')
     const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-    const dispatchTo = vi.fn()
+    const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
     const close = vi.fn()
     const ed: WidgetEditorState = {
       tab: {} as Tab,
@@ -1401,7 +1401,7 @@ describe('ASSET widget modal integration', () => {
     expect(close).not.toHaveBeenCalled()
     expect(dispatchTo).not.toHaveBeenCalled()
     root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
-    expect(close).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
     expect(dispatchTo).toHaveBeenCalledWith(ed.tab, expect.objectContaining({
       command: 'node.setValue', params: expect.objectContaining({ value: canonical }),
     }))
@@ -1719,13 +1719,13 @@ describe('registered interactive widget expanded-editor integration', () => {
     }))
   })
 
-  it('commits a valid changed popover value on click-away exactly once', () => {
+  it('commits a valid changed popover value on click-away exactly once', async () => {
     const mounted = mountWidget(widgetState('INT', { min: 0, max: 10, step: 1 }, 3))
     const field = mounted.root.querySelector<HTMLInputElement>('[data-testid="widget-editor"] input')!
     field.value = '7'
     mounted.clickAway()
 
-    expect(mounted.close).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(mounted.close).toHaveBeenCalledOnce())
     expect(mounted.dispatchTo).toHaveBeenCalledOnce()
     expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       command: 'node.setValue',
@@ -1774,7 +1774,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
   })
 
-  it('applies click-away commit-or-drop semantics to COLOR and raw JSON', () => {
+  it('applies click-away commit-or-drop semantics to COLOR and raw JSON', async () => {
     const color = mountWidget(widgetState('COLOR', {}, '#123456'))
     const colorField = color.root.querySelector<HTMLInputElement>('[data-testid="color-text"]')!
     colorField.value = '#abcdef'
@@ -1789,7 +1789,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     invalidColorField.value = 'invalid'
     invalidColorField.dispatchEvent(new InputEvent('input', { bubbles: true }))
     invalidColor.clickAway()
-    expect(invalidColor.close).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(invalidColor.close).toHaveBeenCalledOnce())
     expect(invalidColor.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       params: expect.objectContaining({ value: 'invalid' }),
     }))

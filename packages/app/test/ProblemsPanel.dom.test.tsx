@@ -2,7 +2,7 @@
 
 import { createSignal as createSolidSignal } from 'solid-js'
 import { render } from 'solid-js/web'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildDinksterRegistry } from '@dinkster/client'
 import {
   asGraphDefId,
@@ -108,7 +108,7 @@ describe('ProblemsPanel browser interactions', () => {
       n2: { id: asNodeId('n2'), type: 'Previous', values: {} },
     } } } }, 'Upgraded document')).toEqual([])
     const tab = app.activeTab()!
-    expect(app.migrationNotices.get().has(tab.id)).toBe(true)
+    await vi.waitFor(() => expect(app.migrationNotices.get().has(tab.id)).toBe(true))
     const root = document.createElement('div')
     document.body.append(root)
     const unmount = render(() => {

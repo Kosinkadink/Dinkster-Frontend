@@ -646,6 +646,114 @@ test('combo authored menus and refresh selections await final outcomes', {
   await page.screenshot({ path: info.outputPath('combo-refresh-accepted.png') })
 })
 
+test('inline text and list drafts retain refused edits until accepted', {
+  annotation: { type: 'mock-rename-dispatch' },
+}, async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const tab = app.activeTab()!
+    const schema = app.registryForTab(tab).resolve('AppViewTest')
+    app.registerSchemas([{ ...schema, items: [...schema.items, {
+      kind: 'input', id: 'texts', optional: false,
+      type: { kind: 'list', element: { kind: 'concrete', name: 'STRING' } },
+      widget: { widgetType: 'LIST', options: {}, element: { widgetType: 'STRING', options: {} }, default: ['red', 'blue'] },
+    }, {
+      kind: 'input', id: 'notes', optional: false, type: { kind: 'concrete', name: 'STRING' },
+      widget: { widgetType: 'STRING', options: { multiline: true }, default: 'Original notes' },
+    }] }])
+    for (const inputId of ['title', 'texts', 'notes']) {
+      app.dispatchTo(tab, { command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId } })
+    }
+  })
+  await selectView(page, 'App view')
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__inlinePending = []
+    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve, reject) => {
+      ;(window as any).__inlinePending.push((result: string) => {
+        if (result === 'error') reject(new Error('Inline transport refused for test'))
+        else resolve(result === 'accept' ? dispatch(tab, invocation) : {
+          ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Inline edit refused for test' }],
+        })
+      })
+    })
+  })
+  const title = page.getByTestId('app-view-text').nth(0)
+  const list = page.getByTestId('app-view-text').nth(1)
+  const notes = page.getByTestId('app-view-text').nth(2)
+  const drafts = ['  Exact title draft  ', '[ "red", "a,b", "line\\nnext" ]', 'Line one\n  Exact multiline draft']
+  const count = () => page.evaluate(() => (window as any).__inlinePending.length)
+  const settle = (index: number, result: string) => page.evaluate(({ index, result }) => (window as any).__inlinePending[index](result), { index, result })
+  await expect(page.getByTestId('app-view')).toHaveAttribute('data-app-breakpoint', 'desktop')
+  await page.screenshot({ path: testInfo.outputPath('inline-default.png') })
+  const fields = [title, list, notes]
+  for (let i = 0; i < fields.length; i++) {
+    await fields[i]!.fill(drafts[i]!)
+    await fields[i]!.press(i === 0 ? 'Enter' : 'Control+Enter')
+    await expect(fields[i]!).toHaveAttribute('readonly', '')
+    await fields[i]!.press(i === 0 ? 'Enter' : 'Control+Enter')
+    expect(await count()).toBe(i + 1)
+  }
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values).toEqual({})
+  await page.screenshot({ path: testInfo.outputPath('inline-pending.png') })
+  await settle(0, 'refuse')
+  await settle(1, 'refuse')
+  await settle(2, 'error')
+  for (let i = 0; i < fields.length; i++) {
+    await expect(fields[i]!).not.toHaveAttribute('readonly')
+    await expect(fields[i]!).toHaveValue(drafts[i]!)
+  }
+  await expect(page.getByTestId('app-view-error')).toHaveCount(3)
+  await page.screenshot({ path: testInfo.outputPath('inline-refused.png') })
+  await expect(notes).toBeFocused()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(notes).toHaveValue(drafts[2]!)
+  await expect(page.getByTestId('app-view')).toHaveAttribute('data-app-breakpoint', 'desktop')
+  await page.getByRole('button', { name: /^Toggle right rail/ }).click()
+  await expect(title).toBeInViewport()
+  await expect(notes).toBeInViewport()
+  await page.screenshot({ path: testInfo.outputPath('inline-refused-narrow.png') })
+  await page.getByTestId('app-view-error').last().scrollIntoViewIfNeeded()
+  await expect(page.getByTestId('app-view-error').last()).toBeInViewport()
+  await page.screenshot({ path: testInfo.outputPath('inline-refused-narrow-notes.png') })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  expect(await count()).toBe(3)
+  for (let step = 0; step < fields.length; step++) {
+    const i = fields.length - 1 - step
+    await expect(fields[i]!).toHaveValue(drafts[i]!)
+    await fields[i]!.press(i === 0 ? 'Enter' : 'Control+Enter')
+    expect(await count()).toBe(step + 4)
+    await settle(step + 3, 'accept')
+    await expect(fields[i]!).not.toHaveAttribute('readonly')
+  }
+  await expect(page.getByTestId('app-view-error')).toHaveCount(0)
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values).toEqual({
+    title: drafts[0], texts: ['red', 'a,b', 'line\nnext'], notes: drafts[2],
+  })
+  await page.screenshot({ path: testInfo.outputPath('inline-accepted.png') })
+  await title.press('Enter')
+  expect(await count()).toBe(6)
+  await list.fill('[false]')
+  await list.press('Control+Enter')
+  await expect(page.getByTestId('app-view-error')).toHaveCount(1)
+  expect(await count()).toBe(6)
+  await list.press('Escape')
+  await expect(list).toHaveValue('["red","a,b","line\\nnext"]')
+  await expect(page.getByTestId('app-view-error')).toHaveCount(0)
+  await title.fill('Old pending title')
+  await title.press('Enter')
+  await title.press('Escape')
+  await title.fill('New exact draft')
+  await settle(6, 'refuse')
+  await expect(title).toHaveValue('New exact draft')
+  await expect(page.getByTestId('app-view-error')).toHaveCount(0)
+  await title.press('Enter')
+  await settle(7, 'accept')
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.title).toBe(drafts[0])
+})
+
 test('authored text group and queue drafts await final outcomes', {
   annotation: { type: 'mock-rename-dispatch' },
 }, async ({ page }, testInfo) => {

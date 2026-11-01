@@ -101,23 +101,63 @@ function AppViewStringInput(props: {
   readonly value: string
   readonly multiline: boolean
   readonly ariaLabelledBy: string
-  readonly onCommit: (value: string) => void
+  readonly onCommit: (value: string, stillWanted: () => boolean) => Promise<boolean>
+  readonly onRevert: () => void
+  readonly onDraftActive: (active: boolean) => void
 }) {
   const [draft, setDraft] = createSolidSignal(props.value)
+  const [pending, setPending] = createSolidSignal(false)
   let dirty = false
+  let live = true
+  let generation = 0
+  let submitted: string | undefined
+  const setDirty = (value: boolean): void => {
+    if (dirty === value) return
+    dirty = value
+    props.onDraftActive(value)
+  }
+  onCleanup(() => { live = false; setDirty(false) })
   createEffect(() => {
     const value = props.value
     if (!dirty) setDraft(value)
   })
   const input = (value: string): void => {
-    dirty = true
+    setDirty(true)
+    submitted = undefined
     setDraft(value)
   }
-  const commit = (value: string): void => {
+  const commit = async (value: string, explicit = false): Promise<void> => {
+    if (!live || pending()) return
     if (value !== draft()) input(value)
     if (!dirty) return
-    dirty = false
-    if (value !== props.value) props.onCommit(value)
+    if (!explicit && submitted === value) return
+    if (value === props.value) {
+      setDirty(false)
+      return
+    }
+    const current = ++generation
+    submitted = value
+    setPending(true)
+    try {
+      const accepted = await props.onCommit(value, () => live && current === generation)
+      if (live && current === generation && accepted) setDirty(false)
+    } finally {
+      if (live && current === generation) setPending(false)
+    }
+  }
+  const keydown = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      generation++
+      setDirty(false)
+      setPending(false)
+      setDraft(props.value)
+      props.onRevert()
+    } else if (event.key === 'Enter' && (!props.multiline || event.ctrlKey || event.metaKey)) {
+      event.preventDefault()
+      void commit(draft(), true)
+    }
   }
   return props.multiline
     ? <ProductTextArea
@@ -125,9 +165,12 @@ function AppViewStringInput(props: {
         data-testid="app-view-text"
         aria-labelledby={props.ariaLabelledBy}
         value={draft()}
+        readOnly={pending()}
+        aria-busy={pending()}
         onInput={(event) => input(event.currentTarget.value)}
-        onChange={(event) => commit(event.currentTarget.value)}
-        onBlur={(event) => commit(event.currentTarget.value)}
+        onChange={(event) => void commit(event.currentTarget.value)}
+        onBlur={(event) => void commit(event.currentTarget.value)}
+        onKeyDown={keydown}
       />
     : <ProductTextInput
         class="app-view-control"
@@ -135,9 +178,12 @@ function AppViewStringInput(props: {
         type="text"
         aria-labelledby={props.ariaLabelledBy}
         value={draft()}
+        readOnly={pending()}
+        aria-busy={pending()}
         onInput={(event) => input(event.currentTarget.value)}
-        onChange={(event) => commit(event.currentTarget.value)}
-        onBlur={(event) => commit(event.currentTarget.value)}
+        onChange={(event) => void commit(event.currentTarget.value)}
+        onBlur={(event) => void commit(event.currentTarget.value)}
+        onKeyDown={keydown}
       />
 }
 
@@ -326,6 +372,8 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   const [arrangeBreakpoint, setArrangeBreakpoint] = createSolidSignal<'desktop' | 'mobile'>('desktop')
   const [pendingArrangeBreakpoint, setPendingArrangeBreakpoint] = createSolidSignal<'desktop' | 'mobile'>()
   const [responsivePresentationMobile, setResponsivePresentationMobile] = createSolidSignal(false)
+  const [activeStringDrafts, setActiveStringDrafts] = createSolidSignal(0)
+  const stringDraftActive = (active: boolean): void => { setActiveStringDrafts((count) => count + (active ? 1 : -1)) }
   let appViewElement!: HTMLDivElement
   let syncMobilePresentationOrder: (() => void) | undefined
   let presentationFocusTimer: ReturnType<typeof setTimeout> | undefined
@@ -373,7 +421,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     if (presentationFocusTimer !== undefined) clearTimeout(presentationFocusTimer)
     presentationFocusTimer = setTimeout(() => {
       presentationFocusTimer = undefined
-      if (focusedDraftScope() !== undefined) return
+      if (focusedDraftScope() !== undefined || activeStringDrafts() > 0) return
       const pending = pendingArrangeBreakpoint()
       if (arrange() && pending !== undefined) setArrangeBreakpoint(pending)
       setPendingArrangeBreakpoint(undefined)
@@ -383,7 +431,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   }
   createEffect(() => {
     const desired = responsiveMobile()
-    if (!arrange() && desired !== responsivePresentationMobile() && focusedDraftScope() === undefined) {
+    if (!arrange() && desired !== responsivePresentationMobile() && focusedDraftScope() === undefined && activeStringDrafts() === 0) {
       setResponsivePresentationMobile(desired)
     }
   })
@@ -703,18 +751,25 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     setError(row.entry, undefined)
     const store = tab.store
     const owner = commitOwner
-    const outcome = await props.app.dispatchTo(tab, {
-      command: 'node.setValue',
-      params: {
-        graphId: row.entry.graphId,
-        nodeId: row.entry.nodeId,
-        inputId: row.valueKey,
-        value,
-      },
-    })
-    if (!live || !stillWanted() || owner !== commitOwner || activeTab() !== tab || tab.store !== store) return false
-    if (!outcome.ok) setError(row.entry, outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))
-    return outcome.ok
+    try {
+      const outcome = await props.app.dispatchTo(tab, {
+        command: 'node.setValue',
+        params: {
+          graphId: row.entry.graphId,
+          nodeId: row.entry.nodeId,
+          inputId: row.valueKey,
+          value,
+        },
+      })
+      if (!live || !stillWanted() || owner !== commitOwner || activeTab() !== tab || tab.store !== store) return false
+      if (!outcome.ok) setError(row.entry, outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))
+      return outcome.ok
+    } catch (error) {
+      if (live && stillWanted() && owner === commitOwner && activeTab() === tab && tab.store === store) {
+        setError(row.entry, error instanceof Error ? error.message : String(error))
+      }
+      return false
+    }
   }
 
   const commitNumeric = (row: Extract<ParamRow, { kind: 'live' }>, raw: string, widgetType: 'INT' | 'FLOAT'): void => {
@@ -1659,7 +1714,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             value={stringValue()}
             multiline={spec().options['multiline'] === true}
             ariaLabelledBy={accessibleLabelId}
-            onCommit={(value) => commit(liveRow(), value)}
+            onCommit={(value, stillWanted) => commit(liveRow(), value, stillWanted)}
+            onRevert={() => setError(liveRow().entry, undefined)}
+            onDraftActive={stringDraftActive}
           />}
         >
           <Match when={spec().widgetType === 'LIST'}>
@@ -1667,11 +1724,14 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               value={JSON.stringify(liveRow().value ?? [])}
               multiline={true}
               ariaLabelledBy={accessibleLabelId}
-              onCommit={(raw) => {
+              onCommit={async (raw, stillWanted) => {
                 const parsed = parsePrimitiveListCommit(raw, spec())
-                if (parsed.ok) commit(liveRow(), parsed.value)
-                else setError(liveRow().entry, parsed.error)
+                if (parsed.ok) return commit(liveRow(), parsed.value, stillWanted)
+                setError(liveRow().entry, parsed.error)
+                return false
               }}
+              onRevert={() => setError(liveRow().entry, undefined)}
+              onDraftActive={stringDraftActive}
             />
           </Match>
           <Match when={spec().widgetType === 'INT' || spec().widgetType === 'FLOAT'}>

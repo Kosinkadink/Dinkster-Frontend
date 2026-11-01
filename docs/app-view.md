@@ -53,6 +53,18 @@ trimmed. Changing mode, tab or document session invalidates old completion
 notices without cancelling submitted commands. Text markup remains in the draft
 after refusal, so retry with Ctrl+Enter rather than applying formatting again.
 
+Inline text and primitive-list fields also wait for final acceptance. Enter
+submits a single line; Ctrl+Enter or Cmd+Enter submits a multiline or list
+draft. Change and blur submit new edits, but retrying an unchanged refused draft
+requires the submit shortcut. Pending fields are read only and ignore duplicate
+submissions. Refusal preserves the exact text for retry,
+including list formatting; only accepted list values become stored arrays.
+Unaccepted text/list drafts defer the desktop/mobile presentation switch so
+resizing does not discard them.
+Escape restores the stored value and clears the local notice without cancelling
+an already submitted command. Old completion cannot alter a reverted or
+unmounted field.
+
 App View uses the shared Product button, text, number, checkbox and select
 controls in both modes. Group and text-style selectors support the same
 combobox keyboard navigation and focus restoration as shell settings.
