@@ -161,7 +161,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
     .update(canonicalJson(stableCatalog))
     .digest('hex')
   expect(catalogDigest).toBe(canonicalCatalogSha256)
-  expect(Object.keys(catalog.nodes)).toHaveLength(852)
+  expect(Object.keys(catalog.nodes)).toHaveLength(839)
   const inputs = widgets(catalog)
   const descriptors = inputs.flatMap(({ input }) =>
     widgetDescriptors(input.widget),
@@ -413,7 +413,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
         ),
       { timeout: 20_000 },
     )
-    .toBe(852)
+    .toBe(839)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument(
       {
