@@ -5,6 +5,11 @@ the shared value formatter (for example, null displays as `null`). Rendering
 does not replace them with schema defaults, mark them as empty placeholders,
 or make them valid text values. Multiline strings keep their original lines.
 
+ComfyUI subgraph `$$canvas-image-preview` promotions are presentation-only,
+non-serialized widgets. Import retains their original proxy metadata but does
+not create executable boundary inputs or consume positional widget values for
+them. Real promoted widgets and after-generate controllers keep their order.
+
 ## Descriptor fields
 
 An unknown field on a known widget descriptor produces a
