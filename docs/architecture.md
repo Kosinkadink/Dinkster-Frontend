@@ -81,10 +81,14 @@ Image apply and image-document export commands use an awaited retained
 dispatch path. It journals the exact backend, owner, root union and document
 lineage/revision before requesting ownership; workflow contents remain in their
 separate persistence path rather than being duplicated in each retention intent.
+The asset census recognizes the mask command's exact source-association marker
+on mask-paint nodes: a string node ID and the fixed mask output ID contain no
+asset identity. Extra marker fields, other metadata and unknown schemas remain
+incomplete and refuse publication.
 The union includes current, undo, redo, proposed and shared pending roots.
 Exact acknowledgment or
 exact owner reconciliation precedes publication; a changed destination or stale
-candidate is refused. Unsupported schemas, dynamic state and nonempty extension
+candidate is refused. Unsupported schemas, dynamic state and unrecognized extension
 records are incomplete, not empty root sets. Ordinary synchronous dispatch is unchanged.
 Schema defaults contribute roots only when the node has no stored override.
 An effective unresolved selection name is incomplete, not an asset identity.

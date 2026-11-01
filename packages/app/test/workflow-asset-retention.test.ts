@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  asGraphDefId, asLineageId, asNodeId, coreCommandRegistry, createLocalSession,
+  MASK_PAINT_SOURCE_EXT_KEY, asGraphDefId, asLineageId, asNodeId, coreCommandRegistry, createLocalSession,
   type GraphDef, type NodeSchema, type WorkflowDocument,
 } from '@dinkster/core'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
@@ -215,6 +215,30 @@ describe('workflow candidate admission', () => {
       } }] },
     ] }, resolve)
     expect(roots).toEqual({ complete: true, digests: ['a', 'e', 'f'].map((letter) => asset(letter).digest) })
+  })
+
+  it('certifies only the exact asset-free mask source association on mask nodes', () => {
+    const local = session()
+    const marker = { nodeId: 'source', outputId: 'mask' }
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { ...local.doc.graphs.g0!.nodes.n0!, ext: { [MASK_PAINT_SOURCE_EXT_KEY]: marker } },
+    } } } }
+    const maskResolve = (type: string) => type === schema.type ? { ...schema, editorRole: 'mask-paint' as const } : undefined
+    expect(workflowAssetRoots(document, local.historySnapshot(), maskResolve))
+      .toEqual({ complete: true, digests: [asset('a').digest] })
+    expect(workflowAssetRoots(document, local.historySnapshot(), resolve).complete).toBe(false)
+    for (const ext of [
+      { [MASK_PAINT_SOURCE_EXT_KEY]: { ...marker, hidden: asset('e') } },
+      { [MASK_PAINT_SOURCE_EXT_KEY]: { ...marker, nodeId: asset('e') } },
+      { [MASK_PAINT_SOURCE_EXT_KEY]: { ...marker, outputId: 'image' } },
+      { [MASK_PAINT_SOURCE_EXT_KEY]: marker, unknown: asset('e') },
+    ]) {
+      const opaque: WorkflowDocument = { ...document, graphs: { g0: { ...document.graphs.g0!, nodes: {
+        n0: { ...document.graphs.g0!.nodes.n0!, ext },
+      } } } }
+      expect(workflowAssetRoots(opaque, local.historySnapshot(), maskResolve).complete).toBe(false)
+      expect(workflowAssetRoots(document, local.historySnapshot(), maskResolve, [opaque]).complete).toBe(false)
+    }
   })
 
   it('does not certify unknown schemas, opaque values, dormant extensions or truncated lists', () => {

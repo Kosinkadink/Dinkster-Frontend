@@ -1,6 +1,8 @@
 import { uuidv4, type DinksterConnection, type RetainedAssets } from '@dinkster/client'
 import {
+  MASK_PAINT_SOURCE_EXT_KEY,
   documentResolver,
+  maskPaintSourceNodeId,
   parseTypedLiteralWire,
   replayHistoryOps,
   typeExprFromTypeId,
@@ -80,7 +82,6 @@ export function workflowAssetRoots(
   }
   const visitNode = (node: NodeData, schemas: SchemaResolver): void => {
     if (node.type.startsWith('#')) hasInstances = true
-    checkExtensions(node as unknown as Json)
     const schema = schemas(node.type)
     // A stable node can resolve differently after its referenced graph changes.
     let checkedSchemas = checkedNodes.get(node)
@@ -90,6 +91,12 @@ export function workflowAssetRoots(
       checkedNodes.set(node, checkedSchemas)
     }
     checkedSchemas.add(schema)
+    // Only this node association has a known asset-free shape; nested metadata stays opaque.
+    if (node.ext !== undefined && Object.keys(node.ext).length > 0 &&
+      (schema?.editorRole !== 'mask-paint' || Object.keys(node.ext).length !== 1 ||
+        !Object.hasOwn(node.ext, MASK_PAINT_SOURCE_EXT_KEY) || maskPaintSourceNodeId(node) === undefined)) complete = false
+    checkedExtensions.add(node)
+    for (const [key, value] of Object.entries(node)) if (key !== 'ext') checkExtensions(value as Json)
     if (schema === undefined || (node.dynamic !== undefined && Object.keys(node.dynamic).length > 0)) complete = false
     for (const item of schema?.items ?? []) {
       if (item.kind !== 'input' && item.kind !== 'output') complete = false
@@ -120,7 +127,6 @@ export function workflowAssetRoots(
         return
       }
     }
-    checkExtensions(snapshot as unknown as Json)
     for (const graph of Object.values(snapshot.graphs)) {
       for (const node of Object.values(graph.nodes)) visitNode(node, schemas)
       for (const source of Object.values(graph.valueSources ?? {})) {
@@ -132,6 +138,7 @@ export function workflowAssetRoots(
         else valueRoots(source.value, typeExprFromTypeId(typed.type))
       }
     }
+    checkExtensions(snapshot as unknown as Json)
   }
   visit(document)
   for (const snapshot of additionalDocuments) visit(snapshot)
