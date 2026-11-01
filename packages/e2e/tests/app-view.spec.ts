@@ -581,6 +581,71 @@ test('shared widget commits await acceptance and retain refused drafts', {
   expect(await value('asset')).toBeNull()
 })
 
+test('combo authored menus and refresh selections await final outcomes', {
+  annotation: { type: 'mock-rename-dispatch' },
+}, async ({ page }, info) => {
+  await page.route(`**${REMOTE_ROUTE}*`, (route) => route.fulfill({ json: ['fresh-a', 'fresh-z'] }))
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const tab = app.activeTab()
+    const schema = app.registryForTab(tab).resolve('AppViewTest')
+    app.registerSchemas([{ ...schema, items: schema.items.map((item: any) => item.id === 'choice'
+      ? { ...item, widget: { ...item.widget, editableOptions: true } }
+      : item.id === 'remoteChoice' ? { ...item, widget: { ...item.widget, remote: { ...item.widget.remote, refreshButton: true, controlAfterRefresh: 'last' } } } : item) }])
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__comboPending = []
+    app.dispatchTo = (owner: any, invocation: any) => new Promise((resolve) => {
+      ;(window as any).__comboPending.push((accepted: boolean) => resolve(accepted ? dispatch(owner, invocation) : {
+        ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Combo edit refused for test' }],
+      }))
+    })
+  })
+  const settle = (index: number, accepted: boolean) => page.evaluate(({ index, accepted }) => (window as any).__comboPending[index](accepted), { index, accepted })
+  const open = async (id: string) => { const point = await widgetPoint(page, id); await page.mouse.click(point.x, point.y) }
+  await open('choice')
+  await page.getByTestId('combo-menu-draft').fill('[false, "exact draft", false]')
+  await page.screenshot({ path: info.outputPath('combo-authoring-default.png') })
+  await page.getByTestId('combo-menu-apply').click()
+  await expect(page.locator('.widget-commit-content')).toHaveAttribute('inert', '')
+  await page.evaluate(() => document.querySelector<HTMLButtonElement>('[data-testid=combo-menu-apply]')!.click())
+  expect(await page.evaluate(() => (window as any).__comboPending.length)).toBe(1)
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.dynamic?.choice).toBeUndefined()
+  await page.screenshot({ path: info.outputPath('combo-authoring-pending.png') })
+  await settle(0, false)
+  await expect(page.getByTestId('widget-commit-error')).toHaveText('Combo edit refused for test')
+  await expect(page.getByTestId('combo-menu-draft')).toHaveValue('[false, "exact draft", false]')
+  await expect(page.getByTestId('widget-commit-error')).toBeInViewport()
+  await page.screenshot({ path: info.outputPath('combo-authoring-refused.png') })
+  await page.setViewportSize({ width: 760, height: 900 })
+  await expect(page.getByTestId('widget-commit-error')).toBeInViewport()
+  await page.screenshot({ path: info.outputPath('combo-authoring-narrow.png') })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.getByTestId('combo-menu-apply').click()
+  await settle(1, true)
+  await expect(page.getByTestId('combo-dropdown')).toHaveCount(0)
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.dynamic?.choice).toEqual(expect.objectContaining({ options: [false, 'exact draft', false] }))
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.dynamic?.choice).toBeUndefined()
+  await open('remoteChoice')
+  await expect(page.getByTestId('combo-dropdown')).toHaveAttribute('data-remote', 'ready')
+  await page.getByTestId('remote-refresh').click()
+  await expect(page.locator('.widget-commit-content')).toHaveAttribute('inert', '')
+  await settle(2, false)
+  await expect(page.getByTestId('widget-commit-error')).toBeVisible()
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.remoteChoice).toBeUndefined()
+  await page.screenshot({ path: info.outputPath('combo-refresh-refused.png') })
+  await page.getByTestId('remote-refresh').click()
+  await expect(page.locator('.widget-commit-content')).toHaveAttribute('inert', '')
+  await settle(3, true)
+  await expect(page.getByTestId('combo-dropdown')).toHaveCount(0)
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.remoteChoice).toBe('fresh-z')
+  await open('remoteChoice')
+  await expect(page.getByTestId('combo-dropdown')).toBeVisible()
+  await expect(page.locator('.widget-commit-content')).not.toHaveAttribute('inert')
+  await expect(page.getByTestId('widget-commit-error')).toHaveCount(0)
+  await page.screenshot({ path: info.outputPath('combo-refresh-accepted.png') })
+})
+
 test('authored text group and queue drafts await final outcomes', {
   annotation: { type: 'mock-rename-dispatch' },
 }, async ({ page }, testInfo) => {

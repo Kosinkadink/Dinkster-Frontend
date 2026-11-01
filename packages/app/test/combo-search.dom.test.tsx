@@ -571,6 +571,8 @@ describe('combo search', () => {
   })
 
   it('edits input-family labels by stable member id and selects the stable value', async () => {
+    const pending = deferred<ReturnType<DocumentStore['dispatch']>>()
+    const dispatchTo = vi.fn().mockReturnValueOnce(pending.promise).mockReturnValue({ ok: true, diagnostics: [] })
     const mounted = mountEditor({
       ...editorState({
         widgetType: 'COMBO',
@@ -590,7 +592,7 @@ describe('combo search', () => {
           memberIds: { '\u0000m7': 'm7', '\u0000m2': 'm2' },
         },
       },
-    })
+    }, { dispatchTo })
     await flushMicrotasks()
 
     expect(mounted.root.querySelector('[data-testid="input-family-labels"]')?.textContent)
@@ -601,13 +603,22 @@ describe('combo search', () => {
     label.dispatchEvent(new InputEvent('input', { bubbles: true }))
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="input-family-label-apply"]')!.click()
 
-    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), {
+    expect(dispatchTo).toHaveBeenCalledWith(expect.anything(), {
       command: 'dynamic.labelMembers',
       params: {
         graphId: 'root', nodeId: 'instance', construct: 'branches',
         labels: { m7: 'Backdrop', m2: 'Subject' },
       },
     })
+    expect(mounted.root.querySelector('[inert]')).not.toBeNull()
+    pending.resolve({ ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'refused', message: 'Labels refused' }] })
+    await flushMicrotasks()
+    expect(label.value).toBe('Backdrop')
+    expect(mounted.root.querySelector('[data-testid="widget-commit-error"]')?.textContent).toBe('Labels refused')
+    expect(mounted.onClose).not.toHaveBeenCalled()
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="input-family-label-apply"]')!.click()
+    await flushMicrotasks()
+    expect(mounted.root.querySelector('[data-testid="combo-dropdown"]')).toBeNull()
     mounted.unmount()
 
     const selection = mountEditor(editorState({
@@ -806,6 +817,36 @@ describe('combo search', () => {
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'choice', value: expected },
     })
     expect(completeComboRefresh).not.toHaveBeenCalled()
+    mounted.unmount()
+  })
+
+  it.each([false, true])('manual refresh retains refusal and closes only accepted multi=%s', async (multi) => {
+    const outcome = deferred<ReturnType<DocumentStore['dispatch']>>()
+    const dispatchTo = vi.fn().mockReturnValueOnce(outcome.promise).mockReturnValue({ ok: true, diagnostics: [] })
+    const remoteChoices = vi.fn().mockResolvedValue(['first', 'last'])
+    const scopedClient = { remoteChoices, remoteChoiceAuthority: () => 0 }
+    const tab = { store: { doc: { graphs: { g0: { nodes: { n0: { values: { choice: 'old' } } } } } } } } as unknown as Tab
+    const mounted = mountEditor({ ...editorState({
+      widgetType: multi ? 'MULTI_COMBO' : 'COMBO', options: {},
+      remote: { route: '/api/choices/models', refreshButton: true, controlAfterRefresh: 'last' },
+    }, multi ? ['old'] : 'old'), tab }, { backendForTab: () => ({ scopedClient }), dispatchTo } as unknown as Partial<AppState>)
+    await flushMicrotasks()
+    const refreshId = multi ? 'multi-combo-refresh' : 'remote-refresh'
+    mounted.root.querySelector<HTMLButtonElement>(`[data-testid="${refreshId}"]`)!.click()
+    await flushMicrotasks()
+    expect(mounted.root.querySelector('[inert]')).not.toBeNull()
+    expect(mounted.onClose).not.toHaveBeenCalled()
+    outcome.resolve({ ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'refused', message: 'Refresh refused' }] })
+    await flushMicrotasks()
+    expect(mounted.root.querySelector('[data-testid="widget-commit-error"]')?.textContent).toBe('Refresh refused')
+    if (multi) expect(mounted.root.querySelector('[data-testid="multi-combo-values"]')?.textContent).toBe('old')
+    mounted.root.querySelector<HTMLButtonElement>(`[data-testid="${refreshId}"]`)!.click()
+    await flushMicrotasks()
+    expect(mounted.onClose).toHaveBeenCalledTimes(multi ? 1 : 0)
+    if (!multi) {
+      expect(mounted.root.querySelector('[inert]')).toBeNull()
+      expect(mounted.root.querySelector('[data-testid="widget-commit-error"]')).toBeNull()
+    }
     mounted.unmount()
   })
 

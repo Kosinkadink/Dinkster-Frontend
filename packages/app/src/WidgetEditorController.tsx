@@ -173,7 +173,7 @@ export interface WidgetEditorImplementationProps {
   bindPopover: (el: HTMLDivElement) => void
   close: () => void
   commitValue: (value: Json) => Promise<boolean>
-  commitCommand: (invocation: CommandInvocation) => Promise<boolean>
+  commitCommand: (invocation: CommandInvocation, closeOnAccept?: boolean) => Promise<boolean>
   commitPending: () => boolean
   commitError: () => string | undefined
   editor: WidgetEditorProps
@@ -284,7 +284,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
   const close = (): void => { live = false; props.onClose() }
   const [commitPending, setCommitPending] = createSignal(false)
   const [commitError, setCommitError] = createSignal<string>()
-  const commitCommand = async (invocation: CommandInvocation): Promise<boolean> => {
+  const commitCommand = async (invocation: CommandInvocation, closeOnAccept = true): Promise<boolean> => {
     if (!live || commitPending() || ed.tab.execution) return false
     const store = ed.tab.store
     setCommitPending(true)
@@ -296,13 +296,16 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
         setCommitError(outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))
         return false
       }
-      close()
+      if (closeOnAccept) close()
       return true
     } catch (reason) {
       if (live && ed.tab.store === store) setCommitError(reason instanceof Error ? reason.message : String(reason))
       return false
     } finally {
-      if (live) setCommitPending(false)
+      if (live) {
+        setCommitPending(false)
+        if (commitError() && popoverEl) popoverEl.scrollTop = 0
+      }
     }
   }
 

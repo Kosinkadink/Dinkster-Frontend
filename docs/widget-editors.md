@@ -17,8 +17,10 @@ document command is accepted. Pending content is inert and duplicate commits
 are ignored. A refusal keeps the exact draft and shows an inline error for
 retry. Escape, outside dismissal and modal close dismiss only the editor;
 they do not cancel a submitted command. A completed command cannot close a
-replacement editor. Custom authoring actions that dispatch their own commands
-retain their documented behavior.
+replacement editor. Combo menu and branch-label edits and video edit batches
+use the same acceptance path. Explicit refresh selection closes a multi-combo
+only after acceptance. Single refresh does not request closure, but a document
+change can still dismiss its stale canvas anchor.
 
 ## Descriptor fields
 

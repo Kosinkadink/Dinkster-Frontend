@@ -193,6 +193,48 @@ test('video trim and crop controls at desktop and compact widths', async ({ page
   }
 })
 
+test('video batch Apply retains refused trim and strict-duration drafts until accepted', async ({ page }, info) => {
+  await openDocument(page, 'trim')
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__videoPending = []
+    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
+      ;(window as any).__videoPending.push((accepted: boolean) => resolve(accepted ? dispatch(tab, invocation) : {
+        ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Video edit refused for test' }],
+      }))
+    })
+  })
+  const settle = (index: number, accepted: boolean) => page.evaluate(({ index, accepted }) => (window as any).__videoPending[index](accepted), { index, accepted })
+  await openEditor(page)
+  await page.getByTestId('video-edit-apply').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: info.outputPath('video-batch-default.png') })
+  await page.getByTestId('video-trim-start-seconds').fill('2.75')
+  await page.getByTestId('video-trim-start-seconds').press('Tab')
+  await page.getByTestId('video-trim-strict').check()
+  await page.getByTestId('video-edit-apply').click()
+  await expect(page.locator('.widget-commit-content')).toHaveAttribute('inert', '')
+  await page.evaluate(() => document.querySelector<HTMLButtonElement>('[data-testid=video-edit-apply]')!.click())
+  expect(await page.evaluate(() => (window as any).__videoPending.length)).toBe(1)
+  expect(await valuesOf(page)).toEqual({ video_edit: imported, strict_duration: false })
+  await page.screenshot({ path: info.outputPath('video-batch-pending.png') })
+  await settle(0, false)
+  await expect(page.getByTestId('widget-commit-error')).toHaveText('Video edit refused for test')
+  await expect(page.getByTestId('video-trim-start-seconds')).toHaveValue('2.75')
+  await expect(page.getByTestId('video-trim-strict')).toBeChecked()
+  await page.getByTestId('video-edit-apply').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: info.outputPath('video-batch-refused.png') })
+  await page.setViewportSize({ width: 760, height: 900 })
+  await page.getByTestId('video-edit-apply').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: info.outputPath('video-batch-narrow.png') })
+  await page.getByTestId('video-edit-apply').click()
+  await settle(1, true)
+  await expect(page.getByTestId('widget-modal-surface')).toHaveCount(0)
+  expect(await valuesOf(page)).toEqual({ video_edit: { ...imported, trim: { ...imported.trim, start_time: 2.75 } }, strict_duration: true })
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  expect(await valuesOf(page)).toEqual({ video_edit: imported, strict_duration: false })
+})
+
 test('native trim derives its widget, requests lazy source selectors, preserves JSON and undoes the sibling atomically', async ({ page }, info) => {
   const requests: URL[] = []
   // Finish the canvas output peek before installing the editor-only capture.

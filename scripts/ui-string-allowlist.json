@@ -869,7 +869,7 @@
   ],
   "WidgetEditorController.tsx": [
     "attribute:aria-label:Edit output descriptors",
-    "text:() const commitCommand = async (invocation: CommandInvocation): Promise",
+    "text:() const commitCommand = async (invocation: CommandInvocation, closeOnAccept = true): Promise",
     "text:) : ed.outputDescriptors !== undefined ? (",
     "text:) : null return (",
     "text:) : props.implementation !== undefined ? (",
