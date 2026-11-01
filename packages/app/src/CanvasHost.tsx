@@ -580,14 +580,57 @@ export function CanvasViewControls(props: {
   readonly onToggleLensMenu: () => void
   readonly onSelectView: (kind: string) => void
   readonly onSelectLens: (id: string) => void
-  readonly onSetAllNetsDisplay: (mode: 'noodle' | 'tags' | 'guide') => void
+  readonly commandScope?: unknown
+  readonly onSetAllNetsDisplay: (mode: 'noodle' | 'tags' | 'guide') => CommandOutcome | Promise<CommandOutcome | undefined> | undefined
 }) {
   const message = useAppMessage()
+  const [pending, setPending] = createSolidSignal(false)
+  const [refusal, setRefusal] = createSolidSignal<string>()
+  let generation = 0
+  let scopeGeneration = 0
+  let live = true
+  let viewTrigger: HTMLButtonElement | undefined
+  onCleanup(() => { live = false; generation++ })
+  createEffect(() => {
+    props.commandScope
+    props.disabled
+    scopeGeneration++
+    generation++
+    setPending(false)
+    setRefusal(undefined)
+  })
+  createEffect(() => {
+    props.viewMenuOpen
+    generation++
+    setRefusal(undefined)
+  })
+  const setAllNetsDisplay = async (mode: 'noodle' | 'tags' | 'guide'): Promise<void> => {
+    if (pending() || props.disabled || !props.viewMenuOpen) return
+    const owner = generation
+    const scope = scopeGeneration
+    setPending(true)
+    setRefusal(undefined)
+    try {
+      const outcome = await props.onSetAllNetsDisplay(mode)
+      if (!live || owner !== generation) return
+      if (outcome?.ok) {
+        props.onToggleViewMenu()
+        viewTrigger?.focus()
+      } else if (outcome !== undefined) {
+        setRefusal(outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))
+      }
+    } catch (error) {
+      if (live && owner === generation) setRefusal(error instanceof Error ? error.message : String(error))
+    } finally {
+      if (live && scope === scopeGeneration) setPending(false)
+    }
+  }
   const viewLabel = () => message(`canvas.viewControls.active.${props.activeView === APP_EDITOR_KIND ? 'app' : 'graph'}`)
   return (
     <div class="canvas-view-controls" classList={{ drilled: props.drilled }}>
       <div class="canvas-view-control">
         <ProductButton size="compact"
+          ref={viewTrigger}
           type="button"
           data-testid="views-switcher"
           data-tooltip-label={props.viewMenuOpen ? undefined : message('canvas.viewControls.view.tooltip')}
@@ -597,7 +640,8 @@ export function CanvasViewControls(props: {
           onClick={props.onToggleViewMenu}
         ><Icon icon={AppWindow} /> {viewLabel()} <Icon icon={ChevronDown} /></ProductButton>
         <Show when={props.viewMenuOpen}>
-          <div class="lens-menu view-menu" role="menu">
+          <div class="lens-menu view-menu" role="menu" aria-busy={pending()}>
+            <Show when={refusal()}>{(text) => <ProductNotice tone="error" testId="net-display-error">{text()}</ProductNotice>}</Show>
             <div class="lens-menu-heading">{message('canvas.viewControls.heading.views')}</div>
             <ProductButton variant="ghost" size="compact" role="menuitemradio" aria-checked={props.activeView === GRAPH_EDITOR_KIND} onClick={() => props.onSelectView(GRAPH_EDITOR_KIND)}><strong>{message('canvas.viewControls.active.graph')}</strong></ProductButton>
             <Show when={props.appViewEnabled}>
@@ -607,17 +651,20 @@ export function CanvasViewControls(props: {
             <ProductButton variant="ghost" size="compact"
               role="menuitem"
               data-testid="net-display-all-noodle"
-              onClick={() => props.onSetAllNetsDisplay('noodle')}
+              disabled={pending()}
+              onClick={() => { void setAllNetsDisplay('noodle') }}
             ><strong>{message('canvas.viewControls.namedNets.noodles.label')}</strong><small>{message('canvas.viewControls.namedNets.noodles.description')}</small></ProductButton>
             <ProductButton variant="ghost" size="compact"
               role="menuitem"
               data-testid="net-display-all-tags"
-              onClick={() => props.onSetAllNetsDisplay('tags')}
+              disabled={pending()}
+              onClick={() => { void setAllNetsDisplay('tags') }}
             ><strong>{message('canvas.viewControls.namedNets.tags.label')}</strong><small>{message('canvas.viewControls.namedNets.tags.description')}</small></ProductButton>
             <ProductButton variant="ghost" size="compact"
               role="menuitem"
               data-testid="net-display-all-guide"
-              onClick={() => props.onSetAllNetsDisplay('guide')}
+              disabled={pending()}
+              onClick={() => { void setAllNetsDisplay('guide') }}
             ><strong>{message('canvas.viewControls.namedNets.guides.label')}</strong><small>{message('canvas.viewControls.namedNets.guides.description')}</small></ProductButton>
           </div>
         </Show>

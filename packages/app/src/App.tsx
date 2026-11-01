@@ -2255,17 +2255,18 @@ export function App(props: {
       editorsTick()
       return app.editors.get(paneEditorKind())
     }
-    const [paneGraphStackDepth, setPaneGraphStackDepth] = createSolidSignal(0)
+    const [paneGraphStack, setPaneGraphStack] = createSolidSignal<readonly string[]>([])
     createEffect(() => {
       const tab = paneActiveTab()
       if (!tab) {
-        setPaneGraphStackDepth(0)
+        setPaneGraphStack([])
         return
       }
-      setPaneGraphStackDepth(tab.graphStack.get().length)
-      const unsubscribe = tab.graphStack.subscribe((stack) => setPaneGraphStackDepth(stack.length))
+      setPaneGraphStack(tab.graphStack.get())
+      const unsubscribe = tab.graphStack.subscribe((stack) => setPaneGraphStack(stack))
       onCleanup(unsubscribe)
     })
+    const paneCommandScope = createMemo(() => ({ tab: paneActiveTab(), store: paneActiveTab()?.store, stack: paneGraphStack() }))
     const [viewMenu, setViewMenu] = createSolidSignal(false)
     const [lensMenu, setLensMenu] = createSolidSignal(false)
     const paneCanvasLens = () => {
@@ -2423,7 +2424,7 @@ export function App(props: {
             })
           }}>
             <CanvasViewControls
-              drilled={paneEditorKind() === GRAPH_EDITOR_KIND && paneGraphStackDepth() > 1}
+              drilled={paneEditorKind() === GRAPH_EDITOR_KIND && paneGraphStack().length > 1}
               disabled={!paneActiveTab() || paneActiveTab()!.execution !== undefined}
               activeView={paneEditorKind()}
               appViewEnabled={appViewEnabled()}
@@ -2433,10 +2434,13 @@ export function App(props: {
               lensMenuOpen={lensMenu()}
               onToggleViewMenu={() => { setLensMenu(false); setViewMenu((open) => !open) }}
               onToggleLensMenu={() => { setViewMenu(false); setLensMenu((open) => !open) }}
-              onSetAllNetsDisplay={(mode) => {
+              commandScope={paneCommandScope()}
+              onSetAllNetsDisplay={async (mode) => {
                 const tab = paneActiveTab()
-                if (tab) app.dispatchTo(tab, { command: 'view.setAllNetsDisplay', params: { graphId: currentGraphId(tab), mode } })
-                setViewMenu(false)
+                if (!tab) return
+                const scope = paneCommandScope()
+                const outcome = await app.dispatchTo(tab, { command: 'view.setAllNetsDisplay', params: { graphId: currentGraphId(tab), mode } })
+                if (paneCommandScope() === scope) return outcome
               }}
               onSelectView={(kind) => {
                 const tab = paneActiveTab()

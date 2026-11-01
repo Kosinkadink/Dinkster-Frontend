@@ -117,6 +117,107 @@ test.beforeEach(async ({ page }, testInfo) => {
   })
 })
 
+test('shell named-net display changes await final acceptance', {
+  annotation: { type: 'mock-rename-dispatch' },
+}, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.getByRole('button', { name: /^Toggle right rail/ }).click()
+  const netId = await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const tab = app.activeTab()!
+    app.registerSchemas([{
+      type: 'NetDisplayTest', displayName: 'Net Display Test', category: 'test', source: 'v3', isOutputNode: false,
+      items: [{ kind: 'output', id: 'value', type: { kind: 'concrete', name: 'INT' } }],
+    }])
+    const nodeId = tab.store.predictedNodeId('g0')!
+    for (const invocation of [
+      { command: 'node.add', params: { graphId: 'g0', type: 'NetDisplayTest', position: { x: 450, y: 100 } } },
+      { command: 'net.create', params: { graphId: 'g0', name: 'Display test', source: { node: nodeId, port: 'value' } } },
+    ]) {
+      const outcome = app.dispatchTo(tab, invocation)
+      if (!outcome.ok) throw new Error(JSON.stringify(outcome.diagnostics))
+    }
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__netDisplayPending = []
+    ;(app as any).dispatchTo = (owner: any, invocation: any) => invocation.command !== 'view.setAllNetsDisplay'
+      ? dispatch(owner, invocation)
+      : new Promise((resolve, reject) => {
+        ;(window as any).__netDisplayPending.push((result: string) => result === 'throw'
+          ? reject(new Error('Display transport failed for test'))
+          : resolve(result === 'accept' ? dispatch(owner, invocation) : {
+            ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Net display refused for test' }],
+          }))
+      })
+    return Object.keys(tab.store.doc.graphs.g0!.nets!)[0]!
+  })
+  const trigger = page.getByTestId('views-switcher')
+  const menu = page.locator('.view-menu')
+  const tags = page.getByTestId('net-display-all-tags')
+  const notice = page.getByTestId('net-display-error')
+  const state = () => page.evaluate(() => {
+    const view = window.__dinksterTest!.app.activeTab()!.store.doc.view.graphs.g0!
+    return { collapsed: view.collapsedNets ?? [], guides: view.guideNets ?? [] }
+  })
+  const settle = (index: number, result: string) => page.evaluate(({ index, result }) => {
+    ;(window as any).__netDisplayPending[index](result)
+  }, { index, result })
+  await trigger.click()
+  await page.screenshot({ path: testInfo.outputPath('net-display-default.png') })
+  await tags.click()
+  await expect(menu).toHaveAttribute('aria-busy', 'true')
+  await expect(tags).toBeDisabled()
+  await tags.evaluate((element: HTMLButtonElement) => element.click())
+  expect(await page.evaluate(() => (window as any).__netDisplayPending.length)).toBe(1)
+  expect(await state()).toEqual({ collapsed: [], guides: [] })
+  await page.screenshot({ path: testInfo.outputPath('net-display-pending.png') })
+  await settle(0, 'refuse')
+  await expect(notice).toHaveText('Net display refused for test')
+  await expect(tags).toBeEnabled()
+  expect(await state()).toEqual({ collapsed: [], guides: [] })
+  await page.screenshot({ path: testInfo.outputPath('net-display-refused.png') })
+  await page.setViewportSize({ width: 390, height: 1000 })
+  await expect(notice).toBeInViewport()
+  await page.screenshot({ path: testInfo.outputPath('net-display-refused-narrow.png') })
+  await tags.click()
+  await settle(1, 'accept')
+  await expect(menu).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+  expect(await state()).toEqual({ collapsed: [netId], guides: [] })
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.screenshot({ path: testInfo.outputPath('net-display-accepted.png') })
+  await trigger.click()
+  await page.getByTestId('net-display-all-guide').click()
+  await page.keyboard.press('Escape')
+  await trigger.click()
+  await expect(tags).toBeDisabled()
+  await settle(2, 'refuse')
+  await expect(tags).toBeEnabled()
+  await expect(notice).toHaveCount(0)
+  await expect(menu).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('net-display-dismissed.png') })
+  await page.getByTestId('net-display-all-guide').click()
+  await settle(3, 'throw')
+  await expect(notice).toHaveText('Display transport failed for test')
+  await page.getByTestId('net-display-all-guide').click()
+  await settle(4, 'accept')
+  await expect(menu).toHaveCount(0)
+  expect(await state()).toEqual({ collapsed: [netId], guides: [netId] })
+  await trigger.click()
+  await tags.click()
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    app.setTabEditorKind(app.activeTab()!.id, 'app')
+  })
+  await expect(page.getByTestId('app-view')).toBeVisible()
+  await settle(5, 'refuse')
+  await expect(notice).toHaveCount(0)
+  await expect(menu).toBeVisible()
+  await page.getByTestId('net-display-all-noodle').click()
+  await settle(6, 'accept')
+  await expect(menu).toHaveCount(0)
+  expect(await state()).toEqual({ collapsed: [], guides: [] })
+})
+
 test('expose -> app view -> edit -> the same document write; remove restores empty state', async ({ page }) => {
   // Expose from the canvas widget context menu.
   await exposeViaMenu(page, 'count')

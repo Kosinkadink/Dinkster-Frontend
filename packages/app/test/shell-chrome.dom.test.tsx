@@ -89,7 +89,9 @@ function canvasViewControlsFixture(appViewEnabled = true) {
     setViewMenuOpen(false)
   })
   const selectLens = vi.fn()
-  const setAllNetsDisplay = vi.fn()
+  const setAllNetsDisplay = vi.fn((_mode: 'noodle' | 'tags' | 'guide') => ({
+    ok: true as const, doc: {} as WorkflowDocument, forward: [], inverse: [], diagnostics: [],
+  }))
   const dispose = render(() => (
     <CanvasViewControls
       drilled={false}
@@ -132,16 +134,16 @@ describe('canvas view controls', () => {
     dispose()
   })
 
-  it('offers graph-wide named-net display actions for all three modes', () => {
+  it('offers graph-wide named-net display actions for all three modes', async () => {
     const { root, setAllNetsDisplay, setViewMenuOpen, dispose } = canvasViewControlsFixture()
-    setViewMenuOpen(true)
-    const noodle = root.querySelector<HTMLButtonElement>('[data-testid="net-display-all-noodle"]')!
-    const tags = root.querySelector<HTMLButtonElement>('[data-testid="net-display-all-tags"]')!
-    const guide = root.querySelector<HTMLButtonElement>('[data-testid="net-display-all-guide"]')!
-    expect(noodle.getAttribute('role')).toBe('menuitem')
-    noodle.click()
-    tags.click()
-    guide.click()
+    for (const mode of ['noodle', 'tags', 'guide']) {
+      setViewMenuOpen(true)
+      const item = root.querySelector<HTMLButtonElement>(`[data-testid="net-display-all-${mode}"]`)!
+      expect(item.getAttribute('role')).toBe('menuitem')
+      item.click()
+      await Promise.resolve()
+      expect(root.querySelector('.view-menu')).toBeNull()
+    }
     expect(setAllNetsDisplay.mock.calls.map((call) => call[0])).toEqual(['noodle', 'tags', 'guide'])
     dispose()
   })
