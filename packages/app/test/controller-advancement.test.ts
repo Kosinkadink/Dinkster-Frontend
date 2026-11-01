@@ -495,7 +495,7 @@ describe('compiled occurrence controller ownership', () => {
     })
   })
 
-  it('stores modes for active dynamic controller value keys', () => {
+  it('stores modes for active dynamic controller value keys', async () => {
     const doc = document({
       g0: graph('g0', {
         src: { id: 'src', type: sourceSchema.type, values: {} },
@@ -514,10 +514,10 @@ describe('compiled occurrence controller ownership', () => {
     expect(app.openDocument(doc, 'Dynamic Controllers')).toEqual([])
     const tab = app.activeTab()!
     for (const inputId of ['mode.[a].seed', 'slot.seed', 'items.seed#m0']) {
-      expect(app.dispatchTo(tab, {
+      expect((await app.dispatchTo(tab, {
         command: 'node.setController',
         params: { graphId: 'g0', nodeId: 'dynamic', inputId, mode: 'increment' },
-      }).ok).toBe(true)
+      })).ok).toBe(true)
     }
     expect(tab.store.doc.graphs.g0!.nodes.dynamic!.controllers).toEqual({
       'mode.[a].seed': 'increment',

@@ -226,7 +226,7 @@ describe('live preview policy on submit', () => {
       ok: false,
       diagnostics: [diag('error', 'validation', 'submit.expected', 'stop after POST')],
     })
-    expect(app.dispatchTo(tab, { command: 'workflow.setPreviews', params: { previews: 'quality' } }).ok).toBe(true)
+    expect((await app.dispatchTo(tab, { command: 'workflow.setPreviews', params: { previews: 'quality' } })).ok).toBe(true)
 
     await app.queue(tab)
     expect(submit).toHaveBeenCalledTimes(1)
@@ -242,15 +242,15 @@ describe('live preview policy on submit', () => {
       ok: false,
       diagnostics: [diag('error', 'validation', 'submit.expected', 'stop after POST')],
     })
-    expect(app.dispatchTo(tab, {
+    expect((await app.dispatchTo(tab, {
       command: 'node.setPreviews',
       params: { graphId: 'g0', nodeIds: ['n1'], previews: 'off' },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     // Equal to the base mode: must be omitted from the wire.
-    expect(app.dispatchTo(tab, {
+    expect((await app.dispatchTo(tab, {
       command: 'node.setPreviews',
       params: { graphId: 'g0', nodeIds: ['n0'], previews: 'cheap' },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
 
     await app.queue(tab)
     expect(submit).toHaveBeenCalledTimes(1)

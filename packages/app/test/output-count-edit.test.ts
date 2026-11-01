@@ -130,27 +130,27 @@ const appWithSchema = (): AppState => {
 }
 
 describe('AppState count-aware value edits', () => {
-  it('routes count widgets through the explicit preserving command while ordinary widgets stay generic', () => {
+  it('routes count widgets through the explicit preserving command while ordinary widgets stay generic', async () => {
     const app = appWithSchema()
     expect(app.openDocument(document(), 'Count edit')).toEqual([])
     const tab = app.activeTab()!
     const origins: string[] = []
     tab.store.onOp((op) => origins.push(op.origin))
 
-    expect(app.dispatchTo(tab, {
+    expect((await app.dispatchTo(tab, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'split', inputId: 'count', value: 1 },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     expect(origins).toEqual(['node.setOutputCount'])
     expect(tab.store.doc.graphs.g0!.links.departing).toBeDefined()
 
-    expect(app.dispatchTo(tab, {
+    expect((await app.dispatchTo(tab, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'split', inputId: 'ordinary', value: 2 },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     expect(origins).toEqual(['node.setOutputCount', 'node.setValue'])
 
-    expect(app.dispatchTo(tab, {
+    expect((await app.dispatchTo(tab, {
       command: 'batch',
       params: { invocations: [
         {
@@ -162,31 +162,31 @@ describe('AppState count-aware value edits', () => {
           params: { graphId: 'g0', nodeId: 'split', inputId: 'ordinary', value: 3 },
         },
       ] },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     expect(tab.store.doc.graphs.g0!.nodes.split!.values).toEqual({ count: 2, ordinary: 3 })
 
     const revision = tab.store.revision
-    expect(app.dispatchTo(tab, {
+    expect((await app.dispatchTo(tab, {
       command: 'node.setValues',
       params: { graphId: 'g0', nodeId: 'split', values: { count: 3, ordinary: 4 } },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     expect(tab.store.revision).toBe(revision + 1)
     expect(tab.store.doc.graphs.g0!.nodes.split!.values).toEqual({ count: 3, ordinary: 4 })
     expect(tab.store.undo()).toBe(true)
     expect(tab.store.doc.graphs.g0!.nodes.split!.values).toEqual({ count: 2, ordinary: 3 })
   })
 
-  it('validates promoted count edits against the derived occurrence schema', () => {
+  it('validates promoted count edits against the derived occurrence schema', async () => {
     const app = appWithSchema()
     expect(app.openDocument(subgraphDocument(), 'Promoted count edit')).toEqual([])
     const tab = app.activeTab()!
     const origins: string[] = []
     tab.store.onOp((op) => origins.push(op.origin))
 
-    expect(app.dispatchTo(tab, {
+    expect((await app.dispatchTo(tab, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'left', inputId: 'amount', value: 4 },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     expect(origins).toEqual(['node.setOutputCount'])
     expect(tab.store.doc.graphs.g0!.nodes.left!.values).toEqual({ amount: 4 })
     expect(tab.store.doc.graphs.g0!.nodes.right!.values).toEqual({})
@@ -208,7 +208,7 @@ describe('AppState count-aware value edits', () => {
     }
     expect(tab.store.doc.graphs.g0!.nodes.right!.values).toEqual({})
 
-    const rejected = app.dispatchTo(tab, {
+    const rejected = await app.dispatchTo(tab, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'left', inputId: 'amount', value: 5 },
     })

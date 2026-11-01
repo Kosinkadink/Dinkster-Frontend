@@ -120,7 +120,7 @@ describe('saveWorkflow', () => {
     await vi.waitFor(() => expect(locations).toHaveBeenCalled())
     expect(upload).not.toHaveBeenCalled()
     if (outcome === 'edited') {
-      expect(app.dispatchTo(tab, { command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n0', values: { a: 99 } } }).ok).toBe(true)
+      expect((await app.dispatchTo(tab, { command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n0', values: { a: 99 } } })).ok).toBe(true)
     }
     if (outcome === 'denied') reject(new Error('operator access denied'))
     else if (outcome === 'available') resolve(['/machine/original/early.png'])
@@ -187,7 +187,7 @@ describe('saveWorkflow', () => {
     })
     expect(patch).not.toHaveBeenCalled()
 
-    const edit = app.dispatchTo(tab, {
+    const edit = await app.dispatchTo(tab, {
       command: 'node.move',
       params: { graphId: 'g0', positions: { n0: { x: 25, y: 25 } } },
     })
@@ -263,7 +263,7 @@ describe('saveWorkflow', () => {
     vi.spyOn(backend.connection, 'createLibraryRecord').mockResolvedValue(record())
     const saving = app.saveWorkflow(tab.id)
     await uploadStarted(upload) // the snapshot + revision are now captured
-    const edit = app.dispatchTo(tab, {
+    const edit = await app.dispatchTo(tab, {
       command: 'node.move',
       params: { graphId: 'g0', positions: { n0: { x: 50, y: 50 } } },
     })
@@ -469,7 +469,7 @@ describe('sourceDocument stamp on queue', () => {
       const opened = await app.importWorkflowFile({ name: 'original.json', text: async () => JSON.stringify(source) }, () => true, prompt)
       expect(opened, app.transientStatus.get()).toBe(true)
       const imported = app.activeTab()!
-      expect(app.dispatchTo(imported, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'a', value: 99 } }).ok).toBe(true)
+      expect((await app.dispatchTo(imported, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'a', value: 99 } })).ok).toBe(true)
       const saved = JSON.parse(JSON.stringify(app.exportDocument(imported.id)))
       expect(app.openDocument(saved, 'Reopened')).toEqual([])
       const reopened = app.activeTab()!
@@ -506,7 +506,7 @@ describe('sourceDocument stamp on queue', () => {
     expect(upload).toHaveBeenCalledTimes(1) // same revision + schemas = cached
 
     // A document edit invalidates the cache: the next queue re-uploads.
-    const outcome = app.dispatchTo(tab, {
+    const outcome = await app.dispatchTo(tab, {
       command: 'node.move',
       params: { graphId: 'g0', positions: { n0: { x: 50, y: 50 } } },
     })

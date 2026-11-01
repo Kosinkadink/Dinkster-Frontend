@@ -173,9 +173,9 @@ describe('AppState multi-window workspace', () => {
     const firstTab = first.tabs.get().find((tab) => tab.id === 'multi-window-workflow')!
     const secondTab = second.tabs.get().find((tab) => tab.id === 'multi-window-workflow')!
 
-    expect(first.dispatchTo(firstTab, {
+    expect((await first.dispatchTo(firstTab, {
       command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: 'Edited in first window' },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     await (firstTab.store as unknown as { settle(): Promise<void> }).settle()
     expect(secondTab.store.doc.graphs.g0!.nodes.n1!.title).toBe('Edited in first window')
     expect(firstTab.store.undo()).toBe(true)
@@ -548,9 +548,9 @@ describe('AppState multi-window workspace', () => {
     const tab = app.tabs.get().find((candidate) => candidate.id === 'multi-window-workflow')!
     const workspaceFactory = authorityFactories().workspace
     const promotion = app.enableWorkspaceAuthority(factory, workspaceFactory)
-    expect(app.dispatchTo(tab, {
+    expect((await app.dispatchTo(tab, {
       command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: 'Kept locally' },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     setTimeout(() => renderers.forEach((renderer) => renderer.release()), 0)
     await promotion
     pause = false
@@ -639,9 +639,9 @@ describe('AppState multi-window workspace', () => {
     const tab = app.tabs.get().find((candidate) => candidate.id === 'multi-window-workflow')!
     const workspaceFactory = authorityFactories().workspace
     const promotion = app.enableWorkspaceAuthority(factory, workspaceFactory)
-    expect(app.dispatchTo(tab, {
+    expect((await app.dispatchTo(tab, {
       command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: 'Edited before promotion' },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     setTimeout(() => renderers.forEach((renderer) => renderer.release()), 0)
     await promotion
     pause = false
@@ -676,9 +676,9 @@ describe('AppState multi-window workspace', () => {
     await (app as unknown as { promoteWorkspaceTabs(): Promise<void> }).promoteWorkspaceTabs()
 
     expect((replaced.store as unknown as { status: { get(): string } }).status.get()).toBe('live')
-    expect(app.dispatchTo(replaced, {
+    expect((await app.dispatchTo(replaced, {
       command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: 'Edited after replacement' },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     await (replaced.store as unknown as { settle(): Promise<void> }).settle()
     expect(replaced.store.doc.graphs.g0!.nodes.n1!.title).toBe('Edited after replacement')
 

@@ -890,16 +890,16 @@ describe('lifecycle races', () => {
     appB.setTabTarget(tabB.id, backendB.id)
 
     holdPosts = true
-    expect(appA.dispatchTo(tabA, {
+    expect((await appA.dispatchTo(tabA, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'left', inputId: 'amount', value: 3 },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     await until(() => heldPosts === 1, 'promoted count POST held')
 
-    expect(appB.dispatchTo(tabB, {
+    expect((await appB.dispatchTo(tabB, {
       command: 'node.setTitle',
       params: { graphId: 'g0', nodeId: 'right', title: 'peer edit' },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     await sharedSession(appB, tabB.id).settle()
     await until(() =>
       tabA.store.doc.graphs.g0!.nodes.right!.title === 'peer edit' &&

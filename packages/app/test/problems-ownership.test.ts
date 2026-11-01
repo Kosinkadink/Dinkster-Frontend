@@ -195,10 +195,10 @@ describe('problems ownership', () => {
     expect(codes).toContain('b.problem')
   })
 
-  it('rejected commands land under the dispatching tab', () => {
+  it('rejected commands land under the dispatching tab', async () => {
     const a = open('lin-a')
     open('lin-b')
-    const outcome = app.dispatchTo(a, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'missing', inputId: 'x', value: 1 } })
+    const outcome = await app.dispatchTo(a, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'missing', inputId: 'x', value: 1 } })
     expect(outcome.ok).toBe(false)
     const owned = app.problems.get().filter((d) => d.owner === a.id)
     expect(owned.length).toBeGreaterThan(0)
@@ -438,16 +438,16 @@ describe('workflow asset presence', () => {
     app.setTabTarget(tab.id, backend.id)
     await callStarted(check)
     check.mockRejectedValue(new Error('network unavailable'))
-    expect(app.dispatchTo(tab, { command: 'node.setValue', params: {
+    expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
       graphId: 'g0', nodeId: 'n0', inputId: 'a', value: other,
-    } }).ok).toBe(true)
+    } })).ok).toBe(true)
     await vi.waitFor(() => expect(shownCodes(tab.id)).toContain('asset.availability.unchecked'))
     pending.resolve([{ digest: first.digest, status: 'missing' }])
     await pending.promise
     expect(shownCodes(tab.id)).not.toContain('asset.availability.missing')
     const closed = deferred<readonly { digest: string; status: 'missing' }[]>()
     check.mockReturnValue(closed.promise)
-    app.dispatchTo(tab, { command: 'node.setValue', params: {
+    await app.dispatchTo(tab, { command: 'node.setValue', params: {
       graphId: 'g0', nodeId: 'n0', inputId: 'a', value: first,
     } })
     app.closeTab(tab.id)
@@ -481,10 +481,10 @@ describe('late async results and dead owners', () => {
 
     const queueing = app.queueSelection(tab, ['n1'])
     await callStarted(uploadSpy)
-    expect(app.dispatchTo(tab, {
+    expect((await app.dispatchTo(tab, {
       command: 'node.setMode',
       params: { graphId: 'g0', nodeIds: ['n0'], mode: 'bypassed' },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     upload.resolve('blake3:' + 'a'.repeat(64))
     await queueing
 
@@ -543,10 +543,10 @@ describe('late async results and dead owners', () => {
 
     await app.queueSelection(tab, ['n1'])
     expect(app.assetConsent.get()).toBeDefined()
-    expect(app.dispatchTo(tab, {
+    expect((await app.dispatchTo(tab, {
       command: 'node.setMode',
       params: { graphId: 'g0', nodeIds: ['n0'], mode: 'bypassed' },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     await app.assetConsent.get()!.retry(['blake3:model'])
 
     expect(compileSpy).toHaveBeenCalledTimes(2)

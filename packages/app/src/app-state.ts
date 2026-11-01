@@ -5578,7 +5578,7 @@ export class AppState {
    * Frozen tabs reject everything silently: read-only is a mode the UI
    * communicates with a banner, not a per-gesture error.
    */
-  dispatchTo(tab: Tab, invocation: CommandInvocation): CommandOutcome {
+  dispatchTo(tab: Tab, invocation: CommandInvocation): CommandOutcome | Promise<CommandOutcome> {
     if (tab.execution) return { ok: false, diagnostics: [] }
     const effective = this.countAwareValueInvocation(tab, invocation)
     const outcome = tab.store.dispatch(effective)

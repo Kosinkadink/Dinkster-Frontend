@@ -66,6 +66,11 @@ untouched. Ordinary `dispatch()` immediately prepares and commits, preserving
 its synchronous final-outcome contract. A prepared command does not certify
 typed asset completeness or register a frontend holder.
 
+The app-level `AppState.dispatchTo()` contract permits either a final outcome
+or a promise of one. Callers that inspect the outcome or depend on publication
+must await it. Its ordinary implementation still dispatches synchronously;
+the declared result does not enable retained admission.
+
 Shared sessions stage the actor-stamped, shared-replay-prepared invocation once.
 Their candidates include the participant's undo/redo history and confirmed and
 pending documents. Commit refuses a changed confirmed baseline, rebuilt store,

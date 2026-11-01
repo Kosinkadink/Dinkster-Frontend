@@ -842,10 +842,10 @@ describe('workflow file commands', () => {
   it('imports unchanged exported JSON as a new tab without replacing the dirty original', async () => {
     const app = new AppState()
     const original = app.activeTab()!
-    expect(app.dispatchTo(original, {
+    expect((await app.dispatchTo(original, {
       command: 'node.add',
       params: { graphId: original.store.doc.root, type: 'ImportedTestNode', position: { x: 10, y: 20 } },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     expect(original.store.canUndo).toBe(true)
     const source = app.exportDocument(original.id)!
     const before = app.tabs.get().length
