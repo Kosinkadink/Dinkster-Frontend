@@ -127,7 +127,7 @@ export function AudioTransport(props: {
       if (!props.media.audio) props.onMediaError?.()
     }}
       onLoadedMetadata={() => { setNativeDuration(Number.isFinite(element?.duration) ? element!.duration : 0); if (element) element.volume = gain(); if (resume) { resume = false; void play() } }}
-      onTimeUpdate={() => { setTime(start + (element?.currentTime ?? 0)); publish() }}
+      onTimeUpdate={() => { if (!busy()) { setTime(start + (element?.currentTime ?? 0)); publish() } }}
       onPlay={() => { setPlaying(true); active() }} onPause={() => { setPlaying(false); active() }} onEnded={ended} />
     <Show when={props.interactive !== false}>
       <div class="audio-transport-row">
