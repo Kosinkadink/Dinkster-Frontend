@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   MASK_PAINT_SOURCE_EXT_KEY, asGraphDefId, asLineageId, asNodeId, coreCommandRegistry, createLocalSession,
   type GraphDef, type NodeSchema, type WorkflowDocument,
 } from '@dinkster/core'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
+import { AppState } from '../src/app-state.js'
 import { admitWorkflowDispatch, workflowAssetRoots } from '../src/workflow-asset-retention.js'
 
 const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
@@ -31,6 +32,77 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done })
   return { promise, resolve }
 }
+
+describe('retained app dispatch', () => {
+  let app: AppState | undefined
+  afterEach(() => {
+    app?.dispose()
+    app = undefined
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it.each(['accepted', 'edited', 'registry', 'target', 'closed', 'unwanted', 'refused'] as const)(
+    'publishes only a current acknowledged candidate: %s', async (scenario) => {
+      const storage = new Map<string, string>()
+      vi.stubGlobal('localStorage', {
+        get length() { return storage.size },
+        clear: () => storage.clear(),
+        getItem: (key: string) => storage.get(key) ?? null,
+        key: (index: number) => [...storage.keys()][index] ?? null,
+        removeItem: (key: string) => { storage.delete(key) },
+        setItem: (key: string, value: string) => { storage.set(key, value) },
+      } satisfies Storage)
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = new AppState()
+      const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
+      const registry = {
+        connection: backend.id, diagnostics: [], hash: 'test',
+        schemas: new Map([[schema.type, schema]]), resolve,
+      }
+      backend.registry.set(registry)
+      expect(app.openDocument(session().doc, 'Retained workflow')).toEqual([])
+      const tab = app.activeTab()!
+      app.setTabTarget(tab.id, backend.id)
+      const requested = deferred<{ owner: RetainedAssetOwner; declaration: RetainedAssetDeclaration }>()
+      const acknowledged = deferred<RetainedAssets>()
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+        requested.resolve({ owner, declaration })
+        return acknowledged.promise
+      })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      let wanted = true
+      const before = tab.store.doc
+      const operation = app.dispatchRetainedTo(tab, replace('b'), () => wanted)
+      const { owner, declaration } = await requested.promise
+      expect(declaration.digests).toEqual([asset('a').digest, asset('b').digest])
+      expect(tab.store.doc).toBe(before)
+      expect(tab.store.canUndo).toBe(false)
+      if (scenario === 'edited') expect(tab.store.dispatch(replace('c')).ok).toBe(true)
+      if (scenario === 'registry') backend.registry.set({ ...registry, hash: 'changed' })
+      if (scenario === 'target') {
+        const other = app.addBackend('http://other:8000', 'Other', false, 'dinkster')!
+        other.registry.set({ ...registry, connection: other.id })
+        app.setTabTarget(tab.id, other.id)
+      }
+      if (scenario === 'closed') app.closeTab(tab.id)
+      if (scenario === 'unwanted') wanted = false
+      acknowledged.resolve({ ...owner, ...declaration, revision: 1,
+        ...(scenario === 'refused' ? { complete: false } : {}) })
+      expect((await operation).ok).toBe(scenario === 'accepted')
+      expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset(
+        scenario === 'accepted' ? 'b' : scenario === 'edited' ? 'c' : 'a',
+      )])
+      expect(tab.store.canUndo).toBe(scenario === 'accepted' || scenario === 'edited')
+      if (scenario === 'accepted') {
+        expect(tab.store.undo()).toBe(true)
+        expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('a')])
+        expect(tab.store.redo()).toBe(true)
+        expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
+      }
+    },
+  )
+})
 
 describe('workflow candidate admission', () => {
   it('includes shared confirmed and pending document roots outside local history', async () => {
