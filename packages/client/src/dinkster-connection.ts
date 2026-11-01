@@ -3444,6 +3444,7 @@ async function rejectionDetails(
         return [{
           code: 'asset.nameUnavailable',
           message: `Required asset '${asset['name']}' (${asset['kind']}) is unavailable through a mounted folder. Grant the folder containing the original file or select an available source.`,
+          remedy: `Grant a mounted folder containing '${asset['name']}' (${asset['kind']}) or select an available source.`,
           nodeId: asset['nodeId'],
           inputId: asset['inputId'],
         }]
