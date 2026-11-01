@@ -1,7 +1,7 @@
 import { createEffect, createSignal, on, onCleanup, Show } from 'solid-js'
 import type { MountDescriptor, MountGrantOptions } from '@dinkster/client'
 import { useAppMessage } from './locale.js'
-import { desktopBridge } from './desktop-bridge.js'
+import { desktopFileBridge } from './desktop-bridge.js'
 import { ProductButton, ProductCheckbox, ProductTextInput } from './ProductControls.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductField } from './ProductForm.js'
@@ -34,7 +34,7 @@ export function MountFolderForm(props: {
   const [nativeChoice, setNativeChoice] = createSignal(false)
   let generation = 0
   createEffect(on(() => [props.backendUrl, props.connection] as const, ([url]) => {
-    const bridge = desktopBridge()
+    const bridge = desktopFileBridge()
     let active = true
     setNativeChoice(false)
     setMountPath('')
@@ -46,7 +46,7 @@ export function MountFolderForm(props: {
     setBusy(false)
     generation++
     onCleanup(() => { active = false; generation++ })
-    if (url === undefined || !bridge?.fileCapabilities) return
+    if (url === undefined || !bridge?.chooseDirectory) return
     void bridge.fileCapabilities(new URL(url || '/', window.location.href).href).then((capabilities) => {
       if (active) setNativeChoice(capabilities.nativeFolderChoice)
     }).catch(() => undefined)
@@ -65,7 +65,7 @@ export function MountFolderForm(props: {
     setBusy(true)
     setStatus(undefined)
     try {
-      const path = await desktopBridge()!.chooseDirectory(new URL(url || '/', window.location.href).href)
+      const path = await desktopFileBridge()!.chooseDirectory(new URL(url || '/', window.location.href).href)
       if (request === generation && path) enterPath(path)
     } catch (error) {
       if (request === generation) setStatus({ raw: error instanceof Error ? error.message : String(error) })

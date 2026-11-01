@@ -155,17 +155,26 @@ export interface DinksterDesktopBridge {
 
 declare global {
   interface Window {
-    dinksterDesktop?: DinksterDesktopBridge
+    dinksterDesktop?: DinksterDesktopBridge | DesktopFileBridge
   }
 }
 
+export type DesktopFileBridge = Pick<DinksterDesktopBridge, 'fileCapabilities' | 'chooseDirectory' | 'revealFile' | 'resolveDroppedFile'>
+
 export function desktopBridge(): DinksterDesktopBridge | undefined {
-  return window.dinksterDesktop
+  const bridge = window.dinksterDesktop
+  return bridge && 'locale' in bridge && typeof bridge.locale === 'function' &&
+    'status' in bridge && typeof bridge.status === 'function' ? bridge : undefined
+}
+
+export function desktopFileBridge(): DesktopFileBridge | undefined {
+  const bridge = window.dinksterDesktop
+  return typeof bridge?.fileCapabilities === 'function' ? bridge : undefined
 }
 
 /** Only an explicit refusal permits the caller to offer byte upload. */
 export async function resolveDroppedAsset(backendUrl: string, file: File, isCurrent: () => boolean): Promise<AssetRef | undefined> {
-  const bridge = desktopBridge()
+  const bridge = desktopFileBridge()
   if (!bridge?.resolveDroppedFile) return undefined
   const url = new URL(backendUrl || '/', window.location.href).href
   try {
