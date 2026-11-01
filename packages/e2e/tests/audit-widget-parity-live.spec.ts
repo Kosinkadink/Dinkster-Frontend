@@ -5,9 +5,9 @@ import { expect, test, type Page } from '@playwright/test'
 import { canonicalJson } from '@dinkster/core'
 import { selectProductOption, skipWithoutNativeCatalog } from './fixtures.js'
 
-// Native catalog from the pinned backend 2fc14a13824d6958057785ce18db3979a8bbe21a.
+// Native catalog from the pinned backend f5359517e35a9eac95a36301758dc66eaea06108.
 const canonicalCatalogSha256 =
-  '3b4a4a7c7eb78f43a4e7d8c2c5de3ae34cfbd1126b2df622c5ef9afdfddef8de'
+  'c3dbf95896d9420a663e414a85d6a2c49d73148e506788199597b21b80697497'
 const nativeBackend =
   process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
