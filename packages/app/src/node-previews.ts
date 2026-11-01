@@ -959,7 +959,8 @@ export function createPreviewLoader(deps: {
               pointCloud: result.file3d.typeId === 'FILE_3D_POINT_CLOUD_ANY', ...(signal === undefined ? {} : { signal }),
             })
             try {
-              const preview = await model3dPreview(model.src, model.mime, { ...model.options, ...view })
+              const preview = { ...await model3dPreview(model.src, model.mime, { ...model.options, ...view }),
+                download: { src: model.src, name: safeDownloadName(model.name, result.output) } }
               file3dResources.set(preview, model.release)
               if (signal?.aborted) { release(preview); signal.throwIfAborted() }
               return preview

@@ -66,7 +66,7 @@ export async function loadFile3dPreview(
   manifest: unknown,
   read: (ref: Readonly<Record<string, Json>>) => Promise<ArrayBuffer | undefined>,
   options: { readonly pointCloud?: boolean; readonly signal?: AbortSignal } = {},
-): Promise<{ readonly src: string; readonly mime: string; readonly options: Model3dLoadOptions; release(): void }> {
+): Promise<{ readonly src: string; readonly name: string; readonly mime: string; readonly options: Model3dLoadOptions; release(): void }> {
   const file = file3dObject(manifest)
   const refs = Object.entries(file3dObject(file.resources))
   if (typeof file.format !== 'string' || !/^[a-z0-9]*$/.test(file.format)
@@ -111,7 +111,7 @@ export async function loadFile3dPreview(
       && /^property\s+float\s+scale_0\s*$/m.test(header) && /^property\s+float\s+rot_0\s*$/m.test(header)
     const mime = format === 'gltf' ? 'model/gltf+json' : format === 'ply' ? gaussian ? 'model/ply' : 'application/octet-stream'
       : file.format === '' ? 'application/octet-stream' : String(source.mediaType ?? 'model/gltf-binary')
-    return { src: primary.url, mime, options: { resources, format, ...(options.pointCloud === undefined ? {} : { pointCloud: options.pointCloud }) }, release }
+    return { src: primary.url, name: String(source.name), mime, options: { resources, format, ...(options.pointCloud === undefined ? {} : { pointCloud: options.pointCloud }) }, release }
   } catch (error) {
     release()
     throw error

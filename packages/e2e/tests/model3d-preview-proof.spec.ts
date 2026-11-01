@@ -368,6 +368,7 @@ test('canonical FILE_3D final peek renders original GLTF with granted sidecars a
     await ready
     const preview = loader.resolve(source)
     if (!preview.image || preview.status) throw new Error('final FILE_3D poster failed')
+    if (preview.download?.src !== preview.src || preview.download?.name !== 'original.gltf') throw new Error('original FILE_3D download is unavailable')
     const row = document.createElement('section')
     row.id = 'file3d-final-proof'
     row.style.cssText = 'position:fixed;inset:50px;background:#20232a;color:white;z-index:99999;padding:24px;display:flex;gap:24px;align-items:center'
