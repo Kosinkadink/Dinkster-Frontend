@@ -106,6 +106,40 @@ describe('retained app dispatch', () => {
 
 describe('workflow candidate admission', () => {
   const assetType = { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } as const
+  it('retains region element lists using the occurrence contract', () => {
+    const local = session()
+    const body: NodeSchema = { ...schema, items: [
+      { kind: 'input', id: 'file', optional: false, type: assetType },
+      { kind: 'output', id: 'out', type: assetType },
+    ] }
+    const document: WorkflowDocument = { ...local.doc, graphs: {
+      g0: { ...local.doc.graphs.g0!, nodes: {
+        n0: { id: asNodeId('n0'), type: '#body', values: { element: [asset('e'), asset('f')] },
+          region: { kind: 'map', elementPorts: ['element'] } },
+      } },
+      body: { ...local.doc.graphs.g0!, id: asGraphDefId('body'), nodes: {
+        n0: { id: asNodeId('n0'), type: 'Loader', values: {} },
+      }, boundary: {
+        inputs: [{ id: asPortId('element'), binds: { kind: 'port', node: asNodeId('n0'), port: asPortId('file') } }],
+        outputs: [{ id: asPortId('result'), binds: { kind: 'port', node: asNodeId('n0'), port: asPortId('out') } }],
+      } },
+    } }
+    expect(workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => body))
+      .toEqual({ complete: true, digests: ['e', 'f'].map((letter) => asset(letter).digest) })
+  })
+
+  it.each(['NUMBER', 'opaque'])('checks numeric widget metadata without accepting unknown kinds: %s', (widgetType) => {
+    const local = session()
+    const numeric: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'value', optional: false,
+      type: { kind: 'concrete', name: 'FLOAT' }, widget: { widgetType, options: {}, default: 3.5 },
+    }] }
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Loader', values: { value: 7.25 } },
+    } } } }
+    expect(workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => numeric))
+      .toEqual({ complete: widgetType === 'NUMBER', digests: [] })
+  })
+
   const assetInput = (id: string, letter: string) => ({ kind: 'input' as const, id,
     type: assetType, optional: true, widget: { widgetType: 'ASSET' as const, options: {}, default: asset(letter) } })
   const dynamicSchema: NodeSchema = { ...schema, items: [

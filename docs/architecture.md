@@ -91,6 +91,10 @@ exact owner reconciliation precedes publication; a changed destination or stale
 candidate is refused. Unsupported schemas, opaque dynamic state and unrecognized extension
 records are incomplete, not empty root sets. Ordinary synchronous dispatch is unchanged.
 Schema defaults contribute roots only when the node has no stored override.
+Concrete nodes use occurrence-aware schemas, including a region's list-valued
+element inputs; definition-only boundary types do not describe those values.
+Standard NUMBER widgets are asset-free metadata; unknown widget kinds still
+make the census incomplete.
 Dynamic inputs use canonical elaborated identities: stored inactive combo branches,
 disconnected slot dependents and persisted family members contribute roots, while
 defaults come only from the active interface. Historical connectivity changes

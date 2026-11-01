@@ -4,7 +4,7 @@ import {
   MASK_PAINT_SOURCE_EXT_KEY,
   MAX_DYNAMIC_STATE_DEPTH,
   buildGraphConnectivity,
-  documentResolver,
+  documentNodeResolver,
   elabInputsOf,
   elaborateInterface,
   maskPaintSourceNodeId,
@@ -14,6 +14,7 @@ import {
   valueSourceConsumersOf,
   valueKeyOf,
   type CommandOutcome,
+  type DocumentNodeResolver,
   type HistorySnapshot,
   type GraphDef,
   type Json,
@@ -29,7 +30,7 @@ import { isAssetRef } from './image-editor.js'
 import { scopedStorageKey } from './projects.js'
 
 const primitiveNames = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO'])
-const widgetTypes = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO', 'ASSET'])
+const widgetTypes = new Set(['STRING', 'INT', 'FLOAT', 'NUMBER', 'BOOLEAN', 'COMBO', 'ASSET'])
 
 function assetFreeDynamicState(value: unknown, depth = 0): boolean {
   if (depth > MAX_DYNAMIC_STATE_DEPTH || typeof value !== 'object' || value === null || Array.isArray(value)) return false
@@ -104,9 +105,9 @@ export function workflowAssetRoots(
       }
     }
   }
-  const visitNode = (node: NodeData, schemas: SchemaResolver, graph: GraphDef): void => {
+  const visitNode = (node: NodeData, schemas: DocumentNodeResolver, graph: GraphDef): void => {
     if (node.type.startsWith('#')) hasContextualValues = true
-    const schema = schemas(node.type)
+    const schema = schemas(graph.id, node)
     const dynamic = schema?.items.some((item) => (item.kind === 'input' || item.kind === 'output') && item.dynamic !== undefined)
     if (dynamic) hasContextualValues = true
     // A stable node can resolve differently after its referenced graph changes.
@@ -152,7 +153,7 @@ export function workflowAssetRoots(
     }
   }
   const visit = (snapshot: WorkflowDocument, changes?: readonly PatchOp[]): void => {
-    const schemas = documentResolver(snapshot, resolve)
+    const schemas = documentNodeResolver(snapshot, resolve)
     if (Object.values(snapshot.graphs).some((graph) => Object.keys(graph.valueSources ?? {}).length > 0)) hasContextualValues = true
     // Instances and literal producers depend on schemas outside the changed node.
     if (!hasContextualValues && changes !== undefined && changes.every((op) =>
@@ -179,7 +180,7 @@ export function workflowAssetRoots(
           if (consumers.length === 0) complete = false
           for (const consumer of consumers) {
             const node = graph.nodes[consumer.node]
-            const input = node === undefined ? undefined : schemas(node.type)?.items.find((item) =>
+            const input = node === undefined ? undefined : schemas(graph.id, node)?.items.find((item) =>
               item.kind === 'input' && item.id === consumer.port)
             if (consumer.members !== undefined || input?.kind !== 'input' || input.dynamic !== undefined) complete = false
             else valueRoots(source.value, input.type)
