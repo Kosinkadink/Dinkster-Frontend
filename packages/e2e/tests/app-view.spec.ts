@@ -121,7 +121,7 @@ test('control surface group binding waits for final acceptance', {
   annotation: { type: 'mock-rename-dispatch' },
 }, async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
-  const { surfaceId, groupId } = await page.evaluate(() => {
+  const { surfaceId, groupId } = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app as any
     app.settings.set('features.controlSurfaces.enabled', true)
     const tab = app.activeTab()!
@@ -129,7 +129,7 @@ test('control surface group binding waits for final acceptance', {
       { command: 'view.createGroup', params: { graphId: 'g0', title: 'Binding target', bounds: { x: 100, y: 100, width: 250, height: 200 } } },
       { command: 'surface.add', params: { type: 'core.modePanel', config: { title: 'Mode panel', bindings: [] } } },
     ]) {
-      const outcome = app.dispatchTo(tab, invocation)
+      const outcome = await app.dispatchTo(tab, invocation)
       if (!outcome.ok) throw new Error(JSON.stringify(outcome.diagnostics))
     }
     const dispatch = app.dispatchTo.bind(app)
@@ -213,7 +213,7 @@ test('shell named-net display changes await final acceptance', {
 }, async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.getByRole('button', { name: /^Toggle right rail/ }).click()
-  const netId = await page.evaluate(() => {
+  const netId = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app as any
     const tab = app.activeTab()!
     app.registerSchemas([{
@@ -225,7 +225,7 @@ test('shell named-net display changes await final acceptance', {
       { command: 'node.add', params: { graphId: 'g0', type: 'NetDisplayTest', position: { x: 450, y: 100 } } },
       { command: 'net.create', params: { graphId: 'g0', name: 'Display test', source: { node: nodeId, port: 'value' } } },
     ]) {
-      const outcome = app.dispatchTo(tab, invocation)
+      const outcome = await app.dispatchTo(tab, invocation)
       if (!outcome.ok) throw new Error(JSON.stringify(outcome.diagnostics))
     }
     const dispatch = app.dispatchTo.bind(app)
@@ -577,7 +577,7 @@ test('control coverage: string/boolean/combo edit inline; ASSET renders read-onl
 test('parameter and preview renames await acceptance and preserve refused or newer drafts', {
   annotation: { type: 'mock-rename-dispatch' },
 }, async ({ page }, testInfo) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'AppViewTest', displayName: 'App View Test', category: 'test', source: 'v3', isOutputNode: false,
@@ -586,8 +586,8 @@ test('parameter and preview renames await acceptance and preserve refused or new
         widget: { widgetType: 'INT', options: { min: 0, max: 100, step: 5 }, default: 5 } }],
     }])
     const tab = app.activeTab()!
-    app.dispatchTo(tab, { command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'count' } })
-    app.dispatchTo(tab, { command: 'previews.expose', params: { graphId: 'g0', nodeId: 'widgets' } })
+    await app.dispatchTo(tab, { command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'count' } })
+    await app.dispatchTo(tab, { command: 'previews.expose', params: { graphId: 'g0', nodeId: 'widgets' } })
   })
   await selectView(page, 'App view')
   await enterArrange(page)
@@ -668,7 +668,7 @@ test('parameter and preview renames await acceptance and preserve refused or new
 test('shared widget commits await acceptance and retain refused drafts', {
   annotation: { type: 'mock-rename-dispatch' },
 }, async ({ page }, testInfo) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app as any
     const tab = app.activeTab()
     const schema = app.registryForTab(tab).resolve('AppViewTest')
@@ -676,8 +676,8 @@ test('shared widget commits await acceptance and retain refused drafts', {
       kind: 'input', id: 'notes', type: { kind: 'concrete', name: 'STRING' }, optional: false,
       widget: { widgetType: 'STRING', default: 'Original notes', options: { multiline: true } },
     }] }])
-    app.dispatchTo(tab, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'title', value: 'Original title' } })
-    app.dispatchTo(tab, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'notes', value: 'Original notes' } })
+    await app.dispatchTo(tab, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'title', value: 'Original title' } })
+    await app.dispatchTo(tab, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'notes', value: 'Original notes' } })
     const dispatch = app.dispatchTo.bind(app)
     ;(window as any).__widgetPending = []
     app.dispatchTo = (owner: any, invocation: any) => new Promise((resolve) => {
@@ -841,11 +841,11 @@ test('combo authored menus and refresh selections await final outcomes', {
 test('layout group selection awaits automatic placement and existing move acceptance', {
   annotation: { type: 'mock-rename-dispatch' },
 }, async ({ page }, testInfo) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
-    app.dispatchTo(tab, { command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'title' } })
-    app.dispatchTo(tab, { command: 'app.layout.add', params: {
+    await app.dispatchTo(tab, { command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'title' } })
+    await app.dispatchTo(tab, { command: 'app.layout.add', params: {
       item: { id: 'controls', kind: 'group', title: 'Controls', children: [] },
     } })
   })
@@ -945,13 +945,13 @@ test('layout group selection awaits automatic placement and existing move accept
 test('layout gestures await acceptance before focus and stored placement changes', {
   annotation: { type: 'mock-rename-dispatch' },
 }, async ({ page }, testInfo) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    for (const inputId of ['title', 'enabled']) app.dispatchTo(app.activeTab()!, {
+    for (const inputId of ['title', 'enabled']) await app.dispatchTo(app.activeTab()!, {
       command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId },
     })
     for (const [id, inputId, x] of [['title-placement', 'title', 0], ['toggle-placement', 'enabled', 6]] as const) {
-      app.dispatchTo(app.activeTab()!, { command: 'app.layout.add', params: {
+      await app.dispatchTo(app.activeTab()!, { command: 'app.layout.add', params: {
         item: { id, kind: 'control', ref: { graphId: 'g0', nodeId: 'widgets', inputId }, x, y: 0, w: 6, h: 3 },
       } })
     }
@@ -1062,9 +1062,9 @@ test('layout gestures await acceptance before focus and stored placement changes
 test('boolean and combo controls wait for final command acceptance', {
   annotation: { type: 'mock-rename-dispatch' },
 }, async ({ page }, testInfo) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    for (const inputId of ['enabled', 'choice']) app.dispatchTo(app.activeTab()!, {
+    for (const inputId of ['enabled', 'choice']) await app.dispatchTo(app.activeTab()!, {
       command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId },
     })
   })
@@ -1157,9 +1157,9 @@ test('boolean and combo controls wait for final command acceptance', {
 test('inline number drafts await typed and stepped command acceptance', {
   annotation: { type: 'mock-rename-dispatch' },
 }, async ({ page }, testInfo) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    app.dispatchTo(app.activeTab()!, { command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'count' } })
+    await app.dispatchTo(app.activeTab()!, { command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId: 'count' } })
   })
   await selectView(page, 'App view')
   await page.evaluate(() => {
@@ -1240,7 +1240,7 @@ test('inline number drafts await typed and stepped command acceptance', {
 test('inline text and list drafts retain refused edits until accepted', {
   annotation: { type: 'mock-rename-dispatch' },
 }, async ({ page }, testInfo) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app as any
     const tab = app.activeTab()!
     const schema = app.registryForTab(tab).resolve('AppViewTest')
@@ -1253,7 +1253,7 @@ test('inline text and list drafts retain refused edits until accepted', {
       widget: { widgetType: 'STRING', options: { multiline: true }, default: 'Original notes' },
     }] }])
     for (const inputId of ['title', 'texts', 'notes']) {
-      app.dispatchTo(tab, { command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId } })
+      await app.dispatchTo(tab, { command: 'params.expose', params: { graphId: 'g0', nodeId: 'widgets', inputId } })
     }
   })
   await selectView(page, 'App view')
@@ -1349,17 +1349,17 @@ test('authored text group and queue drafts await final outcomes', {
   annotation: { type: 'mock-rename-dispatch' },
 }, async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1200 })
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
-    const added = app.dispatchTo(tab, { command: 'node.add', params: { graphId: 'g0', type: 'AppViewTest', title: 'Other queue target', position: { x: 450, y: 100 } } })
+    const added = await app.dispatchTo(tab, { command: 'node.add', params: { graphId: 'g0', type: 'AppViewTest', title: 'Other queue target', position: { x: 450, y: 100 } } })
     if (!added.ok) throw new Error(JSON.stringify(added.diagnostics))
     for (const item of [
       { id: 'draft-text', kind: 'text', role: 'body', text: 'Original instructions' },
       { id: 'draft-group', kind: 'group', title: 'Original group', children: [] },
       { id: 'draft-queue', kind: 'queue', label: 'Original queue', targets: [{ graphId: 'g0', nodeId: 'widgets' }] },
     ]) {
-      const outcome = app.dispatchTo(tab, { command: 'app.layout.add', params: { item } })
+      const outcome = await app.dispatchTo(tab, { command: 'app.layout.add', params: { item } })
       if (!outcome.ok) throw new Error(JSON.stringify(outcome.diagnostics))
     }
   })

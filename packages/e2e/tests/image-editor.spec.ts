@@ -345,13 +345,10 @@ nativeTest('image editor keeps mask edits local until one guarded AssetRef apply
   }
   await page.getByRole('button', { name: 'Bake to asset' }).click()
   await expect.poll(() => uploadCount).toBe(3)
-  const staleRevision = await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as {
-      activeTab(): { readonly store: { readonly revision: number } }
-      dispatchTo(tab: unknown, invocation: unknown): { readonly ok: boolean }
-    }
+  const staleRevision = await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
-    const outcome = app.dispatchTo(tab, {
+    const outcome = await app.dispatchTo(tab, {
       command: 'node.setValue',
       params: {
         graphId: 'g0', nodeId: 'asset', inputId: 'image',

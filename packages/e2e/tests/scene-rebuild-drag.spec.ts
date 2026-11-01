@@ -98,15 +98,12 @@ test('a link drag survives a rebuild that leaves the displayed graph unchanged',
   // Mid-drag, edit the OTHER graph: docTick fires, the displayed graph's
   // scene rebuilds with identical content - the same shape a workspace
   // session swap produces.
-  const moved = await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as {
-      activeTab(): unknown
-      dispatchTo(tab: unknown, invocation: { command: string; params: unknown }): { ok: boolean }
-    }
-    return app.dispatchTo(app.activeTab(), {
+  const moved = await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    return (await app.dispatchTo(app.activeTab()!, {
       command: 'node.move',
       params: { graphId: 'sub', positions: { inner: { x: 80, y: 90 } } },
-    }).ok
+    })).ok
   })
   expect(moved).toBe(true)
 
@@ -130,15 +127,12 @@ test('an edit in the displayed graph still replaces the scene', async ({ page })
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((n) => n.id === 'src')!
     return { x: node.x, y: node.y }
   })
-  const moved = await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as {
-      activeTab(): unknown
-      dispatchTo(tab: unknown, invocation: { command: string; params: unknown }): { ok: boolean }
-    }
-    return app.dispatchTo(app.activeTab(), {
+  const moved = await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    return (await app.dispatchTo(app.activeTab()!, {
       command: 'node.move',
       params: { graphId: 'g0', positions: { src: { x: 130, y: 170 } } },
-    }).ok
+    })).ok
   })
   expect(moved).toBe(true)
   await expect.poll(() => page.evaluate(() => {

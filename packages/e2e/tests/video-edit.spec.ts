@@ -367,16 +367,16 @@ test('linked scalar overrides refuse Apply and linked strict duration stays read
 
 test('changed source refuses stale preview and a concurrent edit cannot be overwritten', async ({ page }) => {
   await openDocument(page, 'trim')
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'source_version', value: 1 } })
+    await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'source_version', value: 1 } })
   })
   await openEditor(page)
   await expect(page.getByTestId('video-edit-editor')).toContainText('source changed since execution')
   await page.getByTestId('video-trim-duration-seconds').fill('2')
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'edit', inputId: 'strict_duration', value: true } })
+    await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'edit', inputId: 'strict_duration', value: true } })
   })
   // Canvas ownership can close on mutation; a retained editor must also refuse its stale commit.
   if (await page.getByTestId('video-edit-apply').count()) await page.getByTestId('video-edit-apply').click()
@@ -391,9 +391,9 @@ test('execution snapshots refuse VIDEO_EDIT writes and changing editor views', a
     return app.openExecutionView(execution.ref)
   })).toBe(true)
   await expect(page.getByTestId('views-switcher')).toBeDisabled()
-  expect(await page.evaluate(() => {
+  expect(await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    return app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'edit', inputId: 'video_edit', value: {} } }).ok
+    return (await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'edit', inputId: 'video_edit', value: {} } })).ok
   })).toBe(false)
   await expect(page.getByRole('button', { name: 'Edit Video edit video' })).toHaveCount(0)
   await expect(page.getByTestId('video-edit-editor')).toHaveCount(0)
