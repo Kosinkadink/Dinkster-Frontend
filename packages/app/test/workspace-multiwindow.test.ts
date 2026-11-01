@@ -1074,7 +1074,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     expect(promoted.store).not.toBe(tab.store)
 
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    expect(promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 14, down: 9 })
+    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 14, down: 9 })
   })
 
   it('preserves editor-role schema resolution in the promoted command registry', async () => {
@@ -1157,7 +1157,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     promoted.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value: 11 } })
     await drainTasks()
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    expect(promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 9 })
+    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 9 })
   })
 
   const comboRoute = '/remote/options'
@@ -1202,7 +1202,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     const promoted = app.tabs.get().find((candidate) => candidate.id === tab.id)!
     expect(promoted.store).not.toBe(tab.store)
 
-    app.completeComboRefresh(plan, ['a', 'b', 'c'], () => 0.5)
+    await app.completeComboRefresh(plan, ['a', 'b', 'c'], () => 0.5)
     expect(promoted.store.doc.graphs.g0!.nodes.combo!.values).toEqual({ up: 'a', down: 'c' })
   })
 })
