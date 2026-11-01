@@ -23,7 +23,7 @@ import { declaredPreviewCandidates, fetchPeekRendition, ImageBatchUnsupportedErr
 import { executedImageInventory, type ExecutedImage, type ExecutedImageBatch } from './executed-image-inventory.js'
 import { videoInspectionFor } from './video-preview.js'
 import { audioPreview } from './audio-preview.js'
-import { loadFile3dPreview } from './file3d-preview.js'
+import { file3dViewOptions, loadFile3dPreview } from './file3d-preview.js'
 import type { Model3dLoadOptions } from './model3d-viewer.js'
 
 // Sized for animated live previews: one video node's frame ring can hold
@@ -409,6 +409,10 @@ export function deriveNodePreviewSurface(args: {
       const declared = declaredPreviewCandidates(args.schema, ownIds).map((candidate) => ({
         ...candidate,
         output: aliases?.[candidate.node]?.[candidate.output] ?? candidate.output,
+        ...(candidate.model3d === undefined ? {} : { model3d: {
+          ...(candidate.model3d.cameraOutput === undefined ? {} : { cameraOutput: aliases?.[candidate.node]?.[candidate.model3d.cameraOutput] ?? candidate.model3d.cameraOutput }),
+          ...(candidate.model3d.modelsOutput === undefined ? {} : { modelsOutput: aliases?.[candidate.node]?.[candidate.model3d.modelsOutput] ?? candidate.model3d.modelsOutput }),
+        } }),
       })).filter((candidate) =>
         exec.nodes[candidate.node]?.outputs?.[candidate.output] !== undefined ||
         exec.outputs[candidate.node]?.[candidate.output] !== undefined)
@@ -910,7 +914,7 @@ export function createPreviewLoader(deps: {
     },
 
     peekSource(values, exec, candidates, sceneNodeId, batchIndex = 0) {
-      const baseKey = `peek:${JSON.stringify([exec.key, sceneNodeId, candidates.map((c) => [c.node, c.output])])}`
+      const baseKey = `peek:${JSON.stringify([exec.key, sceneNodeId, candidates.map((c) => [c.node, c.output, c.model3d])])}`
       const key = `${baseKey}:batch:${batchIndex}`
       const declaredIntent = candidates.some((candidate) => candidate.declaredIntent === true)
       if (peekMisses.has(key) && !declaredIntent && !imageBatches.has(baseKey) && !imageRefusals.has(baseKey)) return undefined
@@ -950,11 +954,12 @@ export function createPreviewLoader(deps: {
           if (result.file3d !== undefined) {
             const read = deps.readFile3dAsset
             if (!read) throw new Error('3D preview has no execution asset reader')
+            const view = file3dViewOptions(result.file3d.camera, result.file3d.models)
             const model = await loadFile3dPreview(result.file3d.manifest, (ref) => read(exec.ref, ref, signal), {
               pointCloud: result.file3d.typeId === 'FILE_3D_POINT_CLOUD_ANY', ...(signal === undefined ? {} : { signal }),
             })
             try {
-              const preview = await model3dPreview(model.src, model.mime, model.options)
+              const preview = await model3dPreview(model.src, model.mime, { ...model.options, ...view })
               file3dResources.set(preview, model.release)
               if (signal?.aborted) { release(preview); signal.throwIfAborted() }
               return preview

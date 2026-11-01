@@ -350,13 +350,20 @@ test('canonical FILE_3D final peek renders original GLTF with granted sidecars a
       },
     })
     const descriptor = { typeId: 'FILE_3D_GLTF', fingerprint: 'file-identity' }
+    const camera = { position: { x: 0, y: 0, z: 6 }, target: { x: 0, y: 0, z: 0 }, zoom: 1,
+      cameraType: 'orthographic', frustum: { left: -2, right: 2, top: 1.5, bottom: -1.5 } }
+    const models = [{ position: { x: 0.5, y: 0.2, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 1, z: 1 } }]
     const values = {
-      peek: async () => ({ available: true, descriptor, renditions: [{ kind: 'manifest', mime: 'application/json' }] }),
-      rendition: async () => ({ available: true, fingerprint: descriptor.fingerprint, kind: 'manifest', mime: 'application/json',
-        bytes: new TextEncoder().encode(JSON.stringify(manifest)).buffer }),
+      peek: async (query: { outputId: string }) => query.outputId === 'model'
+        ? { available: true, descriptor, renditions: [{ kind: 'manifest', mime: 'application/json' }] }
+        : { available: true, descriptor: { typeId: query.outputId === 'camera' ? 'LOAD3D_CAMERA' : 'LOAD3D_MODEL_INFO', fingerprint: query.outputId },
+          renditions: [{ kind: 'json', mime: 'application/json' }] },
+      rendition: async (query: { outputId: string }) => ({ available: true,
+        fingerprint: query.outputId === 'model' ? descriptor.fingerprint : query.outputId, kind: query.outputId === 'model' ? 'manifest' : 'json', mime: 'application/json',
+        bytes: new TextEncoder().encode(JSON.stringify(query.outputId === 'model' ? manifest : query.outputId === 'camera' ? camera : models)).buffer }),
     }
     const source = loader.peekSource(values, { key: 'run', ref: { connection: 'original-owner', prompt: 'job' } },
-      [{ node: 'preview', output: 'model', declaredIntent: true, mediaKind: 'model3d' }], 'preview')
+      [{ node: 'preview', output: 'model', declaredIntent: true, mediaKind: 'model3d', model3d: { cameraOutput: 'camera', modelsOutput: 'placement' } }], 'preview')
     loader.resolve(source)
     await ready
     const preview = loader.resolve(source)
@@ -370,21 +377,63 @@ test('canonical FILE_3D final peek renders original GLTF with granted sidecars a
     row.append(poster, host); document.body.append(row)
     const viewer = await mountModel3dViewer(host, preview.src, preview.mime, preview.model3d)
     const pixels = poster.getContext('2d')!.getImageData(0, 0, poster.width, poster.height).data
-    let visible = 0
-    for (let i = 3; i < pixels.length; i += 4) if (pixels[i]) visible++
+    let visible = 0; let sumX = 0
+    for (let i = 3; i < pixels.length; i += 4) if (pixels[i]) { visible++; sumX += ((i - 3) / 4) % poster.width }
     const sidecar = preview.model3d.resources['buffers/mesh.bin']
     ;(window as unknown as { finishFile3dProof: () => Promise<boolean> }).finishFile3dProof = async () => {
       viewer.dispose(); loader.dispose()
       try { await fetch(sidecar); return false } catch { return true }
     }
-    return { visible, reads, format: preview.model3d.format }
+    return { visible, reads, format: preview.model3d.format, camera: viewer.cameraState(), placement: viewer.modelTransform(), centerX: sumX / visible }
   }, Array.from(glb()))
   expect(result.visible).toBeGreaterThan(100)
   expect(result.reads).toEqual([`blake3:${'a'.repeat(64)}`, 'granted-buffer'])
   expect(result.format).toBe('gltf')
+  expect(result.camera.cameraType).toBe('orthographic')
+  expect(result.camera.position.x).toBe(0)
+  expect(result.camera.position.z).toBe(6)
+  // OrbitControls' polar reconstruction measured y=3.674e-16 at distance 6; one relative epsilon bounds that roundoff.
+  expect(Math.abs(result.camera.position.y)).toBeLessThanOrEqual(6 * Number.EPSILON)
+  expect(result.placement.position).toEqual({ x: 0.5, y: 0.2, z: 0 })
+  // Four world units span 512 pixels; the supplied 0.5-unit translation moves the triangle's center to x=320.
+  expect(result.centerX).toBeGreaterThan(315)
+  expect(result.centerX).toBeLessThan(325)
   mkdirSync(proofDir, { recursive: true })
-  await page.locator('#file3d-final-proof').screenshot({ path: `${proofDir}/file3d-final-gltf.png` })
+  await page.locator('#file3d-final-proof').screenshot({ path: `${proofDir}/file3d-final-gltf-metadata.png` })
   expect(await page.evaluate(() => (window as unknown as { finishFile3dProof: () => Promise<boolean> }).finishFile3dProof())).toBe(true)
+})
+
+test('canonical FILE_3D refuses undeclared GLTF buffers including unrelated blob URLs', async ({ page }) => {
+  await page.goto('/')
+  const result = await page.evaluate(async (bytes) => {
+    const previewPath = '/src/file3d-preview.ts'
+    const viewerPath = '/src/model3d-viewer.ts'
+    const { loadFile3dPreview } = await import(previewPath)
+    const { renderModel3dPoster } = await import(viewerPath)
+    const packed = new Uint8Array(bytes)
+    const length = new DataView(packed.buffer).getUint32(12, true)
+    const json = JSON.parse(new TextDecoder().decode(packed.slice(20, 20 + length)))
+    const binary = packed.slice(28 + length)
+    const unrelated = URL.createObjectURL(new Blob([binary]))
+    const rejected: string[] = []
+    try {
+      for (const uri of ['buffers/missing.bin', 'https://ungranted.invalid/mesh.bin', unrelated]) {
+        json.buffers[0].uri = uri
+        const model = await loadFile3dPreview({ format: 'gltf', source: {
+          digest: `blake3:${'a'.repeat(64)}`, name: 'original.gltf', virtualPath: 'original.gltf', size: 1, mediaType: 'model/gltf+json',
+        } }, async () => new TextEncoder().encode(JSON.stringify(json)).buffer)
+        try {
+          const poster = await renderModel3dPoster(model.src, model.mime, model.options)
+          poster.image.close()
+          rejected.push('unexpected success')
+        } catch (error) { rejected.push(String(error)) }
+        finally { model.release() }
+      }
+      return rejected
+    } finally { URL.revokeObjectURL(unrelated) }
+  }, Array.from(glb()))
+  expect(result).toHaveLength(3)
+  for (const rejection of result) expect(rejection).toContain('3D resource is not granted')
 })
 
 test('GLTF sidecars use granted bytes and an ungranted external buffer cannot load', async ({ page }) => {

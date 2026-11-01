@@ -38,6 +38,7 @@ export interface PeekCandidate {
   readonly output: string
   readonly declaredIntent?: true
   readonly mediaKind?: 'image' | 'video' | 'audio' | 'model3d'
+  readonly model3d?: { readonly cameraOutput?: string; readonly modelsOutput?: string }
 }
 
 const mediaKindOfType = (type: TypeExpr): 'image' | 'video' | 'audio' | 'model3d' | undefined => {
@@ -63,7 +64,14 @@ export function declaredPreviewCandidates(
     item.kind === 'output' && item.preview === true)
   return runtimeIds.flatMap((node) => outputs.map((output) => {
     const mediaKind = mediaKindOfType(output.type)
-    return { node, output: output.id, declaredIntent: true as const, ...(mediaKind === undefined ? {} : { mediaKind }) }
+    const metadataOutput = (name: string): string | undefined => schema.items.find((item) =>
+      item.kind === 'output' && item.type.kind === 'concrete' && item.type.name === name)?.id
+    const cameraOutput = mediaKind === 'model3d' ? metadataOutput('LOAD3D_CAMERA') : undefined
+    const modelsOutput = mediaKind === 'model3d' ? metadataOutput('LOAD3D_MODEL_INFO') : undefined
+    return { node, output: output.id, declaredIntent: true as const, ...(mediaKind === undefined ? {} : { mediaKind }),
+      ...(cameraOutput === undefined && modelsOutput === undefined ? {} : { model3d: {
+        ...(cameraOutput === undefined ? {} : { cameraOutput }), ...(modelsOutput === undefined ? {} : { modelsOutput }),
+      } }) }
   }))
 }
 
@@ -149,7 +157,7 @@ export async function fetchPeekRendition(
   readonly colorTransform?: string
   readonly previewOnly?: true
   readonly imageBatch?: PeekImageBatch
-  readonly file3d?: { readonly manifest: unknown; readonly typeId: string }
+  readonly file3d?: { readonly manifest: unknown; readonly typeId: string; readonly camera?: unknown; readonly models?: unknown }
   readonly video?: { readonly query: ValueQuery; readonly descriptor: ValueDescriptor; readonly renditions: readonly RenditionInfo[]; readonly notice?: string }
   readonly audio?: { readonly descriptor: ValueDescriptor; readonly query: ValueQuery; readonly renditions: readonly RenditionInfo[] }
 }> {
@@ -199,8 +207,28 @@ export async function fetchPeekRendition(
       try { manifest = JSON.parse(new TextDecoder().decode(result.bytes)) }
       catch { continue }
       if (manifest === null) continue
+      const metadata = async (output: string | undefined, typeId: string): Promise<unknown> => {
+        if (output === undefined) return undefined
+        const metadataQuery = { jobId, nodeId: c.node, outputId: output }
+        const peek = await values.peek(metadataQuery, options)
+        if (!peek.available || peek.descriptor.typeId !== typeId) throw new Error('3D preview metadata is unavailable')
+        const info = peek.renditions.find((entry) => entry.kind === 'json' && entry.mime === 'application/json')
+        if (!info) throw new Error('3D preview metadata has no JSON rendition')
+        const result = await values.rendition(metadataQuery, info.kind, {
+          ...(options?.signal === undefined ? {} : { signal: options.signal }),
+          ...(info.version === undefined ? {} : { rendererVersion: info.version }),
+        })
+        options?.signal?.throwIfAborted()
+        if (!result.available || result.mime !== info.mime || result.fingerprint !== peek.descriptor.fingerprint) {
+          throw new Error('3D preview metadata identity changed')
+        }
+        return JSON.parse(new TextDecoder().decode(result.bytes)) as unknown
+      }
+      const camera = await metadata(c.model3d?.cameraOutput, 'LOAD3D_CAMERA')
+      const models = await metadata(c.model3d?.modelsOutput, 'LOAD3D_MODEL_INFO')
       return { bytes: result.bytes, mime: result.mime, node: c.node, output: c.output,
-        file3d: { manifest, typeId: peeked.descriptor.typeId }, ...(count === undefined ? {} : { count }) }
+        file3d: { manifest, typeId: peeked.descriptor.typeId, ...(camera === undefined ? {} : { camera }),
+          ...(models === undefined ? {} : { models }) }, ...(count === undefined ? {} : { count }) }
     }
     const imageCount = imageBatchCount(peeked.descriptor)
     const batchRenditions = peeked.renditions.filter((rendition) => rendition.kind === 'png' && rendition.mime === 'image/png' && rendition.parameters?.includes('batch'))

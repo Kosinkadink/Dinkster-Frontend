@@ -1,5 +1,5 @@
 import { isAssetRefValue, type Json } from '@dinkster/core'
-import type { Model3dLoadOptions } from './model3d-viewer.js'
+import type { Model3dCameraState, Model3dLoadOptions, Model3dTransform } from './model3d-viewer.js'
 
 export const isFile3dType = (type: string): boolean => [
   'FILE_3D', 'FILE_3D_GLB', 'FILE_3D_GLTF', 'FILE_3D_FBX', 'FILE_3D_OBJ',
@@ -9,6 +9,29 @@ export const isFile3dType = (type: string): boolean => [
 
 export const file3dObject = (value: unknown): Record<string, Json> =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, Json> : {}
+
+/** Validate browser-facing metadata without changing the original value. */
+export function file3dViewOptions(camera: unknown, models: unknown): Pick<Model3dLoadOptions, 'camera' | 'transform'> {
+  const vector = (value: unknown, axes: readonly string[] = ['x', 'y', 'z']): boolean => {
+    const fields = file3dObject(value)
+    return axes.every((axis) => typeof fields[axis] === 'number' && Number.isFinite(fields[axis]))
+  }
+  if (camera != null) {
+    const state = file3dObject(camera)
+    if (!vector(state.position) || !vector(state.target) || typeof state.zoom !== 'number' || !Number.isFinite(state.zoom) || state.zoom <= 0
+      || !['perspective', 'orthographic'].includes(String(state.cameraType))
+      || (state.quaternion !== undefined && !vector(state.quaternion, ['x', 'y', 'z', 'w']))
+      || (state.customUp !== undefined && !vector(state.customUp))
+      || ['fov', 'aspect', 'near', 'far'].some((key) => state[key] !== undefined && (typeof state[key] !== 'number' || !Number.isFinite(state[key])))
+      || (state.frustum !== undefined && !vector(state.frustum, ['left', 'right', 'top', 'bottom']))) throw new Error('3D preview camera is unavailable')
+  }
+  if (models != null && (!Array.isArray(models) || models.some((value: unknown) => {
+    const model = file3dObject(value)
+    return !vector(model.position) || !vector(model.quaternion, ['x', 'y', 'z', 'w']) || !vector(model.scale)
+  }))) throw new Error('3D preview model placement is unavailable')
+  return { ...(camera == null ? {} : { camera: camera as Model3dCameraState }),
+    ...(Array.isArray(models) && models[0] !== undefined ? { transform: models[0] as Model3dTransform } : {}) }
+}
 
 export const validFile3dAsset = (value: unknown): boolean => {
   const asset = file3dObject(value)
@@ -71,13 +94,23 @@ export async function loadFile3dPreview(
     if (!format) throw new Error('3D preview format is unavailable')
     const resources: Record<string, string> = Object.create(null)
     for (const [name, ref] of refs) resources[name] = (await asset(file3dObject(ref))).url
-    const headerEnd = primary.bytes.indexOf(10)
-    const header = format === 'ply' && headerEnd >= 0
-      ? new TextDecoder().decode(primary.bytes).split('end_header', 1)[0] ?? '' : ''
+    const lines: string[] = []
+    if (format === 'ply') {
+      const decoder = new TextDecoder()
+      for (let start = 0; start < primary.bytes.length;) {
+        const end = primary.bytes.indexOf(10, start)
+        if (end < 0) break
+        const line = decoder.decode(primary.bytes.subarray(start, end))
+        if (line.trim() === 'end_header') break
+        lines.push(line)
+        start = end + 1
+      }
+    }
+    const header = lines.join('\n')
     const gaussian = /^property\s+float\s+f_dc_0\s*$/m.test(header)
       && /^property\s+float\s+scale_0\s*$/m.test(header) && /^property\s+float\s+rot_0\s*$/m.test(header)
-    const mime = format === 'gltf' ? 'model/gltf+json'
-      : file.format === '' ? gaussian ? 'model/ply' : 'application/octet-stream' : String(source.mediaType ?? 'model/gltf-binary')
+    const mime = format === 'gltf' ? 'model/gltf+json' : format === 'ply' ? gaussian ? 'model/ply' : 'application/octet-stream'
+      : file.format === '' ? 'application/octet-stream' : String(source.mediaType ?? 'model/gltf-binary')
     return { src: primary.url, mime, options: { resources, format, ...(options.pointCloud === undefined ? {} : { pointCloud: options.pointCloud }) }, release }
   } catch (error) {
     release()

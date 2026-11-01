@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { loadFile3dPreview } from '../src/file3d-preview.js'
+import { file3dViewOptions, loadFile3dPreview } from '../src/file3d-preview.js'
 
 const stored = { digest: `blake3:${'a'.repeat(64)}`, name: 'scene.gltf', size: 12, mediaType: 'model/gltf+json', virtualPath: 'scene.gltf' }
 const local = { verification: 'unverified', localBinding: 'granted-buffer', name: 'mesh.bin', size: 36,
@@ -9,6 +9,19 @@ const bytes = (text: string): ArrayBuffer => new TextEncoder().encode(text).buff
 afterEach(() => vi.restoreAllMocks())
 
 describe('original FILE_3D preview resources', () => {
+  it('preserves complete camera and placement metadata and rejects malformed states', () => {
+    const camera = { position: { x: 1, y: 2, z: 6 }, target: { x: 0, y: 0, z: 0 }, zoom: 2,
+      cameraType: 'orthographic', frustum: { left: -3, right: 5, top: 2, bottom: -2 },
+      quaternion: { x: 0, y: 0, z: 0.5, w: 0.5 }, customUp: { x: 1, y: 0, z: 0 }, useCustomUp: true }
+    const transform = { position: { x: 0.5, y: 1, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 2, y: 3, z: 4 } }
+    expect(file3dViewOptions(camera, [transform])).toEqual({ camera, transform })
+    expect(file3dViewOptions(null, null)).toEqual({})
+    expect(file3dViewOptions(undefined, [])).toEqual({})
+    expect(() => file3dViewOptions({ ...camera, position: { x: 1, y: '2', z: 6 } }, [])).toThrow('camera')
+    expect(() => file3dViewOptions({ ...camera, zoom: Number.NaN }, [])).toThrow('camera')
+    expect(() => file3dViewOptions(camera, [{ ...transform, quaternion: { x: 0, y: 0, z: 1 } }])).toThrow('placement')
+  })
+
   it('loads mixed granted sources and named sidecars without changing bytes, and releases every URL', async () => {
     const source = bytes('{"asset":{"version":"2.0"}}')
     const sidecar = new Uint8Array([4, 9, 127, 255]).buffer

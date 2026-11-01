@@ -277,6 +277,30 @@ const fakeValues = (script: {
 const transientOf = (e: unknown): boolean | undefined => (e as { transient?: boolean }).transient
 
 describe('fetchPeekRendition', () => {
+  it('keeps camera and model metadata on the same runtime occurrence and refuses changed identities', async () => {
+    const schema = { type: 'test.model-preview', items: [
+      { kind: 'output', id: 'model', type: { kind: 'concrete', name: 'FILE_3D_GLTF' }, preview: true },
+      { kind: 'output', id: 'camera', type: { kind: 'concrete', name: 'LOAD3D_CAMERA' } },
+      { kind: 'output', id: 'placement', type: { kind: 'concrete', name: 'LOAD3D_MODEL_INFO' } },
+    ] } as unknown as NodeSchema
+    const candidates = declaredPreviewCandidates(schema, ['region[2]/preview'])
+    const camera = { position: { x: 1, y: 2, z: 6 } }
+    const models = [{ position: { x: 3, y: 4, z: 5 } }]
+    const scripted = (changed: boolean): PeekValues => ({
+      peek: async (query) => {
+        expect(query.nodeId).toBe('region[2]/preview')
+        const typeId = query.outputId === 'model' ? 'FILE_3D_GLTF' : query.outputId === 'camera' ? 'LOAD3D_CAMERA' : 'LOAD3D_MODEL_INFO'
+        return { available: true, descriptor: { typeId, fingerprint: query.outputId },
+          renditions: [{ kind: query.outputId === 'model' ? 'manifest' : 'json', mime: 'application/json' }] }
+      },
+      rendition: async (query, kind) => ({ available: true, kind, mime: 'application/json',
+        fingerprint: changed && query.outputId === 'camera' ? 'different' : query.outputId,
+        bytes: new TextEncoder().encode(JSON.stringify(query.outputId === 'model' ? { format: 'gltf' } : query.outputId === 'camera' ? camera : models)).buffer }),
+    })
+    expect(await fetchPeekRendition(scripted(false), 'job', candidates)).toMatchObject({ file3d: { camera, models } })
+    await expect(fetchPeekRendition(scripted(true), 'job', candidates)).rejects.toThrow('identity changed')
+  })
+
   it('negotiates only canonical FILE_3D manifests with matching fingerprints, not arbitrary JSON', async () => {
     const manifest = { format: 'obj', source: { digest: 'original' } }
     const rendition = { available: true as const, mime: 'application/json', kind: 'manifest', fingerprint: 'fp',
