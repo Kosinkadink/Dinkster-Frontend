@@ -153,6 +153,13 @@ export interface SharedSessionOptions {
   readonly onConflict?: (conflict: SessionConflict) => void
   readonly onError?: (message: string) => void
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
+  /** Confirm ownership before adopting incoming confirmed ground, not after notifying observers. */
+  readonly beforeRemoteDocument?: (
+    document: WorkflowDocument,
+    revision: number,
+    currentDocument: WorkflowDocument,
+    history: HistorySnapshot,
+  ) => Promise<void>
 }
 
 /** One POST attempt of a pending intention: what was actually sent to the server. */
@@ -217,6 +224,7 @@ class SharedDocumentSession implements DocumentSession {
   private readonly onErrorCb: ((message: string) => void) | undefined
   private readonly maxUndo: number
   private readonly schemaResolverFor: ((doc: WorkflowDocument) => SchemaResolver) | undefined
+  private readonly beforeRemoteDocument: SharedSessionOptions['beforeRemoteDocument']
   private rebasing = false
   private readonly snapshotPolicy: SnapshotPublicationPolicy
 
@@ -250,6 +258,7 @@ class SharedDocumentSession implements DocumentSession {
   private pumpPromise: Promise<void> | undefined
   /** True while the sync loop (catch-up / resync) is running. */
   private syncing = false
+  private syncPromise: Promise<void> | undefined
   /**
    * Monotonic server head this session must reach before the sync loop may
    * rest. Raised synchronously by WS gaps, reconnect descriptors, and 409
@@ -290,6 +299,7 @@ class SharedDocumentSession implements DocumentSession {
     this.onErrorCb = options?.onError
     this.maxUndo = options?.maxUndo ?? 200
     this.schemaResolverFor = options?.schemaResolverFor
+    this.beforeRemoteDocument = options?.beforeRemoteDocument
     this.snapshotPolicy = new SnapshotPublicationPolicy(
       snapshotRevision,
       this.clock(),
@@ -439,7 +449,9 @@ class SharedDocumentSession implements DocumentSession {
   /** Resolves when submission is quiescent; rejects a definitive refusal. */
   async settle(): Promise<void> {
     this.throwIfDenied()
-    while (this.pumpPromise) await this.pumpPromise
+    while (this.pumpPromise || (this.beforeRemoteDocument !== undefined && this.syncPromise)) {
+      await (this.pumpPromise ?? this.syncPromise)
+    }
     this.throwIfDenied()
   }
 
@@ -848,6 +860,11 @@ class SharedDocumentSession implements DocumentSession {
 
   private handleServerOp(op: CollabServerOp): void {
     if (op.revision <= this.confirmedRevision) return // duplicate/echo
+    if (this.beforeRemoteDocument !== undefined) {
+      // Guarded ingress has one async owner: the ordered catch-up loop.
+      this.requestCatchUp(op.revision)
+      return
+    }
     if (op.revision > this.confirmedRevision + 1) {
       // Gap (reconnect window / mid-sync append): repair via HTTP. The op's
       // revision announces a server head the sync loop must reach - raising
@@ -1098,6 +1115,21 @@ class SharedDocumentSession implements DocumentSession {
 
   // -- Sync loop (catch-up / resync) --------------------------------------------
 
+  private async admitRemoteDocument(document: WorkflowDocument, revision: number): Promise<boolean> {
+    while (this.statusSignal.get() === 'catching-up') {
+      const current = this.store.doc
+      const history = this.historySnapshot()
+      await this.beforeRemoteDocument!(document, revision, current, history)
+      if (this.statusSignal.get() !== 'catching-up') return false
+      if (this.store.doc === current && this.revision === history.revision &&
+        ([['undo', this.undoStack], ['redo', this.redoStack]] as const).every(([key, records]) =>
+          records.length === history[key].length && records.every((record, index) =>
+            record.forward === history[key][index]!.forward && record.inverse === history[key][index]!.inverse))) return true
+      // Local editing stays synchronous; confirm its new holders before releasing remote ground.
+    }
+    return false
+  }
+
   /**
    * Raise the sync target to a server-announced head and ensure the sync
    * loop is running. Safe to call at ANY time, including mid-pass: the
@@ -1125,11 +1157,12 @@ class SharedDocumentSession implements DocumentSession {
     if (this.syncing) return
     this.syncing = true
     this.statusSignal.set('catching-up')
-    void this.syncLoop()
+    this.syncPromise = this.syncLoop()
       .catch((e) => {
         this.fail(`sync failed: ${e instanceof Error ? e.message : String(e)}`)
       })
       .finally(() => {
+        this.syncPromise = undefined
         this.syncing = false
         if (this.statusSignal.get() === 'catching-up') this.statusSignal.set('live')
         // Lost-wakeup guard: a request that raced the loop's exit check saw
@@ -1170,6 +1203,8 @@ class SharedDocumentSession implements DocumentSession {
           this.fail('resync snapshot failed to load')
           return
         }
+        if (this.beforeRemoteDocument !== undefined &&
+          !await this.admitRemoteDocument(loaded.document, snap.revision)) return
         // A checkpoint snapshot may sit BEHIND state this client already
         // confirmed (ordered commits never raise syncTarget). Preserve the
         // high-water mark BEFORE adopting, or the loop would rest below a
@@ -1233,6 +1268,23 @@ class SharedDocumentSession implements DocumentSession {
           break
         }
         if (op.revision <= this.confirmedRevision) continue // WS applied it first
+        if (this.beforeRemoteDocument !== undefined) {
+          if (op.revision !== this.confirmedRevision + 1) {
+            this.resyncRequested = true
+            break
+          }
+          let candidate: WorkflowDocument
+          try {
+            candidate = applyOps(this.confirmed as unknown as Json, op.patch) as unknown as WorkflowDocument
+            const diagnostics = checkDocument(candidate)
+            if (hasErrors(diagnostics)) throw new Error('Incoming workflow violates document invariants')
+          } catch (error) {
+            this.safeSink(error, 'resync')
+            this.resyncRequested = true
+            break
+          }
+          if (!await this.admitRemoteDocument(candidate, op.revision)) return
+        }
         const failure = this.ingestOrdered(op)
         if (failure !== null) {
           if (op.revision > this.syncTarget) this.syncTarget = op.revision

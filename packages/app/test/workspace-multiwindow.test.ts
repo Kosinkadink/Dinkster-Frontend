@@ -155,6 +155,50 @@ class EventChannel {
 }
 
 describe('AppState multi-window workspace', () => {
+  it.each(['accepted', 'refused', 'retargeted', 'registry', 'disposed'] as const)(
+    'retains incoming shared edits before publishing confirmed ground: %s', async (scenario) => {
+      const factory = authorityFactories()
+      const author = createEditableApp()
+      const viewer = createEditableApp()
+      author.openDocument(workflow(), 'Shared workflow')
+      viewer.openDocument(workflow(), 'Shared workflow')
+      await Promise.all([author.enableWorkspaceAuthority(factory.document, factory.workspace),
+        viewer.enableWorkspaceAuthority(factory.document, factory.workspace)])
+      const received = () => viewer.tabs.get().find((tab) => tab.id === 'multi-window-workflow')!
+      const original = received().store.doc
+      const digest = `blake3:${'d'.repeat(64)}`
+      let acknowledge!: () => void
+      let requested!: () => void
+      const request = new Promise<void>((resolve) => { requested = resolve })
+      vi.spyOn(viewer.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+        if (!declaration.digests.includes(digest)) return { ...owner, ...declaration, revision: 1 }
+        expect(declaration.complete).toBe(false)
+        expect(localStorage.getItem(`dinkster.workflow-retentions.${owner.ownerId}`)).not.toBeNull()
+        requested()
+        return new Promise((resolve) => { acknowledge = () => resolve({ ...owner, ...declaration,
+          revision: scenario === 'refused' ? 2 : 1 }) })
+      })
+      vi.spyOn(viewer.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      const tab = author.tabs.get().find((tab) => tab.id === 'multi-window-workflow')!
+      expect((await author.dispatchTo(tab, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1',
+        inputId: 'held', value: { digest, name: 'remote.bin', size: 11, mediaType: 'application/octet-stream', virtualPath: '' } } })).ok).toBe(true)
+      await request
+      expect(received().store.doc).toBe(original)
+      if (scenario === 'retargeted') viewer.setTabTarget(received().id, viewer.addBackend('http://other.test', 'Other', false, 'dinkster')!.id)
+      if (scenario === 'registry') viewer.registry.set({ connection: viewer.connection.id, schemas: new Map(),
+        diagnostics: [], hash: 'changed', resolve: () => undefined })
+      if (scenario === 'disposed') viewer.dispose()
+      acknowledge()
+      if (scenario === 'accepted') {
+        await vi.waitFor(() => expect(received().store.doc.graphs.g0!.nodes.n1!.values.held).toMatchObject({ digest }))
+      } else {
+        if (scenario !== 'disposed') await vi.waitFor(() => expect(viewer.problems.get().some(
+          (problem) => problem.message.includes('sync failed'))).toBe(true))
+        expect(received().store.doc).toBe(original)
+      }
+    },
+  )
+
   it.each(['accepted', 'refused', 'edited', 'retargeted', 'disposed', 'registry', 'disconnected', 'superseded', 'running-accepted', 'running-refused'] as const)(
     'retains incoming tab records before publishing the inventory: %s', async (scenario) => {
       const factory = authorityFactories()
@@ -237,14 +281,18 @@ describe('AppState multi-window workspace', () => {
         inputId: 'held', value: { digest, name: 'held.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } } }).ok).toBe(true)
       let acknowledge!: () => void
       let requested!: () => void
+      let released = false
       const request = new Promise<void>((resolve) => { requested = resolve })
       vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-        if (!declaration.digests.includes(digest)) return { ...owner, ...declaration, revision: declaration.revision + 1 }
+        if (released || !declaration.digests.includes(digest)) return { ...owner, ...declaration, revision: declaration.revision + 1 }
         expect(declaration).toEqual({ revision: 0, complete: false, digests: [digest, previousDigest] })
         expect(localStorage.getItem(`dinkster.workflow-retentions.${owner.ownerId}`)).not.toBeNull()
         requested()
-        return new Promise((resolve) => { acknowledge = () => resolve({ ...owner, ...declaration,
-          revision: scenario === 'refused' ? declaration.revision + 2 : declaration.revision + 1 }) })
+        return new Promise((resolve) => { acknowledge = () => {
+          released = true
+          resolve({ ...owner, ...declaration,
+            revision: scenario === 'refused' ? declaration.revision + 2 : declaration.revision + 1 })
+        } })
       })
       vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
       const promotion = app.enableWorkspaceAuthority(factory.document, factory.workspace)

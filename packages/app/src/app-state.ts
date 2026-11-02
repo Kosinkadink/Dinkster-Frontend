@@ -34,6 +34,7 @@ import {
   diag,
   createLocalSession,
   connectSharedSession,
+  type HistorySnapshot,
   type HistorySnapshotRecord,
   type DocumentSession,
   type SharedDocumentSession,
@@ -3842,6 +3843,31 @@ export class AppState {
     return promise
   }
 
+  private async confirmRemoteDocumentOwnership(
+    backend: Backend | undefined,
+    document: WorkflowDocument,
+    revision: number,
+    current: WorkflowDocument,
+    history: HistorySnapshot,
+    stillCurrent: () => boolean,
+  ): Promise<void> {
+    if (backend === undefined || this.disposed || !stillCurrent()) throw new Error('Remote workflow destination is unavailable')
+    const registry = backend.registry.get()
+    let connectionChanged = false
+    const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
+    try {
+      const roots = workflowAssetRoots(current, history,
+        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [document])
+      await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+      if (this.disposed || connectionChanged || !this.backends.get().includes(backend) ||
+        backend.registry.get() !== registry || !stillCurrent()) {
+        throw new Error('Remote workflow destination changed while ownership was being confirmed')
+      }
+    } finally {
+      unsubscribe()
+    }
+  }
+
   private async promoteWorkspaceTab(tab: Tab, generation: number): Promise<void> {
     const sourceDocument = tab.store.doc
     const sourceRevision = tab.store.revision
@@ -3864,6 +3890,12 @@ export class AppState {
         {
           actorId: this.workspaceActorId,
           schemaResolverFor: (document) => documentResolver(document, resolve),
+          beforeRemoteDocument: (document, revision, current, history) => this.confirmRemoteDocumentOwnership(
+            backend, document, revision, current, history,
+            () => this.workspaceAuthorityEnabled && generation === this.workspaceAuthorityGeneration &&
+              (session === undefined || this.tabs.get().some((candidate) =>
+                candidate.store === session && this.backendForTab(candidate) === backend)),
+          ),
           onConflict: (conflict) => this.reportProblems(tab.id, conflict.diagnostics),
           onError: (message) => this.reportProblems(tab.id, [
             diag('error', 'command', 'workspace.authority.failed', message),
@@ -3914,7 +3946,7 @@ export class AppState {
             latest?.store !== tab.store || this.backendForTab(latest) !== backend || this.collabTabs.get().has(tab.id) ||
             tab.store.doc !== localDocument || tab.store.revision !== localRevision ||
             session.doc !== document || session.revision !== revision ||
-            session.status.get() === 'closed' || session.status.get() === 'error') {
+            session.status.get() !== 'live') {
             throw new Error('The workflow changed while workspace ownership was being confirmed; the local workflow was kept')
           }
           current = latest
@@ -6135,6 +6167,15 @@ export class AppState {
       session = await connectSharedSession(connection, coreCommandRegistry([], sessionResolver), {
         actorId,
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
+        beforeRemoteDocument: (document, revision, current, history) => {
+          const live = this.tabs.get().find((tab) => tab.store === session)
+          const backend = live === undefined
+            ? this.backends.get().find((entry) => entry.baseUrl === baseUrl && entry.protocol === 'dinkster')
+            : this.backendForTab(live)
+          return this.confirmRemoteDocumentOwnership(backend, document, revision, current, history,
+            () => session === undefined || this.tabs.get().some((tab) =>
+              tab.store === session && this.backendForTab(tab) === backend))
+        },
         onConflict: (conflict: SessionConflict) =>
           report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
             `${conflict.invocation.command}: a concurrent edit makes this change inapplicable`,
@@ -6187,7 +6228,7 @@ export class AppState {
       const current = this.tabs.get().find((tab) => tab.id === owner && !tab.execution)
       if (this.disposed || connectionChanged || !this.backends.get().includes(backend) ||
         backend.registry.get() !== registry || session.doc !== document || session.revision !== revision ||
-        session.status.get() === 'closed' || session.status.get() === 'error' ||
+        session.status.get() !== 'live' ||
         current?.store !== priorStore || current?.store.revision !== priorRevision || current?.store.doc !== priorDocument ||
         (current !== undefined && this.backendForTab(current) !== priorTarget)) {
         throw new Error('Shared workflow changed while ownership was being confirmed; the existing tabs were kept')

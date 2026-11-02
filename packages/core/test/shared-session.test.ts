@@ -423,6 +423,82 @@ const nodeIds = (s: SharedDocumentSession): string[] => Object.keys(s.doc.graphs
 // ---------------------------------------------------------------------------
 
 describe('shared DocumentSession', () => {
+  it('serializes incoming confirmations while newer server revisions arrive', async () => {
+    const conn = new FakeConnection(baseDoc())
+    const first = deferred()
+    const second = deferred()
+    const requested: number[] = []
+    const session = await connectSharedSession(conn, coreCommandRegistry(), {
+      beforeRemoteDocument: async (_document, revision) => {
+        requested.push(revision)
+        await (revision === 1 ? first.promise : second.promise)
+      },
+    })
+    conn.appendForeign('peer', [{ op: 'add', path: ['graphs', 'g0', 'nodes', 'n1', 'title'], value: 'First' }])
+    await until(() => requested.length === 1)
+    conn.appendForeign('peer', [{ op: 'replace', path: ['graphs', 'g0', 'nodes', 'n1', 'title'], value: 'Second' }])
+    expect(requested).toEqual([1])
+    expect(session.doc.graphs.g0!.nodes.n1!.title).toBeUndefined()
+    first.resolve()
+    await until(() => requested.length === 2)
+    expect(requested).toEqual([1, 2])
+    expect(session.doc.graphs.g0!.nodes.n1!.title).toBe('First')
+    second.resolve()
+    await until(() => session.doc.graphs.g0!.nodes.n1!.title === 'Second')
+    session.close()
+  })
+
+  it.each(['accepted', 'refused', 'closed', 'edited', 'resync-accepted', 'resync-refused'] as const)(
+    'confirms incoming ground before publication: %s', async (scenario) => {
+      const conn = new FakeConnection(baseDoc())
+      const gate = deferred()
+      const candidates: { document: WorkflowDocument; current: WorkflowDocument; undo: number }[] = []
+      const session = await connectSharedSession(conn, coreCommandRegistry(), {
+        actorId: 'actorA', retryDelay: tick, onListenerError: () => {},
+        beforeRemoteDocument: async (document, _revision, current, history) => {
+          candidates.push({ document, current, undo: history.undo.length })
+          await gate.promise
+          if (scenario.endsWith('refused')) throw new Error('Ownership refused')
+        },
+      })
+      const original = session.doc
+      const observed: string[] = []
+      session.document.subscribe((document) => observed.push(document.graphs.g0!.nodes.n1!.title ?? 'original'))
+      if (scenario.startsWith('resync-')) {
+        conn.snapshotDoc = { ...baseDoc(), graphs: { g0: { ...baseDoc().graphs.g0!, nodes: {
+          ...baseDoc().graphs.g0!.nodes, n1: { ...node('n1'), title: 'Incoming' },
+        } } } }
+        conn.snapshotRevision = 2
+        conn.revision = 2
+        conn.retentionFloor = 1
+        conn.emit({ kind: 'connected', descriptor: conn.descriptor() })
+      } else conn.appendForeign('peer', [{ op: 'add', path: ['graphs', 'g0', 'nodes', 'n1', 'title'], value: 'Incoming' }])
+      await until(() => candidates.length > 0)
+      expect(session.doc).toBe(original)
+      expect(observed).toEqual([])
+      expect(candidates[0]!.document.graphs.g0!.nodes.n1!.title).toBe('Incoming')
+      if (scenario === 'closed') session.close()
+      if (scenario === 'edited') expect(session.dispatch(setTitle('n2', 'Kept locally')).ok).toBe(true)
+      gate.resolve()
+      if (scenario.endsWith('refused')) {
+        await until(() => session.status.get() === 'error')
+        expect(session.doc).toBe(original)
+        expect(observed).toEqual([])
+      } else if (scenario === 'closed') {
+        await tick()
+        expect(session.status.get()).toBe('closed')
+        expect(session.doc).toBe(original)
+      } else {
+        await until(() => session.doc.graphs.g0!.nodes.n1!.title === 'Incoming')
+        if (scenario === 'edited') {
+          expect(candidates.some((candidate) => candidate.current.graphs.g0!.nodes.n2!.title === 'Kept locally' && candidate.undo === 1)).toBe(true)
+          expect(session.doc.graphs.g0!.nodes.n2!.title).toBe('Kept locally')
+        }
+      }
+      session.close()
+    },
+  )
+
   it('stages a shared command without publication and commits it once through shared history', async () => {
     const { session, conn } = await makeShared()
     const original = session.doc

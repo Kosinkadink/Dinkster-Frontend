@@ -20,6 +20,52 @@ const tabIds = (page: Page): Promise<string[]> => page.evaluate(() =>
   window.__dinksterTest!.app.tabs.get().map((tab) => tab.id))
 
 for (const accepted of [true, false]) {
+  test(`foreign shared edits wait for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page, context }, info) => {
+    await page.goto('/')
+    await page.waitForFunction(() => window.__dinksterTest !== undefined)
+    const viewer = await context.newPage()
+    await disableNativeDiscovery(viewer)
+    await viewer.goto('/')
+    await viewer.waitForFunction(() => window.__dinksterTest !== undefined)
+    await expect.poll(() => viewer.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc))
+      .toEqual(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc))
+    let acknowledge!: () => void
+    const acknowledgment = new Promise<void>((resolve) => { acknowledge = resolve })
+    let requested!: () => void
+    const request = new Promise<void>((resolve) => { requested = resolve })
+    await viewer.route('**/api/library/retentions/document/*?scope=local', async (route) => {
+      if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+      const declaration = route.request().postDataJSON()
+      requested()
+      await acknowledgment
+      await route.fulfill({ status: accepted ? 200 : 409, json: accepted
+        ? { ...declaration, scope: 'local', ownerKind: 'document',
+          ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: 1 }
+        : { error: 'Ownership refused' } })
+    })
+    const original = await viewer.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
+    expect(await page.evaluate(() => {
+      const tab = window.__dinksterTest!.app.activeTab()!
+      return tab.store.dispatch({ command: 'node.setTitle', params: {
+        graphId: tab.store.doc.root, nodeId: 'n0', title: 'Incoming shared title',
+      } }).ok
+    })).toBe(true)
+    await request
+    expect(await viewer.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)).toEqual(original)
+    await viewer.screenshot({ path: info.outputPath('foreign-pending.png') })
+    acknowledge()
+    if (accepted) await expect.poll(() => viewer.evaluate(() =>
+      window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.title)).toBe('Incoming shared title')
+    else {
+      await expect.poll(() => viewer.evaluate(() => window.__dinksterTest!.app.problems.get().some(
+        (problem) => problem.message.includes('sync failed')))).toBe(true)
+      expect(await viewer.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)).toEqual(original)
+    }
+    await viewer.screenshot({ path: info.outputPath(`foreign-${accepted ? 'accepted' : 'refused'}.png`) })
+  })
+}
+
+for (const accepted of [true, false]) {
   test(`restored startup waits for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }) => {
     let release!: () => void
     const acknowledgment = new Promise<void>((resolve) => { release = resolve })
