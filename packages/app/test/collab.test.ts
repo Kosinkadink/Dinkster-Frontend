@@ -36,6 +36,7 @@ import { AppState, type Tab } from '../src/app-state.js'
 import { bindBrowserActor, COLLAB_ACTOR_ID_KEY, COLLAB_SCOPE, stableActorId, type CollabTransport } from '../src/collab.js'
 import { APP_EDITOR_KIND } from '../src/editors.js'
 import { flattenInvocation } from '../src/subgraph-lifecycle.js'
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -226,8 +227,13 @@ class FakeCollabServer {
 // ---------------------------------------------------------------------------
 
 // AppStates model separate browser tabs, not Node's process-wide session storage.
+const editableApps: AppState[] = []
 beforeEach(() => vi.stubGlobal('sessionStorage', undefined))
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  for (const app of editableApps.splice(0)) app.dispose()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 const makeApp = (server: FakeCollabServer, withBackend = true): AppState => {
   const app = new AppState({ collabTransport: server.transport })
@@ -848,6 +854,7 @@ const gate = (): { promise: Promise<void>; open: () => void } => {
 
 describe('lifecycle races', () => {
   it('rebases a promoted count edit over an unrelated shared operation', async () => {
+    vi.stubGlobal('localStorage', fakeStorage())
     const server = new FakeCollabServer()
     const postGate = gate()
     let holdPosts = false
@@ -878,6 +885,7 @@ describe('lifecycle races', () => {
     })
     appA.addBackend('http://collab', 'collab', false, 'dinkster')
     const backendA = installSharedCountRegistry(appA)
+    editableApps.push(prepareWorkflowApp(appA))
     expect(appA.openDocument(sharedCountDocument(), 'Shared count edit')).toEqual([])
     appA.setTabTarget(activeTab(appA).id, backendA.id)
     expect(await appA.shareActiveTab()).toBeUndefined()
@@ -885,6 +893,7 @@ describe('lifecycle races', () => {
 
     const appB = makeApp(server)
     const backendB = installSharedCountRegistry(appB)
+    editableApps.push(prepareWorkflowApp(appB))
     expect(await appB.joinCollabSession(appA.collabFor(tabA.id)!.descriptor.sessionId)).toBeUndefined()
     const tabB = activeTab(appB)
     appB.setTabTarget(tabB.id, backendB.id)
@@ -1287,8 +1296,11 @@ describe('lifecycle races', () => {
   })
 
   it('drops a stale fixed-id create batch atomically and repairs the losing drill-in navigation', async () => {
+    vi.stubGlobal('localStorage', fakeStorage())
     const server = new FakeCollabServer()
+    const createPostGate = gate()
     const appA = makeApp(server)
+    editableApps.push(prepareWorkflowApp(appA))
     const hold = { held: false, buffer: [] as (() => void)[] }
     const appB = new AppState({
       collabTransport: {
@@ -1297,7 +1309,10 @@ describe('lifecycle races', () => {
           const conn = server.transport.connect(config)
           return {
             sessionId: conn.sessionId,
-            postOp: (op: CollabClientOp) => conn.postOp(op),
+            postOp: async (op: CollabClientOp) => {
+              if (hold.held) await createPostGate.promise
+              return conn.postOp(op)
+            },
             fetchSnapshot: () => conn.fetchSnapshot(),
             fetchOps: (after: number) => conn.fetchOps(after),
             putSnapshot: (revision: number, document: WorkflowDocument) => conn.putSnapshot(revision, document),
@@ -1312,6 +1327,7 @@ describe('lifecycle races', () => {
       },
     })
     appB.addBackend('http://collab', 'collab', false, 'dinkster')
+    editableApps.push(prepareWorkflowApp(appB))
     expect(await appA.shareActiveTab()).toBeUndefined()
     const tabA = activeTab(appA)
     expect(await appB.joinCollabSession(appA.collabFor(tabA.id)!.descriptor.sessionId)).toBeUndefined()
@@ -1328,6 +1344,7 @@ describe('lifecycle races', () => {
     await sharedSession(appA, tabA.id).settle()
     expect((await appB.createEmptySubgraph(tabB, root, { x: 30, y: 40 })).ok).toBe(true)
     expect(tabB.graphStack.get()).toEqual([root, fixedGraphId])
+    createPostGate.open()
     await until(() => server.staleBases >= 1, "B's stale create refusal")
     hold.held = false
     for (const deliver of hold.buffer.splice(0)) deliver()

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   asConnectionId,
   asGraphDefId,
@@ -23,6 +23,7 @@ import {
 import { SharedWorkerTabAuthority } from '../src/workspace-worker-authority.js'
 import type { WorkspaceWorkerPortFactory } from '../src/workspace-worker-connection.js'
 import { IMAGE_EDITOR_KIND } from '../src/editors.js'
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
@@ -63,6 +64,20 @@ const memoryStorage = (reverseKeys = false): Storage => {
     get length() { return values.size },
   } as Storage
 }
+
+const editableApps: AppState[] = []
+const createEditableApp = (): AppState => {
+  const app = prepareWorkflowApp(new AppState())
+  editableApps.push(app)
+  return app
+}
+
+beforeEach(() => vi.stubGlobal('localStorage', memoryStorage()))
+afterEach(() => {
+  for (const app of editableApps.splice(0)) app.dispose()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 const drainTasks = async (): Promise<void> => {
   for (let count = 0; count < 5; count += 1) await new Promise<void>((resolve) => setTimeout(resolve, 0))
@@ -145,6 +160,7 @@ describe('AppState multi-window workspace', () => {
     author.setTabEditorKind('multi-window-workflow', 'app')
     await author.enableWorkspaceAuthority(factory.document, factory.workspace)
     const viewer = new AppState()
+    viewer.settings.set('features.appView.enabled', false)
     await viewer.enableWorkspaceAuthority(factory.document, factory.workspace)
     await drainTasks()
     const received = () => viewer.tabs.get().find((tab) => tab.id === 'multi-window-workflow')!
@@ -162,7 +178,7 @@ describe('AppState multi-window workspace', () => {
 
   it('uses one authoritative document with shared edit and undo visibility', async () => {
     const factory = authorityFactories()
-    const first = new AppState()
+    const first = createEditableApp()
     const second = new AppState()
     first.openDocument(workflow(), 'Shared workflow')
     second.openDocument(workflow(), 'Shared workflow')
@@ -482,7 +498,7 @@ describe('AppState multi-window workspace', () => {
       resolve: (type: string) => schemas.get(type),
       graphFeatures: ['regions'],
     }
-    const author = new AppState()
+    const author = createEditableApp()
     author.registry.set(registry)
     const tab = author.createWorkflow()
     expect((await author.createRegion(tab, tab.store.doc.root, { x: 0, y: 0 }, 'map')).ok).toBe(true)
@@ -543,7 +559,7 @@ describe('AppState multi-window workspace', () => {
       authority.connect(worker)
       return renderer
     }
-    const app = new AppState()
+    const app = createEditableApp()
     app.openDocument(workflow(), 'Shared workflow')
     const tab = app.tabs.get().find((candidate) => candidate.id === 'multi-window-workflow')!
     const workspaceFactory = authorityFactories().workspace
@@ -634,7 +650,7 @@ describe('AppState multi-window workspace', () => {
       authority.connect(worker)
       return renderer
     }
-    const app = new AppState()
+    const app = createEditableApp()
     app.openDocument(workflow(), 'Shared workflow')
     const tab = app.tabs.get().find((candidate) => candidate.id === 'multi-window-workflow')!
     const workspaceFactory = authorityFactories().workspace
@@ -660,7 +676,7 @@ describe('AppState multi-window workspace', () => {
 
   it('keeps the shared session alive when a tab is replaced with new metadata', async () => {
     const factory = authorityFactories()
-    const app = new AppState()
+    const app = createEditableApp()
     app.settings.set('features.appView.enabled', true)
     app.openDocument(workflow(), 'Shared workflow')
     await app.enableWorkspaceAuthority(factory.document, factory.workspace)
@@ -1055,7 +1071,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
 
   it('advances run-completion controllers in the promoted session', async () => {
     const factory = authorityFactories()
-    const app = new AppState()
+    const app = createEditableApp()
     ;(app.registry as unknown as { set(value: unknown): void }).set({ schemas: new Map(), resolve: () => undefined, hash: 'promotion-test' })
     app.registerSchemas([seedSchema])
     expect(app.openDocument(seedFixture(), 'Promotion Seed')).toEqual([])
@@ -1133,7 +1149,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
 
   it('an edit restored through the promoted session still suppresses its advancement (ABA)', async () => {
     const factory = authorityFactories()
-    const app = new AppState()
+    const app = createEditableApp()
     ;(app.registry as unknown as { set(value: unknown): void }).set({ schemas: new Map(), resolve: () => undefined, hash: 'promotion-test' })
     app.registerSchemas([seedSchema])
     expect(app.openDocument(seedFixture(), 'Promotion Seed')).toEqual([])
@@ -1189,7 +1205,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
 
   it('applies an in-flight combo refresh to the promoted session', async () => {
     const factory = authorityFactories()
-    const app = new AppState()
+    const app = createEditableApp()
     ;(app.registry as unknown as { set(value: unknown): void }).set({ schemas: new Map(), resolve: () => undefined, hash: 'promotion-test' })
     app.registerSchemas([comboSchema])
     expect(app.openDocument(comboFixture(), 'Promotion Combo')).toEqual([])

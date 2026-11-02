@@ -23,3 +23,15 @@ export function createWorkflowApp(schemas: readonly NodeSchema[] | null = []): A
     ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   return app
 }
+
+export function prepareWorkflowApp(app: AppState): AppState {
+  for (const backend of app.backends.get()) {
+    if (backend.registry.get() === undefined) {
+      backend.registry.set({ connection: backend.id, schemas: new Map(), diagnostics: [],
+        hash: 'workflow-test', resolve: () => undefined })
+    }
+    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+      ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+  }
+  return app
+}

@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_SCALE, MIN_SCALE } from '@dinkster/canvas'
 import { AppState } from '../src/app-state.js'
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 
@@ -30,6 +31,13 @@ function fakeStorage(): Storage {
 
 const TABS_KEY = 'dinkster.openTabs'
 const g = globalThis as { localStorage?: Storage }
+const editableApps: AppState[] = []
+
+const createEditableApp = (): AppState => {
+  const app = prepareWorkflowApp(new AppState())
+  editableApps.push(app)
+  return app
+}
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -42,6 +50,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  for (const app of editableApps.splice(0)) app.dispose()
+  vi.restoreAllMocks()
   vi.useRealTimers()
   delete g.localStorage
   Reflect.deleteProperty(globalThis.navigator, 'locks')
@@ -101,7 +111,7 @@ describe('open-tab persistence', () => {
   })
 
   it('keeps a new edited tab dirty through close cancellation and discards it without persistence', async () => {
-    const app = new AppState()
+    const app = createEditableApp()
     const tab = app.createWorkflow()
     expect(app.isTabDirty(tab.id)).toBe(true)
     const outcome = await app.dispatchTo(tab, {
@@ -155,7 +165,7 @@ describe('open-tab persistence', () => {
   })
 
   it('round-trips unsaved document mutations and tab set across a restart', async () => {
-    const first = new AppState()
+    const first = createEditableApp()
     expect(first.tabs.get().length).toBe(2) // fixture seed (Basic, Subgraph)
     const basic = first.tabs.get()[0]!
     const out = await first.dispatchTo(basic, {
@@ -365,7 +375,7 @@ describe('open-tab persistence', () => {
   })
 
   it('AP3: edits to a same-lineage replacement tab still persist (watcher rebinds)', async () => {
-    const first = new AppState()
+    const first = createEditableApp()
     const basic = first.tabs.get()[0]!
     const doc = JSON.parse(JSON.stringify(basic.store.doc)) as { lineage: string }
     // Replace the Basic tab: same lineage, same id, NEW session.
@@ -422,7 +432,7 @@ describe('open-tab persistence', () => {
     })
     let basicId = ''
     try {
-      const first = new AppState()
+      const first = createEditableApp()
       const basic = first.tabs.get()[0]!
       basicId = basic.id
       flush() // settle startup writes
@@ -446,7 +456,7 @@ describe('open-tab persistence', () => {
   })
 
   it('keeps the newest document at an equal workspace membership revision', async () => {
-    const fresh = new AppState()
+    const fresh = createEditableApp()
     flush()
     const stale = new AppState()
     const freshTab = fresh.tabs.get()[0]!
