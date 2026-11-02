@@ -8,7 +8,7 @@
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { asPromptId, diag, type DinksterNodesPayload, type JsonObject } from '@dinkster/core'
 import { buildDinksterRegistry, type LibraryRecord } from '@dinkster/client'
 import {
@@ -19,6 +19,7 @@ import {
   type Backend,
   type Tab,
 } from '../src/app-state.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -83,13 +84,21 @@ const CHAIN_DOC = {
 let app: AppState
 
 beforeEach(() => {
-  app = new AppState()
+  app = createWorkflowApp(null)
+})
+
+afterEach(() => {
+  app.dispose()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 /** A native backend with live schemas, plus the CHAIN_DOC tab targeted at it. */
 function nativeSetup(): { backend: Extract<Backend, { protocol: 'dinkster' }>; tab: Tab } {
   const added = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
   if (!added || added.protocol !== 'dinkster') throw new Error('addBackend rejected')
+  vi.spyOn(added.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   added.registry.set(buildDinksterRegistry(added.id, nodesPayload))
   expect(app.openDocument(CHAIN_DOC, 'Chain')).toEqual([])
   const tab = app.activeTab()!
@@ -469,6 +478,7 @@ describe('sourceDocument stamp on queue', () => {
       const opened = await app.importWorkflowFile({ name: 'original.json', text: async () => JSON.stringify(source) }, () => true, prompt)
       expect(opened, app.transientStatus.get()).toBe(true)
       const imported = app.activeTab()!
+      app.setTabTarget(imported.id, backend.id)
       expect((await app.dispatchTo(imported, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'a', value: 99 } })).ok).toBe(true)
       const saved = JSON.parse(JSON.stringify(app.exportDocument(imported.id)))
       expect(app.openDocument(saved, 'Reopened')).toEqual([])
