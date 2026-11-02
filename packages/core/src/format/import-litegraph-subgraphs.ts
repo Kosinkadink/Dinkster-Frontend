@@ -2,7 +2,7 @@ import { diag, type Diagnostic } from '../diagnostics.js'
 import { occurrenceKey, type NodeId } from '../ids.js'
 import { checkDocument } from '../invariants.js'
 import { rerouteInputTargets } from '../reroute.js'
-import { deriveBoundarySchema } from '../schema/derive-boundary.js'
+import { deriveBoundarySchema, resolveBoundaryRoute } from '../schema/derive-boundary.js'
 import { inputsOf, outputsOf, type NodeSchema, type TypeExpr } from '../schema/model.js'
 import type { BoundaryBinding, BoundaryItem, GraphDef, Json, JsonObject, OccurrenceTopology, WorkflowDocument } from './document.js'
 import type { ImportLitegraphResult } from './import-litegraph.js'
@@ -292,8 +292,8 @@ export function importLitegraphSubgraphs(
       const controllers: Mutable = {}
       const rawValues = node['widgets_values']
       const proxies = proxySlots.get(node)
-      const promoted = inputsOf(def.schema).filter((item) => item.widget !== undefined)
-      const ids = proxies ?? promoted.map((item) => item.id)
+      const widgets = inputsOf(def.schema).filter((item) => item.widget !== undefined || item.dynamic?.kind === 'dynamicCombo')
+      const ids = proxies ?? widgets.map((item) => item.id)
       if (Array.isArray(rawValues)) {
         for (const [index, value] of rawValues.entries()) {
           const id = ids[index]
@@ -524,7 +524,9 @@ export function importLitegraphSubgraphs(
       const target = rawLink && def.raw['nodes'].find((node: Mutable) => Number(node['id']) === Number(rawLink[3]))
       const authority = nativeBody.nodes[primary.node]
       const authoritySchema = authority && localResolve(authority.type)
-      const promoted = side === 'inputs' && (primary.viaReroute === undefined
+      const route = authoritySchema && resolveBoundaryRoute(authoritySchema, primary, 'input', authority.values, authority.dynamic)
+      const selector = route?.ok && route.route.terminal.kind === 'port' && route.route.terminal.slot.dynamic?.kind === 'dynamicCombo'
+      const promoted = side === 'inputs' && !selector && (primary.viaReroute === undefined
         ? Boolean(target?.['inputs']?.[rawLink[4]]?.['widget'])
         : authoritySchema !== undefined && inputsOf(authoritySchema).some((input) => input.id === primary.port && input.widget !== undefined))
       return [{ id: slot['id'], displayName: slot['label'] ?? slot['name'] ?? slot['id'], binds: primary,
