@@ -155,6 +155,72 @@ class EventChannel {
 }
 
 describe('AppState multi-window workspace', () => {
+  it.each(['accepted', 'refused', 'edited', 'retargeted', 'disposed', 'registry', 'disconnected', 'superseded', 'running-accepted', 'running-refused'] as const)(
+    'retains incoming tab records before publishing the inventory: %s', async (scenario) => {
+      const factory = authorityFactories()
+      const author = createEditableApp()
+      const digest = `blake3:${'c'.repeat(64)}`
+      const document = workflow()
+      const incomingDocument = { ...document, ext: { held: { digest, name: 'incoming.bin', size: 11,
+        mediaType: 'application/octet-stream', virtualPath: '' } } }
+      const running = scenario.startsWith('running-')
+      if (!running) author.openDocument(incomingDocument, 'Incoming workflow')
+      await author.enableWorkspaceAuthority(factory.document, factory.workspace)
+      vi.stubGlobal('localStorage', memoryStorage())
+      const viewer = createEditableApp()
+      if (running) await viewer.enableWorkspaceAuthority(factory.document, factory.workspace)
+      const previous = viewer.tabs.get()
+      const active = viewer.activeTabId.get()
+      let released = false
+      const acknowledgments: (() => void)[] = []
+      let requested!: () => void
+      const request = new Promise<void>((resolve) => { requested = resolve })
+      vi.spyOn(viewer.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+        if (!declaration.digests.includes(digest)) return { ...owner, ...declaration, revision: 1 }
+        expect(declaration).toEqual({ revision: 0, complete: false, digests: [digest] })
+        expect(localStorage.getItem(`dinkster.workflow-retentions.${owner.ownerId}`)).not.toBeNull()
+        if (!released) await new Promise<void>((resolve) => { acknowledgments.push(resolve); requested() })
+        return { ...owner, ...declaration, revision: scenario.endsWith('refused') ? 2 : 1 }
+      })
+      vi.spyOn(viewer.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      const opening = running
+        ? Promise.resolve(author.openDocument(incomingDocument, 'Incoming workflow')).then(drainTasks)
+        : viewer.enableWorkspaceAuthority(factory.document, factory.workspace)
+      await request
+      expect(viewer.tabs.get()).toBe(previous)
+      expect(viewer.activeTabId.get()).toBe(active)
+      if (scenario === 'edited') previous[0]!.store.dispatch({ command: 'node.add',
+        params: { graphId: previous[0]!.store.doc.root, type: 'LocalEdit', position: { x: 1, y: 2 } } })
+      if (scenario === 'retargeted') viewer.setTabTarget(previous[0]!.id,
+        viewer.addBackend('http://new-target.test', 'New target', false, 'dinkster')!.id)
+      if (scenario === 'disposed') viewer.dispose()
+      if (scenario === 'registry') viewer.registry.set({ connection: viewer.connection.id, schemas: new Map(),
+        diagnostics: [], hash: 'changed', resolve: () => undefined })
+      if (scenario === 'disconnected') { viewer.connection.connect(); viewer.connection.disconnect() }
+      if (scenario === 'superseded') {
+        author.closeTab(document.lineage)
+        await drainTasks()
+      }
+      released = true
+      for (const acknowledge of acknowledgments) acknowledge()
+      await opening
+      await drainTasks()
+      const incoming = viewer.tabs.get().find((tab) => tab.id === document.lineage)
+      if (scenario === 'accepted' || scenario === 'running-accepted') {
+        expect(incoming?.store.doc.ext?.held).toMatchObject({ digest })
+        expect(incoming?.title).toBe('Incoming workflow')
+      } else if (scenario === 'superseded') {
+        expect(incoming).toBeUndefined()
+        expect(viewer.tabs.get().map((tab) => tab.id)).toEqual(author.tabs.get().map((tab) => tab.id))
+      } else {
+        expect(incoming).toBeUndefined()
+        expect(viewer.tabs.get().map((tab) => tab.id)).toEqual(previous.map((tab) => tab.id))
+        if (scenario === 'edited') expect(Object.values(viewer.tabs.get()[0]!.store.doc.graphs[previous[0]!.store.doc.root]!.nodes)
+          .some((node) => node.type === 'LocalEdit')).toBe(true)
+      }
+    },
+  )
+
   it.each(['accepted', 'refused', 'edited', 'closed', 'retargeted', 'removed', 'disposed', 'registry', 'disconnected', 'metadata', 'remote'] as const)(
     'retains a canonical workspace snapshot before replacing the local store: %s', async (scenario) => {
       const factory = authorityFactories()

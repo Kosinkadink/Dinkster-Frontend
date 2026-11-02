@@ -19,6 +19,50 @@ async function disableNativeDiscovery(page: Page): Promise<void> {
 const tabIds = (page: Page): Promise<string[]> => page.evaluate(() =>
   window.__dinksterTest!.app.tabs.get().map((tab) => tab.id))
 
+for (const accepted of [true, false]) {
+  test(`incoming workspace tabs wait for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page, context }, info) => {
+    await page.goto('/')
+    await page.waitForFunction(() => window.__dinksterTest !== undefined)
+    const viewer = await context.newPage()
+    await disableNativeDiscovery(viewer)
+    await viewer.goto('/')
+    await viewer.waitForFunction(() => window.__dinksterTest !== undefined)
+    await expect.poll(() => tabIds(viewer)).toEqual(await tabIds(page))
+    await expect.poll(() => viewer.evaluate(() => window.__dinksterTest!.app.tabs.get().every(
+      (tab) => 'status' in tab.store))).toBe(true)
+    const previous = await tabIds(viewer)
+    await viewer.screenshot({ path: info.outputPath('incoming-default.png') })
+    let acknowledge!: () => void
+    const acknowledgment = new Promise<void>((resolve) => { acknowledge = resolve })
+    let requested!: () => void
+    const request = new Promise<void>((resolve) => { requested = resolve })
+    await viewer.route('**/api/library/retentions/document/*?scope=local', async (route) => {
+      if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+      const declaration = route.request().postDataJSON()
+      requested()
+      await acknowledgment
+      if (accepted) await route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
+        ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: 1 } })
+      else await route.fulfill({ status: 409, body: 'Ownership refused' })
+    })
+    const id = await page.evaluate(() => {
+      const app = window.__dinksterTest!.app as unknown as { createWorkflow(): { id: string } }
+      return app.createWorkflow().id
+    })
+    await request
+    expect(await tabIds(viewer)).toEqual(previous)
+    await viewer.screenshot({ path: info.outputPath('incoming-pending.png') })
+    await acknowledge()
+    if (accepted) await expect.poll(() => tabIds(viewer)).toContain(id)
+    else {
+      await expect.poll(() => viewer.evaluate(() => window.__dinksterTest!.app.problems.get().some(
+        (problem) => problem.message.includes('Shared tab ownership unavailable')))).toBe(true)
+      expect(await tabIds(viewer)).toEqual(previous)
+    }
+    await viewer.screenshot({ path: info.outputPath(`incoming-${accepted ? 'accepted' : 'refused'}.png`) })
+  })
+}
+
 test('workspace promotion preserves a local edit while ownership acknowledgment is pending', async ({ page }, info) => {
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)

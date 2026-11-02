@@ -2876,6 +2876,8 @@ export class AppState {
   private workspaceMutationSequence = 0
   private workspaceReconnectPromise: Promise<void> | undefined
   private workspaceTabRevision = -1
+  private workspaceTabIncomingRevision = -1
+  private workspaceSnapshotSequence = 0
   private workspacePersistedRevision = 0
   private workspaceCausalRevision = 0
   private workspaceOperationWatermarks: Readonly<Record<string, number>> = {}
@@ -3472,7 +3474,8 @@ export class AppState {
       this.unsubscribeWorkspaceDisconnect = opened.connection.onDisconnect((error) => {
         if (this.workspaceTabConnection === opened.connection) void this.reconnectWorkspaceAuthority(error)
       })
-      this.applyWorkspaceTabSnapshot(opened.snapshot)
+      await this.applyWorkspaceTabSnapshot(opened.snapshot)
+      if (this.disposed || !this.workspaceAuthorityEnabled || generation !== this.workspaceAuthorityGeneration) return
       for (const operation of loadWorkspaceOperations()) {
         if ((opened.snapshot.operationWatermarks[operation.actorId] ?? -1) < operation.sequence) {
           this.submitWorkspaceTabMutation(operation)
@@ -3584,7 +3587,7 @@ export class AppState {
       if (this.workspaceTabPending === 0 && this.workspaceTabBuffered) {
         const snapshot = this.workspaceTabBuffered
         this.workspaceTabBuffered = undefined
-        this.applyWorkspaceTabSnapshot(snapshot)
+        void this.applyWorkspaceTabSnapshot(snapshot)
       }
     })
   }
@@ -3592,7 +3595,7 @@ export class AppState {
   private receiveWorkspaceTabSnapshot(snapshot: WorkspaceTabSnapshot): void {
     if (this.workspaceTabPending > 0) {
       this.workspaceTabBuffered = this.newerWorkspaceSnapshot(this.workspaceTabBuffered, snapshot)
-    } else this.applyWorkspaceTabSnapshot(snapshot)
+    } else void this.applyWorkspaceTabSnapshot(snapshot)
   }
 
   private newerWorkspaceSnapshot(
@@ -3602,8 +3605,56 @@ export class AppState {
     return current === undefined || incoming.revision > current.revision ? incoming : current
   }
 
-  private applyWorkspaceTabSnapshot(snapshot: WorkspaceTabSnapshot): void {
-    if (!this.workspaceAuthorityEnabled || snapshot.revision < this.workspaceTabRevision) return
+  private async applyWorkspaceTabSnapshot(snapshot: WorkspaceTabSnapshot): Promise<void> {
+    if (!this.workspaceAuthorityEnabled || snapshot.revision < this.workspaceTabRevision ||
+      snapshot.revision < this.workspaceTabIncomingRevision) return
+    this.workspaceTabIncomingRevision = snapshot.revision
+    const sequence = ++this.workspaceSnapshotSequence
+    const generation = this.workspaceAuthorityGeneration
+    const mutationSequence = this.workspaceMutationSequence
+    const current = this.tabs.get()
+    const active = this.activeTabId.get()
+    const liveById = new Map(current.filter((tab) => !tab.execution).map((tab) => [tab.id, tab]))
+    const incoming = snapshot.tabs.filter((record) => !liveById.has(record.id))
+    if (incoming.length > 0) {
+      const local = current.map((tab) => ({ tab, document: tab.store.doc, revision: tab.store.revision, backend: this.backendForTab(tab) }))
+      const candidates = incoming.map((record) => {
+        const tab = this.makeTab(record.document, record.title, undefined, record.editorKind ?? GRAPH_EDITOR_KIND)
+        const backend = this.backendForTab(tab)
+        const registry = backend.registry.get()
+        let connectionChanged = false
+        const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
+        return { tab, backend, registry, unsubscribe, connectionChanged: () => connectionChanged }
+      })
+      try {
+        const native = candidates.filter(({ backend }) => backend.protocol === 'dinkster')
+        if (native.length > 0) {
+          await Promise.all(native.map(async ({ tab, backend, registry }) => {
+            const roots = workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(),
+              this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
+            await retainWorkflowAssets(backend.connection, tab.id, tab.store.revision, roots)
+          }))
+        }
+        const latest = this.tabs.get()
+        if (this.disposed || !this.workspaceAuthorityEnabled || generation !== this.workspaceAuthorityGeneration ||
+          sequence !== this.workspaceSnapshotSequence || mutationSequence !== this.workspaceMutationSequence ||
+          this.workspaceTabPending > 0 || latest.length !== current.length ||
+          local.some(({ tab, document, revision, backend }, index) => latest[index] !== tab ||
+            tab.store.doc !== document || tab.store.revision !== revision || this.backendForTab(tab) !== backend) ||
+          candidates.some(({ tab, backend, registry, connectionChanged }) => connectionChanged() ||
+            !this.backends.get().includes(backend) || this.backendForTab(tab) !== backend || backend.registry.get() !== registry)) {
+          throw new Error('The workspace changed while incoming tab ownership was being confirmed; local tabs were kept')
+        }
+      } catch (error) {
+        this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
+          'error', 'command', 'workspace.tabs.ownershipFailed',
+          `Shared tab ownership unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        )])
+        return
+      } finally {
+        for (const candidate of candidates) candidate.unsubscribe()
+      }
+    }
     const opening = this.workspaceTabRevision < 0
     this.workspaceTabRevision = snapshot.revision
     this.workspacePersistedRevision = snapshot.revision
@@ -3611,8 +3662,6 @@ export class AppState {
     this.workspaceOperationWatermarks = snapshot.operationWatermarks
     this.workspaceTabBaseline = snapshot.tabs
     this.workspaceActiveBaseline = snapshot.active
-    const current = this.tabs.get()
-    const liveById = new Map(current.filter((tab) => !tab.execution).map((tab) => [tab.id, tab]))
     const nextLive: Tab[] = []
     this.applyingWorkspaceTabs = true
     try {
@@ -3645,7 +3694,7 @@ export class AppState {
       const nextTabs = [...nextLive, ...frozen]
       this.tabs.set(nextTabs)
       const localFrozenActive = frozen.some((tab) => tab.id === this.activeTabId.get())
-      if (opening && !localFrozenActive && nextLive.some((tab) => tab.id === snapshot.active)) this.activeTabId.set(snapshot.active)
+      if (opening && this.activeTabId.get() === active && !localFrozenActive && nextLive.some((tab) => tab.id === snapshot.active)) this.activeTabId.set(snapshot.active)
       else if (!nextTabs.some((tab) => tab.id === this.activeTabId.get())) this.activeTabId.set(nextLive[0]?.id ?? '')
     } finally {
       this.applyingWorkspaceTabs = false
@@ -3692,6 +3741,7 @@ export class AppState {
     this.workspaceTabConnection?.close()
     this.workspaceTabConnection = undefined
     this.workspaceTabRevision = -1
+    this.workspaceTabIncomingRevision = -1
     this.workspaceTabPending = 0
     this.workspaceTabBuffered = undefined
   }

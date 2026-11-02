@@ -132,10 +132,15 @@ membership for retry; metadata-only editor switches survive adoption. The
 source target is installed before tab publication. SharedWorker canonical
 session promotion retains its snapshot and adopted history on the local tab's
 original backend before swapping stores. A refused or stale acknowledgment
-keeps the local store; metadata-only changes survive the swap. Subsequent foreign
-updates, the synchronous `openDocument` API, constructor restore and incoming
-workspace tab records are separate publication paths; this staging does not certify
-their ownership or activate common dispatch admission. The legacy bridge keeps
+keeps the local store; metadata-only changes survive the swap. Incoming workspace
+inventories retain newly received native tab snapshots before publishing tabs or
+displacing local views. Refusal or a changed local inventory, document, backend,
+registry, connection or workspace authority keeps local tabs. Newer shared
+inventories supersede outstanding acknowledgments. Existing-tab metadata updates
+do not wait for another ownership request. Subsequent foreign document updates,
+the synchronous `openDocument` API and constructor restore are separate publication
+paths; this staging does not certify their ownership or activate common dispatch
+admission. The legacy bridge keeps
 its existing non-retained opening behavior.
 Unsupported schemas, opaque dynamic state and unrecognized extension
 records are incomplete, not empty root sets. Ordinary synchronous dispatch is unchanged.
