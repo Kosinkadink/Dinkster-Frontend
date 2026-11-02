@@ -870,7 +870,7 @@ describe('workflow file commands', () => {
   })
 
   it('preserves the document lineage when a local import does not collide', async () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const source = {
       ...app.exportDocument(app.activeTab()!.id)!,
       lineage: 'lineage-non-colliding-import',
@@ -906,7 +906,7 @@ describe('workflow file commands', () => {
   })
 
   it('routes full LiteGraph JSON through the existing legacy importer', async () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const schema: NodeSchema = {
       type: 'UnknownLegacyNode',
       displayName: 'Legacy test node',

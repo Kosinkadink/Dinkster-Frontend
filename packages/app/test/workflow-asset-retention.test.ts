@@ -9,6 +9,7 @@ import { AppState } from '../src/app-state.js'
 import { GLSL_EDITOR_KIND } from '../src/editors.js'
 import { admitWorkflowDispatch, reconcileWorkflowRetentions, workflowAssetRoots } from '../src/workflow-asset-retention.js'
 import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
   size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
@@ -293,6 +294,86 @@ describe('retained app dispatch', () => {
       }
     },
   )
+})
+
+describe('retained workflow opens', () => {
+  let app: AppState | undefined
+  afterEach(() => {
+    app?.dispose()
+    app = undefined
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it.each(['accepted', 'refused', 'edited', 'closed', 'replacement', 'registry', 'target', 'canceled', 'disposed'] as const)(
+    'keeps the existing tab until a current file-open acknowledgment: %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([schema])
+      app.openDocument(session().doc, 'Existing')
+      const previous = app.activeTab()!
+      const previousTabs = app.tabs.get()
+      const incoming = { ...session([asset('c')]).doc, lineage: asLineageId('incoming') }
+      const requested = deferred<RetainedAssetDeclaration>()
+      const response = deferred<RetainedAssets>()
+      let owner!: RetainedAssetOwner
+      vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (key, declaration) => {
+        owner = key
+        const journal = JSON.parse(localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${key.ownerId}`))!)
+        expect(journal.digests).toEqual([asset('c').digest])
+        expect(journal.documentLineage).toBe('incoming')
+        requested.resolve(declaration)
+        return response.promise
+      })
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      let wanted = true
+      const operation = app.importWorkflowFile({ name: 'incoming.json', text: async () => JSON.stringify(incoming) }, () => wanted)
+      const declaration = await requested.promise
+      expect(app.activeTab()).toBe(previous)
+      expect(app.tabs.get()).toBe(previousTabs)
+      expect(declaration).toEqual({ revision: 0, complete: true, digests: [asset('c').digest] })
+      if (scenario === 'edited') previous.store.dispatch(replace('b'))
+      if (scenario === 'closed') app.closeTab(previous.id)
+      if (scenario === 'replacement') app.openDocument(session([asset('b')]).doc, 'Replacement')
+      if (scenario === 'registry') app.registry.set(undefined)
+      if (scenario === 'target') app.setTabTarget(previous.id, app.addBackend('http://other:8000', 'Other', false)!.id)
+      if (scenario === 'canceled') wanted = false
+      if (scenario === 'disposed') app.dispose()
+      response.resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
+      expect(await operation).toBe(scenario === 'accepted')
+      expect(app.tabs.get().some((tab) => tab.id === 'incoming')).toBe(scenario === 'accepted')
+      if (scenario !== 'closed' && scenario !== 'replacement') expect(app.tabs.get()).toContain(previous)
+      expect(previous.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset(scenario === 'edited' ? 'b' : 'a')])
+      expect([...Array(localStorage.length)].some((_, index) => localStorage.key(index)?.includes('workflow-retentions.'))).toBe(true)
+    },
+  )
+
+  it('does not let an earlier slow file read replace a newer completed open', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    app = createWorkflowApp([schema])
+    const read = deferred<string>()
+    const old = app.importWorkflowFile({ name: 'old.json', text: () => read.promise })
+    const newer = { ...session([asset('b')]).doc, lineage: asLineageId('newer') }
+    expect(await app.importWorkflowFile({ name: 'newer.json', text: async () => JSON.stringify(newer) })).toBe(true)
+    read.resolve(JSON.stringify(session([asset('c')]).doc))
+    expect(await old).toBe(false)
+    expect(app.activeTab()!.store.doc.lineage).toBe('newer')
+  })
+
+  it('retains local files on their untargeted destination rather than the active backend', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    app = createWorkflowApp([schema])
+    const source = app.addBackend('http://source:8000', 'Source', false)!
+    source.registry.set({ connection: source.id, schemas: new Map(), hash: 'source', diagnostics: [], resolve: () => undefined })
+    app.setTabTarget(app.activeTab()!.id, source.id)
+    const sourceWrite = vi.spyOn(source.connection, 'retainAssets')
+    const document = { ...session([asset('c')]).doc, lineage: asLineageId('untargeted-import') }
+    expect(await app.importWorkflowFile({ name: 'local.json', text: async () => JSON.stringify(document) })).toBe(true)
+    expect(app.connection.retainAssets).toHaveBeenCalledWith(expect.anything(), {
+      revision: 0, complete: true, digests: [asset('c').digest],
+    })
+    expect(sourceWrite).not.toHaveBeenCalled()
+    expect(app.backendForTab(app.activeTab()!).id).toBe(app.connection.id)
+  })
 })
 
 describe('workflow candidate admission', () => {

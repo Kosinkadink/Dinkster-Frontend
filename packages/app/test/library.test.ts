@@ -401,6 +401,38 @@ describe('saveWorkflow', () => {
 })
 
 describe('openFromLibrary', () => {
+  it.each(['accepted', 'refused', 'edited-before-bytes'] as const)('stages the workflow home before publication: %s', async (scenario) => {
+    const { backend, tab: previous } = nativeSetup()
+    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record())
+    let deliverBytes!: (text: string) => void
+    vi.spyOn(backend.connection, 'fetchAssetText').mockReturnValue(new Promise((done) => { deliverBytes = done }))
+    let acknowledge!: (revision: number) => void
+    const requested = vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) =>
+      new Promise((done) => { acknowledge = (revision) => done({ ...owner, ...declaration, revision }) }))
+    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    const publishedHomes: string[] = []
+    const unsubscribe = app.tabs.subscribe((tabs) => {
+      const opened = tabs.find((tab) => tab.id === 'incoming-library')
+      if (opened) publishedHomes.push(app.backendForTab(opened).id)
+    })
+    const opening = app.openFromLibrary('r1', backend.id)
+    await vi.waitFor(() => expect(deliverBytes).toBeTypeOf('function'))
+    if (scenario === 'edited-before-bytes') previous.store.dispatch({ command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n0', inputId: 'a', value: 19,
+    } })
+    deliverBytes(JSON.stringify({ ...CHAIN_DOC, lineage: 'incoming-library' }))
+    if (scenario !== 'edited-before-bytes') {
+      await vi.waitFor(() => expect(requested).toHaveBeenCalledOnce())
+      expect(app.activeTab()).toBe(previous)
+      expect(publishedHomes).toEqual([])
+      acknowledge(scenario === 'accepted' ? 1 : 2)
+    }
+    expect(await opening).toBe(scenario === 'accepted')
+    expect(publishedHomes).toEqual(scenario === 'accepted' ? [backend.id] : [])
+    if (scenario === 'edited-before-bytes') expect(requested).not.toHaveBeenCalled()
+    unsubscribe()
+  })
+
   it('opens the exact bytes, links the tab, and targets the workflow home', async () => {
     const { backend } = nativeSetup()
     vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(

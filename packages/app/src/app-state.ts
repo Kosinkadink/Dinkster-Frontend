@@ -197,7 +197,7 @@ import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegist
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
-import { admitWorkflowDispatch, reconcileWorkflowRetentions } from './workflow-asset-retention.js'
+import { admitWorkflowDispatch, reconcileWorkflowRetentions, retainWorkflowAssets, workflowAssetRoots } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -3337,6 +3337,7 @@ export class AppState {
       this.syncWorkspaceTabs()
     })
     this.activeTabId.subscribe((activeId) => {
+      this.workflowOpenIntent += 1
       this.templateGalleryOpen.set(false)
       this.selectExtensionWorld()
       const imageTarget = this.imageEditorTarget.get()
@@ -3870,6 +3871,7 @@ export class AppState {
   }>()
   private readonly workflowAssetLocations = new WeakMap<DocumentSession, Map<string, AssetLocationHint>>()
   private readonly workflowRetentionRecoveries = new Map<DinksterConnection, AbortController>()
+  private workflowOpenIntent = 0
 
   private refreshWorkflowAssets(tab: Tab): void {
     if (this.disposed || tab.execution) return
@@ -6249,6 +6251,56 @@ export class AppState {
    * problems panel for review.
    */
   openDocument(json: unknown, title: string, importVia?: Backend, forkOnCollision = false, originalPrompt?: JsonObject): readonly Diagnostic[] {
+    this.workflowOpenIntent += 1
+    const prepared = this.prepareDocumentOpen(json, title, importVia, forkOnCollision, originalPrompt)
+    if (!prepared.ok) return prepared.diagnostics
+    prepared.publish()
+    return []
+  }
+
+  private beginWorkflowOpen(): () => boolean {
+    const intent = ++this.workflowOpenIntent
+    const tabs = this.tabs.get()
+    const sessions = tabs.map((tab) => ({ tab, revision: tab.store.revision, document: tab.store.doc, target: this.backendForTab(tab) }))
+    return () => !this.disposed && intent === this.workflowOpenIntent && this.tabs.get() === tabs &&
+      sessions.every(({ tab, revision, document, target }) => tab.store.revision === revision &&
+        tab.store.doc === document && this.backendForTab(tab) === target)
+  }
+
+  private async openRetainedDocument(
+    json: unknown, title: string, backend: Backend, stillWanted: () => boolean,
+    forkOnCollision = false, originalPrompt?: JsonObject, target: Backend | null = backend,
+  ): Promise<Tab | undefined> {
+    if (this.disposed || !stillWanted()) return undefined
+    const prepared = this.prepareDocumentOpen(json, title, backend, forkOnCollision, originalPrompt)
+    if (!prepared.ok) throw new Error('invalid workflow document')
+    const registry = backend.registry.get()
+    const destination = target ?? this.backends.get()[0]!
+    const destinationRegistry = destination.registry.get()
+    let connectionChanged = false
+    const unsubscribe = destination.connection.status.subscribe(() => { connectionChanged = true })
+    try {
+      if (destination.protocol !== 'dinkster') return prepared.publish(target ?? undefined)
+      const roots = workflowAssetRoots(prepared.document, { revision: 0, undo: [], redo: [] },
+        this.resolverWithVirtualNodes(destinationRegistry?.resolve ?? (() => undefined)))
+      await retainWorkflowAssets(destination.connection, prepared.document.lineage, 0, roots)
+      if (this.disposed || !stillWanted() || !this.backends.get().includes(backend) ||
+        !this.backends.get().includes(destination) || backend.registry.get() !== registry ||
+        destination.registry.get() !== destinationRegistry || connectionChanged) return undefined
+      return prepared.publish(target ?? undefined)
+    } catch {
+      if (!this.disposed && stillWanted()) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
+        'error', 'import', 'workflow.open.retention', 'Workflow ownership could not be confirmed; the existing tabs were kept.',
+      )])
+      return undefined
+    } finally {
+      unsubscribe()
+    }
+  }
+
+  private prepareDocumentOpen(json: unknown, title: string, importVia?: Backend, forkOnCollision = false, originalPrompt?: JsonObject):
+    { readonly ok: false; readonly diagnostics: readonly Diagnostic[] } |
+    { readonly ok: true; readonly document: WorkflowDocument; readonly publish: (target?: Backend) => Tab } {
     const legacy = detectFormat(json) === 'litegraph-workflow'
     const digestHints = legacy ? legacyAssetDigestHints(json) : []
     // A legacy document is translated through the schemas of the backend it
@@ -6266,19 +6318,19 @@ export class AppState {
       // No tab exists to own a failed load; the errors are app-scoped
       // operation feedback (visible regardless of the active canvas).
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, loaded.diagnostics)
-      return loaded.diagnostics
+      return { ok: false, diagnostics: loaded.diagnostics }
     }
     let document = loaded.document
     if (originalPrompt !== undefined) {
       const retained = loadDocument({ ...document, ext: { ...document.ext, 'importer.comfyPrompt': originalPrompt } })
       if (!retained.document) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, retained.diagnostics)
-        return retained.diagnostics
+        return { ok: false, diagnostics: retained.diagnostics }
       }
       if (!workspaceRecord(retained.document.ext?.['importer.comfyPrompt'])) {
         const diagnostics = [diag('error', 'import', 'import.prompt.invalid', 'original PNG prompt must be a JSON object')]
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, diagnostics)
-        return diagnostics
+        return { ok: false, diagnostics }
       }
       document = retained.document
     }
@@ -6288,36 +6340,39 @@ export class AppState {
       while (this.tabs.get().some((tab) => tab.id === lineage))
       document = { ...document, lineage }
     }
-    const replacesExisting = this.tabs.get().some((candidate) => !candidate.execution && candidate.id === document.lineage)
-    if (replacesExisting) {
-      this.markDocumentPersistenceDirty(document.lineage)
-    }
-    const tab = this.makeTab(document, title, undefined, GRAPH_EDITOR_KIND, undefined, importRegistry)
-    if (replacesExisting) this.workspaceReplacements.add(tab)
-    this.dismissMigrationNotice(tab.id)
-    // Load/translation warnings belong to the tab they describe: a
-    // same-lineage replacement swaps them out; other tabs keep theirs.
-    this.replaceProblems(tab.id, loaded.diagnostics)
-    this.markTabDirty(tab.id)
-    this.followLatestExecution(tab.id) // a replaced document starts unpinned
-    this.dropTabTarget(tab.id) // ... and untargeted
-    this.libraryLinks.delete(tab.id) // ... and unlinked (openFromLibrary relinks)
-    this.dropCollabFor(tab.id) // a replaced shared tab leaves its session
-    this.releaseFrozenPin(tab.id) // a displaced frozen view drops its pin
-    // Session-keyed caches (sourceDocCache etc.) die with the replaced Tab.
-    this.templateGalleryOpen.set(false)
-    this.tabs.update((tabs) => [...tabs.filter((t) => t.id !== tab.id), tab])
-    this.activeTabId.set(tab.id)
-    this.schemaDiagnosticsPending.add(tab.id)
-    this.legacyBooleanPending.add(tab.id)
-    this.drainLegacyBooleans() // immediate when schemas are already loaded
-    this.drainSchemaDiagnostics()
-    if (legacy && importBackend?.protocol === 'dinkster') void this.offerImportAssetResolution(tab, importBackend, digestHints)
-    const planBackend = importVia ?? this.backendForTab(tab)
-    if (planBackend.protocol === 'dinkster' && planBackend.connection.status.get() === 'connected') {
-      void this.planOpenedWorkflow(tab, planBackend)
-    }
-    return []
+    return { ok: true, document, publish: (target) => {
+      const replacesExisting = this.tabs.get().some((candidate) => !candidate.execution && candidate.id === document.lineage)
+      if (replacesExisting) {
+        this.markDocumentPersistenceDirty(document.lineage)
+      }
+      const tab = this.makeTab(document, title, undefined, GRAPH_EDITOR_KIND, undefined, importRegistry)
+      if (replacesExisting) this.workspaceReplacements.add(tab)
+      this.dismissMigrationNotice(tab.id)
+      // Load/translation warnings belong to the tab they describe: a
+      // same-lineage replacement swaps them out; other tabs keep theirs.
+      this.replaceProblems(tab.id, loaded.diagnostics)
+      this.markTabDirty(tab.id)
+      this.followLatestExecution(tab.id) // a replaced document starts unpinned
+      this.dropTabTarget(tab.id) // ... and untargeted
+      this.libraryLinks.delete(tab.id) // ... and unlinked (openFromLibrary relinks)
+      this.dropCollabFor(tab.id) // a replaced shared tab leaves its session
+      this.releaseFrozenPin(tab.id) // a displaced frozen view drops its pin
+      // Session-keyed caches (sourceDocCache etc.) die with the replaced Tab.
+      this.templateGalleryOpen.set(false)
+      if (target !== undefined) this.tabTargets.update((targets) => new Map(targets).set(tab.id, target.id))
+      this.tabs.update((tabs) => [...tabs.filter((t) => t.id !== tab.id), tab])
+      this.activeTabId.set(tab.id)
+      this.schemaDiagnosticsPending.add(tab.id)
+      this.legacyBooleanPending.add(tab.id)
+      this.drainLegacyBooleans() // immediate when schemas are already loaded
+      this.drainSchemaDiagnostics()
+      if (legacy && importBackend?.protocol === 'dinkster') void this.offerImportAssetResolution(tab, importBackend, digestHints)
+      const planBackend = importVia ?? this.backendForTab(tab)
+      if (planBackend.protocol === 'dinkster' && planBackend.connection.status.get() === 'connected') {
+        void this.planOpenedWorkflow(tab, planBackend)
+      }
+      return tab
+    } }
   }
 
   private async planOpenedWorkflow(tab: Tab, backend: Extract<Backend, { protocol: 'dinkster' }>): Promise<void> {
@@ -6508,18 +6563,23 @@ export class AppState {
    * through the schema-aware legacy translator.
    */
   async importWorkflowFile(file: Pick<File, 'name' | 'text'>, stillOwned: () => boolean = () => true, originalPrompt?: JsonObject): Promise<boolean> {
+    const current = this.beginWorkflowOpen()
+    const destination = this.activeTab()
+    const backend = destination === undefined ? this.backends.get()[0]! : this.backendForTab(destination)
+    const stillWanted = () => current() && stillOwned() &&
+      this.activeTab() === destination && (destination === undefined || this.backendForTab(destination) === backend)
     try {
       const title = file.name.replace(/\.json$/i, '') || 'Imported workflow'
       const text = await file.text()
-      if (!stillOwned()) return false
-      const diagnostics = this.openDocument(JSON.parse(text) as unknown, title, undefined, true, originalPrompt)
-      if (diagnostics.length > 0) {
-        this.showTransientStatus(`Could not import ${file.name}: invalid workflow document`)
+      if (!stillWanted()) return false
+      if (!await this.openRetainedDocument(JSON.parse(text) as unknown, title, backend, stillWanted, true, originalPrompt, null)) {
+        if (stillWanted()) this.showTransientStatus(`Could not import ${file.name}: workflow was not opened`)
         return false
       }
       this.showTransientStatus(`Imported ${file.name}`)
       return true
     } catch (error) {
+      if (!stillWanted()) return false
       const message = error instanceof Error ? error.message : String(error)
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         diag('error', 'validation', 'workflow.importFailed', `failed to import workflow file: ${message}`),
@@ -6803,6 +6863,7 @@ export class AppState {
    * entry for transport/parse failures) when anything is missing.
    */
   async openFromLibrary(recordId: string, owner: string): Promise<boolean> {
+    const stillWanted = this.beginWorkflowOpen()
     const backend = this.ownedLibraryBackend(owner)
     if (!backend) return false
     try {
@@ -6814,16 +6875,10 @@ export class AppState {
       const text = await backend.connection.fetchAssetText(record.digest)
       if (!this.ownerStillLive(backend)) return false
       if (text === undefined) return false
-      const diagnostics = this.openDocument(JSON.parse(text) as unknown, record.name, backend)
-      if (diagnostics.length > 0) return false
-      const tab = this.activeTab()
-      if (tab) {
-        this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id })
-        this.markTabClean(tab.id)
-        // The tab follows its workflow home: saves patch the record it came
-        // from and queues target the backend that served it.
-        this.setTabTarget(tab.id, backend.id)
-      }
+      const tab = await this.openRetainedDocument(JSON.parse(text) as unknown, record.name, backend, stillWanted)
+      if (!tab || !this.tabs.get().includes(tab)) return false
+      this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id })
+      this.markTabClean(tab.id)
       return true
     } catch (e) {
       // A rejection from a retired backend (removal disconnects/aborts) is
@@ -6843,6 +6898,7 @@ export class AppState {
    * (owner) - pack/template ids are that backend's namespace.
    */
   async openTemplate(packId: string, templateId: string, title: string, owner: string): Promise<boolean> {
+    const stillWanted = this.beginWorkflowOpen()
     const backend = this.ownedLibraryBackend(owner)
     if (!backend?.templatesEnabled.get()) return false
     try {
@@ -6850,21 +6906,15 @@ export class AppState {
       // Liveness BEFORE payload checks (see openFromLibrary).
       if (!this.ownerStillLive(backend)) return false
       if (!document) return false
-      if (this.openDocument(readableRegionTemplateLayout(document), title, backend).length > 0) {
-        // openDocument already reported the load diagnostics; append the
-        // template context so the failure is attributable (the library
-        // overlay stays open and shape errors alone don't say which
-        // template produced them).
-        this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-          diag('error', 'validation', 'template.openFailed', `template ${packId}/${templateId} is not a loadable workflow document - see the load errors above`),
+      const tab = await this.openRetainedDocument(readableRegionTemplateLayout(document), title, backend, stillWanted)
+      if (!tab) {
+        if (stillWanted()) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
+          diag('error', 'validation', 'template.openFailed', `template ${packId}/${templateId} was not opened - see Problems`),
         ])
         return false
       }
-      const tab = this.activeTab()
-      if (tab) {
-        this.setTabTarget(tab.id, backend.id)
-        void this.offerImportAssetResolution(tab, backend, [])
-      }
+      if (!this.tabs.get().includes(tab)) return false
+      void this.offerImportAssetResolution(tab, backend, [])
       return true
     } catch (e) {
       if (this.ownerStillLive(backend)) {
@@ -6875,18 +6925,16 @@ export class AppState {
   }
 
   async openRemoteTemplate(template: RemoteTemplateDescriptor, title: string): Promise<boolean> {
+    const stillWanted = this.beginWorkflowOpen()
     const backend = this.libraryBackend()
     if (backend?.protocol !== 'dinkster' || !backend.templatesEnabled.get()) return false
     const catalog = new RemoteTemplateCatalog(this.settings.get<string>('templates.registryUrl'))
     try {
       const document = await catalog.fetchBody(template)
       if (!this.ownerStillLive(backend) || document === undefined) return false
-      if (this.openDocument(readableRegionTemplateLayout(document), title, backend).length > 0) return false
-      const tab = this.activeTab()
-      if (tab) {
-        this.setTabTarget(tab.id, backend.id)
-        void this.offerImportAssetResolution(tab, backend, [])
-      }
+      const tab = await this.openRetainedDocument(readableRegionTemplateLayout(document), title, backend, stillWanted)
+      if (!tab || !this.tabs.get().includes(tab)) return false
+      void this.offerImportAssetResolution(tab, backend, [])
       return true
     } catch (error) {
       if (this.ownerStillLive(backend)) {
@@ -6910,6 +6958,7 @@ export class AppState {
    * came from but is NOT library-linked - saving creates a fresh record.
    */
   async openRunWorkflow(runId: string, owner: string): Promise<boolean> {
+    const stillWanted = this.beginWorkflowOpen()
     const backend = this.ownedLibraryBackend(owner)
     if (!backend) return false
     try {
@@ -6929,10 +6978,8 @@ export class AppState {
       const json = JSON.parse(text) as unknown
       const meta = (json as { meta?: { title?: unknown } }).meta
       const title = typeof meta?.title === 'string' ? meta.title : `Run ${run.jobId.slice(0, 8)}`
-      const diagnostics = this.openDocument(json, title, backend)
-      if (diagnostics.length > 0) return false
-      const tab = this.activeTab()
-      if (tab) this.setTabTarget(tab.id, backend.id)
+      const tab = await this.openRetainedDocument(json, title, backend, stillWanted)
+      if (!tab || !this.tabs.get().includes(tab)) return false
       return true
     } catch (e) {
       if (this.ownerStillLive(backend)) {

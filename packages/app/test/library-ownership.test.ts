@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DinksterNodesPayload } from '@dinkster/core'
 import { buildDinksterRegistry, type HistoryRunRecord, type LibraryRecord } from '@dinkster/client'
 import {
@@ -21,6 +21,7 @@ import {
   type Tab,
 } from '../src/app-state.js'
 import { runsSource, templatesSource, workflowsSource } from '../src/collections.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -83,7 +84,13 @@ const DOC = {
 let app: AppState
 
 beforeEach(() => {
-  app = new AppState()
+  app = createWorkflowApp(null)
+})
+
+afterEach(() => {
+  app.dispose()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 /** Two native backends plus an open tab targeted at A. */
@@ -99,6 +106,8 @@ function twoBackends(): {
   b.templatesEnabled.set(true)
   a.registry.set(buildDinksterRegistry(a.id, nodesPayload))
   b.registry.set(buildDinksterRegistry(b.id, nodesPayload))
+  for (const backend of [a, b]) vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   expect(app.openDocument(DOC, 'Doc')).toEqual([])
   const tab = app.activeTab()!
   app.setTabTarget(tab.id, a.id)

@@ -108,6 +108,19 @@ malformed, changed or unavailable observations produce a backend-owned Problems
 warning. Disconnect, removal and disposal cancel stale observations. All journals
 remain unchanged; recovery never replays a command, retries PUT, releases an
 owner, or certifies other holders or global completeness.
+Asynchronous native file imports and library/template/run workflow opens also
+stage their loaded snapshot before publishing a tab. They use the same durable
+owner protocol, preserving existing tabs on refusal or an uncertain response.
+Unknown schemas retain known roots with explicit incomplete ownership. A newer
+open, changed tab/session/history/target, changed registry or connection, caller
+cancellation or disposal prevents a late open from publishing. Library/template/run
+tabs publish with their source backend already selected. Local file imports keep
+their existing untargeted semantics: legacy translation uses the chosen source
+schemas, but ownership is requested from the default destination backend.
+The synchronous `openDocument` API, constructor restore, frozen views and shared
+session ingress are separate publication paths; this staging does not certify
+their ownership or activate common dispatch admission. The legacy bridge keeps
+its existing non-retained opening behavior.
 Unsupported schemas, opaque dynamic state and unrecognized extension
 records are incomplete, not empty root sets. Ordinary synchronous dispatch is unchanged.
 Schema defaults contribute roots only when the node has no stored override.

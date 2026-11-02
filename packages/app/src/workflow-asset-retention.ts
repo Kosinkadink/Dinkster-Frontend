@@ -314,17 +314,14 @@ export async function reconcileWorkflowRetentions(
   return resolved
 }
 
-/** Durable candidate ownership precedes publication; successful owners are not released on unmount. */
-export async function admitWorkflowDispatch(
+/** Durable owners are never released merely because their caller leaves or fails. */
+export async function retainWorkflowAssets(
   connection: DinksterConnection,
-  prepared: Extract<PreparedDocumentDispatch, { readonly ok: true }>,
-  resolve: SchemaResolver,
-  stillCurrent: () => boolean,
+  documentLineage: string,
+  documentRevision: number,
+  roots: ReturnType<typeof workflowAssetRoots>,
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
-): Promise<CommandOutcome> {
-  // Proposed history adds only the captured current state and trims existing records.
-  const roots = workflowAssetRoots(prepared.currentDocument, prepared.currentHistory, resolve,
-    [prepared.document, ...(prepared.retainedDocuments ?? [])])
+): Promise<void> {
   if (roots.refusal !== undefined) throw new Error(roots.refusal)
   const digests = roots.digests
   if (digests.length > 4096) throw new Error('Workflow exceeds the retained identity limit')
@@ -332,7 +329,7 @@ export async function admitWorkflowDispatch(
   const key = scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)
   const intent = {
     version: 3, connectionId: connection.id, assetBaseUrl: connection.assetUrl(''), owner, digests, complete: roots.complete,
-    documentLineage: prepared.document.lineage, documentRevision: prepared.history.revision,
+    documentLineage, documentRevision,
   }
   storage.setItem(key, JSON.stringify(intent))
   const matches = (value: RetainedAssets | undefined): boolean =>
@@ -346,6 +343,20 @@ export async function admitWorkflowDispatch(
     try { observed = await connection.fetchRetainedAssets(owner) } catch { /* Intent remains unresolved. */ }
     if (!matches(observed)) throw error
   }
+}
+
+/** Durable candidate ownership precedes publication; successful owners are not released on unmount. */
+export async function admitWorkflowDispatch(
+  connection: DinksterConnection,
+  prepared: Extract<PreparedDocumentDispatch, { readonly ok: true }>,
+  resolve: SchemaResolver,
+  stillCurrent: () => boolean,
+  storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
+): Promise<CommandOutcome> {
+  // Proposed history adds only the captured current state and trims existing records.
+  const roots = workflowAssetRoots(prepared.currentDocument, prepared.currentHistory, resolve,
+    [prepared.document, ...(prepared.retainedDocuments ?? [])])
+  await retainWorkflowAssets(connection, prepared.document.lineage, prepared.history.revision, roots, storage)
   if (!stillCurrent()) throw new Error('Workflow destination changed during asset admission')
   return prepared.commit()
 }
