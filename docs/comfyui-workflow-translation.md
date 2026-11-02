@@ -13,6 +13,9 @@ traces each occurrence's parent input without deleting reroutes or bypassing
 their links. Widget promotion follows the downstream schema input, including
 nested instances. Parent delivery suppression is occurrence-local and removes
 the effective junction driver without changing a sibling instance.
+An authored dynamic-combo selector forwards as a selector, not a promoted
+scalar widget. It retains its position in the occurrence's serialized widget
+stream; separately exposed branch widgets retain their own bindings and values.
 Import asset lookup includes promoted ASSET filenames on subgraph instances
 as well as definition defaults. Accepting a match updates only literals with
 that filename in one undo step; sibling overrides and other defaults remain intact.
