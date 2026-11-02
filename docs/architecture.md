@@ -188,7 +188,9 @@ owner-routed dispatch result before announcing inserted ids or completing the
 gesture. Both synchronous and asynchronous final results are supported; a
 pending result is not success. Their canvas adapters await the result before
 reading `ok`. Native ordinary dispatch selects retained admission for newly
-introduced known identities; it does not certify unknown holders.
+introduced known identities; it does not certify unknown holders. Existing
+malformed identities and census uncertainty alone do not delay asset-neutral
+commands or migrations.
 
 Curve, Compositor and GLSL Apply, and unused-definition cleanup, also await
 the final command result. Pending actions disable duplicate submission and

@@ -5771,8 +5771,7 @@ export class AppState {
       const current = workflowAssetRoots(prepared.currentDocument, history, resolve)
       const candidate = workflowAssetRoots(prepared.document, history, resolve)
       const known = new Set(current.digests)
-      if (candidate.refusal !== undefined || current.refusal !== undefined ||
-        (current.complete && !candidate.complete) || candidate.digests.some((digest) => !known.has(digest))) {
+      if (candidate.digests.some((digest) => !known.has(digest))) {
         return this.admitPreparedWorkflowDispatch(tab, prepared)
       }
     }

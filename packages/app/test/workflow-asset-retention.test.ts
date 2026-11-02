@@ -307,10 +307,16 @@ describe('retained app dispatch', () => {
     },
   )
 
-  it('keeps ordinary commands synchronous when they introduce no new asset identities', () => {
+  it.each(['valid', 'malformed'] as const)('keeps asset-neutral commands synchronous with %s existing identities', (scenario) => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     app = createWorkflowApp([schema])
-    app.openDocument(session().doc, 'Existing')
+    const document = session().doc
+    const existing = scenario === 'valid' ? document : { ...document, graphs: {
+      g0: { ...document.graphs.g0!, nodes: { n0: { ...document.graphs.g0!.nodes.n0!,
+        values: { files: [{ digest: asset('a').digest, name: 'a.bin' }] },
+      } } },
+    } }
+    app.openDocument(existing, 'Existing')
     const tab = app.activeTab()!
     const outcome = app.dispatchTo(tab, { command: 'node.setTitle', params: {
       graphId: 'g0', nodeId: 'n0', title: 'Renamed loader',
