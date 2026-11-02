@@ -70,7 +70,7 @@ export function workflowAssetRoots(
     if (!Array.isArray(value) && Object.hasOwn(value, 'digest')) refusal = 'Workflow asset identity is malformed'
     if (!Array.isArray(value) && Object.hasOwn(value, '$typed')) {
       if (parseTypedLiteralWire(value) === undefined || Object.keys(value).length !== 1 ||
-        Object.keys(value['$typed'] as object).length !== 2) refusal = 'Workflow typed literal is malformed'
+        Object.keys((value as { readonly [key: string]: Json })['$typed'] as object).length !== 2) refusal = 'Workflow typed literal is malformed'
     }
     for (const entry of Object.values(value)) opaqueRoots(entry)
   }
@@ -159,7 +159,7 @@ export function workflowAssetRoots(
         !Object.hasOwn(node.ext, MASK_PAINT_SOURCE_EXT_KEY) || maskPaintSourceNodeId(node) === undefined)) complete = false
     checkedExtensions.add(node)
     for (const [key, value] of Object.entries(node)) if (key !== 'ext') checkExtensions(value as Json)
-    opaqueRoots(node.values as Json)
+    for (const value of Object.values(node.values)) opaqueRoots(value)
     if (node.ext !== undefined) opaqueRoots(node.ext)
     if (node.dynamic !== undefined) opaqueRoots(node.dynamic as Json)
     if (schema === undefined) { complete = false; return }
