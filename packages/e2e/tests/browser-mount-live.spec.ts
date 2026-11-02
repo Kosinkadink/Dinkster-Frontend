@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   expect,
@@ -133,7 +133,9 @@ test("the browser template gallery grants a read-only model mount and the asset 
     );
     await expect(page.getByTestId("status-bar")).toContainText("connected");
 
-    await page.getByRole("button", { name: "Browse starter templates" }).click();
+    await page
+      .getByRole("button", { name: "Browse starter templates" })
+      .click();
     // With zero mounts the gallery explains folder granting and offers the typed form.
     const gallery = page.getByTestId("template-gallery");
     await expect(gallery).toBeVisible({ timeout: 15_000 });
@@ -269,5 +271,111 @@ test("the browser template gallery grants a read-only model mount and the asset 
       .delete(`${backend}/api/mounts/${encodeURIComponent(mountId)}`)
       .catch(() => undefined);
     await rm(modelsRoot, { recursive: true, force: true });
+  }
+});
+
+test("a ComfyUI checkpoint filename binds through the real mount index on import", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(120_000);
+
+  const parent = resolve(frontendRoot, ".ci/browser-mount-live");
+  await mkdir(parent, { recursive: true });
+  const root = await mkdtemp(resolve(parent, "checkpoint-"));
+  const name = "v1-5-pruned-emaonly.safetensors";
+  const id = "checkpoint-import";
+  const bytes = tinySafetensors();
+  bytes.writeFloatLE(37, bytes.length - 4);
+  await writeFile(resolve(root, name), bytes);
+  const workflow = {
+    version: 0.4,
+    nodes: [
+      {
+        id: 1,
+        type: "CheckpointLoaderSimple",
+        pos: [80, 80],
+        widgets_values: [name],
+        outputs: [{ name: "MODEL" }, { name: "CLIP" }, { name: "VAE" }],
+      },
+    ],
+    links: [],
+  };
+  let granted = false;
+  try {
+    expect(findMount(await mounts(request), id)).toBeUndefined();
+    const response = await request.post(`${backend}/api/mounts`, {
+      data: { id, path: root, mode: "read", kind: "model/checkpoint" },
+    });
+    expect(response.ok(), await response.text()).toBe(true);
+    granted = true;
+    await expect
+      .poll(async () => findMount(await mounts(request), id)?.state, {
+        timeout: 30_000,
+      })
+      .toBe("ready");
+
+    await page.goto("/");
+    await expect(page.getByTestId("status-bar")).toContainText("connected");
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          window.__dinksterTest?.app.backends
+            .get()
+            .some((backend) =>
+              backend.registry.get()?.schemas.has("CheckpointLoaderSimple"),
+            ),
+        ),
+      )
+      .toBe(true);
+    expect(
+      await page.evaluate(
+        async (source) =>
+          window.__dinksterTest!.app.importWorkflowFile({
+            name: "checkpoint.json",
+            text: async () => JSON.stringify(source),
+          }),
+        workflow,
+      ),
+    ).toBe(true);
+
+    const selection = () =>
+      page.evaluate(
+        () =>
+          window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!
+            .values.ckpt_name,
+      );
+    await expect.poll(selection).toMatchObject({
+      name,
+      size: bytes.length,
+      virtualPath: `mounts/${id}/${name}`,
+    });
+    const asset = (await selection()) as { digest: string };
+    expect(asset.digest).toMatch(/^blake3:[0-9a-f]{64}$/);
+    const download = await request.get(
+      `${backend}/api/assets/${encodeURIComponent(asset.digest)}`,
+    );
+    expect(download.ok()).toBe(true);
+    expect(await download.body()).toEqual(bytes);
+    await expect(
+      page.getByTestId("import-asset-resolution-dialog"),
+    ).toHaveCount(0);
+    const document = await page.evaluate(
+      () => window.__dinksterTest!.app.activeTab()!.store.doc,
+    );
+    expect(
+      Object.values(document.graphs.g0!.nodes).map((node) => node.type),
+    ).toEqual(["CheckpointLoaderSimple"]);
+    expect(document.ext?.["importer.comfyWorkflow"]).toEqual(workflow);
+  } finally {
+    try {
+      if (granted) {
+        await request
+          .delete(`${backend}/api/mounts/${id}`)
+          .catch(() => undefined);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   }
 });
