@@ -68,6 +68,17 @@ input membership; Apply selected value does not change the menu. Cancel or an
 outside press discards unapplied drafts. Menu entries accept strings, finite
 numbers and booleans, including duplicate entries and an empty array.
 
+## Painter
+
+The native Painter node's mask row opens an RGBA canvas at its authored width
+and height. Brush color and size, erasing, clearing and opening an image edit
+only the draft layer. Transparent pixels preserve the node's background or
+connected image; the layer's alpha supplies the MASK output. Existing granted
+paint files reopen on the canvas. Apply uploads a PNG through the tab's native
+media authority and stores the returned ASSET reference in one undoable edit.
+Cancel and close discard the draft. Missing files, failed uploads or a changed
+document, project or backend never replace the stored reference.
+
 ## Authored 3D viewport
 
 LOAD_3D edits the selected model file through an orbit viewport. Projection,
