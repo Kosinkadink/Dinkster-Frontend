@@ -16,11 +16,11 @@ const schema: NodeSchema = {
     type: { kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } } }],
 }
 const resolve = (type: string) => type === 'Loader' ? schema : undefined
-function session() {
+function session(files = [asset('a')]) {
   const document: WorkflowDocument = {
     format: 'dinkster-workflow', formatVersion: 1, lineage: asLineageId('retention'), root: asGraphDefId('g0'),
     graphs: { g0: { id: asGraphDefId('g0'), name: 'Root', nodes: {
-      n0: { id: asNodeId('n0'), type: 'Loader', values: { files: [asset('a')] } },
+      n0: { id: asNodeId('n0'), type: 'Loader', values: { files } },
     }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } }, view: { graphs: {} },
   }
   return createLocalSession(document, coreCommandRegistry([], resolve))
@@ -355,6 +355,103 @@ describe('workflow candidate admission', () => {
     expect(outcome.ok).toBe(true)
   })
 
+  it.each(['acknowledged', 'lost', 'complete', 'revision', 'unavailable', 'stale'] as const)(
+    'preserves incomplete ownership before candidate publication: %s', async (scenario) => {
+      const local = session()
+      const prepared = local.prepareDispatch!(replace('b'))
+      if (!prepared.ok) throw new Error('candidate rejected')
+      const opaque: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+        n0: { id: asNodeId('n0'), type: 'Unavailable', values: { future: { files: [asset('e')] } } },
+      } } } }
+      const journal = new Map<string, string>()
+      let stored: RetainedAssets | undefined
+      const connection = {
+        id: 'backend', assetUrl: () => 'http://assets.test/',
+        retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
+          expect(declaration).toEqual({ revision: 0, complete: false,
+            digests: ['a', 'b', 'e'].map((letter) => asset(letter).digest) })
+          expect([...journal.values()].map((value) => JSON.parse(value))).toEqual([{
+            version: 3, connectionId: 'backend', assetBaseUrl: 'http://assets.test/', owner,
+            digests: declaration.digests, complete: false,
+            documentLineage: local.doc.lineage, documentRevision: prepared.history.revision,
+          }])
+          expect(local.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('a')])
+          stored = { ...owner, ...declaration, revision: scenario === 'revision' ? 2 : 1,
+            complete: scenario === 'complete' }
+          if (scenario === 'lost' || scenario === 'unavailable') throw new Error('response unavailable')
+          return stored
+        },
+        fetchRetainedAssets: async () => scenario === 'unavailable' ? undefined : stored,
+      } as unknown as DinksterConnection
+      const operation = admitWorkflowDispatch(connection, { ...prepared, retainedDocuments: [opaque] }, resolve,
+        () => scenario !== 'stale', { setItem: (key, value) => { journal.set(key, value) } })
+      const accepted = scenario === 'acknowledged' || scenario === 'lost'
+      if (accepted) expect((await operation).ok).toBe(true)
+      else await expect(operation).rejects.toThrow()
+      expect(local.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset(accepted ? 'b' : 'a')])
+      expect(journal.size).toBe(1)
+    },
+  )
+
+  it('acknowledges an empty known set as incomplete when every schema is unavailable', async () => {
+    const local = session([])
+    const prepared = local.prepareDispatch!({ command: 'node.setTitle', params: {
+      graphId: 'g0', nodeId: 'n0', title: 'Opaque node',
+    } })
+    if (!prepared.ok) throw new Error('candidate rejected')
+    const connection = {
+      id: 'backend', assetUrl: () => 'http://assets.test/',
+      retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
+        expect(declaration).toEqual({ revision: 0, complete: false, digests: [] })
+        return { ...owner, ...declaration, revision: 1 }
+      },
+    } as unknown as DinksterConnection
+    expect((await admitWorkflowDispatch(connection, prepared,
+      () => undefined, () => true, { setItem: () => {} })).ok).toBe(true)
+    expect(local.doc.graphs.g0!.nodes.n0!.title).toBe('Opaque node')
+  })
+
+  it.each(['unknown-schema', 'known-schema', 'typed', 'typed-extra'] as const)('rejects malformed stored identities: %s', async (scenario) => {
+    const local = session()
+    const prepared = local.prepareDispatch!(replace('b'))
+    if (!prepared.ok) throw new Error('candidate rejected')
+    const malformed = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { ...local.doc.graphs.g0!.nodes.n0!, values: { files: scenario === 'typed'
+        ? { $typed: { type: false, value: asset('e') } } : scenario === 'typed-extra'
+          ? { $typed: { type: 'asset<DATA>', value: asset('e'), hidden: 'unknown' } }
+          : [{ ...asset('e'), digest: 'not-canonical' }] } },
+    } } } }
+    const journal = new Map<string, string>()
+    await expect(admitWorkflowDispatch({} as DinksterConnection, { ...prepared, retainedDocuments: [malformed] },
+      scenario === 'known-schema' ? resolve : () => undefined,
+      () => true, { setItem: (key, value) => { journal.set(key, value) } }))
+      .rejects.toThrow('malformed')
+    expect(journal.size).toBe(0)
+    expect(local.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('a')])
+  })
+
+  it.each([false, true])('distinguishes missing historical schemas from stale replay: %s', async (stale) => {
+    const local = session()
+    const prepared = local.prepareDispatch!(replace('b'))
+    if (!prepared.ok) throw new Error('candidate rejected')
+    const connection = {
+      id: 'backend', assetUrl: () => 'http://assets.test/',
+      retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
+        expect(stale).toBe(false)
+        expect(declaration).toEqual({ revision: 0, complete: false, digests: [asset('a').digest, asset('b').digest] })
+        return { ...owner, ...declaration, revision: 1 }
+      },
+    } as unknown as DinksterConnection
+    const operation = admitWorkflowDispatch(connection, { ...prepared, currentHistory: {
+      revision: 1, redo: [], undo: [{ forward: [], inverse: [{
+        op: 'replace', path: ['graphs', 'g0', 'nodes', 'n0', 'type'], oldValue: stale ? 'Wrong' : 'Loader', value: 'Unavailable',
+      }] }],
+    } }, resolve, () => true, { setItem: () => { expect(stale).toBe(false) } })
+    if (stale) await expect(operation).rejects.toThrow('stale')
+    else expect((await operation).ok).toBe(true)
+    expect(local.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset(stale ? 'a' : 'b')])
+  })
+
   it('journals current and undo/redo roots before acknowledgment, then publishes once', async () => {
     const local = session()
     local.dispatch(replace('b'))
@@ -377,7 +474,7 @@ describe('workflow candidate admission', () => {
     const { owner, declaration } = await requested.promise
     expect(declaration.digests).toEqual(['a', 'b', 'c', 'd'].map((letter) => asset(letter).digest))
     expect([...journal.values()].map((value) => JSON.parse(value))).toEqual([{
-      version: 2, connectionId: 'backend', assetBaseUrl: 'http://assets.test/', owner, digests: declaration.digests,
+      version: 3, connectionId: 'backend', assetBaseUrl: 'http://assets.test/', owner, digests: declaration.digests, complete: true,
       documentLineage: local.doc.lineage, documentRevision: prepared.history.revision,
     }])
     expect(local.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])

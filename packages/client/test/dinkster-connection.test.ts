@@ -1630,6 +1630,7 @@ describe('retained asset ownership', () => {
     expect(requests[0]!.init!.method).toBe('PUT')
     expect(await conn.fetchRetainedAssets(owner)).toEqual(manifest)
     expect(requests[1]!.init?.method).toBe('GET')
+    expect(requests[1]!.init?.cache).toBe('no-store')
   })
 
   it('does not accept a different owner, set, completeness or mutation revision', async () => {

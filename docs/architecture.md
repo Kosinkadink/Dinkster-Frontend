@@ -84,10 +84,16 @@ separate persistence path rather than being duplicated in each retention intent.
 The asset census recognizes the mask command's exact source-association marker
 on mask-paint nodes: a string node ID and the fixed mask output ID contain no
 asset identity. Extra marker fields, other metadata and unknown schemas remain
-incomplete and refuse publication.
+incomplete. Known canonical references in opaque stored values are retained, but
+the owner explicitly declares `complete: false`, even for an empty known set.
+This conservative document owner blocks collection; it does not certify byte
+availability or global retention completeness. Malformed identities, invalid
+dynamic identities and stale history replay still refuse publication.
 The union includes current, undo, redo, proposed and shared pending roots.
-Exact acknowledgment or
-exact owner reconciliation precedes publication; a changed destination or stale
+The journal includes the exact completeness declaration. Exact acknowledgment or
+exact owner reconciliation, including completeness and the new revision, precedes
+publication. Reconciliation GET bypasses the HTTP cache, including against servers
+without retention response cache headers. A changed destination or stale
 candidate is refused. Unsupported schemas, opaque dynamic state and unrecognized extension
 records are incomplete, not empty root sets. Ordinary synchronous dispatch is unchanged.
 Schema defaults contribute roots only when the node has no stored override.

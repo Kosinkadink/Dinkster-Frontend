@@ -7,6 +7,7 @@ import {
   documentNodeResolver,
   elabInputsOf,
   elaborateInterface,
+  isAssetWidgetInput,
   maskPaintSourceNodeId,
   parseTypedLiteralWire,
   replayHistoryOps,
@@ -56,10 +57,25 @@ export function workflowAssetRoots(
   history: HistorySnapshot,
   resolve: SchemaResolver,
   additionalDocuments: readonly WorkflowDocument[] = [],
-): { readonly complete: boolean; readonly digests: readonly string[] } {
+): { readonly complete: boolean; readonly digests: readonly string[]; readonly refusal?: string } {
   const digests = new Set<string>()
   let complete = true
+  let refusal: string | undefined
+  const checkedOpaque = new WeakSet<object>()
+  // Unknown storage can reveal known roots without certifying that these are all of them.
+  const opaqueRoots = (value: Json): void => {
+    if (typeof value !== 'object' || value === null || checkedOpaque.has(value)) return
+    checkedOpaque.add(value)
+    if (isAssetRef(value)) { digests.add(value.digest); return }
+    if (!Array.isArray(value) && Object.hasOwn(value, 'digest')) refusal = 'Workflow asset identity is malformed'
+    if (!Array.isArray(value) && Object.hasOwn(value, '$typed')) {
+      if (parseTypedLiteralWire(value) === undefined || Object.keys(value).length !== 1 ||
+        Object.keys(value['$typed'] as object).length !== 2) refusal = 'Workflow typed literal is malformed'
+    }
+    for (const entry of Object.values(value)) opaqueRoots(entry)
+  }
   const checkedExtensions = new WeakSet<object>()
+  const checkedSchemaExtensions = new WeakSet<object>()
   const knownSchemaExtensions = new WeakSet<object>()
   const checkedNodes = new WeakMap<object, Set<NodeSchema | undefined>>()
   let hasContextualValues = false
@@ -69,42 +85,48 @@ export function workflowAssetRoots(
     if (type.kind === 'tuple') return type.elements.every(supported)
     return type.kind === 'concrete' && (type.name === 'ASSET' || primitiveNames.has(type.name))
   }
-  const valueRoots = (value: Json, type: TypeExpr): void => {
+  const valueRoots = (value: Json, type: TypeExpr, selection = false): void => {
+    if (selection && typeof value === 'string') { complete = false; return }
     const typed = parseTypedLiteralWire(value)
     if (typed !== undefined) {
       const wrapper = value as { readonly [key: string]: Json }
       if (Object.keys(wrapper).length !== 1 || Object.keys(wrapper['$typed'] as object).length !== 2) {
         complete = false
+        refusal = 'Workflow typed literal is malformed'
         return
       }
       valueRoots(typed.value, typeExprFromTypeId(typed.type))
     } else if (!supported(type)) {
       complete = false
+      opaqueRoots(value)
     } else if (type.kind === 'asset' || (type.kind === 'concrete' && type.name === 'ASSET')) {
       if (isAssetRef(value)) digests.add(value.digest)
-      else complete = false
+      else { complete = false; refusal = 'Workflow asset identity is malformed' }
     } else if (type.kind === 'list') {
-      if (!Array.isArray(value)) complete = false
+      if (!Array.isArray(value)) { complete = false; refusal = 'Workflow asset list is malformed' }
       else for (const element of value) valueRoots(element, type.element)
     } else if (type.kind === 'tuple') {
-      if (!Array.isArray(value) || value.length !== type.elements.length) complete = false
+      if (!Array.isArray(value) || value.length !== type.elements.length) { complete = false; refusal = 'Workflow asset tuple is malformed' }
       else value.forEach((element, index) => valueRoots(element, type.elements[index]!))
     } else if (typeof value === 'object') {
       complete = false
+      opaqueRoots(value)
     }
   }
-  const checkExtensions = (value: Json): void => {
+  const checkExtensions = (value: Json, stored = true): void => {
     if (typeof value !== 'object' || value === null) return
-    if (checkedExtensions.has(value)) return
-    checkedExtensions.add(value)
+    const checked = stored ? checkedExtensions : checkedSchemaExtensions
+    if (checked.has(value)) return
+    checked.add(value)
     if (Array.isArray(value)) {
-      for (const entry of value) checkExtensions(entry)
+      for (const entry of value) checkExtensions(entry, stored)
     } else {
       for (const [key, entry] of Object.entries(value)) {
         if (key === 'ext' && typeof entry === 'object' && entry !== null && Object.keys(entry).length > 0 &&
           !knownSchemaExtensions.has(value)) {
           complete = false
-        } else checkExtensions(entry)
+          if (stored) opaqueRoots(entry)
+        } else checkExtensions(entry, stored)
       }
     }
   }
@@ -137,6 +159,9 @@ export function workflowAssetRoots(
         !Object.hasOwn(node.ext, MASK_PAINT_SOURCE_EXT_KEY) || maskPaintSourceNodeId(node) === undefined)) complete = false
     checkedExtensions.add(node)
     for (const [key, value] of Object.entries(node)) if (key !== 'ext') checkExtensions(value as Json)
+    opaqueRoots(node.values as Json)
+    if (node.ext !== undefined) opaqueRoots(node.ext)
+    if (node.dynamic !== undefined) opaqueRoots(node.dynamic as Json)
     if (schema === undefined) { complete = false; return }
     const metadata = schema.ext?.['dinkster']
     if (schema.ext !== undefined && Object.keys(schema.ext).length === 1 &&
@@ -148,7 +173,7 @@ export function workflowAssetRoots(
         (fields['ioBound'] === undefined || fields['ioBound'] === true)) knownSchemaExtensions.add(schema)
     }
     for (const item of schema.items) if (item.kind === 'input') registerInputDefaults(item)
-    checkExtensions(schema as unknown as Json)
+    checkExtensions(schema as unknown as Json, false)
     if (Object.values(node.dynamic ?? {}).some((state) => !assetFreeDynamicState(state))) complete = false
     for (const item of schema?.items ?? []) {
       if (item.kind !== 'input' && item.kind !== 'output') complete = false
@@ -157,7 +182,10 @@ export function workflowAssetRoots(
     const active = elaborateInterface(schema, node, connectivity, { promoteGhosts: false })
     const stored = dynamic || Object.keys(node.dynamic ?? {}).length > 0
       ? elaborateInterface(schema, node, connectivity, { promoteGhosts: false, includeDormant: true }) : active
-    if (active.diagnostics.length > 0 || stored.diagnostics.length > 0) complete = false
+    if (active.diagnostics.length > 0 || stored.diagnostics.length > 0) {
+      complete = false
+      refusal = 'Workflow dynamic identities are invalid'
+    }
     const inputs = elabInputsOf(stored)
     for (const { spec } of inputs) {
       if (spec.ext !== undefined && Object.keys(spec.ext).some((key) => key !== 'default')) complete = false
@@ -167,13 +195,13 @@ export function workflowAssetRoots(
       if (input.ancestry?.some((ancestor) => ancestor.ghost)) continue
       const fallback = input.spec.widget?.default !== undefined ? input.spec.widget.default : input.spec.ext?.['default']
       if (!Object.hasOwn(node.values, valueKeyOf(input)) && fallback !== undefined) {
-        valueRoots(fallback as Json, input.spec.type)
+        valueRoots(fallback as Json, input.spec.type, isAssetWidgetInput(input.spec) && input.spec.widget?.selection)
       }
     }
     for (const [input, value] of Object.entries(node.values)) {
       const matching = inputs.filter((item) => valueKeyOf(item) === input)
       if (matching.length === 0) complete = false
-      for (const item of matching) valueRoots(value, item.spec.type)
+      for (const item of matching) valueRoots(value, item.spec.type, isAssetWidgetInput(item.spec) && item.spec.widget?.selection)
     }
   }
   const visit = (snapshot: WorkflowDocument, changes?: readonly PatchOp[]): void => {
@@ -196,6 +224,7 @@ export function workflowAssetRoots(
     for (const graph of Object.values(snapshot.graphs)) {
       for (const node of Object.values(graph.nodes)) visitNode(node, schemas, graph)
       for (const source of Object.values(graph.valueSources ?? {})) {
+        opaqueRoots(source.value)
         if (source.spec?.options !== undefined) complete = false
         const typed = parseTypedLiteralWire(source.value)
         if (typed !== undefined) valueRoots(source.value, typeExprFromTypeId(typed.type))
@@ -220,12 +249,12 @@ export function workflowAssetRoots(
     let snapshot = document
     for (const record of [...records].reverse()) {
       const replayed = replayHistoryOps(snapshot, record[direction], { requireRecordedValues: true })
-      if (replayed.stale !== undefined) complete = false
+      if (replayed.stale !== undefined) { complete = false; refusal = 'Workflow retained history is stale' }
       snapshot = replayed.doc
       visit(snapshot, replayed.applied)
     }
   }
-  return { complete, digests: [...digests].sort() }
+  return { complete, digests: [...digests].sort(), ...(refusal === undefined ? {} : { refusal }) }
 }
 
 /** Durable candidate ownership precedes publication; successful owners are not released on unmount. */
@@ -239,22 +268,22 @@ export async function admitWorkflowDispatch(
   // Proposed history adds only the captured current state and trims existing records.
   const roots = workflowAssetRoots(prepared.currentDocument, prepared.currentHistory, resolve,
     [prepared.document, ...(prepared.retainedDocuments ?? [])])
-  if (!roots.complete) throw new Error('Workflow asset identities are incomplete')
+  if (roots.refusal !== undefined) throw new Error(roots.refusal)
   const digests = roots.digests
   if (digests.length > 4096) throw new Error('Workflow exceeds the retained identity limit')
   const owner = { scope: 'local', ownerKind: 'document' as const, ownerId: `workflow-candidate:${uuidv4()}` }
   const key = scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)
   const intent = {
-    version: 2, connectionId: connection.id, assetBaseUrl: connection.assetUrl(''), owner, digests,
+    version: 3, connectionId: connection.id, assetBaseUrl: connection.assetUrl(''), owner, digests, complete: roots.complete,
     documentLineage: prepared.document.lineage, documentRevision: prepared.history.revision,
   }
   storage.setItem(key, JSON.stringify(intent))
   const matches = (value: RetainedAssets | undefined): boolean =>
     value !== undefined && value.scope === owner.scope && value.ownerKind === owner.ownerKind &&
-    value.ownerId === owner.ownerId && value.revision === 1 && value.complete &&
+    value.ownerId === owner.ownerId && value.revision === 1 && value.complete === roots.complete &&
     value.digests.length === digests.length && value.digests.every((digest, index) => digest === digests[index])
   try {
-    if (!matches(await connection.retainAssets(owner, { revision: 0, complete: true, digests }))) {
+    if (!matches(await connection.retainAssets(owner, { revision: 0, complete: roots.complete, digests }))) {
       throw new Error('Workflow retention acknowledgment differs')
     }
   } catch (error) {
