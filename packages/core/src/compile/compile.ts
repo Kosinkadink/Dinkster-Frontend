@@ -2037,9 +2037,9 @@ function compileImpl(
 
   /**
    * Lower ONE widget-held literal onto its own declared input: stamp $typed
-   * when its runtime type is an asset source differing from the declared
-   * type (so the backend's coercion planner sees the source type instead of
-   * wrapping refs raw as the declared type), else pass through plain.
+   * for a numeric-union widget or an asset source differing from the declared
+   * type, so the backend receives a concrete source type. Concrete numeric
+   * inputs keep their plain literals.
    * Stamping needs the typedLiteral capability; without it, REFUSE loudly
    * (error diag, input omitted - returns undefined) instead of silently
    * passing raw refs the server would wrap as the declared type - the same
@@ -2060,6 +2060,13 @@ function compileImpl(
     value: Json,
     sink: Diagnostic[] = diags,
   ): Json | undefined => {
+    const type = input.spec.type
+    if (emitRegions && type.kind === 'union' && type.names.length === 2 &&
+      type.names.includes('FLOAT') && type.names.includes('INT') && input.spec.widget !== undefined) {
+      if (emitTypedLiterals) return typedLiteralWire('FLOAT', value) as Json
+      sink.push(diag('error', 'compile', 'compile.value.numericUnionUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve the numeric widget type`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef } }))
+      return undefined
+    }
     if (canonicalTypeIdOf(input.spec.type) === 'INT' && isCanonicalUnsafeInteger(value)) {
       if (emitDecimalInts) return decimalIntegerWire(value)
       sink.push(diag('error', 'compile', 'compile.value.decimalIntUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve this large integer`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef } }))

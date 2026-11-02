@@ -39,6 +39,35 @@ const compileInput = (
 })
 
 describe('golden pairs', () => {
+  it.each([25, 29.97, undefined])('stamps numeric-union widget value %s without changing concrete numerics', (value) => {
+    const schema = parseDinksterSchema('Numeric', {
+      outputNode: true,
+      interface: [
+        { role: 'input', id: 'frame_rate', type: { kind: 'union', types: ['FLOAT', 'INT'] }, required: true, default: 23.976, widget: { type: 'NUMBER', step: 0.01 } },
+        { role: 'input', id: 'count', type: { kind: 'concrete', types: ['INT'] }, required: true, widget: { type: 'NUMBER', min: 0 } },
+      ],
+    }).schema!
+    expect(schema).toBeDefined()
+    const base = loadWorkflow('minimal')
+    const document: WorkflowDocument = { ...base, graphs: { [base.root]: {
+      ...base.graphs[base.root]!, links: {}, nodes: {
+        n0: { id: asNodeId('n0'), type: 'Numeric', values: { count: 7, ...(value === undefined ? {} : { frame_rate: value }) } },
+      },
+    } } }
+    const before = structuredClone(document)
+    const input = compileInput(document, { kind: 'full' }, () => schema)
+    const supported = compile({ ...input, graphFeatures: ['regions', 'typedLiteral'] })
+    expect(supported.ok, JSON.stringify(!supported.ok && supported.diagnostics)).toBe(true)
+    if (supported.ok) expect(supported.artifact.dinksterGraph?.nodes.n0).toEqual({
+      nodeType: 'Numeric', inputs: { frame_rate: { $typed: { type: 'FLOAT', value: value ?? 23.976 } }, count: 7 },
+    })
+    expect(compile({ ...input, graphFeatures: ['regions'] }).ok).toBe(false)
+    const legacy = compile(input)
+    expect(legacy.ok).toBe(true)
+    if (legacy.ok) expect(legacy.artifact.prompt.n0!.inputs).toEqual({ frame_rate: value ?? 23.976, count: 7 })
+    expect(document).toEqual(before)
+  })
+
   it('requires explicit supported type stamps for nonconcrete additional literals', () => {
     const schema = parseDinksterSchema('Authored', {
       outputNode: true, additionalInputs: { kind: 'wildcard' }, interface: [],
