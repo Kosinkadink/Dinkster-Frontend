@@ -209,6 +209,12 @@ test('opens exact graph document bytes and matches the live flatten image and tr
     outputId: 'layers',
     rendition: 'document',
   })
+  // Completion arrives before persisted output descriptors finish hydrating.
+  await page.waitForFunction(({ prompt, saveId }) => {
+    const execution = [...window.__dinksterTest!.app.store.executions.get().values()]
+      .find((entry) => entry.ref.prompt === prompt)
+    return execution?.outputs[saveId]?.assets !== undefined
+  }, { prompt: recipePrompt, saveId: recipe.saveId })
   const assetOutput = await page.evaluate(({ prompt, saveId }) => {
     const execution = [...window.__dinksterTest!.app.store.executions.get().values()]
       .find((entry) => entry.ref.prompt === prompt)!
