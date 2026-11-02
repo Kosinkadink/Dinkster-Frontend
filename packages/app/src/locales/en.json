@@ -60,6 +60,7 @@
   "painterWidget.canvas": "Painting canvas",
   "painterWidget.stale": "The document, project or backend changed. Reopen the painter before applying.",
   "painterWidget.unavailable": "The painting is unavailable. Open an image or clear the layer to start again.",
+  "painterWidget.sourceUnavailable": "Run the connected image source, then reopen the painter. Its current first frame is required for painting.",
   "colorsWidget.color": "Color {index}",
   "colorsWidget.pick": "Choose color {index}",
   "colorsWidget.earlier": "Move color {index} up",

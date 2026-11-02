@@ -22,7 +22,7 @@ it.each(['apply', 'local', 'failure', 'cancel', 'retarget', 'closed'] as const)(
   const store = new DocumentStore(doc, coreCommandRegistry())
   const tab = { store } as unknown as Tab
   const registry = createWidgetRegistry()
-  const context = { clearRect() {}, drawImage() {} }
+  const context = { clearRect() {}, drawImage() {}, fillRect() {} }
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context as unknown as CanvasRenderingContext2D)
   vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => callback(new Blob(['painted-pixels'], { type: 'image/png' })))
   vi.stubGlobal('createImageBitmap', async () => ({ close() {} }))

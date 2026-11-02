@@ -60,6 +60,7 @@
   "painterWidget.canvas": "绘画画布",
   "painterWidget.stale": "文档、项目或后端已更改。请重新打开绘画编辑器后再应用。",
   "painterWidget.unavailable": "绘画不可用。请打开图像或清除图层后重试。",
+  "painterWidget.sourceUnavailable": "请运行已连接的图像源，然后重新打开绘画编辑器。绘画需要其当前的第一帧。",
   "colorsWidget.color": "\u989c\u8272 {index}",
   "colorsWidget.pick": "\u9009\u62e9\u989c\u8272 {index}",
   "colorsWidget.earlier": "\u524d\u79fb\u989c\u8272 {index}",
