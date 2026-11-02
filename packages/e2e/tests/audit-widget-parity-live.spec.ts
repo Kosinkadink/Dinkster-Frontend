@@ -367,6 +367,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
     'LoadImageOutput.image',
     'LoadLatent.latent',
     'LoadVideo.file',
+    'Painter.mask',
     'dinkster.load_audio.audio',
     'dinkster.load_gaussian_splat.splat',
     'dinkster.load_image.image',

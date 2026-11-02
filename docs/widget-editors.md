@@ -83,6 +83,8 @@ paint files reopen on the canvas, including local files addressed by an
 engine-issued binding rather than a portable digest. Apply uploads a PNG
 through the tab's native media authority and stores the returned ASSET
 reference in one undoable edit.
+The shared upload destination picker selects a granted mount and subfolder;
+remembered destinations are scoped to the backend and project.
 Cancel and close discard the draft. Missing files, failed uploads or a changed
 document, project or backend never replace the stored reference.
 

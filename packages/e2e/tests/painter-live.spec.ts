@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { selectProductOption } from './fixtures.js'
 
 async function openPainter(page: Page, nodeId = 'paint'): Promise<void> {
   const point = await page.evaluate((nodeId) => {
@@ -56,10 +57,14 @@ for (const connected of [false, true]) test(`Painter ${connected ? 'connected fi
     return { painted: [...context.getImageData(canvas.width / 2, canvas.height / 2, 1, 1).data], clear: [...context.getImageData(0, 0, 1, 1).data] }
   })
   expect(await pixels()).toEqual({ painted: [225, 38, 104, 255], clear: [0, 0, 0, 0] })
+  await selectProductOption(page, page.getByTestId('upload-destination-mount'), 'output')
+  await page.getByTestId('upload-destination-folder').fill('paintings')
   const upload = page.waitForResponse((response) => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/assets/media')
   await page.getByRole('button', { name: 'Apply', exact: true }).click()
   const uploaded = await upload
   expect(uploaded.ok(), await uploaded.text()).toBe(true)
+  expect(new URL(uploaded.url()).searchParams.get('mount')).toBe('output')
+  expect(new URL(uploaded.url()).searchParams.get('folder')).toBe('paintings')
   await expect(page.getByTestId('painter-editor')).toHaveCount(0)
   const asset = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.paint!.values.mask)
   expect(asset).toMatchObject({ name: expect.stringMatching(/^painting(?:_[0-9]+)?\.png$/), mediaType: 'image/png' })
@@ -112,10 +117,10 @@ for (const connected of [false, true]) test(`Painter ${connected ? 'connected fi
       app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'color', value: 0x12ab34 } })
     })
     await openPainter(page)
-    await expect(page.getByTestId('painter-editor').getByRole('alert')).toContainText('Run the connected image source')
+    await expect(page.getByTestId('painter-editor').getByRole('alert').filter({ hasText: 'Run the connected image source' })).toBeVisible()
     await page.getByRole('button', { name: 'Clear paint' }).click()
     await page.getByRole('button', { name: 'Apply', exact: true }).click()
-    await expect(page.getByTestId('painter-editor').getByRole('alert')).toContainText('Run the connected image source')
+    await expect(page.getByTestId('painter-editor').getByRole('alert').filter({ hasText: 'Run the connected image source' })).toBeVisible()
     expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.paint!.values.mask)).toBeUndefined()
     const stale = testInfo.outputPath('stale-source.png')
     await page.getByTestId('painter-editor').screenshot({ path: stale })

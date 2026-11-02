@@ -8,6 +8,8 @@ import { ProductActionFooter, ProductField, ProductNotice } from '../ProductForm
 import { ProductNumberInput } from '../ProductNumberInput.js'
 import { useAppMessage } from '../locale.js'
 import { activeProjectId } from '../projects.js'
+import { UploadDestination } from '../UploadDestination.js'
+import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 import './painter-widget-editor.css'
 
@@ -16,6 +18,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
   const ed = props.editor.ed
   const backend = props.editor.app.backendForTab(ed.tab)
   const project = activeProjectId()
+  const [destination, setDestination] = createSignal(readUploadDestination(String(backend.id), project))
   const revision = ed.tab.store.revision
   const target = ed.target
   const graphId = target.kind === 'input' ? target.familyOwner?.graphId ?? ed.graphId : ed.graphId
@@ -200,9 +203,12 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
       const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value
         ? resolve(value) : reject(new Error(message('painterWidget.unavailable'))), 'image/png'))
       requireCurrent()
+      const choice = destination()
       const ref = await backend.connection.uploadMediaAsset(new File([blob], 'painting.png', { type: 'image/png' }),
-        { scope: 'local', kind: 'media/image', name: 'painting.png', signal: abort.signal })
+        { scope: 'local', kind: 'media/image', name: 'painting.png', signal: abort.signal,
+          ...(choice.mount ? { mount: choice.mount } : {}), ...(choice.folder ? { folder: choice.folder } : {}) })
       requireCurrent()
+      try { saveUploadDestination(String(backend.id), project, choice) } catch { /* Storage failure does not discard a successful upload. */ }
       props.commitValue(ref)
     } catch (reason) { if (live) setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { if (live) setBusy(false) }
@@ -232,6 +238,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
       onPointerUp={(event) => { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId); point = undefined }}
       onPointerCancel={() => { point = undefined }} onLostPointerCapture={() => { point = undefined }} />
     </div>
+    <UploadDestination connection={backend.connection} machine={backend.label} value={destination()} disabled={busy()} onChange={setDestination} />
     <Show when={error()}>{(detail) => <ProductNotice tone="error">{detail()}</ProductNotice>}</Show>
     <ProductActionFooter>
       <ProductButton onClick={props.close}>{message('common.cancel')}</ProductButton>

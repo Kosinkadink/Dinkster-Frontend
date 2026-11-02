@@ -30,6 +30,9 @@ it.each(['apply', 'local', 'failure', 'cancel', 'retarget', 'closed'] as const)(
   const pending = new Promise<void>((resolve) => { finish = resolve })
   let requested = false
   const connection = {
+    fetchMountSettings: async () => ({ mounts: [] }),
+    fetchMountLocations: async () => ({ activeMounts: [] }),
+    onMountsChanged: () => () => {},
     fetchAssetBytes: async () => outcome === 'local' ? undefined : new Uint8Array([1]).buffer,
     fetchLocalAssetBytes: async (binding: string) => binding === 'engine-issued-binding' ? new Uint8Array([2]).buffer : undefined,
     uploadMediaAsset: async (file: File) => {
@@ -74,7 +77,7 @@ it.each(['apply', 'local', 'failure', 'cancel', 'retarget', 'closed'] as const)(
       expect(store.undo()).toBe(true)
       expect(store.doc.graphs.g0!.nodes.n1!.values.mask).toEqual(initial)
     } else if (outcome !== 'closed') {
-      await vi.waitFor(() => expect(document.querySelector('[role="alert"]')?.textContent).toContain(outcome === 'failure' ? 'upload refused' : 'backend changed'))
+      await vi.waitFor(() => expect(document.querySelector('[role="alert"][data-tone="error"]')?.textContent).toContain(outcome === 'failure' ? 'upload refused' : 'backend changed'))
     } else await pending
   }
   if (outcome !== 'closed') dispose()
