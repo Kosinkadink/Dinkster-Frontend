@@ -590,8 +590,10 @@ export function App(props: {
     // this panel.
     if (sourceId !== 'history') return
     const exec = app.store.executions.get().get(entry.id)
-    if (exec?.artifact && app.openExecutionView(exec.ref)) {
-      setPanelOpen(app.panels, app.dock, 'library', 'left', false)
+    if (exec?.artifact) {
+      void app.openExecutionView(exec.ref).then((ok) => {
+        if (ok) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
+      })
     }
   }
   const libraryEntryAction = (sourceId: string, entry: CollectionEntry, actionId: string): void => {
@@ -1216,7 +1218,7 @@ export function App(props: {
       title={app.tabTitleFor(p.exec.ref)}
       testId="execution-row"
       relation={overlayRoleOf(p.exec)}
-      onOpen={() => app.openExecutionView(p.exec.ref)}
+      onOpen={() => { void app.openExecutionView(p.exec.ref) }}
       onPin={live() ? () => {
         const tab = live()
         if (!tab) return
@@ -2483,7 +2485,7 @@ export function App(props: {
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), tab().execution === undefined && app.registryForTab(tab()) !== undefined)}
                       onQueue={() => { void app.queue(tab()) }}
-                      onOpenExecution={(ref) => { app.openExecutionView(ref) }}
+                      onOpenExecution={(ref) => { void app.openExecutionView(ref) }}
                     />
                   )}
                 </Show>

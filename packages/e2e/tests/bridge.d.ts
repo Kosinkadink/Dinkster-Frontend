@@ -337,7 +337,7 @@ interface DinksterTestBridge {
       | undefined
     registerRun(tab: DinksterBridgeTab, ref: DinksterBridgeExecutionRef, artifact: DinksterBridgeCompileArtifact): void
     /** Open (or focus) the frozen view of a registered execution. */
-    openExecutionView(ref: DinksterBridgeExecutionRef): boolean
+    openExecutionView(ref: DinksterBridgeExecutionRef): Promise<boolean>
     openDocument(json: unknown, title: string, importVia?: undefined, forkOnCollision?: boolean): readonly unknown[]
     /** Register another backend without UI panel juggling (owner-race specs). */
     addBackend(baseUrl: string, label?: string, start?: boolean, protocol?: string, persist?: boolean): ReturnType<DinksterTestBridge['app']['backends']['get']>[number] | undefined

@@ -260,7 +260,7 @@ describe('AppState multi-window workspace', () => {
 
   it('keeps a local frozen view active without publishing it as shared workspace focus', async () => {
     const factory = authorityFactories()
-    const first = new AppState()
+    const first = createEditableApp()
     const second = new AppState()
     first.openDocument(workflow(), 'Shared workflow')
     second.openDocument(workflow(), 'Shared workflow')
@@ -280,7 +280,7 @@ describe('AppState multi-window workspace', () => {
     const ref = { connection: asConnectionId('local'), prompt: asPromptId('frozen-local') }
     first.registerRun(tab, ref, result.artifact)
 
-    expect(first.openExecutionView(ref)).toBe(true)
+    expect(await first.openExecutionView(ref)).toBe(true)
     await Promise.all([
       first.enableWorkspaceAuthority(factory.document, factory.workspace),
       second.enableWorkspaceAuthority(factory.document, factory.workspace),
@@ -292,7 +292,7 @@ describe('AppState multi-window workspace', () => {
     expect(second.activeTabId.get()).toBe('multi-window-workflow')
 
     first.activeTabId.set('multi-window-workflow')
-    expect(first.openExecutionView(ref)).toBe(true)
+    expect(await first.openExecutionView(ref)).toBe(true)
     await drainTasks()
     expect(first.activeTab()?.execution).toEqual(ref)
     expect(second.activeTabId.get()).toBe('multi-window-workflow')
@@ -300,7 +300,7 @@ describe('AppState multi-window workspace', () => {
 
   it('a shared live tab whose lineage collides with a local frozen view displaces it and releases the pin', async () => {
     const factory = authorityFactories()
-    const first = new AppState()
+    const first = createEditableApp()
     const second = new AppState()
     first.openDocument(workflow(), 'Shared workflow')
     second.openDocument(workflow(), 'Shared workflow')
@@ -320,7 +320,7 @@ describe('AppState multi-window workspace', () => {
     const ref = { connection: asConnectionId('local'), prompt: asPromptId('frozen-collision') }
     first.registerRun(tab, ref, result.artifact)
     first.store.apply({ kind: 'completed', execution: ref, timestamp: 1 })
-    expect(first.openExecutionView(ref)).toBe(true)
+    expect(await first.openExecutionView(ref)).toBe(true)
     const frozenId = first.tabs.get().find((candidate) => candidate.execution)!.id
     await Promise.all([
       first.enableWorkspaceAuthority(factory.document, factory.workspace),

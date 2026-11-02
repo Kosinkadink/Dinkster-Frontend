@@ -5702,10 +5702,12 @@ export class AppState {
 
   /**
    * Open (or focus) the FROZEN view of an execution: a read-only tab over the
-   * artifact's exact document snapshot. Returns false when the execution has
-   * no artifact (foreign runs submitted by another client).
+   * artifact's exact document snapshot. Ownership is acknowledged before a new
+   * tab is published. Foreign runs without an artifact cannot open a view.
    */
-  openExecutionView(ref: ExecutionRef): boolean {
+  async openExecutionView(ref: ExecutionRef): Promise<boolean> {
+    if (this.disposed) return false
+    const stillWanted = this.beginWorkflowOpen()
     const state = this.store.get(ref)
     const artifact = state?.artifact
     if (!artifact) return false
@@ -5715,14 +5717,38 @@ export class AppState {
       this.activeTabId.set(id)
       return true
     }
-    const title = `${this.tabTitleFor(ref)} @ ${ref.prompt.slice(0, 8)}`
-    const tab = this.makeTab(artifact.snapshot, title, ref)
-    // The frozen view shows EXACTLY this execution's state; pin it so the
-    // store's entry cap cannot evict it while the tab is open.
+    const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
+    if (!backend) return false
+    const registry = this.registryForExecution(ref)
+    let connectionChanged = false
+    const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
+    let published = false
+    // The pending view needs the same entry pin as the eventual frozen tab.
     this.store.retain(ref)
-    this.tabs.update((tabs) => [...tabs, tab])
-    this.activeTabId.set(id)
-    return true
+    try {
+      if (backend.protocol === 'dinkster') {
+        const roots = workflowAssetRoots(artifact.snapshot, { revision: artifact.revision, undo: [], redo: [] },
+          this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
+        await retainWorkflowAssets(backend.connection, artifact.snapshot.lineage, artifact.revision, roots)
+      }
+      if (!stillWanted() || connectionChanged || this.store.get(ref)?.artifact !== artifact ||
+        this.registryForExecution(ref) !== registry ||
+        (this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)) !== backend) return false
+      const title = `${this.tabTitleFor(ref)} @ ${ref.prompt.slice(0, 8)}`
+      const tab = this.makeTab(artifact.snapshot, title, ref)
+      published = true
+      this.tabs.update((tabs) => [...tabs, tab])
+      this.activeTabId.set(id)
+      return true
+    } catch {
+      if (stillWanted()) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
+        'error', 'import', 'workflow.execution.retention', 'Execution ownership could not be confirmed; the existing tabs were kept.',
+      )])
+      return false
+    } finally {
+      unsubscribe()
+      if (!published) this.store.release(ref)
+    }
   }
 
   /** Close a tab after the caller has handled any dirty-work confirmation. */

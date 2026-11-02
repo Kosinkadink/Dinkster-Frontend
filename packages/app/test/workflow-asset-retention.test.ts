@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  DINKSTER_SCHEMA_WIRE_VERSION, MASK_PAINT_SOURCE_EXT_KEY, asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asValueSourceId, coreCommandRegistry, createLocalSession,
+  DINKSTER_SCHEMA_WIRE_VERSION, MASK_PAINT_SOURCE_EXT_KEY, asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asPromptId, asValueSourceId, coreCommandRegistry, createLocalSession,
   type GraphDef, type NodeSchema, type WorkflowDocument,
 } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
@@ -374,6 +374,59 @@ describe('retained workflow opens', () => {
     expect(sourceWrite).not.toHaveBeenCalled()
     expect(app.backendForTab(app.activeTab()!).id).toBe(app.connection.id)
   })
+
+  it.each(['accepted', 'refused', 'edited', 'closed', 'disconnected', 'removed', 'disposed', 'unknown-schema', 'retired'] as const)(
+    'stages a frozen snapshot without publishing early: %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([{ ...schema, isOutputNode: true }])
+      app.openDocument(session().doc, 'Live')
+      const previous = app.activeTab()!
+      const source = app.addBackend('http://source:8000', 'Source', false)!
+      source.registry.set(app.registry.get())
+      app.setTabTarget(previous.id, source.id)
+      const compiled = app.compileTab(previous)
+      if (!compiled?.ok) throw new Error(JSON.stringify(compiled?.diagnostics))
+      const ref = { connection: source.id, prompt: asPromptId('frozen-open') }
+      if (scenario === 'unknown-schema') app.store.register(ref, { ...compiled.artifact, schemaHash: 'unavailable' }, 1)
+      else app.registerRun(previous, ref, compiled.artifact)
+      const response = deferred<RetainedAssets>()
+      const requested = deferred<RetainedAssetDeclaration>()
+      let owner!: RetainedAssetOwner
+      vi.spyOn(source.connection, 'retainAssets').mockImplementation(async (key, declaration) => {
+        owner = key
+        expect(localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${key.ownerId}`))).not.toBeNull()
+        requested.resolve(declaration)
+        return response.promise
+      })
+      vi.spyOn(source.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      if (scenario === 'retired') app.removeBackend(source.id)
+      const opening = app.openExecutionView(ref)
+      const declaration = await requested.promise
+      expect(declaration).toEqual({ revision: 0, complete: scenario !== 'unknown-schema', digests: [asset('a').digest] })
+      expect(app.activeTab()).toBe(previous)
+      expect(app.tabs.get().some((tab) => tab.execution)).toBe(false)
+      if (scenario === 'edited') previous.store.dispatch(replace('b'))
+      if (scenario === 'closed') app.closeTab(previous.id)
+      if (scenario === 'disconnected') {
+        source.connection.connect()
+        source.connection.disconnect()
+      }
+      if (scenario === 'removed') app.removeBackend(source.id)
+      if (scenario === 'disposed') app.dispose()
+      response.resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
+      const accepted = scenario === 'accepted' || scenario === 'unknown-schema' || scenario === 'retired'
+      expect(await opening).toBe(accepted)
+      expect(app.tabs.get().some((tab) => tab.execution)).toBe(accepted)
+      expect(app.connection.retainAssets).not.toHaveBeenCalled()
+      if (accepted) {
+        expect(app.activeTab()!.store.doc).toEqual(compiled.artifact.snapshot)
+        expect(app.activeTab()!.execution).toEqual(ref)
+        expect(await app.openExecutionView(ref)).toBe(true)
+        expect(source.connection.retainAssets).toHaveBeenCalledOnce()
+        expect(app.tabs.get().filter((tab) => tab.execution)).toHaveLength(1)
+      }
+    },
+  )
 })
 
 describe('workflow candidate admission', () => {

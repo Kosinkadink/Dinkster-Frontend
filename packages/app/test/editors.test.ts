@@ -303,8 +303,8 @@ describe('Tab editorKind', () => {
     expect(app.tabs.get()).toBe(before) // signal never updated
   })
 
-  it('frozen execution tabs refuse editor-kind switches', () => {
-    const app = new AppState()
+  it('frozen execution tabs refuse editor-kind switches', async () => {
+    const app = createWorkflowApp(null)
     app.openDocument(seedBasic, 'Basic')
     const basic = app.activeTab()!
     app.registry.set(historicalRegistry(asConnectionId('local')))
@@ -312,7 +312,7 @@ describe('Tab editorKind', () => {
     if (!result?.ok) throw new Error('compile failed')
     const ref: ExecutionRef = { connection: asConnectionId('local'), prompt: asPromptId('p0') }
     app.registerRun(basic, ref, result.artifact)
-    expect(app.openExecutionView(ref)).toBe(true)
+    expect(await app.openExecutionView(ref)).toBe(true)
     const frozen = app.tabs.get().find((t) => t.execution)!
     app.setTabEditorKind(frozen.id, APP_EDITOR_KIND)
     expect(app.tabs.get().find((t) => t.execution)!.editorKind).toBe(GRAPH_EDITOR_KIND)
@@ -348,8 +348,8 @@ describe('Tab editorKind', () => {
     expect(app.tabs.get().find((t) => t.id === tab.id)!.appArrange).toBe(false)
   })
 
-  it('frozen execution tabs refuse arrange mode', () => {
-    const app = new AppState()
+  it('frozen execution tabs refuse arrange mode', async () => {
+    const app = createWorkflowApp(null)
     app.openDocument(seedBasic, 'Basic')
     const basic = app.activeTab()!
     app.registry.set(historicalRegistry(asConnectionId('local')))
@@ -357,7 +357,7 @@ describe('Tab editorKind', () => {
     if (!result?.ok) throw new Error('compile failed')
     const ref: ExecutionRef = { connection: asConnectionId('local'), prompt: asPromptId('p1') }
     app.registerRun(basic, ref, result.artifact)
-    expect(app.openExecutionView(ref)).toBe(true)
+    expect(await app.openExecutionView(ref)).toBe(true)
     const frozen = app.tabs.get().find((t) => t.execution)!
     app.setTabAppArrange(frozen.id, true)
     expect(app.tabs.get().find((t) => t.execution)!.appArrange).toBeUndefined()

@@ -396,8 +396,55 @@ test('changed source refuses stale preview and a concurrent edit cannot be overw
   expect(await valuesOf(page)).toEqual({ video_edit: imported, strict_duration: true })
 })
 
+test('execution snapshot ownership keeps the live view pending and refused before opening read-only', async ({ page }, info) => {
+  await openDocument(page, 'trim')
+  const replies: ((revision: number) => Promise<void>)[] = []
+  await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+    expect(route.request().method()).toBe('PUT')
+    expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
+    await new Promise<void>((done) => {
+      replies.push(async (revision) => {
+        await route.fulfill({ json: { scope: 'local', ownerKind: 'document',
+          ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!),
+          revision, complete: false, digests: [] } })
+        done()
+      })
+    })
+  })
+  const begin = () => page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const execution = [...app.store.executions.get().values()].find((item) => item.ref.prompt === 'video-editor-run')!
+    ;(window as unknown as { frozenOpening: Promise<boolean> }).frozenOpening = app.openExecutionView(execution.ref)
+  })
+  const result = () => page.evaluate(() => (window as unknown as { frozenOpening: Promise<boolean> }).frozenOpening)
+  await page.screenshot({ path: info.outputPath('frozen-default.png') })
+  await begin()
+  await expect.poll(() => replies.length).toBe(1)
+  await expect(page.getByTestId('frozen-banner')).toHaveCount(0)
+  await page.screenshot({ path: info.outputPath('frozen-pending.png') })
+  await replies[0]!(2)
+  expect(await result()).toBe(false)
+  await expect(page.getByTestId('frozen-banner')).toHaveCount(0)
+  await page.screenshot({ path: info.outputPath('frozen-refused.png') })
+  await begin()
+  await expect.poll(() => replies.length).toBe(2)
+  await replies[1]!(1)
+  expect(await result()).toBe(true)
+  await expect(page.getByTestId('frozen-banner')).toBeVisible()
+  await expect(page.getByTestId('views-switcher')).toBeDisabled()
+  await page.screenshot({ path: info.outputPath('frozen-accepted.png') })
+})
+
 test('execution snapshots refuse VIDEO_EDIT writes and changing editor views', async ({ page }) => {
   await openDocument(page, 'trim')
+  await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
+    expect(route.request().method()).toBe('PUT')
+    expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
+    return route.fulfill({ json: { scope: 'local', ownerKind: 'document',
+      ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!),
+      revision: 1, complete: false, digests: [] } })
+  })
   expect(await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const execution = [...app.store.executions.get().values()].find((item) => item.ref.prompt === 'video-editor-run')!

@@ -27,6 +27,7 @@ import {
 import { buildScene, defaultTokens } from '@dinkster/canvas'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
 import { historicalSchemas } from './historical-schemas.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -41,6 +42,8 @@ let basic: Tab
 const addOffline = (url: string, label?: string): Backend => {
   const backend = app.addBackend(url, label, false)
   if (!backend) throw new Error('addBackend rejected')
+  vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   return backend
 }
 
@@ -88,7 +91,7 @@ const foreignRun = (connection: string, prompt: string): ExecutionRef => {
 }
 
 beforeEach(() => {
-  app = new AppState()
+  app = createWorkflowApp(null)
   for (const name of ['basic', 'subgraph']) {
     app.openDocument(JSON.parse(readFileSync(join(root, `fixtures/workflows/seed-${name}.json`), 'utf8')), name)
   }
@@ -97,7 +100,11 @@ beforeEach(() => {
 
 // The FR8 tests spy on global fetch and superviseBackend; restore even when
 // an assertion fails mid-test so a leaked spy cannot poison later tests.
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  app.dispose()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 describe('default backend', () => {
   it('is backends[0] and backs the single-backend aliases', () => {
@@ -604,7 +611,7 @@ describe('per-tab backend targeting (view state)', () => {
     expect(app.backendForTab(other)).toBe(app.backends.get()[0])
   })
 
-  it('rejects unknown backends and frozen tabs', () => {
+  it('rejects unknown backends and frozen tabs', async () => {
     const b = addOffline('http://other:8188')
     registryFor(b)
     app.setTabTarget(basic.id, asConnectionId('nope'))
@@ -615,13 +622,13 @@ describe('per-tab backend targeting (view state)', () => {
     const result = app.compileTab(basic)
     if (!result?.ok) throw new Error('compile failed')
     app.store.register(ref, result.artifact, 1)
-    expect(app.openExecutionView(ref)).toBe(true)
+    expect(await app.openExecutionView(ref)).toBe(true)
     const frozen = app.tabs.get().find((t) => t.execution)!
     app.setTabTarget(frozen.id, app.backends.get()[0]!.id)
     expect(app.tabTargets.get().has(frozen.id)).toBe(false)
   })
 
-  it('a frozen tab resolves its execution connection, not any target', () => {
+  it('a frozen tab resolves its execution connection, not any target', async () => {
     const b = addOffline('http://other:8188')
     registryFor(b)
     app.setTabTarget(basic.id, b.id)
@@ -629,7 +636,7 @@ describe('per-tab backend targeting (view state)', () => {
     if (!result?.ok) throw new Error('compile failed')
     const ref: ExecutionRef = { connection: b.id, prompt: asPromptId('p1') }
     app.store.register(ref, result.artifact, 1)
-    expect(app.openExecutionView(ref)).toBe(true)
+    expect(await app.openExecutionView(ref)).toBe(true)
     const frozen = app.tabs.get().find((t) => t.execution)!
     expect(app.backendForTab(frozen)).toBe(b)
   })

@@ -6686,7 +6686,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             <ProductButton size="compact"
               class="banner-button"
               data-testid="sync-chip-open"
-              onClick={() => props.app.openExecutionView(s().ref)}
+              onClick={() => { void props.app.openExecutionView(s().ref) }}
             >
               View Frozen
             </ProductButton>

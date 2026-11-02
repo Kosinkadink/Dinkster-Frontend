@@ -527,7 +527,7 @@ test('invalid selection and unavailable schema states remain explicit', async ({
 
 test('empty and frozen states preserve inspection semantics', async ({ page }) => {
   const panel = page.getByTestId('boundary-panel')
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     ;(app as unknown as { disableWorkspaceAuthority(keepLocalTabs: boolean): void })
       .disableWorkspaceAuthority(true)
@@ -536,7 +536,7 @@ test('empty and frozen states preserve inspection semantics', async ({ page }) =
     if (!result?.ok) throw new Error('boundary fixture compile failed')
     const ref = { connection: result.artifact.connection, prompt: 'boundary-frozen-proof' }
     app.store.register(ref, result.artifact, Date.now())
-    if (!app.openExecutionView(ref)) throw new Error('boundary frozen view did not open')
+    if (!await app.openExecutionView(ref)) throw new Error('boundary frozen view did not open')
     const frozen = app.activeTab()!
     frozen.graphStack.set(['g0', 'sub'])
     frozen.instancePath.set(['i0'])

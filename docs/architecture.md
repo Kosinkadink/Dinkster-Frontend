@@ -117,7 +117,14 @@ cancellation or disposal prevents a late open from publishing. Library/template/
 tabs publish with their source backend already selected. Local file imports keep
 their existing untargeted semantics: legacy translation uses the chosen source
 schemas, but ownership is requested from the default destination backend.
-The synchronous `openDocument` API, constructor restore, frozen views and shared
+Frozen execution opens also await snapshot ownership on the execution's original
+live or retired backend, never the default backend. Root discovery uses the
+exact compile-time registry; unavailable historical schemas remain incomplete.
+A temporary in-memory execution pin prevents eviction during acknowledgment;
+success transfers the pin to the frozen tab, while failed or stale attempts
+drop only that temporary pin. Existing frozen tabs focus without another PUT.
+Read-only inspection and close/displacement pin balancing stay unchanged.
+The synchronous `openDocument` API, constructor restore and shared
 session ingress are separate publication paths; this staging does not certify
 their ownership or activate common dispatch admission. The legacy bridge keeps
 its existing non-retained opening behavior.
