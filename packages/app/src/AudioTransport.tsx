@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from 'solid-js'
 import type { NodePreview } from '@dinkster/canvas'
 import { ProductSlider } from './ProductSlider.js'
 import { audioNumber } from './audio-preview.js'
@@ -86,7 +86,7 @@ export function AudioTransport(props: {
       if (!request.signal.aborted) setBusy(false)
     }
   }
-  createEffect(on(() => props.media.audio?.identity ?? props.media.src, () => {
+  createEffect(on(createMemo(() => props.media.audio?.identity ?? props.media.src), () => {
     const media = props.media
     abort?.abort()
     element?.pause()
