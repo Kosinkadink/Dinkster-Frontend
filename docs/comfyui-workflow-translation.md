@@ -13,6 +13,9 @@ traces each occurrence's parent input without deleting reroutes or bypassing
 their links. Widget promotion follows the downstream schema input, including
 nested instances. Parent delivery suppression is occurrence-local and removes
 the effective junction driver without changing a sibling instance.
+An authored dynamic-combo selector forwards as a selector, not a promoted
+scalar widget. It retains its position in the occurrence's serialized widget
+stream; separately exposed branch widgets retain their own bindings and values.
 Import asset lookup includes promoted ASSET filenames on subgraph instances
 as well as definition defaults. Accepting a match updates only literals with
 that filename in one undo step; sibling overrides and other defaults remain intact.
@@ -92,6 +95,15 @@ unchanged. A rule upgrades only saved widget values before positional decoding;
 it cannot insert nodes, change class identities, or rewrite links. Root nodes
 and subgraph definitions use the same table. These source versions are not the
 workflow format's `version` field.
+
+ResizeImagesByLongerEdge version `0.5.1` stores its single integer widget as
+`longer_edge`, even without an installed predecessor schema. Keyed widgets on
+missing classes retain their authored input names. The successor's declared
+replacement can therefore preserve the size and image links without a second
+schema registry. Unrecognized versions or positional layouts remain raw with
+an import warning; they are not decoded by guessing. Original workflow JSON
+remains in import provenance. Automatic replacements, including their defaults
+and any loss, still follow the ordinary migration and single-step undo rules.
 
 For SaveVideo versions not listed in the table, including absent versions, the
 layout is authoritative without numeric or lexical version comparison. A node
@@ -316,10 +328,10 @@ regions. Simple, For, and List iteration preserve binding order, carried state,
 first and last flags, accumulated scalar or output-list results, final-only
 results, termination targets, nesting, and iteration cache policy. A loop with
 no carried state remains a fold because ComfyUI executes iterations in order.
-Heterogeneous `CreateList` values lower to positional tuples. Accumulating a
-tuple gathers one whole tuple per iteration, yielding a list of tuples; only
-execution-list outputs flatten. Tuple families declare exactly one input per
-member, matching the backend schema contract.
+`CreateList` and `GetItemFromList` retain their native identities, including
+heterogeneous `list<*>` values. EndLoop execution-list outputs retain their
+explicit flatten helper. Authored positional tuple nodes remain ordinary
+scalar values rather than execution lists.
 Compatible lazy switches lower to Dinkster's native selector inside the region,
 so each iteration executes only its selected branch.
 

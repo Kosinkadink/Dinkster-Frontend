@@ -183,6 +183,52 @@ test('migration notices dismiss, clear on save or close, and never persist', asy
   expect(await page.evaluate(() => window.__dinksterTest!.app.migrationNotices.get().size)).toBe(0)
 })
 
+test('deprecated resize imports its authored size and undoes from the migration notice', async ({ page }, testInfo) => {
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'resize-migration-fixture', schemaWire: 1 },
+    nodes: { ImageScaleToMaxDimension: {
+      displayName: 'Scale image to maximum dimension', category: 'image',
+      interface: [
+        { role: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+        { role: 'input', id: 'largest_size', type: { kind: 'concrete', types: ['INT'] }, default: 512, widget: { type: 'INT' } },
+        { role: 'input', id: 'upscale_method', type: { kind: 'concrete', types: ['COMBO'] }, default: 'nearest-exact', widget: { type: 'COMBO', options: ['nearest-exact', 'lanczos'] } },
+        { role: 'output', id: 'IMAGE', type: { kind: 'concrete', types: ['IMAGE'] } },
+      ],
+      replacements: [{ from: 'ResizeImagesByLongerEdge', cases: [{ to: 'ImageScaleToMaxDimension',
+        inputs: { image: { kind: 'copy', input: 'images' }, largest_size: { kind: 'copy', input: 'longer_edge' },
+          upscale_method: { kind: 'constant', value: 'lanczos' } }, outputs: { IMAGE: 'images' },
+      }] }],
+    } },
+  } }))
+  await page.goto('/')
+  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.openDocument({
+    nodes: [{ id: 1, type: 'ResizeImagesByLongerEdge', pos: [170, 140],
+      properties: { ver: '0.5.1' }, widgets_values: [1536],
+      inputs: [{ name: 'images' }, { name: 'longer_edge', widget: { name: 'longer_edge' } }],
+      outputs: [{ name: 'images' }],
+    }], links: [],
+  }, 'Imported resize'))).toEqual([])
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.map((node) => node.id)))
+    .toEqual(['n1'])
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values))
+    .toEqual({ largest_size: 1536, upscale_method: 'lanczos' })
+  await openRailPanel(page, 'Problems')
+  const notice = page.getByTestId('migration-notice')
+  await expect(notice).toContainText('ImageScaleToMaxDimension')
+  await page.screenshot({ path: testInfo.outputPath('resize-import-migrated.png') })
+  await notice.getByRole('button', { name: 'Undo upgrades', exact: true }).click()
+  await expect(notice).toHaveCount(0)
+  expect(await page.evaluate(() => {
+    const tab = window.__dinksterTest!.app.activeTab()!
+    return { type: tab.store.doc.graphs.g0!.nodes.n1!.type, values: tab.store.doc.graphs.g0!.nodes.n1!.values, canUndo: tab.store.canUndo }
+  })).toEqual({ type: 'ResizeImagesByLongerEdge', values: { longer_edge: 1536 }, canUndo: false })
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes[0]?.unrecognized))
+    .toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('resize-import-undone.png') })
+})
+
 test('only opt-in review holds a lossy migration for badge Apply', async ({ page }, testInfo) => {
   await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: {} }))
   await page.routeWebSocket('**/api/events?*', () => {})

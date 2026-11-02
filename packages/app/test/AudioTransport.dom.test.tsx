@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'solid-js/web'
+import { createSignal as createSolidSignal } from 'solid-js'
 import { createSignal, registerCatalog, setLocale } from '@dinkster/core'
 import type { NodePreview } from '@dinkster/canvas'
 import type { AppState } from '../src/app-state.js'
@@ -86,6 +87,24 @@ describe('shared audio transport lifecycle', () => {
     finish({ start: 0.1, duration: 3, diagnostics: ['obsolete failure'] }); await next()
     expect(root.textContent).not.toContain('obsolete failure')
     expect(root.querySelector('audio')?.getAttribute('src')).toBe('blob:window')
+  })
+  it('retains the playhead when the same audio source is refreshed and resets for a different source', async () => {
+    dispose()
+    const audio = { identity: 'first', canScrub: true, meta: { duration: 10 }, load }
+    const [media, setMedia] = createSolidSignal<NodePreview>({ kind: 'audio', src: '', audio })
+    dispose = render(() => <AudioTransport media={media()} />, root)
+    await next()
+    const slider = root.querySelector<HTMLElement>('[aria-label="Audio position"]')!
+    slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
+    await next()
+    expect(slider.getAttribute('aria-valuenow')).toBe('0.1')
+    setMedia({ kind: 'audio', src: '', audio: { ...audio } })
+    await next()
+    expect(slider.getAttribute('aria-valuenow')).toBe('0.1')
+    expect(audioPlayhead()?.time).toBe(0.1)
+    setMedia({ kind: 'audio', src: '', audio: { ...audio, identity: 'second' } })
+    await next()
+    expect(slider.getAttribute('aria-valuenow')).toBe('0')
   })
   it('advances windows on end and loops the effective timeline rather than one window', async () => {
     await next()

@@ -49,6 +49,60 @@ const prompt = (document: WorkflowDocument, resolver = resolve) => {
 }
 
 describe('LiteGraph subgraphs', () => {
+  it.each([false, true])('forwards a dynamic selector and separate branch widgets (keyed: %s)', (keyed) => {
+    const render: NodeSchema = {
+      type: 'Render', displayName: 'Render', category: 'test', source: 'v3', isOutputNode: true,
+      items: [
+        { kind: 'input', id: 'output', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
+          widget: { widgetType: 'COMBO', options: { values: ['depth', 'normal'] }, default: 'depth' },
+          dynamic: { kind: 'dynamicCombo', defaultOption: 'depth', materialization: 'wire15', options: [
+            { key: 'depth', inputs: [
+              { kind: 'input', id: 'normalize', type: { kind: 'concrete', name: 'BOOLEAN' }, optional: false,
+                widget: { widgetType: 'BOOLEAN', options: {}, default: false } },
+            ] },
+            { key: 'normal', inputs: [] },
+          ] } },
+        { kind: 'input', id: 'label', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+          widget: { widgetType: 'STRING', options: {}, default: 'inner' } },
+        { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
+      ],
+    }
+    const resolver = (type: string) => type === render.type ? render : undefined
+    const raw = { nodes: [{ id: 10, type: 'inner', inputs: [
+      { name: 'output', widget: { name: 'output' } },
+      { name: 'output.normalize', widget: { name: 'output.normalize' } },
+      { name: 'label', widget: { name: 'label' } },
+    ], widgets_values: keyed ? { output: 'depth', 'output.normalize': true, label: 'outer' } : ['depth', true, 'outer'] }], links: [], definitions: { subgraphs: [{
+      id: 'inner', nodes: [{ id: 1, type: 'Render', inputs: [
+        { name: 'output', type: 'COMFY_DYNAMICCOMBO_V3', widget: { name: 'output' }, link: 1 },
+        { name: 'output.normalize', type: 'BOOLEAN', widget: { name: 'output.normalize' }, link: 2 },
+        { name: 'label', type: 'STRING', widget: { name: 'label' }, link: 3 },
+      ], outputs: [{ name: 'image' }], widgets_values: ['depth', false, 'inner'] }],
+      inputs: [
+        { id: 'mode', name: 'output', type: 'COMFY_DYNAMICCOMBO_V3', linkIds: [1] },
+        { id: 'normalize', name: 'output.normalize', type: 'BOOLEAN', linkIds: [2] },
+        { id: 'label', name: 'label', type: 'STRING', linkIds: [3] },
+      ], outputs: [{ id: 'image', name: 'image', type: 'IMAGE', linkIds: [4] }],
+      links: [link(1, -10, 0, 1, 0), link(2, -10, 1, 1, 1), link(3, -10, 2, 1, 2), link(4, 1, 0, -20, 0)],
+    }] } }
+    const original = structuredClone(raw)
+    const result = importLitegraph(raw as JsonObject, resolver)
+    expect(result.diagnostics.map(item => item.code)).not.toContain('import.subgraphs.boundaryUnresolved')
+    const body = result.document!.graphs['inner']!
+    const derived = deriveBoundarySchema(body, resolver)
+    expect(derived.diagnostics.filter(item => item.severity === 'error')).toEqual([])
+    expect(derived.schema!.items).toMatchObject([
+      { id: 'mode', dynamic: { kind: 'dynamicCombo', options: [{ key: 'depth' }, { key: 'normal' }] } },
+      { id: 'normalize', widget: { widgetType: 'BOOLEAN' } },
+      { id: 'label', widget: { widgetType: 'STRING' } },
+      { id: 'image', kind: 'output' },
+    ])
+    expect(prompt(result.document!, resolver)['n10.n1']!.inputs).toEqual({
+      output: 'depth', 'output.normalize': true, label: 'outer',
+    })
+    expect(raw).toEqual(original)
+  })
+
   it.each([false, true])('maps a scalar sink after a generated map crosses a subgraph boundary (unresolved input: %s)', (unresolved) => {
     const source: NodeSchema = {
       type: 'ListSource', displayName: 'Source', category: 'test', source: 'v3', isOutputNode: false,

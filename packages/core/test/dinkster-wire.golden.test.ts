@@ -13,6 +13,33 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('decodes whole-list admission only for ordinary inputs with a boolean marker', () => {
+    for (const acceptsList of [true, false]) {
+      const result = parseDinksterSchema('Whole', {
+        interface: [
+          { role: 'input', id: 'index', type: concrete('INT'), acceptsList },
+        ],
+      })
+      expect(result.diagnostics).toEqual([])
+      expect(inputsOf(result.schema!)[0]!.acceptsList).toBe(
+        acceptsList ? true : undefined,
+      )
+    }
+    for (const entry of [
+      { role: 'output', id: 'out', type: concrete('INT'), acceptsList: false },
+      { role: 'inputFamily', id: 'items', acceptsList: true, template: [] },
+      ...['true', 1, null].map((acceptsList) => ({
+        role: 'input',
+        id: 'index',
+        type: concrete('INT'),
+        acceptsList,
+      })),
+    ])
+      expect(
+        parseDinksterSchema('Invalid', { interface: [entry] }).schema,
+      ).toBeUndefined()
+  })
+
   it('decodes editable combos with empty or omitted choices without widening ordinary combos', () => {
     const editable = { type: 'COMBO', editableOptions: true }
     for (const choices of [{}, { options: [] }, { options: ['second', 'first', 'second', 0, false] }]) {
@@ -76,6 +103,27 @@ describe('Dinkster schema wire', () => {
         expect(linkedResolved.unresolved).toEqual([])
         expect(Object.values(linkedResolved.document.graphs.g0!.valueSources!)[0]!.value).toBe(source)
       }
+    }
+  })
+
+  it.each(['positional', 'keyed'] as const)('omits only empty optional file widgets during %s import', (form) => {
+    const descriptor = { digest: `blake3:${'a'.repeat(64)}`, name: 'paint.png', size: 17, mediaType: 'image/png', virtualPath: 'mounts/input/paint.png' }
+    for (const [required, filename] of [[false, ''], [true, ''], [false, 'paint.png'], [false, 'missing.png'], [false, ' ']] as const) {
+      const parsed = parseDinksterSchema('Paint', { interface: [
+        { role: 'input', id: 'mask', required, type: concrete('ASSET'), widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image', allowUpload: true }, sourceFilename: { kind: 'media/image', category: 'input' } },
+        { role: 'input', id: 'width', required: true, type: concrete('INT'), widget: { type: 'INT' } },
+        { role: 'input', id: 'label', required: false, type: concrete('STRING'), widget: { type: 'STRING', multiline: false } },
+      ] })
+      expect(parsed.diagnostics).toEqual([])
+      const schema = parsed.schema!
+      const resolve = () => schema
+      const imported = importLitegraph({ nodes: [{ id: 1, type: 'Paint', widgets_values: form === 'positional' ? [filename, 768, ''] : { mask: filename, width: 768, label: '' } }], links: [] }, resolve)
+      expect(imported.document).toBeDefined()
+      const omitted = !required && filename === ''
+      expect(imported.document!.graphs.g0!.nodes.n1!.values).toEqual({ width: 768, label: '', ...(omitted ? {} : { mask: filename }) })
+      const resolved = resolveImportedAssetLiterals(imported.document!, resolve, (name) => name === 'paint.png' ? descriptor : undefined)
+      expect(resolved.unresolved).toEqual(omitted || filename === 'paint.png' ? [] : [{ graphId: 'g0', nodeId: 'n1', inputId: 'mask', name: filename }])
+      expect(resolved.document.graphs.g0!.nodes.n1!.values).toEqual({ width: 768, label: '', ...(omitted ? {} : { mask: filename === 'paint.png' ? descriptor : filename }) })
     }
   })
 

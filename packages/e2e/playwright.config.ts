@@ -69,6 +69,7 @@ const BACKEND_SERIAL_SPECS = [
   'compositor-editor.spec.ts',
   'image-mask-graph-live.spec.ts',
   'audio-recording-live.spec.ts',
+  'painter-live.spec.ts',
   'video-edit.spec.ts',
   'glsl-shader.spec.ts',
   'executable-examples-live.spec.ts',

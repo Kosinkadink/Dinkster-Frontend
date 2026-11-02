@@ -999,6 +999,40 @@ describe('versioned node widget upgrades', () => {
   })
 })
 
+describe('deprecated resize widget recovery', () => {
+  it.each([false, true])('recovers named values without a predecessor schema, nested=%s', (nested) => {
+    const inner = workflow([lgNode(1, 'ResizeImagesByLongerEdge', {
+      properties: { ver: '0.5.1' }, widgets_values: [1536],
+    })])
+    const source = nested ? workflow([], [], { definitions: { subgraphs: [
+      { ...inner, id: 'inner', name: 'inner', inputs: [], outputs: [] },
+    ] } }) : inner
+    const before = JSON.stringify(source)
+    const imported = importLitegraph(source, () => undefined)
+    expect(errorsOf(imported.diagnostics)).toEqual([])
+    expect(imported.document!.graphs[nested ? 'inner' : 'g0']!.nodes.n1!.values).toEqual({ longer_edge: 1536 })
+    expect(imported.document!.ext!['importer.comfyWorkflow']).toEqual(source)
+    expect(JSON.stringify(source)).toBe(before)
+  })
+
+  it.each([
+    ['0.5.1', { longer_edge: 1792 }, { longer_edge: 1792 }],
+    ['0.6.0', [1536], {}],
+    ['0.5.1', [1536, 512], {}],
+    ['0.5.1', ['1536'], {}],
+    ['0.5.1', [], {}],
+  ])('preserves keyed values and leaves unsupported streams raw (%s, %j)', (version, widgets, expected) => {
+    const source = workflow([lgNode(1, 'ResizeImagesByLongerEdge', {
+      properties: { ver: version }, widgets_values: widgets,
+    })])
+    const imported = importLitegraph(source, () => undefined)
+    const node = imported.document!.graphs.g0!.nodes.n1!
+    expect(node.values).toEqual(expected)
+    expect(node.ext!['importer.rawWidgetValues']).toEqual(widgets)
+    expect(imported.document!.ext!['importer.comfyWorkflow']).toEqual(source)
+  })
+})
+
 describe('positional widget mapping', () => {
   const ksampler = (widgets: unknown[]) =>
     workflow([

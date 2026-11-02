@@ -2,6 +2,11 @@
 
 Dinkster translates legacy ComfyUI LiteGraph workflows when `AppState.openDocument` receives their JSON. Widget arrays are mapped to schema input IDs. Legacy ASSET widget values remain strings until the user decides whether to replace them.
 
+An empty string in an optional file widget omits that input while consuming its
+original widget position. Required file widgets, nonempty filenames and named
+source selections stay unchanged. Empty strings on ordinary text widgets remain
+text; no file is inferred from an omitted optional input.
+
 ASSET descriptors with `selection: true` retain named source choices rather than
 ordinary file literals. Their exact kind is `model/vae`, `model/diffusers`,
 `directory/input`, or `directory/dataset`; uploads are not permitted. They bind
@@ -48,13 +53,12 @@ The `DinksterConnection.guessAssets` client batches at 64 names per sequential r
 
 ## Dynamic construct compatibility
 
-Imported `CreateList` nodes become explicit typed list construction and
-concatenation. Connected inputs keep their authored slot order, including
-sparse or out-of-order input names. Declared list outputs are concatenated;
-scalar outputs are wrapped as single elements. Payload shape never decides
-cardinality. `GetItemFromList` becomes explicit element selection, with a
-list-valued index first selecting index zero. These translations do not add
-implicit broadcast behavior to the engine.
+Imported `CreateList` and `GetItemFromList` retain their registered native
+identities. Their schemas own family members, widgets, and output names;
+the importer adds no collection, tuple, singleton, or index-selection nodes.
+Native node execution concatenates declared list envelopes and treats scalar
+envelopes as single elements, without inspecting payload shape. A list-valued
+index is admitted only when the input declares whole-list consumption.
 
 Declared list outputs feeding ordinary scalar inputs are persisted as explicit
 map regions. Linked scalar inputs consume elements while other widget values

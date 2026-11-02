@@ -5,9 +5,9 @@ import { expect, test, type Page } from '@playwright/test'
 import { canonicalJson } from '@dinkster/core'
 import { selectProductOption, skipWithoutNativeCatalog } from './fixtures.js'
 
-// Native catalog from the pinned backend 2fc14a13824d6958057785ce18db3979a8bbe21a.
+// Exact native catalog of the backend pinned by the hosted workflows.
 const canonicalCatalogSha256 =
-  '3b4a4a7c7eb78f43a4e7d8c2c5de3ae34cfbd1126b2df622c5ef9afdfddef8de'
+  '63d7daea5a1c5123696970eff9376a8900da95b61960e658ab164a7558806b4b'
 const nativeBackend =
   process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -161,7 +161,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
     .update(canonicalJson(stableCatalog))
     .digest('hex')
   expect(catalogDigest).toBe(canonicalCatalogSha256)
-  expect(Object.keys(catalog.nodes)).toHaveLength(852)
+  expect(Object.keys(catalog.nodes)).toHaveLength(885)
   const inputs = widgets(catalog)
   const descriptors = inputs.flatMap(({ input }) =>
     widgetDescriptors(input.widget),
@@ -211,7 +211,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   ).toHaveLength(0)
   expect(
     inputs.filter(({ input }) => input.widget?.['type'] === 'COLOR'),
-  ).toHaveLength(7)
+  ).toHaveLength(11)
   expect(Object.hasOwn(catalog.nodes, 'dinkster.ksampler_advanced')).toBe(false)
   expect(Object.hasOwn(catalog.nodes, 'comfy.KSamplerAdvanced')).toBe(false)
   expect(Object.hasOwn(catalog.nodes, 'KSamplerAdvanced')).toBe(true)
@@ -361,12 +361,15 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   expect(
     sourceInputs.map(({ nodeType, input }) => `${nodeType}.${input.id}`).sort(),
   ).toEqual([
+    'Load3D.model_file',
+    'Load3DAdvanced.model_file',
     'LoadAudio.audio',
     'LoadImage.image',
     'LoadImageMask.image',
     'LoadImageOutput.image',
     'LoadLatent.latent',
     'LoadVideo.file',
+    'Painter.mask',
     'dinkster.load_audio.audio',
     'dinkster.load_gaussian_splat.splat',
     'dinkster.load_image.image',
@@ -413,7 +416,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
         ),
       { timeout: 20_000 },
     )
-    .toBe(852)
+    .toBe(885)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument(
       {

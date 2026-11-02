@@ -60,7 +60,10 @@ import { checkDocument } from '../invariants.js'
 import { isPortEndpoint } from '../ids.js'
 import { isAssetRefValue } from '../schema/widget-defaults.js'
 import { importLitegraphSubgraphs } from './import-litegraph-subgraphs.js'
-import { convertLitegraphLists, convertLitegraphLoops, convertLitegraphListConsumers } from './import-litegraph-loops.js'
+import {
+  convertLitegraphLoops,
+  convertLitegraphListConsumers,
+} from './import-litegraph-loops.js'
 
 // -- litegraph wire shapes (loose: this is foreign, hostile JSON) ------------
 
@@ -102,6 +105,12 @@ export const COMFY_NODE_UPGRADES: ComfyNodeUpgradeTable = new Map([
       // Older streams omit both the codec's encoding mode and the optional
       // top-level codec fallback. Store their automatic choices explicitly.
       return [...values, ...(values[2] === 'auto' ? [] : ['auto']), 'auto']
+    }],
+  ])],
+  ['ResizeImagesByLongerEdge', new Map([
+    ['0.5.1', (values: LgNode['widgets_values']) => {
+      if (!Array.isArray(values) || values.length !== 1 || !Number.isSafeInteger(values[0])) return values ?? []
+      return { longer_edge: values[0]! }
     }],
   ])],
 ])
@@ -189,7 +198,8 @@ interface DiscoveredAutogrowMembers {
 function normalizeLegacyWidgetValue(
   item: InputSpec,
   value: Json,
-): Json {
+): Json | undefined {
+  if (value === '' && item.optional && isAssetWidgetInput(item) && item.widget?.selection !== true) return undefined
   if (typeof value !== 'string') return value
   const floating = item.widget?.widgetType === 'FLOAT'
   if (item.widget?.widgetType === 'INT' || floating) {
@@ -256,14 +266,16 @@ function decodeKeyedWidgets(
             : joinValuePath(wireMember, slot.id)
           if (!Object.prototype.hasOwnProperty.call(raw, wireInput)) continue
           known.add(wireInput)
-          state.values[stateInput] = normalizeLegacyWidgetValue(slot, raw[wireInput]!)
+          const value = normalizeLegacyWidgetValue(slot, raw[wireInput]!)
+          if (value !== undefined) state.values[stateInput] = value
         }
       }
       continue
     }
     if (item.widget !== undefined && Object.prototype.hasOwnProperty.call(raw, wireKey)) {
       known.add(wireKey)
-      state.values[stateKey] = normalizeLegacyWidgetValue(item, raw[wireKey]!)
+      const value = normalizeLegacyWidgetValue(item, raw[wireKey]!)
+      if (value !== undefined) state.values[stateKey] = value
     }
   }
 }
@@ -436,7 +448,8 @@ const decodePositionalFamilyWidgets = (
         diags.push(imp('warning', 'import.widgets.missing', `${nodeLabel}: no positional value for widget '${key}'; schema default applies`))
         continue
       }
-      state.values[key] = normalizeLegacyWidgetValue(item, raw[state.index++] as Json)
+      const value = normalizeLegacyWidgetValue(item, raw[state.index++] as Json)
+      if (value !== undefined) state.values[key] = value
       if (item.widget.controller !== undefined && state.index < raw.length) {
         const mode = raw[state.index]
         if (typeof mode === 'string' && CONTROLLER_MODES.has(mode)) {
@@ -523,7 +536,8 @@ function decodePositionalWidgets(
       if (state.index >= raw.length) {
         diags.push(imp('warning', 'import.widgets.missing', `${nodeLabel}: no positional value for widget '${key}'; schema default applies`))
       } else {
-        state.values[key] = normalizeLegacyWidgetValue(item, raw[state.index++] as Json)
+        const value = normalizeLegacyWidgetValue(item, raw[state.index++] as Json)
+        if (value !== undefined) state.values[key] = value
         if (item.widget.controller !== undefined && state.index < raw.length) {
           const mode = raw[state.index]
           if (typeof mode === 'boolean') {
@@ -1061,9 +1075,7 @@ function importLitegraphGraph(
   const importedNodeType = (node: LgNode): string =>
     node.type === UE_SEED_CONTROLLER_TYPE && ueControllerIds.has(node.id) ? 'PrimitiveInt' : node.type
   const resolveImported = (node: LgNode): NodeSchema | undefined =>
-    node.type === 'CreateList' || node.type === 'GetItemFromList'
-      ? undefined
-      : resolve(importedNodeType(node))
+    resolve(importedNodeType(node))
 
   // -- Upstream resolution (net sources only) -----------------------------------
   // Named nets are port-only: a net's source must be a real producing output.
@@ -1448,31 +1460,28 @@ function importLitegraphGraph(
       const height = Array.isArray(size) ? size[1] : sizeObject?.['1']
       viewNodes[id] = {
         position: posOf(n),
-        ...(typeof width === 'number' && typeof height === 'number' ? { size: { width, height } } : {}),
-        ...(typeof n.color === 'string' || typeof n.bgcolor === 'string' ? { color: n.color ?? n.bgcolor } : {}),
+        ...(typeof width === 'number' && typeof height === 'number'
+          ? { size: { width, height } }
+          : {}),
+        ...(typeof n.color === 'string' || typeof n.bgcolor === 'string'
+          ? { color: n.color ?? n.bgcolor }
+          : {}),
       }
       continue
     }
 
     const id = `n${n.id}`
-    if (n.type === 'CreateList' || n.type === 'GetItemFromList') {
-      const index = Array.isArray(n.widgets_values) ? n.widgets_values[0] : (n.widgets_values as Readonly<Record<string, Json>> | undefined)?.['index']
-      const mode = n.mode === 2 ? 'muted' : n.mode === 4 ? 'bypassed' : undefined
-      nodes[id] = { id, type: n.type, values: n.type === 'GetItemFromList' ? { index: index ?? 0 } : {}, ...(mode ? { mode } : {}) }
-      importedOutputEndpoints.set(n.id, new Map((n.outputs ?? []).map((output, slot) =>
-        [slot, { node: id, port: output.name ?? '*' }])))
-      viewNodes[id] = { position: posOf(n) }
-      continue
-    }
     const schema = resolveImported(n)
-    const values: Record<string, Json> = {}
+    let values: Record<string, Json> = {}
     const controllers: Record<string, ControllerMode> = {}
     const dynamic: Record<string, DynamicPortState & JsonObject> = {}
     const ext: Record<string, Json> = {}
     const additionalInputs: string[] = []
     const targetedSlots = new Set<number>()
-    for (const wire of wires.values()) if (wire.toNode === n.id) targetedSlots.add(wire.toSlot)
-    for (const entry of ueLinks) if (entry.downstream === n.id) targetedSlots.add(entry.downstreamSlot)
+    for (const wire of wires.values())
+      if (wire.toNode === n.id) targetedSlots.add(wire.toSlot)
+    for (const entry of ueLinks)
+      if (entry.downstream === n.id) targetedSlots.add(entry.downstreamSlot)
 
     if (schema !== undefined) {
       const families = activeAutogrowFamilies(schema.items, dynamic)
@@ -1492,6 +1501,9 @@ function importLitegraphGraph(
     if (schema === undefined) {
       diags.push(imp('warning', 'import.schema.missing', `node ${n.id} ('${n.type}'): no such node type is installed; widget values kept raw for review`))
       if (n.widgets_values !== undefined) ext['importer.rawWidgetValues'] = n.widgets_values as Json
+      if (n.widgets_values !== undefined && !Array.isArray(n.widgets_values)) {
+        values = Object.fromEntries(Object.entries(n.widgets_values))
+      }
     } else if (n.type === 'CustomCombo' && schema.additionalInputs !== undefined &&
       inputsOf(schema).find((input) => input.id === 'choice')?.widget?.editableOptions === true) {
       const raw = n.widgets_values
@@ -2058,16 +2070,19 @@ function importLitegraphGraph(
       graphs: {
         g0: {
           nodes: viewNodes,
-          ...(Object.keys(viewReroutes).length > 0 ? { reroutes: viewReroutes } : {}),
-          ...(Object.keys(viewValueSources).length > 0 ? { valueSources: viewValueSources } : {}),
+          ...(Object.keys(viewReroutes).length > 0
+            ? { reroutes: viewReroutes }
+            : {}),
+          ...(Object.keys(viewValueSources).length > 0
+            ? { valueSources: viewValueSources }
+            : {}),
           ...(Object.keys(groups).length > 0 ? { groups } : {}),
         },
       },
     },
   } as unknown as JsonObject
 
-  const listHelperOwners = convertLitegraphLists(document, rawNodes, resolve, rawLinks, diags)
-  convertLitegraphLoops(document, rawNodes, rawLinks, resolve, diags, listHelperOwners)
+  convertLitegraphLoops(document, rawNodes, rawLinks, resolve, diags)
   convertLitegraphListConsumers(document, resolve)
 
   // Error-level import diagnostics (e.g. untranslatable subgraph definitions)

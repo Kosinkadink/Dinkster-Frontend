@@ -391,6 +391,12 @@ controller modes still require a controller-capable target widget. Ordinary
 cross-type replacements retain their warning-and-drop behavior for non-widget
 literals.
 
+In native graphs, numeric widgets on an `INT | FLOAT` input submit a `FLOAT` typed literal,
+including stored, promoted and default values. The backend must advertise
+`typedLiteral`; otherwise compilation refuses the value. Concrete `INT` and
+`FLOAT` inputs retain plain literals, and arbitrary unions do not infer a
+runtime type from the JSON value.
+
 ### 3. Two-stage derived state: interface elaboration, then type solving
 
 This is the core correction over the current frontend, which conflates "what ports does this node have" with "what types are they" and mutates both via callbacks.
