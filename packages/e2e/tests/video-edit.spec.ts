@@ -137,7 +137,20 @@ async function retainRoundTrip(
   expect(JSON.parse(savedText)).toEqual(afterApply.workflow)
   expect(await page.evaluate((text) => window.__dinksterTest!.app.openDocument(JSON.parse(text), 'Saved video reopened', undefined, true), savedText)).toEqual([])
   const afterSaveReload = await persistedState(page)
+  let retainedImports = 0
+  await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
+    expect(route.request().method()).toBe('PUT')
+    // VIDEO_EDIT and output-target values are opaque, not a certified empty asset set.
+    expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
+    retainedImports += 1
+    return route.fulfill({ json: {
+      scope: 'local', ownerKind: 'document',
+      ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!),
+      revision: 1, complete: false, digests: [],
+    } })
+  })
   expect(await page.evaluate((text) => window.__dinksterTest!.app.importWorkflowFile(new File([text], 'imported-video.json', { type: 'application/json' })), savedText)).toBe(true)
+  expect(retainedImports).toBe(1)
   const afterImport = await persistedState(page)
   for (const state of [afterSaveReload, afterImport]) {
     expect(state.values).toEqual(expected)
