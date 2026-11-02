@@ -107,6 +107,12 @@ export const COMFY_NODE_UPGRADES: ComfyNodeUpgradeTable = new Map([
       return [...values, ...(values[2] === 'auto' ? [] : ['auto']), 'auto']
     }],
   ])],
+  ['ResizeImagesByLongerEdge', new Map([
+    ['0.5.1', (values: LgNode['widgets_values']) => {
+      if (!Array.isArray(values) || values.length !== 1 || !Number.isSafeInteger(values[0])) return values ?? []
+      return { longer_edge: values[0]! }
+    }],
+  ])],
 ])
 
 /** [id, fromNode, fromSlot, toNode, toSlot, type] */
@@ -1466,7 +1472,7 @@ function importLitegraphGraph(
 
     const id = `n${n.id}`
     const schema = resolveImported(n)
-    const values: Record<string, Json> = {}
+    let values: Record<string, Json> = {}
     const controllers: Record<string, ControllerMode> = {}
     const dynamic: Record<string, DynamicPortState & JsonObject> = {}
     const ext: Record<string, Json> = {}
@@ -1495,6 +1501,9 @@ function importLitegraphGraph(
     if (schema === undefined) {
       diags.push(imp('warning', 'import.schema.missing', `node ${n.id} ('${n.type}'): no such node type is installed; widget values kept raw for review`))
       if (n.widgets_values !== undefined) ext['importer.rawWidgetValues'] = n.widgets_values as Json
+      if (n.widgets_values !== undefined && !Array.isArray(n.widgets_values)) {
+        values = Object.fromEntries(Object.entries(n.widgets_values))
+      }
     } else if (n.type === 'CustomCombo' && schema.additionalInputs !== undefined &&
       inputsOf(schema).find((input) => input.id === 'choice')?.widget?.editableOptions === true) {
       const raw = n.widgets_values

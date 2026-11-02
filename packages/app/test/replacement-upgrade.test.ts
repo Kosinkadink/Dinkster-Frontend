@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildDinksterRegistry } from '@dinkster/client'
-import type { DinksterNodesPayload } from '@dinkster/core'
+import type { DinksterNodesPayload, JsonObject } from '@dinkster/core'
 import { AppState } from '../src/app-state.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -37,6 +37,66 @@ function loadSchemas(app: AppState): void {
 }
 
 describe('native open-time replacement', () => {
+  it.each([false, true])('imports the deprecated resize with size and image links intact, nested=%s', (nested) => {
+    const app = new AppState()
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, { ...payload, nodes: {
+      Source: { interface: [{ role: 'output', id: 'IMAGE', type: { kind: 'concrete', types: ['IMAGE'] } }] },
+      Sink: { outputNode: true, interface: [{ role: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } }] },
+      ImageScaleToMaxDimension: {
+        interface: [
+          { role: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+          { role: 'input', id: 'largest_size', type: { kind: 'concrete', types: ['INT'] }, default: 512, widget: { type: 'INT' } },
+          { role: 'input', id: 'upscale_method', type: { kind: 'concrete', types: ['COMBO'] }, default: 'nearest-exact', widget: { type: 'COMBO', options: ['nearest-exact', 'lanczos'] } },
+          { role: 'output', id: 'IMAGE', type: { kind: 'concrete', types: ['IMAGE'] } },
+        ],
+        replacements: [{ from: 'ResizeImagesByLongerEdge', cases: [{
+          to: 'ImageScaleToMaxDimension', inputs: {
+            image: { kind: 'copy', input: 'images' },
+            largest_size: { kind: 'copy', input: 'longer_edge' },
+            upscale_method: { kind: 'constant', value: 'lanczos' },
+          }, outputs: { IMAGE: 'images' },
+        }] }],
+      },
+    } }))
+    const graph: JsonObject = {
+      nodes: [
+        { id: 1, type: 'Source', pos: [0, 0], outputs: [{ name: 'IMAGE', links: [1] }] },
+        { id: 2, type: 'ResizeImagesByLongerEdge', pos: [300, 0], properties: { ver: '0.5.1' },
+          widgets_values: [1536], inputs: [{ name: 'images', link: 1 }, { name: 'longer_edge', widget: { name: 'longer_edge' } }],
+          outputs: [{ name: 'images', links: [2] }] },
+        { id: 3, type: 'Sink', pos: [600, 0], inputs: [{ name: 'image', link: 2 }] },
+      ], links: [[1, 1, 0, 2, 0, 'IMAGE'], [2, 2, 0, 3, 0, 'IMAGE']],
+    }
+    const source: JsonObject = nested ? { nodes: [{ id: 4, type: 'inner' }], links: [], definitions: { subgraphs: [
+      { ...graph, id: 'inner', name: 'inner', inputs: [], outputs: [] },
+    ] } } : graph
+    const original = JSON.stringify(source)
+    expect(app.openDocument(source, 'Deprecated resize')).toEqual([])
+    const tab = app.activeTab()!
+    const imported = tab.store.doc.graphs[nested ? 'inner' : 'g0']!
+    expect(imported.nodes.n2!.type).toBe('ImageScaleToMaxDimension')
+    expect(imported.nodes.n2!.values).toEqual({ largest_size: 1536, upscale_method: 'lanczos' })
+    expect(Object.values(imported.links)).toEqual([
+      { id: 'l1', from: { node: 'n1', port: 'IMAGE' }, to: { node: 'n2', port: 'image' } },
+      { id: 'l2', from: { node: 'n2', port: 'IMAGE' }, to: { node: 'n3', port: 'image' } },
+    ])
+    const compiled = app.compileTab(tab)!
+    expect(compiled.ok, JSON.stringify(compiled)).toBe(true)
+    if (compiled.ok) expect(Object.values(compiled.artifact.prompt).find((node) => node.class_type === 'ImageScaleToMaxDimension')!.inputs)
+      .toMatchObject({ largest_size: 1536, upscale_method: 'lanczos' })
+    expect(tab.store.doc.ext!['importer.comfyWorkflow']).toEqual(source)
+    expect(JSON.stringify(source)).toBe(original)
+    expect(app.migrationNotices.get().get(tab.id)!.entries).toHaveLength(1)
+    expect(app.undoMigrationNotice(tab.id)).toBe(true)
+    const restored = tab.store.doc.graphs[nested ? 'inner' : 'g0']!
+    expect(restored.nodes.n2!.type).toBe('ResizeImagesByLongerEdge')
+    expect(restored.nodes.n2!.values).toEqual({ longer_edge: 1536 })
+    expect(restored.links.l1!.to).toEqual({ node: 'n2', port: 'images' })
+    expect(restored.links.l2!.from).toEqual({ node: 'n2', port: 'images' })
+    expect(tab.store.canUndo).toBe(false)
+  })
+
   it.each([false, true])('applies lossy plans together with schemas initially available=%s', (available) => {
     const app = new AppState()
     if (available) loadSchemas(app)

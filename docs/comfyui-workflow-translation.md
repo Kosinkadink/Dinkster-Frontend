@@ -96,6 +96,15 @@ it cannot insert nodes, change class identities, or rewrite links. Root nodes
 and subgraph definitions use the same table. These source versions are not the
 workflow format's `version` field.
 
+ResizeImagesByLongerEdge version `0.5.1` stores its single integer widget as
+`longer_edge`, even without an installed predecessor schema. Keyed widgets on
+missing classes retain their authored input names. The successor's declared
+replacement can therefore preserve the size and image links without a second
+schema registry. Unrecognized versions or positional layouts remain raw with
+an import warning; they are not decoded by guessing. Original workflow JSON
+remains in import provenance. Automatic replacements, including their defaults
+and any loss, still follow the ordinary migration and single-step undo rules.
+
 For SaveVideo versions not listed in the table, including absent versions, the
 layout is authoritative without numeric or lexical version comparison. A node
 can carry the recognized three-widget layout: string filename prefix,
