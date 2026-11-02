@@ -79,6 +79,27 @@ describe('Dinkster schema wire', () => {
     }
   })
 
+  it.each(['positional', 'keyed'] as const)('omits only empty optional file widgets during %s import', (form) => {
+    const descriptor = { digest: `blake3:${'a'.repeat(64)}`, name: 'paint.png', size: 17, mediaType: 'image/png', virtualPath: 'mounts/input/paint.png' }
+    for (const [required, filename] of [[false, ''], [true, ''], [false, 'paint.png'], [false, 'missing.png'], [false, ' ']] as const) {
+      const parsed = parseDinksterSchema('Paint', { interface: [
+        { role: 'input', id: 'mask', required, type: concrete('ASSET'), widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image', allowUpload: true }, sourceFilename: { kind: 'media/image', category: 'input' } },
+        { role: 'input', id: 'width', required: true, type: concrete('INT'), widget: { type: 'INT' } },
+        { role: 'input', id: 'label', required: false, type: concrete('STRING'), widget: { type: 'STRING', multiline: false } },
+      ] })
+      expect(parsed.diagnostics).toEqual([])
+      const schema = parsed.schema!
+      const resolve = () => schema
+      const imported = importLitegraph({ nodes: [{ id: 1, type: 'Paint', widgets_values: form === 'positional' ? [filename, 768, ''] : { mask: filename, width: 768, label: '' } }], links: [] }, resolve)
+      expect(imported.document).toBeDefined()
+      const omitted = !required && filename === ''
+      expect(imported.document!.graphs.g0!.nodes.n1!.values).toEqual({ width: 768, label: '', ...(omitted ? {} : { mask: filename }) })
+      const resolved = resolveImportedAssetLiterals(imported.document!, resolve, (name) => name === 'paint.png' ? descriptor : undefined)
+      expect(resolved.unresolved).toEqual(omitted || filename === 'paint.png' ? [] : [{ graphId: 'g0', nodeId: 'n1', inputId: 'mask', name: filename }])
+      expect(resolved.document.graphs.g0!.nodes.n1!.values).toEqual({ width: 768, label: '', ...(omitted ? {} : { mask: filename === 'paint.png' ? descriptor : filename }) })
+    }
+  })
+
   it('compiles required initial family positions without requiring an authored tail', () => {
     const source = parseDinksterSchema('Source', { interface: [
       { role: 'output', id: 'out0', type: concrete('IMAGE') },

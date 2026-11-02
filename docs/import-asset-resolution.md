@@ -2,6 +2,11 @@
 
 Dinkster translates legacy ComfyUI LiteGraph workflows when `AppState.openDocument` receives their JSON. Widget arrays are mapped to schema input IDs. Legacy ASSET widget values remain strings until the user decides whether to replace them.
 
+An empty string in an optional file widget omits that input while consuming its
+original widget position. Required file widgets, nonempty filenames and named
+source selections stay unchanged. Empty strings on ordinary text widgets remain
+text; no file is inferred from an omitted optional input.
+
 ASSET descriptors with `selection: true` retain named source choices rather than
 ordinary file literals. Their exact kind is `model/vae`, `model/diffusers`,
 `directory/input`, or `directory/dataset`; uploads are not permitted. They bind
