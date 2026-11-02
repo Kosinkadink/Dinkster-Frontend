@@ -7,10 +7,11 @@
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState, GLOBAL_PROBLEMS_OWNER, visibleProblems, type Backend, type Tab } from '../src/app-state.js'
 import { asNodeId, diag, type DinksterNodesPayload } from '@dinkster/core'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const nodesPayload = JSON.parse(
@@ -23,7 +24,13 @@ const nodesPayload = JSON.parse(
 let app: AppState
 
 beforeEach(() => {
-  app = new AppState()
+  app = createWorkflowApp(null)
+})
+
+afterEach(() => {
+  app.dispose()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 /** Minimal native document; every document uses root graph 'g0' ON PURPOSE. */
@@ -263,6 +270,8 @@ const CHAIN_DOC = {
 function nativeSetup(): { backend: Extract<Backend, { protocol: 'dinkster' }>; tab: Tab } {
   const added = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
   if (!added || added.protocol !== 'dinkster') throw new Error('addBackend rejected')
+  vi.spyOn(added.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   added.registry.set(buildDinksterRegistry(added.id, nodesPayload))
   expect(app.openDocument(CHAIN_DOC, 'Chain')).toEqual([])
   const tab = app.activeTab()!
