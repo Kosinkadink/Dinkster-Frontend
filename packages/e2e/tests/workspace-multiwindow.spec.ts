@@ -34,7 +34,7 @@ for (const accepted of [true, false]) {
           type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } }],
       }
       app.registry.set({ connection: app.connection.id, schemas: new Map([[schema.type, schema]]),
-        diagnostics: [], hash: 'asset-fixture', resolve: (type) => type === schema.type ? schema : undefined })
+        diagnostics: [], hash: 'asset-fixture', resolve: (type: string) => type === schema.type ? schema : undefined })
       app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'ordinary-assets', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'Root', nodes: { n0: { id: 'n0', type: 'AssetLoader', values: {
           file: { digest: `blake3:${'a'.repeat(64)}`, name: 'before.bin', size: 7,
