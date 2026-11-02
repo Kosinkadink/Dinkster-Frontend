@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorkflowDocument } from '@dinkster/core'
 import { AppState } from '../src/app-state.js'
 import { SubgraphDefinitionsDialog } from '../src/SubgraphDefinitionsDialog.js'
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 
 const documentWithUnusedDefinitions = (): WorkflowDocument => ({
   format: 'dinkster-workflow',
@@ -60,7 +61,7 @@ afterEach(() => {
 
 describe('SubgraphDefinitionsDialog', () => {
   it('presents the complete cleanup impact and removes it only after destructive activation', async () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     expect(app.openDocument(documentWithUnusedDefinitions(), 'Cleanup')).toEqual([])
     app.modalPanel.set('subgraph-definitions')
     const root = document.createElement('div')
@@ -95,16 +96,17 @@ describe('SubgraphDefinitionsDialog', () => {
     expect(app.activeTab()!.store.doc.graphs.orphanChild).toBeDefined()
 
     root.querySelector<HTMLButtonElement>('[data-testid="confirm-subgraph-cleanup"]')!.click()
-    expect(app.activeTab()!.store.doc.graphs.orphan).toBeUndefined()
+    await vi.waitFor(() => expect(app.activeTab()!.store.doc.graphs.orphan).toBeUndefined())
     expect(app.activeTab()!.store.doc.graphs.orphanChild).toBeUndefined()
     expect(app.activeTab()!.store.doc.graphs.used).toBeDefined()
     await vi.waitFor(() => expect(app.modalPanel.get()).toBe(''))
     expect(app.transientStatus.get()).toBe('Removed 2 unused subgraph definitions')
     dispose()
+    app.dispose()
   })
 
   it.each([false, true])('waits for cleanup result %s before reporting or closing', async (accepted) => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     app.openDocument(documentWithUnusedDefinitions(), 'Cleanup')
     app.modalPanel.set('subgraph-definitions')
     const root = document.createElement('div')

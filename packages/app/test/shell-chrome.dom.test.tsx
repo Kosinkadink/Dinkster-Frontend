@@ -36,6 +36,7 @@ import type { PanelDescriptor } from '../src/panels.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry } from '../src/settings.js'
 import { canvasMenuContext, resolveNodeMenuGroups } from '../src/menu-target.js'
 import { attachDomTooltips, DOM_TOOLTIP_SESSION_GRACE_MS, TooltipController } from '../src/tooltips.js'
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 
 afterEach(() => {
   document.body.replaceChildren()
@@ -840,7 +841,7 @@ describe('workflow file commands', () => {
   })
 
   it('imports unchanged exported JSON as a new tab without replacing the dirty original', async () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const original = app.activeTab()!
     expect((await app.dispatchTo(original, {
       command: 'node.add',
@@ -865,6 +866,7 @@ describe('workflow file commands', () => {
       lineage: expect.stringMatching(`${source.lineage}-import-`),
     })
     expect(app.transientStatus.get()).toBe('Imported local-flow.json')
+    app.dispose()
   })
 
   it('preserves the document lineage when a local import does not collide', async () => {

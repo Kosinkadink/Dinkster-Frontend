@@ -5,6 +5,9 @@ import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppState, pushGraph, truncateGraphStack } from '../src/app-state.js'
 import { BoundaryPanel } from '../src/BoundaryPanel.js'
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
+
+const apps: AppState[] = []
 
 const schema: NodeSchema = {
   type: 'GrowTest',
@@ -39,7 +42,8 @@ const schema: NodeSchema = {
 }
 
 const mountPanel = (withWidgetTap = false, withValueSource = false) => {
-  const app = new AppState()
+  const app = prepareWorkflowApp(new AppState())
+  apps.push(app)
   const backend = app.backends.get()[0]!
   backend.registry.set({
     connection: backend.id,
@@ -101,7 +105,12 @@ const mountPanel = (withWidgetTap = false, withValueSource = false) => {
 }
 
 beforeEach(() => setLocale('en'))
-afterEach(() => document.body.replaceChildren())
+afterEach(() => {
+  for (const app of apps.splice(0)) app.dispose()
+  vi.restoreAllMocks()
+  document.body.replaceChildren()
+  localStorage.clear()
+})
 
 const delayDispatch = (app: AppState) => {
   const dispatch = app.dispatchTo.bind(app)
@@ -279,16 +288,17 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     updated = root.querySelector<HTMLInputElement>('[data-testid="boundary-name-input"]')!
     updated.value = '   '
     updated.dispatchEvent(new Event('change', { bubbles: true }))
-    expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBeUndefined()
+    await vi.waitFor(() => expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBeUndefined())
     unmount()
   })
 
-  it('toggles a slot with Enter and lets Escape leave the control without another edit', () => {
+  it('toggles a slot with Enter and lets Escape leave the control without another edit', async () => {
     const { tab, root, unmount } = mountPanel()
     const panel = root.querySelector<HTMLElement>('[data-testid="boundary-panel"]')!
     const tag = root.querySelector<HTMLButtonElement>('[data-slot-path="tag"]')!
     tag.focus()
     tag.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await vi.waitFor(() => expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.binds.slots).toEqual(['image']))
     const item = tab.store.doc.graphs.sub!.boundary!.inputs[0]!
     expect(item.binds.slots).toEqual(['image'])
     const updatedTag = root.querySelector<HTMLButtonElement>('[data-slot-path="tag"]')!
@@ -365,7 +375,8 @@ const regionSchema: NodeSchema = {
 }
 
 const mountRegionPanel = (occurrence = 'fold') => {
-  const app = new AppState()
+  const app = prepareWorkflowApp(new AppState())
+  apps.push(app)
   const backend = app.backends.get()[0]!
   backend.registry.set({
     connection: backend.id,
@@ -494,43 +505,44 @@ describe('BoundaryPanel region occurrence context', () => {
   })
 
   it('dispatches exact region commands from each editing control', async () => {
-    const { tab, root, unmount } = mountRegionPanel()
-    const dispatch = vi.spyOn(tab.store, 'dispatch')
+    const { app, tab, root, unmount } = mountRegionPanel()
+    const dispatch = vi.spyOn(app, 'dispatchTo')
     const click = async (selector: string) => {
       root.querySelector<HTMLButtonElement>(selector)!.click()
       await vi.waitFor(() => expect(root.querySelector('[aria-busy="true"]')).toBeNull())
     }
     await click('[data-region-input="capture"][data-role-choice="element"]')
-    expect(dispatch).toHaveBeenLastCalledWith({ command: 'region.setPortRole', params: {
+    expect(dispatch).toHaveBeenLastCalledWith(tab, { command: 'region.setPortRole', params: {
       graphId: 'root', nodeId: 'fold', side: 'input', portId: 'capture', role: 'element',
     } })
     await click('[data-region-output="gathered"][data-role-choice="compact"]')
-    expect(dispatch).toHaveBeenLastCalledWith({ command: 'region.setOutputRole', params: {
+    expect(dispatch).toHaveBeenLastCalledWith(tab, { command: 'region.setOutputRole', params: {
       graphId: 'root', nodeId: 'fold', outputId: 'gathered', role: 'compact',
     } })
     await click('[data-region-output="stateResult"][data-state-port="state"]')
-    expect(dispatch).toHaveBeenLastCalledWith({ command: 'region.setOutputRole', params: {
+    expect(dispatch).toHaveBeenLastCalledWith(tab, { command: 'region.setOutputRole', params: {
       graphId: 'root', nodeId: 'fold', outputId: 'stateResult', role: 'state', statePort: 'state',
     } })
     await click('[data-region-output="continue"][data-role-choice="continue"]')
-    expect(dispatch).toHaveBeenLastCalledWith({ command: 'region.setContinueOutput', params: {
+    expect(dispatch).toHaveBeenLastCalledWith(tab, { command: 'region.setContinueOutput', params: {
       graphId: 'root', nodeId: 'fold', outputId: 'continue',
     } })
     await click('[data-region-binding="broadcast"]')
-    expect(dispatch).toHaveBeenLastCalledWith({ command: 'region.setBinding', params: {
+    expect(dispatch).toHaveBeenLastCalledWith(tab, { command: 'region.setBinding', params: {
       graphId: 'root', nodeId: 'fold', binding: 'broadcast',
     } })
     const max = root.querySelector<HTMLInputElement>('[data-testid="region-max-iterations"]')!
     max.value = '12'
     max.dispatchEvent(new Event('change', { bubbles: true }))
     await vi.waitFor(() => expect(root.querySelector('[aria-busy="true"]')).toBeNull())
-    expect(dispatch).toHaveBeenLastCalledWith({ command: 'region.setMaxIterations', params: {
+    expect(dispatch).toHaveBeenLastCalledWith(tab, { command: 'region.setMaxIterations', params: {
       graphId: 'root', nodeId: 'fold', maxIterations: 12,
     } })
     max.value = ''
     max.dispatchEvent(new InputEvent('input', { bubbles: true }))
     max.dispatchEvent(new Event('change', { bubbles: true }))
-    expect(dispatch).toHaveBeenLastCalledWith({ command: 'region.setMaxIterations', params: {
+    await vi.waitFor(() => expect(root.querySelector('[aria-busy="true"]')).toBeNull())
+    expect(dispatch).toHaveBeenLastCalledWith(tab, { command: 'region.setMaxIterations', params: {
       graphId: 'root', nodeId: 'fold', maxIterations: null,
     } })
     unmount()

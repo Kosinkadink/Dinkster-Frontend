@@ -6,7 +6,9 @@ import { asConnectionId, asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, EMPTY_COMPOSI
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { CompositorEditor } from '../src/CompositorEditor.js'
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 
+const apps: AppState[] = []
 const assetDigest = `blake3:${'a'.repeat(64)}`
 const transform = (x: number, y: number, width: number, height: number) => ({
   a: 1_000_000, b: 0, c: 0, d: 1_000_000, tx: x * 1_000_000, ty: y * 1_000_000,
@@ -55,7 +57,8 @@ async function mount(options: {
   readonly storedValue?: Json
   readonly previewState?: typeof state
 } = {}) {
-  const app = new AppState()
+  const app = prepareWorkflowApp(new AppState())
+  apps.push(app)
   const tab = app.tabs.get()[0]!
   app.registry.set(buildDinksterRegistry(asConnectionId('local'), payload))
   const graphId = tab.store.doc.root
@@ -91,6 +94,7 @@ async function mount(options: {
 }
 
 afterEach(() => {
+  for (const app of apps.splice(0)) app.dispose()
   vi.restoreAllMocks()
   setLocale('en')
   document.body.replaceChildren()

@@ -7,7 +7,9 @@ import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { GlslEditor } from '../src/GlslEditor.js'
 import type { GlslShaderRunner } from '../src/glsl-shader-runner.js'
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 
+const apps: AppState[] = []
 const INITIAL_SOURCE = `#version 300 es
 precision highp float;
 layout(location = 0) out vec4 fragColor0;
@@ -37,7 +39,8 @@ const payload = {
 } as unknown as DinksterNodesPayload
 
 async function mount() {
-  const app = new AppState()
+  const app = prepareWorkflowApp(new AppState())
+  apps.push(app)
   const tab = app.tabs.get()[0]!
   app.registry.set(buildDinksterRegistry(asConnectionId('local'), payload))
   const graphId = tab.store.doc.root
@@ -92,6 +95,7 @@ async function mount() {
 }
 
 afterEach(() => {
+  for (const app of apps.splice(0)) app.dispose()
   vi.restoreAllMocks()
   document.body.replaceChildren()
   localStorage.clear()

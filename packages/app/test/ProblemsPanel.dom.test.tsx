@@ -20,6 +20,7 @@ import { AppState, type DiagnosticFocusRequest, type Tab } from '../src/app-stat
 import { ProblemsPanel } from '../src/ProblemsPanel.js'
 import { shortcutSuppressed } from '../src/settings.js'
 import { useSignal } from '../src/solid-adapter.js'
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 
 const schema: NodeSchema = {
   type: 'Sampler', displayName: 'KSampler', category: 'test', source: 'v3', isOutputNode: false,
@@ -91,11 +92,13 @@ afterEach(() => {
   document.getSelection()?.removeAllRanges()
   document.body.replaceChildren()
   setLocale('en')
+  vi.restoreAllMocks()
+  localStorage.clear()
 })
 
 describe('ProblemsPanel browser interactions', () => {
   it('disables upgrade undo after an edit and restores the whole batch after that edit is undone', async () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const backend = app.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, {
       schemaVersion: 1, epoch: 1, dinkster: { version: 'notice-test', schemaWire: 1 }, packs: {},
