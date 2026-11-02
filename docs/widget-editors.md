@@ -74,7 +74,8 @@ The native Painter node's mask row opens an RGBA canvas at its authored width
 and height. Brush color and size, erasing, clearing and opening an image edit
 only the draft layer. Transparent pixels preserve the node's background or
 connected image; the layer's alpha supplies the MASK output. Existing granted
-paint files reopen on the canvas. Apply uploads a PNG through the tab's native
+paint files reopen on the canvas, including local files addressed by an
+engine-issued binding rather than a portable digest. Apply uploads a PNG through the tab's native
 media authority and stores the returned ASSET reference in one undoable edit.
 Cancel and close discard the draft. Missing files, failed uploads or a changed
 document, project or backend never replace the stored reference.

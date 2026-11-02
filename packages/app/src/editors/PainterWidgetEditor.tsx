@@ -61,12 +61,17 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
       if (backend.protocol !== 'dinkster' || !canvas.getContext('2d')) throw new Error(message('painterWidget.unavailable'))
       const initial = ed.initial
       if (initial !== undefined && initial !== null && initial !== '') {
-        if (!isAssetRefValue(initial)) throw new Error(message('painterWidget.unavailable'))
-        const ref = initial as { digest: string; mediaType: string }
-        const bytes = await backend.connection.fetchAssetBytes(ref.digest)
+        const ref = typeof initial === 'object' && !Array.isArray(initial) ? initial as Record<string, unknown> : undefined
+        const local = ref?.verification === 'unverified' && typeof ref.localBinding === 'string' && ref.localBinding !== '' && !('digest' in ref)
+          && typeof ref.name === 'string' && typeof ref.mediaType === 'string' && typeof ref.virtualPath === 'string'
+          && typeof ref.size === 'number' && Number.isSafeInteger(ref.size) && ref.size >= 0
+        if (!ref || !(local || isAssetRefValue(initial))) throw new Error(message('painterWidget.unavailable'))
+        const bytes = local
+          ? await backend.connection.fetchLocalAssetBytes(ref.localBinding as string, abort.signal)
+          : await backend.connection.fetchAssetBytes(ref.digest as string)
         requireCurrent()
         if (!bytes) throw new Error(message('painterWidget.unavailable'))
-        await drawImage(new Blob([bytes], { type: ref.mediaType }))
+        await drawImage(new Blob([bytes], { type: ref.mediaType as string }))
       }
       ready = true
     })().catch((reason: unknown) => { if (live) setError(reason instanceof Error ? reason.message : String(reason)) })

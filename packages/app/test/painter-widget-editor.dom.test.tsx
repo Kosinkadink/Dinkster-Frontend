@@ -7,14 +7,17 @@ import { WidgetEditor } from '../src/WidgetEditor.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-it.each(['apply', 'failure', 'cancel', 'retarget', 'closed'] as const)('keeps Painter edits undoable and authority-bound on %s', async (outcome) => {
+it.each(['apply', 'local', 'failure', 'cancel', 'retarget', 'closed'] as const)('keeps Painter edits undoable and authority-bound on %s', async (outcome) => {
   const schema = parseDinksterSchema('Painter', { interface: [
     { role: 'input', id: 'mask', type: { kind: 'concrete', types: ['ASSET'] }, required: false,
       widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image', allowUpload: true },
       sourceFilename: { kind: 'media/image', category: 'input' } },
   ] }).schema!
-  const initial = { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png', name: 'old.png', size: 1, virtualPath: 'old.png' }
-  const painted = { ...initial, digest: `blake3:${'b'.repeat(64)}`, name: 'painting.png' }
+  const metadata = { mediaType: 'image/png', name: 'old.png', size: 1, virtualPath: 'old.png' }
+  const initial = outcome === 'local'
+    ? { ...metadata, verification: 'unverified', localBinding: 'engine-issued-binding' }
+    : { ...metadata, digest: `blake3:${'a'.repeat(64)}` }
+  const painted = { ...metadata, digest: `blake3:${'b'.repeat(64)}`, name: 'painting.png' }
   const doc = importLitegraph({ nodes: [{ id: 1, type: 'Painter', widgets_values: [initial] }], links: [] }, () => schema).document!
   const store = new DocumentStore(doc, coreCommandRegistry())
   const tab = { store } as unknown as Tab
@@ -27,7 +30,8 @@ it.each(['apply', 'failure', 'cancel', 'retarget', 'closed'] as const)('keeps Pa
   const pending = new Promise<void>((resolve) => { finish = resolve })
   let requested = false
   const connection = {
-    fetchAssetBytes: async () => new Uint8Array([1]).buffer,
+    fetchAssetBytes: async () => outcome === 'local' ? undefined : new Uint8Array([1]).buffer,
+    fetchLocalAssetBytes: async (binding: string) => binding === 'engine-issued-binding' ? new Uint8Array([2]).buffer : undefined,
     uploadMediaAsset: async (file: File) => {
       expect(file.type).toBe('image/png')
       expect(file.size).toBe(14)
@@ -64,7 +68,7 @@ it.each(['apply', 'failure', 'cancel', 'retarget', 'closed'] as const)('keeps Pa
     if (outcome === 'retarget') backend = { ...backend, connection: { ...connection } }
     if (outcome === 'closed') dispose()
     finish()
-    if (outcome === 'apply') {
+    if (outcome === 'apply' || outcome === 'local') {
       await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values.mask).toEqual(painted))
       expect(closed).toBe(true)
       expect(store.undo()).toBe(true)
