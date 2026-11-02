@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildDinksterRegistry } from '@dinkster/client'
 import type { CommandOutcome, DinksterNodesPayload } from '@dinkster/core'
-import { AppState } from '../src/app-state.js'
+import type { AppState } from '../src/app-state.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
@@ -37,8 +38,12 @@ function loadSchemas(app: AppState): void {
 }
 
 describe('native open-time replacement', () => {
+  let app: AppState
+  beforeEach(() => { app = createWorkflowApp(null) })
+  afterEach(() => { app.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
   it.each([false, true])('applies lossy plans together with schemas initially available=%s', async (available) => {
-    const app = new AppState()
+    expect(app.registry.get()).toBeUndefined()
     if (available) loadSchemas(app)
     const original = document()
     expect(app.openDocument(original, 'Historical document')).toEqual([])
@@ -72,7 +77,6 @@ describe('native open-time replacement', () => {
   })
 
   it('holds migrations only in opt-in review and applies through the existing command', async () => {
-    const app = new AppState()
     loadSchemas(app)
     app.reviewReplacements.set(true)
     expect(app.openDocument(document(), 'Review')).toEqual([])
@@ -88,7 +92,6 @@ describe('native open-time replacement', () => {
   })
 
   it('undoes the upgrade batch from its notice without undoing later edits', async () => {
-    const app = new AppState()
     loadSchemas(app)
     const original = document()
     app.openDocument(original, 'Historical document')
@@ -116,7 +119,6 @@ describe('native open-time replacement', () => {
   })
 
   it('clears the transient notice on tab close', async () => {
-    const app = new AppState()
     loadSchemas(app)
     app.openDocument(document(), 'Historical document')
     const tab = app.activeTab()!
@@ -127,7 +129,6 @@ describe('native open-time replacement', () => {
   })
 
   it.each([false, true])('waits for explicit replacement acceptance=%s', async (accepted) => {
-    const app = new AppState()
     loadSchemas(app)
     app.reviewReplacements.set(true)
     app.openDocument(document(), 'Review')
@@ -149,17 +150,18 @@ describe('native open-time replacement', () => {
   })
 
   it.each(['refused', 'closed', 'replaced', 'later edit', 'accepted'])('publishes only the accepted live upgrade notice: %s', async (completion) => {
-    const app = new AppState()
     app.openDocument(document(), 'Historical document')
     const tab = app.activeTab()!
     const dispatch = app.dispatchTo.bind(app)
-    let finish!: () => void
+    let finish!: () => Promise<void>
     let delivered!: Promise<CommandOutcome>
     vi.spyOn(app, 'dispatchTo').mockImplementation((owner, invocation) => {
       delivered = new Promise<CommandOutcome>((resolve) => {
-        finish = () => {
-          const outcome = completion === 'refused' ? { ok: false as const, diagnostics: [] } : dispatch(owner, invocation)
-          if (completion === 'later edit') dispatch(owner, { command: 'node.move', params: { graphId: 'g0', positions: { first: { x: 900, y: 300 } } } })
+        finish = async () => {
+          const outcome = completion === 'refused' ? { ok: false as const, diagnostics: [] } : await dispatch(owner, invocation)
+          if (completion === 'later edit') {
+            expect((await dispatch(owner, { command: 'node.move', params: { graphId: 'g0', positions: { first: { x: 900, y: 300 } } } })).ok).toBe(true)
+          }
           resolve(outcome)
         }
       })
@@ -173,7 +175,7 @@ describe('native open-time replacement', () => {
       app.reviewReplacements.set(true)
       app.openDocument(document(), 'Replacement')
     }
-    finish()
+    await finish()
     await delivered
     await Promise.resolve()
     await Promise.resolve()
