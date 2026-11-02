@@ -7,7 +7,7 @@ import { selectProductOption, skipWithoutNativeCatalog } from './fixtures.js'
 
 // Exact native catalog of the backend pinned by the hosted workflows.
 const canonicalCatalogSha256 =
-  '8043d1c9a426022640a736fcecca3c26b2571f3e009de5b06c1e7f1cf47d5b52'
+  '63d7daea5a1c5123696970eff9376a8900da95b61960e658ab164a7558806b4b'
 const nativeBackend =
   process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -161,7 +161,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
     .update(canonicalJson(stableCatalog))
     .digest('hex')
   expect(catalogDigest).toBe(canonicalCatalogSha256)
-  expect(Object.keys(catalog.nodes)).toHaveLength(881)
+  expect(Object.keys(catalog.nodes)).toHaveLength(885)
   const inputs = widgets(catalog)
   const descriptors = inputs.flatMap(({ input }) =>
     widgetDescriptors(input.widget),
@@ -361,6 +361,8 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   expect(
     sourceInputs.map(({ nodeType, input }) => `${nodeType}.${input.id}`).sort(),
   ).toEqual([
+    'Load3D.model_file',
+    'Load3DAdvanced.model_file',
     'LoadAudio.audio',
     'LoadImage.image',
     'LoadImageMask.image',
@@ -414,7 +416,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
         ),
       { timeout: 20_000 },
     )
-    .toBe(881)
+    .toBe(885)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument(
       {
