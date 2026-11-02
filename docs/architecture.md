@@ -94,7 +94,10 @@ The journal includes the exact completeness declaration. Exact acknowledgment or
 exact owner reconciliation, including completeness and the new revision, precedes
 publication. Reconciliation GET bypasses the HTTP cache, including against servers
 without retention response cache headers. A changed destination or stale
-candidate is refused. Unsupported schemas, opaque dynamic state and unrecognized extension
+candidate is refused. Editor projection changes preserve admission when the live
+tab keeps the same document session, backend and registry. Closing the tab or
+replacing its session still refuses the candidate, even with the same tab ID.
+Unsupported schemas, opaque dynamic state and unrecognized extension
 records are incomplete, not empty root sets. Ordinary synchronous dispatch is unchanged.
 Schema defaults contribute roots only when the node has no stored override.
 The parser's exact scalar `schema.ext.dinkster` execution metadata is asset-free;

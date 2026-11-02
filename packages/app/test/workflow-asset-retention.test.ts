@@ -6,6 +6,7 @@ import {
 import { buildDinksterRegistry } from '@dinkster/client'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
+import { GLSL_EDITOR_KIND } from '../src/editors.js'
 import { admitWorkflowDispatch, workflowAssetRoots } from '../src/workflow-asset-retention.js'
 
 const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
@@ -43,7 +44,7 @@ describe('retained app dispatch', () => {
     vi.unstubAllGlobals()
   })
 
-  it.each(['accepted', 'edited', 'registry', 'target', 'closed', 'unwanted', 'refused'] as const)(
+  it.each(['accepted', 'projection-before', 'projection-during', 'replaced', 'edited', 'registry', 'target', 'closed', 'unwanted', 'refused'] as const)(
     'publishes only a current acknowledged candidate: %s', async (scenario) => {
       const storage = new Map<string, string>()
       vi.stubGlobal('localStorage', {
@@ -74,11 +75,25 @@ describe('retained app dispatch', () => {
       vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
       let wanted = true
       const before = tab.store.doc
+      const accepted = scenario === 'accepted' || scenario === 'projection-before' || scenario === 'projection-during'
+      if (scenario === 'projection-before') app.setTabEditorKind(tab.id, GLSL_EDITOR_KIND)
       const operation = app.dispatchRetainedTo(tab, replace('b'), () => wanted)
       const { owner, declaration } = await requested.promise
       expect(declaration.digests).toEqual([asset('a').digest, asset('b').digest])
       expect(tab.store.doc).toBe(before)
       expect(tab.store.canUndo).toBe(false)
+      if (scenario === 'projection-during') app.setTabEditorKind(tab.id, GLSL_EDITOR_KIND)
+      if (scenario === 'projection-before' || scenario === 'projection-during') {
+        expect(app.activeTab()).not.toBe(tab)
+        expect(app.activeTab()!.store).toBe(tab.store)
+        expect(app.activeTab()!.editorKind).toBe(GLSL_EDITOR_KIND)
+      }
+      if (scenario === 'replaced') {
+        expect(app.openDocument(session([asset('c')]).doc, 'Replacement')).toEqual([])
+        app.setTabTarget(tab.id, backend.id)
+        expect(app.activeTab()!.id).toBe(tab.id)
+        expect(app.activeTab()!.store).not.toBe(tab.store)
+      }
       if (scenario === 'edited') expect(tab.store.dispatch(replace('c')).ok).toBe(true)
       if (scenario === 'registry') backend.registry.set({ ...registry, hash: 'changed' })
       if (scenario === 'target') {
@@ -90,12 +105,16 @@ describe('retained app dispatch', () => {
       if (scenario === 'unwanted') wanted = false
       acknowledged.resolve({ ...owner, ...declaration, revision: 1,
         ...(scenario === 'refused' ? { complete: false } : {}) })
-      expect((await operation).ok).toBe(scenario === 'accepted')
+      expect((await operation).ok).toBe(accepted)
       expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset(
-        scenario === 'accepted' ? 'b' : scenario === 'edited' ? 'c' : 'a',
+        accepted ? 'b' : scenario === 'edited' ? 'c' : 'a',
       )])
-      expect(tab.store.canUndo).toBe(scenario === 'accepted' || scenario === 'edited')
-      if (scenario === 'accepted') {
+      expect(tab.store.canUndo).toBe(accepted || scenario === 'edited')
+      if (scenario === 'replaced') {
+        expect(app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('c')])
+        expect(app.activeTab()!.store.canUndo).toBe(false)
+      }
+      if (accepted) {
         expect(tab.store.undo()).toBe(true)
         expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('a')])
         expect(tab.store.redo()).toBe(true)

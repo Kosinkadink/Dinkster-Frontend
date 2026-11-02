@@ -5604,8 +5604,11 @@ export class AppState {
         backend.connection,
         prepared,
         this.resolverWithVirtualNodes(registry.resolve),
-        () => this.tabs.get().includes(tab) && tab.store === session &&
-          this.backendForTab(tab) === backend && this.registryForTab(tab) === registry && !tab.execution && stillWanted(),
+        () => {
+          const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
+          return live !== undefined && live.store === session && !live.execution &&
+            this.backendForTab(live) === backend && this.registryForTab(live) === registry && stillWanted()
+        },
       )
       if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
       return outcome

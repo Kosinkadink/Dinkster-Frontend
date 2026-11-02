@@ -11,6 +11,7 @@ import { buildDinksterRegistry } from '@dinkster/client'
 import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND } from '../src/editors.js'
 import { AppState } from '../src/app-state.js'
 import { historicalRegistry } from './historical-schemas.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 
 /** Minimal in-memory localStorage for the node test env. */
@@ -190,11 +191,15 @@ describe('EditorRegistry', () => {
 describe('Tab editorKind', () => {
   // AppState builds its WS url from the page origin; give the node env one.
   const g = globalThis as { location?: unknown; localStorage?: Storage }
+  const retainedApps: AppState[] = []
   beforeEach(() => {
     vi.useFakeTimers()
     g.location = { protocol: 'http:', host: 'test' }
   })
   afterEach(() => {
+    for (const app of retainedApps.splice(0)) app.dispose()
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     vi.useRealTimers()
     delete g.localStorage
   })
@@ -359,7 +364,8 @@ describe('Tab editorKind', () => {
   })
 
   it('admits only an unchanged, undriven COMPOSITOR input into image-editor mode', async () => {
-    const app = new AppState()
+    const app = createWorkflowApp(null)
+    retainedApps.push(app)
     const tab = app.tabs.get()[0]!
     app.registry.set(buildDinksterRegistry(asConnectionId('local'), compositorPayload()))
     const graphId = tab.store.doc.root
@@ -441,7 +447,8 @@ describe('Tab editorKind', () => {
   })
 
   it('captures loader mask topology and redirects the associated paint source', async () => {
-    const app = new AppState()
+    const app = createWorkflowApp(null)
+    retainedApps.push(app)
     app.registry.set(buildDinksterRegistry(asConnectionId('local'), maskPaintPayload()))
     expect(app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'mask-paint-target', root: 'g0',
@@ -533,7 +540,8 @@ describe('Tab editorKind', () => {
   })
 
   it('opens an unchanged GLSL source by editor role as a session editor', async () => {
-    const app = new AppState()
+    const app = createWorkflowApp(null)
+    retainedApps.push(app)
     const tab = app.tabs.get()[0]!
     app.registry.set(buildDinksterRegistry(asConnectionId('local'), glslPayload()))
     const graphId = tab.store.doc.root
