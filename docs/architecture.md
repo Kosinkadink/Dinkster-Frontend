@@ -78,7 +78,13 @@ history or connection status before optimistic publication and submission. The
 candidate's history record is installed before document observers run.
 
 Image apply and image-document export commands use an awaited retained
-dispatch path. It journals the exact backend, owner, root union and document
+dispatch path. Native commands through `AppState.dispatchTo` also use that path
+when the candidate introduces a known asset digest, loses a previously complete
+census, or contains malformed ownership data. Commands without those changes
+remain synchronous. The selection compares the captured current and candidate
+documents; admission includes their history and shared pending roots. Direct
+session dispatch is not covered by this application-level selection.
+The retained path journals the exact backend, owner, root union and document
 lineage/revision before requesting ownership; workflow contents remain in their
 separate persistence path rather than being duplicated in each retention intent.
 The asset census recognizes the mask command's exact source-association marker
@@ -100,6 +106,8 @@ without retention response cache headers. A changed destination or stale
 candidate is refused. Editor projection changes preserve admission when the live
 tab keeps the same document session, backend and registry. Closing the tab or
 replacing its session still refuses the candidate, even with the same tab ID.
+Connection lifecycle changes, backend removal and application disposal also
+refuse publication after acknowledgment.
 Native backend connect/reconnect also checks existing candidate journals in the
 current project against that connection with cache-bypassing GETs. Stored
 endpoints never route requests. Only the exact owner, revision 1, canonical
@@ -151,7 +159,7 @@ the synchronous `openDocument` API are not certified by this startup check. Comm
 dispatch admission and collection remain disabled. The legacy bridge keeps its
 existing non-retained opening behavior.
 Unsupported schemas, opaque dynamic state and unrecognized extension
-records are incomplete, not empty root sets. Ordinary synchronous dispatch is unchanged.
+records are incomplete, not empty root sets. Core session dispatch remains synchronous.
 Schema defaults contribute roots only when the node has no stored override.
 The parser's exact scalar `schema.ext.dinkster` execution metadata is asset-free;
 unknown keys or non-scalar fields still refuse certification. Non-widget input
@@ -179,13 +187,14 @@ Delayed blueprint, clipboard, image-drop and latent-drop insertion await their
 owner-routed dispatch result before announcing inserted ids or completing the
 gesture. Both synchronous and asynchronous final results are supported; a
 pending result is not success. Their canvas adapters await the result before
-reading `ok`. These paths still use ordinary dispatch, not retained admission.
+reading `ok`. Native ordinary dispatch selects retained admission for newly
+introduced known identities; it does not certify unknown holders.
 
 Curve, Compositor and GLSL Apply, and unused-definition cleanup, also await
 the final command result. Pending actions disable duplicate submission and
 editor mutation; refused edits remain open. A completion cannot close or add
-errors to a replacement editor or modal. These callers still use ordinary
-dispatch and do not establish retained ownership themselves.
+errors to a replacement editor or modal. These callers use ordinary dispatch;
+the application selects retention when the candidate requires it.
 
 Canvas gesture dispatch accepts asynchronous outcomes; the host owns final
 diagnostics, while the controller drops only its transient gesture overlay.
@@ -193,7 +202,7 @@ Selection deletion waits for acceptance before clearing selection. Refusal
 preserves selection, and delayed completion cannot clear a newer selection
 or report a refusal toast into another tab, session, navigation or canvas.
 Occurrence-local deletion uses the same rule after atomic planner dispatch.
-These gestures still use ordinary dispatch, not retained admission.
+These gestures use ordinary dispatch and its candidate-based retention selection.
 
 Each admission shares its census across snapshots. Replayed node-only changes
 visit changed nodes when no subgraph instances are present; structural changes

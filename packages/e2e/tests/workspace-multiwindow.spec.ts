@@ -1,4 +1,5 @@
 import type { Dialog, Page } from '@playwright/test'
+import type { NodeSchema } from '@dinkster/core'
 import { expect, test } from './fixtures.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json' with { type: 'json' }
 
@@ -19,6 +20,68 @@ async function disableNativeDiscovery(page: Page): Promise<void> {
 
 const tabIds = (page: Page): Promise<string[]> => page.evaluate(() =>
   window.__dinksterTest!.app.tabs.get().map((tab) => tab.id))
+
+for (const accepted of [true, false]) {
+  test(`ordinary asset edits wait for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }, info) => {
+    await disableNativeDiscovery(page)
+    await page.goto('/')
+    await page.waitForFunction(() => window.__dinksterTest !== undefined)
+    await page.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      const schema: NodeSchema = {
+        type: 'AssetLoader', displayName: 'Asset Loader', category: 'test', source: 'v3', isOutputNode: false,
+        items: [{ kind: 'input', id: 'file', optional: false,
+          type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } }],
+      }
+      app.registry.set({ connection: app.connection.id, schemas: new Map([[schema.type, schema]]),
+        diagnostics: [], hash: 'asset-fixture', resolve: (type) => type === schema.type ? schema : undefined })
+      app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'ordinary-assets', root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'Root', nodes: { n0: { id: 'n0', type: 'AssetLoader', values: {
+          file: { digest: `blake3:${'a'.repeat(64)}`, name: 'before.bin', size: 7,
+            mediaType: 'application/octet-stream', virtualPath: '' },
+        } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+        view: { graphs: { g0: { nodes: { n0: { position: { x: 100, y: 100 } } } } } },
+      }, 'Retained asset edit')
+    })
+    await expect(page.getByTestId('tab-bar').getByText('Retained asset edit', { exact: true })).toBeVisible()
+    let release!: () => void
+    const acknowledgment = new Promise<void>((resolve) => { release = resolve })
+    let requested!: () => void
+    const request = new Promise<void>((resolve) => { requested = resolve })
+    await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
+      if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+      const declaration = route.request().postDataJSON()
+      if (declaration.digests.includes(`blake3:${'b'.repeat(64)}`)) {
+        requested()
+        await acknowledgment
+        if (!accepted) return route.fulfill({ status: 409, json: { error: 'Ownership refused' } })
+      }
+      await route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
+        ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: 1 } })
+    })
+    const mutation = page.evaluate(async () => {
+      const app = window.__dinksterTest!.app
+      return (await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n0', inputId: 'file', value: {
+          digest: `blake3:${'b'.repeat(64)}`, name: 'after.bin', size: 7,
+          mediaType: 'application/octet-stream', virtualPath: '',
+        },
+      } })).ok
+    })
+    await request
+    expect(await page.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      app.flushPersistTabs(true)
+      return app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.file
+    })).toMatchObject({ name: 'before.bin' })
+    await page.screenshot({ path: info.outputPath('ordinary-pending.png') })
+    release()
+    expect(await mutation).toBe(accepted)
+    expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.file))
+      .toMatchObject({ name: accepted ? 'after.bin' : 'before.bin' })
+    await page.screenshot({ path: info.outputPath(`ordinary-${accepted ? 'accepted' : 'refused'}.png`) })
+  })
+}
 
 for (const accepted of [true, false]) {
   test(`foreign shared edits wait for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page, context }, info) => {

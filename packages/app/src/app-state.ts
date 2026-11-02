@@ -5761,21 +5761,47 @@ export class AppState {
   dispatchTo(tab: Tab, invocation: CommandInvocation): CommandOutcome | Promise<CommandOutcome> {
     if (tab.execution) return { ok: false, diagnostics: [] }
     const effective = this.countAwareValueInvocation(tab, invocation)
-    const outcome = tab.store.dispatch(effective)
+    const backend = this.backendForTab(tab)
+    const prepared = backend.protocol === 'dinkster' ? tab.store.prepareDispatch?.(effective) : undefined
+    if (prepared?.ok) {
+      const resolve = this.resolverWithVirtualNodes(this.registryForTab(tab)?.resolve ?? (() => undefined))
+      // History and shared pending documents do not gain identities until this candidate commits.
+      // Admission still retains all of them; selection need only compare the two documents.
+      const history = { revision: prepared.currentHistory.revision, undo: [], redo: [] }
+      const current = workflowAssetRoots(prepared.currentDocument, history, resolve)
+      const candidate = workflowAssetRoots(prepared.document, history, resolve)
+      const known = new Set(current.digests)
+      if (candidate.refusal !== undefined || current.refusal !== undefined ||
+        (current.complete && !candidate.complete) || candidate.digests.some((digest) => !known.has(digest))) {
+        return this.admitPreparedWorkflowDispatch(tab, prepared)
+      }
+    }
+    const outcome = prepared === undefined ? tab.store.dispatch(effective) : prepared.ok ? prepared.commit() : prepared
     if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
     return outcome
   }
 
-  async dispatchRetainedTo(tab: Tab, invocation: CommandInvocation, stillWanted: () => boolean = () => true): Promise<CommandOutcome> {
+  dispatchRetainedTo(tab: Tab, invocation: CommandInvocation, stillWanted: () => boolean = () => true): Promise<CommandOutcome> {
+    if (tab.execution) return Promise.resolve({ ok: false, diagnostics: [] })
+    const prepared = tab.store.prepareDispatch?.(this.countAwareValueInvocation(tab, invocation))
+    return this.admitPreparedWorkflowDispatch(tab, prepared, stillWanted)
+  }
+
+  private async admitPreparedWorkflowDispatch(
+    tab: Tab,
+    prepared: ReturnType<NonNullable<DocumentSession['prepareDispatch']>> | undefined,
+    stillWanted: () => boolean = () => true,
+  ): Promise<CommandOutcome> {
     if (tab.execution) return { ok: false, diagnostics: [] }
     const backend = this.backendForTab(tab)
     const registry = this.registryForTab(tab)
+    let connectionChanged = false
+    const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
     try {
-      if (backend.protocol !== 'dinkster' || registry === undefined || tab.store.prepareDispatch === undefined) {
+      if (backend.protocol !== 'dinkster' || registry === undefined || prepared === undefined) {
         throw new Error('The destination cannot stage retained workflow commands')
       }
       const session = tab.store
-      const prepared = session.prepareDispatch!(this.countAwareValueInvocation(tab, invocation))
       if (!prepared.ok) {
         this.reportProblems(tab.id, prepared.diagnostics)
         return prepared
@@ -5786,7 +5812,8 @@ export class AppState {
         this.resolverWithVirtualNodes(registry.resolve),
         () => {
           const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
-          return live !== undefined && live.store === session && !live.execution &&
+          return !this.disposed && !connectionChanged && this.backends.get().includes(backend) &&
+            live !== undefined && live.store === session && !live.execution &&
             this.backendForTab(live) === backend && this.registryForTab(live) === registry && stillWanted()
         },
       )
@@ -5798,6 +5825,8 @@ export class AppState {
       )] }
       this.reportProblems(tab.id, outcome.diagnostics)
       return outcome
+    } finally {
+      unsubscribe()
     }
   }
 

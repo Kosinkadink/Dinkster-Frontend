@@ -1824,3 +1824,20 @@ visits changed nodes, while subgraph instances and structural changes retain
 full snapshot checks. History replay still copies patched document paths; these
 numbers do not establish a constant-time bound. Unresolved owners still remain
 journaled until acknowledged reconciliation/release is implemented.
+
+## Ordinary dispatch retention selection (2026-11-02, X570)
+
+Native `AppState.dispatchTo` compares the current and candidate document census
+before selecting awaited retention. A Node 26 Vitest probe measured 20 title
+changes after 10 warmup edits, using an unresolved EmptyImage schema and no
+network or rendering. The baseline is direct session dispatch, equivalent to
+the previous application route for this title command. Each sample asserted
+successful synchronous publication and the expected title.
+
+| Nodes | Direct session baseline mean (ms) | Application selection mean (ms) |
+| --- | --- | --- |
+| 1 | 0.040 | 0.054 |
+| 1200 | 1.350 | 2.696 |
+
+This measures selection overhead, not backend acknowledgment latency or frame
+time. Selection does not replay history; awaited admission still includes it.

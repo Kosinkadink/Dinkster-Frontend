@@ -305,9 +305,11 @@ interface DinksterTestBridge {
       register(ref: DinksterBridgeExecutionRef, artifact: DinksterBridgeCompileArtifact, timestamp?: number): void
     }
     connection: {
+      readonly id: import('@dinkster/core').ConnectionId
       status: { get(): string }
       simulateConnectionLoss(): void
     }
+    registry: { set(value: import('@dinkster/client').SchemaRegistry): void }
     tabs: { get(): readonly DinksterBridgeTab[] }
     readonly appViewEnabled: boolean
     settings: { set(id: string, value: unknown): void }
@@ -316,7 +318,7 @@ interface DinksterTestBridge {
       register(command: { id: string; label: string; run(payload?: import('@dinkster/core').Json): void; enabled?: () => boolean }): () => void
     }
     menuRegistry: import('@dinkster/core').MenuRegistry
-    flushPersistTabs(): void
+    flushPersistTabs(forceStage?: boolean): void
     activeTab(): DinksterBridgeTab | undefined
     closeTab(id: string): void
     reviewReplacements: { set(enabled: boolean): void }

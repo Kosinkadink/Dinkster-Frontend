@@ -216,8 +216,9 @@ describe('retained app dispatch', () => {
     vi.unstubAllGlobals()
   })
 
-  it.each(['accepted', 'projection-before', 'projection-during', 'replaced', 'edited', 'registry', 'target', 'closed', 'unwanted', 'refused'] as const)(
-    'publishes only a current acknowledged candidate: %s', async (scenario) => {
+  it.each((['accepted', 'projection-before', 'projection-during', 'replaced', 'edited', 'registry', 'target', 'closed', 'unwanted', 'refused', 'disconnected', 'disposed'] as const)
+    .flatMap((scenario) => (['explicit', 'ordinary'] as const).map((route) => ({ scenario, route }))))(
+    'publishes only a current acknowledged candidate: $route $scenario', async ({ scenario, route }) => {
       const storage = new Map<string, string>()
       vi.stubGlobal('localStorage', {
         get length() { return storage.size },
@@ -249,11 +250,17 @@ describe('retained app dispatch', () => {
       const before = tab.store.doc
       const accepted = scenario === 'accepted' || scenario === 'projection-before' || scenario === 'projection-during'
       if (scenario === 'projection-before') app.setTabEditorKind(tab.id, GLSL_EDITOR_KIND)
-      const operation = app.dispatchRetainedTo(tab, replace('b'), () => wanted)
+      const operation = route === 'ordinary'
+        ? app.dispatchTo(tab, replace('b'))
+        : app.dispatchRetainedTo(tab, replace('b'), () => wanted)
       const { owner, declaration } = await requested.promise
       expect(declaration.digests).toEqual([asset('a').digest, asset('b').digest])
       expect(tab.store.doc).toBe(before)
       expect(tab.store.canUndo).toBe(false)
+      app.flushPersistTabs(true)
+      const persisted = JSON.parse(localStorage.getItem('dinkster.openTabs')!)
+      expect(persisted.tabs.find((entry: { doc: WorkflowDocument }) => entry.doc.lineage === tab.id)
+        .doc.graphs.g0.nodes.n0.values.files).toEqual([asset('a')])
       if (scenario === 'projection-during') app.setTabEditorKind(tab.id, GLSL_EDITOR_KIND)
       if (scenario === 'projection-before' || scenario === 'projection-during') {
         expect(app.activeTab()).not.toBe(tab)
@@ -274,7 +281,12 @@ describe('retained app dispatch', () => {
         app.setTabTarget(tab.id, other.id)
       }
       if (scenario === 'closed') app.closeTab(tab.id)
-      if (scenario === 'unwanted') wanted = false
+      if (scenario === 'unwanted') {
+        wanted = false
+        if (route === 'ordinary') app.closeTab(tab.id)
+      }
+      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+      if (scenario === 'disposed') app.dispose()
       acknowledged.resolve({ ...owner, ...declaration, revision: 1,
         ...(scenario === 'refused' ? { complete: false } : {}) })
       expect((await operation).ok).toBe(accepted)
@@ -294,6 +306,22 @@ describe('retained app dispatch', () => {
       }
     },
   )
+
+  it('keeps ordinary commands synchronous when they introduce no new asset identities', () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    app = createWorkflowApp([schema])
+    app.openDocument(session().doc, 'Existing')
+    const tab = app.activeTab()!
+    const outcome = app.dispatchTo(tab, { command: 'node.setTitle', params: {
+      graphId: 'g0', nodeId: 'n0', title: 'Renamed loader',
+    } })
+    expect(outcome).not.toBeInstanceOf(Promise)
+    expect(outcome).toMatchObject({ ok: true })
+    expect(tab.store.doc.graphs.g0!.nodes.n0!.title).toBe('Renamed loader')
+    expect(app.connection.retainAssets).not.toHaveBeenCalled()
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.doc.graphs.g0!.nodes.n0!.title).toBeUndefined()
+  })
 })
 
 describe('retained workflow opens', () => {
