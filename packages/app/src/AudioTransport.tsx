@@ -86,7 +86,7 @@ export function AudioTransport(props: {
       if (!request.signal.aborted) setBusy(false)
     }
   }
-  createEffect(on(() => props.media.audio ?? props.media.src, () => {
+  createEffect(on(() => props.media.audio?.identity ?? props.media.src, () => {
     const media = props.media
     abort?.abort()
     element?.pause()
