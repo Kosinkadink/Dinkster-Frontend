@@ -192,7 +192,8 @@ interface DiscoveredAutogrowMembers {
 function normalizeLegacyWidgetValue(
   item: InputSpec,
   value: Json,
-): Json {
+): Json | undefined {
+  if (value === '' && item.optional && isAssetWidgetInput(item) && item.widget?.selection !== true) return undefined
   if (typeof value !== 'string') return value
   const floating = item.widget?.widgetType === 'FLOAT'
   if (item.widget?.widgetType === 'INT' || floating) {
@@ -259,14 +260,16 @@ function decodeKeyedWidgets(
             : joinValuePath(wireMember, slot.id)
           if (!Object.prototype.hasOwnProperty.call(raw, wireInput)) continue
           known.add(wireInput)
-          state.values[stateInput] = normalizeLegacyWidgetValue(slot, raw[wireInput]!)
+          const value = normalizeLegacyWidgetValue(slot, raw[wireInput]!)
+          if (value !== undefined) state.values[stateInput] = value
         }
       }
       continue
     }
     if (item.widget !== undefined && Object.prototype.hasOwnProperty.call(raw, wireKey)) {
       known.add(wireKey)
-      state.values[stateKey] = normalizeLegacyWidgetValue(item, raw[wireKey]!)
+      const value = normalizeLegacyWidgetValue(item, raw[wireKey]!)
+      if (value !== undefined) state.values[stateKey] = value
     }
   }
 }
@@ -439,7 +442,8 @@ const decodePositionalFamilyWidgets = (
         diags.push(imp('warning', 'import.widgets.missing', `${nodeLabel}: no positional value for widget '${key}'; schema default applies`))
         continue
       }
-      state.values[key] = normalizeLegacyWidgetValue(item, raw[state.index++] as Json)
+      const value = normalizeLegacyWidgetValue(item, raw[state.index++] as Json)
+      if (value !== undefined) state.values[key] = value
       if (item.widget.controller !== undefined && state.index < raw.length) {
         const mode = raw[state.index]
         if (typeof mode === 'string' && CONTROLLER_MODES.has(mode)) {
@@ -526,7 +530,8 @@ function decodePositionalWidgets(
       if (state.index >= raw.length) {
         diags.push(imp('warning', 'import.widgets.missing', `${nodeLabel}: no positional value for widget '${key}'; schema default applies`))
       } else {
-        state.values[key] = normalizeLegacyWidgetValue(item, raw[state.index++] as Json)
+        const value = normalizeLegacyWidgetValue(item, raw[state.index++] as Json)
+        if (value !== undefined) state.values[key] = value
         if (item.widget.controller !== undefined && state.index < raw.length) {
           const mode = raw[state.index]
           if (typeof mode === 'boolean') {
