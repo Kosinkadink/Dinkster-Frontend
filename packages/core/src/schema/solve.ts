@@ -304,9 +304,14 @@ export function solveGraphTypes(
   // warns where they meet (legal, but worth surfacing: solve.maybeAbsent).
   const connectivityOf = options.connectivityOf ?? buildGraphConnectivity(def)
   const portTypes = new Map<NodeId, PortTypes>()
-  const specializedSlots: { node: NodeId; ref: PortRef; selectedType: TypeExpr }[] = []
+  const specializedSlots: {
+    node: NodeId
+    ref: PortRef
+    selectedType: TypeExpr
+  }[] = []
   const optionalOutputs = new Map<NodeId, Set<string>>()
   const failInputs = new Map<NodeId, Set<string>>()
+  const wholeListInputs = new Map<NodeId, Set<string>>()
   for (const node of Object.values(def.nodes) as NodeData[]) {
     options.onWork?.('node')
     const schema = options.resolveNode === undefined
@@ -325,12 +330,27 @@ export function solveGraphTypes(
       options.onWork?.('port')
       const key = elabKeyOf(item.address)
       inputs.set(key, item.spec.type)
+      if (item.spec.acceptsList) {
+        let set = wholeListInputs.get(node.id)
+        if (!set) wholeListInputs.set(node.id, (set = new Set()))
+        set.add(key)
+      }
       if (item.origin.kind === 'slot' && item.origin.selected !== undefined) {
         const selected = item.origin.selected
-        const variant = item.origin.variants?.find((candidate) => candidate.key === selected)
+        const variant = item.origin.variants?.find(
+          (candidate) => candidate.key === selected,
+        )
         if (variant) {
-          const ref = { node: node.id, port: asPortId(item.address.port), ...(item.address.members ? { members: item.address.members } : {}) }
-          specializedSlots.push({ node: node.id, ref, selectedType: variant.type })
+          const ref = {
+            node: node.id,
+            port: asPortId(item.address.port),
+            ...(item.address.members ? { members: item.address.members } : {}),
+          }
+          specializedSlots.push({
+            node: node.id,
+            ref,
+            selectedType: variant.type,
+          })
           if (item.origin.typeTemplateId !== undefined) {
             slotBindings.push({
               templateId: item.origin.typeTemplateId,
@@ -401,7 +421,7 @@ export function solveGraphTypes(
     if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') return { ...type, element: substitute(type.element, node) }
     if (type.kind !== 'variable') return type
     const resolution = vars.resolutionOf(varKeyOf(node, type.templateId))
-    if (resolution.kind === 'resolved') return typeExprFromTypeId(resolution.name)
+    if (resolution.kind === 'resolved') return resolution.name === '*' ? { kind: 'wildcard' } : typeExprFromTypeId(resolution.name)
     if (resolution.kind === 'ambiguous') return { kind: 'union', names: resolution.names }
     return type
   }
@@ -427,6 +447,19 @@ export function solveGraphTypes(
     }
   }
 
+  const admittedInputType = (
+    from: TypeExpr | undefined,
+    to: PortRef,
+    type: TypeExpr | undefined,
+  ): TypeExpr | undefined =>
+    type !== undefined &&
+    type.kind !== 'list' &&
+    from !== undefined &&
+    cardinalityOf(from) === 'list' &&
+    wholeListInputs.get(to.node)?.has(elabKeyOf(to))
+      ? { kind: 'list', element: type }
+      : type
+
   const constrain = (
     from: PortRef,
     to: PortRef,
@@ -434,8 +467,9 @@ export function solveGraphTypes(
     fromSide: 'input' | 'output' = 'output',
   ): void => {
     const fromType = typeAt(from, fromSide)
-    const toType = typeAt(to, 'input')
-    if (fromType !== undefined && toType !== undefined && hasTuple(fromType)) dependentEdges.push({ fromType, toType, from, to, source })
+    const toType = admittedInputType(fromType, to, typeAt(to, 'input'))
+    if (fromType !== undefined && toType !== undefined && hasTuple(fromType))
+      dependentEdges.push({ fromType, toType, from, to, source })
     if (fromType === undefined || toType === undefined) {
       setVerdict(source, 'unknown')
       const missing = fromType === undefined ? from : to
@@ -608,7 +642,12 @@ export function solveGraphTypes(
       if (a === undefined || b === undefined) {
         // Shared-constructor peel is free: the coercion budget is inherited
         // (that is the elementwise lift when a list element then decodes).
-        unify(fromType.element, (toType as TypeExpr & { kind: 'list' | 'asset' | 'stream' }).element, from, to, source, allowCoercion, fromVariableKeys)
+        // A closed heterogeneous list binds its runtime element marker, not
+        // an unconstrained wildcard edge. Bare wildcards still never capture.
+        const element = fromType.kind === 'list' && fromType.element.kind === 'wildcard'
+          ? { kind: 'concrete' as const, name: '*' }
+          : fromType.element
+        unify(element, (toType as TypeExpr & { kind: 'list' | 'asset' | 'stream' }).element, from, to, source, allowCoercion, fromVariableKeys)
         return
       }
       // Both closed: exact canonical-id overlap, handled below.
@@ -696,7 +735,11 @@ export function solveGraphTypes(
   }
   const projectedVariablesBySource = new Map<symbol, Map<string, VarKey>>()
   for (const [index, projected] of (options.projectedInputs ?? []).entries()) {
-    const toType = typeAt(projected.to, 'input')
+    const toType = admittedInputType(
+      projected.type,
+      projected.to,
+      typeAt(projected.to, 'input'),
+    )
     if (toType === undefined) {
       if (portTypes.has(projected.to.node)) {
         diagnostics.push(

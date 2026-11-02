@@ -13,6 +13,33 @@ import { inputsOf, outputsOf } from '../src/schema/model.js'
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 
 describe('Dinkster schema wire', () => {
+  it('decodes whole-list admission only for ordinary inputs with a boolean marker', () => {
+    for (const acceptsList of [true, false]) {
+      const result = parseDinksterSchema('Whole', {
+        interface: [
+          { role: 'input', id: 'index', type: concrete('INT'), acceptsList },
+        ],
+      })
+      expect(result.diagnostics).toEqual([])
+      expect(inputsOf(result.schema!)[0]!.acceptsList).toBe(
+        acceptsList ? true : undefined,
+      )
+    }
+    for (const entry of [
+      { role: 'output', id: 'out', type: concrete('INT'), acceptsList: false },
+      { role: 'inputFamily', id: 'items', acceptsList: true, template: [] },
+      ...['true', 1, null].map((acceptsList) => ({
+        role: 'input',
+        id: 'index',
+        type: concrete('INT'),
+        acceptsList,
+      })),
+    ])
+      expect(
+        parseDinksterSchema('Invalid', { interface: [entry] }).schema,
+      ).toBeUndefined()
+  })
+
   it('decodes editable combos with empty or omitted choices without widening ordinary combos', () => {
     const editable = { type: 'COMBO', editableOptions: true }
     for (const choices of [{}, { options: [] }, { options: ['second', 'first', 'second', 0, false] }]) {
