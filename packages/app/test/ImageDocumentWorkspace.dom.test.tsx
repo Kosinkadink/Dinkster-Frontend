@@ -3,7 +3,7 @@
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory as FakeIDBFactory } from 'fake-indexeddb'
-import { IMAGE_DOCUMENT_MEDIA_TYPE, type DinksterConnection, type LibraryRecord } from '@dinkster/client'
+import { IMAGE_DOCUMENT_MEDIA_TYPE, type DinksterConnection, type LibraryRecord, type RetainedAssetOwner, type RetainedAssetDeclaration } from '@dinkster/client'
 import {
   COLLAB_PROTOCOL_VERSION,
   IMAGE_OPACITY_MAX,
@@ -416,11 +416,19 @@ describe('ImageDocumentWorkspace', () => {
         dependencies,
       }))
     const fetchAssetBytes = vi.fn(async () => Uint8Array.from(staged.bytes).buffer)
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL')
+      .mockReturnValueOnce('blob:verified-first').mockReturnValueOnce('blob:verified-second')
+    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
     const connection = {
+      id: 'backend-render',
       uploadMediaAsset,
       adoptImageDocument,
       renderImageDocument,
       fetchAssetBytes,
+      retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) =>
+        ({ ...owner, ...declaration, revision: declaration.revision + 1 }),
+      releaseRetainedAssets: async (owner: RetainedAssetOwner, revision: number) =>
+        ({ ...owner, revision: revision + 1, complete: true, digests: [] }),
       assetUrl: vi.fn((digest: string) => `http://assets.test/${digest}`),
       createLibraryRecord,
     } as unknown as DinksterConnection
@@ -456,7 +464,10 @@ describe('ImageDocumentWorkspace', () => {
     expect(root.textContent).toContain('Fresh render')
     expect(root.textContent).toContain('dinkster-image-document-v2-cpu-reference')
     expect(root.querySelector<HTMLImageElement>('img[alt="Authoritative ImageDocument output"]')?.src)
-      .toBe(`http://assets.test/${outputDigest}`)
+      .toBe('blob:verified-first')
+    expect(root.querySelector<HTMLAnchorElement>('.image-document-download')?.href).toBe('blob:verified-first')
+    expect(createObjectURL.mock.calls[0]![0]).toBeInstanceOf(Blob)
+    expect(revokeObjectURL).not.toHaveBeenCalled()
 
     const editor = root.querySelector('[data-testid="image-document-editor"]')
     const selectedRow = root.querySelector('.image-document-layer-row[aria-pressed="true"]')
@@ -491,6 +502,8 @@ describe('ImageDocumentWorkspace', () => {
     expect(fetchAssetBytes).toHaveBeenCalledTimes(callsBeforeLocale.fetch)
     expect(renderImageDocument).toHaveBeenCalledTimes(callsBeforeLocale.render)
     expect(uploadMediaAsset).toHaveBeenCalledTimes(callsBeforeLocale.upload)
+    expect(createObjectURL).toHaveBeenCalledOnce()
+    expect(revokeObjectURL).not.toHaveBeenCalled()
     vi.useRealTimers()
 
     root.querySelector<HTMLElement>('[role="slider"][aria-label="[Ebenendeckkraft]"]')!
@@ -500,7 +513,11 @@ describe('ImageDocumentWorkspace', () => {
       .find((button) => button.textContent === '[Referenz rendern]')!
     localizedRender.click()
     await vi.waitFor(() => expect(root.textContent).toContain('Cache hit'))
+    expect(root.querySelector<HTMLAnchorElement>('.image-document-download')?.href).toBe('blob:verified-second')
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:verified-first')
+    expect(revokeObjectURL).not.toHaveBeenCalledWith('blob:verified-second')
     dispose()
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:verified-second')
   })
 
   it('uploads resources before sharing and persists membership until leave', async () => {

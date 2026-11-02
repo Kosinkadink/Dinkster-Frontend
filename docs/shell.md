@@ -95,6 +95,14 @@ viewport, graph state, or backend requests. Lens names and descriptions remain
 registry-owned data and are displayed verbatim. Opening either menu suppresses
 its trigger tooltip so the tooltip cannot cover the menu heading.
 
+Graph-wide named-net display actions keep the Views menu open while their
+document command is pending. Further display selections are disabled until it
+finishes. Refusal leaves the stored presentation unchanged and shows a notice
+inside the menu; retry the action there. Acceptance closes the menu and returns
+focus to its trigger. Escape or an outside press dismisses without cancelling
+the submitted command; a dismissed or old pane/document/graph completion cannot
+close a newer menu, move focus, or show a stale notice.
+
 Three toggleable regions surround the canvas: the **left dock** and the
 **bottom panel** each host ONE exclusive panel; the **right zone** is a
 tabbed panel host with a single open/closed switch. The top-right controls

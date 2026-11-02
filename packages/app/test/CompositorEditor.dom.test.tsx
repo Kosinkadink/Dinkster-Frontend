@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { render } from 'solid-js/web'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, EMPTY_COMPOSITOR_RECIPE, registerCatalog, setLocale, type DinksterNodesPayload, type Json } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
@@ -51,7 +51,7 @@ const payload = {
   },
 } as unknown as DinksterNodesPayload
 
-function mount(options: {
+async function mount(options: {
   readonly storedValue?: Json
   readonly previewState?: typeof state
 } = {}) {
@@ -60,18 +60,18 @@ function mount(options: {
   app.registry.set(buildDinksterRegistry(asConnectionId('local'), payload))
   const graphId = tab.store.doc.root
   const seedNodeIds = Object.keys(tab.store.doc.graphs[graphId]!.nodes)
-  if (seedNodeIds.length > 0 && !app.dispatchTo(tab, {
+  if (seedNodeIds.length > 0 && !(await app.dispatchTo(tab, {
     command: 'node.remove', params: { graphId, nodeIds: seedNodeIds },
-  }).ok) throw new Error('failed to clear compositor fixture graph')
+  })).ok) throw new Error('failed to clear compositor fixture graph')
   const before = new Set(Object.keys(tab.store.doc.graphs[graphId]!.nodes))
-  if (!app.dispatchTo(tab, {
+  if (!(await app.dispatchTo(tab, {
     command: 'node.add', params: { graphId, type: 'Compositor', position: { x: 20, y: 30 } },
-  }).ok) throw new Error('failed to add compositor fixture node')
+  })).ok) throw new Error('failed to add compositor fixture node')
   const nodeId = Object.keys(tab.store.doc.graphs[graphId]!.nodes).find((id) => !before.has(id))!
-  if (options.storedValue !== undefined && !app.dispatchTo(tab, {
+  if (options.storedValue !== undefined && !(await app.dispatchTo(tab, {
     command: 'node.setValue',
     params: { graphId, nodeId, inputId: 'recipe', value: options.storedValue },
-  }).ok) throw new Error('failed to store compositor fixture recipe')
+  })).ok) throw new Error('failed to store compositor fixture recipe')
   const target = app.compositorTargetForInput(tab, graphId, nodeId, 'recipe')!
   const compiled = app.compileTab(tab)
   if (!compiled?.ok) throw new Error(`failed to compile compositor fixture: ${JSON.stringify(compiled?.diagnostics)}`)
@@ -91,14 +91,15 @@ function mount(options: {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks()
   setLocale('en')
   document.body.replaceChildren()
   localStorage.clear()
 })
 
 describe('CompositorEditor', () => {
-  it('edits layer order and properties, then commits one exact atomic recipe', () => {
-    const mounted = mount()
+  it('edits layer order and properties, then commits one exact atomic recipe', async () => {
+    const mounted = await mount()
     expect(mounted.root.querySelectorAll('.compositor-layer-row')).toHaveLength(2)
     expect([...mounted.root.querySelectorAll<HTMLInputElement>('input')].some((input) => input.value === '320')).toBe(true)
     expect(mounted.root.textContent).toContain('Overlay')
@@ -124,7 +125,7 @@ describe('CompositorEditor', () => {
       .find((button) => button.textContent === 'Apply')!
     apply.click()
 
-    expect(mounted.tab.store.revision).toBe(revision + 1)
+    await vi.waitFor(() => expect(mounted.tab.store.revision).toBe(revision + 1))
     const value = mounted.tab.store.doc.graphs[mounted.graphId]!.nodes[mounted.nodeId]!.values['recipe'] as {
       version: number; documentDigest: string; commands: Json[]
     }
@@ -139,18 +140,62 @@ describe('CompositorEditor', () => {
       flipHorizontal: false, flipVertical: false, sourceWidth: 80, sourceHeight: 60,
     } })
     expect(value.commands.at(-1)).toEqual({ op: 'reorder', ids: ['l2', 'l0'] })
-    expect(mounted.app.imageEditorTarget.get()).toBeUndefined()
+    await vi.waitFor(() => expect(mounted.app.imageEditorTarget.get()).toBeUndefined())
     mounted.dispose()
     mounted.app.dispose()
   })
 
-  it('refuses an apply after the stored recipe changes concurrently', () => {
-    const mounted = mount()
+  it.each([false, true])('waits for compositor result %s before closing and prevents duplicate apply', async (accepted) => {
+    const mounted = await mount()
+    const request = mounted.app.imageEditorTarget.get()
+    const dispatch = mounted.app.dispatchTo.bind(mounted.app)
+    let settle!: () => void
+    const pending = vi.spyOn(mounted.app, 'dispatchTo').mockImplementation((tab, invocation) =>
+      new Promise((resolve) => { settle = () => resolve(accepted ? dispatch(tab, invocation) : { ok: false, diagnostics: [] }) }) as never)
+    const apply = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Apply')!
+    apply.click()
+    expect(apply.disabled).toBe(true)
+    expect(mounted.app.imageEditorTarget.get()).toBe(request)
+    apply.click()
+    expect(pending).toHaveBeenCalledOnce()
+    settle()
+    await vi.waitFor(() => accepted
+      ? expect(mounted.app.imageEditorTarget.get()).toBeUndefined()
+      : expect(mounted.root.querySelector('[role="alert"]')).not.toBeNull())
+    if (!accepted) {
+      expect(mounted.app.imageEditorTarget.get()).toBe(request)
+      expect(apply.disabled).toBe(false)
+    }
+    mounted.dispose()
+    mounted.app.dispose()
+  })
+
+  it('keeps a replacement compositor free of an old apply refusal', async () => {
+    const mounted = await mount()
+    let settle!: () => void
+    vi.spyOn(mounted.app, 'dispatchTo').mockImplementation(() => new Promise((resolve) => {
+      settle = () => resolve({ ok: false, diagnostics: [] })
+    }) as never)
+    const apply = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Apply')!
+    apply.click()
+    const replacement = { ...mounted.app.imageEditorTarget.get()! }
+    mounted.app.imageEditorTarget.set(replacement)
+    settle()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(mounted.app.imageEditorTarget.get()).toBe(replacement)
+    expect(mounted.root.querySelector('[role="alert"]')).toBeNull()
+    mounted.dispose()
+    mounted.app.dispose()
+  })
+
+  it('refuses an apply after the stored recipe changes concurrently', async () => {
+    const mounted = await mount()
     const recipe = { version: 2, documentDigest: assetDigest, commands: [{ op: 'layer', id: 'l0', changes: { visible: false } }] }
-    expect(mounted.app.dispatchTo(mounted.tab, {
+    expect((await mounted.app.dispatchTo(mounted.tab, {
       command: 'node.setValue',
       params: { graphId: mounted.graphId, nodeId: mounted.nodeId, inputId: 'recipe', value: recipe },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     const apply = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')]
       .find((button) => button.textContent === 'Apply')!
     apply.click()
@@ -161,17 +206,17 @@ describe('CompositorEditor', () => {
     mounted.app.dispose()
   })
 
-  it('uses the runtime document when the stored delta is stale', () => {
+  it('uses the runtime document when the stored delta is stale', async () => {
     const saved = { version: 2, documentDigest: `blake3:${'b'.repeat(64)}`, commands: [] }
-    const mounted = mount({ storedValue: saved, previewState: { ...state, stale: true } })
+    const mounted = await mount({ storedValue: saved, previewState: { ...state, stale: true } })
     expect(mounted.root.textContent).toContain('Overlay')
     mounted.dispose()
     mounted.app.dispose()
   })
 
-  it('updates mounted host text when the locale changes and preserves catalog fallback', () => {
+  it('updates mounted host text when the locale changes and preserves catalog fallback', async () => {
     registerCatalog('de-DE', { 'compositor.layers.title': 'Ebenen' })
-    const mounted = mount()
+    const mounted = await mount()
     expect(mounted.root.textContent).toContain('Layers')
     expect(mounted.root.textContent).toContain('Apply')
 

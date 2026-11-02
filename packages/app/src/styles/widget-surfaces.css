@@ -1,3 +1,7 @@
+.widget-commit-content {
+  display: contents;
+}
+
 .widget-editor-in-node {
   position: absolute;
   z-index: 10;
@@ -323,9 +327,13 @@
   background: var(--dinkster-interaction-selected);
   border-color: var(--dinkster-border-focus);
 }
+.seed-controller-option:disabled {
+  color: var(--dinkster-text-secondary);
+  opacity: 1;
+}
 .seed-controller-option span { display: flex; min-width: 0; flex-direction: column; }
 .seed-controller-option small {
-  color: var(--dinkster-text-muted);
+  color: var(--dinkster-text-secondary);
   font-size: var(--dinkster-type-metadata-size);
   line-height: var(--dinkster-type-metadata-line);
   font-weight: var(--dinkster-weight-regular);

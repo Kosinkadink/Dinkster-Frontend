@@ -13,6 +13,73 @@ const key = (target: Element, value: string): void => {
 afterEach(() => document.body.replaceChildren())
 
 describe('ProductNumberInput', () => {
+  it('retains exact refused async drafts for explicit retry and ignores stale completion after Escape', async () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const [value, setValue] = createSignal('5')
+    const requests: { raw: string; current: () => boolean; settle: (accepted: boolean) => void }[] = []
+    const dispose = render(() => <ProductNumberInput value={value()} min={0} max={20} step={2}
+      onCommitAsync={(raw, current) => new Promise<boolean>((settle) => requests.push({ raw, current, settle }))} />, root)
+    input(root).value = ' 7.50 '
+    input(root).dispatchEvent(new InputEvent('input', { bubbles: true }))
+    key(input(root), 'Enter')
+    expect(input(root).readOnly).toBe(true)
+    key(input(root), 'ArrowUp')
+    key(input(root), 'Enter')
+    expect(root.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true)
+    expect(requests.map((request) => request.raw)).toEqual([' 7.50 '])
+    requests[0]!.settle(false)
+    await vi.waitFor(() => expect(input(root).readOnly).toBe(false))
+    expect(input(root).value).toBe(' 7.50 ')
+    input(root).dispatchEvent(new FocusEvent('blur'))
+    expect(requests).toHaveLength(1)
+    key(input(root), 'Enter')
+    expect(requests[1]!.raw).toBe(' 7.50 ')
+    key(input(root), 'Escape')
+    expect(input(root).value).toBe('5')
+    expect(requests[1]!.current()).toBe(false)
+    input(root).value = ' 11 '
+    input(root).dispatchEvent(new InputEvent('input', { bubbles: true }))
+    requests[1]!.settle(true)
+    await Promise.resolve()
+    expect(input(root).value).toBe(' 11 ')
+    key(input(root), 'Enter')
+    setValue('11')
+    requests[2]!.settle(true)
+    await vi.waitFor(() => expect(input(root).readOnly).toBe(false))
+    expect(input(root).value).toBe('11')
+    key(input(root), 'Enter')
+    expect(requests).toHaveLength(3)
+    dispose()
+    expect(requests[2]!.current()).toBe(false)
+  })
+
+  it('retries refused exact integer stepping and never advances beyond the supported maximum', async () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const requests: { raw: string; settle: (accepted: boolean) => void }[] = []
+    const [value, setValue] = createSignal('18446744073709551613')
+    render(() => <ProductNumberInput value={value()} min="0" max="18446744073709551615" step="2" integer commitUnchanged
+      onCommitAsync={(raw) => new Promise<boolean>((settle) => requests.push({ raw, settle }))} />, root)
+    key(input(root), 'ArrowUp')
+    expect(requests[0]!.raw).toBe('18446744073709551614')
+    requests[0]!.settle(false)
+    await vi.waitFor(() => expect(input(root).readOnly).toBe(false))
+    expect(input(root).value).toBe('18446744073709551614')
+    key(input(root), 'Enter')
+    expect(requests[1]!.raw).toBe('18446744073709551614')
+    setValue(requests[1]!.raw)
+    requests[1]!.settle(true)
+    await vi.waitFor(() => expect(input(root).readOnly).toBe(false))
+    key(input(root), 'End')
+    expect(requests[2]!.raw).toBe('18446744073709551615')
+    setValue(requests[2]!.raw)
+    requests[2]!.settle(true)
+    await vi.waitFor(() => expect(input(root).readOnly).toBe(false))
+    key(input(root), 'ArrowUp')
+    expect(requests).toHaveLength(3)
+  })
+
   it('commits typed text once on Enter and reverts an edit with Escape', () => {
     const commits = vi.fn()
     const root = document.createElement('div')

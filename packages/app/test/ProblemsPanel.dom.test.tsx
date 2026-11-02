@@ -2,7 +2,7 @@
 
 import { createSignal as createSolidSignal } from 'solid-js'
 import { render } from 'solid-js/web'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildDinksterRegistry } from '@dinkster/client'
 import {
   asGraphDefId,
@@ -108,7 +108,7 @@ describe('ProblemsPanel browser interactions', () => {
       n2: { id: asNodeId('n2'), type: 'Previous', values: {} },
     } } } }, 'Upgraded document')).toEqual([])
     const tab = app.activeTab()!
-    expect(app.migrationNotices.get().has(tab.id)).toBe(true)
+    await vi.waitFor(() => expect(app.migrationNotices.get().has(tab.id)).toBe(true))
     const root = document.createElement('div')
     document.body.append(root)
     const unmount = render(() => {
@@ -225,6 +225,41 @@ describe('ProblemsPanel browser interactions', () => {
     errorSummary.click()
     details[0]!.querySelector<HTMLButtonElement>('.problem-show-on-canvas')!.click()
     expect(diagnosticFocus.get()).toMatchObject({ anchor: diagnostics[0]!.anchor })
+    unmount()
+  })
+
+  it('routes an explicit missing-asset action to its input without editing the document', () => {
+    const missing = diag('warning', 'validation', 'asset.availability.missing', 'Missing exact file', {
+      anchor: { occurrence: { instancePath: [], node: asNodeId('n2') } },
+      data: { input: 'image', digest: 'blake3:' + 'a'.repeat(64) },
+    })
+    const { root, diagnosticFocus, unmount } = mountPanel(undefined, () => [missing])
+    const button = [...root.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === 'Locate or replace')!
+    expect(button).toBeDefined()
+    button.click()
+    expect(diagnosticFocus.get()).toMatchObject({ anchor: missing.anchor, openAssetInput: 'image' })
+    expect(workflow.graphs['g0']!.nodes['n2']!.values).toEqual({})
+    unmount()
+  })
+
+  it('keeps an expanded missing-asset repair available when another execution problem arrives', () => {
+    const missing = diag('warning', 'validation', 'asset.availability.missing', 'Missing exact file', {
+      anchor: { occurrence: { instancePath: [], node: asNodeId('n2') } },
+      data: { input: 'image', digest: 'blake3:' + 'a'.repeat(64) },
+    })
+    const [entries, setEntries] = createSolidSignal<readonly Diagnostic[]>([missing])
+    const { root, diagnosticFocus, unmount } = mountPanel(undefined, entries)
+    root.querySelector('details.problem summary')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(root.querySelector<HTMLDetailsElement>('details.problem')!.open).toBe(true)
+    setEntries([missing, diag('error', 'validation', 'workflow.plan.failed', 'Planning failed')])
+    expect(root.querySelector('.problems-group')!.getAttribute('data-severity')).toBe('error')
+    expect(root.querySelector<HTMLDetailsElement>('details.problem')!.open).toBe(true)
+    const button = [...root.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === 'Locate or replace')!
+    button.click()
+    expect(diagnosticFocus.get()).toMatchObject({ anchor: missing.anchor, openAssetInput: 'image' })
+    setEntries([missing])
+    expect(root.querySelector<HTMLDetailsElement>('details.problem')!.open).toBe(true)
+    expect(root.querySelector('.problems-group')!.getAttribute('data-severity')).toBe('warning')
     unmount()
   })
 

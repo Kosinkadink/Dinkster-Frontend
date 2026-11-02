@@ -10,11 +10,14 @@
 
 import { createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js'
 import type { CollectionEntry } from '@dinkster/core'
+import type { DinksterConnection } from '@dinkster/client'
+import { AssetFileLocation } from '../AssetFileLocation.js'
+import { activeProjectId } from '../projects.js'
 import { ProductNotice } from '../ProductForm.js'
 import { ProductEmptyState } from '../ProductSurfaces.js'
 import { useAppMessage } from '../locale.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from './types.js'
-import { formatSize, isBrowserPreviewable } from './helpers.js'
+import { committableAssetRef, formatSize, isBrowserPreviewable } from './helpers.js'
 import { inspectAssetMetadata, METADATA_INSPECTION_UNSUPPORTED } from './metadata.js'
 import { assetEntryKindOf, assetItemOf, assetKindOf } from './collection-adapter.js'
 import { DigestValue } from './presentation.js'
@@ -75,7 +78,8 @@ function AssetFacts(props: {
         <dt>{message('assets.fact.mediaType')}</dt><dd>{props.item.mediaType ?? message('assets.value.unknown')}</dd>
         <Show when={props.dimensions}>{(dimensions) => <><dt>{message('assets.fact.resolution')}</dt><dd>{dimensions().width} x {dimensions().height}</dd></>}</Show>
         <dt>{message('assets.fact.size')}</dt><dd>{formatSize(props.item.size)}</dd>
-        <dt>{message('assets.fact.source')}</dt><dd>{props.item.source.id === 'all-assets' ? message('assets.source.all') : props.item.source.label}</dd>
+        <dt>{message('assets.fact.source')}</dt><dd>{props.item.source.id === 'all-assets' ? message('assets.source.all')
+          : props.item.source.id === 'federated-assets' ? message('assets.source.federatedCatalog') : props.item.source.label}</dd>
         <Show when={props.item.source.id.startsWith('mount:')}><dt>{message('assets.fact.mount')}</dt><dd>{props.item.source.id.slice('mount:'.length)}</dd></Show>
         <dt>{message('assets.fact.virtualPath')}</dt><dd>{props.item.virtualPath ?? ''}</dd>
         <Show when={props.item.digest}>{(digest) => <><dt>{message('assets.fact.digest')}</dt><dd class="asset-digest"><DigestValue digest={digest()} /></dd></>}</Show>
@@ -147,6 +151,9 @@ export function AssetEntrySelection(props: {
   readonly entry: CollectionEntry | undefined
   readonly adapters: readonly AssetSourceAdapter[]
   readonly backendId: string
+  readonly connection: Pick<DinksterConnection, 'fetchAssetLocations'>
+  readonly backendUrl: string
+  readonly backendLabel?: string | undefined
   readonly assetUrl?: ((digest: string) => string) | undefined
 }) {
   const message = useAppMessage()
@@ -168,7 +175,18 @@ export function AssetEntrySelection(props: {
           <ProductEmptyState testId="asset-selection-empty" title={message('assets.selection.empty.detail')} />
         </>
       }>
-        {(selected) => <AssetEntrySelectionContent item={selected} previewUrl={previewUrl(selected)} adapters={props.adapters} backendId={props.backendId} additionalFacts={selectionDetailsOf(props.entry)} />}
+        {(selected) => {
+          const connection = props.connection
+          const backendUrl = props.backendUrl
+          const project = activeProjectId()
+          return <>
+            <AssetEntrySelectionContent item={selected} previewUrl={previewUrl(selected)} adapters={props.adapters} backendId={props.backendId} additionalFacts={selectionDetailsOf(props.entry)} />
+            <Show when={committableAssetRef(selected)}>{(ref) => <AssetFileLocation
+              connection={connection} backendUrl={backendUrl} backendLabel={props.backendLabel}
+              digest={ref().digest} project={project}
+              isCurrent={() => props.connection === connection && props.backendUrl === backendUrl && activeProjectId() === project} />}</Show>
+          </>
+        }}
       </Show>
     </section>
   )

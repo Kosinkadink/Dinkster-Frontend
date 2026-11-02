@@ -98,6 +98,57 @@ function nativeSetup(): { backend: Extract<Backend, { protocol: 'dinkster' }>; t
 }
 
 describe('saveWorkflow', () => {
+  it.each(['available', 'denied', 'edited', 'timed out'] as const)('saves an early snapshot with optional location lookup %s', async (outcome) => {
+    const { backend } = nativeSetup()
+    const deadline = new AbortController()
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal)
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([{ digest: DIGEST, status: 'available' }])
+    let resolve!: (paths: readonly string[]) => void
+    let reject!: (error: Error) => void
+    const pending = new Promise<readonly string[]>((res, rej) => { resolve = res; reject = rej })
+    const locations = vi.spyOn(backend.connection, 'fetchAssetLocations').mockReturnValue(pending)
+    const upload = vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST2)
+    vi.spyOn(backend.connection, 'createLibraryRecord').mockResolvedValue(record({ digest: DIGEST2 }))
+    const asset = { digest: DIGEST, name: 'early.png', size: 19, mediaType: 'image/png', virtualPath: 'input/early.png' }
+    app.openDocument({ ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0, nodes: {
+      ...CHAIN_DOC.graphs.g0.nodes, n0: { ...CHAIN_DOC.graphs.g0.nodes.n0, values: { a: asset, b: 4 } },
+    } } } }, 'Early save')
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    const saving = app.saveWorkflow(tab.id)
+    await vi.waitFor(() => expect(locations).toHaveBeenCalled())
+    expect(upload).not.toHaveBeenCalled()
+    if (outcome === 'edited') {
+      expect((await app.dispatchTo(tab, { command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n0', values: { a: 99 } } })).ok).toBe(true)
+    }
+    if (outcome === 'denied') reject(new Error('operator access denied'))
+    else if (outcome === 'available') resolve(['/machine/original/early.png'])
+    else if (outcome === 'timed out') deadline.abort()
+    // An edit cancels the old observation even if its transport never settles.
+    expect(await saving).toBe(true)
+    const saved = JSON.parse(upload.mock.calls[0]![0] as string)
+    expect(saved.graphs.g0.nodes.n0.values.a).toEqual(asset)
+    if (outcome === 'available') {
+      expect(saved.meta.ext['dinkster.assetLocations']).toEqual({ version: 1, observations: [{
+        graph: 'g0', node: 'n0', input: 'a', index: 0, digest: DIGEST,
+        machine: 'Native', paths: ['/machine/original/early.png'],
+      }] })
+      expect(tab.store.revision).toBe(0)
+    } else expect(saved.meta?.ext?.['dinkster.assetLocations']).toBeUndefined()
+    if (outcome === 'edited') {
+      expect(app.isTabDirty(tab.id)).toBe(true)
+      resolve(['/stale/path'])
+    }
+    if (outcome === 'timed out') {
+      resolve(['/late/path'])
+      await Promise.resolve()
+      expect(JSON.stringify(app.exportDocument(tab.id))).not.toContain('/late/path')
+    }
+    app.dispose()
+    timeout.mockRestore()
+  })
+
   it('uploads the document and creates a labeled record; re-save patches it', async () => {
     const { backend, tab } = nativeSetup()
     const upload = vi
@@ -136,7 +187,7 @@ describe('saveWorkflow', () => {
     })
     expect(patch).not.toHaveBeenCalled()
 
-    const edit = app.dispatchTo(tab, {
+    const edit = await app.dispatchTo(tab, {
       command: 'node.move',
       params: { graphId: 'g0', positions: { n0: { x: 25, y: 25 } } },
     })
@@ -212,7 +263,7 @@ describe('saveWorkflow', () => {
     vi.spyOn(backend.connection, 'createLibraryRecord').mockResolvedValue(record())
     const saving = app.saveWorkflow(tab.id)
     await uploadStarted(upload) // the snapshot + revision are now captured
-    const edit = app.dispatchTo(tab, {
+    const edit = await app.dispatchTo(tab, {
       command: 'node.move',
       params: { graphId: 'g0', positions: { n0: { x: 50, y: 50 } } },
     })
@@ -418,7 +469,7 @@ describe('sourceDocument stamp on queue', () => {
       const opened = await app.importWorkflowFile({ name: 'original.json', text: async () => JSON.stringify(source) }, () => true, prompt)
       expect(opened, app.transientStatus.get()).toBe(true)
       const imported = app.activeTab()!
-      expect(app.dispatchTo(imported, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'a', value: 99 } }).ok).toBe(true)
+      expect((await app.dispatchTo(imported, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'a', value: 99 } })).ok).toBe(true)
       const saved = JSON.parse(JSON.stringify(app.exportDocument(imported.id)))
       expect(app.openDocument(saved, 'Reopened')).toEqual([])
       const reopened = app.activeTab()!
@@ -455,7 +506,7 @@ describe('sourceDocument stamp on queue', () => {
     expect(upload).toHaveBeenCalledTimes(1) // same revision + schemas = cached
 
     // A document edit invalidates the cache: the next queue re-uploads.
-    const outcome = app.dispatchTo(tab, {
+    const outcome = await app.dispatchTo(tab, {
       command: 'node.move',
       params: { graphId: 'g0', positions: { n0: { x: 50, y: 50 } } },
     })

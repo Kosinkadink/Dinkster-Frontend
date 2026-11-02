@@ -8,6 +8,7 @@ import { useAppMessage } from './locale.js'
 export function AssetFileLocation(props: {
   readonly connection: Pick<DinksterConnection, 'fetchAssetLocations'>
   readonly backendUrl: string
+  readonly backendLabel?: string | undefined
   readonly digest: string
   readonly project: string
   readonly isCurrent?: () => boolean
@@ -59,6 +60,7 @@ export function AssetFileLocation(props: {
     }
   }
   return <section class="runtime-settings-body asset-file-location" data-testid="asset-file-location">
+    <Show when={props.backendLabel}>{(machine) => <p>{message('assetLocation.machine', { machine: machine() })}</p>}</Show>
     <Show when={error()}><ProductNotice tone="error">{error()}</ProductNotice></Show>
     <Show when={canReveal()}><ProductButton type="button" disabled={busy()} onClick={() => void act()}>{message('assetLocation.reveal')}</ProductButton></Show>
     <For each={paths()}>{(path) => <div class="asset-file-location-path">

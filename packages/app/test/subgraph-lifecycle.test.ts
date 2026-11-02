@@ -97,7 +97,7 @@ describe('subgraph lifecycle app plans', () => {
     expect(lifecycleOtherSelectionCount(controller)).toBe(1)
   })
 
-  it('surfaces the real region flatten refusal with its anchored occurrence', () => {
+  it('surfaces the real region flatten refusal with its anchored occurrence', async () => {
     const app = new AppState()
     const backend = app.backends.get()[0]!
     backend.registry.set({
@@ -140,7 +140,7 @@ describe('subgraph lifecycle app plans', () => {
     const occurrenceId = Object.keys(tab.store.doc.graphs.root!.nodes).find((id) => tab.store.doc.graphs.root!.nodes[id]!.region !== undefined)!
     const selected: string[][] = []
 
-    expect(flattenSubgraphThroughBridge({
+    expect(await flattenSubgraphThroughBridge({
       document: tab.store.doc,
       graphId: 'root',
       instancePath: [],
@@ -170,13 +170,13 @@ describe('subgraph lifecycle app plans', () => {
     })
   })
 
-  it('reports actionable bridge planning failures instead of swallowing them', () => {
+  it('reports actionable bridge planning failures instead of swallowing them', async () => {
     const doc = document() as any
     doc.graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, boundary: { inputs: [], outputs: [] }, nextOrdinal: 0 }
     doc.view.graphs.body = { nodes: {} }
     doc.graphs.root.nodes.inside.type = '#body'
     const reports: Diagnostic[] = []
-    expect(flattenSubgraphThroughBridge({
+    expect(await flattenSubgraphThroughBridge({
       document: doc,
       graphId: 'root',
       instancePath: [],
@@ -235,13 +235,13 @@ describe('subgraph lifecycle app plans', () => {
     })])
   })
 
-  it('reports every flatten dispatch and post-commit failure arm', () => {
+  it('reports every flatten dispatch and post-commit failure arm', async () => {
     const doc = document() as any
     doc.graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, boundary: { inputs: [], outputs: [] }, nextOrdinal: 0 }
     doc.view.graphs.body = { nodes: {} }
     doc.graphs.root.nodes.inside.type = '#body'
     const reports: Diagnostic[] = []
-    const run = (dispatch: () => CommandOutcome, selectNodes: () => void = () => {}): boolean => flattenSubgraphThroughBridge({
+    const run = (dispatch: () => CommandOutcome | Promise<CommandOutcome>, selectNodes: () => void = () => {}): Promise<boolean> => flattenSubgraphThroughBridge({
       document: doc,
       graphId: 'root',
       instancePath: [],
@@ -257,25 +257,32 @@ describe('subgraph lifecycle app plans', () => {
     })
 
     const refusal = diag('error', 'command', 'test.refusal', 'named dispatch refusal')
-    expect(run(() => ({ ok: false, diagnostics: [refusal] }))).toBe(false)
+    expect(await run(() => ({ ok: false, diagnostics: [refusal] }))).toBe(false)
     expect(reports).toEqual([refusal])
 
     reports.length = 0
-    expect(run(() => ({ ok: false, diagnostics: [] }))).toBe(false)
+    expect(await run(() => ({ ok: false, diagnostics: [] }))).toBe(false)
     expect(reports).toEqual([expect.objectContaining({
       code: 'subgraph.lifecycle.boundaryUnresolved',
       message: 'subgraph.flatten: command was refused without diagnostics',
     })])
 
     reports.length = 0
-    expect(run(() => { throw new Error('transport exploded') })).toBe(false)
+    expect(await run(() => { throw new Error('transport exploded') })).toBe(false)
     expect(reports).toEqual([expect.objectContaining({
       code: 'subgraph.lifecycle.boundaryUnresolved',
       message: 'subgraph.flatten: dispatch failed: transport exploded',
     })])
 
     reports.length = 0
-    expect(run(
+    expect(await run(() => Promise.reject(new Error('async transport failed')))).toBe(false)
+    expect(reports).toEqual([expect.objectContaining({
+      code: 'subgraph.lifecycle.boundaryUnresolved',
+      message: 'subgraph.flatten: dispatch failed: async transport failed',
+    })])
+
+    reports.length = 0
+    expect(await run(
       () => ({ ok: true, doc, forward: [], inverse: [], diagnostics: [] }),
       () => { throw new Error('selection exploded') },
     )).toBe(true)
@@ -285,7 +292,7 @@ describe('subgraph lifecycle app plans', () => {
     })])
   })
 
-  it('commits immediately with the collision-safe default name and excludes an unrelated concurrent node from selection', () => {
+  it('commits with the collision-safe default name and excludes an unrelated concurrent node from selection', async () => {
     const doc = document()
     const geometry = [{ id: 'inside', kind: 'node' as const, x: 20, y: 20, width: 140, height: 80 }]
     const invocation = extractInvocation(doc, 'root', [], { nodeIds: ['inside'], geometry }, undefined, () => schema)!
@@ -295,7 +302,7 @@ describe('subgraph lifecycle app plans', () => {
     concurrent.graphs.root.nodes.foreign = { id: 'foreign', type: 'Plain', values: {} }
     concurrent.view.graphs.root.nodes.foreign = { position: { x: 700, y: 20 } }
     const session = createLocalSession(concurrent, coreCommandRegistry([], () => schema))
-    const result = commitExtract({
+    const result = await commitExtract({
       invocation,
       beforeNodeIds: new Set(['inside', 'outside', 'foreign']),
       graphId: 'root',
@@ -305,6 +312,68 @@ describe('subgraph lifecycle app plans', () => {
     expect(result.selectedNodeIds).toEqual(['n10'])
     expect((dispatches[0]!.params as any).name).toBeUndefined()
     expect(result.status === 'committed' && result.outcome.doc.graphs.g0?.name).toBe('New Subgraph')
+  })
+
+  it.each([true, false])('awaits extraction acceptance=%s before returning committed ids', async (accepted) => {
+    const doc = document()
+    const session = createLocalSession(doc, coreCommandRegistry([], () => schema))
+    const before = session.doc
+    const invocation = extractInvocation(doc, 'root', [], {
+      nodeIds: ['inside'], geometry: [{ id: 'inside', kind: 'node', x: 20, y: 20, width: 140, height: 80 }],
+    }, undefined, () => schema)!
+    let complete!: (outcome: CommandOutcome) => void
+    let settled = false
+    const pending = commitExtract({
+      invocation, beforeNodeIds: new Set(['inside', 'outside']), graphId: 'root',
+      dispatch: () => new Promise((resolve) => { complete = resolve }),
+    }).then((result) => { settled = true; return result })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    expect(session.doc).toBe(before)
+    complete(accepted ? session.dispatch(invocation) : { ok: false, diagnostics: [] })
+    const result = await pending
+    expect(result.status).toBe(accepted ? 'committed' : 'refused')
+    expect(result.selectedNodeIds).toEqual(accepted ? ['n10'] : [])
+    expect(Object.keys(session.doc.graphs.root!.nodes).sort()).toEqual(accepted ? ['n10', 'outside'] : ['inside', 'outside'])
+  })
+
+  it.each([true, false])('awaits flatten acceptance=%s before selecting committed nodes', async (accepted) => {
+    const doc = document()
+    const session = createLocalSession(doc, coreCommandRegistry([], () => schema), {
+      schemaResolverFor: (current) => documentResolver(current, () => schema),
+    })
+    const extract = extractInvocation(doc, 'root', [], {
+      nodeIds: ['inside'], geometry: [{ id: 'inside', kind: 'node', x: 20, y: 20, width: 140, height: 80 }],
+    }, undefined, () => schema)!
+    expect(session.dispatch(extract).ok).toBe(true)
+    const before = session.doc
+    let complete!: (accepted: boolean) => void
+    const selected: string[][] = []
+    const reports: Diagnostic[] = []
+    const pending = flattenSubgraphThroughBridge({
+      document: before, graphId: 'root', instancePath: [], nodeId: 'n10',
+      occurrence: { id: 'n10', kind: 'node', x: 20, y: 20, width: 140, height: 80 },
+      resolveSchema: () => schema, seedControllerEnabled: true,
+      measure: (text) => text.length * 7, widgetMeasure: () => ({ viewId: 'core.line', rows: 1 }),
+      report: (diagnostic) => reports.push(diagnostic),
+      dispatch: (invocation) => new Promise((resolve) => {
+        complete = (ok) => {
+          const outcome = ok ? session.dispatch(invocation) : { ok: false as const, diagnostics: [] }
+          if (ok) expect(outcome.ok, JSON.stringify(outcome.diagnostics)).toBe(true)
+          resolve(outcome)
+        }
+      }),
+      selectNodes: (ids) => selected.push([...ids]),
+    })
+    await Promise.resolve()
+    expect(selected).toEqual([])
+    expect(reports).toEqual([])
+    expect(session.doc).toBe(before)
+    complete(accepted)
+    expect(await pending).toBe(accepted)
+    expect(selected).toEqual(accepted ? [['n11']] : [])
+    expect(Object.keys(session.doc.graphs.root!.nodes).sort()).toEqual(accepted ? ['n11', 'outside'] : ['n10', 'outside'])
+    expect(reports.length).toBe(accepted ? 0 : 1)
   })
 
   it('uses occurrence-resolved dynamic layout height when placing flattened body nodes', () => {

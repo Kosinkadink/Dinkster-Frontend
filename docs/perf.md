@@ -1785,3 +1785,42 @@ This isolates scene resolution cost, not a complete revision comparison.
 
 Both workloads remain below the unchanged 2-second scene-build budget.
 These measurements do not measure browser frame time or backend execution.
+
+## 2026-10-30 Staged command publication
+
+X570 CPU, Node 26.12.0, consecutive single runs of the unchanged
+`packages/core/test/perf-dispatch.test.ts` 1200-node fixture. Compared
+`0fa869384081` with `97fd6420e6a6` using the same installed dependencies.
+
+| Operation | Before total (ms) | Staged total (ms) |
+| --- | ---: | ---: |
+| 300 node.setValue dispatches | 1144.7 | 1043.4 |
+| 300 node.add dispatches | 1149.6 | 1096.4 |
+| Delete 200 nodes | 421.7 | 392.5 |
+| 200 undo operations | 51.0 | 50.3 |
+| 200 redo operations | 52.6 | 47.1 |
+
+All unchanged test budgets pass. These single-run observations include
+shared-host variation and do not establish a causal speed improvement. They
+measure synchronous dispatch with candidate/history snapshots, not network
+admission, rendering or backend execution.
+
+## 2026-10-31 Workflow asset admission
+
+X570 CPU, Node 26.12.0, two warmups and median of five samples. Each sample
+creates 200 single-input asset edits and admits one further edit through an
+immediately acknowledged fake connection. Compared `0fb15f748825` with the
+shared census and root-only journal, using identical fixtures and dependencies.
+
+| Nodes / history records | Admission before (ms) | Admission after (ms) | Journal before (bytes) | Journal after (bytes) | Exact roots |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 / 200 | 2.17 | 1.54 | 189213 | 15212 | 202 |
+| 1200 / 200 | 449.21 | 48.64 | 545625 | 103938 | 1401 |
+
+Admission includes census, serialization, exact acknowledgment validation and
+commit, not network latency, rendering or backend collection. The harness
+asserted every expected digest independently in each sample. Node-only history
+visits changed nodes, while subgraph instances and structural changes retain
+full snapshot checks. History replay still copies patched document paths; these
+numbers do not establish a constant-time bound. Unresolved owners still remain
+journaled until acknowledged reconciliation/release is implemented.

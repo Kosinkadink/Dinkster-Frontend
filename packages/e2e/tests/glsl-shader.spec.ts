@@ -261,18 +261,15 @@ test('executes, previews, diagnoses, applies, reloads, undoes, and refuses inval
 
   await queueAndWait(page, 'completed')
   expect(submissions.at(-1)?.graph.nodes.shader?.inputs.fragment_shader).toBe(APPLIED_SHADER)
-  expect(await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as {
-      activeTab(): unknown
-      dispatchTo(tab: unknown, action: unknown): { readonly ok: boolean }
-    }
-    return app.dispatchTo(app.activeTab()!, {
+  expect(await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    return (await app.dispatchTo(app.activeTab()!, {
       command: 'node.setValue',
       params: {
         graphId: 'g0', nodeId: 'shader', inputId: 'fragment_shader',
         value: '#version 300 es\nthis is not GLSL',
       },
-    }).ok
+    })).ok
   })).toBe(true)
   const failedPrompt = await queueAndWait(page, 'error')
   await expect.poll(() => page.evaluate((prompt) => {

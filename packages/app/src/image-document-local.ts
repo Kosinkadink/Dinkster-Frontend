@@ -1,6 +1,6 @@
 import { blake3 } from '@noble/hashes/blake3.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
-import { uuidv4 } from '@dinkster/client'
+import { uuidv4, type RetainedAssetOwner } from '@dinkster/client'
 import {
   IMAGE_DOCUMENT_FORMAT_VERSION,
   IMAGE_FIXED_POINT_SCALE,
@@ -19,10 +19,20 @@ import {
 import { encodePng, type ImageRaster } from './image-png.js'
 
 const DATABASE_NAME = 'dinkster.image-documents'
-const DATABASE_VERSION = 1
+const DATABASE_VERSION = 2
 const RESOURCES = 'resources'
 const DRAFTS = 'drafts'
+const RESOURCE_READS = 'resourceReads'
 const BY_PROJECT = 'byProject'
+
+export interface ImageResourceRead {
+  readonly key: string
+  readonly projectId: string
+  readonly connectionId: string
+  readonly assetBaseUrl: string
+  readonly owner: RetainedAssetOwner
+  readonly digests: readonly string[]
+}
 
 export interface StagedImageResource {
   readonly digest: string
@@ -114,6 +124,10 @@ function openDatabase(factory: IDBFactory): Promise<IDBDatabase> {
       ? transaction.objectStore(DRAFTS)
       : database.createObjectStore(DRAFTS, { keyPath: 'key' })
     if (!drafts.indexNames.contains(BY_PROJECT)) drafts.createIndex(BY_PROJECT, 'projectId')
+    if (!database.objectStoreNames.contains(RESOURCE_READS)) {
+      const reads = database.createObjectStore(RESOURCE_READS, { keyPath: 'key' })
+      reads.createIndex(BY_PROJECT, 'projectId')
+    }
   }
   return requestResult(request).then((database) => {
     database.onversionchange = () => database.close()
@@ -199,6 +213,48 @@ export class ImageDocumentLocalStore {
   async close(): Promise<void> {
     const database = await this.database
     database.close()
+  }
+
+  async beginResourceRead(
+    connectionId: string,
+    assetBaseUrl: string,
+    scope: string,
+    digests: readonly string[],
+  ): Promise<ImageResourceRead> {
+    const owner: RetainedAssetOwner = {
+      scope, ownerKind: 'preview', ownerId: `image-resource-read:${uuidv4()}`,
+    }
+    const read: ImageResourceRead = {
+      key: owner.ownerId, projectId: this.projectId, connectionId, assetBaseUrl,
+      owner, digests: [...new Set(digests)].sort(),
+    }
+    const database = await this.database
+    const transaction = database.transaction(RESOURCE_READS, 'readwrite')
+    const done = transactionDone(transaction)
+    transaction.objectStore(RESOURCE_READS).add(read)
+    await done
+    return read
+  }
+
+  async resourceReads(): Promise<readonly ImageResourceRead[]> {
+    const database = await this.database
+    const transaction = database.transaction(RESOURCE_READS, 'readonly')
+    const done = transactionDone(transaction)
+    const reads = await requestResult(transaction.objectStore(RESOURCE_READS)
+      .index(BY_PROJECT).getAll(this.projectId) as IDBRequest<ImageResourceRead[]>)
+    await done
+    return reads
+  }
+
+  async finishResourceRead(read: ImageResourceRead): Promise<void> {
+    if (read.projectId !== this.projectId || read.key !== read.owner.ownerId) {
+      throw new Error('resource read belongs to another local store')
+    }
+    const database = await this.database
+    const transaction = database.transaction(RESOURCE_READS, 'readwrite')
+    const done = transactionDone(transaction)
+    transaction.objectStore(RESOURCE_READS).delete(read.key)
+    await done
   }
 
   async stageResource(

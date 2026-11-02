@@ -115,11 +115,11 @@ describe('ImageDocument graph recipe parity', () => {
       graphStack: { get: () => [] },
       store: { doc: { root: 'g0', graphs: { g0: graph } } },
     }
-    const dispatchTo = vi.fn(() => ({ ok: true, diagnostics: [] }))
+    const dispatchTo = vi.fn(async () => ({ ok: true, diagnostics: [] }))
     const app = {
       activeTab: () => tab,
       backendForTab: () => ({ id: 'backend-a' }),
-      dispatchTo,
+      dispatchRetainedTo: dispatchTo,
     } as unknown as AppState
     const origin = {
       connectionId: asConnectionId('backend-a'),
@@ -133,7 +133,7 @@ describe('ImageDocument graph recipe parity', () => {
     await exportImageDocumentRecipe(app, origin, source)
     expect(dispatchTo).toHaveBeenCalledWith(tab, { command: 'image.documentRecipeExport', params: expect.objectContaining({
       graphId: 'g0', sourceNodeId: 'source', sourceOutputId: 'layers', commands: '[]', format: 'png', quality: 90,
-    }) })
+    }) }, expect.any(Function))
     await expect(exportImageDocumentRecipe(app, { ...origin, sourceTabId: 'other' }, source)).rejects.toThrow('source workflow')
     await expect(exportImageDocumentRecipe(app, { ...origin, expectedGraphFingerprint: 'stale' }, source)).rejects.toThrow('source graph changed')
     await expect(exportImageDocumentRecipe(app, { ...origin, connectionId: asConnectionId('other') }, source)).rejects.toThrow('source backend changed')

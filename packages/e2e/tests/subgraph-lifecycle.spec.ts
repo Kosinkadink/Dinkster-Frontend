@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { expect, openRailPanel, test, type Page } from './fixtures.js'
 
 async function ready(page: Page, mockLegacyDiscovery = false): Promise<void> {
@@ -10,6 +11,58 @@ async function ready(page: Page, mockLegacyDiscovery = false): Promise<void> {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
 }
+
+test('canvas deletion awaits acceptance and preserves newer selection', async ({ page }) => {
+  const catalog = JSON.parse(readFileSync(new URL('../../core/fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
+  await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: {} }))
+  await page.route('**/api/nodes*', (route) => route.fulfill({ json: catalog }))
+  await page.routeWebSocket('**/api/events?*', () => {})
+  await ready(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'delayed-delete', root: 'root',
+      graphs: { root: {
+        id: 'root', name: 'Root', nodes: {
+          removed: { id: 'removed', type: 'std.math.add_ints', values: {} },
+          kept: { id: 'kept', type: 'std.math.add_ints', values: {} },
+        }, links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, nextOrdinal: 2,
+      } },
+      view: { graphs: { root: { nodes: {
+        removed: { position: { x: 150, y: 180 } }, kept: { position: { x: 650, y: 180 } },
+      } } } },
+    } as any, 'Delayed delete')
+  })
+  await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(2)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const original = app.dispatchTo.bind(app)
+    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
+      ;(window as any).__completeDelete = (ok: boolean) => resolve(ok ? original(tab, invocation) : {
+        ok: false, diagnostics: [{ severity: 'warning', origin: 'command', code: 'test.refused', message: 'Delete refused' }],
+      })
+    })
+    window.__dinksterTest!.controller!.setSelection(['removed'])
+  })
+  const selection = () => page.evaluate(() => [...window.__dinksterTest!.controller!.getSelection()])
+  const start = () => page.evaluate(() => {
+    ;(window as any).__deletePending = (window.__dinksterTest!.app as any).canvasBridge.get().deleteSelection()
+  })
+  await start()
+  expect(await selection()).toEqual(['removed'])
+  expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.nodes))).toEqual(['removed', 'kept'])
+  await page.evaluate(() => (window as any).__completeDelete(false))
+  await page.evaluate(() => (window as any).__deletePending)
+  expect(await selection()).toEqual(['removed'])
+  expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.nodes))).toEqual(['removed', 'kept'])
+  await start()
+  await page.evaluate(() => window.__dinksterTest!.controller!.setSelection(['kept']))
+  await page.evaluate(() => (window as any).__completeDelete(true))
+  await page.evaluate(() => (window as any).__deletePending)
+  expect(await selection()).toEqual(['kept'])
+  expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.nodes))).toEqual(['kept'])
+})
 
 async function nodePoint(page: Page, index = 0): Promise<{ id: string; x: number; y: number }> {
   const point = await page.evaluate((index) => {

@@ -196,6 +196,8 @@ import { createCoreLensRegistry } from './lenses.js'
 import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
+import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
+import { admitWorkflowDispatch } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -1140,7 +1142,7 @@ export interface CanvasBridge {
   readonly groupMembers: (graphId: string, groupId: string) => readonly string[] | undefined
   readonly showValueSource?: (tabId: string, graphId: string, valueSourceId: string) => void
   /** App-level actions live here so commands do not reach into renderer internals. */
-  readonly deleteSelection: () => void
+  readonly deleteSelection: () => void | Promise<void>
   readonly selectAll: () => void
   readonly setSelectedMode: (mode: 'active' | 'muted' | 'bypassed') => void
   readonly toggleSelectedCollapsed: () => void
@@ -1150,12 +1152,12 @@ export interface CanvasBridge {
     type: string,
     expected?: { readonly schemaKey: string; readonly backendId: string },
   ) => boolean
-  readonly createEmptySubgraph?: (position?: Vec2) => boolean
-  readonly createRegion?: (kind: 'map' | 'fold' | 'while', position?: Vec2) => boolean
-  /** Opens the naming prompt after snapshotting selection and group contents. */
-  readonly extractSubgraph?: () => boolean
+  readonly createEmptySubgraph?: (position?: Vec2) => boolean | Promise<boolean>
+  readonly createRegion?: (kind: 'map' | 'fold' | 'while', position?: Vec2) => boolean | Promise<boolean>
+  /** Extracts the captured selection and group contents with the default name. */
+  readonly extractSubgraph?: () => boolean | Promise<boolean>
   /** Flattens the sole selected subgraph occurrence by one level. */
-  readonly flattenSubgraph?: () => boolean
+  readonly flattenSubgraph?: () => boolean | Promise<boolean>
   readonly canExtractSubgraph?: () => boolean
   readonly canFlattenSubgraph?: () => boolean
 }
@@ -1188,6 +1190,8 @@ export interface WidgetFocus {
 export interface DiagnosticFocusRequest {
   readonly tab: Tab
   readonly anchor: DiagnosticAnchor
+  readonly openAssetInput?: string
+  readonly missingAssetDigest?: string
   /** Current view context for solver anchors that carry only a port. */
   readonly portInstancePath?: readonly string[]
 }
@@ -3320,6 +3324,7 @@ export class AppState {
       this.pruneExtensionWorlds()
       this.drainLegacyBooleans()
       this.drainSchemaDiagnostics()
+      for (const tab of this.tabs.get()) this.refreshWorkflowAssets(tab)
     })
     // Mirror tab, document, and active-tab changes back into storage.
     this.tabs.subscribe(() => {
@@ -3412,6 +3417,8 @@ export class AppState {
     this.persistTimer = undefined
     for (const watcher of this.persistWatchers.values()) watcher.unsubscribe()
     this.persistWatchers.clear()
+    for (const check of this.workflowAssetChecks.values()) check.controller.abort()
+    this.workflowAssetChecks.clear()
     this.workspaceEvents?.removeEventListener?.('message', this.receiveWorkspaceEvent)
     this.workspaceEvents?.close?.()
     globalThis.removeEventListener?.('storage', this.receiveStorage)
@@ -3852,15 +3859,87 @@ export class AppState {
     if (changed) this.documentPersistenceDirty.add(tabId)
   }
 
-  /**
-   * (Re)subscribe to each live tab's document; drop watchers of closed
-   * tabs and REBIND watchers whose tab id now names a different session.
-   */
+  private readonly workflowAssetChecks = new Map<DocumentSession, {
+    readonly backend: Backend
+    readonly signature: string
+    readonly status: ConnectionStatus
+    readonly controller: AbortController
+    completion: Promise<void>
+  }>()
+  private readonly workflowAssetLocations = new WeakMap<DocumentSession, Map<string, AssetLocationHint>>()
+
+  private refreshWorkflowAssets(tab: Tab): void {
+    if (this.disposed || tab.execution) return
+    const backend = this.backendForTab(tab)
+    const occurrences = workflowAssetOccurrences(tab.store.doc)
+    const signature = JSON.stringify(occurrences)
+    const status = backend.connection.status.get()
+    const previous = this.workflowAssetChecks.get(tab.store)
+    if (previous?.backend === backend && previous.signature === signature && previous.status === status) return
+    previous?.controller.abort()
+    const check = { backend, signature, status, controller: new AbortController(), completion: Promise.resolve() }
+    this.workflowAssetChecks.set(tab.store, check)
+    const isCurrent = (): boolean => !this.disposed && !check.controller.signal.aborted &&
+      this.workflowAssetChecks.get(tab.store) === check && this.tabs.get().includes(tab) &&
+      this.backendForTab(tab) === backend
+    const publish = (diagnostics: readonly Diagnostic[]): void => {
+      if (!isCurrent()) return
+      this.problems.update((problems) => problems.filter((problem) => problem.owner !== tab.id ||
+        (problem.code !== 'asset.availability.missing' && problem.code !== 'asset.availability.unchecked')))
+      this.reportProblems(tab.id, diagnostics)
+    }
+    publish([])
+    if (backend.protocol !== 'dinkster' || occurrences.length === 0) return
+    const unchecked = (): void => publish([diag('warning', 'validation', 'asset.availability.unchecked',
+      `Could not check workflow asset presence on ${backend.label}. No files were acquired.`)])
+    if (status !== 'connected') {
+      unchecked()
+      return
+    }
+    const signal = AbortSignal.any([check.controller.signal, AbortSignal.timeout(5000)])
+    const observation = backend.connection.checkAssetAvailability(occurrences.map(({ asset }) => asset.digest), {
+      scope: 'local', signal,
+    }).then(async (rows) => {
+      if (signal.aborted) return unchecked()
+      const missing = new Set(rows.filter((row) => row.status === 'missing').map((row) => row.digest))
+      publish(occurrences.filter(({ asset }) => missing.has(asset.digest)).map((occurrence) => {
+        const { graph, node, input, index, asset } = occurrence
+        const hint = this.workflowAssetLocations.get(tab.store)?.get(asset.digest) ?? savedAssetLocation(tab.store.doc, occurrence)
+        return diag('warning', 'validation', 'asset.availability.missing',
+          `${asset.name} is missing on ${backend.label}: ${graph}/${node}/${input} [${index + 1}].`, {
+            refs: [{ graphId: graph, nodeId: node, valueKey: input, direction: 'input' }],
+            ...(occurrence.instancePath === undefined ? {} : { anchor: {
+              occurrence: { instancePath: occurrence.instancePath.map(asNodeId), node: asNodeId(node) },
+            } }),
+            data: { name: asset.name, backend: backend.label, graph, node, input,
+              digest: asset.digest, virtualPath: asset.virtualPath, index,
+              ...(hint ? { lastKnownMachine: hint.machine, lastKnownPaths: [...hint.paths] } : {}) },
+          })
+      }))
+      if (!isCurrent()) return
+      await Promise.all([...new Set(rows.filter((row) => row.status === 'available').map((row) => row.digest))].map((digest) =>
+        backend.connection.fetchAssetLocations(digest, signal).then((paths) => {
+          if (!isCurrent() || signal.aborted || paths.length === 0) return
+          let observed = this.workflowAssetLocations.get(tab.store)
+          if (!observed) this.workflowAssetLocations.set(tab.store, observed = new Map())
+          observed.set(digest, { machine: backend.label, paths: [...paths] })
+        }).catch(() => undefined))) // Operator location access is optional; presence remains authoritative.
+    }, unchecked)
+    // Cancellation also settles saves when a transport ignores its signal.
+    check.completion = new Promise<void>((resolve) => {
+      signal.addEventListener('abort', () => resolve(), { once: true })
+      void observation.then(resolve, resolve)
+    })
+  }
+
+  /** Rebind document watchers when a tab id starts naming a different session. */
   private watchTabDocuments(): void {
     const live = new Map(this.tabs.get().filter((t) => !t.execution).map((t) => [t.id, t]))
     for (const [id, watcher] of this.persistWatchers) {
       if (live.get(id) === watcher.tab) continue // same session, still good
       watcher.unsubscribe()
+      this.workflowAssetChecks.get(watcher.tab.store)?.controller.abort()
+      this.workflowAssetChecks.delete(watcher.tab.store)
       this.persistWatchers.delete(id)
     }
     for (const [id, tab] of live) {
@@ -3876,9 +3955,11 @@ export class AppState {
           reconcileGraphNavigation(tab)
           this.markTabDirty(id)
           this.schedulePersistTabs()
+          this.refreshWorkflowAssets(tab)
         }),
       }
       this.persistWatchers.set(id, watcher)
+      this.refreshWorkflowAssets(tab)
     }
   }
 
@@ -4590,11 +4671,11 @@ export class AppState {
       : scanReplacements(tab.store.doc, this.replacementRegistryFor(registry), registry.resolve)
   }
 
-  applyReplacements(tab: Tab, items: readonly ReplacementScanItem[]): boolean {
+  async applyReplacements(tab: Tab, items: readonly ReplacementScanItem[]): Promise<boolean> {
     const registry = this.registryForTab(tab)
     if (registry === undefined) return false
     const invocation = replacementInvocation(items, tab.store.doc, registry.resolve)
-    return invocation !== undefined && this.dispatchTo(tab, invocation).ok
+    return invocation !== undefined && (await this.dispatchTo(tab, invocation)).ok
   }
 
   canUndoMigrationNotice(tabId: string): boolean {
@@ -4622,33 +4703,39 @@ export class AppState {
     })
   }
 
-  private upgradeOnOpen(tab: Tab): void {
+  private upgradeOnOpen(tab: Tab): Promise<void> | undefined {
     if (this.reviewReplacements.get()) return
     const items = this.scanTabReplacements(tab).filter((item) => item.hops.length > 0)
-    if (items.length === 0 || !this.applyReplacements(tab, items)) return
-    // A shared definition has one notice line; navigate through its first
-    // reachable occurrence, not an arbitrary sibling's instance path.
-    const paths = new Map<string, readonly NodeId[]>([[tab.store.doc.root, []]])
-    for (const [graphId, path] of paths) {
-      for (const node of Object.values(tab.store.doc.graphs[graphId]?.nodes ?? {})) {
-        const child = subgraphDefIdOf(node.type)
-        if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
+    if (items.length === 0) return
+    const store = tab.store
+    const revision = store.revision
+    return this.applyReplacements(tab, items).then((accepted) => {
+      // A notice must identify this batch, never a later edit's undo record.
+      if (!accepted || !this.tabs.get().includes(tab) || tab.store !== store || store.revision !== revision + 1) return
+      // A shared definition has one notice line; navigate through its first
+      // reachable occurrence, not an arbitrary sibling's instance path.
+      const paths = new Map<string, readonly NodeId[]>([[tab.store.doc.root, []]])
+      for (const [graphId, path] of paths) {
+        for (const node of Object.values(tab.store.doc.graphs[graphId]?.nodes ?? {})) {
+          const child = subgraphDefIdOf(node.type)
+          if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
+        }
       }
-    }
-    const entries = items.map((item): OwnedDiagnostic => {
-      const instancePath = paths.get(item.graphId)
-      return {
-        ...diag(item.diagnostics.some((entry) => entry.severity === 'warning') ? 'warning' : 'info',
-          'command', 'replace.applied', `${item.nodeId}: ${item.sourceType} -> ${item.terminalType}`, {
-            refs: [{ graphId: item.graphId, nodeId: item.nodeId }],
-            ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: asNodeId(item.nodeId) } } }),
-            data: { warnings: item.diagnostics.map((entry) => entry.message) },
-          }),
-        owner: tab.id,
-      }
+      const entries = items.map((item): OwnedDiagnostic => {
+        const instancePath = paths.get(item.graphId)
+        return {
+          ...diag(item.diagnostics.some((entry) => entry.severity === 'warning') ? 'warning' : 'info',
+            'command', 'replace.applied', `${item.nodeId}: ${item.sourceType} -> ${item.terminalType}`, {
+              refs: [{ graphId: item.graphId, nodeId: item.nodeId }],
+              ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: asNodeId(item.nodeId) } } }),
+              data: { warnings: item.diagnostics.map((entry) => entry.message) },
+            }),
+          owner: tab.id,
+        }
+      })
+      const undoRecord = tab.store.historySnapshot().undo.at(-1)!
+      this.migrationNotices.update((current) => new Map(current).set(tab.id, { owner: tab.id, entries, undoRecord }))
     })
-    const undoRecord = tab.store.historySnapshot().undo.at(-1)!
-    this.migrationNotices.update((current) => new Map(current).set(tab.id, { owner: tab.id, entries, undoRecord }))
   }
 
   /** Tabs awaiting diagnostics from their target backend's first registry. */
@@ -4678,7 +4765,7 @@ export class AppState {
       }
       if (!this.registryForTab(tab)) continue // still waiting for schemas
       this.legacyBooleanPending.delete(tab.id)
-      this.normalizeLegacyBooleans(tab)
+      void this.normalizeLegacyBooleans(tab)
     }
   }
 
@@ -4694,8 +4781,12 @@ export class AppState {
       if (!this.registryForTab(tab)) continue // still waiting for schemas
       this.schemaDiagnosticsPending.delete(tab.id)
       this.reportEnvironmentDrift(tab)
-      this.upgradeOnOpen(tab)
-      this.reportUnresolvedTypes(tab)
+      const store = tab.store
+      const upgrade = this.upgradeOnOpen(tab)
+      if (upgrade === undefined) this.reportUnresolvedTypes(tab)
+      else void upgrade.then(() => {
+        if (this.tabs.get().includes(tab) && tab.store === store) this.reportUnresolvedTypes(tab)
+      })
     }
   }
 
@@ -4745,7 +4836,7 @@ export class AppState {
    * an exact recognized token is left alone - the advisory keeps reporting
    * it, and the value still submits unchanged (value-never-hostage).
    */
-  private normalizeLegacyBooleans(tab: Tab): void {
+  private async normalizeLegacyBooleans(tab: Tab): Promise<void> {
     const registry = this.registryForTab(tab)
     if (!registry) return
     const invocations: CommandInvocation[] = []
@@ -4762,7 +4853,9 @@ export class AppState {
       }
     }
     if (invocations.length === 0) return
-    if (this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json }).ok) {
+    const store = tab.store
+    if ((await this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })).ok &&
+      this.tabs.get().includes(tab) && tab.store === store) {
       this.reportProblems(tab.id, [
         diag('info', 'command', 'upgrade.legacyBoolean', `converted ${invocations.length} legacy boolean string value(s) to real booleans (one undo step)`),
       ])
@@ -5485,7 +5578,7 @@ export class AppState {
    * Frozen tabs reject everything silently: read-only is a mode the UI
    * communicates with a banner, not a per-gesture error.
    */
-  dispatchTo(tab: Tab, invocation: CommandInvocation): CommandOutcome {
+  dispatchTo(tab: Tab, invocation: CommandInvocation): CommandOutcome | Promise<CommandOutcome> {
     if (tab.execution) return { ok: false, diagnostics: [] }
     const effective = this.countAwareValueInvocation(tab, invocation)
     const outcome = tab.store.dispatch(effective)
@@ -5493,8 +5586,40 @@ export class AppState {
     return outcome
   }
 
+  async dispatchRetainedTo(tab: Tab, invocation: CommandInvocation, stillWanted: () => boolean = () => true): Promise<CommandOutcome> {
+    if (tab.execution) return { ok: false, diagnostics: [] }
+    const backend = this.backendForTab(tab)
+    const registry = this.registryForTab(tab)
+    try {
+      if (backend.protocol !== 'dinkster' || registry === undefined || tab.store.prepareDispatch === undefined) {
+        throw new Error('The destination cannot stage retained workflow commands')
+      }
+      const session = tab.store
+      const prepared = session.prepareDispatch!(this.countAwareValueInvocation(tab, invocation))
+      if (!prepared.ok) {
+        this.reportProblems(tab.id, prepared.diagnostics)
+        return prepared
+      }
+      const outcome = await admitWorkflowDispatch(
+        backend.connection,
+        prepared,
+        this.resolverWithVirtualNodes(registry.resolve),
+        () => this.tabs.get().includes(tab) && tab.store === session &&
+          this.backendForTab(tab) === backend && this.registryForTab(tab) === registry && !tab.execution && stillWanted(),
+      )
+      if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
+      return outcome
+    } catch (error) {
+      const outcome = { ok: false as const, diagnostics: [diag(
+        'error', 'command', 'command.retention.refused', error instanceof Error ? error.message : String(error),
+      )] }
+      this.reportProblems(tab.id, outcome.diagnostics)
+      return outcome
+    }
+  }
+
   /** Plan, commit, then drill into one fresh empty definition. */
-  createEmptySubgraph(tab: Tab, graphId: string, position: Vec2): CommandOutcome {
+  async createEmptySubgraph(tab: Tab, graphId: string, position: Vec2): Promise<CommandOutcome> {
     if (tab.execution) return { ok: false, diagnostics: [] }
     const occurrenceNodeId = tab.store.predictedNodeId(graphId)
     if (occurrenceNodeId === undefined) return { ok: false, diagnostics: [] }
@@ -5508,13 +5633,26 @@ export class AppState {
       this.reportProblems(tab.id, plan.diagnostics)
       return { ok: false, diagnostics: plan.diagnostics }
     }
-    const outcome = this.dispatchTo(tab, plan.invocation)
-    if (outcome.ok) pushGraph(tab, plan.graphId, occurrenceNodeId)
-    return outcome
+    const store = tab.store
+    const stack = tab.graphStack.get()
+    const path = tab.instancePath.get()
+    let changedTab = false
+    const unsubscribe = this.activeTabId.subscribe(() => { changedTab = true })
+    try {
+      const outcome = await this.dispatchTo(tab, plan.invocation)
+      if (outcome.ok && !changedTab && this.tabs.get().includes(tab) && tab.store === store &&
+          tab.graphStack.get() === stack && tab.instancePath.get() === path && currentGraphId(tab) === graphId &&
+          occurrenceReferencesDefinition(tab.store.doc.graphs[graphId]?.nodes[occurrenceNodeId], plan.graphId)) {
+        pushGraph(tab, plan.graphId, occurrenceNodeId)
+      }
+      return outcome
+    } finally {
+      unsubscribe()
+    }
   }
 
   /** Plan and commit one fresh region occurrence and body definition. */
-  createRegion(tab: Tab, graphId: string, position: Vec2, kind: RegionKind): CommandOutcome {
+  async createRegion(tab: Tab, graphId: string, position: Vec2, kind: RegionKind): Promise<CommandOutcome> {
     if (tab.execution) return { ok: false, diagnostics: [] }
     const occurrenceNodeId = tab.store.predictedNodeId(graphId)
     if (occurrenceNodeId === undefined) return { ok: false, diagnostics: [] }
@@ -5533,8 +5671,7 @@ export class AppState {
       this.reportProblems(tab.id, plan.diagnostics)
       return { ok: false, diagnostics: plan.diagnostics }
     }
-    const outcome = this.dispatchTo(tab, plan.invocation)
-    return outcome
+    return await this.dispatchTo(tab, plan.invocation)
   }
 
   /**
@@ -6208,6 +6345,7 @@ export class AppState {
     digestHints: readonly ImportAssetDigestHint[],
   ): Promise<void> {
     const registry = backend.registry.get()
+    const resolution = this.importAssetResolution.get()
     const refs = this.legacyAssetReferences(tab, backend)
     const names = [...new Set(refs.map((ref) => ref.name))]
     if (names.length === 0) return
@@ -6220,7 +6358,7 @@ export class AppState {
       const matches = await backend.connection.guessAssets(names, importAssetDigestHintsForNames(names, digestHints))
       const basenameMatches = basenameNames.length > 0 ? await backend.connection.guessAssets(basenameNames) : []
       const current = liveTab()
-      if (current === undefined || backend.registry.get() !== registry) return
+      if (current === undefined || this.backendForTab(current) !== backend || backend.registry.get() !== registry) return
       const liveRefs = refs.filter((ref) =>
         current.store.doc.graphs[ref.graphId]?.nodes[ref.nodeId]?.values[ref.inputId] === ref.name)
       if (liveRefs.length === 0) return
@@ -6241,7 +6379,9 @@ export class AppState {
       }
       const appliedNames = new Set<string>()
       if (invocations.length > 0) {
-        const outcome = this.dispatchTo(current, { command: 'batch', params: { invocations } as unknown as Json })
+        const store = current.store
+        const outcome = await this.dispatchTo(current, { command: 'batch', params: { invocations } as unknown as Json })
+        if (liveTab() !== current || current.store !== store || this.backendForTab(current) !== backend || backend.registry.get() !== registry) return
         if (outcome.ok) {
           for (const name of liveNames) if (Object.prototype.hasOwnProperty.call(plan.auto, name)) appliedNames.add(name)
           this.reportProblems(current.id, plan.provenance.map((entry) => diag(
@@ -6252,9 +6392,11 @@ export class AppState {
           )))
         }
       }
-      const leftoverNames = liveNames.filter((name) => !appliedNames.has(name))
+      if (this.importAssetResolution.get() !== resolution) return
+      const leftoverRefs = liveRefs.filter((ref) => !appliedNames.has(ref.name) &&
+        current.store.doc.graphs[ref.graphId]?.nodes[ref.nodeId]?.values[ref.inputId] === ref.name)
+      const leftoverNames = [...new Set(leftoverRefs.map((ref) => ref.name))]
       if (leftoverNames.length === 0) return
-      const leftoverRefs = liveRefs.filter((ref) => !appliedNames.has(ref.name))
       // The navigation signals identify this document owner across a shared
       // workspace promotion while excluding a same-lineage replacement.
       installImportAssetResolution({
@@ -6262,10 +6404,13 @@ export class AppState {
         refs: leftoverRefs,
         reasons: plan.prompt,
         slot: this.importAssetResolution,
-        tabStillOpen: () => liveTab() !== undefined,
-        dispatch: (invocation) => {
+        tabStillOpen: () => {
           const owner = liveTab()
-          if (owner !== undefined) this.dispatchTo(owner, invocation)
+          return owner !== undefined && this.backendForTab(owner) === backend && backend.registry.get() === registry
+        },
+        dispatch: async (invocation) => {
+          const owner = liveTab()
+          return owner !== undefined && (await this.dispatchTo(owner, invocation)).ok
         },
       })
     } catch (error) {
@@ -6291,14 +6436,17 @@ export class AppState {
   }
 
   /** Download a live tab through the same freshly-stamped export path as save. */
-  exportWorkflow(tabId: string): boolean {
+  async exportWorkflow(tabId: string): Promise<boolean> {
     const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
     if (!tab || tab.execution) return false
     const filename = workflowExportFilename(tab.title)
+    const backend = this.backendForTab(tab)
     let url: string | undefined
     let anchor: HTMLAnchorElement | undefined
     try {
-      const blob = new Blob([`${JSON.stringify(this.stampedDocumentOf(tab), null, 2)}\n`], {
+      const snapshot = await this.documentWithAssetLocations(tab)
+      if (this.disposed || !this.tabs.get().includes(tab) || this.backendForTab(tab) !== backend) return false
+      const blob = new Blob([`${JSON.stringify(snapshot, null, 2)}\n`], {
         type: WORKFLOW_MEDIA_TYPE,
       })
       url = URL.createObjectURL(blob)
@@ -6391,8 +6539,8 @@ export class AppState {
   }
 
   private stampedDocumentOf(tab: Tab): WorkflowDocument {
-    const doc = tab.store.doc
-    if (tab.execution) return doc
+    if (tab.execution) return tab.store.doc
+    const doc = stampAssetLocations(tab.store.doc, this.workflowAssetLocations.get(tab.store))
     const reg = this.registryForTab(tab)
     if (!reg) return doc
     const stamp = stampEnvironment(doc, {
@@ -6402,6 +6550,16 @@ export class AppState {
       frontendVersion: FRONTEND_VERSION,
     })
     return stamp !== undefined ? { ...doc, environment: stamp } : doc
+  }
+
+  private async documentWithAssetLocations(tab: Tab): Promise<WorkflowDocument> {
+    const snapshot = this.stampedDocumentOf(tab)
+    const check = this.workflowAssetChecks.get(tab.store)
+    if (!check) return snapshot
+    await check.completion
+    if (this.disposed || check.controller.signal.aborted || this.workflowAssetChecks.get(tab.store) !== check ||
+        !this.tabs.get().includes(tab) || this.backendForTab(tab) !== check.backend) return snapshot
+    return stampAssetLocations(snapshot, this.workflowAssetLocations.get(tab.store))
   }
 
   // -- Workflow library -------------------------------------------------------
@@ -6541,9 +6699,10 @@ export class AppState {
     // the replacement and must be neither patched nor deleted by this save.
     // Everything written back after the awaits is validated against these.
     const revision = tab.store.revision
-    const payload = JSON.stringify(this.stampedDocumentOf(tab))
+    const snapshot = this.documentWithAssetLocations(tab)
     const link = this.libraryLinks.get(tab.id)
     try {
+      const payload = JSON.stringify(await snapshot)
       const digest = await backend.connection.uploadAsset(payload)
       let record: LibraryRecord | undefined
       // A link made on a DIFFERENT backend is not ours to patch: saving a
@@ -7631,7 +7790,7 @@ export class AppState {
     return registry ? comboRefreshAdvancementPlan(tab.store, route, backend, registry) : undefined
   }
 
-  completeComboRefresh(plan: ComboRefreshPlan | undefined, options: readonly string[], random: () => number = Math.random): void {
+  completeComboRefresh(plan: ComboRefreshPlan | undefined, options: readonly string[], random: () => number = Math.random): CommandOutcome | Promise<CommandOutcome> | undefined {
     if (!plan || this.completedComboRefreshPlans.has(plan)) return
     this.completedComboRefreshPlans.add(plan)
     if (!this.settings.get<boolean>('features.seedController.enabled')) return
@@ -7639,7 +7798,7 @@ export class AppState {
     if (!tab) return
     if (this.backendForTab(tab) !== plan.backend || this.registryForTab(tab) !== plan.registry) return
     const invocation = comboRefreshAdvancement(tab.store.doc, plan, options, plan.registry.resolve, random)
-    if (invocation) this.dispatchTo(tab, invocation)
+    if (invocation) return this.dispatchTo(tab, invocation)
   }
 
   /**

@@ -91,6 +91,59 @@ const hasModelAssetBadValue = (page: Page) => page.evaluate(() => {
   return app.solveDiagnostics.get().some((entry) => entry.code === 'widget.ASSET.badValue' && entry.message.startsWith('n1.model:'))
 })
 
+test('manual asset resolution awaits dispatch and keeps refused choices', async ({ page }, testInfo) => {
+  await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: {} }))
+  await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'local-fixture', schemaWire: 1 }, nodes: {},
+  } }))
+  await page.routeWebSocket('**/api/events?*', () => {})
+  await setup(page, { [RAW_MODEL]: [{
+    digest: DIGEST, name: RAW_MODEL, confidence: 'stem', held: true,
+    virtualPath: MODEL_PATH, size: MODEL_SIZE, mediaType: 'application/octet-stream',
+  }] })
+  await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Imported model'), modelOnlyWorkflow())
+  await page.evaluate((id) => {
+    const app = window.__dinksterTest!.app
+    app.setTabTarget(app.activeTab()!.id, id)
+  }, MOCK)
+  await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
+  const dialog = page.getByTestId('import-asset-resolution-dialog')
+  await expect(dialog).toBeVisible()
+  await dialog.locator('.import-asset-candidate').click()
+  const accept = page.getByTestId('import-assets-accept')
+  const model = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.model)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__resolutionCalls = 0
+    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
+      ;(window as any).__resolutionCalls++
+      ;(window as any).__completeResolution = (accepted: boolean) => resolve(accepted
+        ? dispatch(tab, invocation) : { ok: false, diagnostics: [] })
+    })
+  })
+  await page.screenshot({ path: testInfo.outputPath('resolution-default.png') })
+  await accept.click()
+  await expect(accept).toBeDisabled()
+  await expect(dialog.locator('[aria-busy="true"]')).toHaveCount(1)
+  expect(await model()).toBe(RAW_MODEL)
+  expect(await page.evaluate(() => (window as any).__resolutionCalls)).toBe(1)
+  await page.screenshot({ path: testInfo.outputPath('resolution-pending.png') })
+  await page.evaluate(() => (window as any).__completeResolution(false))
+  await expect(accept).toBeEnabled()
+  await expect(dialog.locator('.import-asset-candidate')).toHaveAttribute('aria-checked', 'true')
+  expect(await model()).toBe(RAW_MODEL)
+  await page.screenshot({ path: testInfo.outputPath('resolution-refused.png') })
+  await accept.click()
+  await page.evaluate(() => (window as any).__completeResolution(true))
+  await expect(dialog).not.toBeVisible()
+  expect(await model()).toEqual({ digest: DIGEST, name: RAW_MODEL, size: MODEL_SIZE,
+    virtualPath: MODEL_PATH, mediaType: 'application/octet-stream' })
+  await page.screenshot({ path: testInfo.outputPath('resolution-accepted.png') })
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  expect(await model()).toBe(RAW_MODEL)
+})
+
 test('auto-resolves an obvious path match and prompts only for leftovers', async ({ page }) => {
   await setup(page, { [RAW_MODEL]: [{
     digest: DIGEST, name: RAW_MODEL, confidence: 'path', held: true,

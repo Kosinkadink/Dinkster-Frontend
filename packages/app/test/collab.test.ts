@@ -890,16 +890,16 @@ describe('lifecycle races', () => {
     appB.setTabTarget(tabB.id, backendB.id)
 
     holdPosts = true
-    expect(appA.dispatchTo(tabA, {
+    expect((await appA.dispatchTo(tabA, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'left', inputId: 'amount', value: 3 },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     await until(() => heldPosts === 1, 'promoted count POST held')
 
-    expect(appB.dispatchTo(tabB, {
+    expect((await appB.dispatchTo(tabB, {
       command: 'node.setTitle',
       params: { graphId: 'g0', nodeId: 'right', title: 'peer edit' },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     await sharedSession(appB, tabB.id).settle()
     await until(() =>
       tabA.store.doc.graphs.g0!.nodes.right!.title === 'peer edit' &&
@@ -1323,10 +1323,10 @@ describe('lifecycle races', () => {
     expect(winnerNodeId).not.toBe(loserNodeId)
 
     hold.held = true
-    expect(appA.createEmptySubgraph(tabA, root, { x: 10, y: 20 }).ok).toBe(true)
+    expect((await appA.createEmptySubgraph(tabA, root, { x: 10, y: 20 })).ok).toBe(true)
     const fixedGraphId = tabA.graphStack.get().at(-1)!
     await sharedSession(appA, tabA.id).settle()
-    expect(appB.createEmptySubgraph(tabB, root, { x: 30, y: 40 }).ok).toBe(true)
+    expect((await appB.createEmptySubgraph(tabB, root, { x: 30, y: 40 })).ok).toBe(true)
     expect(tabB.graphStack.get()).toEqual([root, fixedGraphId])
     await until(() => server.staleBases >= 1, "B's stale create refusal")
     hold.held = false

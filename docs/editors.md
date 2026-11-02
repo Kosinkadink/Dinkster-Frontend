@@ -185,6 +185,14 @@ same anchored text prompt used by group rename. The commit dispatches the
 serializable `node.setTitle` command, so undo, persistence, and collaboration
 all use the document operation path.
 
+Canvas name prompts wait for final command acceptance before closing. Enter
+cannot submit twice while pending; the draft stays read only until the result.
+Refusal keeps the exact draft and an inline notice for retry. Escape or blur
+dismisses the prompt without cancelling a submitted command. A dismissed or
+replaced prompt cannot close a newer prompt when its command completes.
+This applies to node, group, selector and boundary names, and named-net
+creation and rename; their existing empty-name rules are unchanged.
+
 A title override that differs from the schema display name is italic. Hovering
 that header shows `Original: <display name>` immediately, without the normal
 tooltip delay. If the schema is unavailable, the node type is the original

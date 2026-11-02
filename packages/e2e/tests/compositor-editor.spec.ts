@@ -373,15 +373,12 @@ test('edits, executes, persists, and falls back safely when compositor sources c
   expect(pixels.overlap[2]).toBeGreaterThan(245)
   expect(pixels.overlap[3]).toBe(255)
 
-  expect(await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as {
-      activeTab(): unknown
-      dispatchTo(tab: unknown, action: unknown): { readonly ok: boolean }
-    }
-    return app.dispatchTo(app.activeTab()!, {
+  expect(await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    return (await app.dispatchTo(app.activeTab()!, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'blue', inputId: 'color_source.color_a', value: '#00ff00' },
-    }).ok
+    })).ok
   })).toBe(true)
   await queueAndComplete(page)
   const staleRow = await nodeRowPoint(page, 'create', 'compositor')

@@ -264,6 +264,22 @@ describe('insertBlueprintIntoTab', () => {
     expect(inserted).toHaveLength(0)
   })
 
+  it.each([false, true])('waits for final dispatch result %s before reporting insertion', async (accepted) => {
+    let settle!: (accepted: boolean) => void
+    const result = new Promise<boolean>((resolve) => { settle = resolve })
+    let started!: () => void
+    const dispatched = new Promise<void>((resolve) => { started = resolve })
+    const { deps, inserted } = makeDeps({ dispatch: () => { started(); return result } })
+    let finished = false
+    const pending = insertBlueprintIntoTab(deps).then((outcome) => { finished = true; return outcome })
+    await dispatched
+    expect(finished).toBe(false)
+    expect(inserted).toEqual([])
+    settle(accepted)
+    expect(await pending).toBe(accepted ? 'inserted' : 'rejected')
+    expect(inserted).toEqual(accepted ? ['n5'] : [])
+  })
+
   it('widget defaults derive through the SUPPLIED resolver (owner registry, promoted boundary widget)', async () => {
     // Blueprint whose root boundary promotes n0's 'seed' widget; only the
     // resolver handed in (the owner tab's) can answer 'KSampler', so a

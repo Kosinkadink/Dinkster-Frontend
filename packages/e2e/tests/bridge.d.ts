@@ -321,12 +321,14 @@ interface DinksterTestBridge {
     closeTab(id: string): void
     reviewReplacements: { set(enabled: boolean): void }
     migrationNotices: { get(): ReadonlyMap<string, unknown> }
-    dispatchTo(tab: DinksterBridgeTab, invocation: { command: string; params: unknown }): { ok: boolean; diagnostics?: readonly unknown[] }
+    dispatchTo(tab: DinksterBridgeTab, invocation: { command: string; params: unknown }):
+      | { ok: boolean; diagnostics?: readonly unknown[] }
+      | Promise<{ ok: boolean; diagnostics?: readonly unknown[] }>
     /** Queue a tab against its target backend (same path as the queue button). */
     queue(tab: DinksterBridgeTab): Promise<void>
     queueSelection(tab: DinksterBridgeTab, nodeIds: readonly string[]): Promise<void>
     exportDocument(tabId: string): unknown
-    exportWorkflow(tabId: string): boolean
+    exportWorkflow(tabId: string): Promise<boolean>
     importWorkflowFile(file: Pick<File, 'name' | 'text'>): Promise<boolean>
     /** Compile a tab against its target backend (undefined: no registry). */
     compileTab(tab: DinksterBridgeTab):

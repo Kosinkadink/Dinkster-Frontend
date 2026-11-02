@@ -345,13 +345,10 @@ nativeTest('image editor keeps mask edits local until one guarded AssetRef apply
   }
   await page.getByRole('button', { name: 'Bake to asset' }).click()
   await expect.poll(() => uploadCount).toBe(3)
-  const staleRevision = await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as {
-      activeTab(): { readonly store: { readonly revision: number } }
-      dispatchTo(tab: unknown, invocation: unknown): { readonly ok: boolean }
-    }
+  const staleRevision = await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
-    const outcome = app.dispatchTo(tab, {
+    const outcome = await app.dispatchTo(tab, {
       command: 'node.setValue',
       params: {
         graphId: 'g0', nodeId: 'asset', inputId: 'image',
@@ -381,16 +378,33 @@ nativeTest('image editor keeps mask edits local until one guarded AssetRef apply
   await page.getByRole('button', { name: 'Cancel' }).click()
 })
 
-test('image editor inserts and reopens one graph-native mask paint node', async ({ page }) => {
+for (const opaqueMetadata of [false, true]) test(opaqueMetadata
+  ? 'image editor refuses mask graph publication with opaque metadata'
+  : 'image editor inserts and reopens one graph-native mask paint node', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
   let uploadCount = 0
+  let retentionCount = 0
+  let releaseRetention!: () => void
+  const acknowledgment = new Promise<void>((resolve) => { releaseRetention = resolve })
   await page.route('**/api/assets/**', (route) => route.fulfill({ contentType: 'image/png', body: PNG }))
   await page.route('**/api/assets', (route) => {
     uploadCount += 1
     return route.fulfill({ status: 500 })
   })
+  await page.route('**/mask-editor-test/api/library/retentions/document/*?scope=local', async (route) => {
+    expect(route.request().method()).toBe('PUT')
+    expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: true, digests: [SOURCE] })
+    retentionCount += 1
+    if (retentionCount === 1) await acknowledgment
+    return route.fulfill({ json: {
+      scope: 'local', ownerKind: 'document',
+      ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!),
+      revision: 1, complete: true, digests: [SOURCE],
+    } })
+  })
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
-  await page.evaluate(({ source, pngSize }) => {
+  await page.evaluate(({ source, pngSize, opaqueMetadata }) => {
     const app = window.__dinksterTest!.app
     const nativeApp = app as unknown as {
       addBackend(url: string, label: string, persist: boolean, protocol: 'dinkster', start: boolean): {
@@ -421,18 +435,22 @@ test('image editor inserts and reopens one graph-native mask paint node', async 
           { kind: 'output', id: 'mask', type: { kind: 'concrete', name: 'MASK' } },
         ],
       },
+      {
+        type: 'MaskConsumer', displayName: 'Mask Consumer', category: 'test', source: 'v3', isOutputNode: false,
+        items: [{ kind: 'input', id: 'mask', type: { kind: 'concrete', name: 'MASK' }, optional: false }],
+      },
     ] as never)
     app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'graph-mask-paint', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         loader: { id: 'loader', type: 'dinkster.load_image', values: { image: { digest: source, name: 'source.png', size: pngSize, mediaType: 'image/png', virtualPath: '' } } },
         consumer: { id: 'consumer', type: 'MaskConsumer', values: {} },
-      }, links: { mask: { id: 'mask', from: { node: 'loader', port: 'mask' }, to: { node: 'consumer', port: 'mask' }, ext: { retained: true } } }, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      }, links: { mask: { id: 'mask', from: { node: 'loader', port: 'mask' }, to: { node: 'consumer', port: 'mask' }, ...(opaqueMetadata ? { ext: { retained: true } } : {}) } }, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { g0: { nodes: { loader: { position: { x: 100, y: 100 } }, consumer: { position: { x: 700, y: 100 } } } } } },
     }, 'Graph mask paint')
     nativeApp.setTabTarget(app.activeTab()!.id, backend.id)
     backend.connection.assetUrl = (digest: string) => `/api/assets/${encodeURIComponent(digest)}`
-  }, { source: SOURCE, pngSize: PNG.byteLength })
+  }, { source: SOURCE, pngSize: PNG.byteLength, opaqueMetadata })
 
   await expect.poll(() => page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as {
@@ -454,8 +472,26 @@ test('image editor inserts and reopens one graph-native mask paint node', async 
     app.editorSplits.layout.update((layout) => ({ ...layout }))
   })
   await expect(page.getByRole('button', { name: 'Apply mask to graph' })).toBeEnabled()
-  await page.screenshot({ path: `${PROOF}/09-graph-mask-apply.png` })
+  await page.screenshot({ path: testInfo.outputPath('mask-default.png') })
+  const before = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
   await page.getByRole('button', { name: 'Apply mask to graph' }).click()
+  if (opaqueMetadata) {
+    await expect(page.getByRole('alert')).toHaveText('Workflow asset identities are incomplete')
+    expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)).toEqual(before)
+    expect(before.graphs.g0!.links.mask).toMatchObject({ ext: { retained: true } })
+    expect(retentionCount).toBe(0)
+    expect(uploadCount).toBe(0)
+    await expect(page.getByRole('button', { name: 'Undo mask edit' })).toBeEnabled()
+    await expect(page.getByRole('button', { name: 'Apply mask to graph' })).toBeEnabled()
+    await page.screenshot({ path: testInfo.outputPath('mask-refused.png') })
+    return
+  }
+  await expect.poll(() => retentionCount).toBe(1)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)).toEqual(before)
+  await expect(page.getByRole('button', { name: 'Applying...' })).toBeDisabled()
+  await page.screenshot({ path: testInfo.outputPath('mask-pending.png') })
+  releaseRetention()
+  await expect(page.getByTestId('image-editor')).toHaveCount(0)
   const first = await page.evaluate(() => {
     const graph = window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!
     const paints = Object.values(graph.nodes).filter((node) => node.type === 'dinkster.mask.paint')
@@ -465,7 +501,8 @@ test('image editor inserts and reopens one graph-native mask paint node', async 
   expect(first.count).toBe(1)
   expect(first.paint!.values.source).toMatchObject({ digest: SOURCE, name: 'source.png' })
   expect(JSON.parse(first.paint!.values.operations as string).commands).toEqual([{ op: 'clear' }])
-  expect(first.link).toMatchObject({ id: 'mask', from: { node: first.paint!.id, port: 'mask' }, ext: { retained: true } })
+  expect(first.link).toMatchObject({ id: 'mask', from: { node: first.paint!.id, port: 'mask' } })
+  await page.screenshot({ path: testInfo.outputPath('mask-accepted.png') })
 
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as {
@@ -480,7 +517,9 @@ test('image editor inserts and reopens one graph-native mask paint node', async 
   await expect(page.getByRole('button', { name: 'Undo mask edit' })).toBeEnabled()
   await page.getByRole('button', { name: 'Invert' }).click()
   await page.getByRole('button', { name: 'Apply mask to graph' }).click()
+  await expect(page.getByTestId('image-editor')).toHaveCount(0)
   expect(await page.evaluate(() => Object.values(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes)
     .filter((node) => node.type === 'dinkster.mask.paint').length)).toBe(1)
+  expect(retentionCount).toBe(2)
   expect(uploadCount).toBe(0)
 })

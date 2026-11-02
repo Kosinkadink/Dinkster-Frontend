@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { asNodeId } from '@dinkster/core'
-import type { DinksterNodesPayload } from '@dinkster/core'
+import type { CommandOutcome, DinksterNodesPayload } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { historicalRegistry } from './historical-schemas.js'
 import { AppState } from '../src/app-state.js'
@@ -109,7 +109,7 @@ describe('authored workflows on a native backend', () => {
     ]))
     expect(tab.store.doc).toEqual(before)
     expect(tab.store.canUndo).toBe(false)
-    app.importAssetResolution.get()!.accept(new Map([['turbo.safetensors', asset]]))
+    await app.importAssetResolution.get()!.accept(new Map([['turbo.safetensors', asset]]))
     const accepted = { digest: asset.digest, name: asset.name, virtualPath: asset.virtualPath,
       size: asset.size, mediaType: asset.mediaType }
     expect(tab.store.doc.graphs.g0!.nodes.n1!.values['file-boundary']).toEqual(accepted)
@@ -121,6 +121,61 @@ describe('authored workflows on a native backend', () => {
     expect(tab.store.undo()).toBe(true)
     expect(tab.store.doc).toEqual(before)
     expect(tab.store.canUndo).toBe(false)
+  })
+
+  it.each(['accepted', 'refused', 'closed', 'replaced', 'newer dialog'])('awaits asset autoresolution before provenance and leftover prompts: %s', async (completion) => {
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, {
+      schemaVersion: 1,
+      nodes: { AssetLoader: { interface: [
+        { role: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [] } },
+      ] } },
+    }))
+    const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'known.png', held: true,
+      confidence: 'path' as const, virtualPath: 'imports/known.png', size: 17, mediaType: 'image/png' }
+    vi.spyOn(backend.connection, 'guessAssets').mockImplementation(async (names) => names.map((query) => ({
+      query, candidates: query === asset.name ? [asset] : [],
+    })))
+    const dispatch = app.dispatchTo.bind(app)
+    let finish: (() => void) | undefined
+    let delivered!: Promise<CommandOutcome>
+    vi.spyOn(app, 'dispatchTo').mockImplementation((owner, invocation) => {
+      delivered = new Promise<CommandOutcome>((resolve) => {
+        finish = () => resolve(completion === 'refused' ? { ok: false, diagnostics: [] } : dispatch(owner, invocation))
+      })
+      return delivered as unknown as CommandOutcome
+    })
+    app.openDocument({ version: 0.4, nodes: [
+      { id: 1, type: 'AssetLoader', pos: [100, 100], widgets_values: ['known.png'] },
+      { id: 2, type: 'AssetLoader', pos: [400, 100], widgets_values: ['missing.png'] },
+    ], links: [] }, 'Imported assets')
+    const tab = app.activeTab()!
+    const original = structuredClone(tab.store.doc)
+    await vi.waitFor(() => expect(finish).toBeDefined())
+    expect(tab.store.doc).toEqual(original)
+    expect(app.importAssetResolution.get()).toBeUndefined()
+    expect(app.problems.get().some((entry) => entry.code === 'import.assets.autoResolved')).toBe(false)
+    if (completion === 'closed') app.closeTab(tab.id)
+    if (completion === 'replaced') app.openDocument(original, 'Replacement')
+    const newer = { matches: [], reasons: {}, accept: () => {}, cancel: () => {} }
+    if (completion === 'newer dialog') app.importAssetResolution.set(newer)
+    finish!()
+    await delivered
+    await Promise.resolve()
+    if (completion === 'accepted' || completion === 'refused') {
+      expect(app.importAssetResolution.get()?.matches.map((match) => match.query)).toEqual(
+        completion === 'accepted' ? ['missing.png'] : ['known.png', 'missing.png'])
+      expect(app.problems.get().some((entry) => entry.code === 'import.assets.autoResolved')).toBe(completion === 'accepted')
+      expect(tab.store.doc.graphs.g0!.nodes.n1!.values.file).toEqual(completion === 'accepted'
+        ? { digest: asset.digest, name: asset.name, virtualPath: asset.virtualPath, size: asset.size, mediaType: asset.mediaType }
+        : 'known.png')
+      if (completion === 'accepted') { expect(tab.store.undo()).toBe(true); expect(tab.store.doc).toEqual(original) }
+    } else if (completion === 'newer dialog') expect(app.importAssetResolution.get()).toBe(newer)
+    else {
+      expect(app.importAssetResolution.get()).toBeUndefined()
+      expect(app.problems.get().some((entry) => entry.code === 'import.assets.autoResolved')).toBe(false)
+      if (completion === 'replaced') expect(app.activeTab()!.store.doc).toEqual(original)
+    }
   })
 
   it('imports exact native classes and links without inserting or rewriting nodes', () => {

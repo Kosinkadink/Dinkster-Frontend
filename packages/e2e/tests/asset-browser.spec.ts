@@ -103,7 +103,9 @@ async function installMockBackend(page: Page, requests: Request[]): Promise<void
     const request = route.request()
     requests.push(request)
     const url = new URL(request.url())
-    if (url.pathname.endsWith('/metadata')) {
+    if (url.pathname === '/api/assets/catalog') {
+      await route.fulfill({ json: { assets: [] } })
+    } else if (url.pathname.endsWith('/metadata')) {
       await route.fulfill({ json: { format: 'safetensors', tensorCount: 17, parameterCount: 123456, dtypes: { F16: 16, F32: 1 } } })
     } else if (url.pathname.endsWith(encodeURIComponent(BROKEN_DIGEST)) || url.pathname.endsWith(BROKEN_DIGEST)) {
       await route.fulfill({ status: 404 })
@@ -132,6 +134,7 @@ async function openAsset(page: Page, enterFolder = true): Promise<void> {
   })
   await page.mouse.click(point.x, point.y)
   await expect(page.getByTestId('collection-panel')).toBeVisible()
+  await selectProductOption(page, page.getByTestId('collection-source-select'), 'mount:input')
   if (enterFolder) {
     await page.getByRole('option', { name: /^photos/ }).click()
     await expect(page.getByRole('button', { name: 'photos' })).toBeVisible()
@@ -188,7 +191,7 @@ test.beforeEach(async ({ page }) => {
 test('lists ready and scanning sources and filters incompatible MIME types', async ({ page }) => {
   await openAsset(page)
   await page.getByTestId('collection-source-select').click()
-  await expect(page.getByRole('listbox', { name: 'Source' }).getByRole('option')).toHaveText(['input', 'shared', 'indexing'])
+  await expect(page.getByRole('listbox', { name: 'Source' }).getByRole('option')).toHaveText(['Local assets', 'input', 'shared', 'indexing'])
   await page.keyboard.press('Escape')
   await expect(page.getByRole('option', { name: /sunset\.png/ })).toBeVisible()
   await expect(page.getByRole('option', { name: /style\.safetensors/ })).toBeVisible()

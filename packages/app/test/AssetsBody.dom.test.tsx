@@ -6,9 +6,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { assetDtoV1Contract, DinksterConnection } from '@dinkster/client'
 import { asConnectionId, registerCatalog, setLocale } from '@dinkster/core'
 import { AssetsBody } from '../src/AssetsBody.js'
+import type { DinksterDesktopBridge } from '../src/desktop-bridge.js'
 import '../src/locale.js'
 
 afterEach(() => {
+  delete window.dinksterDesktop
   vi.useRealTimers()
   document.body.replaceChildren()
   localStorage.clear()
@@ -19,6 +21,9 @@ afterEach(() => {
 const stubConnection = <T extends object>(members: T): DinksterConnection => ({
   onEvent: vi.fn(() => () => undefined),
   onMountsChanged: vi.fn(() => () => undefined),
+  listLocalAssets: vi.fn().mockResolvedValue({ assets: [] }),
+  checkAssetAvailability: vi.fn().mockResolvedValue([]),
+  fetchAssetLocations: vi.fn().mockResolvedValue([]),
   fetchMountSettings: async () => ({
     mounts: await (members as { listMounts: DinksterConnection['listMounts'] }).listMounts(),
     outputMount: 'output', mountChangesAllowed: false,
@@ -27,6 +32,49 @@ const stubConnection = <T extends object>(members: T): DinksterConnection => ({
 } as unknown as DinksterConnection)
 
 describe('Assets dock body', () => {
+  it.each([false, true])('shows produced-output provenance and server paths with native reveal %s', async (reveal) => {
+    const digest = `blake3:${'d'.repeat(64)}`
+    const missing = `blake3:${'e'.repeat(64)}`
+    const asset = { digest, name: 'kept.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: 'mounts/output/kept.bin' }
+    const revealFile = vi.fn().mockResolvedValue(undefined)
+    window.dinksterDesktop = { fileCapabilities: async () => ({ nativeFolderChoice: false, reveal }), revealFile } as unknown as DinksterDesktopBridge
+    const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+    const connection = stubConnection({
+      listMounts: async () => [],
+      listLocalAssets: async () => ({ assets: [
+        { asset, aliases: ['kept.bin'], observations: [{ kind: 'asset/file', created: 1700000000, origin: { kind: 'produced', job: 'output-job', node: 'save-node' } }] },
+        { asset: { ...asset, digest: missing, name: 'missing.bin' }, aliases: ['missing.bin'], observations: [] },
+      ] }),
+      checkAssetAvailability: async () => [{ digest, status: 'available' }, { digest: missing, status: 'missing' }],
+      assetUrl: (digest: string) => `/api/assets/${digest}`,
+      fetchAssetLocations: async () => ['/server/output/kept.bin'],
+    })
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <AssetsBody connection={connection} backendId="remote" baseUrl="http://remote.test:3639" backendLabel="Render workstation" />, root)
+    try {
+      await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
+      ;[...root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((row) => row.textContent?.includes('kept.bin'))!.click()
+      await vi.waitFor(() => expect(root.textContent).toContain('Copy server path'))
+      expect(root.textContent).toContain('Render workstation')
+      const details = root.querySelector<HTMLDetailsElement>('[data-testid="asset-rail-details"]')!
+      details.open = true
+      expect(details.textContent).toContain('output-job')
+      expect(details.textContent).toContain('save-node')
+      expect(details.textContent).toContain('2023-11-14T22:13:20.000Z')
+      ;[...root.querySelectorAll('button')].find((b) => b.textContent === 'Copy server path')!.click()
+      await vi.waitFor(() => expect(copy).toHaveBeenCalledWith('/server/output/kept.bin'))
+      const revealButton = [...root.querySelectorAll('button')].find((b) => b.textContent === 'Show file on this computer')
+      if (reveal) {
+        expect(revealButton).toBeDefined()
+        revealButton!.click()
+        await vi.waitFor(() => expect(revealFile).toHaveBeenCalledWith('http://remote.test:3639/', { digest, scope: 'local', project: 'default' }))
+      } else expect(revealButton).toBeUndefined()
+      ;[...root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((row) => row.textContent?.includes('missing.bin'))!.click()
+      expect(root.querySelector('[data-testid="asset-file-location"]')).toBeNull()
+    } finally { dispose() }
+  })
+
   it('keeps sources available for a null output and opens configuration on request', async () => {
     const connection = new DinksterConnection({
       id: asConnectionId('native'), baseUrl: 'http://native', clientId: 'test',
@@ -117,21 +165,22 @@ describe('Assets dock body', () => {
     dispose()
   })
 
-  it('shows a deterministic source-discovery loading state', () => {
+  it('browses local assets while mount discovery is pending', async () => {
     const connection = stubConnection({ listMounts: vi.fn(() => new Promise(() => undefined)) })
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
-    expect(root.textContent).toContain('Loading asset sources')
-    expect(root.textContent).toContain('Discovering backend-owned asset mounts.')
+    await vi.waitFor(() => expect(root.textContent).toContain('No assets yet'))
+    expect(root.querySelector('[data-testid="collection-panel"]')).not.toBeNull()
     dispose()
   })
 
-  it('uses only an injected federated contract for All assets and renders its human title', async () => {
+  it('uses the injected federated contract alongside local assets and renders its human title', async () => {
     registerCatalog('de-DE', {
       'assets.details.title': '[Details DE]',
       'assets.fact.source': '[Quelle DE]',
       'assets.source.all': '[Alle Assets]',
+      'assets.source.federatedCatalog': '[Verbundkatalog]',
     })
     const digest = `blake3:${'a'.repeat(64)}`
     const encodeRequest = vi.fn(() => ({ injected: true }))
@@ -155,7 +204,7 @@ describe('Assets dock body', () => {
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" baseUrl="https://backend.example" federatedContract={contract} />, root)
     await vi.waitFor(() => expect(root.textContent).toContain('Federated Alpha.safetensors'))
-    expect(root.textContent).not.toContain('local.safetensors')
+    expect(root.textContent).toContain('local.safetensors')
     expect(root.querySelector('[data-testid="asset-source-select"]')?.getAttribute('data-selected-id')).toBe('all-assets')
     expect(root.querySelector('[data-testid="collection-search"]')?.getAttribute('placeholder')).toBe('Search assets')
     expect(root.querySelector('[data-testid="asset-entry-fallback"]')?.getAttribute('data-kind')).toBe('model')
@@ -179,7 +228,7 @@ describe('Assets dock body', () => {
     expect(selection.textContent).toContain('Compatibilitycompatible:')
     setLocale('de-DE')
     expect(selection.querySelector<HTMLDetailsElement>('[data-testid="asset-rail-details"]')?.open).toBe(true)
-    expect(selection.textContent).toContain('[Quelle DE][Alle Assets]')
+    expect(selection.textContent).toContain('[Quelle DE][Verbundkatalog]')
     expect(encodeRequest).toHaveBeenCalled()
     expect(fetchFn).toHaveBeenCalledWith('https://backend.example/api/catalog', expect.anything())
     dispose()
@@ -205,6 +254,7 @@ describe('Assets dock body', () => {
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
     await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-source-control"]')).not.toBeNull())
+    await vi.waitFor(() => expect(root.querySelector('[data-source="mount:offline-cache"]')).not.toBeNull())
     root.querySelector<HTMLButtonElement>('[data-testid="asset-source-select"]')!.click()
     expect(document.querySelector('[data-option-id="mount:comfy-model-checkpoints-1"]')?.textContent).toBe('Models / Checkpoints')
     expect(document.querySelector('[data-option-id="mount:comfy-model-checkpoints-2"]')?.textContent).toBe('Models / Checkpoints 2')
@@ -261,7 +311,7 @@ describe('Assets dock body', () => {
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
 
     await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-source-health"]')).not.toBeNull())
-    await vi.waitFor(() => expect(root.querySelector('[data-entry="mount:models:checkpoints/indexed.ckpt"]')).not.toBeNull())
+    await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')?.textContent).toContain('indexed.ckpt'))
     root.querySelector<HTMLElement>('[data-testid="asset-source-health"] summary')!.click()
     expect(root.querySelector('[data-source="mount:models"]')?.getAttribute('data-state')).toBe('scanning')
     expect(root.querySelector('[data-source="mount:models"]')?.textContent).toContain(
@@ -301,11 +351,12 @@ describe('Assets dock body', () => {
     root.querySelector<HTMLElement>('[data-testid="asset-source-health"] summary')!.click()
     expect(root.querySelector('[data-testid="asset-source-health"]')?.textContent).toContain('1 issue')
     expect(root.querySelector('[data-source="mount:offline"]')?.textContent).toContain('offline')
-    const preview = root.querySelector<HTMLImageElement>('[data-entry="mount:input:images/a.png"] .collection-thumb')!
+    const row = root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!
+    const preview = row.querySelector<HTMLImageElement>('.collection-thumb')!
     preview.dispatchEvent(new Event('error'))
-    expect(root.querySelector('[data-entry="mount:input:images/a.png"] [data-testid="asset-entry-fallback"]')?.getAttribute('data-kind')).toBe('image')
+    expect(row.querySelector('[data-testid="asset-entry-fallback"]')?.getAttribute('data-kind')).toBe('image')
     expect(root.querySelector('[data-testid="asset-selection-empty"]')?.textContent).toContain('Click an asset')
-    root.querySelector<HTMLElement>('[data-entry="mount:input:images/a.png"]')!.click()
+    row.click()
     const selection = root.querySelector<HTMLElement>('[data-testid="asset-selection-summary"]')!
     expect(selection.querySelector('h3')?.textContent).toBe('a.png')
     const selectedPreview = selection.querySelector<HTMLImageElement>('img')!
@@ -434,6 +485,7 @@ describe('Assets dock body', () => {
     const connection = stubConnection({
       listMounts: vi.fn().mockResolvedValue([{ id: 'broken', mode: 'read', state: 'ready' }]),
       listMountEntries: vi.fn().mockRejectedValue(new Error('index unavailable')),
+      listLocalAssets: vi.fn().mockRejectedValue(new Error('local catalog unavailable')),
       assetUrl: (digest: string) => `/assets/${digest}`,
       fetchAssetMetadata: vi.fn(),
     })
@@ -448,13 +500,23 @@ describe('Assets dock body', () => {
     dispose()
   })
 
-  it('shows a terminal discovery failure without a false loading state', async () => {
-    const connection = stubConnection({ listMounts: vi.fn().mockRejectedValue(new Error('mount catalog offline')) })
+  it('keeps local assets and retry available when mount discovery fails', async () => {
+    const digest = `blake3:${'c'.repeat(64)}`
+    const asset = { digest, name: 'local.png', size: 5, mediaType: 'image/png', virtualPath: 'imports/local.png' }
+    const connection = stubConnection({
+      listMounts: vi.fn().mockRejectedValue(new Error('mount catalog offline')),
+      listLocalAssets: vi.fn().mockResolvedValue({ assets: [{ asset, aliases: ['local.png'], observations: [] }] }),
+      checkAssetAvailability: vi.fn().mockResolvedValue([{ digest, status: 'available' }]),
+      assetUrl: (digest: string) => `/assets/${digest}`,
+    })
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
-    await vi.waitFor(() => expect(root.querySelector('[data-testid="assets-error"]')?.textContent).toContain('mount catalog offline'))
-    expect(root.querySelector('[data-testid="assets-error"]')?.textContent).toContain('Asset sources unavailable')
+    await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')?.textContent).toContain('local.png'))
+    expect(root.querySelector('[data-testid="asset-source-health"]')?.textContent).toContain('mount catalog offline')
+    root.querySelector<HTMLButtonElement>('[data-testid="assets-retry"]')!.click()
+    await vi.waitFor(() => expect(connection.listMounts).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')?.textContent).toContain('local.png'))
     expect(root.textContent).not.toContain('Loading asset sources')
     dispose()
   })

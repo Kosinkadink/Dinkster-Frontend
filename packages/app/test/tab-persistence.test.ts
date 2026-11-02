@@ -100,11 +100,11 @@ describe('open-tab persistence', () => {
     expect(app.problems.get().map((problem) => problem.code)).not.toContain('schema.unresolvedType')
   })
 
-  it('keeps a new edited tab dirty through close cancellation and discards it without persistence', () => {
+  it('keeps a new edited tab dirty through close cancellation and discards it without persistence', async () => {
     const app = new AppState()
     const tab = app.createWorkflow()
     expect(app.isTabDirty(tab.id)).toBe(true)
-    const outcome = app.dispatchTo(tab, {
+    const outcome = await app.dispatchTo(tab, {
       command: 'node.add',
       params: { graphId: tab.store.doc.root, type: 'TestNode', position: { x: 10, y: 20 } },
     })
@@ -154,11 +154,11 @@ describe('open-tab persistence', () => {
     expect(app.isTabDirty(tab.id)).toBe(true)
   })
 
-  it('round-trips unsaved document mutations and tab set across a restart', () => {
+  it('round-trips unsaved document mutations and tab set across a restart', async () => {
     const first = new AppState()
     expect(first.tabs.get().length).toBe(2) // fixture seed (Basic, Subgraph)
     const basic = first.tabs.get()[0]!
-    const out = first.dispatchTo(basic, {
+    const out = await first.dispatchTo(basic, {
       command: 'node.setTitle',
       params: { graphId: basic.store.doc.root, nodeId: 'n0', title: 'renamed by test' },
     })
@@ -364,7 +364,7 @@ describe('open-tab persistence', () => {
     expect(second.tabs.get().map((t) => t.title)).toEqual(['Subgraph'])
   })
 
-  it('AP3: edits to a same-lineage replacement tab still persist (watcher rebinds)', () => {
+  it('AP3: edits to a same-lineage replacement tab still persist (watcher rebinds)', async () => {
     const first = new AppState()
     const basic = first.tabs.get()[0]!
     const doc = JSON.parse(JSON.stringify(basic.store.doc)) as { lineage: string }
@@ -376,7 +376,7 @@ describe('open-tab persistence', () => {
 
     // An edit to the REPLACEMENT session must reach storage; a watcher
     // still bound to the old session would drop it silently.
-    const out = first.dispatchTo(replacement, {
+    const out = await first.dispatchTo(replacement, {
       command: 'node.setTitle',
       params: { graphId: replacement.store.doc.root, nodeId: 'n0', title: 'edited after replace' },
     })
@@ -411,7 +411,7 @@ describe('open-tab persistence', () => {
     first.dispose()
   })
 
-  it('AP3: an edit made inside the debounce window survives pagehide', () => {
+  it('AP3: an edit made inside the debounce window survives pagehide', async () => {
     // Give the constructor a window to hang its pagehide listener on.
     const w = globalThis as { window?: EventTarget }
     w.window = new EventTarget()
@@ -426,7 +426,7 @@ describe('open-tab persistence', () => {
       const basic = first.tabs.get()[0]!
       basicId = basic.id
       flush() // settle startup writes
-      const out = first.dispatchTo(basic, {
+      const out = await first.dispatchTo(basic, {
         command: 'node.setTitle',
         params: { graphId: basic.store.doc.root, nodeId: 'n0', title: 'last-second edit' },
       })
@@ -445,14 +445,14 @@ describe('open-tab persistence', () => {
     )
   })
 
-  it('keeps the newest document at an equal workspace membership revision', () => {
+  it('keeps the newest document at an equal workspace membership revision', async () => {
     const fresh = new AppState()
     flush()
     const stale = new AppState()
     const freshTab = fresh.tabs.get()[0]!
     const staleTab = stale.tabs.get().find((tab) => tab.id === freshTab.id)!
 
-    const out = fresh.dispatchTo(freshTab, {
+    const out = await fresh.dispatchTo(freshTab, {
       command: 'node.setTitle',
       params: { graphId: freshTab.store.doc.root, nodeId: 'n0', title: 'newer document' },
     })

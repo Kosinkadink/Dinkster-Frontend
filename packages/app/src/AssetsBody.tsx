@@ -6,6 +6,7 @@ import { assetCollectionSource } from './asset-browser/collection-adapter.js'
 import { allAssetsCollectionSource, mountPresentationKey, type AssetSourceFailure } from './asset-browser/cross-mount-collection-source.js'
 import { VIEW_PREFERENCE_KEY } from './asset-browser/helpers.js'
 import { mountAssetSources } from './asset-browser/mountAssetSource.js'
+import { localAssetSource } from './asset-browser/localAssetSource.js'
 import { AssetEntryFallback } from './asset-browser/presentation.js'
 import { AssetEntrySelection } from './asset-browser/rail.js'
 import type { AssetSourceAdapter } from './asset-browser/types.js'
@@ -125,6 +126,11 @@ function AssetSourceControl(props: {
   const ready = () => props.presentations.filter(({ mount }) => mount.state === 'ready' && mount.entryCount !== 0)
   const sourceOptions = () => [
     ...(props.sources[0] ? [{ id: props.sources[0].id, label: props.sources[0].id === 'all-assets' ? props.message('assets.source.all') : props.sources[0].label, value: props.sources[0].id }] : []),
+    ...props.sources.slice(1).filter((source) => !source.id.startsWith('mount:')).map((source) => ({
+      id: source.id, label: source.id === 'local-assets' ? props.message('assets.source.local')
+        : source.id === 'federated-assets' ? props.message('assets.source.federatedCatalog') : source.label,
+      value: source.id,
+    })),
     ...ready().flatMap((row) => {
       const source = sourceById().get(`mount:${row.mount.id}`)
       return source ? [{ id: source.id, label: `${props.message(row.sectionKey)} / ${presentationLabel(row, props.message)}`, value: source.id }] : []
@@ -185,7 +191,7 @@ function assetState(state: CollectionPanelState, message: AssetMessage) {
   return <ProductEmptyState title={message('assets.state.empty.title')} hint={message('assets.state.empty.detail', { source })} />
 }
 
-export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly federatedContract?: AssetDtoV1WireContract }) {
+export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly backendLabel?: string; readonly federatedContract?: AssetDtoV1WireContract }) {
   const message = useAppMessage()
   const [adapters, setAdapters] = createSignal<readonly AssetSourceAdapter[]>()
   const [mounts, setMounts] = createSignal<readonly MountDescriptor[]>([])
@@ -206,7 +212,8 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
     let outputTimer: ReturnType<typeof setTimeout> | undefined
     let active = true
     let scanPolling = false
-    setAdapters(undefined)
+    const local = localAssetSource(connection)
+    setAdapters([local])
     setMounts([])
     setOutputUnconfigured(false)
     setDiscoveryError(undefined)
@@ -218,7 +225,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
         const descriptors = settings.mounts
         const browsable = await mountAssetSources(connection, undefined, descriptors)
         if (!live || !active || generation !== discoveryGeneration) return
-        setAdapters(browsable)
+        setAdapters([local, ...browsable])
         setMounts(descriptors)
         setOutputUnconfigured(settings.outputMount === undefined)
         setDiscoveryError(undefined)
@@ -251,6 +258,10 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
     })
   })
   const unavailable = createMemo(() => mounts().filter((mount) => mount.state !== 'ready' && mount.state !== 'scanning'))
+  const failures = createMemo(() => ({
+    ...sourceFailures(),
+    ...(discoveryError() ? { 'mount-discovery': { label: message('projectFolders.title'), message: discoveryError()! } } : {}),
+  }))
   const presentations = createMemo(() => mountPresentations(mounts()))
   const presentedAdapters = createMemo(() => {
     const labels = new Map(presentations().map((row) => [`mount:${row.mount.id}`, row.label]))
@@ -264,15 +275,17 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
       if (!live || healthGeneration !== discoveryGeneration) return
       setSourceFailures(Object.fromEntries(failures.map((failure) => [failure.sourceId, { label: failure.label, message: failure.message }])))
     }
-    const local = allAssetsCollectionSource(browsable, unavailable(), assetUrl, { onSourceFailures: reportFailures })
+    const federated = props.federatedContract
+      ? { ...federatedCollectionSource(new AssetDtoV1Client(props.baseUrl ?? '', props.federatedContract), () => undefined), id: 'federated-assets', label: 'Federated catalog' }
+      : undefined
+    const local = allAssetsCollectionSource(browsable, unavailable(), assetUrl, {
+      onSourceFailures: reportFailures,
+      ...(federated ? { additionalSources: [federated] } : {}),
+    })
     return [
-      props.federatedContract
-        ? federatedCollectionSource(new AssetDtoV1Client(props.baseUrl ?? '', props.federatedContract), (message) => {
-            if (!live || healthGeneration !== discoveryGeneration) return
-            setSourceFailures(message === undefined ? {} : { 'all-assets': { label: 'Federated catalog', message } })
-          })
-        : local,
+      local,
       ...browsable.map((adapter) => assetCollectionSource(adapter, { assetUrl })),
+      ...(federated ? [federated] : []),
     ]
   })
 
@@ -290,28 +303,24 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
           <OutputMountSettings connection={props.connection} />
         </Show>
       </details>
-      <Show
-        when={discoveryError()}
-        fallback={
-          <Show when={adapters() !== undefined} fallback={<ProductEmptyState tone="loading" title={message('assets.discovery.loading.title')} hint={message('assets.discovery.loading.detail')} />}>
             <CollectionPanel
               sources={sources()}
-              sourceRail={({ selectedId, select }) => <AssetSourceControl sources={sources()} presentations={presentations()} failures={sourceFailures()} selectedId={selectedId} select={select} message={message} />}
+              sourceRail={({ selectedId, select }) => <>
+                <AssetSourceControl sources={sources()} presentations={presentations()} failures={failures()} selectedId={selectedId} select={select} message={message} />
+                <Show when={discoveryError()}>
+                  <ProductButton type="button" data-testid="assets-retry" onClick={() => setRetryTick((tick) => tick + 1)}>{message('templateGallery.retry')}</ProductButton>
+                </Show>
+              </>}
               modeKey={VIEW_PREFERENCE_KEY}
               searchPriority="primary"
               searchLabel={message('assets.search')}
               searchPlaceholder={message('assets.search')}
               renderState={(state) => assetState(state, message)}
               entryFallback={(entry) => <AssetEntryFallback entry={entry} />}
-              detailRail={(entry) => <AssetEntrySelection entry={entry} adapters={presentedAdapters()} backendId={props.backendId} assetUrl={(digest) => props.connection.assetUrl(digest)} />}
+              detailRail={(entry) => <AssetEntrySelection entry={entry} adapters={presentedAdapters()} backendId={props.backendId}
+                connection={props.connection} backendUrl={props.baseUrl ?? ''} backendLabel={props.backendLabel}
+                assetUrl={(digest) => props.connection.assetUrl(digest)} />}
             />
-          </Show>
-        }
-      >
-        {(error) => <ProductEmptyState tone="error" testId="assets-error" title={message('assets.discovery.error.title')} hint={error()} action={
-          <ProductButton type="button" data-testid="assets-retry" onClick={() => setRetryTick((tick) => tick + 1)}>{message('templateGallery.retry')}</ProductButton>
-        } />}
-      </Show>
     </div>
   )
 }

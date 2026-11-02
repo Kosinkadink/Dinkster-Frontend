@@ -423,6 +423,72 @@ const nodeIds = (s: SharedDocumentSession): string[] => Object.keys(s.doc.graphs
 // ---------------------------------------------------------------------------
 
 describe('shared DocumentSession', () => {
+  it('stages a shared command without publication and commits it once through shared history', async () => {
+    const { session, conn } = await makeShared()
+    const original = session.doc
+    const prepared = session.prepareDispatch(setTitle('n1', 'admitted'))
+    expect(prepared?.ok).toBe(true)
+    if (!prepared?.ok) throw new Error('Shared preparation unavailable')
+    expect(session.doc).toBe(original)
+    expect(conn.postedOps).toHaveLength(0)
+    expect(prepared.document.graphs.g0!.nodes.n1!.title).toBe('admitted')
+    expect(prepared.currentHistory.undo).toHaveLength(0)
+    expect(prepared.history.undo).toHaveLength(1)
+    expect(prepared.commit().ok).toBe(true)
+    expect(prepared.commit().ok).toBe(false)
+    await session.settle()
+    expect(conn.postedOps).toHaveLength(1)
+    expect(conn.postedOps[0]!.actorId).toBe('actorA')
+    expect(session.doc.graphs.g0!.nodes.n1!.title).toBe('admitted')
+    expect(session.undo()).toBe(true)
+    await session.settle()
+    expect(session.doc.graphs.g0!.nodes.n1!.title).toBeUndefined()
+    session.close()
+  })
+
+  it('captures pending prefixes and refuses a candidate after its confirmed baseline advances', async () => {
+    const { session, conn } = await makeShared()
+    const gate = deferred()
+    conn.postHook = () => gate.promise
+    session.dispatch(setTitle('n1', 'pending first'))
+    session.dispatch(setTitle('n1', 'pending second'))
+    const prepared = session.prepareDispatch(setTitle('n1', 'candidate'))
+    if (!prepared.ok) throw new Error('Shared preparation rejected')
+    expect(prepared.retainedDocuments?.map((document) => document.graphs.g0!.nodes.n1!.title))
+      .toEqual(['pending second', undefined, 'pending first', 'pending second'])
+    expect(Object.isFrozen(prepared.currentHistory.undo)).toBe(true)
+    expect(Object.isFrozen(prepared.history.undo[0])).toBe(true)
+    gate.resolve()
+    await session.settle()
+    expect(prepared.commit().ok).toBe(false)
+    expect(session.doc.graphs.g0!.nodes.n1!.title).toBe('pending second')
+    session.close()
+  })
+
+  it('refuses prepared shared commands after edits, history clearing, remote changes or close', async () => {
+    for (const change of ['edit', 'history', 'remote', 'close'] as const) {
+      const { session, conn } = await makeShared()
+      session.dispatch(setTitle('n1', 'baseline'))
+      await session.settle()
+      const prepared = session.prepareDispatch(setTitle('n1', 'stale'))
+      expect(prepared?.ok).toBe(true)
+      if (!prepared?.ok) throw new Error('Shared preparation unavailable')
+      if (change === 'edit') session.dispatch(setTitle('n1', 'newer'))
+      if (change === 'history') session.clearHistory()
+      if (change === 'remote') {
+        conn.appendForeign('peer', [
+          { op: 'replace', path: ['graphs', 'g0', 'nodes', 'n1', 'title'], value: 'remote' },
+        ])
+        await session.settle()
+      }
+      if (change === 'close') session.close()
+      const document = session.doc
+      expect(prepared.commit().ok).toBe(false)
+      expect(session.doc).toBe(document)
+      session.close()
+    }
+  })
+
   it('re-executes an extract after an unrelated foreign op and drops it after an incident foreign op', async () => {
     const invocation = (document: WorkflowDocument) => ({
       command: 'subgraph.extract',

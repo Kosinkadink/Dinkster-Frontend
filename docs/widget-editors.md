@@ -10,6 +10,26 @@ non-serialized widgets. Import retains their original proxy metadata but does
 not create executable boundary inputs or consume positional widget values for
 them. Real promoted widgets and after-generate controllers keep their order.
 
+## Command acceptance
+
+Shared value commits and scalar text splices keep the editor open until the
+document command is accepted. Pending content is inert and duplicate commits
+are ignored. A refusal keeps the exact draft and shows an inline error for
+retry. Escape, outside dismissal and modal close dismiss only the editor;
+they do not cancel a submitted command. A completed command cannot close a
+replacement editor. Combo menu and branch-label edits and video edit batches
+use the same acceptance path. Explicit refresh selection closes a multi-combo
+only after acceptance. Single refresh does not request closure, but a document
+change can still dismiss its stale canvas anchor.
+
+Refresh-controller completion forwards the document command outcome, including
+delayed acceptance or refusal. A transport rejection returns remote options to
+their prior stale state without closing the editor or replacing its draft.
+
+Output-descriptor Apply shows command refusals and transport errors above the
+draft, separately from descriptor validation and metadata-probe errors. The
+draft remains available for retry and closes only after command acceptance.
+
 ## Descriptor fields
 
 An unknown field on a known widget descriptor produces a
@@ -303,7 +323,9 @@ open while scrubbing.
 
 AppView COLOR uses a product swatch trigger and an anchored popup mounted in
 the owning dialog when present. The popup accepts exact six-digit hex text and
-offers 32px preset swatches. Invalid text does not commit. Escape discards the
+offers 32px preset swatches. Apply and presets wait for final command acceptance;
+pending submissions cannot duplicate the write, and a refusal keeps the exact
+color draft open with a retry notice. Invalid text does not commit. Escape discards the
 draft, closes the popup, and restores trigger focus. A non-color stored value
 displays white without writing that fallback into the document.
 
@@ -617,7 +639,11 @@ duplicate or cycle controller state. The menu routes fixed, increment,
 decrement, randomize-after-run, and randomize-after-refresh choices through the
 owner-routed `node.setController` command. Selecting randomize does not change
 the current value immediately; it advances only after the named successful run
-or refresh event. The chip does not move as the value gains digits. Wide rows
+or refresh event. The menu closes only after its mode change is accepted.
+Pending choices are disabled; refusal preserves the menu and current mode for
+retry and shows an inline error. Escape or clicking outside dismisses the menu, not a submitted command;
+an older completion cannot close a newly opened menu.
+The chip does not move as the value gains digits. Wide rows
 reserve 128px for value text (enough for a full JavaScript safe integer), while
 narrow rows retain a 44px label floor and clip at one stable threshold. Hovering
 the value zone exposes the complete effective value in the widget tooltip, so a

@@ -75,6 +75,7 @@ const BACKEND_SERIAL_SPECS = [
   'app-view-queue-buttons-native.spec.ts',
   'output-mount-live.spec.ts',
   'browser-mount-live.spec.ts',
+  'local-assets-live.spec.ts',
 ]
 
 const PERFORMANCE_SPECS = ['perf.spec.ts']

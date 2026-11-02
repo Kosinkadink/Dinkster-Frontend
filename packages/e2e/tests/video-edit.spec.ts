@@ -193,6 +193,48 @@ test('video trim and crop controls at desktop and compact widths', async ({ page
   }
 })
 
+test('video batch Apply retains refused trim and strict-duration drafts until accepted', async ({ page }, info) => {
+  await openDocument(page, 'trim')
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__videoPending = []
+    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
+      ;(window as any).__videoPending.push((accepted: boolean) => resolve(accepted ? dispatch(tab, invocation) : {
+        ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Video edit refused for test' }],
+      }))
+    })
+  })
+  const settle = (index: number, accepted: boolean) => page.evaluate(({ index, accepted }) => (window as any).__videoPending[index](accepted), { index, accepted })
+  await openEditor(page)
+  await page.getByTestId('video-edit-apply').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: info.outputPath('video-batch-default.png') })
+  await page.getByTestId('video-trim-start-seconds').fill('2.75')
+  await page.getByTestId('video-trim-start-seconds').press('Tab')
+  await page.getByTestId('video-trim-strict').check()
+  await page.getByTestId('video-edit-apply').click()
+  await expect(page.locator('.widget-commit-content')).toHaveAttribute('inert', '')
+  await page.evaluate(() => document.querySelector<HTMLButtonElement>('[data-testid=video-edit-apply]')!.click())
+  expect(await page.evaluate(() => (window as any).__videoPending.length)).toBe(1)
+  expect(await valuesOf(page)).toEqual({ video_edit: imported, strict_duration: false })
+  await page.screenshot({ path: info.outputPath('video-batch-pending.png') })
+  await settle(0, false)
+  await expect(page.getByTestId('widget-commit-error')).toHaveText('Video edit refused for test')
+  await expect(page.getByTestId('video-trim-start-seconds')).toHaveValue('2.75')
+  await expect(page.getByTestId('video-trim-strict')).toBeChecked()
+  await page.getByTestId('video-edit-apply').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: info.outputPath('video-batch-refused.png') })
+  await page.setViewportSize({ width: 760, height: 900 })
+  await page.getByTestId('video-edit-apply').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: info.outputPath('video-batch-narrow.png') })
+  await page.getByTestId('video-edit-apply').click()
+  await settle(1, true)
+  await expect(page.getByTestId('widget-modal-surface')).toHaveCount(0)
+  expect(await valuesOf(page)).toEqual({ video_edit: { ...imported, trim: { ...imported.trim, start_time: 2.75 } }, strict_duration: true })
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  expect(await valuesOf(page)).toEqual({ video_edit: imported, strict_duration: false })
+})
+
 test('native trim derives its widget, requests lazy source selectors, preserves JSON and undoes the sibling atomically', async ({ page }, info) => {
   const requests: URL[] = []
   // Finish the canvas output peek before installing the editor-only capture.
@@ -325,16 +367,16 @@ test('linked scalar overrides refuse Apply and linked strict duration stays read
 
 test('changed source refuses stale preview and a concurrent edit cannot be overwritten', async ({ page }) => {
   await openDocument(page, 'trim')
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'source_version', value: 1 } })
+    await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'source_version', value: 1 } })
   })
   await openEditor(page)
   await expect(page.getByTestId('video-edit-editor')).toContainText('source changed since execution')
   await page.getByTestId('video-trim-duration-seconds').fill('2')
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'edit', inputId: 'strict_duration', value: true } })
+    await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'edit', inputId: 'strict_duration', value: true } })
   })
   // Canvas ownership can close on mutation; a retained editor must also refuse its stale commit.
   if (await page.getByTestId('video-edit-apply').count()) await page.getByTestId('video-edit-apply').click()
@@ -349,9 +391,9 @@ test('execution snapshots refuse VIDEO_EDIT writes and changing editor views', a
     return app.openExecutionView(execution.ref)
   })).toBe(true)
   await expect(page.getByTestId('views-switcher')).toBeDisabled()
-  expect(await page.evaluate(() => {
+  expect(await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    return app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'edit', inputId: 'video_edit', value: {} } }).ok
+    return (await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'edit', inputId: 'video_edit', value: {} } })).ok
   })).toBe(false)
   await expect(page.getByRole('button', { name: 'Edit Video edit video' })).toHaveCount(0)
   await expect(page.getByTestId('video-edit-editor')).toHaveCount(0)

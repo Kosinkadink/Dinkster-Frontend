@@ -50,6 +50,7 @@
     "text:!frozen() && activeTab()?.appArrange === true const [containerWidth, setContainerWidth] = createSolidSignal(Number.POSITIVE_INFINITY) const [arrangeBreakpoint, setArrangeBreakpoint] = createSolidSignal",
     "text:('desktop') const [pendingArrangeBreakpoint, setPendingArrangeBreakpoint] = createSolidSignal",
     "text:() const mobileItemsByKey = createMemo((): ReadonlyMap",
+    "text:() const noticeId = createUniqueId() const submit = async (raw: string): Promise",
     "text:() const placedParams = new Set",
     "text:() const placedPreviews = new Set",
     "text:() const remoteAborts = new Map",
@@ -60,7 +61,11 @@
     "text:: textProps.segment.italic ?",
     "text:: textProps.segment.text return textProps.segment.href === undefined ?",
     "text:B",
+    "text:CommandOutcome | Promise",
     "text:I",
+    "text:Promise",
+    "text:Promise",
+    "text:boolean): Promise",
     "text:byId.get(id)?.kind !== 'group'))) const renderedChildren = new Set",
     "text:childrenByKey().get(key)! return (",
     "text:containerWidth()",
@@ -80,6 +85,7 @@
     "text:t.id === activeTabId()) // Same registry discipline as CanvasHost: a memo keyed on the reference, // so ws flaps (backendsTick churn) never rebuild rows. const registry = createMemo((): ReturnType",
     "text:target.graphId === option.graphId && target.nodeId === option.nodeId) return",
     "text:textProps.segment.bold ? textProps.segment.italic ?",
+    "text:true): Promise",
     "text:value + 1) const mobileItemKeys = createMemo",
     "text:void) | undefined const gridStyle = (grid: AppLayoutGrid): Record",
     "text:void) | undefined let presentationFocusTimer: ReturnType",
@@ -233,6 +239,11 @@
     "text:(settingsTick(), props.app.settings.get",
     "text:(undefined) /** * When the link menu opened. A midpoint single click opens it on release, * so the second press of a habitual double-click lands on the backdrop * milliseconds later; the backdrop ignores presses inside this window so * a double-click leaves the menu open instead of flashing it closed. */ let linkMenuOpenedAt = 0 const LINK_MENU_DISMISS_GRACE_MS = 350 const [recentNodeTypes, setRecentNodeTypes] = createSolidSignal",
     "text:(undefined) const [linkDoubleClickMenu, setLinkDoubleClickMenu] = createSolidSignal",
+    "text:(undefined) const [pendingController, setPendingController] = createSolidSignal",
+    "text:(undefined) const groupPromptCommit = (title: string): CommandOutcome | Promise",
+    "text:(undefined) const netPromptCommit = (name: string): CommandOutcome | Promise",
+    "text:(undefined) const nodePromptCommit = (title: string): CommandOutcome | Promise",
+    "text:(undefined) const selectorPromptCommit = (title: string): CommandOutcome | Promise",
     "text:, instancePath: readonly string[], ): ReadonlySet",
     "text:0) page(props.onPrevious) if (event.key === 'ArrowRight' && props.index",
     "text:3D viewer unavailable",
@@ -245,6 +256,9 @@
     "text:Cancel",
     "text:Cancel",
     "text:Close",
+    "text:CommandOutcome | Promise",
+    "text:CommandOutcome | Promise",
+    "text:CommandOutcome | Promise",
     "text:Download",
     "text:Download",
     "text:FROZEN",
@@ -282,7 +296,9 @@
     "text:rect.right || e.clientY",
     "text:root-graph node ids (a subgraph instance is \"in // scope\" when ANY of its inner occurrences is). const rootIds = new Set",
     "text:schemas from this run are unavailable - nodes render without definitions",
-    "text:undefined const schema: NodeSchema | undefined = entry.schema ?? resolve(entry.type) const virtualKind = props.app.virtualNodeKinds.get(entry.type) // Registry state can change after the palette opens. Preserve the old // unresolved-node fallback rather than turning that narrow race into a // silent no-op; only known schemas can contribute defaults or state. const values = virtualKind?.defaultValues ?? (schema ? (defaultValuesOf(schema) as Record"
+    "text:undefined const schema: NodeSchema | undefined = entry.schema ?? resolve(entry.type) const virtualKind = props.app.virtualNodeKinds.get(entry.type) // Registry state can change after the palette opens. Preserve the old // unresolved-node fallback rather than turning that narrow race into a // silent no-op; only known schemas can contribute defaults or state. const values = virtualKind?.defaultValues ?? (schema ? (defaultValuesOf(schema) as Record",
+    "text:void) | undefined const boundaryPromptCommit = (name: string): CommandOutcome | Promise",
+    "text:void, ): Promise"
   ],
   "CanvasSemanticNavigator.tsx": [
     "attribute:aria-label:Canvas scene navigator",
@@ -418,7 +434,8 @@
     "text:, successKey?: string): Promise",
     "text:= 1024 && unit",
     "text:Promise",
-    "text:addMount(id: string, path: string, mode: 'read' | 'readwrite'): Promise"
+    "text:addMount(id: string, path: string, mode: 'read' | 'readwrite'): Promise",
+    "text:props.connection) const [info, setInfo] = createSignal"
   ],
   "DesktopSetup.tsx": [
     "text:props.status.phase === 'failed' return ("
@@ -524,6 +541,7 @@
     "text:Promise",
     "text:Promise",
     "text:Promise",
+    "text:URL.revokeObjectURL(assetUrl)) return",
     "text:candidate.layer.id === layerId)! return (",
     "text:documentValue().masks[maskId]! return (",
     "text:hydrate: Promise",
@@ -554,6 +572,7 @@
     "text:props.host?.tabId() ?? globalActiveTabId()) const [session, setSession] = createSignal"
   ],
   "ImportAssetResolutionDialog.tsx": [
+    "text:(new Map()) const [pending, setPending] = createSignal",
     "text:decisionEl) const request = useSignal(props.app.importAssetResolution) const [selected, setSelected] = createSignal"
   ],
   "LibraryPanel.tsx": [
@@ -564,6 +583,9 @@
     "text:controls?.querySelectorAll",
     "text:directSource() ?",
     "text:transitioning() ?"
+  ],
+  "LibraryStorageSettings.tsx": [
+    "text:() const [limit, setLimit] = createSignal"
   ],
   "MemoryPanel.tsx": [
     "attribute:aria-label:Active memory leases",
@@ -632,7 +654,12 @@
     "text:Rendering 3D preview..."
   ],
   "MountFolderForm.tsx": [
-    "text:('read') const [kind, setKind] = createSignal('') const [shared, setShared] = createSignal(false) const [busy, setBusy] = createSignal(false) const [status, setStatus] = createSignal"
+    "text:('read') const [kind, setKind] = createSignal('') const [shared, setShared] = createSignal(false) const [busy, setBusy] = createSignal(false) const [status, setStatus] = createSignal",
+    "text:props.backendUrl) const [mountPath, setMountPath] = createSignal('') const [mountId, setMountId] = createSignal('') const [mode, setMode] = createSignal"
+  ],
+  "NamePrompt.tsx": [
+    "text:(undefined) const commit = async (value: string): Promise",
+    "text:CommandOutcome | undefined | Promise"
   ],
   "NodePalette.tsx": [
     "text:() const duplicates = new Set",
@@ -666,14 +693,19 @@
     "attribute:aria-label:Decrease value",
     "attribute:aria-label:Increase value",
     "text:= BigInt(Number.MIN_SAFE_INTEGER) && parsed",
+    "text:Promise",
+    "text:props.integer === true ? integer(value) !== undefined : value.trim() !== '' && Number.isFinite(Number(value)) const commitAsync = async (explicit: boolean): Promise",
     "text:props.integer === true ? safeInteger(raw()) : valid(raw()) ? Number(raw()) : undefined return ("
   ],
   "ProductSelect.tsx": [
-    "text:[] readonly selectedId: string readonly onSelect: (option: ProductSelectOption",
+    "text:): Promise",
+    "text:Promise",
+    "text:[] readonly selectedId: string readonly onSelect?: (option: ProductSelectOption",
     "text:option.id === props.selectedId) const selectedOption = (): ProductSelectOption",
+    "text:readonly id?: string readonly class?: string readonly testId?: string readonly ariaLabel?: string readonly ariaLabelledBy?: string readonly ariaDescribedBy?: string | undefined readonly ariaInvalid?: boolean readonly disabled?: boolean readonly dataAttributes?: Readonly",
     "text:readonly onFocus?: JSX.EventHandlerUnion",
     "text:readonly onPointerDown?: JSX.EventHandlerUnion",
-    "text:void readonly id?: string readonly class?: string readonly testId?: string readonly ariaLabel?: string readonly ariaLabelledBy?: string readonly ariaDescribedBy?: string | undefined readonly ariaInvalid?: boolean readonly disabled?: boolean readonly dataAttributes?: Readonly"
+    "text:void readonly onSelectAsync?: (option: ProductSelectOption"
   ],
   "ProductSlider.tsx": [
     "text:props.min ? ((value() - props.min) / (props.max - props.min)) * 100 : 0 return ("
@@ -725,7 +757,8 @@
     "text:, ): Promise",
     "text:capture()?.command === command.id ? capture()?.pending || message('settingsDialog.keybinding.pressKeys') : combo() ?? message('settingsDialog.keybinding.unbound') const ids = productFieldIds(controlId) return",
     "text:props.settings.categoryOf(d))) const [searchCategory, setSearchCategory] = createSignal",
-    "text:updatePackSettings( packId: string, values: Readonly"
+    "text:updatePackSettings( packId: string, values: Readonly",
+    "text:void readonly storageConnection?: Pick"
   ],
   "ShellChrome.tsx": [
     "text:('.dock-zone-actions') const actionGap = actions === null ? 0 : Number.parseFloat(getComputedStyle(actions).columnGap) || 0 const overflowWidth = overflowRoot !== undefined && root.contains(overflowRoot) ? overflowRoot.getBoundingClientRect().width + actionGap : 0 const widthWithoutOverflow = tablist.clientWidth + overflowWidth const allFloorsWidth = count * floor + Math.max(0, count - 1) * gap const visibleCount = allFloorsWidth",
@@ -750,6 +783,11 @@
   "SuggestionSurface.tsx": [
     "text:(): SuggestionInteraction",
     "text:readonly interaction: SuggestionInteraction"
+  ],
+  "SurfacePanel.tsx": [
+    "text:() const [groupRefusal, setGroupRefusal] = createSolidSignal",
+    "text:activeTab()?.execution !== undefined const groupTab = createMemo(activeTab) const [groupPending, setGroupPending] = createSolidSignal",
+    "text:boolean): Promise"
   ],
   "TemplateGallery.tsx": [
     "text:props.app.libraryBackend()?.connection) const [mountSettings, setMountSettings] = createSignal"
@@ -846,11 +884,14 @@
   ],
   "WidgetEditorController.tsx": [
     "attribute:aria-label:Edit output descriptors",
+    "text:() const commitCommand = async (invocation: CommandInvocation, closeOnAccept = true): Promise",
     "text:) : ed.outputDescriptors !== undefined ? (",
     "text:) : null return (",
     "text:) : props.implementation !== undefined ? (",
-    "text:videoDocumentCommand !== undefined ? (",
-    "text:void editor: WidgetEditorProps header: Component"
+    "text:Promise",
+    "text:Promise",
+    "text:string | undefined editor: WidgetEditorProps header: Component",
+    "text:videoDocumentCommand !== undefined ? ("
   ],
   "WorkflowQueueControl.tsx": [
     "attribute:aria-label:Workflow jobs",
@@ -904,6 +945,7 @@
     "text:(undefined) const [logicalModels, setLogicalModels] = createSolidSignal",
     "text:(undefined) const [logicalModelsError, setLogicalModelsError] = createSolidSignal",
     "text:(undefined) const [logicalModelsLoading, setLogicalModelsLoading] = createSolidSignal(false) const unresolvedAsset = ed.spec?.selection !== true && typeof ed.initial === 'string' ? ed.initial : undefined const [assetMatchCandidates, setAssetMatchCandidates] = createSolidSignal",
+    "text:(undefined) const [mountDiscoveryError, setMountDiscoveryError] = createSolidSignal",
     "text:/ list",
     "text:Accepted types",
     "text:Back to source options",
