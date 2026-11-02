@@ -1,6 +1,7 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NodeSchema, WorkflowDocument } from '@dinkster/core'
-import { AppState } from '../src/app-state.js'
+import type { AppState } from '../src/app-state.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 beforeAll(() => {
   Object.defineProperty(globalThis, 'location', {
@@ -116,7 +117,7 @@ const subgraphDocument = (): WorkflowDocument => ({
 })
 
 const appWithSchema = (): AppState => {
-  const app = new AppState()
+  const app = createWorkflowApp(null)
   ;(app.registry as unknown as { set(value: unknown): void }).set({
     connection: app.connection.id,
     schemas: new Map(),
@@ -130,8 +131,11 @@ const appWithSchema = (): AppState => {
 }
 
 describe('AppState count-aware value edits', () => {
+  let app: AppState
+  beforeEach(() => { app = appWithSchema() })
+  afterEach(() => { app.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
   it('routes count widgets through the explicit preserving command while ordinary widgets stay generic', async () => {
-    const app = appWithSchema()
     expect(app.openDocument(document(), 'Count edit')).toEqual([])
     const tab = app.activeTab()!
     const origins: string[] = []
@@ -177,7 +181,6 @@ describe('AppState count-aware value edits', () => {
   })
 
   it('validates promoted count edits against the derived occurrence schema', async () => {
-    const app = appWithSchema()
     expect(app.openDocument(subgraphDocument(), 'Promoted count edit')).toEqual([])
     const tab = app.activeTab()!
     const origins: string[] = []
