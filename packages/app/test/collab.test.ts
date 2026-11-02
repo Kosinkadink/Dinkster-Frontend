@@ -28,7 +28,7 @@ import {
   type SharedDocumentSession,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { buildDinksterRegistry } from '@dinkster/client'
+import { DinksterConnection, buildDinksterRegistry } from '@dinkster/client'
 import nodesPayload from '../../core/fixtures/dinkster-nodes.json'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
@@ -228,7 +228,12 @@ class FakeCollabServer {
 
 // AppStates model separate browser tabs, not Node's process-wide session storage.
 const editableApps: AppState[] = []
-beforeEach(() => vi.stubGlobal('sessionStorage', undefined))
+beforeEach(() => {
+  vi.stubGlobal('sessionStorage', undefined)
+  vi.stubGlobal('localStorage', fakeStorage())
+  vi.spyOn(DinksterConnection.prototype, 'retainAssets').mockImplementation(async (owner, declaration) =>
+    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+})
 afterEach(() => {
   for (const app of editableApps.splice(0)) app.dispose()
   vi.restoreAllMocks()
@@ -237,6 +242,7 @@ afterEach(() => {
 
 const makeApp = (server: FakeCollabServer, withBackend = true): AppState => {
   const app = new AppState({ collabTransport: server.transport })
+  editableApps.push(app)
   if (withBackend) {
     const backend = app.backends.get().find((candidate) => candidate.baseUrl === 'http://collab') ??
       app.addBackend('http://collab', 'collab', false, 'dinkster')!
@@ -447,6 +453,35 @@ describe('stableActorId', () => {
 })
 
 describe('share', () => {
+  it.each([true, false])('retains current and undo assets before sharing, accepted=%s', async (accepted) => {
+    const server = new FakeCollabServer()
+    const app = makeApp(server)
+    const prior = activeTab(app)
+    const backend = app.collabBackend()!
+    const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
+      size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
+    const added = prior.store.dispatch({ command: 'node.add', params: { graphId: prior.store.doc.root,
+      type: 'AssetHolder', position: { x: 20, y: 40 }, values: { held: asset('a') } } })
+    expect(added.ok).toBe(true)
+    const node = Object.values(prior.store.doc.graphs[prior.store.doc.root]!.nodes)[0]!
+    expect(prior.store.dispatch({ command: 'node.setValue', params: { graphId: prior.store.doc.root,
+      nodeId: node.id, inputId: 'held', value: asset('b') } }).ok).toBe(true)
+    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      expect(declaration).toEqual({ revision: 0, complete: false, digests: [asset('a').digest, asset('b').digest] })
+      return { ...owner, ...declaration, revision: accepted ? 1 : 2 }
+    })
+    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    expect(await app.shareActiveTab() === undefined).toBe(accepted)
+    expect(app.collabFor(prior.id) !== undefined).toBe(accepted)
+    expect(activeTab(app).store.canUndo).toBe(true)
+    expect(activeTab(app).store.undo()).toBe(true)
+    expect(activeTab(app).store.doc.graphs[prior.store.doc.root]!.nodes[node.id]!.values.held).toEqual(asset('a'))
+    if (!accepted) {
+      expect(activeTab(app).store).toBe(prior.store)
+      expect(server.sessions.size).toBe(0)
+    }
+  })
+
   it('T19 installs current-document schema authority for both AppState local and adopted shared tabs', async () => {
     const server = new FakeCollabServer()
     const run = async (shared: boolean): Promise<void> => {
@@ -583,6 +618,65 @@ describe('share', () => {
 })
 
 describe('join and convergence', () => {
+  it.each(['accepted', 'refused', 'edited', 'closed', 'retargeted', 'removed', 'registry', 'disconnected', 'disposed', 'remote-edit', 'ended', 'projection'] as const)(
+    'holds a joined snapshot before ownership acknowledgment: %s', async (scenario) => {
+      const server = new FakeCollabServer()
+      const app = makeApp(server)
+      const prior = activeTab(app)
+      const backend = app.collabBackend()!
+      const digest = `blake3:${'a'.repeat(64)}`
+      expect(prior.store.dispatch({ command: 'node.add', params: { graphId: prior.store.doc.root,
+        type: 'AssetHolder', position: { x: 20, y: 40 }, values: {
+          held: { digest, name: 'held.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' },
+        } } }).ok).toBe(true)
+      const shared = server.createSession(COLLAB_SCOPE, prior.id, prior.store.doc)
+      let acknowledge!: () => void
+      let requested!: () => void
+      const request = new Promise<void>((resolve) => { requested = resolve })
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
+        expect(localStorage.getItem(`dinkster.workflow-retentions.${owner.ownerId}`)).not.toBeNull()
+        expect(declaration).toEqual({ revision: 0, complete: false, digests: [digest] })
+        requested()
+        return new Promise((resolve) => {
+          acknowledge = () => resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
+        })
+      })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      const joining = app.joinCollabSession(shared.sessionId)
+      await request
+      expect(app.collabFor(prior.id)).toBeUndefined()
+      expect(activeTab(app)).toBe(prior)
+      if (scenario === 'edited') expect(addNode(prior).ok).toBe(true)
+      if (scenario === 'closed') app.closeTab(prior.id)
+      if (scenario === 'retargeted') app.setTabTarget(prior.id, app.connection.id)
+      if (scenario === 'removed') app.removeBackend(backend.id)
+      if (scenario === 'registry') backend.registry.set({ connection: backend.id, schemas: new Map(), diagnostics: [], hash: 'changed', resolve: () => undefined })
+      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+      if (scenario === 'disposed') app.dispose()
+      if (scenario === 'remote-edit') {
+        await [...shared.connections][0]!.postOp({ protocolVersion: COLLAB_PROTOCOL_VERSION,
+          opId: 'remote-edit', actorId: 'other', baseRevision: 0, patch: [], })
+      }
+      if (scenario === 'ended') [...shared.connections][0]!.emit({ kind: 'session-closed' })
+      if (scenario === 'projection') {
+        app.settings.set('features.appView.enabled', true)
+        app.setTabEditorKind(prior.id, APP_EDITOR_KIND)
+      }
+      acknowledge()
+      const accepted = scenario === 'accepted' || scenario === 'projection'
+      expect(await joining === undefined).toBe(accepted)
+      expect(app.collabFor(prior.id) !== undefined).toBe(accepted)
+      if (accepted) {
+        expect(activeTab(app).store.doc).toEqual(prior.store.doc)
+        expect(app.backendForTab(activeTab(app))).toBe(backend)
+        if (scenario === 'projection') expect(activeTab(app).editorKind).toBe(APP_EDITOR_KIND)
+      } else {
+        expect(shared.connections.size).toBe(0)
+        if (scenario !== 'closed') expect(activeTab(app).store).toBe(prior.store)
+      }
+    },
+  )
+
   it('two apps discover the same session and converge in both directions', async () => {
     const server = new FakeCollabServer()
     const appA = makeApp(server)
@@ -1407,6 +1501,29 @@ describe('reload rejoin', () => {
 
   const storedSessions = (): unknown[] =>
     (JSON.parse(g.localStorage!.getItem(COLLAB_SESSIONS_KEY) ?? '{"sessions":[]}') as { sessions: unknown[] }).sessions
+
+  it('keeps the restored tab and pending membership when ownership is refused, then rejoins on retry', async () => {
+    const server = new FakeCollabServer()
+    const first = makeApp(server)
+    expect(await first.shareActiveTab()).toBeUndefined()
+    first.flushPersistTabs()
+    const second = makeApp(server)
+    const restored = activeTab(second)
+    const backend = second.collabBackend()!
+    const retain = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+      ({ ...owner, ...declaration, revision: 2 }))
+    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    await second.rejoinCollabSessions()
+    expect(activeTab(second).store).toBe(restored.store)
+    expect(second.collabFor(restored.id)).toBeUndefined()
+    expect(storedSessions()).toHaveLength(1)
+    expect([...server.sessions.values()][0]!.connections.size).toBe(1)
+    retain.mockImplementation(async (owner, declaration) => ({ ...owner, ...declaration, revision: 1 }))
+    await second.rejoinCollabSessions()
+    expect(second.collabFor(restored.id)).toBeDefined()
+    expect(second.backendForTab(activeTab(second))).toBe(backend)
+    expect(storedSessions()).toHaveLength(1)
+  })
 
   it('sharing persists the membership; a fresh app rejoins it and converges', async () => {
     const server = new FakeCollabServer()

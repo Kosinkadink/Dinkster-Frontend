@@ -6042,7 +6042,7 @@ export class AppState {
       session.close()
       throw new CollabSessionEndedDuringJoinError()
     }
-    const prior = this.tabs.get().find((t) => t.id === owner && t.execution === undefined)
+    let prior = this.tabs.get().find((t) => t.id === owner && t.execution === undefined)
     if (expect !== undefined && (prior === undefined || prior.store !== expect.store || expect.store.revision !== expect.revision)) {
       session.close()
       throw new Error(
@@ -6058,6 +6058,38 @@ export class AppState {
     if (expect !== undefined && JSON.stringify(session.doc) === JSON.stringify(expect.store.doc)) {
       session.adoptHistory(expect.store.historySnapshot())
     }
+    const backend = this.backends.get().find((entry) => entry.baseUrl === baseUrl && entry.protocol === 'dinkster')
+    const registry = backend?.registry.get()
+    const document = session.doc
+    const revision = session.revision
+    const priorStore = prior?.store
+    const priorRevision = priorStore?.revision
+    const priorDocument = priorStore?.doc
+    const priorTarget = prior === undefined ? undefined : this.backendForTab(prior)
+    let connectionChanged = false
+    const unsubscribe = backend?.connection.status.subscribe(() => { connectionChanged = true })
+    try {
+      if (backend === undefined || this.disposed) throw new Error('Shared workflow backend is unavailable')
+      const roots = workflowAssetRoots(document, session.historySnapshot(),
+        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
+      await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+      const current = this.tabs.get().find((tab) => tab.id === owner && !tab.execution)
+      if (this.disposed || connectionChanged || !this.backends.get().includes(backend) ||
+        backend.registry.get() !== registry || session.doc !== document || session.revision !== revision ||
+        session.status.get() === 'closed' || session.status.get() === 'error' ||
+        current?.store !== priorStore || current?.store.revision !== priorRevision || current?.store.doc !== priorDocument ||
+        (current !== undefined && this.backendForTab(current) !== priorTarget)) {
+        throw new Error('Shared workflow changed while ownership was being confirmed; the existing tabs were kept')
+      }
+      prior = current
+    } catch {
+      const ended = session.status.get() === 'closed'
+      session.close()
+      if (ended) throw new CollabSessionEndedDuringJoinError()
+      throw new Error('Shared workflow ownership could not be confirmed; the existing tabs were kept')
+    } finally {
+      unsubscribe?.()
+    }
     this.dropCollabFor(owner) // re-adopting over a shared tab closes the old session
     if (prior !== undefined) {
       this.reconcileDocumentPersistenceRevision(owner, prior.store.doc, session.doc)
@@ -6071,6 +6103,7 @@ export class AppState {
     this.markTabDirty(tab.id) // shared edits are library-unpersisted work
     this.followLatestExecution(tab.id)
     this.releaseFrozenPin(tab.id) // a displaced frozen view drops its pin
+    this.tabTargets.update((targets) => new Map(targets).set(tab.id, backend.id))
     this.tabs.update((tabs) =>
       tabs.some((t) => t.id === tab.id) ? tabs.map((t) => (t.id === tab.id ? tab : t)) : [...tabs, tab],
     )

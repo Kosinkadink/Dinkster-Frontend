@@ -15,6 +15,16 @@ sees and makes the same edits live. The sharer's undo/redo history follows
 the tab when the shared session adopts the same document, and the tab's
 revision remains monotonic across that session handoff.
 
+Share, Join and reload rejoin wait for asset ownership acknowledgment from the
+session's backend before replacing the local tab. While pending or refused,
+the existing workflow stays available. A refusal closes the unadopted connection,
+keeps prior undo history and reports the failure through the existing action
+status. Reload rejoin keeps its membership record for retry. An edit, backend
+change, session update or closure during acknowledgment prevents stale adoption;
+switching the editor view alone does not. Successful adoption targets the
+session's backend. This initial ownership check does not certify later foreign
+updates or enable vault collection.
+
 The Users button in the top bar opens the Workspace state modal:
 
 - **Join** connects to a session discovered in the session list (the app

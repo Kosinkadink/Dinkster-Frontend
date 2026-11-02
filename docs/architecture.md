@@ -124,7 +124,13 @@ A temporary in-memory execution pin prevents eviction during acknowledgment;
 success transfers the pin to the frozen tab, while failed or stale attempts
 drop only that temporary pin. Existing frozen tabs focus without another PUT.
 Read-only inspection and close/displacement pin balancing stay unchanged.
-The synchronous `openDocument` API, constructor restore and shared
+Initial collaboration adoption (Share, Join and reload rejoin) also retains the
+session snapshot and any adopted local history on the session's source backend
+before publishing its tab. Failed or stale acknowledgments keep the existing
+tab and close only the unadopted transport. Reload failures preserve pending
+membership for retry; metadata-only editor switches survive adoption. The
+source target is installed before tab publication. Subsequent foreign updates,
+the synchronous `openDocument` API, constructor restore and SharedWorker
 session ingress are separate publication paths; this staging does not certify
 their ownership or activate common dispatch admission. The legacy bridge keeps
 its existing non-retained opening behavior.
