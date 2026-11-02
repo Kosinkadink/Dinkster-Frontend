@@ -7,7 +7,7 @@ import { selectProductOption, skipWithoutNativeCatalog } from './fixtures.js'
 
 // Exact native catalog of the backend pinned by the hosted workflows.
 const canonicalCatalogSha256 =
-  'cd17e09c8c21eaeefdbfbc975332787aca49a31a523fe59d90ab28fb9b78c0dd'
+  '8043d1c9a426022640a736fcecca3c26b2571f3e009de5b06c1e7f1cf47d5b52'
 const nativeBackend =
   process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -161,7 +161,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
     .update(canonicalJson(stableCatalog))
     .digest('hex')
   expect(catalogDigest).toBe(canonicalCatalogSha256)
-  expect(Object.keys(catalog.nodes)).toHaveLength(878)
+  expect(Object.keys(catalog.nodes)).toHaveLength(881)
   const inputs = widgets(catalog)
   const descriptors = inputs.flatMap(({ input }) =>
     widgetDescriptors(input.widget),
@@ -211,7 +211,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   ).toHaveLength(0)
   expect(
     inputs.filter(({ input }) => input.widget?.['type'] === 'COLOR'),
-  ).toHaveLength(10)
+  ).toHaveLength(11)
   expect(Object.hasOwn(catalog.nodes, 'dinkster.ksampler_advanced')).toBe(false)
   expect(Object.hasOwn(catalog.nodes, 'comfy.KSamplerAdvanced')).toBe(false)
   expect(Object.hasOwn(catalog.nodes, 'KSamplerAdvanced')).toBe(true)
@@ -413,7 +413,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
         ),
       { timeout: 20_000 },
     )
-    .toBe(878)
+    .toBe(881)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument(
       {
