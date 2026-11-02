@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { asNodeId } from '@dinkster/core'
 import type { CommandOutcome, DinksterNodesPayload } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { historicalRegistry } from './historical-schemas.js'
 import { AppState } from '../src/app-state.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 
@@ -12,11 +13,17 @@ import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 let app: AppState
 
 beforeEach(() => {
-  app = new AppState()
+  app = createWorkflowApp(null)
   const blank = app.activeTab()!
   app.openDocument(seedBasic, 'Basic')
   app.openDocument(seedSubgraph, 'Subgraph')
   app.closeTab(blank.id)
+})
+
+afterEach(() => {
+  app.dispose()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 const nativePayload: DinksterNodesPayload = {

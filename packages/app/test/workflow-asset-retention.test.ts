@@ -430,6 +430,47 @@ describe('workflow candidate admission', () => {
     expect(local.doc.graphs.g0!.nodes.n0!.title).toBe('Opaque node')
   })
 
+  it.each(['widget', 'unmarked', 'typed', 'malformed-widget'] as const)('keeps only unresolved widget names admissible as incomplete: %s', async (scenario) => {
+    const assetSchema: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'files', optional: false,
+      type: { kind: 'concrete', name: 'ASSET' },
+      ...(scenario === 'unmarked' ? {} : { widget: { widgetType: 'ASSET', options: {} } }),
+    }] }
+    const document = session().doc
+    const local = createLocalSession({ ...document, graphs: { g0: { ...document.graphs.g0!, nodes: {
+      n0: { ...document.graphs.g0!.nodes.n0!, values: { files: scenario === 'typed'
+        ? { $typed: { type: 'ASSET', value: 'legacy.bin' } } : scenario === 'malformed-widget'
+          ? { ...asset('a'), digest: 'not-canonical' } : 'legacy.bin' } },
+    } } } }, coreCommandRegistry([], () => assetSchema))
+    const before = local.doc
+    const prepared = local.prepareDispatch!({ command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n0', inputId: 'files', value: asset('b'),
+    } })
+    if (!prepared.ok) throw new Error('candidate rejected')
+    const journal = new Map<string, string>()
+    const connection = {
+      id: 'backend', assetUrl: () => 'http://assets.test/',
+      retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
+        expect(scenario).toBe('widget')
+        expect(local.doc).toBe(before)
+        expect(journal.size).toBe(1)
+        expect(declaration).toEqual({ revision: 0, complete: false, digests: [asset('b').digest] })
+        return { ...owner, ...declaration, revision: 1 }
+      },
+    } as unknown as DinksterConnection
+    const operation = admitWorkflowDispatch(connection, prepared, () => assetSchema, () => true,
+      { setItem: (key, value) => { journal.set(key, value) } })
+    if (scenario === 'widget') {
+      expect((await operation).ok).toBe(true)
+      expect(local.doc.graphs.g0!.nodes.n0!.values.files).toEqual(asset('b'))
+      expect(local.undo()).toBe(true)
+      expect(local.doc).toEqual(before)
+    } else {
+      await expect(operation).rejects.toThrow('malformed')
+      expect(local.doc).toBe(before)
+      expect(journal.size).toBe(0)
+    }
+  })
+
   it.each(['unknown-schema', 'known-schema', 'typed', 'typed-extra'] as const)('rejects malformed stored identities: %s', async (scenario) => {
     const local = session()
     const prepared = local.prepareDispatch!(replace('b'))

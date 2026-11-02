@@ -85,8 +85,9 @@ export function workflowAssetRoots(
     if (type.kind === 'tuple') return type.elements.every(supported)
     return type.kind === 'concrete' && (type.name === 'ASSET' || primitiveNames.has(type.name))
   }
-  const valueRoots = (value: Json, type: TypeExpr, selection = false): void => {
-    if (selection && typeof value === 'string') { complete = false; return }
+  const valueRoots = (value: Json, type: TypeExpr, namedAsset = false): void => {
+    // Asset widgets can hold unresolved imported names, never a certified digest set.
+    if (namedAsset && typeof value === 'string') { complete = false; return }
     const typed = parseTypedLiteralWire(value)
     if (typed !== undefined) {
       const wrapper = value as { readonly [key: string]: Json }
@@ -195,13 +196,13 @@ export function workflowAssetRoots(
       if (input.ancestry?.some((ancestor) => ancestor.ghost)) continue
       const fallback = input.spec.widget?.default !== undefined ? input.spec.widget.default : input.spec.ext?.['default']
       if (!Object.hasOwn(node.values, valueKeyOf(input)) && fallback !== undefined) {
-        valueRoots(fallback as Json, input.spec.type, isAssetWidgetInput(input.spec) && input.spec.widget?.selection)
+        valueRoots(fallback as Json, input.spec.type, isAssetWidgetInput(input.spec))
       }
     }
     for (const [input, value] of Object.entries(node.values)) {
       const matching = inputs.filter((item) => valueKeyOf(item) === input)
       if (matching.length === 0) complete = false
-      for (const item of matching) valueRoots(value, item.spec.type, isAssetWidgetInput(item.spec) && item.spec.widget?.selection)
+      for (const item of matching) valueRoots(value, item.spec.type, isAssetWidgetInput(item.spec))
     }
   }
   const visit = (snapshot: WorkflowDocument, changes?: readonly PatchOp[]): void => {

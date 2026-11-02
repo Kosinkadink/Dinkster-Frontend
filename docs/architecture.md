@@ -86,6 +86,9 @@ on mask-paint nodes: a string node ID and the fixed mask output ID contain no
 asset identity. Extra marker fields, other metadata and unknown schemas remain
 incomplete. Known canonical references in opaque stored values are retained, but
 the owner explicitly declares `complete: false`, even for an empty known set.
+Unresolved filename strings in asset widgets also keep ownership incomplete,
+so resolving an imported filename can preserve its undo state without inventing
+a digest. Unmarked asset filename strings and malformed AssetRef objects still refuse.
 This conservative document owner blocks collection; it does not certify byte
 availability or global retention completeness. Malformed identities, invalid
 dynamic identities and stale history replay still refuse publication.
