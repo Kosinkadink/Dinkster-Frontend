@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createSignal } from '@dinkster/core'
 import {
   currentGraphId,
@@ -11,8 +11,10 @@ import {
   viewInstancePath,
   type Tab,
 } from '../src/app-state.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 beforeAll(() => { Object.defineProperty(globalThis, 'location', { value: new URL('http://localhost/'), configurable: true }) })
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 const makeTab = (): Tab =>
   ({
@@ -79,7 +81,7 @@ describe('graph navigation helpers', () => {
   })
 
   it('creates an empty subgraph, drills into it, and one undo removes it and repairs navigation', async () => {
-    const app = new AppState()
+    const app = createWorkflowApp()
     const tab = app.createWorkflow()
     const root = tab.store.doc.root
     const outcome = await app.createEmptySubgraph(tab, root, { x: 12, y: 34 })
@@ -96,7 +98,7 @@ describe('graph navigation helpers', () => {
   })
 
   it.each([false, true])('waits for empty-subgraph acceptance %s before drilling in', async (accepted) => {
-    const app = new AppState()
+    const app = createWorkflowApp()
     const tab = app.createWorkflow()
     const root = tab.store.doc.root
     const dispatch = app.dispatchTo.bind(app)
@@ -116,15 +118,19 @@ describe('graph navigation helpers', () => {
   })
 
   it.each(['navigation', 'tab', 'closed', 'reopened'] as const)('does not steal navigation after %s changes during creation', async (change) => {
-    const app = new AppState()
+    const app = createWorkflowApp()
     const tab = app.createWorkflow()
     const root = tab.store.doc.root
     const dispatch = app.dispatchTo.bind(app)
     let settle!: () => void
     vi.spyOn(app, 'dispatchTo').mockImplementation((owner, invocation) => new Promise((resolve) => {
-      settle = () => resolve(dispatch(owner, invocation))
+      const outcome = Promise.resolve(dispatch(owner, invocation))
+      settle = () => { void outcome.then(resolve) }
     }) as never)
     const pending = app.createEmptySubgraph(tab, root, { x: 12, y: 34 })
+    await vi.waitFor(() => expect(tab.store.doc.graphs.g0).toBeDefined())
+    expect(tab.graphStack.get()).toEqual([root])
+    expect(tab.instancePath.get()).toEqual([])
     if (change === 'navigation') truncateGraphStack(tab, 1)
     else if (change === 'tab') {
       app.activeTabId.set('another-tab')

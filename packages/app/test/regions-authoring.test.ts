@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   checkDocument,
   deriveBoundarySchema,
@@ -6,13 +6,15 @@ import {
   type NodeSchema,
   type RegionContract,
 } from '@dinkster/core'
-import { AppState, pushGraph } from '../src/app-state.js'
+import { pushGraph, type AppState } from '../src/app-state.js'
 import { commitRegionCreation } from '../src/CanvasHost.js'
 import { registerCoreSearchProviders, runSearchAction } from '../src/universal-search.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 beforeAll(() => {
   Object.defineProperty(globalThis, 'location', { value: new URL('http://localhost/'), configurable: true })
 })
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 const regionProblems = (app: AppState) =>
   checkDocument(app.activeTab()!.store.doc).filter((problem) =>
@@ -37,9 +39,20 @@ const sameIdPrimitive = (type: string, name: 'FLOAT' | 'BOOLEAN'): NodeSchema =>
   ],
 })
 
+const regionSchemas: readonly NodeSchema[] = [
+  sameIdPrimitive('dinkster.float', 'FLOAT'),
+  sameIdPrimitive('dinkster.boolean', 'BOOLEAN'),
+  { type: 'std.math.add_ints', displayName: 'Add Ints', category: 'test', source: 'v3', isOutputNode: false,
+    items: [
+      { kind: 'input', id: 'a', type: { kind: 'concrete', name: 'INT' }, optional: false },
+      { kind: 'input', id: 'b', type: { kind: 'concrete', name: 'INT' }, optional: false },
+      { kind: 'output', id: 'sum', type: { kind: 'concrete', name: 'INT' } },
+    ] },
+]
+
 describe('region creation actions', () => {
   it.each([false, true])('waits for region acceptance %s before selecting its occurrence', async (accepted) => {
-    const app = new AppState()
+    const app = createWorkflowApp(regionSchemas)
     const tab = app.createWorkflow()
     const root = tab.store.doc.root
     const dispatch = app.dispatchTo.bind(app)
@@ -63,7 +76,7 @@ describe('region creation actions', () => {
     ['fold', 'region.createFold'],
     ['while', 'region.createWhile'],
   ] as const)('creates one valid %s region batch and drills through the ordinary occurrence path', async (kind, commandId) => {
-    const app = new AppState()
+    const app = createWorkflowApp(regionSchemas)
     const tab = app.createWorkflow()
     const root = tab.store.doc.root
 
@@ -91,7 +104,7 @@ describe('region creation actions', () => {
   })
 
   it('uses the real catalog primitive shapes for the map, fold, and while templates', async () => {
-    const app = new AppState()
+    const app = createWorkflowApp(regionSchemas)
     const expected = {
       map: ['dinkster.float'],
       fold: ['std.math.add_ints'],
@@ -114,7 +127,7 @@ describe('region creation actions', () => {
   })
 
   it.each(['map', 'while'] as const)('derives and lowers a real %s region with same-id primitive ports', async (kind) => {
-    const app = new AppState()
+    const app = createWorkflowApp()
     const schemas = new Map([
       ['dinkster.float', sameIdPrimitive('dinkster.float', 'FLOAT')],
       ['dinkster.boolean', sameIdPrimitive('dinkster.boolean', 'BOOLEAN')],
@@ -149,7 +162,7 @@ describe('region creation actions', () => {
   })
 
   it('disables every region action for a frozen tab', async () => {
-    const app = new AppState()
+    const app = createWorkflowApp()
     const tab = app.createWorkflow()
     ;(tab as { execution?: unknown }).execution = { connection: 'test', prompt: 'frozen' }
     for (const id of ['region.createMap', 'region.createFold', 'region.createWhile']) {
@@ -159,7 +172,7 @@ describe('region creation actions', () => {
   })
 
   it('exposes and invokes all three actions through universal search', () => {
-    const app = new AppState()
+    const app = createWorkflowApp()
     const dispose = registerCoreSearchProviders(app)
     const createRegion = vi.fn(() => true)
     app.canvasBridge.set({ createRegion } as never)
