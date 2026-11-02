@@ -1,7 +1,10 @@
 import { expect, nativeAppViewTest as test, type Page } from './fixtures.js'
 import type { Route } from '@playwright/test'
 
+const visualRetentions = new Map<string, unknown>()
+
 test.beforeEach(async ({ page }) => {
+  visualRetentions.clear()
   await page.clock.setFixedTime(new Date('2026-01-01T00:00:00Z'))
   await page.route('/api/**', emptyVisualBackend)
   await page.route('/memory/**', (route) =>
@@ -186,6 +189,16 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
     await route.fulfill({ json: { records: [] } })
   } else if (path.endsWith('/api/workflows/plan')) {
     await route.fulfill({ json: { packs: [], assets: [], errors: [] } })
+  } else if (path.includes('/api/library/retentions/document/')) {
+    if (route.request().method() === 'GET') {
+      const retained = visualRetentions.get(path)
+      return retained === undefined ? route.fulfill({ status: 404 }) : route.fulfill({ json: retained })
+    }
+    const declaration = route.request().postDataJSON()
+    const retained = { ...declaration, scope: 'local', ownerKind: 'document',
+      ownerId: decodeURIComponent(path.split('/').at(-1)!), revision: declaration.revision + 1 }
+    visualRetentions.set(path, retained)
+    await route.fulfill({ json: retained })
   } else {
     await route.fulfill({ status: 502, body: 'visual fixture unavailable' })
   }

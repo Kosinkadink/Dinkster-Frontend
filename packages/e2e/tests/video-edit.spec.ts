@@ -40,6 +40,12 @@ const imported = { vendor: { future: [1, 'keep'] }, trim: { start_time: 1.25, du
 
 test.beforeEach(async ({ page }) => {
   await page.route('/api/**', (route) => route.fulfill({ status: 404, json: { error: 'Isolated fixture' } }))
+  await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+    const declaration = route.request().postDataJSON()
+    return route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
+      ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: declaration.revision + 1 } })
+  })
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: catalog }))

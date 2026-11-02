@@ -16,6 +16,12 @@ async function openDescriptors(page: Page): Promise<void> {
 async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void> {
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('/api/**', (route) => route.fulfill({ status: 502, body: 'isolated mock' }))
+  await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+    const declaration = route.request().postDataJSON()
+    return route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
+      ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: declaration.revision + 1 } })
+  })
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated mock' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'descriptor-fixture', schemaWire: 1 }, nodes: {},
