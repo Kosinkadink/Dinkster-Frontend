@@ -129,9 +129,12 @@ session snapshot and any adopted local history on the session's source backend
 before publishing its tab. Failed or stale acknowledgments keep the existing
 tab and close only the unadopted transport. Reload failures preserve pending
 membership for retry; metadata-only editor switches survive adoption. The
-source target is installed before tab publication. Subsequent foreign updates,
-the synchronous `openDocument` API, constructor restore and SharedWorker
-session ingress are separate publication paths; this staging does not certify
+source target is installed before tab publication. SharedWorker canonical
+session promotion retains its snapshot and adopted history on the local tab's
+original backend before swapping stores. A refused or stale acknowledgment
+keeps the local store; metadata-only changes survive the swap. Subsequent foreign
+updates, the synchronous `openDocument` API, constructor restore and incoming
+workspace tab records are separate publication paths; this staging does not certify
 their ownership or activate common dispatch admission. The legacy bridge keeps
 its existing non-retained opening behavior.
 Unsupported schemas, opaque dynamic state and unrecognized extension

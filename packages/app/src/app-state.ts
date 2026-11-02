@@ -3762,6 +3762,7 @@ export class AppState {
   private async promoteWorkspaceTab(tab: Tab, generation: number): Promise<void> {
     const sourceDocument = tab.store.doc
     const sourceRevision = tab.store.revision
+    const backend = this.backendForTab(tab)
     const registry = (): SchemaRegistry | undefined => {
       const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
       return live ? this.registryForTab(live) : undefined
@@ -3811,7 +3812,34 @@ export class AppState {
       // established the workspace first) invalidates the records, so they
       // stay behind.
       if (sameDocument) session.adoptHistory(tab.store.historySnapshot())
-      const replacement: Tab = { ...live, store: session }
+      let current = live
+      if (backend.protocol === 'dinkster') {
+        const registry = backend.registry.get()
+        const document = session.doc
+        const revision = session.revision
+        const localDocument = tab.store.doc
+        const localRevision = tab.store.revision
+        let connectionChanged = false
+        const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
+        try {
+          const roots = workflowAssetRoots(document, session.historySnapshot(),
+            this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
+          await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+          const latest = this.tabs.get().find((candidate) => candidate.id === tab.id)
+          if (this.disposed || generation !== this.workspaceAuthorityGeneration || !this.workspaceAuthorityEnabled ||
+            connectionChanged || !this.backends.get().includes(backend) || backend.registry.get() !== registry ||
+            latest?.store !== tab.store || this.backendForTab(latest) !== backend || this.collabTabs.get().has(tab.id) ||
+            tab.store.doc !== localDocument || tab.store.revision !== localRevision ||
+            session.doc !== document || session.revision !== revision ||
+            session.status.get() === 'closed' || session.status.get() === 'error') {
+            throw new Error('The workflow changed while workspace ownership was being confirmed; the local workflow was kept')
+          }
+          current = latest
+        } finally {
+          unsubscribe()
+        }
+      }
+      const replacement: Tab = { ...current, store: session }
       // The swap strands in-flight advancement plans keyed to the old store
       // identity (combo refresh responses, queued run completions); record
       // the continuation so they follow the live session instead of dying,
@@ -3822,7 +3850,7 @@ export class AppState {
       this.reconcileDocumentPersistenceRevision(tab.id, tab.store.doc, session.doc)
       reconcileGraphNavigation(replacement)
       this.workspaceSessions.set(tab.id, { tab: replacement, session })
-      this.tabs.set(this.tabs.get().map((candidate) => candidate === live ? replacement : candidate))
+      this.tabs.set(this.tabs.get().map((candidate) => candidate === current ? replacement : candidate))
     } catch (error) {
       session?.close()
       this.reportProblems(tab.id, [diag(

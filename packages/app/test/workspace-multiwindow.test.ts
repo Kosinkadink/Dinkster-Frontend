@@ -12,7 +12,7 @@ import {
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { buildDinksterRegistry } from '@dinkster/client'
+import { DinksterConnection, buildDinksterRegistry } from '@dinkster/client'
 import { AppState, orderWorkspaceOperations } from '../src/app-state.js'
 import { SharedWorkerDocumentAuthority, type WorkerPortLike } from '../src/shared-worker-authority.js'
 import {
@@ -72,7 +72,11 @@ const createEditableApp = (): AppState => {
   return app
 }
 
-beforeEach(() => vi.stubGlobal('localStorage', memoryStorage()))
+beforeEach(() => {
+  vi.stubGlobal('localStorage', memoryStorage())
+  vi.spyOn(DinksterConnection.prototype, 'retainAssets').mockImplementation(async (owner, declaration) =>
+    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+})
 afterEach(() => {
   for (const app of editableApps.splice(0)) app.dispose()
   vi.restoreAllMocks()
@@ -151,6 +155,69 @@ class EventChannel {
 }
 
 describe('AppState multi-window workspace', () => {
+  it.each(['accepted', 'refused', 'edited', 'closed', 'retargeted', 'removed', 'disposed', 'registry', 'disconnected', 'metadata', 'remote'] as const)(
+    'retains a canonical workspace snapshot before replacing the local store: %s', async (scenario) => {
+      const factory = authorityFactories()
+      const app = createEditableApp()
+      app.openDocument(workflow(), 'Shared workflow')
+      const tab = app.tabs.get().find((candidate) => candidate.id === 'multi-window-workflow')!
+      const backend = app.addBackend('http://workspace.test', 'Workspace source', false, 'dinkster')!
+      app.setTabTarget(tab.id, backend.id)
+      const digest = `blake3:${'a'.repeat(64)}`
+      const previousDigest = `blake3:${'b'.repeat(64)}`
+      expect(tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1',
+        inputId: 'held', value: { digest: previousDigest, name: 'previous.bin', size: 9, mediaType: 'application/octet-stream', virtualPath: '' } } }).ok).toBe(true)
+      expect(tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1',
+        inputId: 'held', value: { digest, name: 'held.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } } }).ok).toBe(true)
+      let acknowledge!: () => void
+      let requested!: () => void
+      const request = new Promise<void>((resolve) => { requested = resolve })
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+        if (!declaration.digests.includes(digest)) return { ...owner, ...declaration, revision: declaration.revision + 1 }
+        expect(declaration).toEqual({ revision: 0, complete: false, digests: [digest, previousDigest] })
+        expect(localStorage.getItem(`dinkster.workflow-retentions.${owner.ownerId}`)).not.toBeNull()
+        requested()
+        return new Promise((resolve) => { acknowledge = () => resolve({ ...owner, ...declaration,
+          revision: scenario === 'refused' ? declaration.revision + 2 : declaration.revision + 1 }) })
+      })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      const promotion = app.enableWorkspaceAuthority(factory.document, factory.workspace)
+      await request
+      expect(app.tabs.get().find((candidate) => candidate.id === tab.id)?.store).toBe(tab.store)
+      if (scenario === 'edited') tab.store.dispatch({ command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: 'New local title' } })
+      if (scenario === 'closed') app.closeTab(tab.id)
+      if (scenario === 'retargeted') app.setTabTarget(tab.id, app.addBackend('http://other.test', 'Other', false, 'dinkster')!.id)
+      if (scenario === 'removed') app.removeBackend(backend.id)
+      if (scenario === 'disposed') app.dispose()
+      if (scenario === 'registry') backend.registry.set({ connection: backend.id, schemas: new Map(), diagnostics: [], hash: 'changed', resolve: () => undefined })
+      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+      if (scenario === 'metadata') {
+        app.settings.set('features.appView.enabled', true)
+        app.setTabEditorKind(tab.id, 'app')
+      }
+      if (scenario === 'remote') {
+        const other = await connectSharedWorkerSession(tab.id, tab.store.doc, coreCommandRegistry(),
+          { actorId: 'remote-editor' }, factory.document)
+        expect(other.dispatch({ command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: 'Remote title' } }).ok).toBe(true)
+        await other.settle()
+        other.close()
+      }
+      acknowledge()
+      await promotion
+      const current = app.tabs.get().find((candidate) => candidate.id === tab.id)
+      if (scenario === 'accepted' || scenario === 'metadata') {
+        expect(current?.store).not.toBe(tab.store)
+        expect(current?.store.doc).toEqual(tab.store.doc)
+        expect(current?.store.canUndo).toBe(true)
+        expect(app.backendForTab(current!)).toBe(backend)
+        if (scenario === 'metadata') expect(current?.editorKind).toBe('app')
+        expect(current?.store.undo()).toBe(true)
+        await (current!.store as unknown as { settle(): Promise<void> }).settle()
+        expect(current?.store.doc.graphs.g0!.nodes.n1!.values.held).toMatchObject({ digest: previousDigest })
+      } else if (scenario !== 'closed') expect(current?.store).toBe(tab.store)
+    },
+  )
+
   it('opens incoming App tabs as Graph while preserving exposure in a default-off window', async () => {
     const factory = authorityFactories()
     const author = new AppState()
