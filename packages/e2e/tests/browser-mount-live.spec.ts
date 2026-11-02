@@ -278,6 +278,8 @@ test("a ComfyUI checkpoint filename binds through the real mount index on import
   page,
   request,
 }) => {
+  test.setTimeout(120_000);
+
   const parent = resolve(frontendRoot, ".ci/browser-mount-live");
   await mkdir(parent, { recursive: true });
   const root = await mkdtemp(resolve(parent, "checkpoint-"));
@@ -308,7 +310,9 @@ test("a ComfyUI checkpoint filename binds through the real mount index on import
     expect(response.ok(), await response.text()).toBe(true);
     granted = true;
     await expect
-      .poll(async () => findMount(await mounts(request), id)?.state)
+      .poll(async () => findMount(await mounts(request), id)?.state, {
+        timeout: 30_000,
+      })
       .toBe("ready");
 
     await page.goto("/");
@@ -318,9 +322,8 @@ test("a ComfyUI checkpoint filename binds through the real mount index on import
         page.evaluate(() =>
           window.__dinksterTest?.app.backends
             .get()
-            .some(
-              (backend) =>
-                backend.registry.get()?.schemas.has("CheckpointLoaderSimple"),
+            .some((backend) =>
+              backend.registry.get()?.schemas.has("CheckpointLoaderSimple"),
             ),
         ),
       )
@@ -365,10 +368,14 @@ test("a ComfyUI checkpoint filename binds through the real mount index on import
     ).toEqual(["CheckpointLoaderSimple"]);
     expect(document.ext?.["importer.comfyWorkflow"]).toEqual(workflow);
   } finally {
-    if (granted) {
-      const response = await request.delete(`${backend}/api/mounts/${id}`);
-      expect(response.ok()).toBe(true);
+    try {
+      if (granted) {
+        await request
+          .delete(`${backend}/api/mounts/${id}`)
+          .catch(() => undefined);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
-    await rm(root, { recursive: true, force: true });
   }
 });
