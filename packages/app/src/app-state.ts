@@ -1928,11 +1928,6 @@ function loadPersistedTabStates(): {
   return { states, candidates, documentCandidates }
 }
 
-function loadPersistedTabs(): PersistedTabs | undefined {
-  const loaded = loadPersistedTabStates()
-  return mergePersistedTabs(loaded.states, loaded.documentCandidates)
-}
-
 function persistWorkspaceOperation(mutation: WorkspaceTabMutation): void {
   try {
     globalThis.localStorage?.setItem(`${workspaceOperationPrefix()}${mutation.opId}`, JSON.stringify(mutation))
@@ -2868,6 +2863,7 @@ export class AppState {
   private readonly workspaceSessions = new Map<string, { readonly tab: Tab; readonly session: SharedDocumentSession }>()
   private readonly workspacePromotions = new Map<string, { tab: Tab; promise: Promise<void> }>()
   private readonly workspaceReplacements = new WeakSet<Tab>()
+  private readonly startupRecoveryDocuments: readonly WorkflowDocument[]
   private workspaceAuthorityEnabled = false
   private workspaceAuthorityDesired = false
   private workspacePortFactory: SharedWorkerPortFactory | undefined
@@ -3274,7 +3270,16 @@ export class AppState {
     // corrupt, or fully unloadable native session opens a schema-independent
     // blank workflow: the native catalog may intentionally contain no Comfy
     // compatibility nodes. The legacy bridge retains its portable fixtures.
-    const persisted = loadPersistedTabs()
+    const recovery = loadPersistedTabStates()
+    const persisted = mergePersistedTabs(recovery.states, recovery.documentCandidates)
+    // Compaction may retire losing recovery sources before bootstrap can await ownership.
+    this.startupRecoveryDocuments = [...new Map([
+      ...recovery.states.flatMap((state) => state.tabs),
+      ...recovery.documentCandidates.map((candidate) => candidate.tab),
+    ].flatMap((entry) => {
+      const document = loadDocument(entry.doc).document
+      return document === undefined ? [] : [[JSON.stringify(document), document] as const]
+    })).values()]
     this.workspacePersistedRevision = persisted?.workspaceRevision ?? 0
     this.workspaceCausalRevision = this.workspacePersistedRevision
     this.workspaceOperationWatermarks = persisted?.workspaceOperationWatermarks ?? {}
@@ -3435,28 +3440,37 @@ export class AppState {
   /** Confirm restored local ownership before bootstrap exposes tabs or a shared inventory. */
   async confirmStartupOwnership(): Promise<void> {
     const tabs = this.tabs.get()
-    const candidates = tabs.map((tab) => {
-      const backend = this.backendForTab(tab)
+    const local = this.backends.get().find((backend) => backend.connection === this.connection)!
+    const currentLocalDocuments = new Set(tabs.filter((tab) => this.backendForTab(tab) === local)
+      .map((tab) => JSON.stringify(tab.store.doc)))
+    const sources = [
+      ...tabs.map((tab) => ({ tab, backend: this.backendForTab(tab),
+        document: tab.store.doc, revision: tab.store.revision, history: tab.store.historySnapshot() })),
+      ...this.startupRecoveryDocuments.filter((document) => !currentLocalDocuments.has(JSON.stringify(document)))
+        .map((document) => ({ tab: undefined, backend: local, document, revision: 0,
+          history: { revision: 0, undo: [], redo: [] } })),
+    ]
+    const candidates = sources.map((source) => {
+      const { backend } = source
       const registry = backend.registry.get()
-      const document = tab.store.doc
-      const revision = tab.store.revision
       let connectionChanged = false
       const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
-      return { tab, backend, registry, document, revision, unsubscribe, connectionChanged: () => connectionChanged }
+      return { ...source, registry, unsubscribe, connectionChanged: () => connectionChanged }
     })
     try {
       if (this.disposed) throw new Error('The application closed before startup ownership could be confirmed')
       await Promise.all(candidates.filter(({ backend }) => backend.protocol === 'dinkster')
-        .map(async ({ tab, backend, registry, document, revision }) => {
-          const roots = workflowAssetRoots(document, tab.store.historySnapshot(),
+        .map(async ({ backend, registry, document, revision, history }) => {
+          const roots = workflowAssetRoots(document, history,
             this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
           await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
         }))
       const latest = this.tabs.get()
       if (this.disposed || latest.length !== tabs.length || candidates.some((candidate, index) =>
-        latest[index] !== candidate.tab || candidate.tab.store.doc !== candidate.document ||
-        candidate.tab.store.revision !== candidate.revision || candidate.connectionChanged() ||
-        !this.backends.get().includes(candidate.backend) || this.backendForTab(candidate.tab) !== candidate.backend ||
+        (candidate.tab !== undefined && (latest[index] !== candidate.tab ||
+          candidate.tab.store.doc !== candidate.document || candidate.tab.store.revision !== candidate.revision ||
+          this.backendForTab(candidate.tab) !== candidate.backend)) || candidate.connectionChanged() ||
+        !this.backends.get().includes(candidate.backend) ||
         candidate.backend.registry.get() !== candidate.registry)) {
         throw new Error('The restored workspace changed while startup ownership was being confirmed')
       }

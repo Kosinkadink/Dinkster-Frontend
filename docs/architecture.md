@@ -137,11 +137,19 @@ inventories retain newly received native tab snapshots before publishing tabs or
 displacing local views. Refusal or a changed local inventory, document, backend,
 registry, connection or workspace authority keeps local tabs. Newer shared
 inventories supersede outstanding acknowledgments. Existing-tab metadata updates
-do not wait for another ownership request. Subsequent foreign document updates,
-the synchronous `openDocument` API and constructor restore are separate publication
-paths; this staging does not certify their ownership or activate common dispatch
-admission. The legacy bridge keeps
-its existing non-retained opening behavior.
+do not wait for another ownership request. Subsequent ordered shared documents and
+resync snapshots await ownership before confirmed-ground publication; this does not
+certify every optimistic rebase result. Bootstrap also confirms restored tabs and
+all valid canonical, workspace-candidate and document-recovery snapshots captured
+by the constructor, including losing versions and closed-lineage recovery slots.
+Those sources stay captured even if local compaction retires them before the
+acknowledgment. Recovery documents use the same-origin backend, matching restored
+tabs' default target; session-only targets do not persist. Refused or stale startup
+acknowledgments prevent bootstrap without discarding saved documents. Restoration
+and crash-safe local writes remain synchronous; newly created durable holders and
+the synchronous `openDocument` API are not certified by this startup check. Common
+dispatch admission and collection remain disabled. The legacy bridge keeps its
+existing non-retained opening behavior.
 Unsupported schemas, opaque dynamic state and unrecognized extension
 records are incomplete, not empty root sets. Ordinary synchronous dispatch is unchanged.
 Schema defaults contribute roots only when the node has no stored override.

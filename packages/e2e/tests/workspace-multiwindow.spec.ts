@@ -1,5 +1,6 @@
 import type { Dialog, Page } from '@playwright/test'
 import { expect, test } from './fixtures.js'
+import seedBasic from '../../core/fixtures/workflows/seed-basic.json' with { type: 'json' }
 
 test.beforeEach(async ({ context }) => {
   await context.route('**/api/library/retentions/document/*?scope=local', async (route) => {
@@ -66,14 +67,25 @@ for (const accepted of [true, false]) {
 }
 
 for (const accepted of [true, false]) {
-  test(`restored startup waits for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }) => {
+  test(`restored startup waits for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }, info) => {
+    const digest = `blake3:${'e'.repeat(64)}`
+    await page.addInitScript(({ document, digest }) => {
+      const closed = { ...document, lineage: 'closed-recovery', ext: { held: {
+        digest, name: 'closed.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '',
+      } } }
+      localStorage.setItem('dinkster.openTabsDocumentCandidate.closed-recovery', JSON.stringify({
+        v: 1, stageId: 'closed', tab: { title: 'Closed recovery', doc: closed },
+      }))
+    }, { document: seedBasic, digest })
     let release!: () => void
     const acknowledgment = new Promise<void>((resolve) => { release = resolve })
     let requests = 0
+    let recoveryRequested = false
     let released = false
     await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
       if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
       const declaration = route.request().postDataJSON()
+      if (declaration.digests.includes(digest)) recoveryRequested = true
       if (!released) { requests += 1; await acknowledgment }
       if (!accepted) return route.fulfill({ status: 409, body: 'Ownership refused' })
       await route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
@@ -81,10 +93,12 @@ for (const accepted of [true, false]) {
     })
     await page.goto('/')
     await expect.poll(() => requests).toBeGreaterThan(0)
+    await expect.poll(() => recoveryRequested).toBe(true)
     expect(await page.evaluate(() => window.__dinksterTest)).toBeUndefined()
     await expect(page.getByRole('tab', { name: /^Basic,/ })).toHaveCount(0)
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('dinkster.openTabs')!))
     expect(saved.tabs.map((tab: { title: string }) => tab.title)).toEqual(['Basic', 'Subgraph'])
+    await page.screenshot({ path: info.outputPath('recovery-pending.png') })
     const failure = accepted ? undefined : page.waitForEvent('pageerror')
     released = true
     release()
@@ -98,6 +112,7 @@ for (const accepted of [true, false]) {
       expect(await page.evaluate(() => JSON.parse(localStorage.getItem('dinkster.openTabs')!).tabs))
         .toEqual(saved.tabs)
     }
+    await page.screenshot({ path: info.outputPath(`recovery-${accepted ? 'accepted' : 'refused'}.png`) })
   })
 }
 
