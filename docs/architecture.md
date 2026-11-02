@@ -91,6 +91,11 @@ exact owner reconciliation precedes publication; a changed destination or stale
 candidate is refused. Unsupported schemas, opaque dynamic state and unrecognized extension
 records are incomplete, not empty root sets. Ordinary synchronous dispatch is unchanged.
 Schema defaults contribute roots only when the node has no stored override.
+The parser's exact scalar `schema.ext.dinkster` execution metadata is asset-free;
+unknown keys or non-scalar fields still refuse certification. Non-widget input
+`ext.default` values are collected through their declared types when effective,
+including historical snapshots. That exception applies only to schema inputs,
+not arbitrary extension records or dormant branch defaults.
 Concrete nodes use occurrence-aware schemas, including a region's list-valued
 element inputs; definition-only boundary types do not describe those values.
 Standard NUMBER widgets are asset-free metadata; unknown widget kinds still

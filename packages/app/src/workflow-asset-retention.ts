@@ -17,6 +17,7 @@ import {
   type DocumentNodeResolver,
   type HistorySnapshot,
   type GraphDef,
+  type InputSpec,
   type Json,
   type NodeData,
   type NodeSchema,
@@ -59,6 +60,7 @@ export function workflowAssetRoots(
   const digests = new Set<string>()
   let complete = true
   const checkedExtensions = new WeakSet<object>()
+  const knownSchemaExtensions = new WeakSet<object>()
   const checkedNodes = new WeakMap<object, Set<NodeSchema | undefined>>()
   let hasContextualValues = false
   const supported = (type: TypeExpr): boolean => {
@@ -99,10 +101,21 @@ export function workflowAssetRoots(
       for (const entry of value) checkExtensions(entry)
     } else {
       for (const [key, entry] of Object.entries(value)) {
-        if (key === 'ext' && typeof entry === 'object' && entry !== null && Object.keys(entry).length > 0) {
+        if (key === 'ext' && typeof entry === 'object' && entry !== null && Object.keys(entry).length > 0 &&
+          !knownSchemaExtensions.has(value)) {
           complete = false
         } else checkExtensions(entry)
       }
+    }
+  }
+  const registerInputDefaults = (input: InputSpec): void => {
+    if (input.ext !== undefined && Object.keys(input.ext).every((key) => key === 'default')) knownSchemaExtensions.add(input)
+    const dynamic = input.dynamic
+    if (dynamic?.kind === 'autogrow') dynamic.template.forEach(registerInputDefaults)
+    else if (dynamic?.kind === 'dynamicCombo') dynamic.options.forEach((option) => option.inputs.forEach(registerInputDefaults))
+    else if (dynamic?.kind === 'dynamicSlot') {
+      dynamic.inputs.forEach(registerInputDefaults)
+      dynamic.variants?.forEach((variant) => variant.inputs.forEach(registerInputDefaults))
     }
   }
   const visitNode = (node: NodeData, schemas: DocumentNodeResolver, graph: GraphDef): void => {
@@ -125,6 +138,16 @@ export function workflowAssetRoots(
     checkedExtensions.add(node)
     for (const [key, value] of Object.entries(node)) if (key !== 'ext') checkExtensions(value as Json)
     if (schema === undefined) { complete = false; return }
+    const metadata = schema.ext?.['dinkster']
+    if (schema.ext !== undefined && Object.keys(schema.ext).length === 1 &&
+      typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata)) {
+      const fields = metadata as Record<string, unknown>
+      if (Object.keys(fields).every((key) => ['version', 'idempotent', 'occupies', 'ioBound'].includes(key)) &&
+        typeof fields['version'] === 'number' && Number.isFinite(fields['version']) && typeof fields['idempotent'] === 'boolean' &&
+        (fields['occupies'] === undefined || (Array.isArray(fields['occupies']) && fields['occupies'].every((entry) => typeof entry === 'string'))) &&
+        (fields['ioBound'] === undefined || fields['ioBound'] === true)) knownSchemaExtensions.add(schema)
+    }
+    for (const item of schema.items) if (item.kind === 'input') registerInputDefaults(item)
     checkExtensions(schema as unknown as Json)
     if (Object.values(node.dynamic ?? {}).some((state) => !assetFreeDynamicState(state))) complete = false
     for (const item of schema?.items ?? []) {
@@ -137,13 +160,14 @@ export function workflowAssetRoots(
     if (active.diagnostics.length > 0 || stored.diagnostics.length > 0) complete = false
     const inputs = elabInputsOf(stored)
     for (const { spec } of inputs) {
-      if (spec.ext !== undefined && Object.keys(spec.ext).length > 0) complete = false
+      if (spec.ext !== undefined && Object.keys(spec.ext).some((key) => key !== 'default')) complete = false
       if (spec.widget !== undefined && !widgetTypes.has(spec.widget.widgetType)) complete = false
     }
     for (const input of elabInputsOf(active)) {
       if (input.ancestry?.some((ancestor) => ancestor.ghost)) continue
-      if (!Object.hasOwn(node.values, valueKeyOf(input)) && input.spec.widget?.default !== undefined) {
-        valueRoots(input.spec.widget.default as Json, input.spec.type)
+      const fallback = input.spec.widget?.default !== undefined ? input.spec.widget.default : input.spec.ext?.['default']
+      if (!Object.hasOwn(node.values, valueKeyOf(input)) && fallback !== undefined) {
+        valueRoots(fallback as Json, input.spec.type)
       }
     }
     for (const [input, value] of Object.entries(node.values)) {

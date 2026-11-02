@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  MASK_PAINT_SOURCE_EXT_KEY, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asValueSourceId, coreCommandRegistry, createLocalSession,
+  DINKSTER_SCHEMA_WIRE_VERSION, MASK_PAINT_SOURCE_EXT_KEY, asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asValueSourceId, coreCommandRegistry, createLocalSession,
   type GraphDef, type NodeSchema, type WorkflowDocument,
 } from '@dinkster/core'
+import { buildDinksterRegistry } from '@dinkster/client'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { admitWorkflowDispatch, workflowAssetRoots } from '../src/workflow-asset-retention.js'
@@ -106,6 +107,57 @@ describe('retained app dispatch', () => {
 
 describe('workflow candidate admission', () => {
   const assetType = { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } as const
+  it('accepts parsed scalar schema metadata without treating it as asset storage', () => {
+    const local = session()
+    const registry = buildDinksterRegistry(asConnectionId('retention'), { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: {
+      Loader: { version: 3, idempotent: false, occupies: ['cpu'], ioBound: true, interface: [
+        { role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 7 },
+      ] },
+    } })
+    expect(registry.resolve('Loader')).toBeDefined()
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Loader', values: { value: 11 } },
+    } } } }
+    expect(workflowAssetRoots(document, local.historySnapshot(), registry.resolve))
+      .toEqual({ complete: true, digests: [] })
+    expect(workflowAssetRoots({ ...document, ext: { dinkster: { version: 3, idempotent: false, occupies: ['cpu'], ioBound: true } } },
+      local.historySnapshot(), registry.resolve).complete)
+      .toBe(false)
+  })
+
+  it('retains effective parsed non-widget defaults and historical overrides', () => {
+    const local = session()
+    const registry = buildDinksterRegistry(asConnectionId('retention'), { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: {
+      Loader: { interface: [{ role: 'input', id: 'file', type: { kind: 'concrete', types: ['ASSET'] },
+        forceInput: true, default: asset('b') }] },
+    } })
+    expect(registry.resolve('Loader')?.items[0]).toMatchObject({ ext: { default: asset('b') } })
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Loader', values: {} },
+    } } } }
+    expect(workflowAssetRoots(document, local.historySnapshot(), registry.resolve))
+      .toEqual({ complete: true, digests: [asset('b').digest] })
+    const overridden: WorkflowDocument = { ...document, graphs: { g0: { ...document.graphs.g0!, nodes: {
+      n0: { ...document.graphs.g0!.nodes.n0!, values: { file: asset('c') } },
+    } } } }
+    expect(workflowAssetRoots(overridden, local.historySnapshot(), registry.resolve))
+      .toEqual({ complete: true, digests: [asset('c').digest] })
+    expect(workflowAssetRoots(overridden, { revision: 1, redo: [], undo: [{ forward: [], inverse: [
+      { op: 'remove', path: ['graphs', 'g0', 'nodes', 'n0', 'values', 'file'], oldValue: asset('c') },
+    ] }] }, registry.resolve)).toEqual({ complete: true, digests: [asset('b').digest, asset('c').digest] })
+  })
+
+  it.each([
+    { future: asset('d') },
+    { dinkster: { version: 1, idempotent: true, future: asset('d') } },
+    { dinkster: { version: asset('d'), idempotent: true } },
+    { dinkster: { version: 1, idempotent: true, occupies: [asset('d')] } },
+    { dinkster: { version: 1, idempotent: true, ioBound: asset('d') } },
+  ])('refuses unknown or non-scalar schema metadata: %j', (ext) => {
+    const local = session()
+    expect(workflowAssetRoots(local.doc, local.historySnapshot(), () => ({ ...schema, ext })).complete).toBe(false)
+  })
+
   it('retains region element lists using the occurrence contract', () => {
     const local = session()
     const body: NodeSchema = { ...schema, items: [
@@ -154,6 +206,25 @@ describe('workflow candidate admission', () => {
       dynamic: { kind: 'autogrow', template: [assetInput('file', 'd')],
         naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 } } },
   ] }
+
+  it('uses non-widget defaults only in active branches while retaining stored dormant values', () => {
+    const local = session()
+    const candidate: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'mode', optional: true,
+      type: { kind: 'concrete', name: 'STRING' }, dynamic: { kind: 'dynamicCombo', options: ['a', 'b'].map((key) => ({
+        key, inputs: [{ kind: 'input', id: 'file', type: assetType, optional: true, ext: { default: asset(key) } }],
+      })) },
+    }] }
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Loader', values: { 'mode.[b].file': asset('c') } },
+    } } } }
+    expect(workflowAssetRoots(document, local.historySnapshot(), () => candidate))
+      .toEqual({ complete: true, digests: [asset('a').digest, asset('c').digest] })
+    const opaque: NodeSchema = { ...candidate, ext: { default: asset('e') } }
+    expect(workflowAssetRoots(document, local.historySnapshot(), () => opaque).complete).toBe(false)
+    const unknownInput: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'files', optional: true,
+      type: { kind: 'list', element: assetType }, ext: { default: [asset('a')], future: asset('d') } }] }
+    expect(workflowAssetRoots(local.doc, local.historySnapshot(), () => unknownInput).complete).toBe(false)
+  })
 
   it('retains inactive branch, disconnected slot and family values but only effective defaults', () => {
     const local = session()
