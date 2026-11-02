@@ -857,6 +857,11 @@ and the product name. Startup constructs a native Dinkster connection directly;
 backend metadata loads after construction rather than blocking the shell on
 a protocol-choice probe. URL-based backend addition recognizes only a native
 engine or supervisor and reports a named problem for stock ComfyUI servers.
+Before publishing restored tabs to the shared workspace or rendering an
+editable shell, startup journals and confirms native document ownership,
+including incomplete asset inventories when schemas are not yet available.
+Refusal or changes during confirmation stop startup without deleting the
+saved documents. This does not certify later foreign document updates.
 
 Timing contract (`packages/app/src/boot-indicator.ts`):
 

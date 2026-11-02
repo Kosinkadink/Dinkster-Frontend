@@ -3431,6 +3431,39 @@ export class AppState {
     globalThis.window?.removeEventListener('pageshow', this.handlePageShow)
   }
 
+  /** Confirm restored local ownership before bootstrap exposes tabs or a shared inventory. */
+  async confirmStartupOwnership(): Promise<void> {
+    const tabs = this.tabs.get()
+    const candidates = tabs.map((tab) => {
+      const backend = this.backendForTab(tab)
+      const registry = backend.registry.get()
+      const document = tab.store.doc
+      const revision = tab.store.revision
+      let connectionChanged = false
+      const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
+      return { tab, backend, registry, document, revision, unsubscribe, connectionChanged: () => connectionChanged }
+    })
+    try {
+      if (this.disposed) throw new Error('The application closed before startup ownership could be confirmed')
+      await Promise.all(candidates.filter(({ backend }) => backend.protocol === 'dinkster')
+        .map(async ({ tab, backend, registry, document, revision }) => {
+          const roots = workflowAssetRoots(document, tab.store.historySnapshot(),
+            this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
+          await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+        }))
+      const latest = this.tabs.get()
+      if (this.disposed || latest.length !== tabs.length || candidates.some((candidate, index) =>
+        latest[index] !== candidate.tab || candidate.tab.store.doc !== candidate.document ||
+        candidate.tab.store.revision !== candidate.revision || candidate.connectionChanged() ||
+        !this.backends.get().includes(candidate.backend) || this.backendForTab(candidate.tab) !== candidate.backend ||
+        candidate.backend.registry.get() !== candidate.registry)) {
+        throw new Error('The restored workspace changed while startup ownership was being confirmed')
+      }
+    } finally {
+      for (const candidate of candidates) candidate.unsubscribe()
+    }
+  }
+
   /**
    * Move every local workflow onto the same-origin SharedWorker authority.
    * Rendering waits for this during bootstrap, so the first editable frame

@@ -20,6 +20,42 @@ const tabIds = (page: Page): Promise<string[]> => page.evaluate(() =>
   window.__dinksterTest!.app.tabs.get().map((tab) => tab.id))
 
 for (const accepted of [true, false]) {
+  test(`restored startup waits for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }) => {
+    let release!: () => void
+    const acknowledgment = new Promise<void>((resolve) => { release = resolve })
+    let requests = 0
+    let released = false
+    await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
+      if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+      const declaration = route.request().postDataJSON()
+      if (!released) { requests += 1; await acknowledgment }
+      if (!accepted) return route.fulfill({ status: 409, body: 'Ownership refused' })
+      await route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
+        ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: 1 } })
+    })
+    await page.goto('/')
+    await expect.poll(() => requests).toBeGreaterThan(0)
+    expect(await page.evaluate(() => window.__dinksterTest)).toBeUndefined()
+    await expect(page.getByRole('tab', { name: /^Basic,/ })).toHaveCount(0)
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('dinkster.openTabs')!))
+    expect(saved.tabs.map((tab: { title: string }) => tab.title)).toEqual(['Basic', 'Subgraph'])
+    const failure = accepted ? undefined : page.waitForEvent('pageerror')
+    released = true
+    release()
+    if (accepted) {
+      await page.waitForFunction(() => window.__dinksterTest !== undefined)
+      await expect(page.getByRole('tab', { name: /^Basic,/ })).toBeVisible()
+      expect(await tabIds(page)).toEqual(saved.tabs.map((tab: { doc: { lineage: string } }) => tab.doc.lineage))
+    } else {
+      expect((await failure!).message).toContain('409')
+      expect(await page.evaluate(() => window.__dinksterTest)).toBeUndefined()
+      expect(await page.evaluate(() => JSON.parse(localStorage.getItem('dinkster.openTabs')!).tabs))
+        .toEqual(saved.tabs)
+    }
+  })
+}
+
+for (const accepted of [true, false]) {
   test(`incoming workspace tabs wait for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page, context }, info) => {
     await page.goto('/')
     await page.waitForFunction(() => window.__dinksterTest !== undefined)

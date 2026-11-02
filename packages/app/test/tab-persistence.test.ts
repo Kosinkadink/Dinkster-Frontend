@@ -61,6 +61,52 @@ afterEach(() => {
 const flush = (): void => void vi.advanceTimersByTime(500)
 
 describe('open-tab persistence', () => {
+  it.each(['accepted', 'refused', 'edited', 'closed', 'retargeted', 'registry', 'disconnected', 'disposed'] as const)(
+    'confirms restored native ownership before startup continues: %s', async (scenario) => {
+      const digest = `blake3:${'c'.repeat(64)}`
+      const saved = { ...seedBasic, ext: { held: { digest, name: 'restored.bin', size: 7,
+        mediaType: 'application/octet-stream', virtualPath: '' } } }
+      localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: saved.lineage,
+        tabs: [{ title: 'Restored', doc: saved }] }))
+      const app = createEditableApp()
+      const tab = app.activeTab()!
+      let acknowledge!: () => void
+      let requested!: () => void
+      const request = new Promise<void>((resolve) => { requested = resolve })
+      vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+        expect(declaration).toEqual({ revision: 0, complete: false, digests: [digest] })
+        expect(localStorage.getItem(`dinkster.workflow-retentions.${owner.ownerId}`)).not.toBeNull()
+        requested()
+        return new Promise((resolve) => { acknowledge = () => resolve({ ...owner, ...declaration,
+          revision: scenario === 'refused' ? 2 : 1 }) })
+      })
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      let settled = false
+      const startup = app.confirmStartupOwnership().then(() => true, () => false)
+        .finally(() => { settled = true })
+      await request
+      expect(settled).toBe(false)
+      expect(app.activeTab()).toBe(tab)
+      expect(tab.store.doc).toEqual(saved)
+      if (scenario === 'edited') tab.store.dispatch({ command: 'node.setTitle', params: {
+        graphId: 'g0', nodeId: Object.keys(tab.store.doc.graphs.g0!.nodes)[0]!, title: 'Local change',
+      } })
+      if (scenario === 'closed') app.closeTab(tab.id)
+      if (scenario === 'retargeted') app.setTabTarget(tab.id, app.addBackend('http://other.test', 'Other', false, 'dinkster')!.id)
+      if (scenario === 'registry') app.registry.set({ connection: app.connection.id, schemas: new Map(),
+        diagnostics: [], hash: 'changed', resolve: () => undefined })
+      if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
+      if (scenario === 'disposed') app.dispose()
+      acknowledge()
+      expect(await startup).toBe(scenario === 'accepted')
+      if (scenario === 'accepted' || scenario === 'refused') {
+        expect(app.activeTab()).toBe(tab)
+        expect(tab.store.doc).toEqual(saved)
+        expect(JSON.parse(localStorage.getItem(TABS_KEY)!).tabs[0].doc).toEqual(saved)
+      }
+    },
+  )
+
   it('rechecks workspace revision inside the cross-window commit lock', async () => {
     const seed = new AppState()
     flush()
