@@ -100,6 +100,14 @@ without retention response cache headers. A changed destination or stale
 candidate is refused. Editor projection changes preserve admission when the live
 tab keeps the same document session, backend and registry. Closing the tab or
 replacing its session still refuses the candidate, even with the same tab ID.
+Native backend connect/reconnect also checks existing candidate journals in the
+current project against that connection with cache-bypassing GETs. Stored
+endpoints never route requests. Only the exact owner, revision 1, canonical
+root union and completeness declaration resolve an observation. Missing,
+malformed, changed or unavailable observations produce a backend-owned Problems
+warning. Disconnect, removal and disposal cancel stale observations. All journals
+remain unchanged; recovery never replays a command, retries PUT, releases an
+owner, or certifies other holders or global completeness.
 Unsupported schemas, opaque dynamic state and unrecognized extension
 records are incomplete, not empty root sets. Ordinary synchronous dispatch is unchanged.
 Schema defaults contribute roots only when the node has no stored override.

@@ -7,7 +7,8 @@ import { buildDinksterRegistry } from '@dinkster/client'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { GLSL_EDITOR_KIND } from '../src/editors.js'
-import { admitWorkflowDispatch, workflowAssetRoots } from '../src/workflow-asset-retention.js'
+import { admitWorkflowDispatch, reconcileWorkflowRetentions, workflowAssetRoots } from '../src/workflow-asset-retention.js'
+import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
 
 const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
   size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
@@ -34,6 +35,176 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done })
   return { promise, resolve }
 }
+
+describe('workflow retention recovery', () => {
+  afterEach(() => {
+    initializeProjectScope('default')
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  function recoveryFixture() {
+    const entries = new Map<string, string>()
+    const storage: Storage = {
+      get length() { return entries.size },
+      key: (index) => [...entries.keys()][index] ?? null,
+      getItem: (key) => entries.get(key) ?? null,
+      setItem: (key, value) => { entries.set(key, value) },
+      removeItem: (key) => { entries.delete(key) },
+      clear: () => entries.clear(),
+    }
+    const owner = { scope: 'local', ownerKind: 'document', ownerId: 'workflow-candidate:recovered' } as const
+    const intent = { version: 3, connectionId: 'native', assetBaseUrl: 'http://native/api/assets/', owner,
+      documentLineage: 'restored-document', documentRevision: 7, complete: false,
+      digests: [asset('a').digest, asset('c').digest] }
+    const acknowledgment: RetainedAssets = { ...owner, revision: 1, complete: false, digests: intent.digests }
+    const fetchRetainedAssets = vi.fn().mockResolvedValue(acknowledgment)
+    const connection = { id: 'native', assetUrl: () => intent.assetBaseUrl, fetchRetainedAssets,
+      retainAssets: vi.fn(), releaseRetainedAssets: vi.fn() } as unknown as DinksterConnection
+    const key = scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)
+    entries.set(key, JSON.stringify(intent))
+    return { entries, storage, intent, acknowledgment, connection, fetchRetainedAssets, key }
+  }
+
+  it.each(['match', 'missing', 'revision', 'complete', 'roots', 'owner', 'scope', 'kind', 'unavailable', 'changed'])(
+    'keeps the journal and reconciles only an exact observation: %s', async (scenario) => {
+      const f = recoveryFixture()
+      const original = f.entries.get(f.key)!
+      if (scenario === 'missing') f.fetchRetainedAssets.mockResolvedValue(undefined)
+      if (scenario === 'revision') f.fetchRetainedAssets.mockResolvedValue({ ...f.acknowledgment, revision: 2 })
+      if (scenario === 'complete') f.fetchRetainedAssets.mockResolvedValue({ ...f.acknowledgment, complete: true })
+      if (scenario === 'roots') f.fetchRetainedAssets.mockResolvedValue({ ...f.acknowledgment, digests: [asset('a').digest, asset('b').digest] })
+      if (scenario === 'owner') f.fetchRetainedAssets.mockResolvedValue({ ...f.acknowledgment, ownerId: 'workflow-candidate:other' })
+      if (scenario === 'scope') f.fetchRetainedAssets.mockResolvedValue({ ...f.acknowledgment, scope: 'shared' })
+      if (scenario === 'kind') f.fetchRetainedAssets.mockResolvedValue({ ...f.acknowledgment, ownerKind: 'read' })
+      if (scenario === 'unavailable') f.fetchRetainedAssets.mockRejectedValue(new Error('offline'))
+      if (scenario === 'changed') f.fetchRetainedAssets.mockImplementation(async () => {
+        f.entries.set(f.key, `${original} `)
+        return f.acknowledgment
+      })
+      expect(await reconcileWorkflowRetentions(f.connection, new AbortController().signal, f.storage)).toBe(scenario === 'match')
+      expect(f.entries.get(f.key)).toBe(scenario === 'changed' ? `${original} ` : original)
+      expect(f.connection.retainAssets).not.toHaveBeenCalled()
+      expect(f.connection.releaseRetainedAssets).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['json', 'version', 'owner', 'empty-owner', 'lineage', 'revision', 'digest', 'duplicate', 'unsorted', 'complete'])(
+    'does not query or discard a malformed journal: %s', async (scenario) => {
+      const f = recoveryFixture()
+      const intent: Record<string, unknown> = { ...f.intent }
+      if (scenario === 'version') intent.version = 2
+      if (scenario === 'owner') intent.owner = { ...f.intent.owner, ownerId: 'workflow-candidate:other' }
+      if (scenario === 'empty-owner') intent.owner = { ...f.intent.owner, ownerId: 'workflow-candidate:' }
+      if (scenario === 'lineage') intent.documentLineage = ''
+      if (scenario === 'revision') intent.documentRevision = -1
+      if (scenario === 'digest') intent.digests = ['blake3:invalid']
+      if (scenario === 'duplicate') intent.digests = [asset('a').digest, asset('a').digest]
+      if (scenario === 'unsorted') intent.digests = [asset('c').digest, asset('a').digest]
+      if (scenario === 'complete') intent.complete = 'false'
+      const bytes = scenario === 'json' ? '{' : JSON.stringify(intent)
+      f.entries.set(f.key, bytes)
+      expect(await reconcileWorkflowRetentions(f.connection, new AbortController().signal, f.storage)).toBe(false)
+      expect(f.fetchRetainedAssets).not.toHaveBeenCalled()
+      expect(f.entries.get(f.key)).toBe(bytes)
+    },
+  )
+
+  it.each(['connection', 'endpoint', 'project'])(
+    'leaves foreign journals untouched without routing requests: %s', async (scenario) => {
+      const f = recoveryFixture()
+      if (scenario === 'connection') f.entries.set(f.key, JSON.stringify({ ...f.intent, connectionId: 'other' }))
+      if (scenario === 'endpoint') f.entries.set(f.key, JSON.stringify({ ...f.intent, assetBaseUrl: 'http://foreign/api/assets/' }))
+      if (scenario === 'project') initializeProjectScope('p-other')
+      const before = [...f.entries]
+      expect(await reconcileWorkflowRetentions(f.connection, new AbortController().signal, f.storage)).toBe(true)
+      expect(f.fetchRetainedAssets).not.toHaveBeenCalled()
+      expect([...f.entries]).toEqual(before)
+    },
+  )
+
+  it('reports inaccessible storage and canceled observations as unresolved', async () => {
+    const f = recoveryFixture()
+    vi.stubGlobal('localStorage', undefined)
+    expect(await reconcileWorkflowRetentions(f.connection, new AbortController().signal)).toBe(false)
+    const controller = new AbortController()
+    const pending = deferred<RetainedAssets>()
+    f.fetchRetainedAssets.mockReturnValue(pending.promise)
+    const result = reconcileWorkflowRetentions(f.connection, controller.signal, f.storage)
+    controller.abort()
+    pending.resolve(f.acknowledgment)
+    expect(await result).toBe(false)
+    expect(f.entries.size).toBe(1)
+  })
+
+  it.each(['reconnect', 'disconnect', 'remove', 'dispose'] as const)(
+    'reconciles through the socket lifecycle and ignores late results after %s', async (scenario) => {
+      const f = recoveryFixture()
+      f.entries.clear()
+      vi.stubGlobal('localStorage', f.storage)
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      const sockets: FakeSocket[] = []
+      class FakeSocket {
+        binaryType = ''
+        onopen: ((event: unknown) => void) | null = null
+        onclose: ((event: unknown) => void) | null = null
+        onmessage = null
+        onerror = null
+        constructor() { sockets.push(this) }
+        send() {}
+        close() {}
+      }
+      vi.stubGlobal('WebSocket', FakeSocket)
+      const requests: Array<{ signal: AbortSignal; result: ReturnType<typeof deferred<Response>> }> = []
+      vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.includes('/api/library/retentions/')) {
+          expect(init?.method).toBe('GET')
+          expect(init?.cache).toBe('no-store')
+          const result = deferred<Response>()
+          requests.push({ signal: init!.signal!, result })
+          return result.promise
+        }
+        return new Response('{}', { status: 503 })
+      }))
+      const app = new AppState()
+      try {
+        const backend = app.addBackend('http://native:8000', 'Recovery native', false, 'dinkster')!
+        const intent = { ...f.intent, connectionId: backend.id, assetBaseUrl: backend.connection.assetUrl('') }
+        const bytes = JSON.stringify(intent)
+        f.entries.set(f.key, bytes)
+        const notices = () => app.problems.get().filter((problem) => problem.code === 'workflow.retention.unresolved')
+        backend.connection.connect()
+        sockets.at(-1)!.onopen?.({})
+        expect(requests).toHaveLength(1)
+        requests[0]!.result.resolve(new Response('{}', { status: 404 }))
+        await vi.waitFor(() => expect(notices()).toHaveLength(1))
+        backend.connection.disconnect()
+        backend.connection.connect()
+        sockets.at(-1)!.onopen?.({})
+        expect(requests).toHaveLength(2)
+        if (scenario === 'reconnect') {
+          backend.connection.disconnect()
+          backend.connection.connect()
+          sockets.at(-1)!.onopen?.({})
+          expect(requests).toHaveLength(3)
+          requests[2]!.result.resolve(new Response(JSON.stringify(f.acknowledgment)))
+          await vi.waitFor(() => expect(notices()).toHaveLength(0))
+        } else if (scenario === 'disconnect') backend.connection.disconnect()
+        else if (scenario === 'remove') app.removeBackend(backend.id)
+        else app.dispose()
+        expect(requests[1]!.signal.aborted).toBe(true)
+        requests[1]!.result.resolve(new Response('{}', { status: 404 }))
+        await requests[1]!.result.promise
+        // Drain response decoding and the reconciliation continuation without a wall-clock wait.
+        await new Promise<void>((done) => setImmediate(done))
+        expect(notices()).toHaveLength(scenario === 'reconnect' || scenario === 'remove' ? 0 : 1)
+        expect(f.entries.get(f.key)).toBe(bytes)
+      } finally {
+        app.dispose()
+      }
+    },
+  )
+})
 
 describe('retained app dispatch', () => {
   let app: AppState | undefined

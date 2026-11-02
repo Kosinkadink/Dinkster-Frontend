@@ -1,4 +1,4 @@
-import { uuidv4, type DinksterConnection, type RetainedAssets } from '@dinkster/client'
+import { uuidv4, type DinksterConnection, type RetainedAssetOwner, type RetainedAssets } from '@dinkster/client'
 import {
   EMPTY_CONNECTIVITY,
   MASK_PAINT_SOURCE_EXT_KEY,
@@ -258,6 +258,62 @@ export function workflowAssetRoots(
   return { complete, digests: [...digests].sort(), ...(refusal === undefined ? {} : { refusal }) }
 }
 
+function retentionMatches(value: RetainedAssets | undefined, owner: RetainedAssetOwner,
+  digests: readonly string[], complete: boolean): boolean {
+  return value !== undefined && value.scope === owner.scope && value.ownerKind === owner.ownerKind &&
+    value.ownerId === owner.ownerId && value.revision === 1 && value.complete === complete &&
+    value.digests.length === digests.length && value.digests.every((digest, index) => digest === digests[index])
+}
+
+/** Observe durable intents without replaying their commands, writes or releases. */
+export async function reconcileWorkflowRetentions(
+  connection: DinksterConnection,
+  signal: AbortSignal,
+  storage?: Pick<Storage, 'length' | 'key' | 'getItem'>,
+): Promise<boolean> {
+  const prefix = scopedStorageKey('dinkster.workflow-retentions.')
+  let resolved = true
+  try {
+    storage ??= globalThis.localStorage
+    const entries: Array<readonly [string, string | null]> = []
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index)
+      if (key?.startsWith(prefix)) entries.push([key, storage.getItem(key)])
+    }
+    for (const [key, bytes] of entries) {
+      signal.throwIfAborted()
+      try {
+        const raw: unknown = JSON.parse(bytes ?? 'null')
+        if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('Invalid workflow retention intent')
+        const intent = raw as Record<string, unknown>
+        // Stored destinations identify an existing connection, never authorize a new request destination.
+        if (typeof intent.connectionId === 'string' && intent.connectionId !== connection.id) continue
+        if (typeof intent.assetBaseUrl === 'string' && intent.assetBaseUrl !== connection.assetUrl('')) continue
+        const owner = intent.owner as RetainedAssetOwner | undefined
+        if (intent.version !== 3 || intent.connectionId !== connection.id || intent.assetBaseUrl !== connection.assetUrl('') ||
+          owner === undefined || owner === null || owner.scope !== 'local' || owner.ownerKind !== 'document' ||
+          typeof owner.ownerId !== 'string' || !/^workflow-candidate:[a-zA-Z0-9-]+$/.test(owner.ownerId) ||
+          owner.ownerId.length > 512 || key !== `${prefix}${owner.ownerId}` ||
+          typeof intent.documentLineage !== 'string' || intent.documentLineage.length === 0 ||
+          !Number.isSafeInteger(intent.documentRevision) || (intent.documentRevision as number) < 0 ||
+          typeof intent.complete !== 'boolean' || !Array.isArray(intent.digests) || intent.digests.length > 4096 ||
+          !intent.digests.every((digest: unknown, index: number, digests: unknown[]) =>
+            typeof digest === 'string' && /^blake3:[0-9a-f]{64}$/.test(digest) &&
+            (index === 0 || (digests[index - 1] as string) < digest))) throw new Error('Invalid workflow retention intent')
+        const observed = await connection.fetchRetainedAssets(owner, signal)
+        // A concurrent window may have changed the intent while the request was in flight.
+        if (storage.getItem(key) !== bytes || !retentionMatches(observed, owner, intent.digests, intent.complete)) resolved = false
+      } catch {
+        resolved = false
+      }
+    }
+    signal.throwIfAborted()
+  } catch {
+    return false
+  }
+  return resolved
+}
+
 /** Durable candidate ownership precedes publication; successful owners are not released on unmount. */
 export async function admitWorkflowDispatch(
   connection: DinksterConnection,
@@ -280,9 +336,7 @@ export async function admitWorkflowDispatch(
   }
   storage.setItem(key, JSON.stringify(intent))
   const matches = (value: RetainedAssets | undefined): boolean =>
-    value !== undefined && value.scope === owner.scope && value.ownerKind === owner.ownerKind &&
-    value.ownerId === owner.ownerId && value.revision === 1 && value.complete === roots.complete &&
-    value.digests.length === digests.length && value.digests.every((digest, index) => digest === digests[index])
+    retentionMatches(value, owner, digests, roots.complete)
   try {
     if (!matches(await connection.retainAssets(owner, { revision: 0, complete: roots.complete, digests }))) {
       throw new Error('Workflow retention acknowledgment differs')

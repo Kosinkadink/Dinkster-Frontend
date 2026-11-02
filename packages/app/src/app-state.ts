@@ -197,7 +197,7 @@ import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegist
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
-import { admitWorkflowDispatch } from './workflow-asset-retention.js'
+import { admitWorkflowDispatch, reconcileWorkflowRetentions } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -3419,6 +3419,8 @@ export class AppState {
     this.persistWatchers.clear()
     for (const check of this.workflowAssetChecks.values()) check.controller.abort()
     this.workflowAssetChecks.clear()
+    for (const controller of this.workflowRetentionRecoveries.values()) controller.abort()
+    this.workflowRetentionRecoveries.clear()
     this.workspaceEvents?.removeEventListener?.('message', this.receiveWorkspaceEvent)
     this.workspaceEvents?.close?.()
     globalThis.removeEventListener?.('storage', this.receiveStorage)
@@ -3867,6 +3869,7 @@ export class AppState {
     completion: Promise<void>
   }>()
   private readonly workflowAssetLocations = new WeakMap<DocumentSession, Map<string, AssetLocationHint>>()
+  private readonly workflowRetentionRecoveries = new Map<DinksterConnection, AbortController>()
 
   private refreshWorkflowAssets(tab: Tab): void {
     if (this.disposed || tab.execution) return
@@ -4069,6 +4072,7 @@ export class AppState {
     const workerCatalog = createSignal<WorkerCatalogState>({ status: 'unsupported' })
     const scopedClient = createScopedClient({ baseUrl })
     const packProblemsOwner = Symbol(`pack-problems:${id}`)
+    const retentionProblemsOwner = Symbol(`workflow-retentions:${id}`)
     let refreshDiagnostics = (): void => {}
     let compositionRequest = 0
     let remoteChoiceSchemaGeneration = 0
@@ -4344,8 +4348,22 @@ export class AppState {
         startRefresh('reconnect')
       }
       const handleStatusChange = (status: ConnectionStatus): void => {
-        if (status === 'connected') refreshOnConnect()
-        else {
+        this.workflowRetentionRecoveries.get(connection)?.abort()
+        this.workflowRetentionRecoveries.delete(connection)
+        if (status === 'connected') {
+          refreshOnConnect()
+          if (this.disposed) return
+          const controller = new AbortController()
+          this.workflowRetentionRecoveries.set(connection, controller)
+          void reconcileWorkflowRetentions(connection, AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]))
+            .then((resolved) => {
+              if (this.disposed || controller.signal.aborted || this.backendFor(id) !== nativeBackend) return
+              this.replaceProblems(retentionProblemsOwner, resolved ? [] : [diag(
+                'warning', 'validation', 'workflow.retention.unresolved',
+                `[${label}] Workflow ownership unconfirmed.`,
+              )])
+            })
+        } else {
           staleGen += 1
           base.templatesEnabled.set(false)
           this.invalidateWorkerCatalog(nativeBackend)
@@ -4378,6 +4396,9 @@ export class AppState {
         dispose: () => {
           compositionRequest += 1
           this.clearProblems(packProblemsOwner)
+          this.workflowRetentionRecoveries.get(connection)?.abort()
+          this.workflowRetentionRecoveries.delete(connection)
+          this.clearProblems(retentionProblemsOwner)
           disposeCompletionHydration()
           disposeMountHealth()
           disposeConnection()
