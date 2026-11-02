@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   asConnectionId,
   asPromptId,
@@ -8,9 +8,11 @@ import {
   type ExecutionRef,
   type NodeSchema,
 } from '@dinkster/core'
-import { AppState, controllerAdvancement, type Tab } from '../src/app-state.js'
+import { controllerAdvancement, type AppState, type Tab } from '../src/app-state.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 const schema: NodeSchema = {
   type: 'SeedTest', displayName: 'Seed Test', category: 'test', source: 'v3', isOutputNode: true,
@@ -446,7 +448,7 @@ describe('compiled occurrence controller ownership', () => {
         },
       }),
     }) as any
-    const app = new AppState()
+    const app = createWorkflowApp()
     ;(app.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
     app.registerSchemas([dynamicSchema])
     expect(app.openDocument(doc, 'Dynamic Controller Retirement')).toEqual([])
@@ -476,7 +478,7 @@ describe('compiled occurrence controller ownership', () => {
         },
       }),
     }) as any
-    const app = new AppState()
+    const app = createWorkflowApp()
     ;(app.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
     app.registerSchemas([dynamicSchema])
     expect(app.openDocument(doc, 'Dynamic Controller Schema Change')).toEqual([])
@@ -508,7 +510,7 @@ describe('compiled occurrence controller ownership', () => {
         slot: { id: 'slot', from: { node: 'src', port: 'out' }, to: { node: 'dynamic', port: 'slot' } },
       }),
     }) as any
-    const app = new AppState()
+    const app = createWorkflowApp()
     ;(app.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
     app.registerSchemas([sourceSchema, dynamicSchema])
     expect(app.openDocument(doc, 'Dynamic Controllers')).toEqual([])
@@ -598,7 +600,7 @@ describe('compiled occurrence controller ownership', () => {
         outputs: [{ id: 'out', binds: { kind: 'port', node: 'primary', port: 'out' } }],
       }),
     }) as any
-    const app = new AppState()
+    const app = createWorkflowApp()
     ;(app.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
     app.registerSchemas([promotedSchema, secondarySchema])
     expect(app.openDocument(doc, 'Fan-out Controller Retirement')).toEqual([])
@@ -693,7 +695,7 @@ describe('compiled occurrence controller ownership', () => {
   }) as any
 
   const occurrenceCompletionHarness = () => {
-    const app = new AppState()
+    const app = createWorkflowApp()
     ;(app.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
     app.registerSchemas([sourceSchema, promotedSchema, dynamicSchema])
     expect(app.openDocument(promotedSiblings(), 'Promoted Controllers')).toEqual([])
@@ -751,7 +753,7 @@ describe('compiled occurrence controller ownership', () => {
         seed: { id: 'seed', type: initial.type, values: { seed: 10 } },
       }),
     }) as any
-    const app = new AppState()
+    const app = createWorkflowApp()
     ;(app.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
     app.registerSchemas([initial])
     expect(app.openDocument(doc, 'Initial Mode Schema Change')).toEqual([])
@@ -790,7 +792,7 @@ describe('compiled occurrence controller ownership', () => {
         },
       },
     }) as any
-    const app = new AppState()
+    const app = createWorkflowApp()
     ;(app.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
     app.registerSchemas([promotedSchema, branchSchema, sinkSchema])
     expect(app.openDocument(doc, 'Selector Controller Replay')).toEqual([])
@@ -938,7 +940,7 @@ describe('FLOAT controller advancement (shared canvas stepper semantics)', () =>
 
 describe('completion integration', () => {
   it.each(['unchanged', 'edited', 'restored', 'fixed', 'mode-restored', 'disconnected'] as const)('guards literal producer completion after %s state', async (change) => {
-    const local = new AppState()
+    const local = createWorkflowApp()
     ;(local.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
     local.registerSchemas([schema])
     const document = fixture() as any
@@ -976,7 +978,7 @@ describe('completion integration', () => {
   let ref: ExecutionRef
 
   beforeEach(() => {
-    app = new AppState()
+    app = createWorkflowApp()
     expect(app.settings.get('features.seedController.enabled')).toBe(true)
     ;(app.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
     app.registerSchemas([schema])
@@ -1301,7 +1303,7 @@ describe('control_after_refresh advancement', () => {
   })
 
   function comboHarness() {
-    const app = new AppState()
+    const app = createWorkflowApp()
     ;(app.registry as unknown as { set(value: unknown): void }).set({ schemas: new Map(), resolve: () => undefined, hash: 'combo-test' })
     app.registerSchemas([comboSchema, sourceSchema])
     expect(app.openDocument(comboFixture(), 'Combo Refresh')).toEqual([])
