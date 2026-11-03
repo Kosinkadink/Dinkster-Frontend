@@ -8733,6 +8733,7 @@ export class AppState {
    * per completed execution that has none.
    */
   private hydrateCachedOutputs(execs: ReadonlyMap<string, ExecutionState>): void {
+    if (this.disposed) return
     for (const state of execs.values()) {
       if (state.status !== 'completed') continue
       if (Object.keys(state.outputs).length > 0) continue
@@ -8742,12 +8743,19 @@ export class AppState {
       const backend = this.backendFor(state.ref.connection)
       if (!backend) continue
       this.hydrated.add(state.key)
+      let connectionChanged = false
+      const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
       const fetched = backend.connection.fetchJobOutputs(state.ref.prompt)
       void fetched
         .then((outputs) => {
+          if (this.disposed || connectionChanged || this.backendFor(state.ref.connection) !== backend) {
+            this.hydrated.delete(state.key)
+            return
+          }
           if (Object.keys(outputs).length > 0) this.store.hydrateOutputs(state.ref, outputs)
         })
         .catch(() => this.hydrated.delete(state.key))
+        .finally(unsubscribe)
     }
   }
 

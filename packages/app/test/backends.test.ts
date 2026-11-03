@@ -523,6 +523,38 @@ describe('backend protocols', () => {
     expect(app.backends.get()).toHaveLength(2)
   })
 
+  it.each(['live', 'removed', 'replaced', 'disconnected', 'disposed'] as const)(
+    'accepts delayed cached outputs only from the unchanged live owner: %s', async (scenario) => {
+      const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
+      const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('cached-job') }
+      const outputs = { image: { result: { typeId: 'asset<media/image>',
+        meta: { digest: `blake3:${'e'.repeat(64)}`, mediaType: 'image/png' } } } }
+      let finish!: (value: typeof outputs) => void
+      vi.spyOn(backend.connection, 'fetchJobOutputs').mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+      app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
+      app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
+      expect(app.store.get(ref)?.outputs).toEqual({})
+      if (scenario === 'removed' || scenario === 'replaced') app.removeBackend(backend.id)
+      if (scenario === 'replaced') app.addBackend('http://native:8000', 'Replacement', false, 'dinkster')
+      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+      if (scenario === 'disposed') app.dispose()
+      finish(outputs)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(app.store.get(ref)?.outputs).toEqual(scenario === 'live' ? outputs : {})
+      if (scenario === 'live') {
+        app.removeBackend(backend.id)
+        expect(app.store.get(ref)?.outputs).toEqual(outputs)
+      } else if (scenario !== 'disposed') {
+        const live = app.backendFor(backend.id) ?? app.addBackend('http://native:8000', 'Replacement', false, 'dinkster')!
+        const fresh = { image: { result: { typeId: 'INT', value: 37 } } }
+        vi.spyOn(live.connection, 'fetchJobOutputs').mockResolvedValue(fresh)
+        app.store.apply({ kind: 'started', execution: { ...ref, prompt: asPromptId('next-job') }, timestamp: 3 })
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        expect(app.store.get(ref)?.outputs).toEqual(fresh)
+      }
+    },
+  )
+
   it('hydrates saved artifacts after a normal live Dinkster completion', async () => {
     const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
     if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')

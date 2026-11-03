@@ -52,6 +52,12 @@ workflow's local executions by backend, retaining a warning group when an
 owner was removed or disconnected. Its Pin and Follow latest actions only
 change the existing live-tab overlay binding.
 
+Cached-output reads publish only while their original backend is still live
+and its connection lifecycle has not changed. Removing or replacing that
+backend, reconnecting, or closing the application discards a late response;
+a subsequent execution update can retry against the live owner. Results
+already displayed remain available when their backend is removed.
+
 ## Interrupted runs
 
 When the backend restarts, jobs that were queued or running when the process
