@@ -67,6 +67,12 @@ enable collection. A refusal or stale acknowledgment leaves cached outputs
 unpublished and allows a later execution update to retry. The journal is
 checked read-only on reconnect, without replaying writes or releasing owners.
 
+Startup restoration uses the same independent ownership acknowledgment after
+validating history, job, source document, compile proof and output descriptors.
+Pending or refused ownership does not publish a restored execution. Backend,
+connection or registry changes and application disposal discard late startup
+results without deleting their saved retry records.
+
 ## Interrupted runs
 
 When the backend restarts, jobs that were queued or running when the process

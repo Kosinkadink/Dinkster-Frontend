@@ -7623,17 +7623,30 @@ export class AppState {
   ): Promise<void> {
     const identity = this.executionResultIdentity(backend, registry)
     if (identity === undefined) return
-    for (const result of loadExecutionResults(identity)) {
-      try {
-        const restored = await this.validatedExecutionResult(backend, registry, result)
-        if (restored === undefined) removeExecutionResult(result)
-        else if (restored !== null) {
-          this.retainedRegistries.set(restored.artifact, registry)
-          this.store.restoreCompleted(restored)
+    let connectionChanged = false
+    const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
+    const current = (): boolean => !this.disposed && !connectionChanged &&
+      this.backends.get().includes(backend) && backend.registry.get() === registry
+    try {
+      for (const result of loadExecutionResults(identity)) {
+        if (!current()) return
+        try {
+          const restored = await this.validatedExecutionResult(backend, registry, result)
+          if (!current()) return
+          if (restored === undefined) removeExecutionResult(result)
+          else if (restored !== null) {
+            const roots = executionAssetRoots(restored, this.resolverWithVirtualNodes(registry.resolve))
+            await retainExecutionAssets(backend.connection, restored.ref, roots)
+            if (!current()) return
+            this.retainedRegistries.set(restored.artifact, registry)
+            this.store.restoreCompleted(restored)
+          }
+        } catch {
+          // A transport failure proves nothing; retry the retained record on a later reload.
         }
-      } catch {
-        // A transport failure proves nothing; retry the retained record on a later reload.
       }
+    } finally {
+      unsubscribe()
     }
   }
 
