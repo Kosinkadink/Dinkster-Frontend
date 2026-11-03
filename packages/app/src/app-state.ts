@@ -54,6 +54,7 @@ import {
   stampEnvironment,
   t,
   importLitegraph,
+  isExecutionEvent,
   isIntegerWidgetValue,
   isValueDiagnostic,
   loadDocument,
@@ -2896,6 +2897,7 @@ export class AppState {
   private readonly backendClientId = sharedBackendClientId()
   private readonly workspaceEvents: WorkspaceEventChannel | undefined
   private readonly workspaceExecutionEvents = new Set<string>()
+  private readonly pendingExecutionEvents = new Map<string, Promise<void>>()
   private readonly receiveWorkspaceEvent = (event: MessageEvent<unknown>): void => this.receiveWorkspaceExecution(event.data)
   private readonly handlePageHide = (event: PageTransitionEvent): void => {
     if (event.persisted) {
@@ -4319,12 +4321,11 @@ export class AppState {
               ])
               return
             default:
-              if (!this.applyWorkspaceExecutionEvent(e)) return
-              this.workspaceEvents?.postMessage({
+              this.applyWorkspaceExecutionEvent(e, () => this.workspaceEvents?.postMessage({
                 source: this.workspaceActorId,
                 kind: 'event',
                 event: e,
-              } satisfies WorkspaceExecutionMessage)
+              } satisfies WorkspaceExecutionMessage))
           }
         }),
         connection.status.subscribe((s) => {
@@ -8330,7 +8331,57 @@ export class AppState {
     }
   }
 
-  private applyWorkspaceExecutionEvent(event: NormalizedEvent): boolean {
+  private applyWorkspaceExecutionEvent(event: NormalizedEvent, onApplied?: () => void): void {
+    if (!isExecutionEvent(event)) {
+      if (this.publishWorkspaceExecutionEvent(event)) onApplied?.()
+      return
+    }
+    const key = executionKey(event.execution)
+    const previous = this.pendingExecutionEvents.get(key)
+    const payload = event.kind === 'preview' ? event.payload : event.kind === 'nodeOutput' ? event.output : undefined
+    const incoming = payload === undefined ? undefined : executionAssetRoots({
+      outputs: { event: { payload } }, artifacts: [],
+    }, () => undefined)
+    if (previous === undefined && !incoming?.digests.length) {
+      if (this.publishWorkspaceExecutionEvent(event)) onApplied?.()
+      return
+    }
+    const backend = this.backendFor(event.execution.connection)
+    if (backend === undefined) return
+    const held = this.store.get(event.execution)
+    const registry = backend.registry.get()
+    const executionRegistry = this.registryForExecution(event.execution)
+    let unchanged = true
+    const unsubscribe = backend.connection.status.subscribe(() => { unchanged = false })
+    const current = (): boolean => unchanged && !this.disposed &&
+      this.backendFor(backend.id) === backend && backend.registry.get() === registry &&
+      this.registryForExecution(event.execution) === executionRegistry &&
+      this.store.get(event.execution)?.artifact === held?.artifact &&
+      this.store.get(event.execution)?.sourceDocument === held?.sourceDocument &&
+      (held === undefined || this.store.get(event.execution) !== undefined)
+    // Queue the rest of this run's events too: terminal transitions must not
+    // overtake an admitted preview and change its ring or provenance semantics.
+    const pending = (previous ?? Promise.resolve()).then(async () => {
+      if (!current()) return
+      if (incoming?.digests.length) {
+        const state = this.store.get(event.execution)
+        const roots = state === undefined ? incoming : executionAssetRoots(state,
+          this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined)))
+        await retainExecutionAssets(backend.connection, event.execution, { complete: false,
+          digests: [...new Set([...roots.digests, ...incoming.digests])].sort() })
+      }
+      if (current() && this.publishWorkspaceExecutionEvent(event)) onApplied?.()
+    }).catch((error: unknown) => {
+      if (current()) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'runtime',
+        'execution.eventRetentionFailed', `Could not retain execution event assets: ${error instanceof Error ? error.message : String(error)}`)])
+    }).finally(() => {
+      unsubscribe()
+      if (this.pendingExecutionEvents.get(key) === pending) this.pendingExecutionEvents.delete(key)
+    })
+    this.pendingExecutionEvents.set(key, pending)
+  }
+
+  private publishWorkspaceExecutionEvent(event: NormalizedEvent): boolean {
     // Append-only events (activity, log) must apply exactly once across the
     // multi-window broadcast; everything else is idempotent per-key state.
     if (event.kind !== 'activity' && event.kind !== 'log') {

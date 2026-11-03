@@ -262,7 +262,8 @@ export function workflowAssetRoots(
 
 /** Known result identities are roots, but opaque runtime values are never certified complete. */
 export function executionAssetRoots(
-  state: Pick<ExecutionState, 'outputs' | 'artifacts' | 'sourceDocument' | 'artifact'>,
+  state: Pick<ExecutionState, 'outputs' | 'artifacts' | 'sourceDocument' | 'artifact'> &
+    Partial<Pick<ExecutionState, 'previews' | 'previewRings' | 'lastPreview'>>,
   resolve: SchemaResolver,
 ): ReturnType<typeof workflowAssetRoots> {
   const digests = new Set<string>()
@@ -280,17 +281,18 @@ export function executionAssetRoots(
   }
   const visited = new WeakSet<object>()
   const pending: unknown[] = Object.values(state.outputs).flatMap((outputs) => Object.values(outputs))
+  pending.push(state.previews, state.previewRings, state.lastPreview)
   while (pending.length > 0) {
     const value = pending.pop()
     if (typeof value !== 'object' || value === null || visited.has(value)) continue
     visited.add(value)
+    if (value instanceof ArrayBuffer || ArrayBuffer.isView(value) ||
+      (typeof Blob !== 'undefined' && value instanceof Blob)) continue
     if (Array.isArray(value)) { for (const entry of value) pending.push(entry); continue }
     const descriptor = value as Record<string, unknown>
-    if (isAssetRef(value)) add(value.digest)
-    const meta = descriptor['meta']
-    if (typeof meta === 'object' && meta !== null) add((meta as Record<string, unknown>)['digest'])
-    if (Array.isArray(descriptor['elements'])) pending.push(descriptor['elements'])
-    if (isAssetRef(descriptor['value'])) add(descriptor['value'].digest)
+    add(descriptor['digest'])
+    add(descriptor['documentDigest'])
+    for (const entry of Object.values(descriptor)) pending.push(entry)
   }
   return { complete: false, digests: [...digests].sort() }
 }

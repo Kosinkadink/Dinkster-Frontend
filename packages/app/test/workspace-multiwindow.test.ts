@@ -532,6 +532,48 @@ describe('AppState multi-window workspace', () => {
     expect(first.store.get(ref)).toBeUndefined()
   })
 
+  it.each(['accepted', 'refused'] as const)('admits received output identities before later events: %s', async (scenario) => {
+    const left = new EventChannel()
+    const right = new EventChannel()
+    left.peer = right
+    right.peer = left
+    const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
+    editableApps.push(app)
+    const ref = { connection: app.connection.id, prompt: asPromptId('received-output') }
+    const digest = `blake3:${'b'.repeat(64)}`
+    const output = { image: { typeId: 'IMAGE', meta: { digest } } }
+    const send = (event: unknown) => left.postMessage({ source: 'foreign-window', kind: 'event', event })
+    send({ kind: 'started', execution: ref, timestamp: 1 })
+    let requested = 0
+    let acknowledge!: () => void
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    vi.spyOn(app.connection, 'retainAssets').mockImplementation((owner, declaration) => {
+      requested += 1
+      expect(declaration.digests).toEqual([digest])
+      expect(declaration.complete).toBe(false)
+      return new Promise((resolve, reject) => {
+        acknowledge = () => scenario === 'refused' ? reject(new Error('ownership refused'))
+          : resolve({ ...owner, ...declaration, revision: 1 })
+      })
+    })
+    send({ kind: 'nodeOutput', execution: ref, timestamp: 2, runtimeNodeId: 'image', output })
+    const bytes = new ArrayBuffer(3)
+    send({ kind: 'preview', execution: ref, timestamp: 3, runtimeNodeId: 'image', channel: 'image/png', payload: bytes })
+    send({ kind: 'completed', execution: ref, timestamp: 4 })
+    const other = { ...ref, prompt: asPromptId('unrelated') }
+    send({ kind: 'started', execution: other, timestamp: 5 })
+    await drainTasks()
+    expect(requested).toBe(1)
+    expect(app.store.get(ref)).toMatchObject({ status: 'running', outputs: {}, previews: {} })
+    expect(app.store.get(other)?.status).toBe('running')
+    acknowledge()
+    await drainTasks()
+    expect(app.store.get(ref)).toMatchObject({ status: 'completed',
+      outputs: scenario === 'accepted' ? { image: output } : {} })
+    expect(app.store.get(ref)?.previews.image?.['']?.payload).toEqual(bytes)
+    expect(right.sent).toEqual([])
+  })
+
   it('mirrors live execution events between window stores', () => {
     const left = new EventChannel()
     const right = new EventChannel()

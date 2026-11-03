@@ -7,7 +7,7 @@ import { buildDinksterRegistry } from '@dinkster/client'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { GLSL_EDITOR_KIND } from '../src/editors.js'
-import { admitWorkflowDispatch, reconcileWorkflowRetentions, workflowAssetRoots } from '../src/workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions, workflowAssetRoots } from '../src/workflow-asset-retention.js'
 import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
@@ -38,6 +38,20 @@ function deferred<T>() {
 }
 
 describe('workflow retention recovery', () => {
+  it('retains nested preview documents and ring resources without certifying opaque payloads', () => {
+    const binary = new Uint8Array([1, 3, 7])
+    const payload: Record<string, unknown> = { documentDigest: asset('c').digest,
+      document: { resources: { source: { digest: asset('e').digest } } }, binary,
+      unknown: { metadata: 'opaque', malformed: { digest: 'not-a-digest' } } }
+    payload.cycle = payload
+    const frame = { channel: 'application/json', timestamp: 3, payload }
+    const roots = executionAssetRoots({ outputs: { node: { result: { meta: { digest: asset('a').digest } } } },
+      artifacts: [], previews: { node: { document: frame } },
+      previewRings: { node: { stream: { frameCount: 2, frames: { 1: { ...frame, payload: { digest: asset('f').digest } } } } } },
+      lastPreview: { ...frame, payload: binary.buffer } }, () => undefined)
+    expect(roots).toEqual({ complete: false, digests: [asset('a').digest, asset('c').digest, asset('e').digest, asset('f').digest] })
+  })
+
   afterEach(() => {
     initializeProjectScope('default')
     vi.restoreAllMocks()

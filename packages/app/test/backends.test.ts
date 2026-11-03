@@ -656,6 +656,46 @@ describe('backend protocols', () => {
     },
   )
 
+  it.each(['accepted', 'refused', 'removed', 'disconnected', 'registry-changed', 'disposed'] as const)(
+    'admits live preview identities before ordered publication: %s', async (scenario) => {
+      const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
+      const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('owned-preview') }
+      const digest = (letter: string) => `blake3:${letter.repeat(64)}`
+      backend.connection.ingest({ type: 'run_started', jobId: ref.prompt })
+      app.store.hydrateArtifacts(ref, [{ nodeId: 'held', digest: digest('a'), name: 'held.png', size: 7,
+        mediaType: 'image/png', virtualPath: '' }])
+      let acknowledge!: () => void
+      let requested = 0
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
+        requested += 1
+        expect(declaration).toMatchObject({ complete: false, digests: [digest('a'), digest('c'), digest('e')] })
+        return new Promise((resolve, reject) => {
+          acknowledge = () => scenario === 'refused' ? reject(new Error('ownership refused'))
+            : resolve({ ...owner, ...declaration, revision: 1 })
+        })
+      })
+      backend.connection.ingest({ type: 'node_event', event: 'preview', jobId: ref.prompt, nodeId: 'image',
+        data: { mime: 'application/json', documentDigest: digest('c'), document: {
+          layers: { image: { source: { digest: digest('e') } } } } } })
+      backend.connection.ingest({ type: 'run_finished', jobId: ref.prompt })
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(requested).toBe(1)
+      expect(app.store.get(ref)?.previews).toEqual({})
+      expect(app.store.get(ref)?.status).toBe('running')
+      if (scenario === 'removed') app.removeBackend(backend.id)
+      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+      if (scenario === 'registry-changed') registryFor(backend)
+      if (scenario === 'disposed') app.dispose()
+      acknowledge()
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(app.store.get(ref)?.previews.image?.['']?.payload).toEqual(scenario === 'accepted'
+        ? { mime: 'application/json', documentDigest: digest('c'), document: {
+          layers: { image: { source: { digest: digest('e') } } } } } : undefined)
+      expect(app.store.get(ref)?.status).toBe(scenario === 'accepted' || scenario === 'refused' ? 'completed' : 'running')
+    },
+  )
+
   it('hydrates saved artifacts after a normal live Dinkster completion', async () => {
     const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
     if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')

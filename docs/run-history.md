@@ -78,7 +78,17 @@ before publishing output descriptors, saved artifacts or replayed node states.
 A refused declaration leaves the existing view unchanged for a later retry.
 The read captures its backend, connection lifetime, registry and execution
 identity; an acknowledgment for a retired owner cannot publish fetched data.
-This does not certify live event payloads or every preview/read holder.
+
+Live previews and cross-window output events also confirm known digest roots
+before publication. Later events for the same execution wait behind the
+declaration so completion cannot overtake a pending preview; unrelated runs
+continue independently. Refused events remain unpublished, while later events
+can proceed. Backend, connection, registry or execution identity changes
+discard queued events from the previous owner. Binary previews with no external
+identities keep their immediate path when no earlier event is pending.
+Nested preview documents, saved stills and frame rings contribute known roots,
+but opaque payloads remain incomplete. This does not certify every read holder
+or enable collection.
 
 ## Interrupted runs
 
