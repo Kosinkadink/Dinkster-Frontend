@@ -153,8 +153,8 @@ export interface SharedSessionOptions {
   readonly onConflict?: (conflict: SessionConflict) => void
   readonly onError?: (message: string) => void
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
-  /** Synchronous local command policy; excludes history replay and rebased intentions. */
-  readonly validateDispatch?: DocumentCommitPolicy
+  /** Synchronous local command, history and rebased intention policy. */
+  readonly validateCommit?: DocumentCommitPolicy
   /** Confirm ownership before adopting incoming confirmed ground, not after notifying observers. */
   readonly beforeRemoteDocument?: (
     document: WorkflowDocument,
@@ -226,7 +226,7 @@ class SharedDocumentSession implements DocumentSession {
   private readonly onErrorCb: ((message: string) => void) | undefined
   private readonly maxUndo: number
   private readonly schemaResolverFor: ((doc: WorkflowDocument) => SchemaResolver) | undefined
-  private readonly validateDispatch: SharedSessionOptions['validateDispatch']
+  private readonly validateCommit: SharedSessionOptions['validateCommit']
   private readonly beforeRemoteDocument: SharedSessionOptions['beforeRemoteDocument']
   private rebasing = false
   private readonly snapshotPolicy: SnapshotPublicationPolicy
@@ -302,7 +302,7 @@ class SharedDocumentSession implements DocumentSession {
     this.onErrorCb = options?.onError
     this.maxUndo = options?.maxUndo ?? 200
     this.schemaResolverFor = options?.schemaResolverFor
-    this.validateDispatch = options?.validateDispatch
+    this.validateCommit = options?.validateCommit
     this.beforeRemoteDocument = options?.beforeRemoteDocument
     this.snapshotPolicy = new SnapshotPublicationPolicy(
       snapshotRevision,
@@ -596,7 +596,7 @@ class SharedDocumentSession implements DocumentSession {
         }
         consumed = true
         if (recordHistory) {
-          const diagnostics = this.validateDispatch?.(currentDocument, prepared.document, currentHistory) ?? []
+          const diagnostics = this.validateCommit?.(currentDocument, prepared.document, currentHistory) ?? []
           if (hasErrors(diagnostics)) return { ok: false, diagnostics }
         }
         const outcome = prepared.commit()
@@ -625,7 +625,7 @@ class SharedDocumentSession implements DocumentSession {
   }
 
   private replayHistory(from: HistoryRecord[], to: HistoryRecord[], during: 'undo' | 'redo'): boolean {
-    const record = from.pop()
+    const record = from.at(-1)
     if (!record) return false
     const patch = during === 'undo' ? record.inverse : record.forward
     // CO3: clamp cursor rewinds exactly like DocumentStore history replay -
@@ -637,9 +637,11 @@ class SharedDocumentSession implements DocumentSession {
     // throws when the record's paths no longer fit the (possibly rebased)
     // document; both failure shapes drop the record as a conflict.
     let applied: readonly PatchOp[]
+    let document: WorkflowDocument
     try {
       const replay = replayHistoryOps(this.store.doc, patch, { requireRecordedValues: true })
       if (replay.stale) {
+        from.pop()
         this.notifyConflict({
           invocation: { command: sessionPatchCommand.id, params: null, actor: this.actorId },
           diagnostics: [
@@ -655,7 +657,9 @@ class SharedDocumentSession implements DocumentSession {
         return false
       }
       applied = replay.applied
+      document = replay.doc
     } catch (e) {
+      from.pop()
       const message = e instanceof Error ? e.message : String(e)
       this.notifyConflict({
         invocation: { command: sessionPatchCommand.id, params: null, actor: this.actorId },
@@ -664,6 +668,16 @@ class SharedDocumentSession implements DocumentSession {
       })
       return false
     }
+    const diagnostics = this.validateCommit?.(this.store.doc, document, this.historySnapshot()) ?? []
+    if (hasErrors(diagnostics)) {
+      this.notifyConflict({
+        invocation: { command: sessionPatchCommand.id, params: null, actor: this.actorId },
+        diagnostics,
+        during,
+      })
+      return false
+    }
+    from.pop()
     if (applied.length === 0) {
       // Everything clamped away (pure cursor record): nothing to commit,
       // but the record still moves so redo/undo stays symmetric.
@@ -1054,7 +1068,13 @@ class SharedDocumentSession implements DocumentSession {
             )
             if (params !== undefined) entry.invocation = { ...entry.invocation, params }
           }
-          const outcome = this.store.dispatch(entry.invocation)
+          const prepared = this.store.prepareDispatch(entry.invocation)
+          const diagnostics = prepared.ok
+            ? this.validateCommit?.(this.store.doc, prepared.document, this.historySnapshot()) ?? []
+            : prepared.diagnostics
+          const outcome = prepared.ok && !hasErrors(diagnostics)
+            ? prepared.commit()
+            : { ok: false as const, diagnostics }
           if (outcome.ok && outcome.forward.length > 0) {
             if (entry.record) {
               // The intention re-executed against new ground: its recorded

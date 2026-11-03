@@ -526,7 +526,7 @@ describe('shared DocumentSession', () => {
     const conn = new FakeConnection(baseDoc())
     const session = await connectSharedSession(conn, coreCommandRegistry(), {
       actorId: 'actorA',
-      validateDispatch: (_current, candidate) => candidate.graphs.g0!.nodes.n1!.title === 'blocked'
+      validateCommit: (_current, candidate) => candidate.graphs.g0!.nodes.n1!.title === 'blocked'
         ? [{ severity: 'error', origin: 'command', code: 'test.publication.refused', message: 'Not admitted' }]
         : [],
     })
@@ -553,6 +553,87 @@ describe('shared DocumentSession', () => {
       await session.settle()
       expect(session.doc.graphs.g0!.nodes.n1!.title).toBeUndefined()
     } finally {
+      session.close()
+    }
+  })
+
+  it.each([false, true])('preserves refused shared history while an intention is pending=%s', async (pending) => {
+    const conn = new FakeConnection(baseDoc())
+    const gate = deferred()
+    if (pending) conn.postHook = () => gate.promise
+    let refused = false
+    const session = await connectSharedSession(conn, coreCommandRegistry(), {
+      actorId: 'actorA',
+      validateCommit: () => refused
+        ? [{ severity: 'error', origin: 'command', code: 'test.publication.refused', message: 'Not admitted' }]
+        : [],
+    })
+    try {
+      expect(session.dispatch(setTitle('n1', 'kept')).ok).toBe(true)
+      if (pending) await until(() => conn.postedOps.length === 1)
+      else await session.settle()
+      for (const direction of ['undo', 'redo'] as const) {
+        const original = session.doc
+        const history = session.historySnapshot()
+        const posted = conn.postedOps.length
+        const observed: WorkflowDocument[] = []
+        const off = session.document.subscribe((document) => observed.push(document))
+        refused = true
+        expect(session[direction]()).toBe(false)
+        if (!pending) await session.settle()
+        expect(session.doc).toBe(original)
+        expect(session.historySnapshot()).toEqual(history)
+        expect(conn.postedOps).toHaveLength(posted)
+        expect(observed).toEqual([])
+        off()
+        refused = false
+        expect(session[direction]()).toBe(true)
+        if (!pending) await session.settle()
+        expect(session.doc.graphs.g0!.nodes.n1!.title).toBe(direction === 'undo' ? undefined : 'kept')
+        expect(conn.postedOps).toHaveLength(pending ? posted : posted + 1)
+      }
+      gate.resolve()
+      await session.settle()
+      expect(conn.postedOps).toHaveLength(3)
+    } finally {
+      gate.resolve()
+      session.close()
+    }
+  })
+
+  it('refuses a pending intention that produces an unadmitted value after rebase', async () => {
+    const conn = new FakeConnection(baseDoc())
+    const gate = deferred()
+    conn.postHook = () => gate.promise
+    const commands = new Map(coreCommandRegistry())
+    commands.set('copy.title', { id: 'copy.title', run(document, _params, tx) {
+      tx.set(['graphs', 'g0', 'nodes', 'n1', 'title'], document.graphs.g0!.nodes.n2!.title ?? 'initial')
+      return []
+    } })
+    const conflicts: SessionConflict[] = []
+    const session = await connectSharedSession(conn, commands, {
+      actorId: 'actorA',
+      validateCommit: (_current, candidate) => candidate.graphs.g0!.nodes.n1!.title === 'blocked'
+        ? [{ severity: 'error', origin: 'command', code: 'test.publication.refused', message: 'Not admitted' }]
+        : [],
+      onConflict: (conflict) => conflicts.push(conflict),
+    })
+    try {
+      expect(session.dispatch({ command: 'copy.title', params: {} }).ok).toBe(true)
+      await until(() => conn.postedOps.length === 1)
+      const observed: (string | undefined)[] = []
+      session.document.subscribe((document) => observed.push(document.graphs.g0!.nodes.n1!.title))
+      conn.appendForeign('peer', [{ op: 'add', path: ['graphs', 'g0', 'nodes', 'n2', 'title'], value: 'blocked' }])
+      expect(session.doc.graphs.g0!.nodes.n2!.title).toBe('blocked')
+      expect(session.doc.graphs.g0!.nodes.n1!.title).toBeUndefined()
+      expect(observed).not.toContain('blocked')
+      expect(session.canUndo).toBe(false)
+      expect(conflicts).toMatchObject([{ during: 'rebase', diagnostics: [{ code: 'test.publication.refused' }] }])
+      gate.resolve()
+      await session.settle()
+      expect(session.doc.graphs.g0!.nodes.n1!.title).toBeUndefined()
+    } finally {
+      gate.resolve()
       session.close()
     }
   })

@@ -3905,7 +3905,7 @@ export class AppState {
         {
           actorId: this.workspaceActorId,
           schemaResolverFor: (document) => documentResolver(document, resolve),
-          validateDispatch: (current, candidate, history) => this.validateWorkflowCommit(current, candidate, history, resolve),
+          validateCommit: (current, candidate, history) => this.validateWorkflowCommit(current, candidate, history, resolve),
           beforeRemoteDocument: (document, revision, current, history) => this.confirmRemoteDocumentOwnership(
             backend, document, revision, current, history,
             () => this.workspaceAuthorityEnabled && generation === this.workspaceAuthorityGeneration &&
@@ -6242,7 +6242,7 @@ export class AppState {
       session = await connectSharedSession(connection, coreCommandRegistry([], sessionResolver), {
         actorId,
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
-        validateDispatch: (current, candidate, history) => this.validateWorkflowCommit(current, candidate, history, sessionResolver),
+        validateCommit: (current, candidate, history) => this.validateWorkflowCommit(current, candidate, history, sessionResolver),
         beforeRemoteDocument: (document, revision, current, history) => {
           const live = this.tabs.get().find((tab) => tab.store === session)
           const backend = live === undefined

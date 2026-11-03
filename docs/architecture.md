@@ -201,10 +201,13 @@ The optional core policy does not change default session behavior. Shared local
 public dispatch and prepared commits use the same application policy before
 optimistic document/history publication or transport submission. Both network
 collaboration and SharedWorker sessions install it. The shared session's
-optional dispatch policy does not cover internal undo/redo replay or rebased
-intentions; remote confirmed documents keep their separate awaited ownership
-hook. Shared history/rebase and unknown holders are not certified by these
-local dispatch policies.
+optional commit policy also validates undo/redo against the current document
+and both history stacks before removing the replayed record. A policy refusal
+keeps the record retryable; stale recorded-value conflicts still discard it.
+Rebased intentions validate their newly computed candidate before committing;
+refused intentions drop their history record and report a rebase conflict.
+Remote confirmed documents keep their awaited ownership hook. Unknown holders
+are not certified by these local commit policies.
 
 Curve, Compositor and GLSL Apply, and unused-definition cleanup, also await
 the final command result. Pending actions disable duplicate submission and
