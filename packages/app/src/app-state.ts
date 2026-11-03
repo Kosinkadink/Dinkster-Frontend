@@ -152,6 +152,7 @@ import {
   type CompatSkip,
   type PackInferenceUnavailable,
   type RefreshableScopedClient,
+  type RetainedAssets,
   type ReplacementProblem,
   type SchemaRegistry,
   type SupervisorProgress,
@@ -4523,6 +4524,7 @@ export class AppState {
         startRefresh('reconnect')
       }
       const handleStatusChange = (status: ConnectionStatus): void => {
+        this.submissionAssetOwners = new WeakMap()
         this.workflowRetentionRecoveries.get(connection)?.abort()
         this.workflowRetentionRecoveries.delete(connection)
         if (status === 'connected') {
@@ -7018,6 +7020,12 @@ export class AppState {
     Tab,
     { connection: DinksterConnection; revision: number; schemaHash: string; digest: string }
   >()
+  private submissionAssetOwners = new WeakMap<Tab, {
+    readonly connection: DinksterConnection
+    readonly document: WorkflowDocument
+    readonly registry: SchemaRegistry
+    readonly retained: RetainedAssets
+  }>()
 
   /**
    * The backend library operations target: the ACTIVE tab's backend (same
@@ -8676,8 +8684,16 @@ export class AppState {
         { revision: result.artifact.revision, undo: [], redo: [] },
         this.resolverWithVirtualNodes(registry.resolve))
       if (roots.digests.length > 0) {
-        await retainWorkflowAssets(backend.connection, result.artifact.snapshot.lineage,
-          result.artifact.revision, { ...roots, complete: false })
+        const owners = this.submissionAssetOwners
+        const owned = owners.get(tab)
+        if (roots.refusal !== undefined || owned?.connection !== backend.connection ||
+          owned.document !== compiledDocument || owned.registry !== registry ||
+          owned.retained.digests.length !== roots.digests.length ||
+          !owned.retained.digests.every((digest, index) => digest === roots.digests[index])) {
+          const retained = await retainWorkflowAssets(backend.connection, result.artifact.snapshot.lineage,
+            result.artifact.revision, { ...roots, complete: false })
+          owners.set(tab, { connection: backend.connection, document: compiledDocument, registry, retained })
+        }
         if (lease.signal.aborted) return
       }
       const sourceDocument = await sourceDocumentPromise

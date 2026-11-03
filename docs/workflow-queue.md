@@ -15,6 +15,10 @@ ownership of known asset digests in the captured workflow, including effective
 catalog defaults that arrived after startup. Refusal prevents submission and
 appears in Problems. These incomplete declarations do not enable vault cleanup;
 failure of the optional source stamp still allows an unstamped submission.
+Repeated queues reuse the acknowledged owner only while the captured document,
+backend connection, catalog and known digest set remain unchanged. The durable
+journal records the acknowledged revision; connection transitions require fresh
+admission. Reuse does not release old generations or certify complete ownership.
 
 The control does not create an optimistic row while a submission is in
 flight. A row appears only after the backend accepts the job and the

@@ -532,7 +532,7 @@ describe('sourceDocument stamp on queue', () => {
     expect(submit.mock.calls.at(-1)![1]).not.toHaveProperty('exportSnapshot')
   })
 
-  it.each(['accepted', 'refused', 'closed'] as const)('confirms late catalog asset defaults before submitting a captured workflow: %s', async (mode) => {
+  it.each(['accepted', 'refused', 'closed', 'reused'] as const)('confirms late catalog asset defaults before submitting a captured workflow: %s', async (mode) => {
     const { backend, tab } = nativeSetup()
     backend.registry.set(undefined)
     expect(app.openDocument({ ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0, nodes: {
@@ -574,11 +574,46 @@ describe('sourceDocument stamp on queue', () => {
       })).ok).toBe(true)
       acknowledge()
       await queued
-      expect(submit).toHaveBeenCalledTimes(mode === 'accepted' ? 1 : 0)
-      expect(app.store.executions.get().size).toBe(mode === 'accepted' ? 1 : 0)
+      const accepted = mode === 'accepted' || mode === 'reused'
+      expect(submit).toHaveBeenCalledTimes(accepted ? 1 : 0)
+      expect(app.store.executions.get().size).toBe(accepted ? 1 : 0)
       if (mode === 'accepted') {
         expect(JSON.parse(upload.mock.calls[0]![0] as string).view.graphs.g0.nodes.n0.position).toEqual({ x: 0, y: 0 })
         expect(submit.mock.calls[0]![0].snapshot.view.graphs.g0!.nodes!.n0!.position).toEqual({ x: 0, y: 0 })
+      }
+      if (mode === 'reused') {
+        const declarations = () => retention.mock.calls.filter(([, declaration]) => declaration.digests.includes(DIGEST2))
+        const originalOwner = declarations()[0]![0]
+        await app.queue(candidate)
+        expect(submit).toHaveBeenCalledTimes(2)
+        expect(declarations()).toHaveLength(1)
+        const journal = JSON.parse(localStorage.getItem(`dinkster.workflow-retentions.${originalOwner.ownerId}`)!)
+        expect(journal).toMatchObject({ owner: originalOwner, acknowledgedRevision: 1, digests: [DIGEST2], complete: false })
+        backend.registry.set({ ...backend.registry.get()! })
+        await app.queue(candidate)
+        expect(declarations()).toHaveLength(2)
+        expect((await app.dispatchTo(candidate, {
+          command: 'node.move', params: { graphId: 'g0', positions: { n0: { x: 71, y: 93 } } },
+        })).ok).toBe(true)
+        const beforeEditedQueue = declarations().length
+        await app.queue(candidate)
+        expect(declarations()).toHaveLength(beforeEditedQueue + 1)
+        expect(submit).toHaveBeenCalledTimes(4)
+        vi.stubGlobal('WebSocket', class {
+          binaryType = ''
+          onopen = null
+          onclose = null
+          onmessage = null
+          onerror = null
+          send() {}
+          close() {}
+        })
+        backend.connection.connect()
+        backend.connection.disconnect()
+        const beforeReconnectQueue = declarations().length
+        await app.queue(candidate)
+        expect(declarations()).toHaveLength(beforeReconnectQueue + 1)
+        expect(submit).toHaveBeenCalledTimes(5)
       }
       expect(app.tabs.get().includes(candidate)).toBe(mode !== 'closed')
       expect(tab).not.toBe(candidate)

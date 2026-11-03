@@ -104,7 +104,7 @@ describe('workflow retention recovery', () => {
     },
   )
 
-  it.each(['json', 'version', 'owner', 'empty-owner', 'lineage', 'revision', 'digest', 'duplicate', 'unsorted', 'complete'])(
+  it.each(['json', 'version', 'owner', 'empty-owner', 'lineage', 'revision', 'acknowledgment', 'digest', 'duplicate', 'unsorted', 'complete'])(
     'does not query or discard a malformed journal: %s', async (scenario) => {
       const f = recoveryFixture()
       const intent: Record<string, unknown> = { ...f.intent }
@@ -113,6 +113,7 @@ describe('workflow retention recovery', () => {
       if (scenario === 'empty-owner') intent.owner = { ...f.intent.owner, ownerId: 'workflow-candidate:' }
       if (scenario === 'lineage') intent.documentLineage = ''
       if (scenario === 'revision') intent.documentRevision = -1
+      if (scenario === 'acknowledgment') intent.acknowledgedRevision = 2
       if (scenario === 'digest') intent.digests = ['blake3:invalid']
       if (scenario === 'duplicate') intent.digests = [asset('a').digest, asset('a').digest]
       if (scenario === 'unsorted') intent.digests = [asset('c').digest, asset('a').digest]

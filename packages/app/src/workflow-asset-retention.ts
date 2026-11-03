@@ -336,7 +336,8 @@ export async function reconcileWorkflowRetentions(
           : owner?.ownerKind === 'shown-result' && typeof owner.ownerId === 'string' &&
             /^execution-result:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
             typeof intent.executionKey === 'string' && intent.executionKey.length > 0
-        if (intent.version !== 3 || intent.connectionId !== connection.id || intent.assetBaseUrl !== connection.assetUrl('') ||
+        if (intent.version !== 3 || (intent.acknowledgedRevision !== undefined && intent.acknowledgedRevision !== 1) ||
+          intent.connectionId !== connection.id || intent.assetBaseUrl !== connection.assetUrl('') ||
           owner === undefined || owner === null || owner.scope !== 'local' || !contextValid ||
           owner.ownerId.length > 512 || key !== `${prefix}${owner.ownerId}` ||
           typeof intent.complete !== 'boolean' || !Array.isArray(intent.digests) || intent.digests.length > 4096 ||
@@ -364,8 +365,8 @@ export async function retainWorkflowAssets(
   documentRevision: number,
   roots: ReturnType<typeof workflowAssetRoots>,
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
-): Promise<void> {
-  await retainAssetRoots(connection, 'document', { documentLineage, documentRevision }, roots, storage)
+): Promise<RetainedAssets> {
+  return retainAssetRoots(connection, 'document', { documentLineage, documentRevision }, roots, storage)
 }
 
 export async function retainExecutionAssets(
@@ -383,7 +384,7 @@ async function retainAssetRoots(
   context: { readonly documentLineage: string; readonly documentRevision: number } | { readonly executionKey: string },
   roots: ReturnType<typeof workflowAssetRoots>,
   storage: Pick<Storage, 'setItem'>,
-): Promise<void> {
+): Promise<RetainedAssets> {
   if (roots.refusal !== undefined) throw new Error(roots.refusal)
   const digests = roots.digests
   if (digests.length > 4096) throw new Error('Workflow exceeds the retained identity limit')
@@ -394,17 +395,23 @@ async function retainAssetRoots(
     ...context,
   }
   storage.setItem(key, JSON.stringify(intent))
-  const matches = (value: RetainedAssets | undefined): boolean =>
+  const matches = (value: RetainedAssets | undefined): value is RetainedAssets =>
     retentionMatches(value, owner, digests, roots.complete)
+  let acknowledged: RetainedAssets
   try {
-    if (!matches(await connection.retainAssets(owner, { revision: 0, complete: roots.complete, digests }))) {
+    const response = await connection.retainAssets(owner, { revision: 0, complete: roots.complete, digests })
+    if (!matches(response)) {
       throw new Error('Workflow retention acknowledgment differs')
     }
+    acknowledged = response
   } catch (error) {
     let observed: RetainedAssets | undefined
     try { observed = await connection.fetchRetainedAssets(owner) } catch { /* Intent remains unresolved. */ }
     if (!matches(observed)) throw error
+    acknowledged = observed
   }
+  storage.setItem(key, JSON.stringify({ ...intent, acknowledgedRevision: acknowledged.revision }))
+  return acknowledged
 }
 
 /** Durable candidate ownership precedes publication; successful owners are not released on unmount. */
