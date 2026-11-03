@@ -455,17 +455,17 @@ describe('stableActorId', () => {
 describe('share', () => {
   it.each([true, false])('retains current and undo assets before sharing, accepted=%s', async (accepted) => {
     const server = new FakeCollabServer()
-    const app = makeApp(server)
+    const app = prepareWorkflowApp(makeApp(server))
     const prior = activeTab(app)
     const backend = app.collabBackend()!
     const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
       size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
-    const added = prior.store.dispatch({ command: 'node.add', params: { graphId: prior.store.doc.root,
+    const added = await app.dispatchTo(prior, { command: 'node.add', params: { graphId: prior.store.doc.root,
       type: 'AssetHolder', position: { x: 20, y: 40 }, values: { held: asset('a') } } })
     expect(added.ok).toBe(true)
     const node = Object.values(prior.store.doc.graphs[prior.store.doc.root]!.nodes)[0]!
-    expect(prior.store.dispatch({ command: 'node.setValue', params: { graphId: prior.store.doc.root,
-      nodeId: node.id, inputId: 'held', value: asset('b') } }).ok).toBe(true)
+    expect((await app.dispatchTo(prior, { command: 'node.setValue', params: { graphId: prior.store.doc.root,
+      nodeId: node.id, inputId: 'held', value: asset('b') } })).ok).toBe(true)
     vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
       expect(declaration).toEqual({ revision: 0, complete: false, digests: [asset('a').digest, asset('b').digest] })
       return { ...owner, ...declaration, revision: accepted ? 1 : 2 }
@@ -621,14 +621,14 @@ describe('join and convergence', () => {
   it.each(['accepted', 'refused', 'edited', 'closed', 'retargeted', 'removed', 'registry', 'disconnected', 'disposed', 'remote-edit', 'ended', 'projection'] as const)(
     'holds a joined snapshot before ownership acknowledgment: %s', async (scenario) => {
       const server = new FakeCollabServer()
-      const app = makeApp(server)
+      const app = prepareWorkflowApp(makeApp(server))
       const prior = activeTab(app)
       const backend = app.collabBackend()!
       const digest = `blake3:${'a'.repeat(64)}`
-      expect(prior.store.dispatch({ command: 'node.add', params: { graphId: prior.store.doc.root,
+      expect((await app.dispatchTo(prior, { command: 'node.add', params: { graphId: prior.store.doc.root,
         type: 'AssetHolder', position: { x: 20, y: 40 }, values: {
           held: { digest, name: 'held.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' },
-        } } }).ok).toBe(true)
+        } } })).ok).toBe(true)
       const shared = server.createSession(COLLAB_SCOPE, prior.id, prior.store.doc)
       let acknowledge!: () => void
       let requested!: () => void

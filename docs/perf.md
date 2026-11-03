@@ -1841,3 +1841,22 @@ successful synchronous publication and the expected title.
 
 This measures selection overhead, not backend acknowledgment latency or frame
 time. Selection does not replay history; awaited admission still includes it.
+
+## Local publication guard (2026-11-02, X570)
+
+The same Node 26 title-edit probe measured 20 changes after 10 warmups with
+the local session publication guard enabled. Direct commits now compare the
+two document censuses before inspecting history: asset-neutral edits do not
+need historical roots. Application dispatch already checks the candidate and
+does not repeat that work at commit.
+
+| Nodes | Direct guard before fast path mean (ms) | Direct guard after fast path mean (ms) | Application before (ms) | Application after (ms) |
+| --- | --- | --- | --- | --- |
+| 1 | 0.220 | 0.072 | 0.054 | 0.057 |
+| 1200 | 8.166 | 3.224 | 2.704 | 2.669 |
+
+These consecutive shared-host runs measure synchronous publication, not
+network latency, rendering or a causal application speed improvement. Direct
+dispatch pays the document census cost relative to the unguarded baseline
+above; only candidates introducing an identity absent from the current
+document need the additional history census.

@@ -44,6 +44,19 @@ for (const accepted of [true, false]) {
       }, 'Retained asset edit')
     })
     await expect(page.getByTestId('tab-bar').getByText('Retained asset edit', { exact: true })).toBeVisible()
+    expect(await page.evaluate(() => {
+      const store = window.__dinksterTest!.app.activeTab()!.store
+      const invocation = { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n0', inputId: 'file', value: {
+          digest: `blake3:${'c'.repeat(64)}`, name: 'unadmitted.bin', size: 7,
+          mediaType: 'application/octet-stream', virtualPath: '',
+        },
+      } }
+      const direct = store.dispatch(invocation)
+      const prepared = store.prepareDispatch(invocation)
+      return { direct: direct.ok, prepared: prepared.ok && prepared.commit().ok,
+        value: store.doc.graphs.g0!.nodes.n0!.values.file }
+    })).toMatchObject({ direct: false, prepared: false, value: { name: 'before.bin' } })
     let release!: () => void
     const acknowledgment = new Promise<void>((resolve) => { release = resolve })
     let requested!: () => void

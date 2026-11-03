@@ -5591,8 +5591,11 @@ export class AppState {
           if (this.admittedWorkflowCandidates.has(candidate)) return []
           const tab = this.tabs.get().find((entry) => entry.store.doc === current)
           if (!tab || this.backendForTab(tab).protocol !== 'dinkster') return []
+          const documentHistory = { revision: history.revision, undo: [], redo: [] }
+          const proposed = workflowAssetRoots(candidate, documentHistory, resolve)
+          const present = new Set(workflowAssetRoots(current, documentHistory, resolve).digests)
+          if (!proposed.digests.some((digest) => !present.has(digest))) return []
           const known = new Set(workflowAssetRoots(current, history, resolve).digests)
-          const proposed = workflowAssetRoots(candidate, { revision: history.revision, undo: [], redo: [] }, resolve)
           if (!proposed.digests.some((digest) => !known.has(digest))) return []
           const diagnostics = [diag('error', 'command', 'command.retention.required',
             'New workflow assets require ownership confirmation through application dispatch')]

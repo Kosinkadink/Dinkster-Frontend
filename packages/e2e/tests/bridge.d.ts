@@ -130,6 +130,8 @@ interface DinksterBridgeTab {
       ok: boolean
       diagnostics?: readonly unknown[]
     }
+    prepareDispatch(invocation: { command: string; params: unknown }):
+      { ok: false } | { ok: true; commit(): { ok: boolean } }
     doc: {
       lineage: string
       root: string
