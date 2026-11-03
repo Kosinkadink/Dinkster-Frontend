@@ -463,6 +463,20 @@ describe('Tab editorKind', () => {
     expect(target?.maskPaint).toEqual({ expectedMaskLinkIds: ['mask'], expectedMaskNetIds: [], paintNodeId: null, expectedPaintOperations: null })
 
     const source = target!.sourceRef
+    expect(app.openImageEditor(target!)).toBe(true)
+    const opened = app.imageEditorTarget.get()!
+    let accept!: () => void
+    const acknowledgment = new Promise<void>((resolve) => { accept = resolve })
+    const retain = vi.mocked(app.connection.retainAssets)
+    retain.mockImplementationOnce(async (owner, declaration) => {
+      await acknowledgment
+      return { ...owner, ...declaration, revision: declaration.revision + 1 }
+    })
+    const admission = app.retainEditorAssets(opened, app.backendForTab(tab), source)
+    const refused = expect(admission).rejects.toThrow('Editor source changed')
+    app.closeImageEditor(opened)
+    accept()
+    await refused
     const operations = `{"version":1,"sourceDigest":"${source.digest}","width":2,"height":1,"commands":[]}`
     expect((await app.dispatchTo(tab, { command: 'image.applyMaskPaint', params: {
       graphId: 'g0', loaderNodeId: 'loader', inputId: 'image', expectedSource: source,

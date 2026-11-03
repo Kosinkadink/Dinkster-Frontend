@@ -29,6 +29,18 @@ rewrites or bolted-on views.
   media by asset-digest reference, and agent actions through the same
   commands and proposal conventions humans use.
 
+## Editor asset ownership
+
+Opening an image or compositor editor still selects its target synchronously.
+Decoded image sessions and compositor drafts wait for independent journaled
+ownership of their known source and resource digests before becoming editable.
+Declarations use the existing document-owner protocol with incomplete roots;
+they do not certify opaque resources or enable collection. Refusal keeps the
+session or draft unavailable and uses the existing editor error surface.
+Closing or replacing the target, changing its source/backend/registry or
+connection lifetime, or disposing the app prevents late admission. Component
+unmount and superseded runtime frames also prevent draft publication.
+
 ## EditorRegistry
 
 `packages/app/src/editors.ts`, exposed as `app.editors`. A descriptor is:

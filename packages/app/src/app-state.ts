@@ -5308,6 +5308,24 @@ export class AppState {
       left.mediaType === right.mediaType && left.virtualPath === right.virtualPath ? current : undefined
   }
 
+  async retainEditorAssets(target: ImageEditorTarget | CompositorEditorTarget, backend: Backend, value: unknown): Promise<void> {
+    const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
+    const registry = backend.registry.get()
+    let unchanged = true
+    const unsubscribe = backend.connection.status.subscribe(() => { unchanged = false })
+    const current = (): boolean => unchanged && !this.disposed && tab !== undefined &&
+      this.imageEditorTarget.get() === target && this.backendFor(backend.id) === backend &&
+      backend.registry.get() === registry && this.tabs.get().some((candidate) =>
+        candidate.id === tab.id && candidate.store === tab.store && this.backendForTab(candidate) === backend) &&
+      (isCompositorEditorTarget(target) ? this.validateCompositorTarget(target) : this.validateImageTarget(target)) !== undefined
+    try {
+      if (tab === undefined || !current() || backend.protocol !== 'dinkster') throw new Error('Editor source is no longer available')
+      const roots = executionAssetRoots({ outputs: { editor: { value } }, artifacts: [] }, () => undefined)
+      if (roots.digests.length > 0) await retainWorkflowAssets(backend.connection, tab.store.doc.lineage, tab.store.revision, roots)
+      if (!current()) throw new Error('Editor source changed during asset admission')
+    } finally { unsubscribe() }
+  }
+
   openImageEditor(target: ImageEditorTarget): boolean {
     const validated = this.validateImageTarget(target)
     const tab = validated ? this.tabs.get().find((candidate) => candidate.id === validated.tabId) : undefined

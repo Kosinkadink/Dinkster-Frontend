@@ -56,6 +56,7 @@ const payload = {
 async function mount(options: {
   readonly storedValue?: Json
   readonly previewState?: typeof state
+  readonly holdOwnership?: boolean
 } = {}) {
   const app = prepareWorkflowApp(new AppState())
   apps.push(app)
@@ -87,10 +88,24 @@ async function mount(options: {
     payload: options.previewState ?? state,
   })
   if (!app.openCompositorEditor(target)) throw new Error('failed to open compositor fixture')
+  let accept!: () => void
+  let refuse!: () => void
+  const acknowledgment = new Promise<void>((resolve, reject) => {
+    accept = resolve
+    refuse = () => reject(new Error('Editor ownership refused'))
+  })
+  if (options.holdOwnership) {
+    vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      await acknowledgment
+      return { ...owner, ...declaration, revision: declaration.revision + 1 }
+    })
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+  }
   const root = document.createElement('div')
   document.body.append(root)
   const dispose = render(() => <CompositorEditor app={app} />, root)
-  return { app, tab, graphId, nodeId, root, dispose }
+  if (!options.holdOwnership) await vi.waitFor(() => expect(root.querySelectorAll('.compositor-layer-row')).toHaveLength(2))
+  return { app, tab, graphId, nodeId, root, dispose, accept, refuse }
 }
 
 afterEach(() => {
@@ -102,6 +117,28 @@ afterEach(() => {
 })
 
 describe('CompositorEditor', () => {
+  it.each(['accepted', 'refused'] as const)('waits for independent editor ownership: %s', async (mode) => {
+    const resourceDigest = `blake3:${'b'.repeat(64)}`
+    const mounted = await mount({ holdOwnership: true, previewState: { ...state, document: {
+      ...imageDocument, resources: { ...imageDocument.resources,
+        r3: { ...imageDocument.resources.r3, digest: resourceDigest } },
+    } } })
+    try {
+      await vi.waitFor(() => expect(mounted.app.connection.retainAssets).toHaveBeenCalledOnce())
+      expect(vi.mocked(mounted.app.connection.retainAssets).mock.calls[0]![1])
+        .toMatchObject({ complete: false, digests: [assetDigest, resourceDigest] })
+      expect(mounted.root.querySelectorAll('.compositor-layer-row')).toHaveLength(0)
+      if (mode === 'refused') mounted.refuse()
+      else mounted.accept()
+      if (mode === 'accepted') {
+        await vi.waitFor(() => expect(mounted.root.querySelectorAll('.compositor-layer-row')).toHaveLength(2))
+      } else {
+        await vi.waitFor(() => expect(mounted.root.textContent).toContain('Editor ownership refused'))
+        expect(mounted.root.querySelectorAll('.compositor-layer-row')).toHaveLength(0)
+      }
+    } finally { mounted.dispose() }
+  })
+
   it('edits layer order and properties, then commits one exact atomic recipe', async () => {
     const mounted = await mount()
     expect(mounted.root.querySelectorAll('.compositor-layer-row')).toHaveLength(2)

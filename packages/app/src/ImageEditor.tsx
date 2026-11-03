@@ -154,6 +154,8 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
       if (!response.ok) throw new Error(`Source image fetch failed (${response.status})`)
       const decoded = await decodePng(new Uint8Array(await response.arrayBuffer()))
       if (!live || generation !== loadGeneration || target() !== request) return
+      await props.app.retainEditorAssets(request, backend, request.sourceRef)
+      if (!live || generation !== loadGeneration || target() !== request) return
       const created = createImageSession(decoded)
       const existingOperations = request.maskPaint?.expectedPaintOperations
       setSession(existingOperations === undefined || existingOperations === null
