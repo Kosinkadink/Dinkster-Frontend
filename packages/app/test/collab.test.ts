@@ -453,6 +453,60 @@ describe('stableActorId', () => {
 })
 
 describe('share', () => {
+  it('retains pending prefix assets before remote adoption after history is cleared', async () => {
+    const server = new FakeCollabServer()
+    const app = prepareWorkflowApp(makeApp(server))
+    const prior = activeTab(app)
+    const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
+      size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
+    expect((await app.dispatchTo(prior, { command: 'node.add', params: { graphId: prior.store.doc.root,
+      type: 'AssetHolder', position: { x: 20, y: 40 }, values: { held: asset('a') } } })).ok).toBe(true)
+    expect(await app.shareActiveTab()).toBeUndefined()
+    const tab = activeTab(app)
+    const shared = sharedSession(app, tab.id)
+    const node = Object.values(shared.doc.graphs[shared.doc.root]!.nodes)[0]!
+    const connection = [...[...server.sessions.values()][0]!.connections][0]!
+    const post = connection.postOp.bind(connection)
+    const postGate = gate()
+    const ownershipGate = gate()
+    const requested = gate()
+    vi.spyOn(connection, 'postOp').mockImplementation(async (op) => {
+      await postGate.promise
+      return post(op)
+    })
+    try {
+      for (const letter of ['b', 'c']) {
+        expect((await app.dispatchTo(tab, { command: 'node.setValue', params: { graphId: shared.doc.root,
+          nodeId: node.id, inputId: 'held', value: asset(letter) } })).ok).toBe(true)
+      }
+      shared.clearHistory()
+      expect(shared.historySnapshot().undo).toEqual([])
+      const peer = prepareWorkflowApp(makeApp(server))
+      expect(await peer.joinCollabSession(app.collabFor(tab.id)!.descriptor.sessionId)).toBeUndefined()
+      const declarations: (readonly string[])[] = []
+      vi.spyOn(app.backendForTab(tab).connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+        declarations.push([...declaration.digests])
+        requested.open()
+        await ownershipGate.promise
+        return { ...owner, ...declaration, revision: 1 }
+      })
+      expect((await peer.dispatchTo(activeTab(peer), { command: 'node.setTitle', params: {
+        graphId: shared.doc.root, nodeId: node.id, title: 'Remote title',
+      } })).ok).toBe(true)
+      await requested.promise
+      expect(declarations[0]).toEqual(['a', 'b', 'c'].map((letter) => asset(letter).digest))
+      expect(shared.doc.graphs[shared.doc.root]!.nodes[node.id]!.title).toBeUndefined()
+      ownershipGate.open()
+      await until(() => shared.doc.graphs[shared.doc.root]!.nodes[node.id]!.title === 'Remote title')
+      expect(shared.doc.graphs[shared.doc.root]!.nodes[node.id]!.values.held).toEqual(asset('c'))
+      postGate.open()
+      await shared.settle()
+    } finally {
+      ownershipGate.open()
+      postGate.open()
+    }
+  })
+
   it.each(['dispatch', 'prepared'] as const)('refuses unadmitted shared asset publication through %s', async (route) => {
     const server = new FakeCollabServer()
     const app = prepareWorkflowApp(makeApp(server))

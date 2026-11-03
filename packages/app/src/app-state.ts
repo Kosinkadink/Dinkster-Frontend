@@ -3864,6 +3864,7 @@ export class AppState {
     revision: number,
     current: WorkflowDocument,
     history: HistorySnapshot,
+    retainedDocuments: readonly WorkflowDocument[],
     stillCurrent: () => boolean,
   ): Promise<void> {
     if (backend === undefined || this.disposed || !stillCurrent()) throw new Error('Remote workflow destination is unavailable')
@@ -3872,7 +3873,7 @@ export class AppState {
     const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
     try {
       const roots = workflowAssetRoots(current, history,
-        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [document])
+        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [document, ...retainedDocuments])
       await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
       if (this.disposed || connectionChanged || !this.backends.get().includes(backend) ||
         backend.registry.get() !== registry || !stillCurrent()) {
@@ -3905,9 +3906,9 @@ export class AppState {
         {
           actorId: this.workspaceActorId,
           schemaResolverFor: (document) => documentResolver(document, resolve),
-          validateCommit: (current, candidate, history) => this.validateWorkflowCommit(current, candidate, history, resolve),
-          beforeRemoteDocument: (document, revision, current, history) => this.confirmRemoteDocumentOwnership(
-            backend, document, revision, current, history,
+          validateCommit: (current, candidate, history, retainedDocuments) => this.validateWorkflowCommit(current, candidate, history, resolve, retainedDocuments),
+          beforeRemoteDocument: (document, revision, current, history, retainedDocuments) => this.confirmRemoteDocumentOwnership(
+            backend, document, revision, current, history, retainedDocuments,
             () => this.workspaceAuthorityEnabled && generation === this.workspaceAuthorityGeneration &&
               (session === undefined || this.tabs.get().some((candidate) =>
                 candidate.store === session && this.backendForTab(candidate) === backend)),
@@ -5788,6 +5789,7 @@ export class AppState {
     candidate: WorkflowDocument,
     history: HistorySnapshot,
     resolve: SchemaResolver,
+    retainedDocuments: readonly WorkflowDocument[] = [],
   ): readonly Diagnostic[] {
     if (this.admittedWorkflowCandidates.has(candidate)) return []
     const tab = this.tabs.get().find((entry) => entry.store.doc === current)
@@ -5796,7 +5798,7 @@ export class AppState {
     const proposed = workflowAssetRoots(candidate, documentHistory, resolve)
     const present = new Set(workflowAssetRoots(current, documentHistory, resolve).digests)
     if (!proposed.digests.some((digest) => !present.has(digest))) return []
-    const known = new Set(workflowAssetRoots(current, history, resolve).digests)
+    const known = new Set(workflowAssetRoots(current, history, resolve, retainedDocuments).digests)
     if (!proposed.digests.some((digest) => !known.has(digest))) return []
     const diagnostics = [diag('error', 'command', 'command.retention.required',
       'New workflow assets require ownership confirmation through application dispatch')]
@@ -6242,13 +6244,13 @@ export class AppState {
       session = await connectSharedSession(connection, coreCommandRegistry([], sessionResolver), {
         actorId,
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
-        validateCommit: (current, candidate, history) => this.validateWorkflowCommit(current, candidate, history, sessionResolver),
-        beforeRemoteDocument: (document, revision, current, history) => {
+        validateCommit: (current, candidate, history, retainedDocuments) => this.validateWorkflowCommit(current, candidate, history, sessionResolver, retainedDocuments),
+        beforeRemoteDocument: (document, revision, current, history, retainedDocuments) => {
           const live = this.tabs.get().find((tab) => tab.store === session)
           const backend = live === undefined
             ? this.backends.get().find((entry) => entry.baseUrl === baseUrl && entry.protocol === 'dinkster')
             : this.backendForTab(live)
-          return this.confirmRemoteDocumentOwnership(backend, document, revision, current, history,
+          return this.confirmRemoteDocumentOwnership(backend, document, revision, current, history, retainedDocuments,
             () => session === undefined || this.tabs.get().some((tab) =>
               tab.store === session && this.backendForTab(tab) === backend))
         },

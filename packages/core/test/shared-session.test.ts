@@ -423,6 +423,44 @@ const nodeIds = (s: SharedDocumentSession): string[] => Object.keys(s.doc.graphs
 // ---------------------------------------------------------------------------
 
 describe('shared DocumentSession', () => {
+  it('includes confirmed and pending prefixes in remote ownership without local history', async () => {
+    const conn = new FakeConnection(baseDoc())
+    const postGate = deferred()
+    const ownershipGate = deferred()
+    conn.postHook = () => postGate.promise
+    const captures: (readonly WorkflowDocument[])[] = []
+    const session = await connectSharedSession(conn, coreCommandRegistry(), {
+      actorId: 'actorA', maxUndo: 0,
+      beforeRemoteDocument: async (_document, _revision, _current, history, retainedDocuments) => {
+        expect(history.undo).toEqual([])
+        captures.push(retainedDocuments)
+        await ownershipGate.promise
+      },
+    })
+    try {
+      expect(session.dispatch(setTitle('n1', 'first')).ok).toBe(true)
+      expect(session.dispatch(setTitle('n1', 'second')).ok).toBe(true)
+      await until(() => conn.postedOps.length === 1)
+      conn.appendForeign('peer', [{ op: 'add', path: ['graphs', 'g0', 'nodes', 'n2', 'title'], value: 'Incoming' }])
+      await until(() => captures.length === 1)
+      expect(captures[0]?.map((document) => document.graphs.g0!.nodes.n1!.title))
+        .toEqual(['second', undefined, 'first', 'second'])
+      expect(session.doc.graphs.g0!.nodes.n2!.title).toBeUndefined()
+      expect(session.dispatch(setTitle('n1', 'third')).ok).toBe(true)
+      ownershipGate.resolve()
+      await until(() => session.doc.graphs.g0!.nodes.n2!.title === 'Incoming')
+      expect(captures[0]?.map((document) => document.graphs.g0!.nodes.n1!.title))
+        .toEqual(['second', undefined, 'first', 'second'])
+      expect(captures[1]?.map((document) => document.graphs.g0!.nodes.n1!.title))
+        .toEqual(['third', undefined, 'first', 'second', 'third'])
+      expect(session.doc.graphs.g0!.nodes.n1!.title).toBe('third')
+    } finally {
+      session.close()
+      ownershipGate.resolve()
+      postGate.resolve()
+    }
+  })
+
   it('serializes incoming confirmations while newer server revisions arrive', async () => {
     const conn = new FakeConnection(baseDoc())
     const first = deferred()

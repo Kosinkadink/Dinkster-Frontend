@@ -68,6 +68,7 @@ export type DocumentCommitPolicy = (
   current: WorkflowDocument,
   candidate: WorkflowDocument,
   history: HistorySnapshot,
+  retainedDocuments?: readonly WorkflowDocument[],
 ) => readonly Diagnostic[]
 
 const defaultSink: ListenerErrorSink = (error, context) => {

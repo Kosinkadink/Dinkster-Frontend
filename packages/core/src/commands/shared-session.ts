@@ -161,6 +161,7 @@ export interface SharedSessionOptions {
     revision: number,
     currentDocument: WorkflowDocument,
     history: HistorySnapshot,
+    retainedDocuments: readonly WorkflowDocument[],
   ) => Promise<void>
 }
 
@@ -208,6 +209,20 @@ const defaultActorId = (): string =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `a${Date.now().toString(36)}${Math.floor(Math.random() * 0xffffffff).toString(36)}`
+
+function sharedRetainedDocuments(
+  current: WorkflowDocument,
+  confirmed: WorkflowDocument,
+  pendingPatches: readonly (readonly WirePatchOp[])[],
+): readonly WorkflowDocument[] {
+  const documents = [current, confirmed]
+  let pendingDocument = confirmed
+  for (const patch of pendingPatches) {
+    pendingDocument = applyOps(pendingDocument as unknown as Json, patch) as unknown as WorkflowDocument
+    documents.push(pendingDocument)
+  }
+  return Object.freeze(documents)
+}
 
 class SharedDocumentSession implements DocumentSession {
   readonly actorId: string
@@ -577,13 +592,7 @@ class SharedDocumentSession implements DocumentSession {
       history,
       get retainedDocuments(): readonly WorkflowDocument[] {
         if (retainedDocuments === undefined) {
-          const documents = [currentDocument, confirmed]
-          let pendingDocument = confirmed
-          for (const patch of pendingPatches) {
-            pendingDocument = applyOps(pendingDocument as unknown as Json, patch) as unknown as WorkflowDocument
-            documents.push(pendingDocument)
-          }
-          retainedDocuments = Object.freeze(documents)
+          retainedDocuments = sharedRetainedDocuments(currentDocument, confirmed, pendingPatches)
         }
         return retainedDocuments
       },
@@ -1049,6 +1058,8 @@ class SharedDocumentSession implements DocumentSession {
    * a fully consistent session.
    */
   private rebase(oldGround: WorkflowDocument, skipped: ReadonlySet<PendingEntry> = new Set()): void {
+    const retainedDocuments = this.validateCommit === undefined ? undefined
+      : sharedRetainedDocuments(this.store.doc, oldGround, this.pending.map((entry) => entry.predicted))
     const entries = this.pending.splice(0)
     const survivors: PendingEntry[] = []
     const conflicts: SessionConflict[] = []
@@ -1070,7 +1081,7 @@ class SharedDocumentSession implements DocumentSession {
           }
           const prepared = this.store.prepareDispatch(entry.invocation)
           const diagnostics = prepared.ok
-            ? this.validateCommit?.(this.store.doc, prepared.document, this.historySnapshot()) ?? []
+            ? this.validateCommit?.(this.store.doc, prepared.document, this.historySnapshot(), retainedDocuments) ?? []
             : prepared.diagnostics
           const outcome = prepared.ok && !hasErrors(diagnostics)
             ? prepared.commit()
@@ -1147,7 +1158,8 @@ class SharedDocumentSession implements DocumentSession {
     while (this.statusSignal.get() === 'catching-up') {
       const current = this.store.doc
       const history = this.historySnapshot()
-      await this.beforeRemoteDocument!(document, revision, current, history)
+      const retainedDocuments = sharedRetainedDocuments(current, this.confirmed, this.pending.map((entry) => entry.predicted))
+      await this.beforeRemoteDocument!(document, revision, current, history, retainedDocuments)
       if (this.statusSignal.get() !== 'catching-up') return false
       if (this.store.doc === current && this.revision === history.revision &&
         ([['undo', this.undoStack], ['redo', this.redoStack]] as const).every(([key, records]) =>

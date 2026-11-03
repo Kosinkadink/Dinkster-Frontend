@@ -206,8 +206,13 @@ and both history stacks before removing the replayed record. A policy refusal
 keeps the record retryable; stale recorded-value conflicts still discard it.
 Rebased intentions validate their newly computed candidate before committing;
 refused intentions drop their history record and report a rebase conflict.
-Remote confirmed documents keep their awaited ownership hook. Unknown holders
-are not certified by these local commit policies.
+Remote confirmed documents await ownership of the incoming document, current
+document, history, confirmed baseline and every pending patch prefix, including
+when local history is disabled or cleared. Editing during that wait confirms a
+fresh snapshot before adoption. Rebase also supplies the pre-rebase held
+snapshots to the policy so previously admitted pending identities remain known
+after history is cleared. Unknown holders are not certified by these local
+commit policies.
 
 Curve, Compositor and GLSL Apply, and unused-definition cleanup, also await
 the final command result. Pending actions disable duplicate submission and
