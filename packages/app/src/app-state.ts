@@ -198,7 +198,7 @@ import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegist
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
-import { admitWorkflowDispatch, reconcileWorkflowRetentions, retainWorkflowAssets, workflowAssetRoots } from './workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions, retainExecutionAssets, retainWorkflowAssets, workflowAssetRoots } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -8743,16 +8743,28 @@ export class AppState {
       const backend = this.backendFor(state.ref.connection)
       if (!backend) continue
       this.hydrated.add(state.key)
+      const registry = this.registryForExecution(state.ref)
       let connectionChanged = false
       const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
+      const current = (): boolean => !this.disposed && !connectionChanged &&
+        this.backendFor(state.ref.connection) === backend &&
+        this.registryForExecution(state.ref) === registry &&
+        this.store.get(state.ref)?.sourceDocument === state.sourceDocument &&
+        this.store.get(state.ref)?.artifact === state.artifact && this.store.get(state.ref)?.status === 'completed'
       const fetched = backend.connection.fetchJobOutputs(state.ref.prompt)
       void fetched
-        .then((outputs) => {
-          if (this.disposed || connectionChanged || this.backendFor(state.ref.connection) !== backend) {
+        .then(async (outputs) => {
+          if (!current()) {
             this.hydrated.delete(state.key)
             return
           }
-          if (Object.keys(outputs).length > 0) this.store.hydrateOutputs(state.ref, outputs)
+          if (Object.keys(outputs).length > 0) {
+            const roots = executionAssetRoots({ ...state, outputs },
+              this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
+            await retainExecutionAssets(backend.connection, state.ref, roots)
+            if (!current()) { this.hydrated.delete(state.key); return }
+            this.store.hydrateOutputs(state.ref, outputs)
+          }
         })
         .catch(() => this.hydrated.delete(state.key))
         .finally(unsubscribe)

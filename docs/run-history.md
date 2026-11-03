@@ -58,6 +58,15 @@ backend, reconnecting, or closing the application discards a late response;
 a subsequent execution update can retry against the live owner. Results
 already displayed remain available when their backend is removed.
 
+Cached-output hydration journals an independent shown-result owner and waits
+for its exact acknowledgment before installing the fetched descriptors.
+Known source-document, snapshot, saved-artifact, preview-file and descriptor
+digests remain retained even when the durable run record is cleared. Opaque
+or truncated runtime values keep this declaration incomplete; it does not
+enable collection. A refusal or stale acknowledgment leaves cached outputs
+unpublished and allows a later execution update to retry. The journal is
+checked read-only on reconnect, without replaying writes or releasing owners.
+
 ## Interrupted runs
 
 When the backend restarts, jobs that were queued or running when the process

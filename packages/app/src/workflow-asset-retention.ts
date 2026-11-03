@@ -1,4 +1,4 @@
-import { uuidv4, type DinksterConnection, type RetainedAssetOwner, type RetainedAssets } from '@dinkster/client'
+import { uuidv4, type DinksterConnection, type ExecutionState, type RetainedAssetOwner, type RetainedAssets } from '@dinkster/client'
 import {
   EMPTY_CONNECTIVITY,
   MASK_PAINT_SOURCE_EXT_KEY,
@@ -7,6 +7,7 @@ import {
   documentNodeResolver,
   elabInputsOf,
   elaborateInterface,
+  executionKey,
   isAssetWidgetInput,
   maskPaintSourceNodeId,
   parseTypedLiteralWire,
@@ -16,6 +17,7 @@ import {
   valueKeyOf,
   type CommandOutcome,
   type DocumentNodeResolver,
+  type ExecutionRef,
   type HistorySnapshot,
   type GraphDef,
   type InputSpec,
@@ -258,6 +260,41 @@ export function workflowAssetRoots(
   return { complete, digests: [...digests].sort(), ...(refusal === undefined ? {} : { refusal }) }
 }
 
+/** Known result identities are roots, but opaque runtime values are never certified complete. */
+export function executionAssetRoots(
+  state: Pick<ExecutionState, 'outputs' | 'artifacts' | 'sourceDocument' | 'artifact'>,
+  resolve: SchemaResolver,
+): ReturnType<typeof workflowAssetRoots> {
+  const digests = new Set<string>()
+  const add = (digest: unknown): void => {
+    if (typeof digest === 'string' && /^blake3:[0-9a-f]{64}$/.test(digest)) digests.add(digest)
+  }
+  add(state.sourceDocument)
+  if (state.artifact !== undefined) {
+    for (const digest of workflowAssetRoots(state.artifact.snapshot,
+      { revision: state.artifact.revision, undo: [], redo: [] }, resolve).digests) add(digest)
+  }
+  for (const artifact of state.artifacts) {
+    add(artifact.digest)
+    add(artifact.preview?.digest)
+  }
+  const visited = new WeakSet<object>()
+  const pending: unknown[] = Object.values(state.outputs).flatMap((outputs) => Object.values(outputs))
+  while (pending.length > 0) {
+    const value = pending.pop()
+    if (typeof value !== 'object' || value === null || visited.has(value)) continue
+    visited.add(value)
+    if (Array.isArray(value)) { for (const entry of value) pending.push(entry); continue }
+    const descriptor = value as Record<string, unknown>
+    if (isAssetRef(value)) add(value.digest)
+    const meta = descriptor['meta']
+    if (typeof meta === 'object' && meta !== null) add((meta as Record<string, unknown>)['digest'])
+    if (Array.isArray(descriptor['elements'])) pending.push(descriptor['elements'])
+    if (isAssetRef(descriptor['value'])) add(descriptor['value'].digest)
+  }
+  return { complete: false, digests: [...digests].sort() }
+}
+
 function retentionMatches(value: RetainedAssets | undefined, owner: RetainedAssetOwner,
   digests: readonly string[], complete: boolean): boolean {
   return value !== undefined && value.scope === owner.scope && value.ownerKind === owner.ownerKind &&
@@ -290,12 +327,16 @@ export async function reconcileWorkflowRetentions(
         if (typeof intent.connectionId === 'string' && intent.connectionId !== connection.id) continue
         if (typeof intent.assetBaseUrl === 'string' && intent.assetBaseUrl !== connection.assetUrl('')) continue
         const owner = intent.owner as RetainedAssetOwner | undefined
+        const contextValid = owner?.ownerKind === 'document'
+          ? typeof owner.ownerId === 'string' && /^workflow-candidate:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
+            typeof intent.documentLineage === 'string' && intent.documentLineage.length > 0 &&
+            Number.isSafeInteger(intent.documentRevision) && (intent.documentRevision as number) >= 0
+          : owner?.ownerKind === 'shown-result' && typeof owner.ownerId === 'string' &&
+            /^execution-result:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
+            typeof intent.executionKey === 'string' && intent.executionKey.length > 0
         if (intent.version !== 3 || intent.connectionId !== connection.id || intent.assetBaseUrl !== connection.assetUrl('') ||
-          owner === undefined || owner === null || owner.scope !== 'local' || owner.ownerKind !== 'document' ||
-          typeof owner.ownerId !== 'string' || !/^workflow-candidate:[a-zA-Z0-9-]+$/.test(owner.ownerId) ||
+          owner === undefined || owner === null || owner.scope !== 'local' || !contextValid ||
           owner.ownerId.length > 512 || key !== `${prefix}${owner.ownerId}` ||
-          typeof intent.documentLineage !== 'string' || intent.documentLineage.length === 0 ||
-          !Number.isSafeInteger(intent.documentRevision) || (intent.documentRevision as number) < 0 ||
           typeof intent.complete !== 'boolean' || !Array.isArray(intent.digests) || intent.digests.length > 4096 ||
           !intent.digests.every((digest: unknown, index: number, digests: unknown[]) =>
             typeof digest === 'string' && /^blake3:[0-9a-f]{64}$/.test(digest) &&
@@ -322,14 +363,33 @@ export async function retainWorkflowAssets(
   roots: ReturnType<typeof workflowAssetRoots>,
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
 ): Promise<void> {
+  await retainAssetRoots(connection, 'document', { documentLineage, documentRevision }, roots, storage)
+}
+
+export async function retainExecutionAssets(
+  connection: DinksterConnection,
+  ref: ExecutionRef,
+  roots: ReturnType<typeof workflowAssetRoots>,
+  storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
+): Promise<void> {
+  await retainAssetRoots(connection, 'shown-result', { executionKey: executionKey(ref) }, roots, storage)
+}
+
+async function retainAssetRoots(
+  connection: DinksterConnection,
+  ownerKind: 'document' | 'shown-result',
+  context: { readonly documentLineage: string; readonly documentRevision: number } | { readonly executionKey: string },
+  roots: ReturnType<typeof workflowAssetRoots>,
+  storage: Pick<Storage, 'setItem'>,
+): Promise<void> {
   if (roots.refusal !== undefined) throw new Error(roots.refusal)
   const digests = roots.digests
   if (digests.length > 4096) throw new Error('Workflow exceeds the retained identity limit')
-  const owner = { scope: 'local', ownerKind: 'document' as const, ownerId: `workflow-candidate:${uuidv4()}` }
+  const owner = { scope: 'local', ownerKind, ownerId: `${ownerKind === 'document' ? 'workflow-candidate' : 'execution-result'}:${uuidv4()}` }
   const key = scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)
   const intent = {
     version: 3, connectionId: connection.id, assetBaseUrl: connection.assetUrl(''), owner, digests, complete: roots.complete,
-    documentLineage, documentRevision,
+    ...context,
   }
   storage.setItem(key, JSON.stringify(intent))
   const matches = (value: RetainedAssets | undefined): boolean =>

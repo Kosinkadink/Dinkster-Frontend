@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   asConnectionId,
   asPromptId,
+  executionKey,
   setLocale,
   type DinksterNodesPayload,
   type ExecutionRef,
@@ -28,6 +29,7 @@ import { buildScene, defaultTokens } from '@dinkster/canvas'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
 import { historicalSchemas } from './historical-schemas.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
+import { reconcileWorkflowRetentions } from '../src/workflow-asset-retention.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -527,6 +529,8 @@ describe('backend protocols', () => {
     'accepts delayed cached outputs only from the unchanged live owner: %s', async (scenario) => {
       const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
       const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('cached-job') }
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+        ({ ...owner, ...declaration, revision: 1 }))
       const outputs = { image: { result: { typeId: 'asset<media/image>',
         meta: { digest: `blake3:${'e'.repeat(64)}`, mediaType: 'image/png' } } } }
       let finish!: (value: typeof outputs) => void
@@ -547,10 +551,67 @@ describe('backend protocols', () => {
       } else if (scenario !== 'disposed') {
         const live = app.backendFor(backend.id) ?? app.addBackend('http://native:8000', 'Replacement', false, 'dinkster')!
         const fresh = { image: { result: { typeId: 'INT', value: 37 } } }
+        vi.spyOn(live.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+          ({ ...owner, ...declaration, revision: 1 }))
         vi.spyOn(live.connection, 'fetchJobOutputs').mockResolvedValue(fresh)
         app.store.apply({ kind: 'started', execution: { ...ref, prompt: asPromptId('next-job') }, timestamp: 3 })
         await new Promise<void>((resolve) => setImmediate(resolve))
         expect(app.store.get(ref)?.outputs).toEqual(fresh)
+      }
+    },
+  )
+
+  it.each(['accepted', 'refused', 'removed', 'disconnected', 'disposed'] as const)(
+    'journals and confirms cached result ownership before publication: %s', async (scenario) => {
+      const backend = app.backends.get()[0]!
+      const ownerBackend = scenario === 'removed' ? addOffline('http://native:8000', 'Native') : backend
+      const ref: ExecutionRef = { connection: ownerBackend.id, prompt: asPromptId('held-cache') }
+      const digest = (letter: string) => `blake3:${letter.repeat(64)}`
+      const outputs = { image: { result: { typeId: 'list<ASSET>', elementsTruncated: true,
+        elements: [{ typeId: 'ASSET', meta: { digest: digest('e') } },
+          { typeId: 'ASSET', meta: { digest: digest('f') } }] } } }
+      vi.spyOn(ownerBackend.connection, 'fetchJobOutputs').mockResolvedValue(outputs)
+      let acknowledge!: () => void
+      let requested!: () => void
+      const request = new Promise<void>((resolve) => { requested = resolve })
+      let journalKey = ''
+      let acknowledgment: Awaited<ReturnType<typeof ownerBackend.connection.retainAssets>>
+      vi.spyOn(ownerBackend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
+        journalKey = `dinkster.workflow-retentions.${owner.ownerId}`
+        acknowledgment = { ...owner, ...declaration, revision: 1 }
+        requested()
+        return new Promise((resolve, reject) => {
+          acknowledge = () => scenario === 'refused' ? reject(new Error('retention refused')) : resolve(acknowledgment)
+        })
+      })
+      vi.spyOn(ownerBackend.connection, 'fetchRetainedAssets').mockImplementation(async () =>
+        scenario === 'refused' ? undefined : acknowledgment)
+      app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
+      app.store.hydrateArtifacts(ref, [{ nodeId: 'image', digest: digest('a'), name: 'result.bin', size: 7,
+        mediaType: 'application/octet-stream', virtualPath: '', preview: { digest: digest('c'), name: 'preview.png',
+          size: 3, mediaType: 'image/png', virtualPath: '' } }])
+      app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
+      await request
+      expect(JSON.parse(localStorage.getItem(journalKey)!)).toMatchObject({
+        owner: { ownerKind: 'shown-result' }, executionKey: executionKey(ref),
+        digests: [digest('a'), digest('c'), digest('e'), digest('f')], complete: false,
+      })
+      expect(acknowledgment!).toMatchObject({ ownerKind: 'shown-result', revision: 1, complete: false,
+        digests: [digest('a'), digest('c'), digest('e'), digest('f')] })
+      expect(app.store.get(ref)?.outputs).toEqual({})
+      if (scenario === 'removed') app.removeBackend(ownerBackend.id)
+      if (scenario === 'disconnected') { ownerBackend.connection.connect(); ownerBackend.connection.disconnect() }
+      if (scenario === 'disposed') app.dispose()
+      acknowledge()
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(app.store.get(ref)?.outputs).toEqual(scenario === 'accepted' ? outputs : {})
+      expect(localStorage.getItem(journalKey)).not.toBeNull()
+      if (scenario === 'accepted') {
+        vi.spyOn(ownerBackend.connection, 'clearHistory').mockResolvedValue(1)
+        expect(await app.clearRunHistory(ownerBackend.id)).toBe(1)
+        expect(app.store.get(ref)?.outputs).toEqual(outputs)
+        expect(await reconcileWorkflowRetentions(ownerBackend.connection, new AbortController().signal)).toBe(true)
+        expect(localStorage.getItem(journalKey)).not.toBeNull()
       }
     },
   )
