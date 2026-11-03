@@ -242,6 +242,7 @@ describe('retained app dispatch', () => {
       const requested = deferred<{ owner: RetainedAssetOwner; declaration: RetainedAssetDeclaration }>()
       const acknowledged = deferred<RetainedAssets>()
       vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+        if (declaration.digests.includes(asset('c').digest)) return { ...owner, ...declaration, revision: 1 }
         requested.resolve({ owner, declaration })
         return acknowledged.promise
       })
@@ -273,7 +274,7 @@ describe('retained app dispatch', () => {
         expect(app.activeTab()!.id).toBe(tab.id)
         expect(app.activeTab()!.store).not.toBe(tab.store)
       }
-      if (scenario === 'edited') expect(tab.store.dispatch(replace('c')).ok).toBe(true)
+      if (scenario === 'edited') expect((await app.dispatchTo(tab, replace('c'))).ok).toBe(true)
       if (scenario === 'registry') backend.registry.set({ ...registry, hash: 'changed' })
       if (scenario === 'target') {
         const other = app.addBackend('http://other:8000', 'Other', false, 'dinkster')!
@@ -306,6 +307,34 @@ describe('retained app dispatch', () => {
       }
     },
   )
+
+  it.each(['dispatch', 'prepared'] as const)('refuses unadmitted local publication through %s', async (route) => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    app = createWorkflowApp([schema])
+    app.openDocument(session().doc, 'Existing')
+    await app.confirmStartupOwnership()
+    const tab = app.activeTab()!
+    vi.mocked(app.connection.retainAssets).mockClear()
+    const original = tab.store.doc
+    const history = tab.store.historySnapshot()
+    const candidate = route === 'prepared' ? tab.store.prepareDispatch!(replace('b')) : undefined
+    const outcome = route === 'dispatch' ? tab.store.dispatch(replace('b'))
+      : candidate!.ok ? candidate!.commit() : candidate!
+    expect(outcome).toMatchObject({ ok: false, diagnostics: [{ code: 'command.retention.required' }] })
+    expect(tab.store.doc).toBe(original)
+    expect(tab.store.historySnapshot()).toEqual(history)
+    app.flushPersistTabs(true)
+    const persisted = JSON.parse(localStorage.getItem(scopedStorageKey('dinkster.openTabs'))!)
+    expect(persisted.tabs.find((entry: { doc: WorkflowDocument }) => entry.doc.lineage === original.lineage)
+      .doc.graphs.g0.nodes.n0.values.files).toEqual([asset('a')])
+    expect(app.connection.retainAssets).not.toHaveBeenCalled()
+    expect((await app.dispatchTo(tab, replace('b'))).ok).toBe(true)
+    expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('a')])
+    expect(tab.store.redo()).toBe(true)
+    expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
+  })
 
   it.each(['valid', 'malformed'] as const)('keeps asset-neutral commands synchronous with %s existing identities', (scenario) => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
@@ -351,6 +380,7 @@ describe('retained workflow opens', () => {
       const response = deferred<RetainedAssets>()
       let owner!: RetainedAssetOwner
       vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (key, declaration) => {
+        if (declaration.digests.includes(asset('b').digest)) return { ...key, ...declaration, revision: 1 }
         owner = key
         const journal = JSON.parse(localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${key.ownerId}`))!)
         expect(journal.digests).toEqual([asset('c').digest])
@@ -365,7 +395,7 @@ describe('retained workflow opens', () => {
       expect(app.activeTab()).toBe(previous)
       expect(app.tabs.get()).toBe(previousTabs)
       expect(declaration).toEqual({ revision: 0, complete: true, digests: [asset('c').digest] })
-      if (scenario === 'edited') previous.store.dispatch(replace('b'))
+      if (scenario === 'edited') expect((await app.dispatchTo(previous, replace('b'))).ok).toBe(true)
       if (scenario === 'closed') app.closeTab(previous.id)
       if (scenario === 'replacement') app.openDocument(session([asset('b')]).doc, 'Replacement')
       if (scenario === 'registry') app.registry.set(undefined)
@@ -427,6 +457,7 @@ describe('retained workflow opens', () => {
       const requested = deferred<RetainedAssetDeclaration>()
       let owner!: RetainedAssetOwner
       vi.spyOn(source.connection, 'retainAssets').mockImplementation(async (key, declaration) => {
+        if (declaration.digests.includes(asset('b').digest)) return { ...key, ...declaration, revision: 1 }
         owner = key
         expect(localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${key.ownerId}`))).not.toBeNull()
         requested.resolve(declaration)
@@ -439,7 +470,7 @@ describe('retained workflow opens', () => {
       expect(declaration).toEqual({ revision: 0, complete: scenario !== 'unknown-schema', digests: [asset('a').digest] })
       expect(app.activeTab()).toBe(previous)
       expect(app.tabs.get().some((tab) => tab.execution)).toBe(false)
-      if (scenario === 'edited') previous.store.dispatch(replace('b'))
+      if (scenario === 'edited') expect((await app.dispatchTo(previous, replace('b'))).ok).toBe(true)
       if (scenario === 'closed') app.closeTab(previous.id)
       if (scenario === 'disconnected') {
         source.connection.connect()

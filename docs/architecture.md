@@ -192,6 +192,14 @@ introduced known identities; it does not certify unknown holders. Existing
 malformed identities and census uncertainty alone do not delay asset-neutral
 commands or migrations.
 
+App-owned local sessions also validate at the store's synchronous publication
+boundary, including exposed prepared commits and history replay. A new known
+identity absent from the current document and history refuses direct publication;
+the application route grants only its exact candidate a transient commit permit
+after admission. Refusal preserves document, revision, history and persistence.
+The optional core policy does not change default session behavior. Shared local
+dispatch/rebase and unknown holders are not certified by this local policy.
+
 Curve, Compositor and GLSL Apply, and unused-definition cleanup, also await
 the final command result. Pending actions disable duplicate submission and
 editor mutation; refused edits remain open. A completion cannot close or add

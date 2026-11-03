@@ -63,6 +63,13 @@ export type PreparedDocumentDispatch =
  */
 export type ListenerErrorSink = (error: unknown, context: string) => void
 
+/** Synchronous publication policy; must not mutate the store it validates. */
+export type DocumentCommitPolicy = (
+  current: WorkflowDocument,
+  candidate: WorkflowDocument,
+  history: HistorySnapshot,
+) => readonly Diagnostic[]
+
 const defaultSink: ListenerErrorSink = (error, context) => {
   // eslint-disable-next-line no-console
   console.error(`[DocumentStore] listener threw during ${context}:`, error)
@@ -377,6 +384,7 @@ export class DocumentStore implements DocumentStoreContract {
     private readonly maxUndo = 200,
     private readonly onListenerError: ListenerErrorSink = defaultSink,
     private readonly executionContext: () => CommandExecutionContext = () => ({ kind: 'initial' }),
+    private readonly validateCommit?: DocumentCommitPolicy,
   ) {
     // Ownership boundary (CO1): the store never retains or exposes caller-
     // mutable data. The initial document is validated, deep-copied, and
@@ -570,6 +578,8 @@ export class DocumentStore implements DocumentStoreContract {
           return { ok: false, diagnostics: [diag('error', 'command', 'command.candidate.stale', 'Prepared command is stale or already consumed')] }
         }
         consumed = true
+        const diagnostics = this.validateCommit?.(currentDocument, outcome.doc, currentHistory) ?? []
+        if (hasErrors(diagnostics)) return { ok: false, diagnostics }
         return this.publishDispatch(ownedInvocation, outcome)
       },
     })
@@ -612,9 +622,11 @@ export class DocumentStore implements DocumentStoreContract {
   }
 
   undo(): boolean {
-    const record = this.undoStack.pop()
+    const record = this.undoStack.at(-1)
     if (!record) return false
     const { doc, applied } = this.replay(record.inverse)
+    if (hasErrors(this.validateCommit?.(this.doc, doc, this.historySnapshot()) ?? [])) return false
+    this.undoStack.pop()
     this.redoStack.push(record)
     this.revisionCounter += 1
     const revision = this.revisionCounter
@@ -623,9 +635,11 @@ export class DocumentStore implements DocumentStoreContract {
   }
 
   redo(): boolean {
-    const record = this.redoStack.pop()
+    const record = this.redoStack.at(-1)
     if (!record) return false
     const { doc, applied } = this.replay(record.forward)
+    if (hasErrors(this.validateCommit?.(this.doc, doc, this.historySnapshot()) ?? [])) return false
+    this.redoStack.pop()
     this.undoStack.push(record)
     this.revisionCounter += 1
     const revision = this.revisionCounter

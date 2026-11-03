@@ -272,13 +272,16 @@ describe('AppState multi-window workspace', () => {
       app.openDocument(workflow(), 'Shared workflow')
       const tab = app.tabs.get().find((candidate) => candidate.id === 'multi-window-workflow')!
       const backend = app.addBackend('http://workspace.test', 'Workspace source', false, 'dinkster')!
+      backend.registry.set(app.registry.get())
       app.setTabTarget(tab.id, backend.id)
       const digest = `blake3:${'a'.repeat(64)}`
       const previousDigest = `blake3:${'b'.repeat(64)}`
-      expect(tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1',
-        inputId: 'held', value: { digest: previousDigest, name: 'previous.bin', size: 9, mediaType: 'application/octet-stream', virtualPath: '' } } }).ok).toBe(true)
-      expect(tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1',
-        inputId: 'held', value: { digest, name: 'held.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } } }).ok).toBe(true)
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+        ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+      expect((await app.dispatchTo(tab, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1',
+        inputId: 'held', value: { digest: previousDigest, name: 'previous.bin', size: 9, mediaType: 'application/octet-stream', virtualPath: '' } } })).ok).toBe(true)
+      expect((await app.dispatchTo(tab, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1',
+        inputId: 'held', value: { digest, name: 'held.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } } })).ok).toBe(true)
       let acknowledge!: () => void
       let requested!: () => void
       let released = false

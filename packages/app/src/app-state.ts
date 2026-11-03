@@ -2923,6 +2923,7 @@ export class AppState {
     }
   }
   private disposed = false
+  private readonly admittedWorkflowCandidates = new WeakSet<WorkflowDocument>()
   private readonly unsubscribePackLocale: () => void
   private readonly unsubscribeAppView: () => void
 
@@ -5586,6 +5587,18 @@ export class AppState {
       // A caller-provided store (shared session) replaces the local default.
       store: store ?? createLocalSession(document, coreCommandRegistry([], resolve), {
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, resolve),
+        validateCommit: (current, candidate, history) => {
+          if (this.admittedWorkflowCandidates.has(candidate)) return []
+          const tab = this.tabs.get().find((entry) => entry.store.doc === current)
+          if (!tab || this.backendForTab(tab).protocol !== 'dinkster') return []
+          const known = new Set(workflowAssetRoots(current, history, resolve).digests)
+          const proposed = workflowAssetRoots(candidate, { revision: history.revision, undo: [], redo: [] }, resolve)
+          if (!proposed.digests.some((digest) => !known.has(digest))) return []
+          const diagnostics = [diag('error', 'command', 'command.retention.required',
+            'New workflow assets require ownership confirmation through application dispatch')]
+          this.reportProblems(tab.id, diagnostics)
+          return diagnostics
+        },
       }),
       graphStack: createSignal<readonly string[]>([document.root]),
       instancePath: createSignal<readonly string[]>([]),
@@ -5775,9 +5788,18 @@ export class AppState {
         return this.admitPreparedWorkflowDispatch(tab, prepared)
       }
     }
-    const outcome = prepared === undefined ? tab.store.dispatch(effective) : prepared.ok ? prepared.commit() : prepared
+    const outcome = prepared === undefined ? tab.store.dispatch(effective) : prepared.ok ? this.commitAdmittedWorkflowCandidate(prepared) : prepared
     if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
     return outcome
+  }
+
+  private commitAdmittedWorkflowCandidate(prepared: Extract<ReturnType<NonNullable<DocumentSession['prepareDispatch']>>, { readonly ok: true }>): CommandOutcome {
+    this.admittedWorkflowCandidates.add(prepared.document)
+    try {
+      return prepared.commit()
+    } finally {
+      this.admittedWorkflowCandidates.delete(prepared.document)
+    }
   }
 
   dispatchRetainedTo(tab: Tab, invocation: CommandInvocation, stillWanted: () => boolean = () => true): Promise<CommandOutcome> {
@@ -5807,7 +5829,7 @@ export class AppState {
       }
       const outcome = await admitWorkflowDispatch(
         backend.connection,
-        prepared,
+        { ...prepared, commit: () => this.commitAdmittedWorkflowCandidate(prepared) },
         this.resolverWithVirtualNodes(registry.resolve),
         () => {
           const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
