@@ -88,9 +88,9 @@ candidate's history record is installed before document observers run.
 
 Image apply and image-document export commands use an awaited retained
 dispatch path. Native commands through `AppState.dispatchTo` also use that path
-when the candidate introduces a known asset digest, loses a previously complete
-census, or contains malformed ownership data. Commands without those changes
-remain synchronous. The selection compares the captured current and candidate
+when the candidate introduces a known asset digest. Existing malformed identities
+and census uncertainty alone do not delay asset-neutral commands or migrations.
+The selection compares the captured current and candidate
 documents; admission includes their history and shared pending roots. Direct
 session dispatch is not covered by this application-level selection.
 The retained path journals the exact backend, owner, root union and document

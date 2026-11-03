@@ -304,7 +304,7 @@ describe('ASSET widget modal integration', () => {
     }
     const dispatchTo = vi.fn()
     const backend = { protocol: 'dinkster', id: 'native', connection }
-    const app = { backendForTab: () => backend, dispatchTo, widgetRegistry: { kind: () => undefined } } as unknown as AppState
+    const app = { backendForTab: () => backend, retainPickerAssets: vi.fn().mockResolvedValue(undefined), dispatchTo, widgetRegistry: { kind: () => undefined } } as unknown as AppState
     const ed: WidgetEditorState = {
       ...widgetState('ASSET', { accept: ['image/png'] }, missing),
       missingAssetDigest: missing.digest,
@@ -324,6 +324,7 @@ describe('ASSET widget modal integration', () => {
       if (offline) expect(root.textContent).toContain('Mount discovery offline')
       const pick = [...root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((entry) => entry.textContent?.includes(offline ? 'local.png' : 'federated.png'))!
       pick.click()
+      await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
       root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
       expect(dispatchTo).toHaveBeenLastCalledWith(ed.tab, {
         command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: offline ? local : remote },
@@ -371,15 +372,18 @@ describe('ASSET widget modal integration', () => {
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial,
     }
+    const backend = { protocol: 'dinkster', id: 'native', connection }
+    const retainPickerAssets = vi.fn().mockResolvedValue(undefined)
     const app = {
-      backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection }),
+      backendForTab: () => backend,
+      retainPickerAssets,
       dispatchTo,
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const unmount = mountEditor
       ? render(() => <WidgetEditor app={app} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />, root)
       : () => {}
-    return { root, close, dispatchTo, connection, ed, digestA, digestB, unmount }
+    return { root, close, dispatchTo, connection, ed, digestA, digestB, unmount, app, retainPickerAssets }
   }
 
   it('uses grouped model variants with kind-scoped scans and commits an exact variant ref', async () => {
@@ -398,7 +402,7 @@ describe('ASSET widget modal integration', () => {
     }))
     const choices = mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')
     choices[1]!.click()
-    expect(choices[1]!.classList.contains('selected')).toBe(true)
+    await vi.waitFor(() => expect(choices[1]!.classList.contains('selected')).toBe(true))
     expect(mounted.root.querySelectorAll('[data-testid="logical-model-conflict"]')).toHaveLength(1)
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
@@ -419,16 +423,56 @@ describe('ASSET widget modal integration', () => {
     mounted.unmount()
   })
 
+  it('keeps queued picks private until acknowledgement and preserves accepted picks after refusal', async () => {
+    const mounted = catalogAssetEditor('model/checkpoint', {
+      kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.MODEL' } },
+    })
+    let accept!: () => void
+    mounted.retainPickerAssets.mockImplementationOnce(() => new Promise<void>((resolve) => { accept = resolve }))
+    mounted.retainPickerAssets.mockRejectedValueOnce(new Error('Picker ownership refused'))
+    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
+    const choices = mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')
+    choices[1]!.click()
+    choices[0]!.click()
+    await vi.waitFor(() => expect(accept).toBeTypeOf('function'))
+    expect(mounted.root.querySelectorAll('[data-testid="asset-chip"]')).toHaveLength(0)
+    expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(true)
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    accept()
+    await vi.waitFor(() => expect(mounted.root.textContent).toContain('Picker ownership refused'))
+    expect(mounted.root.querySelectorAll('[data-testid="asset-chip"]')).toHaveLength(1)
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+    expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({ params: { value: [{ digest: mounted.digestB }] } })
+    mounted.unmount()
+  })
+
+  it('does not commit a pending pick after cancellation', async () => {
+    const mounted = catalogAssetEditor('model/checkpoint')
+    let accept!: () => void
+    mounted.retainPickerAssets.mockImplementationOnce(() => new Promise<void>((resolve) => { accept = resolve }))
+    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
+    mounted.root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+    await vi.waitFor(() => expect(accept).toBeTypeOf('function'))
+    const cancel = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.toLowerCase() === 'cancel')!
+    cancel.click()
+    expect(mounted.close).toHaveBeenCalledOnce()
+    mounted.unmount()
+    accept()
+    await new Promise<void>((resolve) => queueMicrotask(resolve))
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
+  })
+
   it('stages an empty selection through Remove and only commits at the footer', async () => {
     const mounted = catalogAssetEditor('model/checkpoint')
     await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
 
     expect(mounted.root.querySelector('[data-testid="asset-selection-remove"]')).toBeNull()
     mounted.root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+    await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-selection-remove"]')).not.toBeNull())
     const remove = mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-selection-remove"]')
     expect(remove).not.toBeNull()
     remove!.click()
-    expect(mounted.root.querySelector('[data-testid="asset-selection-remove"]')).toBeNull()
+    await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-selection-remove"]')).toBeNull())
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
     expect(mounted.dispatchTo).toHaveBeenCalledOnce()
@@ -693,7 +737,7 @@ describe('ASSET widget modal integration', () => {
     })
     await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
     mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')[1]!.click()
-    expect(mounted.root.querySelector('[data-testid="asset-chip"]')!.textContent).toContain('shared.safetensors')
+    await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-chip"]')?.textContent).toContain('shared.safetensors'))
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
     expect(mounted.dispatchTo).toHaveBeenCalledOnce()
@@ -728,9 +772,9 @@ describe('ASSET widget modal integration', () => {
     expect(canonical.classList.contains('selected')).toBe(true)
     expect(mounted.root.querySelector('[data-testid="logical-model-variant-details"]')).not.toBeNull()
     canonical.click()
-    expect(mounted.root.querySelectorAll('[data-testid="asset-chip"]')).toHaveLength(0)
+    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="asset-chip"]')).toHaveLength(0))
     canonical.click()
-    expect(mounted.root.querySelectorAll('[data-testid="asset-chip"]')).toHaveLength(1)
+    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="asset-chip"]')).toHaveLength(1))
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
     const value = (mounted.dispatchTo.mock.calls[0]?.[1] as { params: { value: readonly typeof aliasRef[] } }).params.value
     expect(value).toHaveLength(1)
@@ -809,9 +853,11 @@ describe('ASSET widget modal integration', () => {
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial,
     }
+    const backend = { protocol: 'dinkster', id: 'native', connection, scopedClient: { remoteChoiceAuthority: () => 0 } }
     const app = {
       backendsTick: createCoreSignal(0),
-      backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection, scopedClient: { remoteChoiceAuthority: () => 0 } }),
+      backendForTab: () => backend,
+      retainPickerAssets: vi.fn().mockResolvedValue(undefined),
       dispatchTo,
       widgetRegistry: { kind: () => undefined },
       widgetRegistryForTab: () => app.widgetRegistry,
@@ -862,9 +908,11 @@ describe('ASSET widget modal integration', () => {
   it('keeps an exact staged file descriptor across source-option browsing without committing navigation', async () => {
     const mounted = catalogAssetEditor('model/vae', { kind: 'union', names: ['COMBO', 'ASSET'] }, 'pixel_space', false)
     const connection = { ...mounted.connection, listAssetSelections: vi.fn().mockResolvedValue([{ name: 'pixel_space', shape: 'literal' }]) }
+    const backend = { protocol: 'dinkster', id: 'native', connection, scopedClient: { remoteChoiceAuthority: () => 0 } }
     const app = {
       backendsTick: createCoreSignal(0),
-      backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection, scopedClient: { remoteChoiceAuthority: () => 0 } }),
+      backendForTab: () => backend,
+      retainPickerAssets: mounted.retainPickerAssets,
       dispatchTo: mounted.dispatchTo, widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const ed: WidgetEditorState = { ...mounted.ed, spec: { ...mounted.ed.spec!, selection: true } }
@@ -875,6 +923,7 @@ describe('ASSET widget modal integration', () => {
     await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(3))
     const files = mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')
     files[1]!.click()
+    await vi.waitFor(() => expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
     button('Back to source options').click()
     button('Browse files').click()
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
@@ -946,6 +995,7 @@ describe('ASSET widget modal integration', () => {
     expect(row.textContent).toContain(candidate.digest)
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     row.click()
+    await vi.waitFor(() => expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
     expect(mounted.dispatchTo).toHaveBeenCalledOnce()
@@ -996,6 +1046,7 @@ describe('ASSET widget modal integration', () => {
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-retry-match"]')!.click()
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-match-candidate"]')!.click()
+    await vi.waitFor(() => expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
     expect(mounted.dispatchTo).toHaveBeenCalledOnce()
@@ -1087,6 +1138,7 @@ describe('ASSET widget modal integration', () => {
     const backend = { protocol: 'dinkster', baseUrl: '', connection: { ...assetLocationMethods, uploadNamedAsset }, registry: { listCollections: () => [] } }
     const app = {
       backendForTab: () => backend,
+      retainPickerAssets: vi.fn().mockResolvedValue(undefined),
       dispatchTo,
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
@@ -1135,7 +1187,7 @@ describe('ASSET widget modal integration', () => {
     // The upload stages into the selection panel; Apply commits.
     expect(close).not.toHaveBeenCalled()
     expect(dispatchTo).not.toHaveBeenCalled()
-    expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain('byte-proof.bin')
+    await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain('byte-proof.bin'))
     root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
     await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
     expect(dispatchTo).toHaveBeenCalledOnce()
@@ -1183,6 +1235,7 @@ describe('ASSET widget modal integration', () => {
       initial: null,
     }
     const app = {
+      retainPickerAssets: vi.fn().mockResolvedValue(undefined),
       backendForTab: vi.fn().mockReturnValue({
         protocol: 'dinkster',
         id: 'native',
@@ -1358,6 +1411,7 @@ describe('ASSET widget modal integration', () => {
       initial: null,
     }
     const app = {
+      retainPickerAssets: vi.fn().mockResolvedValue(undefined),
       backendForTab: vi.fn().mockReturnValue({ protocol: 'dinkster', id: 'native', connection: {
         ...assetLocationMethods,
         uploadMediaAsset,

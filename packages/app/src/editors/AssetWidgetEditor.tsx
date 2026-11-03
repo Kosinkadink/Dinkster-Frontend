@@ -219,29 +219,54 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const [assetSelection, setAssetSelection] = createSolidSignal<readonly AssetRef[]>(
     isAssetRefArray(ed.initial) ? ed.initial : isAssetRef(ed.initial) ? [ed.initial] : [],
   )
+  const [pendingSelections, setPendingSelections] = createSolidSignal(0)
+  let selectionQueue = Promise.resolve()
+  const stageAssetSelection = (
+    change: (current: readonly AssetRef[]) => readonly AssetRef[],
+    published: () => void = () => {},
+  ): Promise<boolean> => {
+    setPendingSelections((count) => count + 1)
+    const operation = selectionQueue.then(async () => {
+      if (!live || props.app.backendForTab(ed.tab) !== uploadBackend || activeProjectId() !== project) return false
+      const current = assetSelection()
+      const candidate = change(current)
+      if (candidate.some((ref) => !current.some((held) => held.digest === ref.digest))) {
+        await props.app.retainPickerAssets(ed.tab, uploadBackend, candidate)
+      }
+      if (!live || props.app.backendForTab(ed.tab) !== uploadBackend || activeProjectId() !== project) return false
+      setAssetSelection(candidate)
+      setAssetError(undefined)
+      published()
+      return true
+    }).catch((error: unknown) => {
+      if (live) setAssetError(error instanceof Error ? error.message : String(error))
+      return false
+    }).finally(() => { if (live) setPendingSelections((count) => count - 1) })
+    selectionQueue = operation.then(() => {})
+    return operation
+  }
   const sameAssetRef = (a: AssetRef, b: AssetRef): boolean =>
     a.digest === b.digest && a.virtualPath === b.virtualPath
   /** Append in selection order; picking an already-selected asset removes it. */
-  const toggleAssetSelection = (ref: AssetRef): void => {
-    setAssetSelection((current) =>
+  const toggleAssetSelection = (ref: AssetRef, published?: () => void): Promise<boolean> =>
+    stageAssetSelection((current) =>
       current.some((r) => sameAssetRef(r, ref))
         ? current.filter((r) => !sameAssetRef(r, ref))
         : [...current, ref],
+      published,
     )
-  }
   const removeAssetSelection = (ref: AssetRef, index: number): void => {
     if (!sourceUpload) {
-      toggleAssetSelection(ref)
+      void toggleAssetSelection(ref)
       return
     }
-    setAssetSelection((current) => [...current.slice(0, index), ...current.slice(index + 1)])
+    void stageAssetSelection((current) => [...current.slice(0, index), ...current.slice(index + 1)])
   }
   /** Generic picks deduplicate; source lists preserve upload order and duplicates. */
-  const addAssetSelection = (ref: AssetRef): void => {
-    setAssetSelection((current) =>
+  const addAssetSelection = (ref: AssetRef): Promise<boolean> =>
+    stageAssetSelection((current) =>
       sourceUpload ? [...current, ref] : current.some((r) => sameAssetRef(r, ref)) ? current : [...current, ref],
     )
-  }
   let ownedAssetUrl: string | undefined
   let assetPreviewRequest = 0
   const replaceAssetPreview = (preview: AssetPreview, ownedUrl?: string): void => {
@@ -474,10 +499,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       // Uploads stage into the selection like browsed picks; the footer
       // Apply button commits. The local file preview is already showing.
       if (assetMulti) {
-        addAssetSelection(ref)
+        if (!await addAssetSelection(ref)) return false
         void publishAssetRefPreview(ref)
       } else {
-        setAssetSelection([ref])
+        if (!await stageAssetSelection(() => [ref])) return false
       }
       setAssetSelectedItem(undefined)
       setAssetSelectedModel(undefined)
@@ -508,30 +533,29 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const pickAssetRef = (ref: AssetRef): void => {
     if (assetUploading()) return
     if (assetMulti) {
-      const adding = !assetSelection().some((selected) => sameAssetRef(selected, ref))
-      toggleAssetSelection(ref)
-      if (adding) void publishAssetRefPreview(ref)
+      void toggleAssetSelection(ref, () => {
+        if (assetSelection().some((selected) => sameAssetRef(selected, ref))) void publishAssetRefPreview(ref)
+      })
       return
     }
-    setAssetSelection([ref])
-    void publishAssetRefPreview(ref)
+    void stageAssetSelection(() => [ref], () => { void publishAssetRefPreview(ref) })
   }
 
   const pickLogicalModelRef = (ref: AssetRef, detail: LogicalModelPickDetail): void => {
     if (assetUploading()) return
     setAssetSelectedItem(undefined)
     if (!assetMulti) {
-      setAssetSelectedModel(detail)
-      setAssetSelection([ref])
-      void publishAssetRefPreview(ref)
+      void stageAssetSelection(() => [ref], () => {
+        setAssetSelectedModel(detail)
+        void publishAssetRefPreview(ref)
+      })
       return
     }
-    const removing = assetSelection().some((selected) => selected.digest === ref.digest)
-    setAssetSelectedModel(removing ? undefined : detail)
-    setAssetSelection((current) =>
-      removing
+    void stageAssetSelection((current) =>
+      current.some((selected) => selected.digest === ref.digest)
         ? current.filter((selected) => selected.digest !== ref.digest)
         : [...current, ref],
+      () => setAssetSelectedModel(assetSelection().some((selected) => selected.digest === ref.digest) ? detail : undefined),
     )
   }
 
@@ -545,7 +569,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     setAssetSelectedItem(undefined)
     setAssetSelectedModel(detail)
     if (!assetMulti) {
-      setAssetSelection([])
+      void stageAssetSelection(() => [])
       clearAssetPreview()
     }
   }
@@ -933,7 +957,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                   class="asset-selection-remove"
                   data-testid="asset-selection-remove"
                   disabled={assetUploading()}
-                  onClick={() => { setAssetSelection([]); setAssetSelectedItem(undefined); setAssetSelectedModel(undefined); clearAssetPreview() }}
+                  onClick={() => { void stageAssetSelection(() => [], () => { setAssetSelectedItem(undefined); setAssetSelectedModel(undefined); clearAssetPreview() }) }}
                 >
                   <Icon icon={X} /> Remove
                 </button>
@@ -1024,7 +1048,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 type="button"
                 class="primary"
                 data-testid="asset-apply"
-                disabled={assetUploading() || (!assetMulti && selectedUncommittableModel() !== undefined)}
+                disabled={assetUploading() || pendingSelections() > 0 || (!assetMulti && selectedUncommittableModel() !== undefined)}
                 onClick={() => {
                   const selection = assetSelection()
                   if (!assetMulti) {

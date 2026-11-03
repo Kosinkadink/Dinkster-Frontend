@@ -374,6 +374,40 @@ describe('retained app dispatch', () => {
   })
 })
 
+describe('retained picker consumers', () => {
+  it.each(['accepted', 'closed', 'registry', 'disconnected', 'refused'] as const)(
+    'confirms a separate incomplete owner before a picker can publish: %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      const app = createWorkflowApp([schema])
+      try {
+        app.openDocument(session().doc, 'Picker source')
+        const tab = app.activeTab()!
+        const backend = app.backendForTab(tab)
+        const requested = deferred<{ owner: RetainedAssetOwner; declaration: RetainedAssetDeclaration }>()
+        const response = deferred<RetainedAssets>()
+        vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+          requested.resolve({ owner, declaration })
+          return response.promise
+        })
+        vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+        const before = tab.store.doc
+        const operation = app.retainPickerAssets(tab, backend, [asset('b'), asset('c')])
+        const settled = operation.then(() => true, () => false)
+        const { owner, declaration } = await requested.promise
+        expect(declaration).toEqual({ revision: 0, complete: false, digests: [asset('b').digest, asset('c').digest] })
+        expect(tab.store.doc).toBe(before)
+        if (scenario === 'closed') app.closeTab(tab.id)
+        if (scenario === 'registry') backend.registry.set(undefined)
+        if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+        response.resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
+        expect(await settled).toBe(scenario === 'accepted')
+        expect(tab.store.doc).toBe(before)
+        expect(tab.store.canUndo).toBe(false)
+      } finally { app.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() }
+    },
+  )
+})
+
 describe('retained clipboard consumers', () => {
   it.each(['accepted', 'closed', 'edited', 'refused', 'lost response', 'registry', 'disconnected', 'storage'] as const)(
     'retains the captured source and exact copy independently of the source tab: %s', async (scenario) => {

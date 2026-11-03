@@ -1,4 +1,79 @@
-import { expect, nativeTest as test } from './fixtures.js'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
+
+async function acknowledgeRetentions(page: Page): Promise<void> {
+  await page.route('/api/library/retentions/document/*?scope=local', async (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+    const declaration = route.request().postDataJSON()
+    return route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
+      ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: declaration.revision + 1 } })
+  })
+}
+
+for (const accepted of [true, false]) {
+  test(`staged asset picker waits for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }, info) => {
+    const asset = { digest: `blake3:${'b'.repeat(64)}`, name: 'chosen.vae', size: 42, mediaType: 'application/octet-stream', virtualPath: 'vae/chosen.vae' }
+    let release!: () => void
+    let started = false
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    await page.route('/api/**', (route) => route.fulfill({ status: 503 }))
+    await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'picker-ownership', schemaWire: 1 },
+      nodes: { Picker: { schemaVersion: 1, displayName: 'Asset picker', interface: [
+        { role: 'input', id: 'source', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [], kind: 'model/vae' } },
+      ] } },
+    } }))
+    await page.route('/api/mounts', (route) => route.fulfill({ json: { mounts: [{ id: 'vae', mode: 'read', state: 'ready', kind: 'model/vae' }] } }))
+    await page.route('/api/mounts/vae/entries*', (route) => route.fulfill({ json: { entries: [{ ...asset, kind: 'model/vae' }] } }))
+    await page.route('/api/assets/catalog*', (route) => route.fulfill({ json: { assets: [] } }))
+    await page.route('/api/mounts/locations*', (route) => route.fulfill({ json: { locations: [{ path: asset.virtualPath }] } }))
+    await page.route('/api/library/retentions/document/*?scope=local', async (route) => {
+      if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+      const declaration = route.request().postDataJSON()
+      if (declaration.digests.includes(asset.digest)) {
+        started = true
+        await gate
+        if (!accepted) return route.fulfill({ status: 503, body: 'ownership refused' })
+      }
+      return route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
+        ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: declaration.revision + 1 } })
+    })
+    await page.goto('/')
+    await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+    await page.evaluate(() => {
+      window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'picker-owner', root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'root', nodes: { source: { id: 'source', type: 'Picker', values: { source: null } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+        view: { graphs: { g0: { nodes: { source: { position: { x: 100, y: 100 } } } } } },
+      }, 'Picker ownership')
+      window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    })
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(1)
+    const point = await page.evaluate(() => {
+      const renderer = window.__dinksterTest!.renderer!
+      const node = renderer.getScene().nodes[0]!
+      const row = node.layout.rows.find((row) => row.kind === 'widget')!
+      const viewport = renderer.getViewport()
+      const rect = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+      return { x: rect.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x, y: rect.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y }
+    })
+    await page.mouse.click(point.x, point.y)
+    await page.getByTestId('collection-entry').filter({ hasText: 'chosen.vae' }).click()
+    await expect.poll(() => started).toBe(true)
+    await expect(page.getByTestId('asset-apply')).toBeDisabled()
+    await expect(page.getByTestId('asset-selection-summary')).toContainText('Nothing selected')
+    await page.screenshot({ path: info.outputPath('picker-pending.png') })
+    release()
+    if (accepted) {
+      await expect(page.getByTestId('asset-selection-summary')).toContainText('chosen.vae')
+      await expect(page.getByTestId('asset-apply')).toBeEnabled()
+    } else {
+      await expect(page.getByTestId('asset-editor')).toContainText('503')
+      await expect(page.getByTestId('asset-selection-summary')).toContainText('Nothing selected')
+    }
+    await page.screenshot({ path: info.outputPath(`picker-${accepted ? 'accepted' : 'refused'}.png`) })
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.source!.values.source)).toBeNull()
+  })
+}
 
 test('native source choices preserve names, cancel, unavailable values and backend failures', async ({ page }, testInfo) => {
   let fail = false
@@ -16,6 +91,7 @@ test('native source choices preserve names, cancel, unavailable values and backe
       { name: 'datasets/portraits', shape: 'directory' }, { name: 'datasets/landscapes', shape: 'directory' },
     ] } })
   })
+  await acknowledgeRetentions(page)
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
   await page.evaluate(() => {
@@ -97,6 +173,7 @@ test('VAE source picker preserves file identity and rejects closed-editor and st
     if (requestMode === 'closed') closedFinished = true
     if (requestMode === 'stale') staleFinished = true
   })
+  await acknowledgeRetentions(page)
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
   await page.evaluate((asset) => {

@@ -5341,6 +5341,23 @@ export class AppState {
     } finally { unsubscribe() }
   }
 
+  async retainPickerAssets(tab: Tab, backend: Backend, value: unknown): Promise<void> {
+    const session = tab.store
+    const registry = backend.registry.get()
+    let connectionChanged = false
+    const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
+    const current = (): boolean => !this.disposed && !connectionChanged &&
+      this.backendFor(backend.id) === backend && backend.registry.get() === registry &&
+      this.tabs.get().some((candidate) => candidate.store === session && !candidate.execution &&
+        this.backendForTab(candidate) === backend)
+    try {
+      if (backend.protocol !== 'dinkster' || !current()) throw new Error('Picker destination is unavailable')
+      const roots = executionAssetRoots({ outputs: { picker: { value } }, artifacts: [] }, () => undefined)
+      await retainWorkflowAssets(backend.connection, session.doc.lineage, session.revision, roots)
+      if (!current()) throw new Error('Picker destination changed during asset admission')
+    } finally { unsubscribe() }
+  }
+
   async retainEditorAssets(target: ImageEditorTarget | CompositorEditorTarget, backend: Backend, value: unknown): Promise<void> {
     const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
     const registry = backend.registry.get()
