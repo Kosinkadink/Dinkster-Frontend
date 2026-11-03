@@ -3122,6 +3122,37 @@ describe('reconcileDinksterExecutions', () => {
     return { conn, store, requested, seedRunning }
   }
 
+  it.each(['accepted', 'refused', 'failed'] as const)(
+    'admits a fetched reconnect record before replaying outputs or completion: %s', async (scenario) => {
+      const outputs = { n1: { sum: { typeId: 'INT', value: 29 } } }
+      const { conn, store, seedRunning } = harness({ '/api/jobs/cid/j1': {
+        state: 'completed', nodeStates: { n1: 'completed' }, outputs, artifacts: [],
+      } })
+      seedRunning('j1')
+      let acknowledge!: () => void
+      let requested!: () => void
+      const request = new Promise<void>((resolve) => { requested = resolve })
+      const pass = reconcileDinksterExecutions(conn, store, () => async () => {
+        requested()
+        await new Promise<void>((resolve, reject) => {
+          acknowledge = () => scenario === 'failed' ? reject(new Error('retention unavailable')) : resolve()
+        })
+        return scenario === 'accepted'
+      })
+      await request
+      expect(store.get(ref('j1'))).toMatchObject({ status: 'running', nodes: {}, outputs: {}, artifactsHydrated: false })
+      acknowledge()
+      await pass
+      expect(store.get(ref('j1'))).toMatchObject(scenario === 'accepted'
+        ? { status: 'completed', nodes: { n1: { state: 'done', outputs: { sum: { value: 29 } } } }, outputs, artifactsHydrated: true }
+        : { status: 'running', nodes: {}, outputs: {}, artifactsHydrated: false })
+      if (scenario !== 'accepted') {
+        await reconcileDinksterExecutions(conn, store, () => async () => true)
+        expect(store.get(ref('j1'))).toMatchObject({ status: 'completed', outputs, artifactsHydrated: true })
+      }
+    },
+  )
+
   it('hydrates persisted image outputs after run_finished observed an unfinished job', async () => {
     const job: Record<string, unknown> = { state: 'running' }
     const { conn, store, seedRunning } = harness({ '/api/jobs/cid/j1': job })

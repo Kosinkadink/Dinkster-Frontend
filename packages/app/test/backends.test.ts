@@ -616,9 +616,51 @@ describe('backend protocols', () => {
     },
   )
 
+  it.each(['accepted', 'refused', 'removed', 'disconnected', 'registry-changed', 'disposed'] as const)(
+    'admits fetched completion outputs and artifacts before publication: %s', async (scenario) => {
+      const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
+      const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('owned-completion') }
+      const digest = (letter: string) => `blake3:${letter.repeat(64)}`
+      const live = { live: { value: { typeId: 'INT', value: 17 } } }
+      const outputs = { save: { image: { typeId: 'IMAGE', meta: { digest: digest('e') } } } }
+      const artifact = { nodeId: 'save', digest: digest('a'), name: 'result.png', size: 7,
+        mediaType: 'image/png', virtualPath: '', preview: { digest: digest('c'), name: 'preview.png',
+          size: 3, mediaType: 'image/png', virtualPath: '' } }
+      app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
+      app.store.hydrateOutputs(ref, live)
+      vi.spyOn(backend.connection, 'fetchJob').mockResolvedValue({ state: 'completed', outputs, artifacts: [artifact] })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      let requested = 0
+      let acknowledge!: () => void
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
+        requested += 1
+        expect(declaration.digests).toEqual([digest('a'), digest('c'), digest('e')])
+        return new Promise((resolve, reject) => {
+          acknowledge = () => scenario === 'refused' ? reject(new Error('ownership refused'))
+            : resolve({ ...owner, ...declaration, revision: 1 })
+        })
+      })
+      backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(requested).toBe(1)
+      expect(app.store.get(ref)).toMatchObject({ outputs: live, artifacts: [], artifactsHydrated: false })
+      if (scenario === 'removed') app.removeBackend(backend.id)
+      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+      if (scenario === 'registry-changed') registryFor(backend)
+      if (scenario === 'disposed') app.dispose()
+      acknowledge()
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(app.store.get(ref)).toMatchObject(scenario === 'accepted'
+        ? { outputs: { ...live, ...outputs }, artifacts: [artifact], artifactsHydrated: true }
+        : { outputs: live, artifacts: [], artifactsHydrated: false })
+    },
+  )
+
   it('hydrates saved artifacts after a normal live Dinkster completion', async () => {
     const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
     if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')
+    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+      ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
     const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('saved-job') }
     const outputs = { save: { video: { typeId: 'VIDEO', fingerprint: 'live-output' } } }
     app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })

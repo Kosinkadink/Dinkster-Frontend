@@ -147,6 +147,7 @@ import {
   type DinksterSubmitResult,
   type DinksterValuesClient,
   type PreviewMode,
+  type PrepareExecutionHydration,
   type CompatSkip,
   type PackInferenceUnavailable,
   type RefreshableScopedClient,
@@ -4531,15 +4532,40 @@ export class AppState {
           this.invalidateWorkerCatalog(nativeBackend)
         }
       }
+      const prepareHydration: PrepareExecutionHydration = (ref) => {
+        const generation = staleGen
+        const held = this.store.get(ref)
+        if (held === undefined) return async () => false
+        const backendRegistry = registry.get()
+        const executionRegistry = this.registryForExecution(ref)
+        const current = (): boolean => !this.disposed && generation === staleGen &&
+          this.backendFor(id) === nativeBackend && registry.get() === backendRegistry &&
+          this.registryForExecution(ref) === executionRegistry &&
+          this.store.get(ref) !== undefined && this.store.get(ref)?.artifact === held.artifact &&
+          this.store.get(ref)?.sourceDocument === held.sourceDocument
+        return async (job) => {
+          if (!current()) return false
+          if (job === undefined) return true
+          const outputs = workspaceRecord(job.outputs)
+            ? Object.fromEntries(Object.entries(job.outputs).filter(([, value]) => workspaceRecord(value))) as ExecutionState['outputs'] : {}
+          const resolve = this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined))
+          const existing = executionAssetRoots(held, resolve)
+          const fetched = executionAssetRoots({ ...held, outputs, artifacts: job.artifacts ?? [],
+            ...(job.sourceDocument === undefined ? {} : { sourceDocument: job.sourceDocument }) }, resolve)
+          await retainExecutionAssets(connection, ref, { complete: false,
+            digests: [...new Set([...existing.digests, ...fetched.digests])].sort() })
+          return current()
+        }
+      }
       const disposeConnection = wire(
         connection,
-        () => reconcileDinksterExecutions(connection, this.store),
+        () => reconcileDinksterExecutions(connection, this.store, prepareHydration),
         refreshForEpoch,
         handleStatusChange,
       )
       const disposeMountHealth = connection.mountError.subscribe(() => this.backendsTick.update((v) => v + 1))
       const disposeCompletionHydration = connection.onLiveCompletion((ref) => {
-        hydrateDinksterCompletedExecution(connection, this.store, ref).catch((error: unknown) => {
+        hydrateDinksterCompletedExecution(connection, this.store, ref, prepareHydration).catch((error: unknown) => {
           this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
             diag(
               'error',

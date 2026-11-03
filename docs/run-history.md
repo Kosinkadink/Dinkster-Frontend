@@ -73,6 +73,13 @@ Pending or refused ownership does not publish a restored execution. Backend,
 connection or registry changes and application disposal discard late startup
 results without deleting their saved retry records.
 
+Fetched completion and reconnect records also confirm independent ownership
+before publishing output descriptors, saved artifacts or replayed node states.
+A refused declaration leaves the existing view unchanged for a later retry.
+The read captures its backend, connection lifetime, registry and execution
+identity; an acknowledgment for a retired owner cannot publish fetched data.
+This does not certify live event payloads or every preview/read holder.
+
 ## Interrupted runs
 
 When the backend restarts, jobs that were queued or running when the process
