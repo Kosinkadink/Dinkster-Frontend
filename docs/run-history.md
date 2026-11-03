@@ -58,6 +58,14 @@ backend, reconnecting, or closing the application discards a late response;
 a subsequent execution update can retry against the live owner. Results
 already displayed remain available when their backend is removed.
 
+Queueing journals and confirms ownership of a newly uploaded source-document
+stamp before caching or submitting its digest. An unchanged document reuses
+that stamp only on the same backend connection. A refused declaration or
+unresolved write response leaves the stamp uncached and the submission
+unstamped; the next queue can retry. A lost response can be confirmed by exact
+readback without replaying the write. These owners remain incomplete and are
+not released when a tab closes, so this does not enable collection.
+
 Cached-output hydration journals an independent shown-result owner and waits
 for its exact acknowledgment before installing the fetched descriptors.
 Known source-document, snapshot, saved-artifact, preview-file and descriptor

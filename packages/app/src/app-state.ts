@@ -7006,8 +7006,8 @@ export class AppState {
 
   /**
    * Per-tab digest of the last uploaded source document, validated by the
-   * (revision, schemaHash) the stamp depends on - repeated queues of an
-   * unchanged document reuse the digest instead of re-uploading. Keyed by
+   * connection and (revision, schemaHash) the stamp depends on - repeated
+   * queues reuse it only on the backend that acknowledged ownership. Keyed by
    * the Tab OBJECT, not its id: tab ids are lineages, a same-lineage
    * replacement session starts back at revision 0, and an id-keyed entry
    * could answer with the OLD session's digest for a revision-0 lookup.
@@ -7016,7 +7016,7 @@ export class AppState {
    */
   private readonly sourceDocCache = new WeakMap<
     Tab,
-    { revision: number; schemaHash: string; digest: string }
+    { connection: DinksterConnection; revision: number; schemaHash: string; digest: string }
   >()
 
   /**
@@ -7412,14 +7412,15 @@ export class AppState {
     const revision = tab.store.revision
     const schemaHash = this.registryForTab(tab)?.hash
     const cached = this.sourceDocCache.get(tab)
-    if (cached && cached.revision === revision && cached.schemaHash === schemaHash) {
+    if (cached && cached.connection === backend.connection && cached.revision === revision && cached.schemaHash === schemaHash) {
       return { sourceDocument: cached.digest }
     }
     try {
       const digest = await backend.connection.uploadAsset(
         JSON.stringify(this.stampedDocumentOf(tab)),
       )
-      if (schemaHash !== undefined) this.sourceDocCache.set(tab, { revision, schemaHash, digest })
+      await retainWorkflowAssets(backend.connection, tab.id, revision, { complete: false, digests: [digest] })
+      if (schemaHash !== undefined) this.sourceDocCache.set(tab, { connection: backend.connection, revision, schemaHash, digest })
       return { sourceDocument: digest }
     } catch {
       return undefined // absence of a stamp is fully valid

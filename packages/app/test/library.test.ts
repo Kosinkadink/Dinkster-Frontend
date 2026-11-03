@@ -557,6 +557,78 @@ describe('sourceDocument stamp on queue', () => {
     expect(upload).toHaveBeenCalledTimes(2)
   })
 
+  it.each(['accepted', 'refused', 'lost response'] as const)('retains a source stamp before caching or submitting it: %s', async (mode) => {
+    const { backend, tab } = nativeSetup()
+    const upload = vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
+    const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
+      ok: true, execution: { connection: backend.id, prompt: asPromptId('retained-stamp') },
+    })
+    let acknowledge!: () => void
+    const barrier = new Promise<void>((resolve) => { acknowledge = resolve })
+    const retained = new Map<string, Awaited<ReturnType<typeof backend.connection.retainAssets>>>()
+    let refuse = mode === 'refused'
+    const retention = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      const value = { ...owner, ...declaration, revision: declaration.revision + 1 }
+      if (declaration.digests.includes(DIGEST)) {
+        await barrier
+        if (refuse) throw new Error('source stamp retention refused')
+        retained.set(owner.ownerId, value)
+        if (mode === 'lost response') throw new Error('source stamp response lost')
+      }
+      return value
+    })
+    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => retained.get(owner.ownerId))
+    const queued = app.queueSelection(tab, ['n1'])
+    try {
+      await vi.waitFor(() => expect(retention.mock.calls.some(([, declaration]) => declaration.digests.includes(DIGEST))).toBe(true))
+      expect(retention.mock.calls.find(([, declaration]) => declaration.digests.includes(DIGEST))).toEqual([
+        expect.objectContaining({ scope: LIBRARY_SCOPE, ownerKind: 'document' }),
+        { revision: 0, complete: false, digests: [DIGEST] },
+      ])
+      expect(submit).not.toHaveBeenCalled()
+      acknowledge()
+      await queued
+      expect(submit).toHaveBeenCalledTimes(1)
+      if (mode === 'refused') {
+        expect(submit.mock.calls[0]![1]).not.toHaveProperty('sourceDocument')
+        refuse = false
+      } else {
+        expect(submit.mock.calls[0]![1]).toMatchObject({ sourceDocument: DIGEST })
+      }
+      await app.queueSelection(tab, ['n1'])
+      expect(submit.mock.calls[1]![1]).toMatchObject({ sourceDocument: DIGEST })
+      expect(upload).toHaveBeenCalledTimes(mode === 'refused' ? 2 : 1)
+      expect(retention.mock.calls.filter(([, declaration]) => declaration.digests.includes(DIGEST))).toHaveLength(mode === 'refused' ? 2 : 1)
+      expect(app.problems.get().some((problem) => problem.code.startsWith('library.'))).toBe(false)
+    } finally {
+      acknowledge()
+      await queued
+    }
+  })
+
+  it('does not reuse a retained source stamp on another backend with the same schemas', async () => {
+    const { backend, tab } = nativeSetup()
+    vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
+    vi.spyOn(backend.connection, 'submit').mockResolvedValue({
+      ok: true, execution: { connection: backend.id, prompt: asPromptId('first-stamp') },
+    })
+    await app.queueSelection(tab, ['n1'])
+    const other = app.addBackend('http://other-native:8000', 'Other native', false, 'dinkster')!
+    const registry = buildDinksterRegistry(other.id, nodesPayload)
+    expect(registry.hash).toBe(backend.registry.get()!.hash)
+    other.registry.set(registry)
+    const upload = vi.spyOn(other.connection, 'uploadAsset').mockResolvedValue(DIGEST2)
+    vi.spyOn(other.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+      ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+    const submit = vi.spyOn(other.connection, 'submit').mockResolvedValue({
+      ok: true, execution: { connection: other.id, prompt: asPromptId('second-stamp') },
+    })
+    app.setTabTarget(tab.id, other.id)
+    await app.queueSelection(tab, ['n1'])
+    expect(upload).toHaveBeenCalledTimes(1)
+    expect(submit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ sourceDocument: DIGEST2 }))
+  })
+
   it('AP4: a same-lineage replacement never reuses the old session sourceDocument digest', async () => {
     const { backend, tab } = nativeSetup()
     const upload = vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
