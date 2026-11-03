@@ -82,7 +82,7 @@ import {
   type ScheduleFn,
   type WebSocketFactory,
 } from './reconnecting-socket.js'
-import { DinksterValuesClient } from './values.js'
+import { DinksterValuesClient, type ValuePeekAdmission } from './values.js'
 import { expandDynamicPrompt } from './dynamic-prompts.js'
 
 /** Existing /api/nodes capability flag for the placement submission sidecar. */
@@ -776,6 +776,8 @@ export interface DinksterConnectionConfig extends CollabCredentials {
   readonly webSocketFactory?: WebSocketFactory
   readonly scheduleFn?: ScheduleFn
   readonly cancelFn?: CancelFn
+  /** Application-owned asset admission before exposing a peek descriptor. */
+  readonly admitValuePeek?: ValuePeekAdmission
   /** Job id allocator; injectable so tests are deterministic. */
   readonly jobIdFactory?: () => string
 }
@@ -1721,6 +1723,7 @@ export class DinksterConnection {
   private readonly clientId: string
   private readonly project: string | undefined
   private readonly fetchFn: FetchLike
+  private readonly admitValuePeek: ValuePeekAdmission | undefined
   private readonly normalizer: DinksterNormalizer
   private readonly extensionSnapshots = new Map<string, EffectiveExtensionSnapshot>()
   private readonly listeners = new Set<(e: NormalizedEvent) => void>()
@@ -1765,6 +1768,7 @@ export class DinksterConnection {
     this.baseUrl = config.baseUrl
     this.clientId = config.clientId
     this.project = config.project
+    this.admitValuePeek = config.admitValuePeek
     const fetchFn = config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
     this.fetchFn = config.token !== undefined || config.actorKind !== undefined
       ? credentialFetch(config, fetchFn)
@@ -3553,6 +3557,7 @@ export class DinksterConnection {
       baseUrl: this.baseUrl,
       clientId: this.clientId,
       fetchFn: this.fetchFn,
+      ...(this.admitValuePeek === undefined ? {} : { admitPeek: this.admitValuePeek }),
     })
     return this.valuesClient
   }

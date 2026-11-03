@@ -866,6 +866,47 @@ describe('compile and registry routing', () => {
 })
 
 describe('execution output routing', () => {
+  it.each(['live', 'removed', 'replaced', 'refused', 'disposed', 'aborted'] as const)(
+    'admits newly read descriptor roots before publication through the %s owner', async (mode) => {
+      const backend = addOffline('http://value-owner:8188')
+      const ref = foreignRun(String(backend.id), 'value-read')
+      const digest = `blake3:${'c'.repeat(64)}`
+      const descriptor = { typeId: 'asset<media/image>', fingerprint: 'new-result', meta: { digest } }
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ available: true, descriptor, renditions: [] }))
+      let accept!: () => void
+      const barrier = new Promise<void>((resolve) => { accept = resolve })
+      const retain = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+        await barrier
+        if (mode === 'refused') throw new Error('retention refused')
+        return { ...owner, ...declaration, revision: declaration.revision + 1 }
+      })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      if (mode === 'removed') app.removeBackend(backend.id)
+      const controller = new AbortController()
+      let published = false
+      const pending = app.valuesForExecution(ref)!.peek(
+        { jobId: ref.prompt, nodeId: 'image', outputId: 'result' }, { signal: controller.signal },
+      ).then((result) => { published = true; return result })
+      await vi.waitFor(() => expect(retain).toHaveBeenCalledOnce())
+      expect(published).toBe(false)
+      expect(retain.mock.calls[0]![1]).toMatchObject({ complete: false, digests: [digest] })
+      if (mode === 'replaced') {
+        app.removeBackend(backend.id)
+        addOffline('http://value-owner:8188')
+      }
+      if (mode === 'disposed') app.dispose()
+      if (mode === 'aborted') controller.abort()
+      accept()
+      expect(await pending).toMatchObject(mode === 'live' || mode === 'removed'
+        ? { available: true, descriptor } : { available: false })
+      if (mode === 'refused') {
+        retain.mockImplementation(async (owner, declaration) => ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+        expect(await app.valuesForExecution(ref)!.peek({ jobId: ref.prompt, nodeId: 'image', outputId: 'result' }))
+          .toMatchObject({ available: true, descriptor })
+      }
+    },
+  )
+
   it('assetUrlForExecution uses the execution backend, not the default', () => {
     const b = addOffline('http://other:8188')
     const digest = 'blake3:' + 'ab'.repeat(32)

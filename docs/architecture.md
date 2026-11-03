@@ -50,6 +50,15 @@ Bounded output descriptors, rendition fingerprints and cache keys are not
 complete typed asset-reference sets. The backend source gate
 `FRONTEND_RETENTION_COMPLETE` remains false; no HTTP flag enables deletion.
 
+Application-owned value peeks retain known descriptor roots with incomplete
+shown-result ownership before returning the descriptor or announcing rendition
+identity. Refusal keeps the descriptor unpublished and permits a later read to
+retry. Reads stay on the original live or retired backend; removing a backend
+does not redirect historical results. Application disposal or caller cancellation
+prevents late publication. Standalone values clients without an admission policy
+keep their transport behavior, and already materialized rendition bytes keep
+their bounded cache independently of descriptor ownership.
+
 ## Staged document commands
 
 `DocumentStore.prepareDispatch()` evaluates and validates a command without

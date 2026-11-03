@@ -4358,8 +4358,19 @@ export class AppState {
       return () => unsubs.forEach((u) => u())
     }
     {
-      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId() })
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
+      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId(),
+        admitValuePeek: async (query, descriptor) => {
+          const current = (): boolean => !this.disposed &&
+            (this.backendFor(id) ?? this.retiredBackends.get(id)) === nativeBackend
+          if (!current()) throw new Error('Value owner is no longer available')
+          const roots = executionAssetRoots({ outputs: { value: { descriptor } }, artifacts: [] }, () => undefined)
+          if (roots.digests.length > 0) {
+            await retainExecutionAssets(connection, { connection: id, prompt: asPromptId(query.jobId) }, roots)
+          }
+          if (!current()) throw new Error('Value owner changed during asset admission')
+        },
+      })
       // Epoch-gated registry refresh (schema_changed / composition_complete
       // pings are invalidations, never deltas). Coalesced: one fetch in
       // flight, newer targets fold in; skip entirely when the held table is

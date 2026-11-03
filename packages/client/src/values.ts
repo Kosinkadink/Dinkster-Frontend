@@ -353,10 +353,13 @@ interface NormalizedRenditionOptions {
 
 type CachedRendition = Omit<Extract<RenditionResult, { available: true }>, 'available'>
 
+export type ValuePeekAdmission = (query: ValueQuery, descriptor: ValueDescriptor) => Promise<void>
+
 export class DinksterValuesClient {
   private readonly baseUrl: string
   private readonly clientId: string
   private readonly fetchFn: FetchLike
+  private readonly admitPeek: ValuePeekAdmission | undefined
   /** Normalized selectors plus ETag (or advertised/legacy fallback) -> bytes. */
   private readonly renditionCache = new Map<string, CachedRendition>()
   /** Query URL and announced identity -> cache key for no-network repeats. */
@@ -370,10 +373,11 @@ export class DinksterValuesClient {
   private peekSequence = 0
   private peekEpoch = 0
 
-  constructor(opts: { baseUrl: string; clientId: string; fetchFn?: FetchLike }) {
+  constructor(opts: { baseUrl: string; clientId: string; fetchFn?: FetchLike; admitPeek?: ValuePeekAdmission }) {
     this.baseUrl = opts.baseUrl
     this.clientId = opts.clientId
     this.fetchFn = opts.fetchFn ?? ((url, init) => fetch(url, init))
+    this.admitPeek = opts.admitPeek
   }
 
   private url(query: ValueQuery, rendition?: string, options?: NormalizedRenditionOptions): string {
@@ -499,6 +503,12 @@ export class DinksterValuesClient {
     }
     const renditions = renditionsOf(b['renditions'])
     const result: ValuePeekResult = { available: true, descriptor, renditions }
+    try {
+      await this.admitPeek?.(query, descriptor)
+    } catch {
+      return localRefusal('ownership-unconfirmed', 'Value asset ownership could not be confirmed')
+    }
+    if (signalAborted(options.signal)) return aborted()
     const announced = this.peekIdentity.get(queryUrl)
     if (sequence < (announced?.sequence ?? 0)) return result
     if (announced === undefined && peekEpoch !== this.peekEpoch) {
