@@ -8,6 +8,7 @@ import {
   elabInputsOf,
   elaborateInterface,
   executionKey,
+  isDinksterClipboardEnvelope,
   isAssetWidgetInput,
   maskPaintSourceNodeId,
   parseTypedLiteralWire,
@@ -329,6 +330,12 @@ export async function reconcileWorkflowRetentions(
         if (typeof intent.connectionId === 'string' && intent.connectionId !== connection.id) continue
         if (typeof intent.assetBaseUrl === 'string' && intent.assetBaseUrl !== connection.assetUrl('')) continue
         const owner = intent.owner as RetainedAssetOwner | undefined
+        let clipboardValid = intent.clipboardText === undefined
+        if (typeof intent.clipboardText === 'string') {
+          const envelope: unknown = JSON.parse(intent.clipboardText)
+          clipboardValid = owner?.ownerKind === 'document' && isDinksterClipboardEnvelope(envelope) &&
+            envelope.scope?.lineage === intent.documentLineage && intent.complete === false
+        }
         const contextValid = owner?.ownerKind === 'document'
           ? typeof owner.ownerId === 'string' && /^workflow-candidate:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
             typeof intent.documentLineage === 'string' && intent.documentLineage.length > 0 &&
@@ -338,7 +345,7 @@ export async function reconcileWorkflowRetentions(
             typeof intent.executionKey === 'string' && intent.executionKey.length > 0
         if (intent.version !== 3 || (intent.acknowledgedRevision !== undefined && intent.acknowledgedRevision !== 1) ||
           intent.connectionId !== connection.id || intent.assetBaseUrl !== connection.assetUrl('') ||
-          owner === undefined || owner === null || owner.scope !== 'local' || !contextValid ||
+          owner === undefined || owner === null || owner.scope !== 'local' || !contextValid || !clipboardValid ||
           owner.ownerId.length > 512 || key !== `${prefix}${owner.ownerId}` ||
           typeof intent.complete !== 'boolean' || !Array.isArray(intent.digests) || intent.digests.length > 4096 ||
           !intent.digests.every((digest: unknown, index: number, digests: unknown[]) =>
@@ -365,8 +372,16 @@ export async function retainWorkflowAssets(
   documentRevision: number,
   roots: ReturnType<typeof workflowAssetRoots>,
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
+  clipboardText?: string,
 ): Promise<RetainedAssets> {
-  return retainAssetRoots(connection, 'document', { documentLineage, documentRevision }, roots, storage)
+  if (clipboardText !== undefined) {
+    const envelope: unknown = JSON.parse(clipboardText)
+    if (!isDinksterClipboardEnvelope(envelope) || envelope.scope?.lineage !== documentLineage || roots.complete) {
+      throw new Error('Clipboard retention context differs')
+    }
+  }
+  return retainAssetRoots(connection, 'document', { documentLineage, documentRevision,
+    ...(clipboardText === undefined ? {} : { clipboardText }) }, roots, storage)
 }
 
 export async function retainExecutionAssets(
@@ -381,7 +396,7 @@ export async function retainExecutionAssets(
 async function retainAssetRoots(
   connection: DinksterConnection,
   ownerKind: 'document' | 'shown-result',
-  context: { readonly documentLineage: string; readonly documentRevision: number } | { readonly executionKey: string },
+  context: { readonly documentLineage: string; readonly documentRevision: number; readonly clipboardText?: string } | { readonly executionKey: string },
   roots: ReturnType<typeof workflowAssetRoots>,
   storage: Pick<Storage, 'setItem'>,
 ): Promise<RetainedAssets> {

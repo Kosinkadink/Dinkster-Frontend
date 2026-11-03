@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   DINKSTER_SCHEMA_WIRE_VERSION, MASK_PAINT_SOURCE_EXT_KEY, asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asPromptId, asValueSourceId, coreCommandRegistry, createLocalSession,
-  type GraphDef, type NodeSchema, type WorkflowDocument,
+  serializeSelection, type GraphDef, type NodeSchema, type WorkflowDocument,
 } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
@@ -372,6 +372,64 @@ describe('retained app dispatch', () => {
     expect(tab.store.undo()).toBe(true)
     expect(tab.store.doc.graphs.g0!.nodes.n0!.title).toBeUndefined()
   })
+})
+
+describe('retained clipboard consumers', () => {
+  it.each(['accepted', 'closed', 'edited', 'refused', 'lost response', 'registry', 'disconnected', 'storage'] as const)(
+    'retains the captured source and exact copy independently of the source tab: %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      const app = createWorkflowApp([schema])
+      try {
+        const source = session().doc
+        const document: WorkflowDocument = { ...source, graphs: { g0: { ...source.graphs.g0!, nextOrdinal: 2, nodes: {
+          ...source.graphs.g0!.nodes, n1: { ...source.graphs.g0!.nodes.n0!, id: asNodeId('n1'), values: { files: [asset('c')] } },
+        } } }, view: { graphs: { g0: { nodes: { n0: { position: { x: 0, y: 0 } }, n1: { position: { x: 200, y: 0 } } } } } } }
+        expect(app.openDocument(document, 'Copied source')).toEqual([])
+        const tab = app.activeTab()!
+        const text = JSON.stringify(serializeSelection(tab.store.doc, 'g0', { nodes: ['n0'], reroutes: [] }, 'copy-source'))
+        expect(text).not.toContain(asset('c').digest)
+        const requested = deferred<{ owner: RetainedAssetOwner; declaration: RetainedAssetDeclaration }>()
+        const response = deferred<RetainedAssets>()
+        vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+          requested.resolve({ owner, declaration })
+          const acknowledged = await response.promise
+          if (scenario === 'lost response') throw new Error('lost')
+          return acknowledged
+        })
+        const fetch = vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+        const release = vi.spyOn(app.connection, 'releaseRetainedAssets')
+        if (scenario === 'storage') vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('quota') })
+        const operation = app.retainClipboardAssets(tab, text)
+        if (scenario === 'storage') {
+          expect(await operation).toBe(false)
+          expect(app.connection.retainAssets).not.toHaveBeenCalled()
+          return
+        }
+        const { owner, declaration } = await requested.promise
+        expect(declaration).toEqual({ revision: 0, complete: false, digests: [asset('a').digest, asset('c').digest] })
+        const key = scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)
+        expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ clipboardText: text, documentLineage: 'retention' })
+        if (scenario === 'closed') app.closeTab(tab.id)
+        if (scenario === 'edited') expect(app.dispatchTo(tab, { command: 'node.setTitle', params: {
+          graphId: 'g0', nodeId: 'n0', title: 'Edited after copy',
+        } })).toMatchObject({ ok: true })
+        if (scenario === 'registry') app.registry.set(undefined)
+        if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
+        const acknowledged = { ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 }
+        if (scenario === 'lost response') fetch.mockResolvedValue(acknowledged)
+        response.resolve(acknowledged)
+        expect(await operation).toBe(['accepted', 'closed', 'edited', 'lost response'].includes(scenario))
+        if (['accepted', 'closed', 'edited', 'lost response'].includes(scenario)) {
+          expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ clipboardText: text, acknowledgedRevision: 1 })
+        }
+        expect(release).not.toHaveBeenCalled()
+      } finally {
+        app.dispose()
+        vi.restoreAllMocks()
+        vi.unstubAllGlobals()
+      }
+    },
+  )
 })
 
 describe('retained workflow opens', () => {

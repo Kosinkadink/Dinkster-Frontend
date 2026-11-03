@@ -5310,6 +5310,37 @@ export class AppState {
       left.mediaType === right.mediaType && left.virtualPath === right.virtualPath ? current : undefined
   }
 
+  /** Clipboard text and external source-node references outlive their source tab. */
+  async retainClipboardAssets(tab: Tab, text: string): Promise<boolean> {
+    const backend = tab.execution
+      ? this.backendFor(tab.execution.connection) ?? this.retiredBackends.get(tab.execution.connection)
+      : this.backendForTab(tab)
+    if (backend === undefined) return false
+    if (backend.protocol !== 'dinkster') return true
+    const document = tab.store.doc
+    const revision = tab.store.revision
+    const registry = this.registryForTab(tab)
+    let connectionChanged = false
+    const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
+    try {
+      if (this.disposed || !this.tabs.get().includes(tab)) throw new Error('Clipboard source is unavailable')
+      // The full captured source covers connected-paste references outside the envelope.
+      const roots = workflowAssetRoots(document, { revision, undo: [], redo: [] },
+        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
+      await retainWorkflowAssets(backend.connection, document.lineage, revision, { ...roots, complete: false }, undefined, text)
+      const currentRegistry = tab.execution ? this.registryForExecution(tab.execution) : backend.registry.get()
+      if (this.disposed || connectionChanged ||
+        (!this.backends.get().includes(backend) && this.retiredBackends.get(backend.id) !== backend) || currentRegistry !== registry) {
+        throw new Error('Clipboard source connection changed during asset admission')
+      }
+      return true
+    } catch {
+      this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'command', 'clipboard.retention.refused',
+        'Clipboard ownership could not be confirmed; the system clipboard was not changed.')])
+      return false
+    } finally { unsubscribe() }
+  }
+
   async retainEditorAssets(target: ImageEditorTarget | CompositorEditorTarget, backend: Backend, value: unknown): Promise<void> {
     const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
     const registry = backend.registry.get()

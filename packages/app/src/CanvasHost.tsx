@@ -5773,7 +5773,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       })
       const text = JSON.stringify(envelope)
       clipboardFallback = text
-      await writeClipboardText((value) => navigator.clipboard.writeText(value), text)
+      const ownership = props.app.retainClipboardAssets(tab, text)
+      void ownership.then((accepted) => {
+        if (!accepted && clipboardFallback === text) {
+          clipboardFallback = undefined
+          clipboardScopes.delete(scopeToken)
+        }
+      })
+      await writeClipboardText((value) => navigator.clipboard.writeText(value), text, ownership)
     }
 
     const pasteSelection = async (
