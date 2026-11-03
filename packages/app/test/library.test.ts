@@ -532,6 +532,62 @@ describe('sourceDocument stamp on queue', () => {
     expect(submit.mock.calls.at(-1)![1]).not.toHaveProperty('exportSnapshot')
   })
 
+  it.each(['accepted', 'refused', 'closed'] as const)('confirms late catalog asset defaults before submitting a captured workflow: %s', async (mode) => {
+    const { backend, tab } = nativeSetup()
+    backend.registry.set(undefined)
+    expect(app.openDocument({ ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0, nodes: {
+      n0: { id: 'n0', type: 'DefaultAsset', values: {} },
+    }, links: {} } } }, 'Late default')).toEqual([])
+    const candidate = app.activeTab()!
+    app.setTabTarget(candidate.id, backend.id)
+    await app.confirmStartupOwnership()
+    backend.registry.set(buildDinksterRegistry(backend.id, {
+      schemaVersion: nodesPayload.schemaVersion,
+      nodes: { DefaultAsset: { outputNode: true, interface: [{ role: 'input', id: 'file',
+        type: { kind: 'concrete', types: ['ASSET'] }, forceInput: true,
+        default: { digest: DIGEST2, name: 'late.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' },
+      }] } },
+    }))
+    expect(app.compileTab(candidate)?.ok).toBe(true)
+    const upload = vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
+    const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
+      ok: true, execution: { connection: backend.id, prompt: asPromptId('late-default') },
+    })
+    let acknowledge!: () => void
+    const barrier = new Promise<void>((resolve) => { acknowledge = resolve })
+    const retention = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      if (declaration.digests.includes(DIGEST2)) {
+        await barrier
+        if (mode === 'refused') throw new Error('snapshot ownership refused')
+      }
+      return { ...owner, ...declaration, revision: declaration.revision + 1 }
+    })
+    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    const queued = app.queue(candidate)
+    try {
+      await vi.waitFor(() => expect(retention.mock.calls.some(([, declaration]) => declaration.digests.includes(DIGEST2))).toBe(true))
+      expect(upload).toHaveBeenCalledTimes(1)
+      expect(submit).not.toHaveBeenCalled()
+      if (mode === 'closed') app.closeTab(candidate.id)
+      else if (mode === 'accepted') expect((await app.dispatchTo(candidate, {
+        command: 'node.move', params: { graphId: 'g0', positions: { n0: { x: 350, y: 175 } } },
+      })).ok).toBe(true)
+      acknowledge()
+      await queued
+      expect(submit).toHaveBeenCalledTimes(mode === 'accepted' ? 1 : 0)
+      expect(app.store.executions.get().size).toBe(mode === 'accepted' ? 1 : 0)
+      if (mode === 'accepted') {
+        expect(JSON.parse(upload.mock.calls[0]![0] as string).view.graphs.g0.nodes.n0.position).toEqual({ x: 0, y: 0 })
+        expect(submit.mock.calls[0]![0].snapshot.view.graphs.g0!.nodes!.n0!.position).toEqual({ x: 0, y: 0 })
+      }
+      expect(app.tabs.get().includes(candidate)).toBe(mode !== 'closed')
+      expect(tab).not.toBe(candidate)
+    } finally {
+      acknowledge()
+      await queued
+    }
+  })
+
   it('stamps submissions and uploads once per unchanged document', async () => {
     const { backend, tab } = nativeSetup()
     const upload = vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)

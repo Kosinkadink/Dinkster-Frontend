@@ -8620,8 +8620,9 @@ export class AppState {
     if (!this.tabs.get().includes(tab)) return
     const requestedPlacement = placement === undefined ? undefined : { ...placement }
     const compiledDocument = tab.store.doc
+    const registry = this.registryForTab(tab)
     const result = this.compileTab(tab, scope)
-    if (!result) return
+    if (!result || !registry) return
     if (!result.ok) {
       // Queueing refreshes THIS tab's Problems entries (compile results
       // supersede open-time/previous-queue entries); other tabs' entries
@@ -8668,7 +8669,18 @@ export class AppState {
         ...(hasPrompt ? { prompt: originalPrompt as JsonObject } : {}),
         ...(hasWorkflow ? { extraPnginfo: { workflow: originalWorkflow } as JsonObject } : {}),
       } : undefined
-      const sourceDocument = await this.sourceDocumentFor(tab, backend)
+      // Capture the advisory stamp before ownership awaits can change the live tab.
+      const sourceDocumentPromise = this.sourceDocumentFor(tab, backend)
+      // Catalog defaults can introduce assets after startup ownership was confirmed.
+      const roots = workflowAssetRoots(result.artifact.snapshot,
+        { revision: result.artifact.revision, undo: [], redo: [] },
+        this.resolverWithVirtualNodes(registry.resolve))
+      if (roots.digests.length > 0) {
+        await retainWorkflowAssets(backend.connection, result.artifact.snapshot.lineage,
+          result.artifact.revision, { ...roots, complete: false })
+        if (lease.signal.aborted) return
+      }
+      const sourceDocument = await sourceDocumentPromise
       if (lease.signal.aborted) return
       // The advisory source-document upload is an await between compile and
       // POST. If the document changed there, re-run only the conservative

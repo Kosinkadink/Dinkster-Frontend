@@ -10,6 +10,12 @@ submits that tab through the existing `AppState.queue` path. The adjacent
 disclosure shows only jobs whose compile artifact snapshot has the same
 workflow lineage as the tab. A frozen execution tab shows only its exact job.
 
+Before submitting, queueing confirms retained
+ownership of known asset digests in the captured workflow, including effective
+catalog defaults that arrived after startup. Refusal prevents submission and
+appears in Problems. These incomplete declarations do not enable vault cleanup;
+failure of the optional source stamp still allows an unstamped submission.
+
 The control does not create an optimistic row while a submission is in
 flight. A row appears only after the backend accepts the job and the
 execution store registers its real execution reference. Queued, running, and
