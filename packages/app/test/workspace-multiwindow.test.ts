@@ -1299,7 +1299,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
       ],
     }
     const factory = authorityFactories()
-    const app = new AppState()
+    const app = createEditableApp()
     ;(app.registry as unknown as { set(value: unknown): void }).set({ schemas: new Map(), resolve: () => undefined, hash: 'promotion-test' })
     app.registerSchemas([seedSchema, loadSchema, flattenSchema])
     expect(app.openDocument(seedFixture(), 'Promotion Roles')).toEqual([])
@@ -1309,7 +1309,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     await drainTasks()
     const promoted = app.tabs.get().find((candidate) => candidate.id === tab.id)!
     const graph = promoted.store.doc.graphs.g0!
-    const result = promoted.store.dispatch({
+    const result = await app.dispatchTo(promoted, {
       command: 'image.documentExport',
       params: {
         graphId: 'g0',

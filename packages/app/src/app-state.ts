@@ -3905,6 +3905,7 @@ export class AppState {
         {
           actorId: this.workspaceActorId,
           schemaResolverFor: (document) => documentResolver(document, resolve),
+          validateDispatch: (current, candidate, history) => this.validateWorkflowCommit(current, candidate, history, resolve),
           beforeRemoteDocument: (document, revision, current, history) => this.confirmRemoteDocumentOwnership(
             backend, document, revision, current, history,
             () => this.workspaceAuthorityEnabled && generation === this.workspaceAuthorityGeneration &&
@@ -5587,21 +5588,7 @@ export class AppState {
       // A caller-provided store (shared session) replaces the local default.
       store: store ?? createLocalSession(document, coreCommandRegistry([], resolve), {
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, resolve),
-        validateCommit: (current, candidate, history) => {
-          if (this.admittedWorkflowCandidates.has(candidate)) return []
-          const tab = this.tabs.get().find((entry) => entry.store.doc === current)
-          if (!tab || this.backendForTab(tab).protocol !== 'dinkster') return []
-          const documentHistory = { revision: history.revision, undo: [], redo: [] }
-          const proposed = workflowAssetRoots(candidate, documentHistory, resolve)
-          const present = new Set(workflowAssetRoots(current, documentHistory, resolve).digests)
-          if (!proposed.digests.some((digest) => !present.has(digest))) return []
-          const known = new Set(workflowAssetRoots(current, history, resolve).digests)
-          if (!proposed.digests.some((digest) => !known.has(digest))) return []
-          const diagnostics = [diag('error', 'command', 'command.retention.required',
-            'New workflow assets require ownership confirmation through application dispatch')]
-          this.reportProblems(tab.id, diagnostics)
-          return diagnostics
-        },
+        validateCommit: (current, candidate, history) => this.validateWorkflowCommit(current, candidate, history, resolve),
       }),
       graphStack: createSignal<readonly string[]>([document.root]),
       instancePath: createSignal<readonly string[]>([]),
@@ -5794,6 +5781,27 @@ export class AppState {
     const outcome = prepared === undefined ? tab.store.dispatch(effective) : prepared.ok ? this.commitAdmittedWorkflowCandidate(prepared) : prepared
     if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
     return outcome
+  }
+
+  private validateWorkflowCommit(
+    current: WorkflowDocument,
+    candidate: WorkflowDocument,
+    history: HistorySnapshot,
+    resolve: SchemaResolver,
+  ): readonly Diagnostic[] {
+    if (this.admittedWorkflowCandidates.has(candidate)) return []
+    const tab = this.tabs.get().find((entry) => entry.store.doc === current)
+    if (!tab || this.backendForTab(tab).protocol !== 'dinkster') return []
+    const documentHistory = { revision: history.revision, undo: [], redo: [] }
+    const proposed = workflowAssetRoots(candidate, documentHistory, resolve)
+    const present = new Set(workflowAssetRoots(current, documentHistory, resolve).digests)
+    if (!proposed.digests.some((digest) => !present.has(digest))) return []
+    const known = new Set(workflowAssetRoots(current, history, resolve).digests)
+    if (!proposed.digests.some((digest) => !known.has(digest))) return []
+    const diagnostics = [diag('error', 'command', 'command.retention.required',
+      'New workflow assets require ownership confirmation through application dispatch')]
+    this.reportProblems(tab.id, diagnostics)
+    return diagnostics
   }
 
   private commitAdmittedWorkflowCandidate(prepared: Extract<ReturnType<NonNullable<DocumentSession['prepareDispatch']>>, { readonly ok: true }>): CommandOutcome {
@@ -6234,6 +6242,7 @@ export class AppState {
       session = await connectSharedSession(connection, coreCommandRegistry([], sessionResolver), {
         actorId,
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
+        validateDispatch: (current, candidate, history) => this.validateWorkflowCommit(current, candidate, history, sessionResolver),
         beforeRemoteDocument: (document, revision, current, history) => {
           const live = this.tabs.get().find((tab) => tab.store === session)
           const backend = live === undefined

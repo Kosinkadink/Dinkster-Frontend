@@ -44,6 +44,7 @@ for (const accepted of [true, false]) {
       }, 'Retained asset edit')
     })
     await expect(page.getByTestId('tab-bar').getByText('Retained asset edit', { exact: true })).toBeVisible()
+    await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
     expect(await page.evaluate(() => {
       const store = window.__dinksterTest!.app.activeTab()!.store
       const invocation = { command: 'node.setValue', params: {

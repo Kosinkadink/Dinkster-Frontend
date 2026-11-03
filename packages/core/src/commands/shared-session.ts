@@ -71,7 +71,7 @@ import type {
 import { predictAllocatedId } from './alloc.js'
 import { isValidActorId } from '../ids.js'
 import { applyOps, type PatchOp } from './patch.js'
-import { DocumentStore, jsonSameValue, replayHistoryOps, type HistorySnapshot, type ListenerErrorSink, type PreparedDocumentDispatch } from './store.js'
+import { DocumentStore, jsonSameValue, replayHistoryOps, type DocumentCommitPolicy, type HistorySnapshot, type ListenerErrorSink, type PreparedDocumentDispatch } from './store.js'
 import { toWirePatch, type DocumentSession, type SessionOp, type WirePatchOp } from './session.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
@@ -153,6 +153,8 @@ export interface SharedSessionOptions {
   readonly onConflict?: (conflict: SessionConflict) => void
   readonly onError?: (message: string) => void
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
+  /** Synchronous local command policy; excludes history replay and rebased intentions. */
+  readonly validateDispatch?: DocumentCommitPolicy
   /** Confirm ownership before adopting incoming confirmed ground, not after notifying observers. */
   readonly beforeRemoteDocument?: (
     document: WorkflowDocument,
@@ -224,6 +226,7 @@ class SharedDocumentSession implements DocumentSession {
   private readonly onErrorCb: ((message: string) => void) | undefined
   private readonly maxUndo: number
   private readonly schemaResolverFor: ((doc: WorkflowDocument) => SchemaResolver) | undefined
+  private readonly validateDispatch: SharedSessionOptions['validateDispatch']
   private readonly beforeRemoteDocument: SharedSessionOptions['beforeRemoteDocument']
   private rebasing = false
   private readonly snapshotPolicy: SnapshotPublicationPolicy
@@ -299,6 +302,7 @@ class SharedDocumentSession implements DocumentSession {
     this.onErrorCb = options?.onError
     this.maxUndo = options?.maxUndo ?? 200
     this.schemaResolverFor = options?.schemaResolverFor
+    this.validateDispatch = options?.validateDispatch
     this.beforeRemoteDocument = options?.beforeRemoteDocument
     this.snapshotPolicy = new SnapshotPublicationPolicy(
       snapshotRevision,
@@ -591,6 +595,10 @@ class SharedDocumentSession implements DocumentSession {
           return { ok: false, diagnostics: [diag('error', 'command', 'command.candidate.stale', 'Prepared shared command is stale or already consumed')] }
         }
         consumed = true
+        if (recordHistory) {
+          const diagnostics = this.validateDispatch?.(currentDocument, prepared.document, currentHistory) ?? []
+          if (hasErrors(diagnostics)) return { ok: false, diagnostics }
+        }
         const outcome = prepared.commit()
         if (outcome.ok && outcome.forward.length > 0) {
           const record: HistoryRecord | undefined = recordHistory

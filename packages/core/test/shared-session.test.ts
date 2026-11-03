@@ -522,6 +522,41 @@ describe('shared DocumentSession', () => {
     session.close()
   })
 
+  it.each(['dispatch', 'prepared'] as const)('refuses a shared local candidate before publication through %s', async (route) => {
+    const conn = new FakeConnection(baseDoc())
+    const session = await connectSharedSession(conn, coreCommandRegistry(), {
+      actorId: 'actorA',
+      validateDispatch: (_current, candidate) => candidate.graphs.g0!.nodes.n1!.title === 'blocked'
+        ? [{ severity: 'error', origin: 'command', code: 'test.publication.refused', message: 'Not admitted' }]
+        : [],
+    })
+    try {
+      const original = session.doc
+      const history = session.historySnapshot()
+      const observed: WorkflowDocument[] = []
+      session.document.subscribe((document) => observed.push(document))
+      const invocation = setTitle('n1', 'blocked')
+      const prepared = route === 'prepared' ? session.prepareDispatch(invocation) : undefined
+      const outcome = route === 'dispatch' ? session.dispatch(invocation)
+        : prepared!.ok ? prepared!.commit() : prepared!
+      expect(outcome).toMatchObject({ ok: false, diagnostics: [{ code: 'test.publication.refused' }] })
+      await session.settle()
+      expect(session.doc).toBe(original)
+      expect(session.historySnapshot()).toEqual(history)
+      expect(observed).toEqual([])
+      expect(conn.postedOps).toEqual([])
+      expect(session.dispatch(setTitle('n1', 'allowed')).ok).toBe(true)
+      await session.settle()
+      expect(session.doc.graphs.g0!.nodes.n1!.title).toBe('allowed')
+      expect(conn.postedOps).toHaveLength(1)
+      expect(session.undo()).toBe(true)
+      await session.settle()
+      expect(session.doc.graphs.g0!.nodes.n1!.title).toBeUndefined()
+    } finally {
+      session.close()
+    }
+  })
+
   it('captures pending prefixes and refuses a candidate after its confirmed baseline advances', async () => {
     const { session, conn } = await makeShared()
     const gate = deferred()

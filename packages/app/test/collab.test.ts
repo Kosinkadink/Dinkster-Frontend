@@ -453,6 +453,51 @@ describe('stableActorId', () => {
 })
 
 describe('share', () => {
+  it.each(['dispatch', 'prepared'] as const)('refuses unadmitted shared asset publication through %s', async (route) => {
+    const server = new FakeCollabServer()
+    const app = prepareWorkflowApp(makeApp(server))
+    const prior = activeTab(app)
+    const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
+      size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
+    const added = await app.dispatchTo(prior, { command: 'node.add', params: { graphId: prior.store.doc.root,
+      type: 'AssetHolder', position: { x: 20, y: 40 }, values: { held: asset('a') } } })
+    expect(added.ok).toBe(true)
+    expect(await app.shareActiveTab()).toBeUndefined()
+    const tab = activeTab(app)
+    const shared = sharedSession(app, tab.id)
+    const node = Object.values(tab.store.doc.graphs[tab.store.doc.root]!.nodes)[0]!
+    const replace = (letter: string) => ({ command: 'node.setValue', params: {
+      graphId: tab.store.doc.root, nodeId: node.id, inputId: 'held', value: asset(letter),
+    } })
+    const original = shared.doc
+    const history = shared.historySnapshot()
+    const prepared = route === 'prepared' ? shared.prepareDispatch(replace('c')) : undefined
+    const refused = route === 'dispatch' ? shared.dispatch(replace('c'))
+      : prepared!.ok ? prepared!.commit() : prepared!
+    expect(refused).toMatchObject({ ok: false, diagnostics: [{ code: 'command.retention.required' }] })
+    await shared.settle()
+    expect(shared.doc).toBe(original)
+    expect(shared.historySnapshot()).toEqual(history)
+    const backend = app.backendForTab(tab)
+    let acknowledge!: () => void
+    const pending = new Promise<void>((resolve) => { acknowledge = resolve })
+    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      expect(declaration.digests).toEqual([asset('a').digest, asset('b').digest])
+      await pending
+      return { ...owner, ...declaration, revision: 1 }
+    })
+    const operation = app.dispatchTo(tab, replace('b'))
+    expect(shared.doc).toBe(original)
+    expect(shared.historySnapshot()).toEqual(history)
+    acknowledge()
+    expect((await operation).ok).toBe(true)
+    await shared.settle()
+    expect(shared.doc.graphs[shared.doc.root]!.nodes[node.id]!.values.held).toEqual(asset('b'))
+    expect(shared.undo()).toBe(true)
+    await shared.settle()
+    expect(shared.doc.graphs[shared.doc.root]!.nodes[node.id]!.values.held).toEqual(asset('a'))
+  })
+
   it.each([true, false])('retains current and undo assets before sharing, accepted=%s', async (accepted) => {
     const server = new FakeCollabServer()
     const app = prepareWorkflowApp(makeApp(server))

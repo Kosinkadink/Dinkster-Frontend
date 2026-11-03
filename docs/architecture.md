@@ -198,7 +198,13 @@ identity absent from the current document and history refuses direct publication
 the application route grants only its exact candidate a transient commit permit
 after admission. Refusal preserves document, revision, history and persistence.
 The optional core policy does not change default session behavior. Shared local
-dispatch/rebase and unknown holders are not certified by this local policy.
+public dispatch and prepared commits use the same application policy before
+optimistic document/history publication or transport submission. Both network
+collaboration and SharedWorker sessions install it. The shared session's
+optional dispatch policy does not cover internal undo/redo replay or rebased
+intentions; remote confirmed documents keep their separate awaited ownership
+hook. Shared history/rebase and unknown holders are not certified by these
+local dispatch policies.
 
 Curve, Compositor and GLSL Apply, and unused-definition cleanup, also await
 the final command result. Pending actions disable duplicate submission and
