@@ -61,6 +61,13 @@ prevents late publication. Standalone values clients without an admission policy
 keep their transport behavior, and already materialized rendition bytes keep
 their bounded cache independently of descriptor ownership.
 
+Live and mirrored structured outputs and preview records also await incomplete
+shown-result ownership, including records with no known digest. Later events
+for that execution wait for admission so completion cannot overtake the held
+payload. Refusal withholds that payload without blocking unrelated executions.
+Self-contained Blob and ArrayBuffer preview bytes need no additional ownership
+request, but still follow any pending event from the same execution.
+
 ## Staged document commands
 
 `DocumentStore.prepareDispatch()` evaluates and validates a command without

@@ -532,7 +532,9 @@ describe('AppState multi-window workspace', () => {
     expect(first.store.get(ref)).toBeUndefined()
   })
 
-  it.each(['accepted', 'refused'] as const)('admits received output identities before later events: %s', async (scenario) => {
+  it.each([false, true].flatMap((opaque) => ['nodeOutput', 'preview'].flatMap((kind) =>
+    ['accepted', 'refused'].map((scenario) => ({ opaque, kind, scenario })),
+  )))('admits received $kind identities before later events, opaque=$opaque: $scenario', async ({ opaque, kind, scenario }) => {
     const left = new EventChannel()
     const right = new EventChannel()
     left.peer = right
@@ -541,7 +543,7 @@ describe('AppState multi-window workspace', () => {
     editableApps.push(app)
     const ref = { connection: app.connection.id, prompt: asPromptId('received-output') }
     const digest = `blake3:${'b'.repeat(64)}`
-    const output = { image: { typeId: 'IMAGE', meta: { digest } } }
+    const output = { image: { typeId: 'IMAGE', meta: opaque ? { fingerprint: 'opaque-source' } : { digest } } }
     const send = (event: unknown) => left.postMessage({ source: 'foreign-window', kind: 'event', event })
     send({ kind: 'started', execution: ref, timestamp: 1 })
     let requested = 0
@@ -549,29 +551,51 @@ describe('AppState multi-window workspace', () => {
     vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
     vi.spyOn(app.connection, 'retainAssets').mockImplementation((owner, declaration) => {
       requested += 1
-      expect(declaration.digests).toEqual([digest])
+      expect(declaration.digests).toEqual(opaque ? [] : [digest])
       expect(declaration.complete).toBe(false)
       return new Promise((resolve, reject) => {
         acknowledge = () => scenario === 'refused' ? reject(new Error('ownership refused'))
           : resolve({ ...owner, ...declaration, revision: 1 })
       })
     })
-    send({ kind: 'nodeOutput', execution: ref, timestamp: 2, runtimeNodeId: 'image', output })
+    send({ kind, execution: ref, timestamp: 2, runtimeNodeId: 'image',
+      ...(kind === 'nodeOutput' ? { output } : { channel: 'application/json', stream: 'structured', payload: output }) })
     const bytes = new ArrayBuffer(3)
     send({ kind: 'preview', execution: ref, timestamp: 3, runtimeNodeId: 'image', channel: 'image/png', payload: bytes })
     send({ kind: 'completed', execution: ref, timestamp: 4 })
     const other = { ...ref, prompt: asPromptId('unrelated') }
     send({ kind: 'started', execution: other, timestamp: 5 })
     await drainTasks()
-    expect(requested).toBe(1)
     expect(app.store.get(ref)).toMatchObject({ status: 'running', outputs: {}, previews: {} })
+    expect(requested).toBe(1)
     expect(app.store.get(other)?.status).toBe('running')
     acknowledge()
     await drainTasks()
     expect(app.store.get(ref)).toMatchObject({ status: 'completed',
-      outputs: scenario === 'accepted' ? { image: output } : {} })
+      outputs: scenario === 'accepted' && kind === 'nodeOutput' ? { image: output } : {} })
+    expect(app.store.get(ref)?.previews.image?.structured?.payload).toEqual(
+      scenario === 'accepted' && kind === 'preview' ? output : undefined)
     expect(app.store.get(ref)?.previews.image?.['']?.payload).toEqual(bytes)
     expect(right.sent).toEqual([])
+  })
+
+  it.each(['buffer', 'blob'])('publishes self-contained preview bytes without ownership admission: %s', async (kind) => {
+    const left = new EventChannel()
+    const right = new EventChannel()
+    left.peer = right
+    right.peer = left
+    const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
+    editableApps.push(app)
+    const ref = { connection: app.connection.id, prompt: asPromptId('inline-preview') }
+    vi.spyOn(app.connection, 'retainAssets').mockRejectedValue(new Error('Inline bytes have no backend roots'))
+    const bytes = new Uint8Array([7, 3, 11])
+    const payload = kind === 'buffer' ? bytes.buffer : new Blob([bytes], { type: 'image/png' })
+    left.postMessage({ source: 'foreign-window', kind: 'event', event: {
+      kind: 'preview', execution: ref, timestamp: 1, runtimeNodeId: 'image', channel: 'image/png', payload,
+    } })
+    const actual = app.store.get(ref)?.previews.image?.['']?.payload
+    expect(actual).toBeDefined()
+    expect(new Uint8Array(actual instanceof Blob ? await actual.arrayBuffer() : actual as ArrayBuffer)).toEqual(bytes)
   })
 
   it('mirrors live execution events between window stores', () => {

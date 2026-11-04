@@ -8425,11 +8425,12 @@ export class AppState {
     }
     const key = executionKey(event.execution)
     const previous = this.pendingExecutionEvents.get(key)
-    const payload = event.kind === 'preview' ? event.payload : event.kind === 'nodeOutput' ? event.output : undefined
+    const payload = event.kind === 'preview' && workspaceRecord(event.payload)
+      ? event.payload : event.kind === 'nodeOutput' ? event.output : undefined
     const incoming = payload === undefined ? undefined : executionAssetRoots({
       outputs: { event: { payload } }, artifacts: [],
     }, () => undefined)
-    if (previous === undefined && !incoming?.digests.length) {
+    if (previous === undefined && incoming === undefined) {
       if (this.publishWorkspaceExecutionEvent(event)) onApplied?.()
       return
     }
@@ -8450,7 +8451,7 @@ export class AppState {
     // overtake an admitted preview and change its ring or provenance semantics.
     const pending = (previous ?? Promise.resolve()).then(async () => {
       if (!current()) return
-      if (incoming?.digests.length) {
+      if (incoming !== undefined) {
         const state = this.store.get(event.execution)
         const roots = state === undefined ? incoming : executionAssetRoots(state,
           this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined)))
