@@ -389,8 +389,42 @@ export async function retainExecutionAssets(
   ref: ExecutionRef,
   roots: ReturnType<typeof workflowAssetRoots>,
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
-): Promise<void> {
-  await retainAssetRoots(connection, 'shown-result', { executionKey: executionKey(ref) }, roots, storage)
+): Promise<RetainedAssets> {
+  return retainAssetRoots(connection, 'shown-result', { executionKey: executionKey(ref) }, roots, storage)
+}
+
+/** Acknowledged protection outlives all admitted reads, including pending bodies. */
+export class RetainedAssetReader {
+  private closed = false
+  private readonly pending = new Set<Promise<unknown>>()
+
+  constructor(
+    readonly connection: DinksterConnection,
+    readonly retained: RetainedAssets,
+    private readonly isCurrent: () => boolean,
+  ) {}
+
+  async read<T>(consume: () => Promise<T>): Promise<T> {
+    if (this.closed || !this.isCurrent()) throw new Error('Retained asset reader is closed')
+    const pending = Promise.resolve().then(() => {
+      if (this.closed || !this.isCurrent()) throw new Error('Retained asset reader is closed')
+      return consume()
+    })
+    this.pending.add(pending)
+    try {
+      const result = await pending
+      if (this.closed || !this.isCurrent()) throw new Error('Retained asset reader changed during read')
+      return result
+    } finally {
+      this.pending.delete(pending)
+    }
+  }
+
+  /** Closing admission waits for actual work; it never releases durable protection. */
+  async close(): Promise<void> {
+    this.closed = true
+    await Promise.allSettled([...this.pending])
+  }
 }
 
 async function retainAssetRoots(

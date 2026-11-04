@@ -1127,7 +1127,9 @@ describe('graph image document opening', () => {
     try {
       const opened = await openGraphImageDocument(connection, target, query)
       expect(peek).toHaveBeenCalledWith(query)
-      expect(rendition).toHaveBeenCalledWith(query, 'document')
+      expect(rendition).toHaveBeenCalledWith(query, 'document', {
+        descriptor: { typeId: 'dinkster.layers', fingerprint: 'source-fingerprint' },
+      })
       expect(serializeImageDocument(opened.draft.document)).toBe(canonical)
       expect(opened.render.sourceCanonical).toBe(canonical)
       expect(opened.render.response.provenance.documentDigest).toBe(remote.digest)

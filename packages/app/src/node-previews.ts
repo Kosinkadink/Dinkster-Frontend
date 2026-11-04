@@ -984,7 +984,7 @@ export function createPreviewLoader(deps: {
                 descriptor: batch.descriptor, listPath: batch.query.element ?? [], batchIndex: index,
                 load: async (signal) => {
                   const result = await values.rendition(batch.query, batch.rendition.kind, {
-                    batch: index, signal,
+                    batch: index, signal, descriptor: batch.descriptor,
                     ...(batch.rendition.version !== undefined ? { rendererVersion: batch.rendition.version } : {}),
                   })
                   if (result.available && (result.mime !== 'image/png' || result.bytes.byteLength > 64 * 1024 * 1024)) {

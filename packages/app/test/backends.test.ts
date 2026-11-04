@@ -948,6 +948,54 @@ describe('execution output routing', () => {
     },
   )
 
+  it.each(['live', 'removed', 'replaced', 'disposed'] as const)(
+    'binds lazy rendition and cache reads to the admitted descriptor and captured %s owner', async (mode) => {
+      const backend = addOffline('http://lazy-value-owner:8188')
+      const ref = foreignRun(String(backend.id), 'lazy-read')
+      const query = { jobId: ref.prompt, nodeId: 'audio', outputId: 'result' }
+      let version = 1
+      const requests: string[] = []
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+        ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const url = new URL(String(input))
+        const selector = url.searchParams.get('rendition')
+        requests.push(selector ?? 'descriptor')
+        return selector === null ? Response.json({ available: true,
+          descriptor: { typeId: 'AUDIO', fingerprint: `audio-${version}`, meta: {} },
+          renditions: [{ kind: 'window', mime: 'audio/wav', cacheKey: `window-${version}` }] })
+          : new Response(new Uint8Array([selector === 'window-1' ? 13 : 29]), {
+            headers: { 'Content-Type': 'audio/wav', ETag: selector },
+          })
+      })
+      const values = app.valuesForExecution(ref)!
+      const first = await values.peek(query)
+      version = 2
+      const second = await values.peek(query)
+      if (!first.available || !second.available) throw new Error('Expected admitted descriptors')
+      const old = await values.rendition(query, 'window', { descriptor: first.descriptor })
+      if (!old.available) throw new Error('Expected original rendition')
+      expect([...new Uint8Array(old.bytes)]).toEqual([13])
+      expect(await values.rendition(query, 'window', { descriptor: second.descriptor })).toMatchObject({ available: true })
+      expect(requests).toEqual(['descriptor', 'descriptor', 'window-1', 'window-2'])
+      for (const descriptor of [undefined, { ...first.descriptor }]) {
+        expect(await values.rendition(query, 'window', descriptor === undefined ? {} : { descriptor }))
+          .toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
+      }
+      expect(await values.rendition({ ...query, outputId: 'other' }, 'window', { descriptor: first.descriptor }))
+        .toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
+      if (mode === 'removed' || mode === 'replaced') app.removeBackend(backend.id)
+      if (mode === 'replaced') addOffline('http://lazy-value-owner:8188')
+      if (mode === 'disposed') app.dispose()
+      expect(await values.rendition(query, 'window', { descriptor: second.descriptor })).toMatchObject(
+        mode === 'live' || mode === 'removed' ? { available: true } : { available: false, reason: 'ownership-unconfirmed' })
+      expect(await values.rendition(query, 'window', { descriptor: first.descriptor, frame: 3 })).toMatchObject(
+        mode === 'live' || mode === 'removed' ? { available: true } : { available: false, reason: 'ownership-unconfirmed' })
+      expect(requests).toEqual(['descriptor', 'descriptor', 'window-1', 'window-2',
+        ...(mode === 'live' || mode === 'removed' ? ['window-1'] : [])])
+    },
+  )
+
   it('assetUrlForExecution uses the execution backend, not the default', () => {
     const b = addOffline('http://other:8188')
     const digest = 'blake3:' + 'ab'.repeat(32)

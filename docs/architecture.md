@@ -57,9 +57,18 @@ root set does not establish completeness. Refusal keeps the descriptor
 unpublished and permits a later read to retry. Reads stay on the original live
 or retired backend; removing a backend
 does not redirect historical results. Application disposal or caller cancellation
-prevents late publication. Standalone values clients without an admission policy
-keep their transport behavior, and already materialized rendition bytes keep
-their bounded cache independently of descriptor ownership.
+prevents late publication. Each application descriptor captures its acknowledged
+receipt and backend-affine reader. Rendition callers pass that exact descriptor,
+including lazy audio/video and image-batch reads. Another client's descriptor,
+a copied descriptor, a mismatched query or missing admission refuses before
+network or cache access. Later peeks cannot substitute their selectors or reader
+for an earlier descriptor. Managed cache hits use the same reader boundary.
+Application disposal closes admission for active value readers; their pending
+bodies remain tracked until settlement, and late publication is refused.
+This boundary does not settle model viewers, shared poster queues or durable
+recovery references, and does not release any retained owner. Standalone values
+clients without an admission policy keep their transport behavior and bounded
+byte cache.
 
 Live and mirrored structured outputs and preview records also await incomplete
 shown-result ownership, including records with no known digest. Later events

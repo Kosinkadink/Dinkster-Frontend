@@ -201,7 +201,7 @@ import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegist
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
-import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions, retainExecutionAssets, retainWorkflowAssets, workflowAssetRoots } from './workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainWorkflowAssets, workflowAssetRoots } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -3419,6 +3419,7 @@ export class AppState {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    for (const reader of this.valueAssetReaders.keys()) void reader.close()
     this.unsubscribePackLocale()
     this.unsubscribeAppView()
     for (const controller of this.submissionWorlds.keys()) controller.abort()
@@ -4368,8 +4369,19 @@ export class AppState {
             (this.backendFor(id) ?? this.retiredBackends.get(id)) === nativeBackend
           if (!current()) throw new Error('Value owner is no longer available')
           const roots = executionAssetRoots({ outputs: { value: { descriptor } }, artifacts: [] }, () => undefined)
-          await retainExecutionAssets(connection, { connection: id, prompt: asPromptId(query.jobId) }, roots)
+          const retained = await retainExecutionAssets(connection, { connection: id, prompt: asPromptId(query.jobId) }, roots)
           if (!current()) throw new Error('Value owner changed during asset admission')
+          const reader = new RetainedAssetReader(connection, retained, current)
+          return { read: async <T>(consume: () => Promise<T>): Promise<T> => {
+            this.valueAssetReaders.set(reader, (this.valueAssetReaders.get(reader) ?? 0) + 1)
+            try {
+              return await reader.read(consume)
+            } finally {
+              const remaining = this.valueAssetReaders.get(reader)! - 1
+              if (remaining === 0) this.valueAssetReaders.delete(reader)
+              else this.valueAssetReaders.set(reader, remaining)
+            }
+          } }
         },
       })
       // Epoch-gated registry refresh (schema_changed / composition_complete
@@ -7072,6 +7084,7 @@ export class AppState {
     Tab,
     { connection: DinksterConnection; revision: number; schemaHash: string; digest: string }
   >()
+  private readonly valueAssetReaders = new Map<RetainedAssetReader, number>()
   private submissionAssetOwners = new WeakMap<Tab, {
     readonly connection: DinksterConnection
     readonly document: WorkflowDocument

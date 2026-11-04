@@ -7,7 +7,7 @@ import { buildDinksterRegistry } from '@dinkster/client'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { GLSL_EDITOR_KIND } from '../src/editors.js'
-import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions, workflowAssetRoots } from '../src/workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions, RetainedAssetReader, workflowAssetRoots } from '../src/workflow-asset-retention.js'
 import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
@@ -38,6 +38,41 @@ function deferred<T>() {
 }
 
 describe('workflow retention recovery', () => {
+  it('closes receipt-bound reader admission but waits for every admitted body without releasing protection', async () => {
+    const receipt: RetainedAssets = { scope: 'local', ownerKind: 'shown-result', ownerId: 'result-reader',
+      revision: 1, complete: false, digests: [asset('a').digest] }
+    const releaseRetainedAssets = vi.fn()
+    const connection = { releaseRetainedAssets } as unknown as DinksterConnection
+    const reader = new RetainedAssetReader(connection, receipt, () => true)
+    const replacement = new RetainedAssetReader(connection, { ...receipt, ownerId: 'replacement' }, () => true)
+    const bodies = [0, 1].map(() => {
+      let body!: ReadableStreamDefaultController<Uint8Array>
+      const response = new Response(new ReadableStream<Uint8Array>({ start(controller) { body = controller } }))
+      return { body, response }
+    })
+    const started = deferred<void>()
+    let count = 0
+    const reads = bodies.map(({ response }) => reader.read(async () => {
+      if (++count === 2) started.resolve()
+      return response.arrayBuffer()
+    }).then(() => 'published', () => 'refused'))
+    await started.promise
+    let settled = false
+    const close = reader.close().then(() => { settled = true })
+    await expect(reader.read(async () => new ArrayBuffer(1))).rejects.toThrow('closed')
+    bodies[0]!.body.close()
+    expect(await reads[0]).toBe('refused')
+    expect(settled).toBe(false)
+    const live = await replacement.read(async () => new Uint8Array([17, 31]).buffer)
+    expect([...new Uint8Array(live)]).toEqual([17, 31])
+    bodies[1]!.body.error(new Error('body failed'))
+    expect(await reads[1]).toBe('refused')
+    await close
+    expect(settled).toBe(true)
+    expect(reader.retained).toBe(receipt)
+    expect(releaseRetainedAssets).not.toHaveBeenCalled()
+  })
+
   it('retains nested preview documents and ring resources without certifying opaque payloads', () => {
     const binary = new Uint8Array([1, 3, 7])
     const payload: Record<string, unknown> = { documentDigest: asset('c').digest,

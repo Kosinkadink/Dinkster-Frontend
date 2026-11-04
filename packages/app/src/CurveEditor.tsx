@@ -161,7 +161,7 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
           : `${peek.status} ${peek.reason}: ${peek.error}`)
         return
       }
-      const rendition = await context.values.rendition(context.curveQuery, info.kind, { signal: controller.signal })
+      const rendition = await context.values.rendition(context.curveQuery, info.kind, { signal: controller.signal, descriptor: peek.descriptor })
       if (controller.signal.aborted) return
       if (!rendition.available) {
         setComputedStatus(`${rendition.status} ${rendition.reason}: ${rendition.error}`)

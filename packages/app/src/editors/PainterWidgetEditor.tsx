@@ -120,7 +120,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
         const rendition = defaultRenditionOf(peek.renditions.filter((entry) => entry.mime === 'image/png'))
         if (!rendition) throw unavailable()
         // The native IMAGE PNG renderer defaults to the first frame, as does Painter.
-        const result = await values.rendition(query, rendition.kind, { signal: abort.signal,
+        const result = await values.rendition(query, rendition.kind, { signal: abort.signal, descriptor: peek.descriptor,
           ...(rendition.parameters?.includes('batch') ? { batch: 0 } : {}),
           ...(rendition.version === undefined ? {} : { rendererVersion: rendition.version }) })
         requireCurrent()

@@ -65,7 +65,7 @@ export async function openGraphImageDocument(
   const native = peek.renditions.find((rendition) =>
     rendition.kind === 'document' && rendition.mime.split(';', 1)[0] === IMAGE_DOCUMENT_MEDIA_TYPE)
   if (native === undefined) throw new Error('This value owner does not advertise a native ImageDocument rendition')
-  const result = await values.rendition(query, 'document')
+  const result = await values.rendition(query, 'document', { descriptor: peek.descriptor })
   if (!result.available) throw new Error(`Layer document unavailable: ${result.error}`)
   if (result.fingerprint !== peek.descriptor.fingerprint ||
     result.typeId !== peek.descriptor.typeId || result.reportedKind !== 'document' ||
