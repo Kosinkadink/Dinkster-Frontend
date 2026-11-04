@@ -532,7 +532,8 @@ describe('sourceDocument stamp on queue', () => {
     expect(submit.mock.calls.at(-1)![1]).not.toHaveProperty('exportSnapshot')
   })
 
-  it.each(['accepted', 'refused', 'closed', 'reused'] as const)('confirms late catalog asset defaults before submitting a captured workflow: %s', async (mode) => {
+  it.each((['accepted', 'refused', 'closed', 'reused'] as const).flatMap((mode) =>
+    [false, true].map((opaque) => ({ mode, opaque }))))('confirms late catalog roots before submitting a captured workflow: $mode opaque=$opaque', async ({ mode, opaque }) => {
     const { backend, tab } = nativeSetup()
     backend.registry.set(undefined)
     expect(app.openDocument({ ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0, nodes: {
@@ -541,22 +542,27 @@ describe('sourceDocument stamp on queue', () => {
     const candidate = app.activeTab()!
     app.setTabTarget(candidate.id, backend.id)
     await app.confirmStartupOwnership()
-    backend.registry.set(buildDinksterRegistry(backend.id, {
+    const catalog = buildDinksterRegistry(backend.id, {
       schemaVersion: nodesPayload.schemaVersion,
       nodes: { DefaultAsset: { outputNode: true, interface: [{ role: 'input', id: 'file',
-        type: { kind: 'concrete', types: ['ASSET'] }, forceInput: true,
-        default: { digest: DIGEST2, name: 'late.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' },
+        type: { kind: 'concrete', types: [opaque ? 'INT' : 'ASSET'] }, forceInput: true,
+        default: opaque ? 7 : { digest: DIGEST2, name: 'late.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' },
       }] } },
-    }))
+    })
+    const schema = catalog.resolve('DefaultAsset')!
+    const held = opaque ? { ...schema, ext: { ...schema.ext, 'test.opaque': { handle: 'unrepresented dependency' } } } : schema
+    backend.registry.set({ ...catalog, schemas: new Map([[held.type, held]]), resolve: (type) => type === held.type ? held : undefined })
     expect(app.compileTab(candidate)?.ok).toBe(true)
     const upload = vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
+    if (opaque) upload.mockRejectedValue(new Error('Advisory source upload unavailable'))
     const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
       ok: true, execution: { connection: backend.id, prompt: asPromptId('late-default') },
     })
     let acknowledge!: () => void
     const barrier = new Promise<void>((resolve) => { acknowledge = resolve })
+    const ownsSnapshot = (digests: readonly string[]) => opaque ? digests.length === 0 : digests.includes(DIGEST2)
     const retention = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-      if (declaration.digests.includes(DIGEST2)) {
+      if (ownsSnapshot(declaration.digests)) {
         await barrier
         if (mode === 'refused') throw new Error('snapshot ownership refused')
       }
@@ -565,7 +571,9 @@ describe('sourceDocument stamp on queue', () => {
     vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
     const queued = app.queue(candidate)
     try {
-      await vi.waitFor(() => expect(retention.mock.calls.some(([, declaration]) => declaration.digests.includes(DIGEST2))).toBe(true))
+      await vi.waitFor(() => expect(retention.mock.calls.some(([, declaration]) => ownsSnapshot(declaration.digests))).toBe(true))
+      expect(retention.mock.calls.find(([, declaration]) => ownsSnapshot(declaration.digests))![1])
+        .toEqual({ revision: 0, complete: false, digests: opaque ? [] : [DIGEST2] })
       expect(upload).toHaveBeenCalledTimes(1)
       expect(submit).not.toHaveBeenCalled()
       if (mode === 'closed') app.closeTab(candidate.id)
@@ -577,18 +585,19 @@ describe('sourceDocument stamp on queue', () => {
       const accepted = mode === 'accepted' || mode === 'reused'
       expect(submit).toHaveBeenCalledTimes(accepted ? 1 : 0)
       expect(app.store.executions.get().size).toBe(accepted ? 1 : 0)
+      if (accepted && opaque) expect(submit.mock.calls[0]![1]).not.toHaveProperty('sourceDocument')
       if (mode === 'accepted') {
         expect(JSON.parse(upload.mock.calls[0]![0] as string).view.graphs.g0.nodes.n0.position).toEqual({ x: 0, y: 0 })
         expect(submit.mock.calls[0]![0].snapshot.view.graphs.g0!.nodes!.n0!.position).toEqual({ x: 0, y: 0 })
       }
       if (mode === 'reused') {
-        const declarations = () => retention.mock.calls.filter(([, declaration]) => declaration.digests.includes(DIGEST2))
+        const declarations = () => retention.mock.calls.filter(([, declaration]) => ownsSnapshot(declaration.digests))
         const originalOwner = declarations()[0]![0]
         await app.queue(candidate)
         expect(submit).toHaveBeenCalledTimes(2)
         expect(declarations()).toHaveLength(1)
         const journal = JSON.parse(localStorage.getItem(`dinkster.workflow-retentions.${originalOwner.ownerId}`)!)
-        expect(journal).toMatchObject({ owner: originalOwner, acknowledgedRevision: 1, digests: [DIGEST2], complete: false })
+        expect(journal).toMatchObject({ owner: originalOwner, acknowledgedRevision: 1, digests: opaque ? [] : [DIGEST2], complete: false })
         backend.registry.set({ ...backend.registry.get()! })
         await app.queue(candidate)
         expect(declarations()).toHaveLength(2)

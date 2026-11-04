@@ -8730,11 +8730,11 @@ export class AppState {
       } : undefined
       // Capture the advisory stamp before ownership awaits can change the live tab.
       const sourceDocumentPromise = this.sourceDocumentFor(tab, backend)
-      // Catalog defaults can introduce assets after startup ownership was confirmed.
+      // Catalog defaults can introduce assets or opaque roots after startup admission.
       const roots = workflowAssetRoots(result.artifact.snapshot,
         { revision: result.artifact.revision, undo: [], redo: [] },
         this.resolverWithVirtualNodes(registry.resolve))
-      if (roots.digests.length > 0) {
+      if (!roots.complete || roots.digests.length > 0) {
         const owners = this.submissionAssetOwners
         const owned = owners.get(tab)
         if (roots.refusal !== undefined || owned?.connection !== backend.connection ||
