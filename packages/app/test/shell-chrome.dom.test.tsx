@@ -359,8 +359,8 @@ describe('Dinkster app menu', () => {
     dispose()
   })
 
-  it('tracks undo and redo availability from the active document history', () => {
-    const app = new AppState()
+  it('tracks undo and redo availability from the active document history', async () => {
+    const app = prepareWorkflowApp(new AppState())
     const tab = app.createWorkflow()
     const root = document.createElement('div')
     document.body.append(root)
@@ -377,10 +377,10 @@ describe('Dinkster app menu', () => {
     expect(root.querySelector('[data-item-id="edit.redo"]')?.getAttribute('aria-disabled')).toBe('true')
     click(root.querySelector('[data-testid="dinkster-menu-button"]')!)
 
-    expect(tab.store.dispatch({
+    expect((await app.dispatchTo(tab, {
       command: 'node.add',
       params: { graphId: tab.store.doc.root, type: 'TestNode', position: { x: 0, y: 0 } },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     expect(root.querySelector('[data-testid="context-menu"]')).toBeNull()
     click(root.querySelector('[data-testid="dinkster-menu-button"]')!)
     expect(root.querySelector('[data-item-id="edit.undo"]')?.getAttribute('aria-disabled')).toBe('false')

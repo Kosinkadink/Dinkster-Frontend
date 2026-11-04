@@ -324,12 +324,12 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     unmount()
   })
 
-  it('presents invalid, unavailable, and empty states without inventing mutations', () => {
+  it('presents invalid, unavailable, and empty states without inventing mutations', async () => {
     const invalid = mountPanel()
-    expect(invalid.tab.store.dispatch({
+    expect((await invalid.app.dispatchTo(invalid.tab, {
       command: 'boundary.setSlots',
       params: { graphId: 'sub', side: 'inputs', itemId: 'items', slots: ['unknown'] },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     const diagnostic = invalid.root.querySelector<HTMLElement>('[data-testid="boundary-diag"]')!
     expect(diagnostic.getAttribute('role')).toBe('alert')
     expect(diagnostic.getAttribute('data-code')).toBe('boundary.slotUnknown')
