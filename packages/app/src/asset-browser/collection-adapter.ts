@@ -55,9 +55,12 @@ export function assetEntryOf(item: AssetBrowserItem, assetUrl?: (digest: string)
       ? { thumbUrl: assetUrl(item.digest) }
       : assetUrl !== undefined && item.digest !== undefined && (item.availability === undefined || item.availability === 'available') && isModel3dMime(item.mediaType)
         ? {
-            thumbRender: () => {
+            thumbRender: async (signal?: AbortSignal) => {
+              signal?.throwIfAborted()
               const url = assetUrl(item.digest!)
-              return import('../model3d-viewer.js').then((viewer) => viewer.renderModel3dPosterUrl(url, item.mediaType!))
+              const viewer = await import('../model3d-viewer.js')
+              signal?.throwIfAborted()
+              return viewer.renderModel3dPosterUrl(url, item.mediaType!)
             },
           }
         : {}),

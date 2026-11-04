@@ -63,6 +63,11 @@ Splat rendering additionally imports `@sparkjsdev/spark` through its own
 cached dynamic import, so GLB-only sessions never pay for spark and
 workflows without 3D content pay for neither.
 
+Collection thumbnails cancel pending renderer entry on row replacement or
+unmount, including while the viewer module is loading. Already admitted
+shared poster renders and cached results remain available to other views;
+closing a thumbnail does not prove that those reads have settled.
+
 ## Splat rendering
 
 Splat PLY sources load on the main thread (`fetch` -> `SplatMesh` with

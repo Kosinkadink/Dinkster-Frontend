@@ -8,6 +8,21 @@ import { localAssetSource } from '../src/asset-browser/localAssetSource.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from '../src/asset-browser/types.js'
 
 const item = normalizeMountEntry('mount:m', 'm', { virtualPath: 'images/a.png', name: 'a.png', digest: 'blake3:a', size: 12, mediaType: 'image/png', kind: 'media/image' })
+it('does not enter the model thumbnail renderer after cancellation during its lazy import', async () => {
+  const viewer = await import('../src/model3d-viewer.js')
+  const renderer = vi.spyOn(viewer, 'renderModel3dPosterUrl').mockResolvedValue('blob:model')
+  const entry = assetEntryOf({ ...item, name: 'model.glb', mediaType: 'model/gltf-binary' }, () => '/model.glb')
+  const abort = new AbortController()
+  try {
+    const pending = entry.thumbRender!(abort.signal)
+    abort.abort()
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    expect(renderer).not.toHaveBeenCalled()
+    await expect(entry.thumbRender!()).resolves.toBe('blob:model')
+    expect(renderer).toHaveBeenCalledWith('/model.glb', 'model/gltf-binary')
+  } finally { renderer.mockRestore() }
+})
+
 describe('local recorded asset source', () => {
   it('retains aliases and job provenance, but never picks or previews missing bytes', async () => {
     const held = { ...item, digest: `blake3:${'a'.repeat(64)}`, name: 'same.png' }

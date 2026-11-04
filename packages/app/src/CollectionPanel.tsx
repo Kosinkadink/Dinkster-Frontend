@@ -510,8 +510,9 @@ export function CollectionPanel(props: {
       setRendered(undefined)
       if (render === undefined) return
       let live = true
-      onCleanup(() => { live = false })
-      render().then(
+      const abort = new AbortController()
+      onCleanup(() => { live = false; abort.abort() })
+      render(abort.signal).then(
         (url) => { if (live) setRendered(url) },
         () => { if (live) setFailed(true) },
       )
