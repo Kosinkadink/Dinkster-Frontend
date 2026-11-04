@@ -150,7 +150,9 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
       setError('Image editing requires a native Dinkster backend')
       return
     }
-    void fetch(backend.connection.assetUrl(request.sourceRef.digest)).then(async (response) => {
+    const abort = new AbortController()
+    onCleanup(() => abort.abort())
+    void fetch(backend.connection.assetUrl(request.sourceRef.digest), { signal: abort.signal }).then(async (response) => {
       if (!response.ok) throw new Error(`Source image fetch failed (${response.status})`)
       const decoded = await decodePng(new Uint8Array(await response.arrayBuffer()))
       if (!live || generation !== loadGeneration || target() !== request) return
@@ -162,7 +164,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
         ? created
         : restoreMaskPaintSession(created, existingOperations, request.sourceRef.digest))
     }).catch((cause) => {
-      if (live && generation === loadGeneration) setError(cause instanceof Error ? cause.message : String(cause))
+      if (live && !abort.signal.aborted && generation === loadGeneration) setError(cause instanceof Error ? cause.message : String(cause))
     })
   })
 

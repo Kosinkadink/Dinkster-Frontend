@@ -1141,8 +1141,11 @@ Its target is session-only and is cleared on cancel, apply, editor switch, or
 tab close. Mask editing is a capability inside this editor, not a separate
 editor kind. The source bytes are fetched from `/api/assets/{digest}`. Red
 overlay intensity is the Load Image convention `1 - alpha`; source RGB remains
-visible under the overlay. Paint and erase support local brush size and
-hardness, clear, invert, pan, and zoom. Each pointer gesture records one
+visible under the overlay. Closing, replacing the target, switching away from
+its tab or tearing down the editor aborts pending source reads. Cancellation
+does not retire retained asset owners or establish that other readers settled.
+Paint and erase support local brush size and hardness, clear, invert, pan, and
+zoom. Each pointer gesture records one
 serializable local mask operation; undo/redo moves through that operation
 history without dispatching commands or advancing the document revision.
 
