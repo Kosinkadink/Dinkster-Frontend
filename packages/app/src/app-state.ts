@@ -4764,6 +4764,7 @@ export class AppState {
    */
   private readonly retainedRegistries = new WeakMap<CompileArtifact, SchemaRegistry>()
   private readonly pendingWorkspaceRegistrations = new Map<string, WorkspaceRegistration>()
+  private readonly admittingWorkspaceRegistrations = new WeakSet<WorkspaceRegistration>()
 
   /**
    * The registry a frozen execution view must resolve with. Preference order
@@ -8387,7 +8388,8 @@ export class AppState {
     const registry = backend?.registry.get()
     if (registry === undefined) return
     for (const [key, registration] of this.pendingWorkspaceRegistrations) {
-      if (registration.ref.connection !== connection || registration.schemaHash !== registry.hash) continue
+      if (registration.ref.connection !== connection || registration.schemaHash !== registry.hash ||
+        this.admittingWorkspaceRegistrations.has(registration)) continue
       const choices = new Map(registration.choices.map((choice) => [
         JSON.stringify([choice.graph, choice.selector]),
         choice.candidate,
@@ -8409,12 +8411,46 @@ export class AppState {
       if (!result.ok) continue
       const artifact = projectWorkspaceCompileArtifact(result.artifact)
       if (canonicalJson(artifact) !== canonicalJson(registration.artifact)) continue
-      this.retainedRegistries.set(artifact, registry)
-      this.store.register(registration.ref, artifact, registration.timestamp, {
-        ...(registration.jobRef === undefined ? {} : { jobRef: registration.jobRef }),
-        ...(registration.sourceDocument === undefined ? {} : { sourceDocument: registration.sourceDocument }),
+      const roots = workflowAssetRoots(artifact.snapshot,
+        { revision: artifact.revision, undo: [], redo: [] }, this.resolverWithVirtualNodes(registry.resolve))
+      const publish = (): void => {
+        this.retainedRegistries.set(artifact, registry)
+        this.store.register(registration.ref, artifact, registration.timestamp, {
+          ...(registration.jobRef === undefined ? {} : { jobRef: registration.jobRef }),
+          ...(registration.sourceDocument === undefined ? {} : { sourceDocument: registration.sourceDocument }),
+        })
+        this.pendingWorkspaceRegistrations.delete(key)
+      }
+      if (roots.complete && roots.digests.length === 0 && registration.sourceDocument === undefined) {
+        publish()
+        continue
+      }
+      if (backend === undefined || backend.protocol !== 'dinkster') continue
+      this.admittingWorkspaceRegistrations.add(registration)
+      const liveBackend = this.backendFor(connection) === backend
+      let unchanged = true
+      const unsubscribe = backend.connection.status.subscribe(() => { unchanged = false })
+      const current = (): boolean => unchanged && !this.disposed &&
+        this.pendingWorkspaceRegistrations.get(key) === registration &&
+        (liveBackend ? this.backendFor(connection) : this.retiredBackends.get(connection)) === backend &&
+        backend.registry.get() === registry
+      const previous = this.pendingExecutionEvents.get(key)
+      const pending = (previous ?? Promise.resolve()).then(async () => {
+        if (!current()) return
+        const digests = [...new Set([...roots.digests,
+          ...(registration.sourceDocument === undefined ? [] : [registration.sourceDocument])])].sort()
+        await retainExecutionAssets(backend.connection, registration.ref, { ...roots, complete: false, digests })
+        if (current()) publish()
+      }).catch((error: unknown) => {
+        if (current()) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'runtime',
+          'execution.registrationRetentionFailed', `Could not retain mirrored execution assets: ${error instanceof Error ? error.message : String(error)}`)])
+      }).finally(() => {
+        unsubscribe()
+        this.admittingWorkspaceRegistrations.delete(registration)
+        if (this.pendingExecutionEvents.get(key) === pending) this.pendingExecutionEvents.delete(key)
+        if (unchanged && !this.disposed && backend.registry.get() !== registry) this.flushWorkspaceRegistrations(connection)
       })
-      this.pendingWorkspaceRegistrations.delete(key)
+      this.pendingExecutionEvents.set(key, pending)
     }
   }
 
@@ -8436,9 +8472,10 @@ export class AppState {
     }
     const backend = this.backendFor(event.execution.connection)
     if (backend === undefined) return
-    const held = this.store.get(event.execution)
+    const registration = this.pendingWorkspaceRegistrations.get(key)
+    let held = this.store.get(event.execution)
     const registry = backend.registry.get()
-    const executionRegistry = this.registryForExecution(event.execution)
+    let executionRegistry = this.registryForExecution(event.execution)
     let unchanged = true
     const unsubscribe = backend.connection.status.subscribe(() => { unchanged = false })
     const current = (): boolean => unchanged && !this.disposed &&
@@ -8450,6 +8487,13 @@ export class AppState {
     // Queue the rest of this run's events too: terminal transitions must not
     // overtake an admitted preview and change its ring or provenance semantics.
     const pending = (previous ?? Promise.resolve()).then(async () => {
+      if (registration !== undefined) {
+        const state = this.store.get(event.execution)
+        if (state?.artifact === undefined || state.sourceDocument !== registration.sourceDocument ||
+          canonicalJson(projectWorkspaceCompileArtifact(state.artifact)) !== canonicalJson(registration.artifact)) return
+        held = state
+        executionRegistry = this.registryForExecution(event.execution)
+      }
       if (!current()) return
       if (incoming !== undefined) {
         const state = this.store.get(event.execution)

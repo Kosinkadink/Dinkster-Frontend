@@ -98,6 +98,14 @@ Nested preview documents, saved stills and frame rings contribute known roots,
 but opaque payloads remain incomplete. This does not certify every read holder
 or enable collection.
 
+Cross-window run registrations retain known snapshot and source-document roots
+before publishing the reconstructed workflow. Opaque snapshots require an
+incomplete declaration even without known digests. Later events wait for that
+registration; refusal or a changed backend, connection, registry or registration
+withholds the snapshot. Certified asset-free snapshots without a source-document
+root keep their immediate path. These declarations do not release earlier owners
+or enable collection.
+
 ## Interrupted runs
 
 When the backend restarts, jobs that were queued or running when the process

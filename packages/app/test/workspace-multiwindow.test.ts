@@ -687,6 +687,71 @@ describe('AppState multi-window workspace', () => {
     expect(app.store.get(ref)).toBeUndefined()
   })
 
+  it.each(['accepted', 'refused', 'disposed', 'disconnected', 'removed', 'superseded', 'registry', 'opaque-accepted', 'opaque-refused', 'source-accepted', 'source-refused'] as const)('retains mirrored registration snapshots before publication: %s', async (scenario) => {
+    const left = new EventChannel()
+    const right = new EventChannel()
+    left.peer = right
+    right.peer = left
+    const app = new AppState({ workspaceEvents: right })
+    editableApps.push(app)
+    const backend = scenario === 'removed'
+      ? app.addBackend('http://registration.test', 'Registration source', false, 'dinkster')!
+      : app.backends.get()[0]!
+    const registry = buildDinksterRegistry(backend.id, {
+      schemaVersion: 1,
+      dinkster: { version: 'test', schemaWire: 1 },
+      nodes: {
+        X: {
+          schemaVersion: 1, displayName: 'X', outputNode: true,
+          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
+        },
+      },
+    })
+    backend.registry.set(registry)
+    const digest = `blake3:${'e'.repeat(64)}`
+    const opaque = scenario.startsWith('opaque-')
+    const sourceDocument = scenario.startsWith('source-') ? `blake3:${'f'.repeat(64)}` : undefined
+    const result = compile({
+      document: sourceDocument === undefined ? { ...workflow(), ext: { held: opaque ? { token: 'opaque-registration' }
+        : { digest, name: 'registration.bin', size: 17, mediaType: 'application/octet-stream', virtualPath: '' } } } : workflow(),
+      revision: 0, resolve: registry.resolve, scope: { kind: 'full' },
+      connection: backend.id, schemaHash: registry.hash,
+    })
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+    let acknowledge!: () => void
+    const retain = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+      new Promise((resolve) => { acknowledge = () => resolve({ ...owner, ...declaration,
+        revision: scenario.endsWith('refused') ? 2 : 1 }) }))
+    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    const ref = { connection: backend.id, prompt: asPromptId(`held-registration-${scenario}`) }
+    left.postMessage({ source: 'peer', kind: 'register', ref, artifact: result.artifact, timestamp: 13,
+      ...(sourceDocument === undefined ? {} : { sourceDocument }) })
+    expect(app.store.get(ref)).toBeUndefined()
+    await vi.waitFor(() => expect(retain).toHaveBeenCalled())
+    expect(retain.mock.calls.at(-1)?.[1]).toEqual({ revision: 0, complete: false,
+      digests: sourceDocument === undefined ? opaque ? [] : [digest] : [sourceDocument] })
+    left.postMessage({ source: 'peer', kind: 'event', event: { kind: 'completed', execution: ref, timestamp: 19 } })
+    expect(app.store.get(ref)).toBeUndefined()
+    if (scenario === 'disposed') app.dispose()
+    if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+    if (scenario === 'removed') app.removeBackend(backend.id)
+    if (scenario === 'registry') backend.registry.set({ ...registry })
+    if (scenario === 'superseded') left.postMessage({ source: 'peer', kind: 'register', ref,
+      artifact: { ...result.artifact, revision: 1 }, timestamp: 29 })
+    acknowledge()
+    if (scenario.endsWith('accepted')) {
+      await vi.waitFor(() => expect(app.store.get(ref)?.status).toBe('completed'))
+      expect(app.store.get(ref)?.artifact?.snapshot.ext?.held).toEqual(result.artifact.snapshot.ext?.held)
+      expect(app.store.get(ref)?.queuedAt).toBe(13)
+      expect(app.store.get(ref)?.sourceDocument).toBe(sourceDocument)
+    } else {
+      if (scenario.endsWith('refused')) await vi.waitFor(() => expect(app.problems.get().some(
+        (problem) => problem.code === 'execution.registrationRetentionFailed')).toBe(true))
+      await drainTasks()
+      expect(app.store.get(ref)).toBeUndefined()
+    }
+  })
+
   it('rebuilds valid registrations and rejects malformed peer artifacts', () => {
     const left = new EventChannel()
     const right = new EventChannel()
