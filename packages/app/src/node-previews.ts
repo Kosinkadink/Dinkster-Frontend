@@ -1004,6 +1004,7 @@ export function createPreviewLoader(deps: {
     },
 
     resolveFrame(key, payload) {
+      if (disposed) return undefined
       const decoded = cache.get(key)
       if (decoded !== undefined) return decoded.image
       if (pending.has(key)) return undefined
@@ -1028,6 +1029,7 @@ export function createPreviewLoader(deps: {
     },
 
     resolve(source) {
+      if (disposed) return undefined
       const cancellationKey = source.cancellationKey ?? source.key
       const prior = requests.get(cancellationKey)
       if (prior !== undefined && prior.key !== source.key) {

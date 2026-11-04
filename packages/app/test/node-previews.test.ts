@@ -89,6 +89,9 @@ describe('sourceFor', () => {
       expect(reads[0]!.signal?.aborted).toBe(true)
       expect(reads[0]!.stopped).toBe(true)
       expect(reads[1]!.signal?.aborted).toBe(false)
+      expect(a.resolve(source)).toBeUndefined()
+      await flush()
+      expect(reads).toHaveLength(2)
       reads[1]!.finish()
       await vi.waitFor(() => expect(b.resolve(control)).toMatchObject({ width: 9, height: 5 }))
       expect(changed).toEqual([2])
@@ -1162,6 +1165,26 @@ describe('peekSource negative cache', () => {
 })
 
 describe('resolveFrame', () => {
+  it('does not admit frame decodes after disposal while another loader stays live', async () => {
+    const bitmap = { width: 8, height: 6 }
+    const decode = vi.fn(async () => bitmap)
+    vi.stubGlobal('createImageBitmap', decode)
+    const retired = loader(), live = loader()
+    const payload = new Blob(['frame'])
+    try {
+      retired.dispose()
+      expect(retired.resolveFrame!('frame:retired', payload)).toBeUndefined()
+      await flush()
+      expect(decode).not.toHaveBeenCalled()
+      expect(live.resolveFrame!('frame:live', payload)).toBeUndefined()
+      await flush()
+      expect(live.resolveFrame!('frame:live', payload)).toBe(bitmap)
+      expect(decode).toHaveBeenCalledTimes(1)
+    } finally {
+      retired.dispose(); live.dispose(); vi.unstubAllGlobals()
+    }
+  })
+
   it('kicks one decode per key, caches the bitmap, and fires onDecoded', async () => {
     const bitmap = { width: 8, height: 6 }
     const decode = vi.fn(async () => bitmap)

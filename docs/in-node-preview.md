@@ -46,8 +46,10 @@ remove that download or fetch the original as a display fallback. File metadata
 is not an inline payload: large saved-file sizes and multiple nodes' file lists
 remain intact, and malformed optional previews do not discard valid saved files.
 Disposing a preview loader aborts its pending recorded-file and associated-image
-response bodies without stopping another loader's reads. This is transport
-cancellation, not settlement of shared renderers or release of retained owners.
+response bodies without stopping another loader's reads. A disposed loader no
+longer accepts source loads or live-frame decodes, including stale callers that
+still hold its sources. This closes loader admission but does not settle already
+admitted shared renderers or release retained owners.
 
 ## Video inspection
 
