@@ -265,8 +265,12 @@ const sharedSession = (app: AppState, tabId: string): SharedDocumentSession => {
 
 const nodeCount = (tab: Tab): number => Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes).length
 
-const addNode = (tab: Tab) =>
-  tab.store.dispatch({ command: 'node.add', params: { graphId: tab.store.doc.root, type: 'X', position: { x: 0, y: 0 } } })
+const addNode = (app: AppState, tab: Tab) => {
+  const backend = app.backendForTab(tab)
+  if (backend.registry.get() === undefined) backend.registry.set({ connection: backend.id,
+    schemas: new Map(), diagnostics: [], hash: 'collab-test', resolve: () => undefined })
+  return app.dispatchTo(tab, { command: 'node.add', params: { graphId: tab.store.doc.root, type: 'X', position: { x: 0, y: 0 } } })
+}
 
 const planSeedFlatten = (app: AppState, tab: Tab) => flattenInvocation(
   tab.store.doc,
@@ -665,7 +669,7 @@ describe('share', () => {
     const joiner = makeApp(server)
     const local = activeTab(app)
     const baseline = nodeCount(local)
-    expect(addNode(local).diagnostics).toEqual([])
+    expect((await addNode(app, local)).diagnostics).toEqual([])
     expect(local.store.canUndo).toBe(true)
 
     expect(await app.shareActiveTab()).toBeUndefined()
@@ -707,7 +711,7 @@ describe('share', () => {
     const app = makeApp(server)
     expect(await app.shareActiveTab()).toBeUndefined()
     const tab = activeTab(app)
-    expect(addNode(tab).diagnostics).toEqual([])
+    expect((await addNode(app, tab)).diagnostics).toEqual([])
     await sharedSession(app, tab.id).settle()
     const session = [...server.sessions.values()][0]!
     expect(session.log).toHaveLength(1)
@@ -745,7 +749,7 @@ describe('join and convergence', () => {
       await request
       expect(app.collabFor(prior.id)).toBeUndefined()
       expect(activeTab(app)).toBe(prior)
-      if (scenario === 'edited') expect(addNode(prior).ok).toBe(true)
+      if (scenario === 'edited') expect((await addNode(app, prior)).ok).toBe(true)
       if (scenario === 'closed') app.closeTab(prior.id)
       if (scenario === 'retargeted') app.setTabTarget(prior.id, app.connection.id)
       if (scenario === 'removed') app.removeBackend(backend.id)
@@ -794,12 +798,12 @@ describe('join and convergence', () => {
 
     // A -> B
     const baseline = nodeCount(tabA)
-    expect(addNode(tabA).diagnostics).toEqual([])
+    expect((await addNode(appA, tabA)).diagnostics).toEqual([])
     await sharedSession(appA, tabA.id).settle()
     await until(() => nodeCount(tabB) === baseline + 1, 'A edit reaching B')
 
     // B -> A
-    expect(addNode(tabB).diagnostics).toEqual([])
+    expect((await addNode(appB, tabB)).diagnostics).toEqual([])
     await sharedSession(appB, tabB.id).settle()
     await until(() => nodeCount(tabA) === baseline + 2, 'B edit reaching A')
     expect(tabA.store.doc).toEqual(tabB.store.doc)
@@ -858,7 +862,7 @@ describe('leave, end, and disposal', () => {
     const tabA = activeTab(appA)
     expect(await appB.joinCollabSession(appA.collabFor(tabA.id)!.descriptor.sessionId)).toBeUndefined()
     const tabB = activeTab(appB)
-    expect(addNode(tabA).diagnostics).toEqual([])
+    expect((await addNode(appA, tabA)).diagnostics).toEqual([])
     await sharedSession(appA, tabA.id).settle()
     const expected = nodeCount(tabA)
     await until(() => nodeCount(tabB) === expected, 'edit reaching B before leave')
@@ -871,7 +875,7 @@ describe('leave, end, and disposal', () => {
     expect(serverSession.connections.size).toBe(connsBefore - 1) // transport closed
     const local = appB.tabs.get().find((t) => t.id === tabB.id)!
     expect(nodeCount(local)).toBe(expected) // document survives the downgrade
-    expect(addNode(local).diagnostics).toEqual([]) // and stays editable locally
+    expect((await addNode(appB, local)).diagnostics).toEqual([]) // and stays editable locally
     // The server session (and A's membership) lives on.
     expect(server.sessions.size).toBe(1)
     expect(appA.collabFor(tabA.id)).toBeDefined()
@@ -928,7 +932,7 @@ describe('leave, end, and disposal', () => {
     const app = makeApp(server)
     expect(await app.shareActiveTab()).toBeUndefined()
     const tab = activeTab(app)
-    expect(addNode(tab).diagnostics).toEqual([])
+    expect((await addNode(app, tab)).diagnostics).toEqual([])
     await sharedSession(app, tab.id).settle()
 
     app.leaveCollabSession(tab.id)
@@ -938,7 +942,7 @@ describe('leave, end, and disposal', () => {
     expect(local.store.canUndo).toBe(false)
     // But history works forward from the new baseline.
     const before = nodeCount(local)
-    expect(addNode(local).diagnostics).toEqual([])
+    expect((await addNode(app, local)).diagnostics).toEqual([])
     expect(local.store.canUndo).toBe(true)
     expect(local.store.undo()).toBe(true)
     expect(nodeCount(local)).toBe(before)
@@ -1240,7 +1244,7 @@ describe('lifecycle races', () => {
     const localStore = tab.store
 
     const pending = app.shareActiveTab()
-    expect(addNode(tab).diagnostics).toEqual([]) // edit while create is in flight
+    expect((await addNode(app, tab)).diagnostics).toEqual([]) // edit while create is in flight
     createGate.open()
 
     expect(await pending).toMatch(/changed while sharing/)
@@ -1379,9 +1383,9 @@ describe('lifecycle races', () => {
     // the server on a stale base and must be refused and rebased
     // (server-ordered optimistic concurrency; the server never transforms).
     hold.held = true
-    expect(addNode(tabA).diagnostics).toEqual([])
+    expect((await addNode(appA, tabA)).diagnostics).toEqual([])
     await sharedSession(appA, tabA.id).settle()
-    expect(addNode(tabB).diagnostics).toEqual([])
+    expect((await addNode(appB, tabB)).diagnostics).toEqual([])
     await until(() => server.staleBases >= 1, "B's stale-base refusal")
     hold.held = false
     for (const deliver of hold.buffer.splice(0)) deliver()
@@ -1645,7 +1649,7 @@ describe('reload rejoin', () => {
 
     // Genuine membership: an edit in the original app lands in the rejoined tab.
     const baseline = nodeCount(tab2!)
-    expect(addNode(tab1).diagnostics).toEqual([])
+    expect((await addNode(app1, tab1)).diagnostics).toEqual([])
     await sharedSession(app1, tab1.id).settle()
     await until(() => nodeCount(app2.tabs.get().find((t) => t.id === tab2!.id)!) === baseline + 1, 'rejoined convergence')
   })

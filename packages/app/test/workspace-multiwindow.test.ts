@@ -233,7 +233,7 @@ describe('AppState multi-window workspace', () => {
       await request
       expect(viewer.tabs.get()).toBe(previous)
       expect(viewer.activeTabId.get()).toBe(active)
-      if (scenario === 'edited') previous[0]!.store.dispatch({ command: 'node.add',
+      if (scenario === 'edited') await viewer.dispatchTo(previous[0]!, { command: 'node.add',
         params: { graphId: previous[0]!.store.doc.root, type: 'LocalEdit', position: { x: 1, y: 2 } } })
       if (scenario === 'retargeted') viewer.setTabTarget(previous[0]!.id,
         viewer.addBackend('http://new-target.test', 'New target', false, 'dinkster')!.id)

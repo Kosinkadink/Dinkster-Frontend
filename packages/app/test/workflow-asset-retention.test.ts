@@ -231,6 +231,46 @@ describe('retained app dispatch', () => {
     vi.unstubAllGlobals()
   })
 
+  it.each(['accepted', 'refused', 'direct', 'prepared'] as const)(
+    'requires ownership when an opaque node default makes the census incomplete: %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      const opaque: NodeSchema = { ...schema, type: 'Opaque', items: [{
+        kind: 'input', id: 'value', optional: false, type: { kind: 'concrete', name: 'OPAQUE' },
+        ext: { default: { handle: 'unrepresented dependency' } },
+      }] }
+      app = createWorkflowApp([opaque])
+      const tab = app.activeTab()!
+      const before = tab.store.doc
+      const invocation = { command: 'node.add', params: { graphId: before.root, type: 'Opaque', position: { x: 10, y: 20 } } }
+      const acknowledgement = deferred<RetainedAssets>()
+      let declaration: RetainedAssetDeclaration | undefined
+      let owner: RetainedAssetOwner | undefined
+      vi.mocked(app.connection.retainAssets).mockImplementation(async (requestedOwner, requestedDeclaration) => {
+        owner = requestedOwner
+        declaration = requestedDeclaration
+        return acknowledgement.promise
+      })
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      if (scenario === 'direct' || scenario === 'prepared') {
+        const candidate = scenario === 'prepared' ? tab.store.prepareDispatch!(invocation) : undefined
+        const outcome = candidate === undefined ? tab.store.dispatch(invocation) : candidate.ok ? candidate.commit() : candidate
+        expect(outcome).toMatchObject({ ok: false, diagnostics: [{ code: 'command.retention.required' }] })
+        expect(tab.store.doc).toBe(before)
+        expect(app.connection.retainAssets).not.toHaveBeenCalled()
+        return
+      }
+      const operation = app.dispatchTo(tab, invocation)
+      expect(tab.store.doc).toBe(before)
+      await vi.waitFor(() => expect(declaration).toEqual({ revision: 0, complete: false, digests: [] }))
+      expect(tab.store.canUndo).toBe(false)
+      acknowledgement.resolve({ ...owner!, ...declaration!, revision: scenario === 'accepted' ? 1 : 2 })
+      expect((await operation).ok).toBe(scenario === 'accepted')
+      expect(Object.values(tab.store.doc.graphs[before.root]!.nodes).some((node) => node.type === 'Opaque'))
+        .toBe(scenario === 'accepted')
+      expect(tab.store.canUndo).toBe(scenario === 'accepted')
+    },
+  )
+
   it.each((['accepted', 'projection-before', 'projection-during', 'replaced', 'edited', 'registry', 'target', 'closed', 'unwanted', 'refused', 'disconnected', 'disposed'] as const)
     .flatMap((scenario) => (['explicit', 'ordinary'] as const).map((route) => ({ scenario, route }))))(
     'publishes only a current acknowledged candidate: $route $scenario', async ({ scenario, route }) => {

@@ -229,6 +229,12 @@ editor mutation; refused edits remain open. A completion cannot close or add
 errors to a replacement editor or modal. These callers use ordinary dispatch;
 the application selects retention when the candidate requires it.
 
+Ordinary dispatch also confirms ownership when a complete root census becomes
+incomplete, even if no new digest is visible. For example, adding a node with an
+opaque default requires an incomplete owner before publication. Refusal keeps
+the existing document and history; direct store commits cannot bypass this
+admission. These owners do not certify opaque dependencies or enable cleanup.
+
 Canvas gesture dispatch accepts asynchronous outcomes; the host owns final
 diagnostics, while the controller drops only its transient gesture overlay.
 Selection deletion waits for acceptance before clearing selection. Refusal

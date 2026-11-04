@@ -957,7 +957,7 @@ describe('completion integration', () => {
     }
     if (change === 'fixed' || change === 'mode-restored') expect(live.store.dispatch({ command: 'valueSource.setController', params: { graphId: 'g0', valueSourceId: 'v0', mode: 'fixed' } }).ok).toBe(true)
     if (change === 'mode-restored') expect(live.store.dispatch({ command: 'valueSource.setController', params: { graphId: 'g0', valueSourceId: 'v0', mode: 'increment' } }).ok).toBe(true)
-    if (change === 'disconnected') expect(live.store.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l0' } }).ok).toBe(true)
+    if (change === 'disconnected') expect((await local.dispatchTo(live, { command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l0' } })).ok).toBe(true)
     local.store.apply({ kind: 'completed', execution, timestamp: 2 })
     const expected = change === 'unchanged' ? 14 : change === 'edited' ? 17 : 11
     await expect.poll(() => live.store.doc.graphs.g0!.valueSources!.v0!.value).toBe(expected)

@@ -5,6 +5,7 @@ import { AppState } from '../src/app-state.js'
 import { extractSubgraphInvocationThroughBridge, flattenSubgraphThroughBridge, lifecycleOtherSelectionCount } from '../src/CanvasHost.js'
 import { activateProblem } from '../src/ProblemsPanel.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection } from '../src/subgraph-lifecycle.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
@@ -98,7 +99,7 @@ describe('subgraph lifecycle app plans', () => {
   })
 
   it('surfaces the real region flatten refusal with its anchored occurrence', async () => {
-    const app = new AppState()
+    const app = createWorkflowApp([schema])
     const backend = app.backends.get()[0]!
     backend.registry.set({
       connection: backend.id,
@@ -128,7 +129,7 @@ describe('subgraph lifecycle app plans', () => {
       },
     } as any)
     expect(imported.ok).toBe(true)
-    const added = tab.store.dispatch({
+    const added = await app.dispatchTo(tab, {
       command: 'node.add',
       params: {
         graphId: 'root', type: '#regionBody', values: { item: [] },

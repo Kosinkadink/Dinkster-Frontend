@@ -5881,7 +5881,7 @@ export class AppState {
       const current = workflowAssetRoots(prepared.currentDocument, history, resolve)
       const candidate = workflowAssetRoots(prepared.document, history, resolve)
       const known = new Set(current.digests)
-      if (candidate.digests.some((digest) => !known.has(digest))) {
+      if ((current.complete && !candidate.complete) || candidate.digests.some((digest) => !known.has(digest))) {
         return this.admitPreparedWorkflowDispatch(tab, prepared)
       }
     }
@@ -5902,10 +5902,13 @@ export class AppState {
     if (!tab || this.backendForTab(tab).protocol !== 'dinkster') return []
     const documentHistory = { revision: history.revision, undo: [], redo: [] }
     const proposed = workflowAssetRoots(candidate, documentHistory, resolve)
-    const present = new Set(workflowAssetRoots(current, documentHistory, resolve).digests)
-    if (!proposed.digests.some((digest) => !present.has(digest))) return []
-    const known = new Set(workflowAssetRoots(current, history, resolve, retainedDocuments).digests)
-    if (!proposed.digests.some((digest) => !known.has(digest))) return []
+    const presentRoots = workflowAssetRoots(current, documentHistory, resolve)
+    const losesCompleteness = presentRoots.complete && !proposed.complete
+    const present = new Set(presentRoots.digests)
+    if (!losesCompleteness && !proposed.digests.some((digest) => !present.has(digest))) return []
+    const retainedRoots = workflowAssetRoots(current, history, resolve, retainedDocuments)
+    const known = new Set(retainedRoots.digests)
+    if ((!losesCompleteness || !retainedRoots.complete) && !proposed.digests.some((digest) => !known.has(digest))) return []
     const diagnostics = [diag('error', 'command', 'command.retention.required',
       'New workflow assets require ownership confirmation through application dispatch')]
     this.reportProblems(tab.id, diagnostics)
