@@ -1,4 +1,4 @@
-import { Show, createResource } from 'solid-js'
+import { Show, createResource, onCleanup } from 'solid-js'
 
 /**
  * Poster still for a GLB or splat PLY source, rendered lazily through the
@@ -11,9 +11,16 @@ export function Model3dPosterImage(props: {
   readonly name: string
   readonly mime?: string | undefined
 }) {
+  let request = 0
+  onCleanup(() => { request += 1 })
   const [poster] = createResource(
-    () => props.src,
-    async (src) => (await import('./model3d-viewer.js')).renderModel3dPosterUrl(src, props.mime),
+    () => ({ src: props.src, mime: props.mime }),
+    async (source) => {
+      const current = ++request
+      const viewer = await import('./model3d-viewer.js')
+      if (current !== request) return undefined
+      return viewer.renderModel3dPosterUrl(source.src, source.mime)
+    },
   )
   const url = (): string | undefined => (poster.state === 'ready' ? poster() : undefined)
   return (
