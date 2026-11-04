@@ -40,11 +40,14 @@ const imported = { vendor: { future: [1, 'keep'] }, trim: { start_time: 1.25, du
 
 test.beforeEach(async ({ page }) => {
   await page.route('/api/**', (route) => route.fulfill({ status: 404, json: { error: 'Isolated fixture' } }))
-  await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
+  await page.route('**/api/library/retentions/*/*?scope=local', (route) => {
     if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+    const parts = new URL(route.request().url()).pathname.split('/')
+    const ownerKind = parts.at(-2)!
     const declaration = route.request().postDataJSON()
-    return route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
-      ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: declaration.revision + 1 } })
+    if (ownerKind === 'shown-result') expect(declaration).toEqual({ revision: 0, complete: false, digests: [] })
+    return route.fulfill({ json: { ...declaration, scope: 'local', ownerKind,
+      ownerId: decodeURIComponent(parts.at(-1)!), revision: declaration.revision + 1 } })
   })
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
