@@ -2975,8 +2975,8 @@ export class DinksterConnection {
   }
 
   /** Fetch opaque asset bytes without corrupting images through text decoding. */
-  async fetchAssetBytes(digest: string): Promise<ArrayBuffer | undefined> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`)
+  async fetchAssetBytes(digest: string, signal?: AbortSignal): Promise<ArrayBuffer | undefined> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`, signal ? { signal } : undefined)
     if (res.status === 404 || res.status === 410) return undefined
     if (!res.ok) throw new Error(`GET /api/assets/${digest} failed: ${res.status}`)
     return res.arrayBuffer()

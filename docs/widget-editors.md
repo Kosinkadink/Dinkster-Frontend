@@ -43,6 +43,11 @@ While acknowledgement is pending, Use asset stays disabled and Cancel remains
 available. A refused recording keeps the previous draft and the local clip for
 retry; an acknowledged recording still needs Use asset to change the document.
 
+Selected-image and recorded-audio preview byte reads are cancelled when their
+preview is replaced, removed or closed. Late results are still ignored if a
+transport completes after cancellation. This does not retire asset owners or
+prove that queued model posters and other consumers have finished reading.
+
 ## Descriptor fields
 
 An unknown field on a known widget descriptor produces a

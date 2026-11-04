@@ -54,15 +54,16 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
       const [failed, setFailed] = createSignal(false)
       let current = true
       let ownedUrl: string | undefined
+      const previewAbort = new AbortController()
       if (backend.protocol === 'dinkster') {
-        void backend.connection.fetchAssetBytes(ref.digest).then((bytes) => {
+        void backend.connection.fetchAssetBytes(ref.digest, previewAbort.signal).then((bytes) => {
           if (!current) return
           if (bytes === undefined) { setFailed(true); return }
           ownedUrl = URL.createObjectURL(new Blob([bytes], { type: ref.mediaType }))
           setSrc(ownedUrl)
         }).catch(() => { if (current) setFailed(true) })
       }
-      onCleanup(() => { current = false; if (ownedUrl) URL.revokeObjectURL(ownedUrl) })
+      onCleanup(() => { current = false; previewAbort.abort(); if (ownedUrl) URL.revokeObjectURL(ownedUrl) })
       return <>
         <p>{ref.name}</p>
         <Show when={src()}>{(url) => <AudioTransport media={{ kind: 'audio', src: url() }} />}</Show>

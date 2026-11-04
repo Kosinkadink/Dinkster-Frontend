@@ -4229,6 +4229,23 @@ describe('workflow library wire', () => {
     expect(await missing.fetchAssetBytes(DIGEST)).toBeUndefined()
   })
 
+  it('cancels an asset byte read while the response body is pending', async () => {
+    let started!: () => void
+    const reading = new Promise<void>((resolve) => { started = resolve })
+    const { conn } = submitHarness((_url, init) => new Response(new ReadableStream({
+      start(controller) {
+        init?.signal?.addEventListener('abort', () => controller.error(init.signal?.reason), { once: true })
+      },
+      pull() { started() },
+    })))
+    const abort = new AbortController()
+    const bytes = conn.fetchAssetBytes(DIGEST, abort.signal)
+    const rejected = expect(bytes).rejects.toThrow('Preview closed')
+    await reading
+    abort.abort(new Error('Preview closed'))
+    await rejected
+  })
+
   it('reads local bindings without digest identity or browser caching and propagates cancellation', async () => {
     const { conn, requests } = submitHarness(() => new Response(new Uint8Array([251, 0, 17])))
     const abort = new AbortController()

@@ -269,6 +269,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     )
   let ownedAssetUrl: string | undefined
   let assetPreviewRequest = 0
+  let assetPreviewAbort: AbortController | undefined
   const replaceAssetPreview = (preview: AssetPreview, ownedUrl?: string): void => {
     if (ownedAssetUrl !== undefined && ownedAssetUrl !== ownedUrl) URL.revokeObjectURL(ownedAssetUrl)
     ownedAssetUrl = ownedUrl
@@ -280,6 +281,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
    * releases the owned object URL. */
   const clearAssetPreview = (): void => {
     assetPreviewRequest += 1
+    assetPreviewAbort?.abort()
     if (ownedAssetUrl !== undefined) URL.revokeObjectURL(ownedAssetUrl)
     ownedAssetUrl = undefined
     setAssetPreviewFailed(false)
@@ -295,6 +297,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         : model3dMime !== undefined ? 'model3d' : undefined
     if (kind === undefined) return
     assetPreviewRequest += 1
+    assetPreviewAbort?.abort()
     const url = URL.createObjectURL(file)
     replaceAssetPreview({ kind, src: url, name: file.name, ...(model3dMime === undefined ? {} : { mime: model3dMime }) }, url)
   }
@@ -315,6 +318,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       return
     }
     const request = ++assetPreviewRequest
+    assetPreviewAbort?.abort()
     if (kind === 'video' || kind === 'model3d') {
       replaceAssetPreview({
         kind,
@@ -324,8 +328,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       })
       return
     }
+    const abort = new AbortController()
+    assetPreviewAbort = abort
     try {
-      const bytes = await backend.connection.fetchAssetBytes(ref.digest)
+      const bytes = await backend.connection.fetchAssetBytes(ref.digest, abort.signal)
       if (!live || request !== assetPreviewRequest || bytes === undefined) return
       const url = URL.createObjectURL(new Blob([bytes], { type: ref.mediaType }))
       replaceAssetPreview({ kind, src: url, name: ref.name }, url)
@@ -334,6 +340,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     }
   }
   onCleanup(() => {
+    assetPreviewAbort?.abort()
     if (ownedAssetUrl) URL.revokeObjectURL(ownedAssetUrl)
   })
 

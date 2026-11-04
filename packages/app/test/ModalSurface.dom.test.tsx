@@ -1466,6 +1466,69 @@ describe('ASSET widget modal integration', () => {
 })
 
 describe('registered interactive widget expanded-editor integration', () => {
+  it.each([
+    ['ASSET', 'remove'], ['ASSET', 'close'], ['ASSET', 'replace'],
+    ['AUDIO_RECORD', 'remove'], ['AUDIO_RECORD', 'close'],
+  ] as const)('cancels a pending %s preview read on %s without publishing late bytes', async (type, action) => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const ref = { digest: `blake3:${'a'.repeat(64)}`, name: 'preview', size: 4,
+      mediaType: type === 'ASSET' ? 'image/png' : 'audio/webm', virtualPath: '' }
+    let signal: AbortSignal | undefined
+    let finish!: (bytes: ArrayBuffer) => void
+    const fetchAssetBytes = (_digest: string, pending?: AbortSignal): Promise<ArrayBuffer> => {
+      signal = pending
+      return new Promise((resolve) => { finish = resolve })
+    }
+    const backend = { protocol: 'dinkster', id: 'native', connection: {
+      ...assetLocationMethods, fetchAssetBytes,
+      listLocalAssets: async () => ({ assets: [{
+        asset: { ...ref, digest: `blake3:${'b'.repeat(64)}`, name: 'replacement.png' },
+        aliases: ['replacement.png'], observations: [{ kind: 'media/image', created: 1, origin: {} }],
+      }] }),
+      checkAssetAvailability: async () => [{ digest: `blake3:${'b'.repeat(64)}`, status: 'available' }],
+      fetchAssetMetadata: async () => undefined,
+      assetUrl: (digest: string) => `/api/assets/${encodeURIComponent(digest)}`,
+      listMounts: async () => [],
+    } }
+    const app = { backendForTab: () => backend, dispatchTo: vi.fn(),
+      retainPickerAssets: vi.fn().mockResolvedValue(undefined),
+      widgetRegistry: { kind: () => undefined } } as unknown as AppState
+    const ed: WidgetEditorState = { ...widgetState(type, {}, ref),
+      ...(type === 'ASSET' ? { spec: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] } } } : {}),
+    }
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:late-preview')
+    const [open, setOpen] = createSignal(true)
+    const unmount = render(() => <Show when={open()}><WidgetEditor app={app} ed={ed}
+      viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => setOpen(false)} /></Show>, root)
+    try {
+      expect(signal).toBeDefined()
+      expect(signal!.aborted).toBe(false)
+      const original = signal!
+      const finishOriginal = finish
+      if (action === 'close') [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Cancel')!.click()
+      else if (action === 'replace') {
+        await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]'), root.textContent ?? '').not.toBeNull())
+        root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+        await vi.waitFor(() => expect(signal).not.toBe(original))
+        expect(signal!.aborted).toBe(false)
+      }
+      else if (type === 'ASSET') root.querySelector<HTMLButtonElement>('[data-testid="asset-selection-remove"]')!.click()
+      else [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Remove recording')!.click()
+      await vi.waitFor(() => expect(original.aborted).toBe(true))
+      finishOriginal(new ArrayBuffer(4))
+      await new Promise<void>((resolve) => queueMicrotask(resolve))
+      expect(createObjectUrl).not.toHaveBeenCalled()
+      expect(root.querySelector('img[alt="Asset preview"], audio')).toBeNull()
+      if (action === 'replace') {
+        finish(new ArrayBuffer(8))
+        await vi.waitFor(() => expect(root.querySelector('img[alt="Asset preview"]')?.getAttribute('src')).toBe('blob:late-preview'))
+        expect(createObjectUrl).toHaveBeenCalledOnce()
+      }
+      expect(app.dispatchTo).not.toHaveBeenCalled()
+    } finally { unmount() }
+  })
+
   it.each(['accepted', 'refused', 'closed', 'backend', 'session'] as const)('holds a recorded draft before playback and Apply: %s', async (outcome) => {
     const root = document.createElement('div')
     document.body.append(root)
@@ -1486,7 +1549,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => {} }] }) } })
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:recording')
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-    const fetchAssetBytes = vi.fn().mockResolvedValue(new ArrayBuffer(4))
+    const fetchAssetBytes = vi.fn<(digest: string, signal: AbortSignal) => Promise<ArrayBuffer>>().mockResolvedValue(new ArrayBuffer(4))
     const backend = { protocol: 'dinkster', id: 'native', connection: { uploadMediaAsset: vi.fn().mockResolvedValue(recorded), fetchAssetBytes } }
     let selectedBackend = backend
     let accept!: () => void
@@ -1510,6 +1573,8 @@ describe('registered interactive widget expanded-editor integration', () => {
       expect(root.textContent).toContain('previous.webm')
       expect(root.textContent).not.toContain('recording.webm')
       expect(fetchAssetBytes.mock.calls.map((call) => call[0])).toEqual([old.digest])
+      const oldRead = fetchAssetBytes.mock.calls[0]![1]
+      expect(oldRead.aborted).toBe(false)
       expect([...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Use asset')!.disabled).toBe(true)
       expect(dispatchTo).not.toHaveBeenCalled()
       if (outcome === 'closed') click('Cancel')
@@ -1520,6 +1585,8 @@ describe('registered interactive widget expanded-editor integration', () => {
       if (outcome === 'accepted') {
         await vi.waitFor(() => expect(root.textContent).toContain('recording.webm'))
         expect(fetchAssetBytes.mock.calls.map((call) => call[0])).toEqual([old.digest, recorded.digest])
+        expect(oldRead.aborted).toBe(true)
+        expect(fetchAssetBytes.mock.calls[1]![1].aborted).toBe(false)
         expect(dispatchTo).not.toHaveBeenCalled()
         click('Use asset')
         expect(dispatchTo).toHaveBeenCalledWith(ed.tab, expect.objectContaining({ params: expect.objectContaining({ value: recorded }) }))
@@ -1527,6 +1594,7 @@ describe('registered interactive widget expanded-editor integration', () => {
         await vi.waitFor(() => expect(root.textContent).toContain('Clip retained for retry'))
         expect(root.textContent).toContain('previous.webm')
         expect(fetchAssetBytes.mock.calls.map((call) => call[0])).toEqual([old.digest])
+        expect(oldRead.aborted).toBe(false)
         if (outcome === 'refused') expect(root.textContent).toContain('Recording ownership refused')
       }
       if (outcome !== 'accepted') expect(dispatchTo).not.toHaveBeenCalled()
