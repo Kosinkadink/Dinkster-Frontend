@@ -150,7 +150,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
         if (!ref || !(local || isAssetRefValue(initial))) throw new Error(message('painterWidget.unavailable'))
         const bytes = local
           ? await backend.connection.fetchLocalAssetBytes(ref.localBinding as string, abort.signal)
-          : await backend.connection.fetchAssetBytes(ref.digest as string)
+          : await backend.connection.fetchAssetBytes(ref.digest as string, abort.signal)
         requireCurrent()
         if (!bytes) throw new Error(message('painterWidget.unavailable'))
         await drawImage(new Blob([bytes], { type: ref.mediaType as string }))

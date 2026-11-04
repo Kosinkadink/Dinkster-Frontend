@@ -180,7 +180,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         if (ref.verification !== 'unverified' && typeof ref.digest !== 'string') throw new Error(message('load3dWidget.chooseModel'))
         const bytes = ref.verification === 'unverified'
           ? await backend.connection.fetchLocalAssetBytes(ref.localBinding as string, abort.signal)
-          : await backend.connection.fetchAssetBytes(ref.digest as string)
+          : await backend.connection.fetchAssetBytes(ref.digest as string, abort.signal)
         if (!live || !sourcesCurrent() || !bytes) throw new Error(message('load3dWidget.unavailable'))
         const url = URL.createObjectURL(new Blob([bytes], { type: String(ref.mediaType ?? 'application/octet-stream') }))
         urls.push(url)

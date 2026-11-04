@@ -47,6 +47,9 @@ Selected-image and recorded-audio preview byte reads are cancelled when their
 preview is replaced, removed or closed. Late results are still ignored if a
 transport completes after cancellation. This does not retire asset owners or
 prove that queued model posters and other consumers have finished reading.
+Closing Painter or Load3d also cancels pending saved-source byte reads,
+including verified digests and granted local bindings. Load3d uses the same
+signal for its primary model and named sidecars; stale results remain refused.
 Model selection posters do not enter the renderer after a delayed viewer import
 if the selection was replaced or closed. Already admitted shared poster work
 continues independently; closing one selection does not cancel other borrowers.

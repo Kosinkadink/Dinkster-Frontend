@@ -4,7 +4,8 @@ import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssetDtoV1WireContract, CandidateV1 } from '@dinkster/client'
-import { createSignal as createCoreSignal, registerCatalog, setLocale } from '@dinkster/core'
+import { DinksterConnection } from '@dinkster/client'
+import { asConnectionId, createSignal as createCoreSignal, registerCatalog, setLocale } from '@dinkster/core'
 import type { AppState, Tab } from '../src/app-state.js'
 import { ModalSurface } from '../src/ModalSurface.js'
 import { WidgetEditor, type WidgetEditorState } from '../src/WidgetEditor.js'
@@ -123,6 +124,55 @@ function mountWidget(ed: WidgetEditorState) {
 }
 
 describe('ModalSurface', () => {
+  it.each(['Painter', 'LOAD_3D'].flatMap((editor) =>
+    [false, true].map((local) => ({ editor, local }))))(
+    'aborts the pending $editor source body on close, local=$local', async ({ editor, local }) => {
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+        fillRect() {},
+      } as unknown as CanvasRenderingContext2D)
+      const metadata = { name: 'source', size: 3, mediaType: 'application/octet-stream', virtualPath: 'source' }
+      const source = local ? { ...metadata, verification: 'unverified', localBinding: 'source-grant' }
+        : { ...metadata, digest: `blake3:${'a'.repeat(64)}` }
+      const ed = widgetState(editor === 'Painter' ? 'ASSET' : editor, {}, editor === 'Painter' ? source : {},
+        false, { valueKey: editor === 'Painter' ? 'mask' : 'image', nodeType: editor })
+      Object.assign(ed.tab.store.doc.graphs.g0!.nodes.n0!.values, { model_file: source })
+      let started = false
+      let aborted = false
+      let finish!: () => void
+      const requests: string[] = []
+      const connection = new DinksterConnection({ id: asConnectionId('editor-source'), baseUrl: 'http://editor-source', clientId: 'test',
+        fetchFn: async (url, init) => {
+          requests.push(String(url))
+          return { ok: true, status: 200, arrayBuffer: () => {
+            started = true
+            return new Promise<ArrayBuffer>((resolve, reject) => {
+              finish = () => resolve(new ArrayBuffer(3))
+              init?.signal?.addEventListener('abort', () => { aborted = true; reject(init.signal!.reason) }, { once: true })
+            })
+          } } as Response
+        },
+      })
+      Object.assign(connection, assetLocationMethods)
+      const dispatchTo = vi.fn()
+      const app = { backendForTab: () => ({ protocol: 'dinkster', connection }), registryForTab: () => undefined,
+        dispatchTo } as unknown as AppState
+      const root = document.createElement('div'); document.body.append(root)
+      const [open, setOpen] = createSignal(true)
+      const unmount = render(() => <Show when={open()}><WidgetEditor app={app} ed={ed}
+        viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => setOpen(false)} /></Show>, root)
+      try {
+        await vi.waitFor(() => expect(started).toBe(true))
+        expect(aborted).toBe(false)
+        Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === 'Cancel')!.click()
+        expect(aborted).toBe(true)
+        expect(root.querySelector('dialog')).toBeNull()
+        expect(requests).toEqual([local ? 'http://editor-source/api/assets/local/source-grant'
+          : `http://editor-source/api/assets/blake3%3A${'a'.repeat(64)}`])
+        expect(dispatchTo).not.toHaveBeenCalled()
+      } finally { finish?.(); unmount(); connection.disconnect() }
+    },
+  )
+
   it('updates an open video document modal and source status when the locale changes', () => {
     registerCatalog('de-DE', {
       'videoDocument.source.missing': '[Dokument fehlt]',
