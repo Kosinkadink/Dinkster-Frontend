@@ -37,6 +37,12 @@ the previous selection and reports the failure inline. Cancel discards the local
 draft without releasing acknowledged owners. Apply still confirms the document
 command separately. These conservative owners do not enable cleanup.
 
+The registered audio-recording editor uses the same independent ownership
+before replacing its draft or fetching playback bytes for a saved recording.
+While acknowledgement is pending, Use asset stays disabled and Cancel remains
+available. A refused recording keeps the previous draft and the local clip for
+retry; an acknowledged recording still needs Use asset to change the document.
+
 ## Descriptor fields
 
 An unknown field on a known widget descriptor produces a

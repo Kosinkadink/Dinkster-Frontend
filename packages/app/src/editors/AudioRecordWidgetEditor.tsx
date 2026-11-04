@@ -5,12 +5,14 @@ import { AudioTransport } from '../AudioTransport.js'
 import { ProductButton } from '../ProductControls.js'
 import { ProductActionFooter, ProductNotice } from '../ProductForm.js'
 import { useAppMessage } from '../locale.js'
+import { activeProjectId } from '../projects.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 
 const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (props) => {
   const message = useAppMessage()
   const ed = props.editor.ed
   const backend = props.editor.app.backendForTab(ed.tab)
+  const project = activeProjectId()
   const initial = audioRecordKind.defaultValue({ ...ed.spec!, default: ed.initial === undefined ? ed.spec?.default : ed.initial })
   const [draft, setDraft] = createSignal(initial)
   const [uploading, setUploading] = createSignal(false)
@@ -21,13 +23,19 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
   onCleanup(() => { live = false; abort?.abort() })
   const save = async (file: File): Promise<boolean> => {
     if (backend.protocol !== 'dinkster') return false
+    const session = ed.tab.store
     const request = new AbortController()
     abort = request
     setUploading(true)
     setError(undefined)
+    const current = (): boolean => live && !request.signal.aborted &&
+      ed.tab.store === session && props.editor.app.backendForTab(ed.tab) === backend && activeProjectId() === project
     try {
+      if (!current()) return false
       const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/audio', name: file.name, signal: request.signal })
-      if (!live || request.signal.aborted) return false
+      if (!current()) return false
+      await props.editor.app.retainPickerAssets(ed.tab, backend, ref)
+      if (!current()) return false
       setDraft(ref)
       return true
     } catch (reason) {

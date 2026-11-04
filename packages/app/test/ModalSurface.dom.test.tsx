@@ -1466,6 +1466,73 @@ describe('ASSET widget modal integration', () => {
 })
 
 describe('registered interactive widget expanded-editor integration', () => {
+  it.each(['accepted', 'refused', 'closed', 'backend', 'session'] as const)('holds a recorded draft before playback and Apply: %s', async (outcome) => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const old = { digest: `blake3:${'a'.repeat(64)}`, name: 'previous.webm', size: 3, mediaType: 'audio/webm', virtualPath: '' }
+    const recorded = { ...old, digest: `blake3:${'b'.repeat(64)}`, name: 'recording.webm', size: 4 }
+    class Recorder {
+      state = 'inactive'
+      mimeType = 'audio/webm'
+      ondataavailable?: (event: { data: Blob }) => void
+      onstop?: () => void
+      start(): void { this.state = 'recording' }
+      stop(): void {
+        this.state = 'inactive'
+        queueMicrotask(() => { this.ondataavailable?.({ data: new Blob(['clip'], { type: 'audio/webm' }) }); this.onstop?.() })
+      }
+    }
+    vi.stubGlobal('MediaRecorder', Recorder)
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => {} }] }) } })
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:recording')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const fetchAssetBytes = vi.fn().mockResolvedValue(new ArrayBuffer(4))
+    const backend = { protocol: 'dinkster', id: 'native', connection: { uploadMediaAsset: vi.fn().mockResolvedValue(recorded), fetchAssetBytes } }
+    let selectedBackend = backend
+    let accept!: () => void
+    let refuse!: (error: Error) => void
+    const retainPickerAssets = vi.fn(() => new Promise<void>((resolve, reject) => { accept = resolve; refuse = reject }))
+    const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
+    const app = { backendForTab: () => selectedBackend, retainPickerAssets, dispatchTo } as unknown as AppState
+    const ed = widgetState('AUDIO_RECORD', {}, old)
+    const close = vi.fn()
+    const [open, setOpen] = createSignal(true)
+    const unmount = render(() => <Show when={open()}><WidgetEditor app={app} ed={ed}
+      viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => { close(); setOpen(false) }} /></Show>, root)
+    const click = (text: string) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === text)!.click()
+    try {
+      click('Record microphone')
+      await vi.waitFor(() => expect(root.textContent).toContain('Recording microphone'))
+      click('Stop recording')
+      await vi.waitFor(() => expect(root.textContent).toContain('Recording ready'))
+      click('Save recording')
+      await vi.waitFor(() => expect(accept).toBeTypeOf('function'))
+      expect(root.textContent).toContain('previous.webm')
+      expect(root.textContent).not.toContain('recording.webm')
+      expect(fetchAssetBytes.mock.calls.map((call) => call[0])).toEqual([old.digest])
+      expect([...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Use asset')!.disabled).toBe(true)
+      expect(dispatchTo).not.toHaveBeenCalled()
+      if (outcome === 'closed') click('Cancel')
+      if (outcome === 'backend') selectedBackend = { ...backend }
+      if (outcome === 'session') ed.tab = { ...ed.tab, store: { ...ed.tab.store } as Tab['store'] }
+      if (outcome === 'refused') refuse(new Error('Recording ownership refused'))
+      else accept()
+      if (outcome === 'accepted') {
+        await vi.waitFor(() => expect(root.textContent).toContain('recording.webm'))
+        expect(fetchAssetBytes.mock.calls.map((call) => call[0])).toEqual([old.digest, recorded.digest])
+        expect(dispatchTo).not.toHaveBeenCalled()
+        click('Use asset')
+        expect(dispatchTo).toHaveBeenCalledWith(ed.tab, expect.objectContaining({ params: expect.objectContaining({ value: recorded }) }))
+      } else if (outcome !== 'closed') {
+        await vi.waitFor(() => expect(root.textContent).toContain('Clip retained for retry'))
+        expect(root.textContent).toContain('previous.webm')
+        expect(fetchAssetBytes.mock.calls.map((call) => call[0])).toEqual([old.digest])
+        if (outcome === 'refused') expect(root.textContent).toContain('Recording ownership refused')
+      }
+      if (outcome !== 'accepted') expect(dispatchTo).not.toHaveBeenCalled()
+    } finally { unmount(); vi.unstubAllGlobals() }
+  })
+
   it('opens AUDIO_RECORD through the registry and refuses upload on a non-native backend', () => {
     const mounted = mountWidget(widgetState('AUDIO_RECORD', {}, null))
     expect(mounted.root.querySelector('[data-testid="audio-record-editor"]')?.textContent).toContain('Recording uploads require a native Dinkster backend')

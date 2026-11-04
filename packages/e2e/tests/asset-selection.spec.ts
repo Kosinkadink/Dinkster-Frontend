@@ -10,6 +10,104 @@ async function acknowledgeRetentions(page: Page): Promise<void> {
 }
 
 for (const accepted of [true, false]) {
+  test(`recorded widget draft waits for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }, info) => {
+    let release!: () => void
+    let started = false
+    let uploaded: Buffer = Buffer.alloc(0)
+    let playbackReads = 0
+    const digest = `blake3:${'c'.repeat(64)}`
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { value: async () => {
+        const context = new AudioContext()
+        const tone = context.createOscillator()
+        const output = context.createMediaStreamDestination()
+        tone.connect(output)
+        tone.start()
+        await context.resume()
+        const track = output.stream.getAudioTracks()[0]!
+        const stop = track.stop.bind(track)
+        track.stop = () => { tone.stop(); void context.close(); stop() }
+        return output.stream
+      } })
+    })
+    await page.route('/api/**', (route) => route.fulfill({ status: 503 }))
+    await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'recording-ownership', schemaWire: 1 },
+      nodes: { Recorder: { schemaVersion: 1, displayName: 'Audio recording', interface: [
+        { role: 'input', id: 'audio', type: { kind: 'concrete', types: ['AUDIO'] }, widget: { type: 'AUDIO_RECORD' } },
+      ] } },
+    } }))
+    await page.route('/api/assets/media?*', (route) => {
+      uploaded = route.request().postDataBuffer() ?? Buffer.alloc(0)
+      return route.fulfill({ json: { kind: 'media/audio', asset: {
+        digest, name: 'recording.webm', size: uploaded.length, mediaType: 'audio/webm', virtualPath: 'imports/recording.webm',
+      } } })
+    })
+    await page.route(`/api/assets/${encodeURIComponent(digest)}`, (route) => {
+      playbackReads++
+      return route.fulfill({ contentType: 'audio/webm', body: uploaded })
+    })
+    await page.route('/api/library/retentions/document/*?scope=local', async (route) => {
+      if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+      const declaration = route.request().postDataJSON()
+      if (declaration.digests.includes(digest)) {
+        started = true
+        await gate
+        if (!accepted) return route.fulfill({ status: 503, body: 'ownership refused' })
+      }
+      return route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
+        ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: declaration.revision + 1 } })
+    })
+    await page.goto('/')
+    await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+    await page.evaluate(() => {
+      window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'recording-owner', root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'root', nodes: { source: { id: 'source', type: 'Recorder', values: { audio: null } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+        view: { graphs: { g0: { nodes: { source: { position: { x: 100, y: 100 } } } } } },
+      }, 'Recording ownership')
+      window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    })
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(1)
+    const point = await page.evaluate(() => {
+      const renderer = window.__dinksterTest!.renderer!
+      const node = renderer.getScene().nodes[0]!
+      const row = node.layout.rows.find((row) => row.kind === 'widget')!
+      const viewport = renderer.getViewport()
+      const rect = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+      return { x: rect.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x, y: rect.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y }
+    })
+    await page.mouse.click(point.x, point.y)
+    const editor = page.getByTestId('audio-record-editor')
+    await expect(editor).toBeVisible()
+    await editor.getByRole('button', { name: 'Record microphone', exact: true }).click()
+    await expect(editor.getByTestId('audio-recorded-bytes')).toHaveText(/Recorded [1-9][0-9]* bytes/)
+    await editor.getByRole('button', { name: 'Stop recording', exact: true }).click()
+    await editor.getByRole('button', { name: 'Save recording', exact: true }).click()
+    await expect.poll(() => started).toBe(true)
+    await expect(editor.getByRole('button', { name: 'Use asset', exact: true })).toBeDisabled()
+    await expect(editor).not.toContainText('recording.webm')
+    expect(playbackReads).toBe(0)
+    await page.screenshot({ path: info.outputPath('recording-pending.png') })
+    release()
+    if (accepted) {
+      await expect(editor).toContainText('recording.webm')
+      await expect(editor.getByRole('button', { name: 'Use asset', exact: true })).toBeEnabled()
+      await expect(editor.locator('audio')).toHaveCount(1)
+      expect(playbackReads).toBe(1)
+    } else {
+      await expect(editor).toContainText('PUT retained assets failed: 503')
+      await expect(editor).toContainText('Clip retained for retry')
+      await expect(editor.locator('audio')).toHaveCount(0)
+      expect(playbackReads).toBe(0)
+    }
+    await page.screenshot({ path: info.outputPath(`recording-${accepted ? 'accepted' : 'refused'}.png`) })
+    await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+    expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.source!.values.audio)).toBeNull()
+  })
+}
+
+for (const accepted of [true, false]) {
   test(`staged asset picker waits for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }, info) => {
     const asset = { digest: `blake3:${'b'.repeat(64)}`, name: 'chosen.vae', size: 42, mediaType: 'application/octet-stream', virtualPath: 'vae/chosen.vae' }
     let release!: () => void
