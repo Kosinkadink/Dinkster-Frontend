@@ -866,6 +866,44 @@ describe('compile and registry routing', () => {
 })
 
 describe('execution output routing', () => {
+  it.each((['live', 'removed'] as const).flatMap((owner) =>
+    [false, true].map((local) => ({ owner, local }))))(
+    'cancels pending original-model response bodies through the $owner owner, local=$local', async ({ owner, local }) => {
+      const backend = addOffline('http://model-owner:8188')
+      const ref = foreignRun(String(backend.id), 'model-read')
+      if (owner === 'removed') app.removeBackend(backend.id)
+      const requests: string[] = []
+      let transportSignal: AbortSignal | null | undefined
+      let finish!: () => void
+      let bodyStarted!: () => void
+      const started = new Promise<void>((resolve) => { bodyStarted = resolve })
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+        requests.push(String(url))
+        transportSignal = init?.signal
+        return { ok: true, status: 200, arrayBuffer: () => {
+          bodyStarted()
+          return new Promise<ArrayBuffer>((resolve, reject) => {
+            finish = () => resolve(new Uint8Array([1, 7, 3]).buffer)
+            transportSignal?.addEventListener('abort', () => reject(transportSignal!.reason), { once: true })
+          })
+        } } as Response
+      })
+      const abort = new AbortController()
+      const pending = app.readFile3dAssetForExecution(ref, local
+        ? { verification: 'unverified', localBinding: 'model-grant' }
+        : { digest: `blake3:${'a'.repeat(64)}` }, abort.signal)
+      const result = pending.then(() => 'published', (error: unknown) => error instanceof Error ? error.name : 'refused')
+      try {
+        await started
+        abort.abort()
+        expect(transportSignal?.aborted).toBe(true)
+        expect(await result).toBe('AbortError')
+        expect(requests).toEqual([local ? 'http://model-owner:8188/api/assets/local/model-grant'
+          : `http://model-owner:8188/api/assets/blake3%3A${'a'.repeat(64)}`])
+      } finally { finish(); await result }
+    },
+  )
+
   it.each((['live', 'removed', 'replaced', 'refused', 'disposed', 'aborted'] as const).flatMap((mode) =>
     [false, true].map((opaque) => ({ mode, opaque }))))(
     'admits newly read descriptor roots before publication through the $mode owner, opaque=$opaque', async ({ mode, opaque }) => {

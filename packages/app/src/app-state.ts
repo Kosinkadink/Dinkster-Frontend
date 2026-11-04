@@ -4819,7 +4819,7 @@ export class AppState {
     signal?.throwIfAborted()
     const bytes = asset.verification === 'unverified'
       ? await backend.connection.fetchLocalAssetBytes(asset.localBinding as string, signal)
-      : await backend.connection.fetchAssetBytes(asset.digest as string)
+      : await backend.connection.fetchAssetBytes(asset.digest as string, signal)
     signal?.throwIfAborted()
     return bytes
   }

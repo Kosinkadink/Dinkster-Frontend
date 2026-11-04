@@ -12,6 +12,9 @@ of a converted GLB or PLY rendition. The preview reads the original source
 and named sidecars through the execution's own backend, including opaque
 local bindings. Missing owners or revoked grants make the preview unavailable;
 the active tab's backend is never a fallback. JSON null has no preview.
+Cancellation reaches pending original-model response bodies for both verified
+digests and local bindings, including reads through a removed backend's retained
+connection. It does not release owners or establish that other readers settled.
 Poster and orbit views share the manifest's original format and granted
 resource map. Declared camera and model-placement outputs come from the same
 runtime occurrence, negotiated through their JSON renditions with matching
