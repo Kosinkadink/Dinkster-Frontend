@@ -703,8 +703,9 @@ export function createPreviewLoader(deps: {
     name: string,
     mime: string,
     kind: 'image' | 'video' | 'audio' | 'model3d',
+    signal?: AbortSignal,
   ): Promise<NodePreview> => {
-    const response = await (deps.fetchRecordedOutput ?? fetch)(url)
+    const response = await (deps.fetchRecordedOutput ?? fetch)(url, signal === undefined ? undefined : { signal })
     if (!response.ok) throw new Error(`recorded output request failed (${response.status})`)
     const src = URL.createObjectURL(new Blob([await response.arrayBuffer()], { type: mime }))
     const download = { src, name }
@@ -849,11 +850,11 @@ export function createPreviewLoader(deps: {
           runtimeId: artifact.nodeId,
           mediaKind: artifactKind,
           output: { index: artifactIndex, count: artifacts.length },
-          load: async () => {
+          load: async (signal) => {
             if (associatedPreview !== undefined && previewUrl !== undefined) {
               try {
                 return {
-                  ...await recordedOutputPreview(previewUrl, associatedPreview.name, associatedPreview.mediaType, 'image'),
+                  ...await recordedOutputPreview(previewUrl, associatedPreview.name, associatedPreview.mediaType, 'image', signal),
                   download,
                 }
               } catch {
@@ -861,7 +862,7 @@ export function createPreviewLoader(deps: {
               }
             }
             if (artifactKind === 'audio') return { kind: 'audio', mime: artifact.mediaType, src: '', download }
-            return recordedOutputPreview(artifactUrl, downloadName, artifact.mediaType, artifactKind)
+            return recordedOutputPreview(artifactUrl, downloadName, artifact.mediaType, artifactKind, signal)
           },
         }
       }
@@ -876,7 +877,7 @@ export function createPreviewLoader(deps: {
           runtimeId: i.runtimeId,
           output: i.output,
           outputId: i.outputId,
-          load: () => recordedOutputPreview(i.url, i.name, i.mediaType, 'image'),
+          load: (signal) => recordedOutputPreview(i.url, i.name, i.mediaType, 'image', signal),
         }
       }
       if (artifactSource) return artifactSource
