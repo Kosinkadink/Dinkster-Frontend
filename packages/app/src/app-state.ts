@@ -4366,9 +4366,7 @@ export class AppState {
             (this.backendFor(id) ?? this.retiredBackends.get(id)) === nativeBackend
           if (!current()) throw new Error('Value owner is no longer available')
           const roots = executionAssetRoots({ outputs: { value: { descriptor } }, artifacts: [] }, () => undefined)
-          if (roots.digests.length > 0) {
-            await retainExecutionAssets(connection, { connection: id, prompt: asPromptId(query.jobId) }, roots)
-          }
+          await retainExecutionAssets(connection, { connection: id, prompt: asPromptId(query.jobId) }, roots)
           if (!current()) throw new Error('Value owner changed during asset admission')
         },
       })

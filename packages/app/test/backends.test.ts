@@ -866,12 +866,15 @@ describe('compile and registry routing', () => {
 })
 
 describe('execution output routing', () => {
-  it.each(['live', 'removed', 'replaced', 'refused', 'disposed', 'aborted'] as const)(
-    'admits newly read descriptor roots before publication through the %s owner', async (mode) => {
+  it.each((['live', 'removed', 'replaced', 'refused', 'disposed', 'aborted'] as const).flatMap((mode) =>
+    [false, true].map((opaque) => ({ mode, opaque }))))(
+    'admits newly read descriptor roots before publication through the $mode owner, opaque=$opaque', async ({ mode, opaque }) => {
       const backend = addOffline('http://value-owner:8188')
       const ref = foreignRun(String(backend.id), 'value-read')
       const digest = `blake3:${'c'.repeat(64)}`
-      const descriptor = { typeId: 'asset<media/image>', fingerprint: 'new-result', meta: { digest } }
+      const descriptor = opaque
+        ? { typeId: 'OPAQUE', fingerprint: 'opaque-result', meta: { handle: 'unrepresented dependency' } }
+        : { typeId: 'asset<media/image>', fingerprint: 'new-result', meta: { digest } }
       vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ available: true, descriptor, renditions: [] }))
       let accept!: () => void
       const barrier = new Promise<void>((resolve) => { accept = resolve })
@@ -889,7 +892,7 @@ describe('execution output routing', () => {
       ).then((result) => { published = true; return result })
       await vi.waitFor(() => expect(retain).toHaveBeenCalledOnce())
       expect(published).toBe(false)
-      expect(retain.mock.calls[0]![1]).toMatchObject({ complete: false, digests: [digest] })
+      expect(retain.mock.calls[0]![1]).toEqual({ revision: 0, complete: false, digests: opaque ? [] : [digest] })
       if (mode === 'replaced') {
         app.removeBackend(backend.id)
         addOffline('http://value-owner:8188')
