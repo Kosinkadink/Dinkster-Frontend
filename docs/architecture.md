@@ -166,8 +166,9 @@ inventories supersede outstanding acknowledgments. Existing-tab metadata updates
 do not wait for another ownership request. Subsequent ordered shared documents and
 resync snapshots await ownership before confirmed-ground publication; this does not
 certify every optimistic rebase result. Bootstrap also confirms restored tabs and
-all valid canonical, workspace-candidate and document-recovery snapshots captured
-by the constructor, including losing versions and closed-lineage recovery slots.
+all valid canonical, workspace-candidate, document-recovery and operation-journal
+addition snapshots captured by the constructor, including losing versions and
+closed-lineage recovery slots. Journal additions are confirmed before worker replay.
 Those sources stay captured even if local compaction retires them before the
 acknowledgment. Recovery documents use the same-origin backend, matching restored
 tabs' default target; session-only targets do not persist. Refused or stale startup

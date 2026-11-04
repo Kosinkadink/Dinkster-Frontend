@@ -61,7 +61,7 @@ afterEach(() => {
 const flush = (): void => void vi.advanceTimersByTime(500)
 
 describe('open-tab persistence', () => {
-  it.each(['accepted', 'refused', 'targeted', 'targeted-registry'] as const)(
+  it.each(['accepted', 'refused', 'targeted', 'targeted-registry', 'operation-accepted', 'operation-refused'] as const)(
     'confirms losing durable recovery documents before startup continues: %s', async (scenario) => {
       const document = (digit: string, lineage = seedBasic.lineage) => ({ ...seedBasic, lineage,
         ext: { held: { digest: `blake3:${digit.repeat(64)}`, name: `${digit}.bin`, size: 7,
@@ -78,6 +78,11 @@ describe('open-tab persistence', () => {
         JSON.stringify({ v: 1, stageId: 'latest', tab: { title: 'Latest', doc: newest } }))
       localStorage.setItem(`dinkster.openTabsDocumentCandidate.${encodeURIComponent(closed.lineage)}`,
         JSON.stringify({ v: 1, stageId: 'closed', tab: { title: 'Closed', doc: closed } }))
+      localStorage.setItem('dinkster.workspaceOperation.peer#0', JSON.stringify({
+        opId: 'peer#0', actorId: 'peer', sequence: 0, baseRevision: 0,
+        additions: [{ id: 'journal-only', title: 'Journal only', document: document('e', 'journal-only') }],
+        removals: [], updates: [], order: ['journal-only'], active: 'journal-only',
+      }))
       const app = createEditableApp()
       expect(app.tabs.get()).toHaveLength(1)
       expect(app.activeTab()!.store.doc).toEqual(newest)
@@ -96,9 +101,9 @@ describe('open-tab persistence', () => {
       vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
         expect(declaration.complete).toBe(false)
         declaration.digests.forEach((digest) => observed.add(digest))
-        const losing = declaration.digests.includes(`blake3:${'a'.repeat(64)}`)
+        const losing = declaration.digests.includes(`blake3:${(scenario.startsWith('operation-') ? 'e' : 'a').repeat(64)}`)
         if (losing) await gate
-        return { ...owner, ...declaration, revision: losing && scenario === 'refused' ? 2 : 1 }
+        return { ...owner, ...declaration, revision: losing && scenario.endsWith('refused') ? 2 : 1 }
       })
       vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
       let settled = false
@@ -106,11 +111,11 @@ describe('open-tab persistence', () => {
         .finally(() => { settled = true })
       await vi.advanceTimersByTimeAsync(0)
       expect(settled).toBe(false)
-      expect([...observed].sort()).toEqual(['a', 'b', 'c', 'd'].map((digit) => `blake3:${digit.repeat(64)}`))
+      expect([...observed].sort()).toEqual(['a', 'b', 'c', 'd', 'e'].map((digit) => `blake3:${digit.repeat(64)}`))
       if (scenario === 'targeted-registry') app.registry.set({ connection: app.connection.id,
         schemas: new Map(), diagnostics: [], hash: 'changed', resolve: () => undefined })
       acknowledge()
-      expect(await startup).toBe(scenario === 'accepted' || scenario === 'targeted')
+      expect(await startup).toBe(scenario.endsWith('accepted') || scenario === 'targeted')
       expect(app.activeTab()!.store.doc).toEqual(newest)
     },
   )

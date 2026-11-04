@@ -3281,6 +3281,8 @@ export class AppState {
     this.startupRecoveryDocuments = [...new Map([
       ...recovery.states.flatMap((state) => state.tabs),
       ...recovery.documentCandidates.map((candidate) => candidate.tab),
+      ...loadWorkspaceOperations().flatMap((operation) => Array.isArray(operation.additions)
+        ? operation.additions.map((entry) => ({ doc: entry?.document })) : []),
     ].flatMap((entry) => {
       const document = loadDocument(entry.doc).document
       return document === undefined ? [] : [[JSON.stringify(document), document] as const]
