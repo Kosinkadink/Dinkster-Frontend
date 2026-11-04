@@ -235,6 +235,11 @@ opaque default requires an incomplete owner before publication. Refusal keeps
 the existing document and history; direct store commits cannot bypass this
 admission. These owners do not certify opaque dependencies or enable cleanup.
 
+Shared rebase validates each rebuilt pending prefix against the retained old
+optimistic documents, not undo patches rooted at the old full document.
+Pending intentions keep their acknowledged roots without replaying history
+against a prefix where its nodes do not yet exist.
+
 Canvas gesture dispatch accepts asynchronous outcomes; the host owns final
 diagnostics, while the controller drops only its transient gesture overlay.
 Selection deletion waits for acceptance before clearing selection. Refusal

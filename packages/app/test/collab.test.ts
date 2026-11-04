@@ -265,11 +265,11 @@ const sharedSession = (app: AppState, tabId: string): SharedDocumentSession => {
 
 const nodeCount = (tab: Tab): number => Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes).length
 
-const addNode = (app: AppState, tab: Tab) => {
+const addNode = (app: AppState, tab: Tab, type = 'X') => {
   const backend = app.backendForTab(tab)
   if (backend.registry.get() === undefined) backend.registry.set({ connection: backend.id,
     schemas: new Map(), diagnostics: [], hash: 'collab-test', resolve: () => undefined })
-  return app.dispatchTo(tab, { command: 'node.add', params: { graphId: tab.store.doc.root, type: 'X', position: { x: 0, y: 0 } } })
+  return app.dispatchTo(tab, { command: 'node.add', params: { graphId: tab.store.doc.root, type, position: { x: 0, y: 0 } } })
 }
 
 const planSeedFlatten = (app: AppState, tab: Tab) => flattenInvocation(
@@ -1342,7 +1342,7 @@ describe('lifecycle races', () => {
     expect(entry!.session.status.get()).toBe('live')
   })
 
-  it('simultaneous edits collide on the server and still converge', async () => {
+  it.each([false, true])('simultaneous edits collide on the server and still converge, known foreign schema=%s', async (knownForeign) => {
     const server = new FakeCollabServer()
     const appA = makeApp(server)
     // B's WS delivery can be held so its next op is genuinely built on a
@@ -1378,6 +1378,14 @@ describe('lifecycle races', () => {
     const tabB = activeTab(appB)
     await until(() => nodeCount(tabB) === nodeCount(tabA), 'join catch-up')
     const baseline = nodeCount(tabA)
+    if (knownForeign) {
+      const schema: NodeSchema = { type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false, items: [] }
+      for (const [app, tab] of [[appA, tabA], [appB, tabB]] as const) {
+        const backend = app.backendForTab(tab)
+        backend.registry.set({ connection: backend.id, schemas: new Map([['X', schema]]),
+          diagnostics: [], hash: 'known-foreign', resolve: (type) => type === 'X' ? schema : undefined })
+      }
+    }
 
     // A commits first; B edits without having seen it, so B's op reaches
     // the server on a stale base and must be refused and rebased
@@ -1385,7 +1393,7 @@ describe('lifecycle races', () => {
     hold.held = true
     expect((await addNode(appA, tabA)).diagnostics).toEqual([])
     await sharedSession(appA, tabA.id).settle()
-    expect((await addNode(appB, tabB)).diagnostics).toEqual([])
+    expect((await addNode(appB, tabB, knownForeign ? 'Y' : 'X')).diagnostics).toEqual([])
     await until(() => server.staleBases >= 1, "B's stale-base refusal")
     hold.held = false
     for (const deliver of hold.buffer.splice(0)) deliver()

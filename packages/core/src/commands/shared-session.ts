@@ -1080,8 +1080,11 @@ class SharedDocumentSession implements DocumentSession {
             if (params !== undefined) entry.invocation = { ...entry.invocation, params }
           }
           const prepared = this.store.prepareDispatch(entry.invocation)
+          // Old history is not rooted at this rebuilt prefix. Its pending intentions
+          // are already represented by the retained old optimistic documents.
           const diagnostics = prepared.ok
-            ? this.validateCommit?.(this.store.doc, prepared.document, this.historySnapshot(), retainedDocuments) ?? []
+            ? this.validateCommit?.(this.store.doc, prepared.document,
+              { revision: this.revision, undo: [], redo: [] }, retainedDocuments) ?? []
             : prepared.diagnostics
           const outcome = prepared.ok && !hasErrors(diagnostics)
             ? prepared.commit()
