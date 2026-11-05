@@ -985,10 +985,16 @@ describe('execution output routing', () => {
       }
       expect(await values.rendition({ ...query, outputId: 'other' }, 'window', { descriptor: first.descriptor }))
         .toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
+      await expect(values.read({ ...query, outputId: 'other' }, first.descriptor, async () => 17)).rejects.toThrow('admitted')
+      await expect(values.read(query, { ...first.descriptor }, async () => 17)).rejects.toThrow('admitted')
+      expect(await values.read(query, first.descriptor, async () => 23)).toBe(23)
       if (mode === 'removed' || mode === 'replaced') app.removeBackend(backend.id)
       if (mode === 'replaced') addOffline('http://lazy-value-owner:8188')
       if (mode === 'disposed') app.dispose()
       if (mode === 'transitioned') { backend.connection.connect(); backend.connection.disconnect() }
+      const decoded = values.read(query, first.descriptor, async () => 31)
+      if (mode === 'live' || mode === 'removed') expect(await decoded).toBe(31)
+      else await expect(decoded).rejects.toThrow('closed')
       expect(await values.rendition(query, 'window', { descriptor: second.descriptor })).toMatchObject(
         mode === 'live' || mode === 'removed' ? { available: true } : { available: false, reason: 'ownership-unconfirmed' })
       expect(await values.rendition(query, 'window', { descriptor: first.descriptor, frame: 3 })).toMatchObject(

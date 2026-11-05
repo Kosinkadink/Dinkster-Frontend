@@ -557,6 +557,15 @@ export class DinksterValuesClient {
     return result
   }
 
+  /** Keep the peek's admitted owner pending through consumer-side decode and publication. */
+  async read<T>(query: ValueQuery, descriptor: ValueDescriptor, consume: () => Promise<T>): Promise<T> {
+    const reader = this.descriptorReaders.get(descriptor)
+    if (this.admitPeek !== undefined && (reader?.owner === undefined || reader.queryUrl !== this.url(query))) {
+      throw new Error('Read requires its admitted value descriptor')
+    }
+    return reader?.owner === undefined ? consume() : reader.owner.read(consume)
+  }
+
   /**
    * Raw rendition bytes. `kind` is a declared rendition kind or 'default'.
    * Completed reads are cached by normalized selectors and server identity.

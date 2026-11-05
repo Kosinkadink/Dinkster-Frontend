@@ -118,7 +118,10 @@ The native Painter node's mask row opens an RGBA canvas over its background
 color or a connected image's current first frame. A connected source must have
 a completed, unchanged native execution; stale, unavailable or ambiguous
 sources require another run before painting. Connected images set the canvas
-dimensions; otherwise it uses the authored width and height. Brush color and
+dimensions; otherwise it uses the authored width and height. Connected IMAGE
+decoding and drawing borrow the exact descriptor's admitted value reader;
+connection changes refuse drawing even after rendition bytes arrived. The bitmap
+closes before that read settles, without releasing its retained owner. Brush color and
 size, erasing, clearing and opening an image edit only the draft layer.
 The displayed base is never included in the uploaded paint layer. Transparent
 pixels preserve the node's background or connected image; the layer's alpha
