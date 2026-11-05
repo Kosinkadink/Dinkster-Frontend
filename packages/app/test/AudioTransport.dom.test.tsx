@@ -13,8 +13,8 @@ import { RetainedAssetReader } from '../src/workflow-asset-retention.js'
 import type { DinksterConnection } from '@dinkster/client'
 
 describe('document-owned input audio', () => {
-  it.each(['pending', 'refused', 'mounted', 'replacement'] as const)(
-    'admits native playback and waits for actual resource reset: %s', async (scenario) => {
+  it.each([false, true].flatMap((appView) => (['pending', 'refused', 'mounted', 'replacement'] as const).map((scenario) => ({ appView, scenario }))))(
+    'admits native playback and waits for actual resource reset (App: $appView): $scenario', async ({ appView, scenario }) => {
       const root = document.createElement('div')
       document.body.append(root)
       const retained = { scope: 'local', ownerKind: 'document', ownerId: 'audio', revision: 1,
@@ -31,9 +31,13 @@ describe('document-owned input audio', () => {
         return original.read(consume)
       } }
       const [reader, setReader] = createSolidSignal(owner)
-      const dispose = render(() => <NodeMediaOverlay media={{ kind: 'audio', src: '/same.wav' }}
-        assetReader={reader()} rect={{ x: 10, y: 20, width: 500, height: 200 }} scale={1}
-        canvas={document.createElement('canvas')} />, root)
+      const media = { kind: 'audio' as const, src: '/same.wav' }
+      const dispose = render(() => appView
+        ? <AppPreviewSurface surface={{ preview: media, source: { key: reader().key, assetReader: reader(), load: async () => media } }}
+          loader={{} as PreviewLoader} ariaLabelledBy="audio-title" />
+        : <NodeMediaOverlay media={media}
+          assetReader={reader()} rect={{ x: 10, y: 20, width: 500, height: 200 }} scale={1}
+          canvas={document.createElement('canvas')} />, root)
       const audio = root.querySelector('audio')!
       const reset = vi.spyOn(audio, 'load').mockImplementation(() => {})
       const pause = vi.spyOn(audio, 'pause').mockImplementation(() => {})

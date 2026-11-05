@@ -95,6 +95,12 @@ empty. This does not cover result orbit viewers, cached picker/collection poster
 native result audio/video handles, recovery references or retirement.
 No retained owner is released when a source becomes obsolete.
 
+App-view input previews use the same captured document/history reader as canvas
+previews. Exposed input-image and model-poster loads cannot bypass admission or
+publish after their document becomes stale. App preview audio surfaces carry
+their source reader into the shared native transport, including same-URL owner
+replacement; surfaces with no source reader retain their existing behavior.
+
 Live and mirrored structured outputs and preview records also await incomplete
 shown-result ownership, including records with no known digest. Later events
 for that execution wait for admission so completion cannot overtake the held
