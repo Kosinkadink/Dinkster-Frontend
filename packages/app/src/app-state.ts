@@ -5459,21 +5459,36 @@ export class AppState {
     } finally { unsubscribe() }
   }
 
-  async retainPickerAssets(tab: Tab, backend: Backend, value: unknown): Promise<void> {
+  async retainPickerAssets(tab: Tab, backend: Backend, value: unknown): Promise<NonNullable<ReturnType<AppState['workflowAssetReader']>>> {
     const session = tab.store
+    const document = session.doc
+    const revision = session.revision
     const registry = backend.registry.get()
-    let connectionChanged = false
-    const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
-    const current = (): boolean => !this.disposed && !connectionChanged &&
+    const generation = this.assetConnectionGenerations.get(backend.connection)
+    const current = (): boolean => !this.disposed && session.doc === document && session.revision === revision &&
+      generation === this.assetConnectionGenerations.get(backend.connection) &&
       this.backendFor(backend.id) === backend && backend.registry.get() === registry &&
       this.tabs.get().some((candidate) => candidate.store === session && !candidate.execution &&
         this.backendForTab(candidate) === backend)
-    try {
-      if (backend.protocol !== 'dinkster' || !current()) throw new Error('Picker destination is unavailable')
-      const roots = executionAssetRoots({ outputs: { picker: { value } }, artifacts: [] }, () => undefined)
-      await retainWorkflowAssets(backend.connection, session.doc.lineage, session.revision, roots)
-      if (!current()) throw new Error('Picker destination changed during asset admission')
-    } finally { unsubscribe() }
+    if (backend.protocol !== 'dinkster' || !current()) throw new Error('Picker destination is unavailable')
+    const roots = executionAssetRoots({ outputs: { picker: { value } }, artifacts: [] }, () => undefined)
+    const retained = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+    if (!current()) throw new Error('Picker destination changed during asset admission')
+    const owned = new RetainedAssetReader(backend.connection, retained, current)
+    return {
+      key: `picker:${++this.workflowAssetReaderSequence}`,
+      current,
+      read: async <T>(consume: () => Promise<T>): Promise<T> => {
+        this.valueAssetReaders.set(owned, (this.valueAssetReaders.get(owned) ?? 0) + 1)
+        try {
+          return await owned.read(consume)
+        } finally {
+          const remaining = this.valueAssetReaders.get(owned)! - 1
+          if (remaining === 0) this.valueAssetReaders.delete(owned)
+          else this.valueAssetReaders.set(owned, remaining)
+        }
+      },
+    }
   }
 
   async retainEditorAssets(target: ImageEditorTarget | CompositorEditorTarget, backend: Backend, value: unknown): Promise<void> {

@@ -6,6 +6,7 @@ import { ProductButton } from '../ProductControls.js'
 import { ProductActionFooter, ProductNotice } from '../ProductForm.js'
 import { useAppMessage } from '../locale.js'
 import { activeProjectId } from '../projects.js'
+import type { PreviewSource } from '../node-previews.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 
 const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (props) => {
@@ -20,6 +21,7 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
   const [error, setError] = createSignal<string>()
   let live = true
   let abort: AbortController | undefined
+  let draftReader: PreviewSource['assetReader']
   onCleanup(() => { live = false; abort?.abort() })
   const save = async (file: File): Promise<boolean> => {
     if (backend.protocol !== 'dinkster') return false
@@ -34,8 +36,9 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
       if (!current()) return false
       const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/audio', name: file.name, signal: request.signal })
       if (!current()) return false
-      await props.editor.app.retainPickerAssets(ed.tab, backend, ref)
+      const reader = await props.editor.app.retainPickerAssets(ed.tab, backend, ref)
       if (!current()) return false
+      draftReader = reader
       setDraft(ref)
       return true
     } catch (reason) {
@@ -55,19 +58,18 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
       let current = true
       let ownedUrl: string | undefined
       const previewAbort = new AbortController()
-      const saved = ref === initial
-      const reader = saved && backend.protocol === 'dinkster'
-        ? props.editor.app.workflowAssetReader(ed.tab, ref.digest) : undefined
+      const reader = ref === initial && backend.protocol === 'dinkster'
+        ? props.editor.app.workflowAssetReader(ed.tab, ref.digest) : draftReader
       if (backend.protocol === 'dinkster') {
         const load = async () => {
-          if (!current || (saved && reader?.current() !== true)) return
+          if (!current || reader?.current() !== true) return
           const bytes = await backend.connection.fetchAssetBytes(ref.digest, previewAbort.signal)
-          if (!current || (saved && reader?.current() !== true)) return
+          if (!current || reader?.current() !== true) return
           if (bytes === undefined) { setFailed(true); return }
           ownedUrl = URL.createObjectURL(new Blob([bytes], { type: ref.mediaType }))
           setSrc(ownedUrl)
         }
-        void (saved ? reader?.read(load) ?? Promise.reject(new Error(message('audioRecordWidget.previewUnavailable'))) : load())
+        void (reader?.read(load) ?? Promise.reject(new Error(message('audioRecordWidget.previewUnavailable'))))
           .catch(() => { if (current) setFailed(true) })
       }
       onCleanup(() => { current = false; previewAbort.abort(); if (ownedUrl) URL.revokeObjectURL(ownedUrl) })

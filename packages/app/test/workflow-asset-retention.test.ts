@@ -661,7 +661,7 @@ describe('retained app dispatch', () => {
 })
 
 describe('retained picker consumers', () => {
-  it.each(['accepted', 'closed', 'registry', 'disconnected', 'refused'] as const)(
+  it.each(['accepted', 'closed', 'edited', 'registry', 'disconnected', 'disposed', 'refused'] as const)(
     'confirms a separate incomplete owner before a picker can publish: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       const app = createWorkflowApp([schema])
@@ -683,12 +683,53 @@ describe('retained picker consumers', () => {
         expect(declaration).toEqual({ revision: 0, complete: false, digests: [asset('b').digest, asset('c').digest] })
         expect(tab.store.doc).toBe(before)
         if (scenario === 'closed') app.closeTab(tab.id)
+        if (scenario === 'edited') tab.store.dispatch({ command: 'node.setTitle', params: {
+          graphId: 'g0', nodeId: 'n0', title: 'Changed while admitting picker',
+        } })
         if (scenario === 'registry') backend.registry.set(undefined)
         if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+        if (scenario === 'disposed') app.dispose()
         response.resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
         expect(await settled).toBe(scenario === 'accepted')
-        expect(tab.store.doc).toBe(before)
-        expect(tab.store.canUndo).toBe(false)
+        if (scenario !== 'edited') expect(tab.store.doc).toBe(before)
+        expect(tab.store.canUndo).toBe(scenario === 'edited')
+      } finally { app.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() }
+    },
+  )
+
+  it.each(['live', 'edited', 'closed', 'registry', 'disconnected', 'disposed'] as const)(
+    'binds picker reads to the admitted document without releasing protection: %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      const app = createWorkflowApp([schema])
+      try {
+        app.openDocument(session().doc, 'Picker source')
+        const tab = app.activeTab()!
+        const backend = app.backendForTab(tab)
+        const release = vi.spyOn(app.connection, 'releaseRetainedAssets')
+        const reader = await app.retainPickerAssets(tab, backend, asset('b'))
+        expect(reader.current()).toBe(true)
+        const started = deferred<void>()
+        const body = deferred<number>()
+        const read = reader.read(async () => { started.resolve(); return body.promise }).then(() => 'published', () => 'refused')
+        await started.promise
+        if (scenario === 'edited') tab.store.dispatch({ command: 'node.setTitle', params: {
+          graphId: 'g0', nodeId: 'n0', title: 'Changed after picker admission',
+        } })
+        if (scenario === 'closed') app.closeTab(tab.id)
+        if (scenario === 'registry') backend.registry.set(undefined)
+        if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+        if (scenario === 'disposed') app.dispose()
+        expect(reader.current()).toBe(scenario === 'live')
+        body.resolve(23)
+        expect(await read).toBe(scenario === 'live' ? 'published' : 'refused')
+        if (scenario === 'live') expect(await reader.read(async () => 31)).toBe(31)
+        else await expect(reader.read(async () => 31)).rejects.toThrow('closed')
+        if (scenario === 'edited') {
+          const replacement = await app.retainPickerAssets(tab, backend, asset('c'))
+          expect(replacement.key).not.toBe(reader.key)
+          expect(await replacement.read(async () => 47)).toBe(47)
+        }
+        expect(release).not.toHaveBeenCalled()
       } finally { app.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() }
     },
   )

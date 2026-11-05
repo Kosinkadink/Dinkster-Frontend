@@ -1659,7 +1659,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     } finally { unmount() }
   })
 
-  it.each(['accepted', 'refused', 'closed', 'backend', 'session'] as const)('holds a recorded draft before playback and Apply: %s', async (outcome) => {
+  it.each(['accepted', 'refused', 'closed', 'backend', 'session', 'stale-body', 'stale-play'] as const)('holds a recorded draft before playback and Apply: %s', async (outcome) => {
     const root = document.createElement('div')
     document.body.append(root)
     const old = { digest: `blake3:${'a'.repeat(64)}`, name: 'previous.webm', size: 3, mediaType: 'audio/webm', virtualPath: '' }
@@ -1679,12 +1679,24 @@ describe('registered interactive widget expanded-editor integration', () => {
     vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => {} }] }) } })
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:recording')
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const reset = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
     const fetchAssetBytes = vi.fn<(digest: string, signal: AbortSignal) => Promise<ArrayBuffer>>().mockResolvedValue(new ArrayBuffer(4))
+    let finish!: () => void
+    if (outcome === 'stale-body') fetchAssetBytes.mockImplementation((digest) => digest === old.digest
+      ? Promise.resolve(new ArrayBuffer(4)) : new Promise((resolve) => { finish = () => resolve(new ArrayBuffer(4)) }))
     const backend = { protocol: 'dinkster', id: 'native', connection: { uploadMediaAsset: vi.fn().mockResolvedValue(recorded), fetchAssetBytes } }
     let selectedBackend = backend
+    let current = true
+    const reader = { key: 'staged-recording', current: () => current, read: async <T,>(consume: () => Promise<T>) => {
+      if (!current) throw new Error('Stale recording')
+      const result = await consume()
+      if (!current) throw new Error('Stale recording')
+      return result
+    } }
     let accept!: () => void
     let refuse!: (error: Error) => void
-    const retainPickerAssets = vi.fn(() => new Promise<void>((resolve, reject) => { accept = resolve; refuse = reject }))
+    const retainPickerAssets = vi.fn(() => new Promise<typeof reader>((resolve, reject) => { accept = () => resolve(reader); refuse = reject }))
     const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
     const app = { backendForTab: () => selectedBackend, retainPickerAssets, dispatchTo,
       workflowAssetReader: () => ({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
@@ -1714,12 +1726,32 @@ describe('registered interactive widget expanded-editor integration', () => {
       if (outcome === 'session') ed.tab = { ...ed.tab, store: { ...ed.tab.store } as Tab['store'] }
       if (outcome === 'refused') refuse(new Error('Recording ownership refused'))
       else accept()
-      if (outcome === 'accepted') {
+      if (outcome === 'accepted' || outcome === 'stale-body' || outcome === 'stale-play') {
         await vi.waitFor(() => expect(root.textContent).toContain('recording.webm'))
-        expect(fetchAssetBytes.mock.calls.map((call) => call[0])).toEqual([old.digest, recorded.digest])
+        await vi.waitFor(() => expect(fetchAssetBytes.mock.calls.map((call) => call[0])).toEqual([old.digest, recorded.digest]))
         expect(oldRead.aborted).toBe(true)
         expect(fetchAssetBytes.mock.calls[1]![1].aborted).toBe(false)
         expect(dispatchTo).not.toHaveBeenCalled()
+        if (outcome === 'stale-body') {
+          current = false
+          finish()
+          await vi.waitFor(() => expect(root.textContent).toContain('Recorded audio preview unavailable'))
+          expect(root.querySelector('audio')).toBeNull()
+          return
+        }
+        await vi.waitFor(() => expect(root.querySelector('audio')?.getAttribute('src')).toBe('blob:recording'))
+        if (outcome === 'stale-play') {
+          const audio = root.querySelector('audio')!
+          const play = vi.spyOn(audio, 'play').mockResolvedValue()
+          current = false
+          root.querySelector<HTMLButtonElement>('[aria-label="Play audio"]')!.click()
+          expect(play).not.toHaveBeenCalled()
+          const before = reset.mock.calls.length
+          click('Remove recording')
+          expect(audio.getAttribute('src')).toBeNull()
+          expect(reset.mock.calls.length).toBe(before + 1)
+          return
+        }
         click('Use asset')
         expect(dispatchTo).toHaveBeenCalledWith(ed.tab, expect.objectContaining({ params: expect.objectContaining({ value: recorded }) }))
       } else if (outcome !== 'closed') {
@@ -1730,7 +1762,7 @@ describe('registered interactive widget expanded-editor integration', () => {
         if (outcome === 'refused') expect(root.textContent).toContain('Recording ownership refused')
       }
       if (outcome !== 'accepted') expect(dispatchTo).not.toHaveBeenCalled()
-    } finally { unmount(); vi.unstubAllGlobals() }
+    } finally { finish?.(); unmount(); vi.unstubAllGlobals() }
   })
 
   it('opens AUDIO_RECORD through the registry and refuses upload on a non-native backend', () => {

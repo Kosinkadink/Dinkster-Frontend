@@ -521,7 +521,9 @@ Cancel, Escape and close discard the draft and abort any pending upload.
 Failed uploads retain the clip for explicit retry. Existing audio can play
 through AudioTransport without changing the graph value. A stored recording's
 preview waits for its captured document's retained-asset acknowledgment before
-fetching bytes. The same reader admits native playback and stays pending until
+fetching bytes. Newly recorded drafts use their acknowledged picker reader for
+preview bytes and playback, bound to the document and connection that admitted
+the upload. The same reader admits native playback and stays pending until
 the transport resets its source on removal or close. Stale document or connection
 state refuses late bytes and new playback; closing does not release the retained
 owner. A native backend is
