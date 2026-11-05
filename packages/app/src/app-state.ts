@@ -4934,11 +4934,31 @@ export class AppState {
     const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
     if (backend?.protocol !== 'dinkster') return undefined
     signal?.throwIfAborted()
-    const bytes = asset.verification === 'unverified'
-      ? await backend.connection.fetchLocalAssetBytes(asset.localBinding as string, signal)
-      : await backend.connection.fetchAssetBytes(asset.digest as string, signal)
+    if (asset.verification === 'unverified') {
+      const bytes = await backend.connection.fetchLocalAssetBytes(asset.localBinding as string, signal)
+      signal?.throwIfAborted()
+      return bytes
+    }
+    const execution = this.store.get(ref)
+    const generation = this.assetConnectionGenerations.get(backend.connection)
+    const current = (): boolean => {
+      const latest = this.store.get(ref)
+      return !this.disposed && !signal?.aborted && execution !== undefined && latest !== undefined &&
+        latest.queuedAt === execution.queuedAt && latest.outputs === execution.outputs &&
+        latest.artifacts === execution.artifacts && latest.artifact === execution.artifact &&
+        latest.sourceDocument === execution.sourceDocument &&
+        (this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)) === backend &&
+        generation === this.assetConnectionGenerations.get(backend.connection)
+    }
+    if (!current()) throw new Error('Original model owner is unavailable')
+    const roots = executionAssetRoots({ outputs: { model: { asset } }, artifacts: [] }, () => undefined)
+    const retained = await retainExecutionAssets(backend.connection, ref, roots)
     signal?.throwIfAborted()
-    return bytes
+    const reader = new RetainedAssetReader(backend.connection, retained, current)
+    this.valueAssetReaders.set(reader, 1)
+    try {
+      return await reader.read(() => backend.connection.fetchAssetBytes(asset.digest as string, signal))
+    } finally { this.valueAssetReaders.delete(reader) }
   }
 
   /**

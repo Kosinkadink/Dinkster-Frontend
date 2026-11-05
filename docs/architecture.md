@@ -108,6 +108,14 @@ fetch bytes, and stale selection readers or changed backend/project targets
 cannot publish object URLs. This byte-read boundary does not cover image decode
 or native video/model resource lifetimes and does not release retained owners.
 
+Recorded FILE_3D original and sidecar digest reads acknowledge their newly
+revealed identities as incomplete shown-result roots on the original live or
+retired backend before fetching bytes. The captured result and observed
+connection lifetime guard admission and pending bodies; replacement, disconnect,
+disposal or caller cancellation refuses late bytes. A held body stays tracked
+until settlement. Granted local bindings keep their separate read path. This
+does not cover model decode, viewer handles, complete dependencies or retirement.
+
 Live and mirrored structured outputs and preview records also await incomplete
 shown-result ownership, including records with no known digest. Later events
 for that execution wait for admission so completion cannot overtake the held

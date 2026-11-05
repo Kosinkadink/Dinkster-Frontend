@@ -866,6 +866,57 @@ describe('compile and registry routing', () => {
 })
 
 describe('execution output routing', () => {
+  it.each(['live', 'removed', 'refused', 'replaced-admission', 'replaced-body', 'disconnected', 'disposed', 'aborted'] as const)(
+    'admits original-model bytes before reading through the %s execution owner', async (mode) => {
+      const backend = addOffline('http://model-owner:8188')
+      const ref = foreignRun(String(backend.id), 'admitted-model-read')
+      const digest = `blake3:${'d'.repeat(64)}`
+      let admit!: () => void
+      const admission = new Promise<void>((resolve) => { admit = resolve })
+      const retain = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+        await admission
+        if (mode === 'refused') throw new Error('Original model ownership refused')
+        return { ...owner, ...declaration, revision: declaration.revision + 1 }
+      })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      const release = vi.spyOn(backend.connection, 'releaseRetainedAssets')
+      let finish!: () => void
+      const body = new Promise<ArrayBuffer>((resolve) => { finish = () => resolve(new Uint8Array([1, 7, 3]).buffer) })
+      const fetch = vi.spyOn(backend.connection, 'fetchAssetBytes').mockImplementation(async () => body)
+      if (mode === 'removed') app.removeBackend(backend.id)
+      const abort = new AbortController()
+      let settled = false
+      const pending = app.readFile3dAssetForExecution(ref, { digest }, abort.signal)
+        .then((bytes) => { settled = true; return bytes }, () => { settled = true; return undefined })
+      try {
+        await vi.waitFor(() => expect(retain).toHaveBeenCalledOnce())
+        expect(retain.mock.calls[0]).toEqual([
+          expect.objectContaining({ scope: 'local', ownerKind: 'shown-result' }),
+          { revision: 0, complete: false, digests: [digest] },
+        ])
+        expect(fetch).not.toHaveBeenCalled()
+        expect(settled).toBe(false)
+        if (mode === 'replaced-admission') app.store.hydrateOutputs(ref, { model: { replacement: 'new-result' } })
+        admit()
+        if (mode === 'refused' || mode === 'replaced-admission') {
+          expect(await pending).toBeUndefined()
+          expect(fetch).not.toHaveBeenCalled()
+          return
+        }
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+        if (mode === 'replaced-body') app.store.hydrateOutputs(ref, { model: { replacement: 'new-result' } })
+        if (mode === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+        if (mode === 'disposed') app.dispose()
+        if (mode === 'aborted') abort.abort()
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        expect(settled).toBe(false)
+        finish()
+        expect(await pending).toEqual(mode === 'live' || mode === 'removed' ? new Uint8Array([1, 7, 3]).buffer : undefined)
+        expect(release).not.toHaveBeenCalled()
+      } finally { admit(); finish(); await pending }
+    },
+  )
+
   it.each((['live', 'removed'] as const).flatMap((owner) =>
     [false, true].map((local) => ({ owner, local }))))(
     'cancels pending original-model response bodies through the $owner owner, local=$local', async ({ owner, local }) => {
