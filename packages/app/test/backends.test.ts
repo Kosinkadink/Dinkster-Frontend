@@ -904,7 +904,7 @@ describe('execution output routing', () => {
     },
   )
 
-  it.each((['live', 'removed', 'replaced', 'refused', 'disposed', 'aborted'] as const).flatMap((mode) =>
+  it.each((['live', 'removed', 'replaced', 'refused', 'disposed', 'aborted', 'transitioned'] as const).flatMap((mode) =>
     [false, true].map((opaque) => ({ mode, opaque }))))(
     'admits newly read descriptor roots before publication through the $mode owner, opaque=$opaque', async ({ mode, opaque }) => {
       const backend = addOffline('http://value-owner:8188')
@@ -937,10 +937,11 @@ describe('execution output routing', () => {
       }
       if (mode === 'disposed') app.dispose()
       if (mode === 'aborted') controller.abort()
+      if (mode === 'transitioned') { backend.connection.connect(); backend.connection.disconnect() }
       accept()
       expect(await pending).toMatchObject(mode === 'live' || mode === 'removed'
         ? { available: true, descriptor } : { available: false })
-      if (mode === 'refused') {
+      if (mode === 'refused' || mode === 'transitioned') {
         retain.mockImplementation(async (owner, declaration) => ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
         expect(await app.valuesForExecution(ref)!.peek({ jobId: ref.prompt, nodeId: 'image', outputId: 'result' }))
           .toMatchObject({ available: true, descriptor })
@@ -948,7 +949,7 @@ describe('execution output routing', () => {
     },
   )
 
-  it.each(['live', 'removed', 'replaced', 'disposed'] as const)(
+  it.each(['live', 'removed', 'replaced', 'disposed', 'transitioned'] as const)(
     'binds lazy rendition and cache reads to the admitted descriptor and captured %s owner', async (mode) => {
       const backend = addOffline('http://lazy-value-owner:8188')
       const ref = foreignRun(String(backend.id), 'lazy-read')
@@ -987,14 +988,64 @@ describe('execution output routing', () => {
       if (mode === 'removed' || mode === 'replaced') app.removeBackend(backend.id)
       if (mode === 'replaced') addOffline('http://lazy-value-owner:8188')
       if (mode === 'disposed') app.dispose()
+      if (mode === 'transitioned') { backend.connection.connect(); backend.connection.disconnect() }
       expect(await values.rendition(query, 'window', { descriptor: second.descriptor })).toMatchObject(
         mode === 'live' || mode === 'removed' ? { available: true } : { available: false, reason: 'ownership-unconfirmed' })
       expect(await values.rendition(query, 'window', { descriptor: first.descriptor, frame: 3 })).toMatchObject(
         mode === 'live' || mode === 'removed' ? { available: true } : { available: false, reason: 'ownership-unconfirmed' })
       expect(requests).toEqual(['descriptor', 'descriptor', 'window-1', 'window-2',
         ...(mode === 'live' || mode === 'removed' ? ['window-1'] : [])])
+      if (mode === 'transitioned') {
+        const fresh = await values.peek(query)
+        if (!fresh.available) throw new Error('Expected replacement generation admission')
+        const live = await values.rendition(query, 'window', { descriptor: fresh.descriptor, frame: 7 })
+        if (!live.available) throw new Error('Expected replacement generation rendition')
+        expect([...new Uint8Array(live.bytes)]).toEqual([29])
+        expect(requests).toEqual(['descriptor', 'descriptor', 'window-1', 'window-2', 'descriptor', 'window-2'])
+      }
     },
   )
+
+  it('refuses late rendition bodies after a connection transition while a newly admitted reader stays live', async () => {
+    const backend = addOffline('http://pending-value-owner:8188')
+    const ref = foreignRun(String(backend.id), 'pending-value-read')
+    const query = { jobId: ref.prompt, nodeId: 'audio', outputId: 'result' }
+    const bodies: ReadableStreamDefaultController<Uint8Array>[] = []
+    const release = vi.spyOn(backend.connection, 'releaseRetainedAssets')
+    let version = 1
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = new URL(String(input))
+      const selector = url.searchParams.get('rendition')
+      if (selector === null) return Response.json({ available: true,
+        descriptor: { typeId: 'AUDIO', fingerprint: `pending-${version}`, meta: {} },
+        renditions: [{ kind: 'window', mime: 'audio/wav', cacheKey: `window-${version}` }] })
+      if (selector === 'window-2') return new Response(new Uint8Array([17, 31]))
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { bodies.push(controller) } }))
+    })
+    const values = app.valuesForExecution(ref)!
+    const old = await values.peek(query)
+    if (!old.available) throw new Error('Expected original descriptor')
+    const reads = [3, 5].map((frame) => values.rendition(query, 'window', { descriptor: old.descriptor, frame }))
+    await vi.waitFor(() => expect(bodies).toHaveLength(2))
+    backend.connection.connect()
+    backend.connection.disconnect()
+    version = 2
+    const fresh = await values.peek(query)
+    if (!fresh.available) throw new Error('Expected replacement descriptor')
+    const live = await values.rendition(query, 'window', { descriptor: fresh.descriptor })
+    if (!live.available) throw new Error('Expected replacement bytes')
+    expect([...new Uint8Array(live.bytes)]).toEqual([17, 31])
+    bodies[0]!.enqueue(new Uint8Array([13]))
+    bodies[0]!.close()
+    expect(await reads[0]).toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
+    bodies[1]!.enqueue(new Uint8Array([29]))
+    bodies[1]!.close()
+    expect(await reads[1]).toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
+    const cached = await values.rendition(query, 'window', { descriptor: fresh.descriptor })
+    if (!cached.available) throw new Error('Expected replacement cached bytes')
+    expect([...new Uint8Array(cached.bytes)]).toEqual([17, 31])
+    expect(release).not.toHaveBeenCalled()
+  })
 
   it('assetUrlForExecution uses the execution backend, not the default', () => {
     const b = addOffline('http://other:8188')

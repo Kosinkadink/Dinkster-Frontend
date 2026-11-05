@@ -63,6 +63,11 @@ including lazy audio/video and image-batch reads. Another client's descriptor,
 a copied descriptor, a mismatched query or missing admission refuses before
 network or cache access. Later peeks cannot substitute their selectors or reader
 for an earlier descriptor. Managed cache hits use the same reader boundary.
+Readers capture the observed connection lifetime at ownership admission. A later
+connection transition refuses pending admission, lazy/cache reads and late byte
+publication from that lifetime; a new peek must obtain acknowledged ownership
+again. This does not identify a server restart before an observed transition or
+settle independent native-media and viewer consumers.
 Application disposal closes admission for active value readers; their pending
 bodies remain tracked until settlement, and late publication is refused.
 This boundary does not settle model viewers, shared poster queues or durable
