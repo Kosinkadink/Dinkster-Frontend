@@ -116,6 +116,12 @@ disposal or caller cancellation refuses late bytes. A held body stays tracked
 until settlement. Granted local bindings keep their separate read path. This
 does not cover model decode, viewer handles, complete dependencies or retirement.
 
+Load3d producer manifests and camera/model JSON fetch and decode inside the
+captured native value reader. Refused or expired admission cannot publish
+metadata; closing, editing or replacing the execution refuses stale work before
+fetch and publication. Original model resources and viewer handles have separate
+lifetimes and are not covered by this metadata boundary.
+
 Live and mirrored structured outputs and preview records also await incomplete
 shown-result ownership, including records with no known digest. Later events
 for that execution wait for admission so completion cannot overtake the held

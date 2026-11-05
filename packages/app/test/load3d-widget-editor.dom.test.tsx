@@ -266,7 +266,7 @@ it.each(['valid', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-obj',
   dispose()
 })
 
-it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no-rendition', 'changed-result', 'close', 'edited', 'divergent', 'width-overflow', 'rendition-mismatch', 'asset-producer', 'malformed-asset', 'base-file', 'splat-file', 'cloud-file'] as const)('resolves exact producer metadata or abstains for %s', async (variant) => {
+it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no-rendition', 'changed-result', 'close', 'edited', 'divergent', 'width-overflow', 'rendition-mismatch', 'asset-producer', 'malformed-asset', 'base-file', 'splat-file', 'cloud-file', 'admission-held', 'admission-refused', 'admission-close', 'admission-edited', 'admission-result', 'reader-expired'] as const)('resolves exact producer metadata or abstains for %s', async (variant) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:producer')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const schema = parseDinksterSchema('Preview3DProducerFixture', { interface: [
@@ -307,9 +307,19 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
   let release: (() => void) | undefined
   const paused = new Promise<void>((resolve) => { release = resolve })
   let started = false
+  let admissionStarted = false
+  let renditionCount = 0
   const reads: string[] = []
   const connection = {
     values: () => ({
+      read: async <T,>(_query: ValueQuery, _descriptor: unknown, consume: () => Promise<T>): Promise<T> => {
+        admissionStarted = true
+        if (variant === 'admission-refused') throw new Error('The selected model file is unavailable.')
+        if (variant.startsWith('admission-')) await paused
+        const result = await consume()
+        if (variant === 'reader-expired') throw new Error('The selected model file is unavailable.')
+        return result
+      },
       peek: async (query: ValueQuery) => {
         started = true
         if (variant === 'close' || variant === 'edited') await paused
@@ -323,6 +333,7 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
           renditions: variant === 'no-rendition' ? [] : [{ kind: query.outputId === 'model_3d' ? 'manifest' : 'json', mime: 'application/json' }] }
       },
       rendition: async (query: ValueQuery) => {
+        renditionCount++
         if (nested && query.nodeId !== 'current') throw new Error('wrong instance')
         if (variant === 'changed-result') execution = { ...execution, key: 'owner:new-job' }
         const value = query.outputId === 'model_3d' ? { format: variant === 'splat-file' || variant === 'cloud-file' ? 'ply' : 'gltf', source: primary, resources: {} }
@@ -342,18 +353,31 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
     target: { kind: 'input', nodeId: 'n1', valueKey: 'viewport_state' }, label: 'Viewport', spec: inputsOf(schema)[1]!.widget,
     declaredType: inputsOf(schema)[1]!.type, multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  if (variant.startsWith('admission-') && variant !== 'admission-refused') {
+    await vi.waitFor(() => expect(admissionStarted).toBe(true))
+    expect(renditionCount).toBe(0)
+    expect(fixtures.loads).toEqual([])
+    expect(Array.from(document.querySelectorAll('button')).find((button) => button.textContent === 'Apply')!.disabled).toBe(true)
+    if (variant === 'admission-close') dispose()
+    else if (variant === 'admission-edited') store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'value', value: 4 } })
+    else if (variant === 'admission-result') execution = { ...execution, key: 'owner:new-job' }
+    release!()
+  }
   if (variant === 'close' || variant === 'edited') {
     await vi.waitFor(() => expect(started).toBe(true))
     if (variant === 'close') dispose()
     else store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'value', value: 4 } })
     release!()
   }
-  if (!['current', 'nested', 'asset-producer', 'base-file', 'splat-file', 'cloud-file'].includes(variant)) {
-    if (variant !== 'close') await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
+  if (!['current', 'nested', 'asset-producer', 'base-file', 'splat-file', 'cloud-file', 'admission-held'].includes(variant)) {
+    if (variant !== 'close' && variant !== 'admission-close') await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
     else await paused
     expect(reads).toEqual([])
+    expect(fixtures.loads).toEqual([])
+    if (variant.startsWith('admission-')) expect(renditionCount).toBe(0)
+    if (variant === 'reader-expired') expect(renditionCount).toBe(1)
     expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual(initial)
-    if (variant !== 'close') dispose()
+    if (variant !== 'close' && variant !== 'admission-close') dispose()
     return
   }
   await vi.waitFor(() => expect(document.querySelector<HTMLInputElement>('#load3d-fov')?.value).toBe('79'))

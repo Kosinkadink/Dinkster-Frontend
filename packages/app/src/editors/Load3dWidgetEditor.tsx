@@ -146,10 +146,16 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
               'FILE_3D_OBJ', 'FILE_3D_STL', 'FILE_3D_USDZ', 'FILE_3D_PLY', 'FILE_3D_SPLAT', 'FILE_3D_SPZ',
               'FILE_3D_KSPLAT', 'FILE_3D_SPLAT_ANY', 'FILE_3D_POINT_CLOUD_ANY'].includes(first.peek.descriptor.typeId)
               : first.peek.descriptor.typeId !== (inputId === 'camera_info' ? 'LOAD3D_CAMERA' : 'LOAD3D_MODEL_INFO'))) throw unavailable()
-            const result = await values.rendition(first.query, kind, { signal: abort.signal, descriptor: first.peek.descriptor,
-              ...(advertised.version === undefined ? {} : { rendererVersion: advertised.version }) })
-            if (!result.available || result.mime !== 'application/json' || result.fingerprint !== first.peek.descriptor.fingerprint) throw unavailable()
-            resolved.set(inputId, JSON.parse(new TextDecoder().decode(result.bytes)) as Json)
+            const value = await values.read(first.query, first.peek.descriptor, async () => {
+              if (!live || !sourcesCurrent()) throw unavailable()
+              const result = await values.rendition(first.query, kind, { signal: abort.signal, descriptor: first.peek.descriptor,
+                ...(advertised.version === undefined ? {} : { rendererVersion: advertised.version }) })
+              if (!live || !sourcesCurrent() || !result.available || result.mime !== 'application/json'
+                || result.fingerprint !== first.peek.descriptor.fingerprint) throw unavailable()
+              return JSON.parse(new TextDecoder().decode(result.bytes)) as Json
+            })
+            if (!live || !sourcesCurrent()) throw unavailable()
+            resolved.set(inputId, value)
           }
           if (!live || !sourcesCurrent()) throw unavailable()
         }
