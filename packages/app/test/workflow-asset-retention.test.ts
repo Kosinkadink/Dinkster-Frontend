@@ -267,6 +267,121 @@ describe('retained app dispatch', () => {
     vi.unstubAllGlobals()
   })
 
+  it.each(['artifact', 'associated', 'output', 'model3d'] as const)(
+    'owns recorded %s fetch, decode and replacement independently of the active tab', async (route) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([schema])
+      const ownerApp = app
+      const ref = { connection: app.connection.id, prompt: asPromptId('recorded-reader') }
+      app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
+      const original = { ...asset('a'), nodeId: 'n1', mediaType: route === 'model3d' ? 'model/gltf-binary' : 'image/png' }
+      if (route === 'output') app.store.hydrateOutputs(ref, { n1: { image: { typeId: 'ASSET', fingerprint: original.digest, meta: original } } })
+      else app.store.hydrateArtifacts(ref, [{ ...original, ...(route === 'associated' ? {
+        mediaType: 'image/x-exr', preview: { ...asset('b'), mediaType: 'image/png' },
+      } : {}) }])
+      const state = app.store.get(ref)!
+      const requested = deferred<{ owner: RetainedAssetOwner; declaration: RetainedAssetDeclaration }>()
+      const ack = deferred<RetainedAssets>()
+      vi.mocked(app.connection.retainAssets).mockImplementationOnce(async (owner, declaration) => {
+        requested.resolve({ owner, declaration })
+        return ack.promise
+      })
+      const reads: Array<ReturnType<typeof deferred<void>>> = []
+      const decode = async () => { const read = deferred<void>(); reads.push(read); await read.promise }
+      class Image {
+        src = ''
+        naturalWidth = 13
+        naturalHeight = 7
+        decode = decode
+      }
+      vi.stubGlobal('Image', Image)
+      const urls: string[] = []
+      const loader = createPreviewLoader({
+        assetUrlForInput: () => '', assetUrlForExecution: (_ref, digest) => `/assets/${digest}`,
+        executionAssetReader: (execution, digests) => ownerApp.executionAssetReader(execution, digests),
+        fetchRecordedOutput: async (url) => { urls.push(url); return new Response(new Uint8Array([3])) },
+        renderModel3dPoster: async () => { await decode(); return { image: {} as CanvasImageSource, width: 13, height: 7 } },
+        onDecoded: () => {},
+      })
+      try {
+        expect(app.executionAssetReader(state, [asset('f').digest])).toBeUndefined()
+        const source = loader.sourceFor(state, ['n1'], false)!
+        const pending = source.load()
+        const { owner, declaration } = await requested.promise
+        expect(declaration.digests).toEqual(route === 'associated' ? [asset('a').digest, asset('b').digest] : [asset('a').digest])
+        expect(urls).toEqual([])
+        expect(reads).toHaveLength(0)
+        ack.resolve({ ...owner, ...declaration, revision: 1 })
+        await vi.waitFor(() => expect(reads).toHaveLength(1))
+        expect(urls).toEqual([`/assets/${route === 'associated' ? asset('b').digest : asset('a').digest}`])
+        // Editing an unrelated workflow does not retire a result's independent reader.
+        expect(app.openDocument(session().doc, 'Unrelated')).toEqual([])
+        expect((await app.dispatchTo(app.activeTab()!, replace('c'))).ok).toBe(true)
+        expect(source.current!()).toBe(true)
+        app.store.hydrateArtifacts(ref, [...state.artifacts])
+        reads[0]!.resolve()
+        await expect(pending).rejects.toThrow('changed')
+        expect(loader.resolve(source)).toBeUndefined()
+        await expect(source.load()).rejects.toThrow('no longer current')
+        const replacement = loader.sourceFor(app.store.get(ref)!, ['n1'], false)!
+        expect(replacement.key).not.toBe(source.key)
+        const live = replacement.load()
+        await vi.waitFor(() => expect(reads).toHaveLength(2))
+        reads[1]!.resolve()
+        const result = await live
+        expect(result).toMatchObject({ width: 13, height: 7 })
+        if (route === 'associated') {
+          expect([...new Uint8Array(await (await result.download!.load!(new AbortController().signal)).arrayBuffer())]).toEqual([3])
+          expect(urls.at(-1)).toBe(`/assets/${asset('a').digest}`)
+        }
+        loader.resolve(replacement)
+        await vi.waitFor(() => expect(reads).toHaveLength(3))
+        reads[2]!.resolve()
+        await vi.waitFor(() => expect(loader.resolve(replacement)).toMatchObject({ width: 13, height: 7 }))
+        app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
+        expect(loader.sourceFor(app.store.get(ref)!, ['n1'], false)!.key).toBe(replacement.key)
+        app.connection.connect(); app.connection.disconnect()
+        expect(replacement.current!()).toBe(false)
+        expect(loader.resolve(replacement)).toBeUndefined()
+        await expect(replacement.load()).rejects.toThrow('no longer current')
+        if (route === 'associated') await expect(result.download!.load!(new AbortController().signal)).rejects.toThrow('no longer current')
+        expect(reads).toHaveLength(3)
+      } finally { reads.forEach((read) => read.resolve()); loader.dispose() }
+    },
+  )
+
+  it.each(['refused', 'replaced', 'disconnected', 'disposed'] as const)(
+    'refuses recorded work before acknowledgment when %s and permits a fresh owner', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([schema])
+      const ref = { connection: app.connection.id, prompt: asPromptId('pending-recorded-reader') }
+      app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
+      app.store.hydrateArtifacts(ref, [{ ...asset('a'), nodeId: 'n1', mediaType: 'image/png' }])
+      const state = app.store.get(ref)!
+      const requested = deferred<RetainedAssets>()
+      const ack = deferred<RetainedAssets>()
+      vi.mocked(app.connection.retainAssets).mockImplementationOnce(async (owner, declaration) => {
+        requested.resolve({ ...owner, ...declaration, revision: 1 })
+        return ack.promise
+      })
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      const consume = vi.fn(async () => 17)
+      const reader = app.executionAssetReader(state, [asset('a').digest])!
+      const pending = reader.read(consume)
+      const receipt = await requested.promise
+      if (scenario === 'replaced') app.store.hydrateArtifacts(ref, [...state.artifacts])
+      if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
+      if (scenario === 'disposed') app.dispose()
+      ack.resolve({ ...receipt, revision: scenario === 'refused' ? 2 : 1 })
+      await expect(pending).rejects.toThrow(scenario === 'refused' ? 'acknowledgment differs' : 'changed')
+      expect(consume).not.toHaveBeenCalled()
+      if (scenario !== 'disposed') {
+        const replacement = app.executionAssetReader(app.store.get(ref)!, [asset('a').digest])!
+        expect(await replacement.read(consume)).toBe(17)
+      }
+    },
+  )
+
   it.each((['image', 'model3d'] as const).flatMap((kind) =>
     (['live', 'edited', 'closed', 'disconnected', 'disposed', 'refused'] as const).map((scenario) => ({ kind, scenario }))))(
     'binds input-$kind decode and cache reads to acknowledged document ownership: $scenario', async ({ kind, scenario }) => {

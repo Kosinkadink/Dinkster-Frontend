@@ -521,6 +521,7 @@ export function createPreviewLoader(deps: {
   /** Current editable tab's native asset URL; undefined on non-native tabs. */
   assetUrlForInput: (digest: string) => string | undefined
   inputAssetReader?: (digest: string) => PreviewSource['assetReader']
+  executionAssetReader?: (execution: ExecutionState, digests: readonly string[]) => PreviewSource['assetReader']
   readFile3dAsset?: (execution: ExecutionState['ref'], asset: Readonly<Record<string, Json>>, signal?: AbortSignal) => Promise<ArrayBuffer | undefined>
   /** A finished async decode: re-assemble the preview map. */
   onDecoded: () => void
@@ -831,6 +832,35 @@ export function createPreviewLoader(deps: {
           : artifact !== undefined && isModel3dMime(artifact.mediaType)
             ? 'model3d'
             : undefined
+      const ownedSource = (source: PreviewSource, digests: readonly string[]): PreviewSource | undefined => {
+        if (deps.executionAssetReader === undefined) return source
+        const owner = deps.executionAssetReader(exec, digests)
+        if (owner === undefined) return undefined
+        return {
+          ...source,
+          key: `${source.key}:${owner.key}`,
+          current: owner.current,
+          assetReader: owner,
+          load: async (signal) => {
+            let preview: NodePreview | undefined
+            try {
+              return await owner.read(async () => {
+                signal?.throwIfAborted()
+                preview = await source.load(signal)
+                if (signal?.aborted || !owner.current()) throw new Error('Execution asset reader changed during decode')
+                const download = preview.download
+                const load = download?.load
+                return load === undefined ? preview : { ...preview, download: { ...download!,
+                  load: (downloadSignal: AbortSignal) => owner.read(() => load(downloadSignal)),
+                } }
+              })
+            } catch (error) {
+              if (preview !== undefined) release(preview)
+              throw error
+            }
+          },
+        }
+      }
       let artifactSource: PreviewSource | undefined
       const audioHasValue = artifactKind === 'audio' && artifact !== undefined &&
         Object.values({ ...exec.outputs[artifact.nodeId], ...exec.nodes?.[artifact.nodeId]?.outputs }).some((value) =>
@@ -852,7 +882,7 @@ export function createPreviewLoader(deps: {
             return new Blob([await response.arrayBuffer()], { type: artifact.mediaType })
           },
         }
-        artifactSource = {
+        artifactSource = ownedSource({
           key: recordedMediaKey(artifact.digest, artifact.mediaType, artifactUrl, downloadName) +
             (associatedPreview === undefined ? '' : `:preview:${associatedPreview.digest}:${associatedPreview.mediaType}:${previewUrl}`),
           failureKey: `asset-url:${previewUrl ?? artifactUrl}`,
@@ -873,21 +903,21 @@ export function createPreviewLoader(deps: {
             if (artifactKind === 'audio') return { kind: 'audio', mime: artifact.mediaType, src: '', download }
             return recordedOutputPreview(artifactUrl, downloadName, artifact.mediaType, artifactKind, signal)
           },
-        }
+        }, [artifact.digest, ...(associatedPreview === undefined ? [] : [associatedPreview.digest])])
       }
 
       if (running && frame) return liveFrameSource(frame)
       if (artifactSource && !imageMisses.has(artifactSource.failureKey ?? artifactSource.key)) return artifactSource
       if (image) {
         const i = image
-        return {
+        return ownedSource({
           key: i.key,
           failureKey: `image-url:${i.url}`,
           runtimeId: i.runtimeId,
           output: i.output,
           outputId: i.outputId,
           load: (signal) => recordedOutputPreview(i.url, i.name, i.mediaType, 'image', signal),
-        }
+        }, [selected!.digest as string])
       }
       if (artifactSource) return artifactSource
       if (frame) return liveFrameSource(frame)

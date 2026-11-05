@@ -51,6 +51,13 @@ longer accepts source loads or live-frame decodes, including stale callers that
 still hold its sources. This closes loader admission but does not settle already
 admitted shared renderers or release retained owners.
 
+Recorded artifacts, their associated images and recorded image outputs wait for
+their execution's retained-asset acknowledgment before fetching or decoding.
+Canvas and App View keep those readers separate from the editable tab. Changed
+output inventories or observed connection transitions reject stale decoded cache
+entries and late publication. Model orbit viewers borrow the same captured
+reader independently; closing a viewer does not release retained ownership.
+
 ## Video inspection
 
 Canvas and App View use the same video transport. It exposes play/pause,

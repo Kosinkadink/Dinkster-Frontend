@@ -348,6 +348,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   createEffect(() => { activeTabId(); setOutputPages(new Map()) })
   const previewLoader = createPreviewLoader({
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
+    executionAssetReader: (execution, digests) => props.app.executionAssetReader(execution, digests),
     assetUrlForInput: (digest) => {
       const tab = activeTab()
       if (tab === undefined) return undefined

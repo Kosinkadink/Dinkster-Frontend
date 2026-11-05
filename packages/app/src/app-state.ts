@@ -4882,6 +4882,53 @@ export class AppState {
     return reader
   }
 
+  /** Recorded file consumers borrow the captured execution, never the active tab. */
+  executionAssetReader(state: ExecutionState, digests: readonly string[]): ReturnType<AppState['workflowAssetReader']> {
+    const backend = this.backendFor(state.ref.connection) ?? this.retiredBackends.get(state.ref.connection)
+    if (backend?.protocol !== 'dinkster' || this.store.get(state.ref) !== state) return undefined
+    const generation = this.assetConnectionGenerations.get(backend.connection)
+    const held = this.executionAssetReaders.get(state.outputs)
+    const sameResult = (candidate: ExecutionState | undefined): boolean => candidate !== undefined &&
+      candidate.key === state.key && candidate.queuedAt === state.queuedAt && candidate.jobRef === state.jobRef &&
+      candidate.sourceDocument === state.sourceDocument && candidate.artifact === state.artifact &&
+      candidate.outputs === state.outputs && candidate.artifacts === state.artifacts
+    if (held !== undefined && sameResult(held.state) && held.backend === backend && held.generation === generation) return digests.every((digest) => held.digests.has(digest)) ? held.reader : undefined
+    const roots = executionAssetRoots(state, this.registryForExecution(state.ref)?.resolve ?? (() => undefined))
+    const known = new Set(roots.digests)
+    if (!digests.every((digest) => known.has(digest))) return undefined
+    const current = (): boolean => {
+      return !this.disposed && sameResult(this.store.get(state.ref)) &&
+        (this.backendFor(state.ref.connection) ?? this.retiredBackends.get(state.ref.connection)) === backend &&
+        generation === this.assetConnectionGenerations.get(backend.connection)
+    }
+    let admission: Promise<RetainedAssetReader> | undefined
+    const reader = {
+      key: `execution:${++this.workflowAssetReaderSequence}`,
+      current,
+      read: async <T>(consume: () => Promise<T>): Promise<T> => {
+        if (!current()) throw new Error('Execution asset reader is no longer current')
+        admission ??= retainExecutionAssets(backend.connection, state.ref, roots).then((retained) => {
+          if (!current()) throw new Error('Execution changed during asset admission')
+          return new RetainedAssetReader(backend.connection, retained, current)
+        }).catch((error: unknown) => {
+          admission = undefined
+          throw Object.assign(new Error(error instanceof Error ? error.message : 'Execution ownership unconfirmed'), { transient: true })
+        })
+        const owned = await admission
+        this.valueAssetReaders.set(owned, (this.valueAssetReaders.get(owned) ?? 0) + 1)
+        try {
+          return await owned.read(consume)
+        } finally {
+          const remaining = this.valueAssetReaders.get(owned)! - 1
+          if (remaining === 0) this.valueAssetReaders.delete(owned)
+          else this.valueAssetReaders.set(owned, remaining)
+        }
+      },
+    }
+    this.executionAssetReaders.set(state.outputs, { state, backend, generation, digests: known, reader })
+    return reader
+  }
+
   /** Granted original model bytes stay bound to the execution's native owner. */
   async readFile3dAssetForExecution(ref: ExecutionRef, asset: Readonly<Record<string, Json>>, signal?: AbortSignal): Promise<ArrayBuffer | undefined> {
     const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
@@ -7149,6 +7196,13 @@ export class AppState {
     readonly document: WorkflowDocument
     readonly revision: number
     readonly registry: SchemaRegistry | undefined
+    readonly backend: Backend
+    readonly generation: number | undefined
+    readonly digests: ReadonlySet<string>
+    readonly reader: NonNullable<ReturnType<AppState['workflowAssetReader']>>
+  }>()
+  private readonly executionAssetReaders = new WeakMap<ExecutionState['outputs'], {
+    readonly state: ExecutionState
     readonly backend: Backend
     readonly generation: number | undefined
     readonly digests: ReadonlySet<string>

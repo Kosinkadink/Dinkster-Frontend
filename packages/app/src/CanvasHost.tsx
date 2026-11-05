@@ -2233,6 +2233,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [previewTick, setPreviewTick] = createSolidSignal(0)
   const previewLoader = createPreviewLoader({
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
+    executionAssetReader: (execution, digests) => props.app.executionAssetReader(execution, digests),
     readFile3dAsset: (ref, asset, signal) => props.app.readFile3dAssetForExecution(ref, asset, signal),
     assetUrlForInput: (digest) => {
       const tab = activeTab()
