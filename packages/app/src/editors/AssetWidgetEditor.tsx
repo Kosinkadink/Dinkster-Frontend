@@ -33,6 +33,7 @@ import { activeProjectId } from '../projects.js'
 import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
 import { AssetFileLocation } from '../AssetFileLocation.js'
 import { resolveDroppedAsset } from '../desktop-bridge.js'
+import type { PreviewSource } from '../node-previews.js'
 
 interface AssetRef extends JsonObject {
   readonly digest: string
@@ -219,6 +220,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const [assetSelection, setAssetSelection] = createSolidSignal<readonly AssetRef[]>(
     isAssetRefArray(ed.initial) ? ed.initial : isAssetRef(ed.initial) ? [ed.initial] : [],
   )
+  let selectionReader: PreviewSource['assetReader']
   const [pendingSelections, setPendingSelections] = createSolidSignal(0)
   let selectionQueue = Promise.resolve()
   const stageAssetSelection = (
@@ -228,12 +230,16 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     setPendingSelections((count) => count + 1)
     const operation = selectionQueue.then(async () => {
       if (!live || props.app.backendForTab(ed.tab) !== uploadBackend || activeProjectId() !== project) return false
+      if (selectionReader?.current() === false) throw new Error('Picker selection changed; reopen the asset picker')
       const current = assetSelection()
       const candidate = change(current)
+      let reader = selectionReader
       if (candidate.some((ref) => !current.some((held) => held.digest === ref.digest))) {
-        await props.app.retainPickerAssets(ed.tab, uploadBackend, candidate)
+        reader = await props.app.retainPickerAssets(ed.tab, uploadBackend, candidate)
       }
       if (!live || props.app.backendForTab(ed.tab) !== uploadBackend || activeProjectId() !== project) return false
+      if (reader?.current() === false) throw new Error('Picker selection changed; reopen the asset picker')
+      selectionReader = reader
       setAssetSelection(candidate)
       setAssetError(undefined)
       published()
@@ -1057,6 +1063,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 data-testid="asset-apply"
                 disabled={assetUploading() || pendingSelections() > 0 || (!assetMulti && selectedUncommittableModel() !== undefined)}
                 onClick={() => {
+                  if (selectionReader?.current() === false) {
+                    setAssetError('Picker selection changed; reopen the asset picker')
+                    return
+                  }
                   const selection = assetSelection()
                   if (!assetMulti) {
                     commitEditorValue(selection[0] ?? null)

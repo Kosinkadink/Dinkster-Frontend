@@ -5,7 +5,7 @@ import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssetDtoV1WireContract, CandidateV1 } from '@dinkster/client'
 import { DinksterConnection } from '@dinkster/client'
-import { asConnectionId, createSignal as createCoreSignal, registerCatalog, setLocale } from '@dinkster/core'
+import { asConnectionId, createSignal as createCoreSignal, registerCatalog, setLocale, type NodeSchema } from '@dinkster/core'
 import type { AppState, Tab } from '../src/app-state.js'
 import { ModalSurface } from '../src/ModalSurface.js'
 import { WidgetEditor, type WidgetEditorState } from '../src/WidgetEditor.js'
@@ -514,6 +514,63 @@ describe('ASSET widget modal integration', () => {
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
   })
+
+  it.each(['live', 'edited', 'closed', 'disconnected', 'registry', 'disposed'] as const)(
+    'applies admitted picks only to their captured document: %s', async (scenario) => {
+      const schema: NodeSchema = { type: 'PickerFixture', displayName: 'Picker', category: 'test', source: 'v3', isOutputNode: false,
+        items: [{ kind: 'input', id: 'asset', optional: false, type: { kind: 'concrete', name: 'ASSET' },
+          widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] } } }],
+      }
+      const doc = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [null] }], links: [] }, () => schema).document!
+      const app = createWorkflowApp([schema])
+      expect(app.openDocument(doc, 'Picker')).toEqual([])
+      const tab = app.activeTab()!
+      const ref = { digest: `blake3:${'c'.repeat(64)}`, name: 'chosen.safetensors', size: 12,
+        mediaType: 'application/x-safetensors', virtualPath: 'models/chosen.safetensors' }
+      vi.spyOn(app.connection, 'listMounts').mockResolvedValue([{ id: 'models', mode: 'read', state: 'ready', kind: 'model/checkpoint' }])
+      vi.spyOn(app.connection, 'listMountEntries').mockResolvedValue({ entries: [{ ...ref, kind: 'model/checkpoint' }] })
+      vi.spyOn(app.connection, 'fetchAssetLocations').mockResolvedValue([])
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      const release = vi.spyOn(app.connection, 'releaseRetainedAssets')
+      const dispatch = vi.spyOn(app, 'dispatchTo')
+      const root = document.createElement('div'); document.body.append(root)
+      const unmount = render(() => <WidgetEditor app={app} ed={{ tab, graphId: 'g0',
+        target: { kind: 'input', nodeId: 'n1', valueKey: 'asset' }, label: 'Model',
+        spec: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] } },
+        declaredType: { kind: 'concrete', name: 'ASSET' }, initial: null,
+        multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 },
+      }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+      try {
+        await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1))
+        root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+        await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(ref.name))
+        if (scenario === 'edited') expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+          graphId: 'g0', nodeId: 'n1', inputId: 'asset', value: null,
+        } })).ok).toBe(true)
+        if (scenario === 'closed') app.closeTab(tab.id)
+        if (scenario === 'disconnected') {
+          vi.stubGlobal('WebSocket', class { close() {} })
+          app.connection.connect(); app.connection.disconnect()
+        }
+        if (scenario === 'registry') app.registry.set({ ...app.registry.get()!, hash: 'replacement' })
+        if (scenario === 'disposed') app.dispose()
+        dispatch.mockClear()
+        root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+        if (scenario === 'live') {
+          await vi.waitFor(() => expect(dispatch).toHaveBeenCalledWith(tab, expect.objectContaining({
+            command: 'node.setValue', params: expect.objectContaining({ value: ref }),
+          })))
+        } else {
+          expect(root.textContent).toContain('Picker selection changed; reopen the asset picker')
+          expect(dispatch).not.toHaveBeenCalled()
+          root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+          await vi.waitFor(() => expect(root.textContent).toContain('Picker selection changed; reopen the asset picker'))
+          expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(ref.name)
+        }
+        expect(release).not.toHaveBeenCalled()
+      } finally { unmount(); app.dispose(); vi.unstubAllGlobals() }
+    },
+  )
 
   it('stages an empty selection through Remove and only commits at the footer', async () => {
     const mounted = catalogAssetEditor('model/checkpoint')

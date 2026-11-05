@@ -34,7 +34,9 @@ Native asset pickers confirm an independent incomplete owner before publishing
 a newly selected reference or starting its server preview. Picks are processed
 in invocation order; Apply is disabled while a pick is pending. Refusal preserves
 the previous selection and reports the failure inline. Cancel discards the local
-draft without releasing acknowledged owners. Apply still confirms the document
+draft without releasing acknowledged owners. The staged selection keeps its
+acknowledged reader: a changed document, registry, connection, or closed session
+refuses further staging and Apply until the picker is reopened. Apply still confirms the document
 command separately. These conservative owners do not enable cleanup.
 
 The registered audio-recording editor uses the same independent ownership
