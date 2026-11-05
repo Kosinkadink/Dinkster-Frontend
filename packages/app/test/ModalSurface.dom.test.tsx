@@ -9,6 +9,8 @@ import { asConnectionId, createSignal as createCoreSignal, registerCatalog, setL
 import type { AppState, Tab } from '../src/app-state.js'
 import { ModalSurface } from '../src/ModalSurface.js'
 import { WidgetEditor, type WidgetEditorState } from '../src/WidgetEditor.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
+import { importLitegraph, inputsOf, parseDinksterSchema } from '@dinkster/core'
 
 const assetLocationMethods = {
   fetchAssetLocations: async () => [],
@@ -1517,6 +1519,82 @@ describe('ASSET widget modal integration', () => {
 })
 
 describe('registered interactive widget expanded-editor integration', () => {
+  it.each(['live', 'play-stale', 'refused', 'closed-before', 'closed-body', 'edited', 'disconnected', 'disposed'] as const)(
+    'admits stored recording bytes and playback only for the captured document: %s', async (scenario) => {
+      const schema = parseDinksterSchema('RecordingFixture', { interface: [
+        { role: 'input', id: 'audio', type: { kind: 'concrete', types: ['AUDIO_RECORD'] }, widget: { type: 'AUDIO_RECORD' } },
+      ] }).schema!
+      const ref = { digest: `blake3:${'a'.repeat(64)}`, name: 'saved.wav', size: 4, mediaType: 'audio/wav', virtualPath: '' }
+      const doc = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [ref] }], links: [] }, () => schema).document!
+      const app = createWorkflowApp([schema])
+      expect(app.openDocument(doc, 'Recording')).toEqual([])
+      const tab = app.activeTab()!
+      let acknowledge!: () => void
+      vi.mocked(app.connection.retainAssets).mockImplementationOnce((owner, declaration) => new Promise((resolve) => {
+        acknowledge = () => resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
+      }))
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      let finish!: () => void
+      const fetch = vi.spyOn(app.connection, 'fetchAssetBytes').mockImplementation(() => new Promise((resolve) => {
+        finish = () => resolve(new ArrayBuffer(4))
+      }))
+      const url = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:saved-recording')
+      const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+      const reset = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+      vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+      const root = document.createElement('div'); document.body.append(root)
+      const dispose = render(() => <WidgetEditor app={app} ed={{
+        tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'audio' }, label: 'Recording',
+        spec: inputsOf(schema)[0]!.widget, declaredType: inputsOf(schema)[0]!.type, initial: ref,
+        multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 },
+      }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+      try {
+        await vi.waitFor(() => expect(acknowledge).toBeTypeOf('function'))
+        expect(fetch).not.toHaveBeenCalled()
+        expect(root.querySelector('audio')).toBeNull()
+        if (scenario === 'closed-before') dispose()
+        acknowledge()
+        if (scenario === 'refused' || scenario === 'closed-before') {
+          if (scenario === 'refused') await vi.waitFor(() => expect(root.textContent).toContain('Recorded audio preview unavailable'))
+          await new Promise<void>((resolve) => queueMicrotask(resolve))
+          expect(fetch).not.toHaveBeenCalled()
+          expect(url).not.toHaveBeenCalled()
+          return
+        }
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+        if (scenario === 'closed-body') dispose()
+        if (scenario === 'edited') expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+          graphId: 'g0', nodeId: 'n1', inputId: 'audio', value: { ...ref, digest: `blake3:${'b'.repeat(64)}` },
+        } })).ok).toBe(true)
+        if (scenario === 'disconnected') {
+          vi.stubGlobal('WebSocket', class { close() {} })
+          app.connection.connect(); app.connection.disconnect()
+        }
+        if (scenario === 'disposed') app.dispose()
+        finish()
+        if (scenario === 'live' || scenario === 'play-stale') {
+          await vi.waitFor(() => expect(root.querySelector('audio')?.getAttribute('src')).toBe('blob:saved-recording'))
+          const audio = root.querySelector('audio')!
+          const play = vi.spyOn(audio, 'play').mockResolvedValue()
+          if (scenario === 'play-stale') expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+            graphId: 'g0', nodeId: 'n1', inputId: 'audio', value: null,
+          } })).ok).toBe(true)
+          root.querySelector<HTMLButtonElement>('[aria-label="Play audio"]')!.click()
+          expect(play).toHaveBeenCalledTimes(scenario === 'live' ? 1 : 0)
+          dispose()
+          expect(audio.getAttribute('src')).toBeNull()
+          expect(reset).toHaveBeenCalledOnce()
+          expect(revoke).toHaveBeenCalledWith('blob:saved-recording')
+        } else {
+          if (scenario !== 'closed-body') await vi.waitFor(() => expect(root.textContent).toContain('Recorded audio preview unavailable'))
+          else await new Promise<void>((resolve) => queueMicrotask(resolve))
+          expect(url).not.toHaveBeenCalled()
+          expect(root.querySelector('audio')).toBeNull()
+        }
+      } finally { finish?.(); dispose(); app.dispose(); vi.unstubAllGlobals() }
+    },
+  )
+
   it.each([
     ['ASSET', 'remove'], ['ASSET', 'close'], ['ASSET', 'replace'],
     ['AUDIO_RECORD', 'remove'], ['AUDIO_RECORD', 'close'],
@@ -1543,6 +1621,7 @@ describe('registered interactive widget expanded-editor integration', () => {
       listMounts: async () => [],
     } }
     const app = { backendForTab: () => backend, dispatchTo: vi.fn(),
+      workflowAssetReader: () => ({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
       retainPickerAssets: vi.fn().mockResolvedValue(undefined),
       widgetRegistry: { kind: () => undefined } } as unknown as AppState
     const ed: WidgetEditorState = { ...widgetState(type, {}, ref),
@@ -1553,7 +1632,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     const unmount = render(() => <Show when={open()}><WidgetEditor app={app} ed={ed}
       viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => setOpen(false)} /></Show>, root)
     try {
-      expect(signal).toBeDefined()
+      await vi.waitFor(() => expect(signal).toBeDefined())
       expect(signal!.aborted).toBe(false)
       const original = signal!
       const finishOriginal = finish
@@ -1607,7 +1686,9 @@ describe('registered interactive widget expanded-editor integration', () => {
     let refuse!: (error: Error) => void
     const retainPickerAssets = vi.fn(() => new Promise<void>((resolve, reject) => { accept = resolve; refuse = reject }))
     const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
-    const app = { backendForTab: () => selectedBackend, retainPickerAssets, dispatchTo } as unknown as AppState
+    const app = { backendForTab: () => selectedBackend, retainPickerAssets, dispatchTo,
+      workflowAssetReader: () => ({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
+    } as unknown as AppState
     const ed = widgetState('AUDIO_RECORD', {}, old)
     const close = vi.fn()
     const [open, setOpen] = createSignal(true)

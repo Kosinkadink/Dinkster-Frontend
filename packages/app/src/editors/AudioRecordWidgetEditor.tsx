@@ -55,18 +55,25 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
       let current = true
       let ownedUrl: string | undefined
       const previewAbort = new AbortController()
+      const saved = ref === initial
+      const reader = saved && backend.protocol === 'dinkster'
+        ? props.editor.app.workflowAssetReader(ed.tab, ref.digest) : undefined
       if (backend.protocol === 'dinkster') {
-        void backend.connection.fetchAssetBytes(ref.digest, previewAbort.signal).then((bytes) => {
-          if (!current) return
+        const load = async () => {
+          if (!current || (saved && reader?.current() !== true)) return
+          const bytes = await backend.connection.fetchAssetBytes(ref.digest, previewAbort.signal)
+          if (!current || (saved && reader?.current() !== true)) return
           if (bytes === undefined) { setFailed(true); return }
           ownedUrl = URL.createObjectURL(new Blob([bytes], { type: ref.mediaType }))
           setSrc(ownedUrl)
-        }).catch(() => { if (current) setFailed(true) })
+        }
+        void (saved ? reader?.read(load) ?? Promise.reject(new Error(message('audioRecordWidget.previewUnavailable'))) : load())
+          .catch(() => { if (current) setFailed(true) })
       }
       onCleanup(() => { current = false; previewAbort.abort(); if (ownedUrl) URL.revokeObjectURL(ownedUrl) })
       return <>
         <p>{ref.name}</p>
-        <Show when={src()}>{(url) => <AudioTransport media={{ kind: 'audio', src: url() }} />}</Show>
+        <Show when={src()}>{(url) => <AudioTransport media={{ kind: 'audio', src: url() }} assetReader={reader} />}</Show>
         <Show when={failed()}><ProductNotice tone="error">{message('audioRecordWidget.previewUnavailable')}</ProductNotice></Show>
         <ProductButton type="button" disabled={uploading()} onClick={() => setDraft(null)}>{message('audioRecordWidget.remove')}</ProductButton>
       </>
