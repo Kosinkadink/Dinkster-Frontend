@@ -124,7 +124,7 @@ import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type P
 import { liveExactnessFor } from './companion-display.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
 import { createMirrorImageEstimator } from './mirror-image-previews.js'
-import { createPreviewLoader, validateBrowserMediaRendition } from './node-previews.js'
+import { createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
 import { tabDocumentUnchanged, widgetEditorAnchorAlive } from './widget-editor-anchor.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
 import { applyNodeDecorations, deriveSceneOverlays, retainProvenExecution, type SelectedInputPreview } from './scene-overlays.js'
@@ -1110,6 +1110,7 @@ export function NodeMediaOverlay(props: {
 export function NodeModel3dOverlay(props: {
   readonly ownerId?: string
   readonly media: NodePreview & { readonly kind: 'model3d'; readonly src: string }
+  readonly assetReader?: PreviewSource['assetReader']
   readonly rect: EditorWorldRect
   readonly scale: number
   readonly canvas: HTMLCanvasElement
@@ -1119,12 +1120,15 @@ export function NodeModel3dOverlay(props: {
   const [failed, setFailed] = createSolidSignal(false)
   let container: HTMLDivElement | undefined
   let viewer: { dispose(): void } | undefined
+  let settleViewer: (() => void) | undefined
   let mountToken = 0
   const interactive = () => props.scale >= defaultTokens.mediaControlMinScale
   const close = (): void => {
     mountToken += 1
     viewer?.dispose()
     viewer = undefined
+    settleViewer?.()
+    settleViewer = undefined
     setActive(false)
     props.onActiveChange?.(false)
   }
@@ -1135,26 +1139,34 @@ export function NodeModel3dOverlay(props: {
     props.onActiveChange?.(true)
     const token = ++mountToken
     const src = props.media.src
+    const reader = props.assetReader
     try {
-      const { mountModel3dViewer } = await import('./model3d-viewer.js')
-      if (token !== mountToken || container === undefined) return
-      const handle = await mountModel3dViewer(container, src, props.media.mime, props.media.model3d)
-      if (token !== mountToken) {
-        handle.dispose()
-        return
+      const mount = async (): Promise<void> => {
+        const { mountModel3dViewer } = await import('./model3d-viewer.js')
+        if (token !== mountToken || container === undefined || reader?.current() === false) return
+        const handle = await mountModel3dViewer(container, src, props.media.mime, props.media.model3d)
+        if (token !== mountToken || reader?.current() === false) {
+          handle.dispose()
+          return
+        }
+        viewer = handle
+        await new Promise<void>((resolve) => { settleViewer = resolve })
       }
-      viewer = handle
+      if (reader === undefined) await mount()
+      else await reader.read(mount)
     } catch {
       if (token === mountToken) setFailed(true)
     }
   }
   // A page change or new execution swaps the source without remounting the
   // overlay; an open viewer would keep showing the old model.
-  createEffect(on(() => props.media.src, () => close(), { defer: true }))
+  createEffect(on(() => [props.media.src, props.assetReader] as const, () => close(), { defer: true }))
   onCleanup(() => {
     mountToken += 1
     viewer?.dispose()
     viewer = undefined
+    settleViewer?.()
+    settleViewer = undefined
     queueMicrotask(() => props.onActiveChange?.(false))
   })
   return (
@@ -1604,6 +1616,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly node: EditorWorldRect
     readonly preview: EditorWorldRect
     readonly media: NodePreview & { readonly kind: 'video' | 'audio' | 'model3d'; readonly src: string }
+    readonly assetReader?: PreviewSource['assetReader']
     readonly onMediaError?: () => void
   }[]>([])
   const [activeCanvasMedia, setActiveCanvasMedia] = createSolidSignal<ReadonlySet<string>>(new Set())
@@ -4739,6 +4752,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               node: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
               preview: mediaRect,
               media: media as NodePreview & { readonly kind: 'video' | 'audio' | 'model3d'; readonly src: string },
+              ...(source?.assetReader === undefined ? {} : { assetReader: source.assetReader }),
               ...(source === undefined ? {} : { onMediaError: () => previewLoader.markUnavailable?.(source) }),
             }]
           : []
@@ -6402,6 +6416,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               <NodeModel3dOverlay
                 ownerId={id}
                 media={currentItem().media as NodePreview & { readonly kind: 'model3d'; readonly src: string }}
+                assetReader={currentItem().assetReader}
                 rect={projected()!}
                 scale={editorViewport().scale}
                 canvas={canvasEl}

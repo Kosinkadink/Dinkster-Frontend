@@ -131,6 +131,12 @@ export interface PreviewSource {
   readonly cancellationKey?: string
   /** Captured document ownership must still hold before returning decoded cache entries. */
   readonly current?: () => boolean
+  /** Input-model viewers borrow the same captured owner independently of poster work. */
+  readonly assetReader?: {
+    readonly key: string
+    current(): boolean
+    read<T>(consume: () => Promise<T>): Promise<T>
+  }
   load(signal?: AbortSignal): Promise<NodePreview>
 }
 
@@ -514,11 +520,7 @@ export function createPreviewLoader(deps: {
   assetUrlForExecution: (ref: ExecutionState['ref'], digest: string) => string
   /** Current editable tab's native asset URL; undefined on non-native tabs. */
   assetUrlForInput: (digest: string) => string | undefined
-  inputAssetReader?: (digest: string) => {
-    readonly key: string
-    current(): boolean
-    read<T>(consume: () => Promise<T>): Promise<T>
-  } | undefined
+  inputAssetReader?: (digest: string) => PreviewSource['assetReader']
   readFile3dAsset?: (execution: ExecutionState['ref'], asset: Readonly<Record<string, Json>>, signal?: AbortSignal) => Promise<ArrayBuffer | undefined>
   /** A finished async decode: re-assemble the preview map. */
   onDecoded: () => void
@@ -917,6 +919,7 @@ export function createPreviewLoader(deps: {
         key: owner === undefined ? key : `${key}:${owner.key}`,
         failureKey: `asset-url:${url}`,
         ...(mediaKind === 'model3d' ? { mediaKind } : {}),
+        ...(mediaKind === 'model3d' && owner !== undefined ? { assetReader: owner } : {}),
         ...(owner === undefined ? {} : { current: owner.current }),
         load: (signal) => {
           const decode = async (): Promise<NodePreview> => {

@@ -83,8 +83,11 @@ Only identities present in that captured census can use the reader. Decoded
 cache keys are partitioned by the captured owner, and changed documents, closed
 tabs, backend switches or connection transitions refuse stale reads and cache
 publication. A failed ownership request permits a later attempt; it is not a
-permanent missing-image result. This boundary covers input-image decode and the
-whole input-model poster promise. It does not cover later orbit-viewer loads,
+permanent missing-image result. Input-model sources also carry that reader into
+the orbit overlay. Its independent read covers pending mount and the mounted
+handle until disposal; closing during mount waits for actual mount completion
+and disposes the late handle. A different captured owner closes the old viewer
+even when its URL is unchanged. This does not cover result orbit viewers,
 cached picker/collection posters, native audio/video handles, recovery references or retirement.
 No retained owner is released when a source becomes obsolete.
 

@@ -311,6 +311,7 @@ describe('retained app dispatch', () => {
         expect(app.workflowAssetReader(tab, asset('f').digest)).toBeUndefined()
         const mime = kind === 'image' ? 'image/png' : 'model/gltf-binary'
         const source = loader.inputAssetSource!(asset('a').digest, mime, kind)!
+        expect(source.assetReader?.current()).toBe(kind === 'model3d' ? true : undefined)
         const pending = source.load()
         expect(reads).toHaveLength(0)
         const { owner, declaration } = await requested.promise
@@ -348,6 +349,7 @@ describe('retained app dispatch', () => {
         expect(loader.resolve(source)).toMatchObject({ width: 13, height: 7 })
         expect((await app.dispatchTo(tab, replace('b'))).ok).toBe(true)
         expect(loader.resolve(source)).toBeUndefined()
+        if (kind === 'model3d') expect(source.assetReader!.current()).toBe(false)
         const replacement = loader.inputAssetSource!(asset('b').digest, mime, kind)!
         expect(replacement.key).not.toBe(source.key)
         const live = replacement.load()
