@@ -338,9 +338,15 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     }
     const abort = new AbortController()
     assetPreviewAbort = abort
+    const reader = selectionReader
     try {
-      const bytes = await backend.connection.fetchAssetBytes(ref.digest, abort.signal)
-      if (!live || request !== assetPreviewRequest || bytes === undefined) return
+      if (reader === undefined) throw new Error('Picker preview ownership is unavailable')
+      const bytes = await reader.read(async () => {
+        if (!live || request !== assetPreviewRequest || !reader.current()) return undefined
+        return backend.connection.fetchAssetBytes(ref.digest, abort.signal)
+      })
+      if (!live || request !== assetPreviewRequest || !reader.current() || bytes === undefined ||
+        props.app.backendForTab(ed.tab) !== backend || activeProjectId() !== project) return
       const url = URL.createObjectURL(new Blob([bytes], { type: ref.mediaType }))
       replaceAssetPreview({ kind, src: url, name: ref.name }, url)
     } catch (error) {

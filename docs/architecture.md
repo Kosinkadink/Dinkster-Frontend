@@ -101,6 +101,13 @@ publish after their document becomes stale. App preview audio surfaces carry
 their source reader into the shared native transport, including same-URL owner
 replacement; surfaces with no source reader retain their existing behavior.
 
+Native asset-picker image byte reads use the admitted selection's captured
+reader. Closing or replacing the preview does not settle a still-pending byte
+fetch; that read remains tracked until its body settles. Refused reads never
+fetch bytes, and stale selection readers or changed backend/project targets
+cannot publish object URLs. This byte-read boundary does not cover image decode
+or native video/model resource lifetimes and does not release retained owners.
+
 Live and mirrored structured outputs and preview records also await incomplete
 shown-result ownership, including records with no known digest. Later events
 for that execution wait for admission so completion cannot overtake the held

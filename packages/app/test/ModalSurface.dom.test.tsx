@@ -530,16 +530,26 @@ describe('ASSET widget modal integration', () => {
     } finally { mounted.unmount() }
   })
 
-  it.each(['accepted', 'refused', 'closed'] as const)('admits the stored picker selection before preview or Apply: %s', async (outcome) => {
+  it.each(['accepted', 'refused', 'closed', 'stale-body', 'closed-body', 'refused-read'] as const)('admits the stored picker selection before preview or Apply: %s', async (outcome) => {
     const initial = { digest: `blake3:${'d'.repeat(64)}`, name: 'stored.png', size: 4,
       mediaType: 'image/png', virtualPath: 'images/stored.png' }
-    const reader = { key: 'stored-picker', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }
+    let current = true
+    let reading = false
+    const reader = { key: 'stored-picker', current: () => current, read: async <T,>(consume: () => Promise<T>) => {
+      if (outcome === 'refused-read') throw new Error('Picker read refused')
+      reading = true
+      try { return await consume() } finally { reading = false }
+    } }
     let accept!: () => void
     let refuse!: (error: Error) => void
     const retainPickerAssets = vi.fn(() => new Promise<typeof reader>((resolve, reject) => {
       accept = () => resolve(reader); refuse = reject
     }))
+    let finish!: () => void
     const fetchAssetBytes = vi.fn().mockResolvedValue(new ArrayBuffer(4))
+    if (outcome.endsWith('-body')) fetchAssetBytes.mockImplementation(() => new Promise<ArrayBuffer>((resolve) => {
+      finish = () => resolve(new ArrayBuffer(4))
+    }))
     const backend = { protocol: 'dinkster', id: 'native', connection: { ...assetLocationMethods,
       listMounts: async () => [], listLocalAssets: async () => ({ assets: [] }), checkAssetAvailability: async () => [],
       fetchAssetBytes, assetUrl: (digest: string) => `/api/assets/${digest}`,
@@ -547,7 +557,7 @@ describe('ASSET widget modal integration', () => {
     const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
     const app = { backendForTab: () => backend, retainPickerAssets, dispatchTo,
       widgetRegistry: { kind: () => undefined } } as unknown as AppState
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:stored-image')
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:stored-image')
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     const root = document.createElement('div'); document.body.append(root)
     const ed = widgetState('ASSET', {}, initial)
@@ -561,7 +571,24 @@ describe('ASSET widget modal integration', () => {
       if (outcome === 'closed') unmount()
       if (outcome === 'refused') refuse(new Error('Stored selection ownership refused'))
       else accept()
-      if (outcome === 'accepted') {
+      if (outcome.endsWith('-body')) {
+        await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+        expect(reading).toBe(true)
+        if (outcome === 'closed-body') unmount()
+        else current = false
+        expect(reading).toBe(true)
+        finish()
+        await vi.waitFor(() => expect(reading).toBe(false))
+        expect(createObjectUrl).not.toHaveBeenCalled()
+        expect(root.querySelector('img[alt="Asset preview"]')).toBeNull()
+        expect(dispatchTo).not.toHaveBeenCalled()
+      } else if (outcome === 'refused-read') {
+        await vi.waitFor(() => expect(root.textContent).toContain('Picker read refused'))
+        expect(fetchAssetBytes).not.toHaveBeenCalled()
+        expect(createObjectUrl).not.toHaveBeenCalled()
+        expect(root.querySelector('img[alt="Asset preview"]')).toBeNull()
+        expect(dispatchTo).not.toHaveBeenCalled()
+      } else if (outcome === 'accepted') {
         await vi.waitFor(() => expect(root.querySelector('img[alt="Asset preview"]')?.getAttribute('src')).toBe('blob:stored-image'))
         expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false)
         root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
@@ -575,7 +602,7 @@ describe('ASSET widget modal integration', () => {
         expect(fetchAssetBytes).not.toHaveBeenCalled()
         expect(dispatchTo).not.toHaveBeenCalled()
       }
-    } finally { unmount() }
+    } finally { finish?.(); unmount() }
   })
 
   it.each(['live', 'edited', 'closed', 'disconnected', 'registry', 'disposed'].flatMap((scenario) =>
@@ -1555,7 +1582,7 @@ describe('ASSET widget modal integration', () => {
       } }
     const app = {
       backendForTab: () => backend,
-      retainPickerAssets: vi.fn().mockResolvedValue(undefined),
+      retainPickerAssets: vi.fn().mockResolvedValue({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
       dispatchTo: vi.fn(),
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
@@ -1762,7 +1789,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     } }
     const app = { backendForTab: () => backend, dispatchTo: vi.fn(),
       workflowAssetReader: () => ({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
-      retainPickerAssets: vi.fn().mockResolvedValue(undefined),
+      retainPickerAssets: vi.fn().mockResolvedValue({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
       widgetRegistry: { kind: () => undefined } } as unknown as AppState
     const ed: WidgetEditorState = { ...widgetState(type, {}, ref),
       ...(type === 'ASSET' ? { spec: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] } } } : {}),
