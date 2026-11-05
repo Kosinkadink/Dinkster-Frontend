@@ -817,6 +817,34 @@ describe('resolve', () => {
     expect(l.resolve(otherBackend)).toBeDefined()
   })
 
+  it('carries acknowledged document ownership into input audio and refuses stale cache reads', async () => {
+    let current = true
+    let admit!: () => void
+    const admission = new Promise<void>((resolve) => { admit = resolve })
+    const owner = { key: 'document-a', current: () => current, read: async <T,>(consume: () => Promise<T>): Promise<T> => {
+      await admission
+      if (!current) throw new Error('Document changed')
+      return consume()
+    } }
+    const l = createPreviewLoader({ assetUrlForExecution: () => '', assetUrlForInput: () => '/clip.wav',
+      inputAssetReader: () => owner, onDecoded: () => {} })
+    try {
+      const source = l.inputAssetSource!('digest', 'audio/wav', 'audio')!
+      expect(source.assetReader).toBe(owner)
+      let published = false
+      const pending = source.load().then((value) => { published = true; return value })
+      await Promise.resolve()
+      expect(published).toBe(false)
+      admit()
+      expect(await pending).toMatchObject({ kind: 'audio', src: '/clip.wav' })
+      l.resolve(source)
+      await vi.waitFor(() => expect(l.resolve(source)).toMatchObject({ kind: 'audio', src: '/clip.wav' }))
+      current = false
+      expect(l.resolve(source)).toBeUndefined()
+      await expect(source.load()).rejects.toThrow('changed')
+    } finally { l.dispose() }
+  })
+
   it('refuses selected videos without requesting original input bytes on either backend', async () => {
     const digest = `blake3:${'f'.repeat(64)}`
     let backend = 'backend-a'

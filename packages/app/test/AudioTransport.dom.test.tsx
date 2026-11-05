@@ -9,6 +9,75 @@ import { CurveEditor } from '../src/CurveEditor.js'
 import { NodeMediaOverlay } from '../src/CanvasHost.js'
 import { AppPreviewSurface } from '../src/AppPreviewSurface.js'
 import type { PreviewLoader } from '../src/node-previews.js'
+import { RetainedAssetReader } from '../src/workflow-asset-retention.js'
+import type { DinksterConnection } from '@dinkster/client'
+
+describe('document-owned input audio', () => {
+  it.each(['pending', 'refused', 'mounted', 'replacement'] as const)(
+    'admits native playback and waits for actual resource reset: %s', async (scenario) => {
+      const root = document.createElement('div')
+      document.body.append(root)
+      const retained = { scope: 'local', ownerKind: 'document', ownerId: 'audio', revision: 1,
+        complete: false, digests: [] } as const
+      const original = new RetainedAssetReader({} as DinksterConnection, retained, () => true)
+      const replacement = new RetainedAssetReader({} as DinksterConnection, { ...retained, ownerId: 'next' }, () => true)
+      let admit!: () => void
+      const admission = new Promise<void>((resolve) => { admit = resolve })
+      let entered = false
+      const owner = { key: 'original', current: () => true, read: async <T,>(consume: () => Promise<T>): Promise<T> => {
+        entered = true
+        await admission
+        if (scenario === 'refused') throw new Error('Ownership refused')
+        return original.read(consume)
+      } }
+      const [reader, setReader] = createSolidSignal(owner)
+      const dispose = render(() => <NodeMediaOverlay media={{ kind: 'audio', src: '/same.wav' }}
+        assetReader={reader()} rect={{ x: 10, y: 20, width: 500, height: 200 }} scale={1}
+        canvas={document.createElement('canvas')} />, root)
+      const audio = root.querySelector('audio')!
+      const reset = vi.spyOn(audio, 'load').mockImplementation(() => {})
+      const pause = vi.spyOn(audio, 'pause').mockImplementation(() => {})
+      try {
+        expect(entered).toBe(true)
+        expect(audio.getAttribute('src')).toBeNull()
+        if (scenario === 'pending') dispose()
+        admit()
+        if (scenario === 'pending' || scenario === 'refused') {
+          if (scenario === 'refused') await vi.waitFor(() => expect(root.textContent).toContain('Ownership refused'))
+          else await admission
+          await new Promise<void>((resolve) => queueMicrotask(resolve))
+          expect(audio.getAttribute('src')).toBeNull()
+          expect(reset).not.toHaveBeenCalled()
+          return
+        }
+        await vi.waitFor(() => expect(audio.getAttribute('src')).toBe('/same.wav'))
+        Object.defineProperty(audio, 'networkState', { configurable: true, value: HTMLMediaElement.NETWORK_LOADING })
+        let settled = false
+        const closed = original.close().then(() => { settled = true })
+        if (scenario === 'replacement') setReader({ key: 'next', current: () => true, read: replacement.read.bind(replacement) })
+        else dispose()
+        await Promise.resolve()
+        expect(audio.getAttribute('src')).toBeNull()
+        expect(pause).toHaveBeenCalled()
+        expect(reset).toHaveBeenCalledOnce()
+        expect(settled).toBe(false)
+        audio.dispatchEvent(new Event('emptied'))
+        await closed
+        if (scenario === 'replacement') {
+          await vi.waitFor(() => expect(audio.getAttribute('src')).toBe('/same.wav'))
+          let liveSettled = false
+          const live = replacement.close().then(() => { liveSettled = true })
+          await Promise.resolve()
+          expect(liveSettled).toBe(false)
+          dispose()
+          expect(audio.getAttribute('src')).toBeNull()
+          audio.dispatchEvent(new Event('emptied'))
+          await live
+        }
+      } finally { dispose(); root.remove(); vi.restoreAllMocks() }
+    },
+  )
+})
 
 describe('shared audio transport lifecycle', () => {
   let root: HTMLDivElement

@@ -131,7 +131,7 @@ export interface PreviewSource {
   readonly cancellationKey?: string
   /** Captured document ownership must still hold before returning decoded cache entries. */
   readonly current?: () => boolean
-  /** Input-model viewers borrow the same captured owner independently of poster work. */
+  /** Native input-media consumers borrow the captured owner independently of preview work. */
   readonly assetReader?: {
     readonly key: string
     current(): boolean
@@ -904,27 +904,21 @@ export function createPreviewLoader(deps: {
       }
       const url = deps.assetUrlForInput(digest)
       if (url === undefined) return undefined
-      if (mediaKind !== 'image' && mediaKind !== 'model3d') {
-        return {
-          key: directMediaKey(digest, mediaType, url),
-          failureKey: `asset-url:${url}`,
-          mediaKind,
-          load: async () => ({ kind: mediaKind, mime: mediaType, src: url }),
-        }
-      }
       const owner = deps.inputAssetReader?.(digest)
       if (deps.inputAssetReader !== undefined && owner === undefined) return undefined
-      const key = mediaKind === 'model3d' ? directMediaKey(digest, mediaType, url) : `asset:${digest}`
+      const key = mediaKind !== 'image' ? directMediaKey(digest, mediaType, url) : `asset:${digest}`
       return {
         key: owner === undefined ? key : `${key}:${owner.key}`,
         failureKey: `asset-url:${url}`,
-        ...(mediaKind === 'model3d' ? { mediaKind } : {}),
-        ...(mediaKind === 'model3d' && owner !== undefined ? { assetReader: owner } : {}),
+        ...(mediaKind !== 'image' ? { mediaKind } : {}),
+        ...(mediaKind !== 'image' && owner !== undefined ? { assetReader: owner } : {}),
         ...(owner === undefined ? {} : { current: owner.current }),
         load: (signal) => {
           const decode = async (): Promise<NodePreview> => {
             signal?.throwIfAborted()
-            const preview = mediaKind === 'model3d' ? await model3dPreview(url, mediaType) : await decodeUrl(url)
+            const preview = mediaKind === 'audio'
+              ? { kind: mediaKind, mime: mediaType, src: url } as const
+              : mediaKind === 'model3d' ? await model3dPreview(url, mediaType) : await decodeUrl(url)
             if (signal?.aborted || owner?.current() === false) {
               release(preview)
               throw new Error('Workflow asset reader changed during decode')

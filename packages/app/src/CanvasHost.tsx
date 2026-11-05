@@ -1062,6 +1062,7 @@ function overlayClipStyle(rect: EditorWorldRect, canvasEl: HTMLCanvasElement): R
 export function NodeMediaOverlay(props: {
   readonly ownerId?: string
   readonly media: NodePreview & { readonly kind: 'video' | 'audio'; readonly src: string }
+  readonly assetReader?: PreviewSource['assetReader']
   readonly rect: EditorWorldRect
   readonly scale: number
   readonly canvas: HTMLCanvasElement
@@ -1092,7 +1093,7 @@ export function NodeMediaOverlay(props: {
         {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
       </Show>
       <Show when={props.media.kind === 'video'} fallback={
-        <AudioTransport media={props.media} interactive={interactive()} onActiveChange={(active) => props.onActiveChange?.(active)}
+        <AudioTransport media={props.media} assetReader={props.assetReader} interactive={interactive()} onActiveChange={(active) => props.onActiveChange?.(active)}
           onMediaError={() => props.onMediaError?.()} />
       }>
         <VideoPreview media={props.media} preferences={props.videoPreferences} onPreferences={props.onVideoPreferences}
@@ -6397,6 +6398,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               <NodeMediaOverlay
                 ownerId={id}
                 media={currentItem().media as NodePreview & { readonly kind: 'video' | 'audio'; readonly src: string }}
+                assetReader={currentItem().assetReader}
                 rect={projected()!}
                 scale={editorViewport().scale}
                 canvas={canvasEl}
