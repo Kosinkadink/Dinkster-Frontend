@@ -124,7 +124,11 @@ The displayed base is never included in the uploaded paint layer. Transparent
 pixels preserve the node's background or connected image; the layer's alpha
 supplies the MASK output. Existing granted
 paint files reopen on the canvas, including local files addressed by an
-engine-issued binding rather than a portable digest. Apply uploads a PNG
+engine-issued binding rather than a portable digest. Saved digest-backed masks
+wait for the captured document's retained-asset acknowledgment before fetching
+bytes or decoding the bitmap. Closing, editing or an observed connection change
+refuses late mask publication; bitmap cleanup finishes without releasing the
+retained owner. Apply uploads a PNG
 through the tab's native media authority and stores the returned ASSET
 reference in one undoable edit.
 The shared upload destination picker selects a granted mount and subfolder;

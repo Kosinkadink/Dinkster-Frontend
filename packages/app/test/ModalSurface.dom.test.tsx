@@ -155,6 +155,7 @@ describe('ModalSurface', () => {
       Object.assign(connection, assetLocationMethods)
       const dispatchTo = vi.fn()
       const app = { backendForTab: () => ({ protocol: 'dinkster', connection }), registryForTab: () => undefined,
+        workflowAssetReader: () => ({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
         dispatchTo } as unknown as AppState
       const root = document.createElement('div'); document.body.append(root)
       const [open, setOpen] = createSignal(true)

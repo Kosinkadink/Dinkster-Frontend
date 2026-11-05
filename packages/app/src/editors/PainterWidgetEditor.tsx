@@ -148,12 +148,23 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
           && typeof ref.name === 'string' && typeof ref.mediaType === 'string' && typeof ref.virtualPath === 'string'
           && typeof ref.size === 'number' && Number.isSafeInteger(ref.size) && ref.size >= 0
         if (!ref || !(local || isAssetRefValue(initial))) throw new Error(message('painterWidget.unavailable'))
-        const bytes = local
-          ? await backend.connection.fetchLocalAssetBytes(ref.localBinding as string, abort.signal)
-          : await backend.connection.fetchAssetBytes(ref.digest as string, abort.signal)
-        requireCurrent()
-        if (!bytes) throw new Error(message('painterWidget.unavailable'))
-        await drawImage(new Blob([bytes], { type: ref.mediaType as string }))
+        const load = async () => {
+          requireCurrent()
+          const bytes = local
+            ? await backend.connection.fetchLocalAssetBytes(ref.localBinding as string, abort.signal)
+            : await backend.connection.fetchAssetBytes(ref.digest as string, abort.signal)
+          requireCurrent()
+          if (!bytes) throw new Error(message('painterWidget.unavailable'))
+          await drawImage(new Blob([bytes], { type: ref.mediaType as string }))
+        }
+        if (local) await load()
+        else {
+          const reader = props.editor.app.workflowAssetReader(ed.tab, ref.digest as string)
+          if (!reader) throw new Error(message('painterWidget.unavailable'))
+          const connectedCurrent = sourceCurrent
+          sourceCurrent = () => connectedCurrent() && reader.current()
+          await reader.read(load)
+        }
       }
       ready = true
     })().catch((reason: unknown) => { if (live) setError(reason instanceof Error ? reason.message : String(reason)) })

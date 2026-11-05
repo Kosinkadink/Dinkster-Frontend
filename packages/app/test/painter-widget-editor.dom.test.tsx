@@ -4,6 +4,8 @@ import { render } from 'solid-js/web'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { AppState, Tab } from '../src/app-state.js'
 import { WidgetEditor } from '../src/WidgetEditor.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
+import type { RetainedAssets } from '@dinkster/client'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
@@ -48,6 +50,7 @@ it.each(['apply', 'local', 'failure', 'cancel', 'retarget', 'closed'] as const)(
   const app = {
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     backendForTab: () => backend,
+    workflowAssetReader: () => ({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
@@ -83,3 +86,70 @@ it.each(['apply', 'local', 'failure', 'cancel', 'retarget', 'closed'] as const)(
   if (outcome !== 'closed') dispose()
   expect(store.doc.graphs.g0!.nodes.n1!.values.mask).toEqual(initial)
 })
+
+it.each(['live', 'refused', 'closed-before', 'closed-decode', 'edited', 'disconnected', 'disposed'] as const)(
+  'borrows the saved Painter mask owner through bitmap decode: %s', async (scenario) => {
+    const schema = parseDinksterSchema('Painter', { interface: [
+      { role: 'input', id: 'mask', type: { kind: 'concrete', types: ['ASSET'] }, required: false,
+        widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image', allowUpload: true },
+        sourceFilename: { kind: 'media/image', category: 'input' } },
+    ] }).schema!
+    const initial = { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png', name: 'mask.png', size: 7, virtualPath: '' }
+    const doc = importLitegraph({ nodes: [{ id: 1, type: 'Painter', widgets_values: [initial] }], links: [] }, () => schema).document!
+    const app = createWorkflowApp([schema])
+    expect(app.openDocument(doc, 'Painter reader')).toEqual([])
+    const tab = app.activeTab()!
+    const context = { clearRect: vi.fn(), drawImage: vi.fn(), fillRect: vi.fn() }
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context as unknown as CanvasRenderingContext2D)
+    let finish!: () => void
+    const bitmap = { width: 13, height: 7, close: vi.fn() }
+    const decode = vi.fn(() => new Promise<typeof bitmap>((resolve) => { finish = () => resolve(bitmap) }))
+    vi.stubGlobal('createImageBitmap', decode)
+    const fetch = vi.spyOn(app.connection, 'fetchAssetBytes').mockResolvedValue(new Uint8Array([1]).buffer)
+    let acknowledge!: () => void
+    let requested: RetainedAssets | undefined
+    vi.mocked(app.connection.retainAssets).mockImplementationOnce((owner, declaration) => {
+      requested = { ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 }
+      return new Promise<RetainedAssets>((resolve) => { acknowledge = () => resolve(requested!) })
+    })
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <WidgetEditor app={app} ed={{
+      tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'mask' }, label: 'Mask',
+      spec: inputsOf(schema)[0]!.widget, declaredType: inputsOf(schema)[0]!.type,
+      multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
+    }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+    try {
+      await vi.waitFor(() => expect(requested).toBeDefined())
+      expect(requested!.digests).toEqual([initial.digest])
+      expect(fetch).not.toHaveBeenCalled()
+      expect(decode).not.toHaveBeenCalled()
+      if (scenario === 'closed-before') dispose()
+      acknowledge()
+      if (scenario === 'refused' || scenario === 'closed-before') {
+        if (scenario === 'refused') await vi.waitFor(() => expect(root.querySelector('[role="alert"][data-tone="error"]')?.textContent).toContain('acknowledgment differs'))
+        await new Promise<void>((resolve) => queueMicrotask(resolve))
+        expect(fetch).not.toHaveBeenCalled()
+        expect(decode).not.toHaveBeenCalled()
+        return
+      }
+      await vi.waitFor(() => expect(decode).toHaveBeenCalledOnce())
+      if (scenario === 'closed-decode') dispose()
+      if (scenario === 'edited') expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n1', inputId: 'mask', value: { ...initial, digest: `blake3:${'b'.repeat(64)}` },
+      } })).ok).toBe(true)
+      if (scenario === 'disconnected') {
+        vi.stubGlobal('WebSocket', class { close() {} })
+        app.connection.connect(); app.connection.disconnect()
+      }
+      if (scenario === 'disposed') app.dispose()
+      finish()
+      await vi.waitFor(() => expect(bitmap.close).toHaveBeenCalledOnce())
+      expect(context.drawImage).toHaveBeenCalledTimes(scenario === 'live' ? 1 : 0)
+      if (scenario === 'live') {
+        expect(context.drawImage).toHaveBeenCalledWith(bitmap, 0, 0, 512, 512)
+        expect(Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply')?.disabled).toBe(false)
+      }
+    } finally { finish?.(); dispose(); app.dispose() }
+  },
+)
