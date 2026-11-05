@@ -515,6 +515,21 @@ describe('ASSET widget modal integration', () => {
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
   })
 
+  it('preserves the previous selection when the admitted reader expires before publication', async () => {
+    const previous = { digest: `blake3:${'d'.repeat(64)}`, name: 'previous.safetensors', size: 42,
+      mediaType: 'application/x-safetensors', virtualPath: 'models/previous.safetensors' }
+    const mounted = catalogAssetEditor('model/checkpoint', undefined, previous)
+    const reader = { key: 'expired-picker', current: () => false, read: async <T,>(consume: () => Promise<T>) => consume() }
+    mounted.retainPickerAssets.mockResolvedValue(reader)
+    try {
+      await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
+      mounted.root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+      await vi.waitFor(() => expect(mounted.root.textContent).toContain('Picker selection changed; reopen the asset picker'))
+      expect(mounted.root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(previous.name)
+      expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    } finally { mounted.unmount() }
+  })
+
   it.each(['live', 'edited', 'closed', 'disconnected', 'registry', 'disposed'] as const)(
     'applies admitted picks only to their captured document: %s', async (scenario) => {
       const schema: NodeSchema = { type: 'PickerFixture', displayName: 'Picker', category: 'test', source: 'v3', isOutputNode: false,
@@ -534,12 +549,13 @@ describe('ASSET widget modal integration', () => {
       const release = vi.spyOn(app.connection, 'releaseRetainedAssets')
       const dispatch = vi.spyOn(app, 'dispatchTo')
       const root = document.createElement('div'); document.body.append(root)
-      const unmount = render(() => <WidgetEditor app={app} ed={{ tab, graphId: 'g0',
+      const mountPicker = () => render(() => <WidgetEditor app={app} ed={{ tab, graphId: 'g0',
         target: { kind: 'input', nodeId: 'n1', valueKey: 'asset' }, label: 'Model',
         spec: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] } },
         declaredType: { kind: 'concrete', name: 'ASSET' }, initial: null,
         multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 },
       }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+      let unmount = mountPicker()
       try {
         await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1))
         root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
@@ -563,9 +579,21 @@ describe('ASSET widget modal integration', () => {
         } else {
           expect(root.textContent).toContain('Picker selection changed; reopen the asset picker')
           expect(dispatch).not.toHaveBeenCalled()
-          root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
-          await vi.waitFor(() => expect(root.textContent).toContain('Picker selection changed; reopen the asset picker'))
+          root.querySelector<HTMLButtonElement>('[data-testid="asset-selection-remove"]')!.click()
+          await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
           expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(ref.name)
+          expect(dispatch).not.toHaveBeenCalled()
+          if (scenario === 'edited' || scenario === 'disconnected' || scenario === 'registry') {
+            unmount()
+            unmount = mountPicker()
+            await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1))
+            root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+            await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(ref.name))
+            root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+            await vi.waitFor(() => expect(dispatch).toHaveBeenCalledWith(tab, expect.objectContaining({
+              command: 'node.setValue', params: expect.objectContaining({ value: ref }),
+            })))
+          }
         }
         expect(release).not.toHaveBeenCalled()
       } finally { unmount(); app.dispose(); vi.unstubAllGlobals() }
