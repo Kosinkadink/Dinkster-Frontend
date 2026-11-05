@@ -10,6 +10,7 @@ import { GLSL_EDITOR_KIND } from '../src/editors.js'
 import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions, RetainedAssetReader, workflowAssetRoots } from '../src/workflow-asset-retention.js'
 import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
+import { createPreviewLoader } from '../src/node-previews.js'
 
 const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
   size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
@@ -265,6 +266,90 @@ describe('retained app dispatch', () => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
+
+  it.each(['live', 'edited', 'closed', 'disconnected', 'disposed', 'refused'] as const)(
+    'binds input-image decode and cache reads to acknowledged document ownership: %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([schema])
+      expect(app.openDocument(session().doc, 'Image owner')).toEqual([])
+      const ownerApp = app
+      const tab = app.activeTab()!
+      const reads: Array<ReturnType<typeof deferred<void>>> = []
+      class Image {
+        src = ''
+        naturalWidth = 13
+        naturalHeight = 7
+        decode() {
+          const read = deferred<void>()
+          reads.push(read)
+          return read.promise
+        }
+      }
+      vi.stubGlobal('Image', Image)
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      const requested = deferred<{ owner: RetainedAssetOwner; declaration: RetainedAssetDeclaration }>()
+      const acknowledged = deferred<RetainedAssets>()
+      vi.mocked(app.connection.retainAssets).mockImplementationOnce(async (owner, declaration) => {
+        requested.resolve({ owner, declaration })
+        return acknowledged.promise
+      })
+      const decoded = deferred<void>()
+      const loader = createPreviewLoader({
+        assetUrlForExecution: () => '',
+        assetUrlForInput: (digest) => ownerApp.connection.assetUrl(digest),
+        inputAssetReader: (digest) => ownerApp.workflowAssetReader(tab, digest),
+        onDecoded: () => decoded.resolve(),
+      })
+      try {
+        expect(app.workflowAssetReader(tab, asset('f').digest)).toBeUndefined()
+        const source = loader.inputAssetSource!(asset('a').digest, 'image/png', 'image')!
+        const pending = source.load()
+        const { owner, declaration } = await requested.promise
+        expect(declaration.digests).toEqual([asset('a').digest])
+        expect(reads).toHaveLength(0)
+        acknowledged.resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
+        if (scenario === 'refused') {
+          await expect(pending).rejects.toThrow('acknowledgment differs')
+          expect(reads).toHaveLength(0)
+          // A refused acknowledgment is not cached as permission; the same source can retry.
+          const retry = source.load()
+          await vi.waitFor(() => expect(reads).toHaveLength(1))
+          reads[0]!.resolve()
+          expect(await retry).toMatchObject({ width: 13, height: 7 })
+          return
+        }
+        await vi.waitFor(() => expect(reads).toHaveLength(1))
+        if (scenario === 'edited') expect((await app.dispatchTo(tab, replace('b'))).ok).toBe(true)
+        if (scenario === 'closed') app.closeTab(tab.id)
+        if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
+        if (scenario === 'disposed') app.dispose()
+        reads[0]!.resolve()
+        if (scenario !== 'live') {
+          await expect(pending).rejects.toThrow('changed')
+          expect(loader.resolve(source)).toBeUndefined()
+          await expect(source.load()).rejects.toThrow('no longer current')
+          expect(reads).toHaveLength(1)
+          return
+        }
+        expect(await pending).toMatchObject({ width: 13, height: 7 })
+        loader.resolve(source)
+        await vi.waitFor(() => expect(reads).toHaveLength(2))
+        reads[1]!.resolve()
+        await decoded.promise
+        expect(loader.resolve(source)).toMatchObject({ width: 13, height: 7 })
+        expect((await app.dispatchTo(tab, replace('b'))).ok).toBe(true)
+        expect(loader.resolve(source)).toBeUndefined()
+        const replacement = loader.inputAssetSource!(asset('b').digest, 'image/png', 'image')!
+        expect(replacement.key).not.toBe(source.key)
+        const live = replacement.load()
+        await vi.waitFor(() => expect(reads).toHaveLength(3))
+        reads[2]!.resolve()
+        expect(await live).toMatchObject({ width: 13, height: 7 })
+      } finally {
+        loader.dispose()
+      }
+    },
+  )
 
   it.each(['accepted', 'refused', 'direct', 'prepared'] as const)(
     'requires ownership when an opaque node default makes the census incomplete: %s', async (scenario) => {

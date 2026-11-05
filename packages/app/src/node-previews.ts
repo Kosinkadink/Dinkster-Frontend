@@ -129,6 +129,8 @@ export interface PreviewSource {
   readonly imageBatch?: ExecutedImageBatch | undefined
   readonly refusal?: string | undefined
   readonly cancellationKey?: string
+  /** Captured document ownership must still hold before returning decoded cache entries. */
+  readonly current?: () => boolean
   load(signal?: AbortSignal): Promise<NodePreview>
 }
 
@@ -512,6 +514,11 @@ export function createPreviewLoader(deps: {
   assetUrlForExecution: (ref: ExecutionState['ref'], digest: string) => string
   /** Current editable tab's native asset URL; undefined on non-native tabs. */
   assetUrlForInput: (digest: string) => string | undefined
+  inputAssetReader?: (digest: string) => {
+    readonly key: string
+    current(): boolean
+    read<T>(consume: () => Promise<T>): Promise<T>
+  } | undefined
   readFile3dAsset?: (execution: ExecutionState['ref'], asset: Readonly<Record<string, Json>>, signal?: AbortSignal) => Promise<ArrayBuffer | undefined>
   /** A finished async decode: re-assemble the preview map. */
   onDecoded: () => void
@@ -911,7 +918,25 @@ export function createPreviewLoader(deps: {
           load: async () => ({ kind: mediaKind, mime: mediaType, src: url }),
         }
       }
-      return { key: `asset:${digest}`, failureKey: `asset-url:${url}`, load: () => decodeUrl(url) }
+      const owner = deps.inputAssetReader?.(digest)
+      if (deps.inputAssetReader !== undefined && owner === undefined) return undefined
+      return {
+        key: `asset:${digest}${owner === undefined ? '' : `:${owner.key}`}`,
+        failureKey: `asset-url:${url}`,
+        ...(owner === undefined ? {} : { current: owner.current }),
+        load: (signal) => {
+          const decode = async (): Promise<NodePreview> => {
+            signal?.throwIfAborted()
+            const preview = await decodeUrl(url)
+            if (signal?.aborted || owner?.current() === false) {
+              release(preview)
+              throw new Error('Workflow image reader changed during decode')
+            }
+            return preview
+          }
+          return owner === undefined ? decode() : owner.read(decode)
+        },
+      }
     },
 
     peekSource(values, exec, candidates, sceneNodeId, batchIndex = 0) {
@@ -1029,7 +1054,7 @@ export function createPreviewLoader(deps: {
     },
 
     resolve(source) {
-      if (disposed) return undefined
+      if (disposed || source.current?.() === false) return undefined
       const cancellationKey = source.cancellationKey ?? source.key
       const prior = requests.get(cancellationKey)
       if (prior !== undefined && prior.key !== source.key) {
@@ -1048,7 +1073,7 @@ export function createPreviewLoader(deps: {
       requests.set(cancellationKey, { key: source.key, controller })
       source.load(controller.signal)
         .then((p) => {
-          if (disposed || controller.signal.aborted) {
+          if (disposed || controller.signal.aborted || source.current?.() === false) {
             release(p)
             return
           }
@@ -1056,7 +1081,7 @@ export function createPreviewLoader(deps: {
           deps.onDecoded()
         })
         .catch((e: unknown) => {
-          if (disposed || controller.signal.aborted) return
+          if (disposed || controller.signal.aborted || source.current?.() === false) return
           // Undecodable frame: drop, never break the loop.
           const negativeCache = (e as { negativeCache?: boolean } | null)?.negativeCache === true
           // A miss notification can synchronously re-derive the same digest

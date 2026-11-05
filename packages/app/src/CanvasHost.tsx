@@ -2226,6 +2226,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const backend = props.app.backendForTab(tab)
       return backend.protocol === 'dinkster' ? backend.connection.assetUrl(digest) : undefined
     },
+    inputAssetReader: (digest) => {
+      const tab = activeTab()
+      return tab === undefined ? undefined : props.app.workflowAssetReader(tab, digest)
+    },
     onDecoded: () => setPreviewTick((v) => v + 1),
     validateMediaRendition: validateBrowserMediaRendition,
   })

@@ -4536,6 +4536,7 @@ export class AppState {
         startRefresh('reconnect')
       }
       const handleStatusChange = (status: ConnectionStatus): void => {
+        this.assetConnectionGenerations.set(connection, (this.assetConnectionGenerations.get(connection) ?? 0) + 1)
         this.submissionAssetOwners = new WeakMap()
         this.workflowRetentionRecoveries.get(connection)?.abort()
         this.workflowRetentionRecoveries.delete(connection)
@@ -4822,6 +4823,61 @@ export class AppState {
   valuesForExecution(ref: ExecutionRef): DinksterValuesClient | undefined {
     const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
     return backend?.protocol === 'dinkster' ? backend.connection.values() : undefined
+  }
+
+  /** Capture one document's ownership before a native input-image decode can begin. */
+  workflowAssetReader(tab: Tab, digest: string): {
+    readonly key: string
+    current(): boolean
+    read<T>(consume: () => Promise<T>): Promise<T>
+  } | undefined {
+    const backend = this.backendForTab(tab)
+    if (backend.protocol !== 'dinkster') return undefined
+    const document = tab.store.doc
+    const revision = tab.store.revision
+    const registry = this.registryForTab(tab)
+    const generation = this.assetConnectionGenerations.get(backend.connection)
+    const held = this.workflowAssetReaders.get(tab)
+    if (held?.document === document && held.revision === revision && held.registry === registry &&
+      held.backend === backend && held.generation === generation) return held.digests.has(digest) ? held.reader : undefined
+    const session = tab.store
+    const history = session.historySnapshot()
+    const roots = workflowAssetRoots(document, history, this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
+    const digests = new Set(roots.digests)
+    if (!digests.has(digest)) return undefined
+    const current = (): boolean => {
+      const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
+      return !this.disposed && live?.store === session && session.doc === document && session.revision === revision &&
+        this.backendForTab(live) === backend && this.registryForTab(live) === registry &&
+        generation === this.assetConnectionGenerations.get(backend.connection)
+    }
+    let admission: Promise<RetainedAssetReader> | undefined
+    const reader = {
+      key: `workflow:${++this.workflowAssetReaderSequence}`,
+      current,
+      read: async <T>(consume: () => Promise<T>): Promise<T> => {
+        if (!current()) throw new Error('Workflow asset reader is no longer current')
+        admission ??= retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+          .then((retained) => {
+            if (!current()) throw new Error('Workflow changed during asset admission')
+            return new RetainedAssetReader(backend.connection, retained, current)
+          }).catch((error: unknown) => {
+            admission = undefined
+            throw Object.assign(new Error(error instanceof Error ? error.message : 'Workflow ownership unconfirmed'), { transient: true })
+          })
+        const owned = await admission
+        this.valueAssetReaders.set(owned, (this.valueAssetReaders.get(owned) ?? 0) + 1)
+        try {
+          return await owned.read(consume)
+        } finally {
+          const remaining = this.valueAssetReaders.get(owned)! - 1
+          if (remaining === 0) this.valueAssetReaders.delete(owned)
+          else this.valueAssetReaders.set(owned, remaining)
+        }
+      },
+    }
+    this.workflowAssetReaders.set(tab, { document, revision, registry, backend, generation, digests, reader })
+    return reader
   }
 
   /** Granted original model bytes stay bound to the execution's native owner. */
@@ -7085,6 +7141,17 @@ export class AppState {
     { connection: DinksterConnection; revision: number; schemaHash: string; digest: string }
   >()
   private readonly valueAssetReaders = new Map<RetainedAssetReader, number>()
+  private readonly assetConnectionGenerations = new WeakMap<DinksterConnection, number>()
+  private workflowAssetReaderSequence = 0
+  private readonly workflowAssetReaders = new WeakMap<Tab, {
+    readonly document: WorkflowDocument
+    readonly revision: number
+    readonly registry: SchemaRegistry | undefined
+    readonly backend: Backend
+    readonly generation: number | undefined
+    readonly digests: ReadonlySet<string>
+    readonly reader: NonNullable<ReturnType<AppState['workflowAssetReader']>>
+  }>()
   private submissionAssetOwners = new WeakMap<Tab, {
     readonly connection: DinksterConnection
     readonly document: WorkflowDocument

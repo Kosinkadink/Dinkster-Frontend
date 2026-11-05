@@ -70,6 +70,17 @@ recovery references, and does not release any retained owner. Standalone values
 clients without an admission policy keep their transport behavior and bounded
 byte cache.
 
+Canvas input-image sources capture their document session, revision, registry,
+backend and observed connection lifetime before loading. The document and its
+history roots receive acknowledged ownership before native image decode begins.
+Only identities present in that captured census can use the reader. Decoded
+cache keys are partitioned by the captured owner, and changed documents, closed
+tabs, backend switches or connection transitions refuse stale reads and cache
+publication. A failed ownership request permits a later attempt; it is not a
+permanent missing-image result. This boundary covers input-image decode only,
+not model posters, native audio/video handles, recovery references or retirement.
+No retained owner is released when a source becomes obsolete.
+
 Live and mirrored structured outputs and preview records also await incomplete
 shown-result ownership, including records with no known digest. Later events
 for that execution wait for admission so completion cannot overtake the held
