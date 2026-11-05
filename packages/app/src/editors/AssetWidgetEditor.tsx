@@ -221,6 +221,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     isAssetRefArray(ed.initial) ? ed.initial : isAssetRef(ed.initial) ? [ed.initial] : [],
   )
   let selectionReader: PreviewSource['assetReader']
+  const [selectionAdmitted, setSelectionAdmitted] = createSolidSignal(uploadBackend.protocol !== 'dinkster' || assetSelection().length === 0)
   const [pendingSelections, setPendingSelections] = createSolidSignal(0)
   let selectionQueue = Promise.resolve()
   const stageAssetSelection = (
@@ -234,13 +235,14 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       const current = assetSelection()
       const candidate = change(current)
       let reader = selectionReader
-      if (candidate.some((ref) => !current.some((held) => held.digest === ref.digest))) {
+      if ((!selectionAdmitted() && candidate.length > 0) || candidate.some((ref) => !current.some((held) => held.digest === ref.digest))) {
         reader = await props.app.retainPickerAssets(ed.tab, uploadBackend, candidate)
       }
       if (!live || props.app.backendForTab(ed.tab) !== uploadBackend || activeProjectId() !== project) return false
       if (reader?.current() === false) throw new Error('Picker selection changed; reopen the asset picker')
       selectionReader = reader
       setAssetSelection(candidate)
+      setSelectionAdmitted(true)
       setAssetError(undefined)
       published()
       return true
@@ -418,7 +420,11 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   if (ed.spec?.widgetType === 'ASSET') {
     const backend = props.app.backendForTab(ed.tab)
     const asset = isAssetRef(ed.initial) ? ed.initial : isAssetRefArray(ed.initial) ? ed.initial[0] : undefined
-    if (asset !== undefined && asset.digest !== ed.missingAssetDigest) void publishAssetRefPreview(asset)
+    if (asset !== undefined && backend.protocol === 'dinkster') {
+      void stageAssetSelection((current) => current, () => {
+        if (asset.digest !== ed.missingAssetDigest) void publishAssetRefPreview(asset)
+      })
+    }
     if (backend.protocol !== 'dinkster') {
       setAssetSourcesError('Asset browsing requires a native Dinkster backend')
     } else {
@@ -1061,8 +1067,9 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 type="button"
                 class="primary"
                 data-testid="asset-apply"
-                disabled={assetUploading() || pendingSelections() > 0 || (!assetMulti && selectedUncommittableModel() !== undefined)}
+                disabled={!selectionAdmitted() || assetUploading() || pendingSelections() > 0 || (!assetMulti && selectedUncommittableModel() !== undefined)}
                 onClick={() => {
+                  if (!selectionAdmitted()) return
                   if (selectionReader?.current() === false) {
                     setAssetError('Picker selection changed; reopen the asset picker')
                     return

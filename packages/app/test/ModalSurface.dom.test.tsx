@@ -530,8 +530,57 @@ describe('ASSET widget modal integration', () => {
     } finally { mounted.unmount() }
   })
 
-  it.each(['live', 'edited', 'closed', 'disconnected', 'registry', 'disposed'] as const)(
-    'applies admitted picks only to their captured document: %s', async (scenario) => {
+  it.each(['accepted', 'refused', 'closed'] as const)('admits the stored picker selection before preview or Apply: %s', async (outcome) => {
+    const initial = { digest: `blake3:${'d'.repeat(64)}`, name: 'stored.png', size: 4,
+      mediaType: 'image/png', virtualPath: 'images/stored.png' }
+    const reader = { key: 'stored-picker', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }
+    let accept!: () => void
+    let refuse!: (error: Error) => void
+    const retainPickerAssets = vi.fn(() => new Promise<typeof reader>((resolve, reject) => {
+      accept = () => resolve(reader); refuse = reject
+    }))
+    const fetchAssetBytes = vi.fn().mockResolvedValue(new ArrayBuffer(4))
+    const backend = { protocol: 'dinkster', id: 'native', connection: { ...assetLocationMethods,
+      listMounts: async () => [], listLocalAssets: async () => ({ assets: [] }), checkAssetAvailability: async () => [],
+      fetchAssetBytes, assetUrl: (digest: string) => `/api/assets/${digest}`,
+    } }
+    const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
+    const app = { backendForTab: () => backend, retainPickerAssets, dispatchTo,
+      widgetRegistry: { kind: () => undefined } } as unknown as AppState
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:stored-image')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const root = document.createElement('div'); document.body.append(root)
+    const ed = widgetState('ASSET', {}, initial)
+    const unmount = render(() => <WidgetEditor app={app} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+    try {
+      await vi.waitFor(() => expect(accept).toBeTypeOf('function'))
+      expect(fetchAssetBytes).not.toHaveBeenCalled()
+      expect(root.querySelector('img[alt="Asset preview"]')).toBeNull()
+      expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(true)
+      expect([...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Cancel')!.disabled).toBe(false)
+      if (outcome === 'closed') unmount()
+      if (outcome === 'refused') refuse(new Error('Stored selection ownership refused'))
+      else accept()
+      if (outcome === 'accepted') {
+        await vi.waitFor(() => expect(root.querySelector('img[alt="Asset preview"]')?.getAttribute('src')).toBe('blob:stored-image'))
+        expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false)
+        root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+        expect(dispatchTo).toHaveBeenCalledWith(ed.tab, expect.objectContaining({ params: expect.objectContaining({ value: initial }) }))
+      } else {
+        if (outcome === 'refused') {
+          await vi.waitFor(() => expect(root.textContent).toContain('Stored selection ownership refused'))
+          expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(true)
+        }
+        await Promise.resolve()
+        expect(fetchAssetBytes).not.toHaveBeenCalled()
+        expect(dispatchTo).not.toHaveBeenCalled()
+      }
+    } finally { unmount() }
+  })
+
+  it.each(['live', 'edited', 'closed', 'disconnected', 'registry', 'disposed'].flatMap((scenario) =>
+    [false, true].map((stored) => ({ scenario, stored }))))(
+    'applies admitted picks only to their captured document: $scenario stored=$stored', async ({ scenario, stored }) => {
       const schema: NodeSchema = { type: 'PickerFixture', displayName: 'Picker', category: 'test', source: 'v3', isOutputNode: false,
         items: [{ kind: 'input', id: 'asset', optional: false, type: { kind: 'concrete', name: 'ASSET' },
           widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] } } }],
@@ -552,14 +601,15 @@ describe('ASSET widget modal integration', () => {
       const mountPicker = () => render(() => <WidgetEditor app={app} ed={{ tab, graphId: 'g0',
         target: { kind: 'input', nodeId: 'n1', valueKey: 'asset' }, label: 'Model',
         spec: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] } },
-        declaredType: { kind: 'concrete', name: 'ASSET' }, initial: null,
+        declaredType: { kind: 'concrete', name: 'ASSET' }, initial: stored ? ref : null,
         multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 },
       }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
       let unmount = mountPicker()
       try {
         await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1))
-        root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+        if (!stored) root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
         await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(ref.name))
+        await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
         if (scenario === 'edited') expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
           graphId: 'g0', nodeId: 'n1', inputId: 'asset', value: null,
         } })).ok).toBe(true)
@@ -589,6 +639,7 @@ describe('ASSET widget modal integration', () => {
             await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1))
             root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
             await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(ref.name))
+            await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
             root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
             await vi.waitFor(() => expect(dispatch).toHaveBeenCalledWith(tab, expect.objectContaining({
               command: 'node.setValue', params: expect.objectContaining({ value: ref }),
@@ -1449,17 +1500,19 @@ describe('ASSET widget modal integration', () => {
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial: { digest, name: 'clip.webm', size: 4043, mediaType: 'video/webm', virtualPath: 'clip.webm' },
     }
-    const app = {
-      backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection: {
+    const backend = { protocol: 'dinkster', id: 'native', connection: {
         ...assetLocationMethods,
         assetUrl,
         listMounts: vi.fn().mockResolvedValue([]),
-      } }),
+      } }
+    const app = {
+      backendForTab: () => backend,
+      retainPickerAssets: vi.fn().mockResolvedValue(undefined),
       dispatchTo: vi.fn(),
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const unmount = render(() => <WidgetEditor app={app} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
+    await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-video-preview"]')).not.toBeNull())
 
     const video = root.querySelector<HTMLVideoElement>('[data-testid="asset-video-preview"]')!
     expect(video).not.toBeNull()
@@ -1495,12 +1548,14 @@ describe('ASSET widget modal integration', () => {
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial: { digest, name: 'broken.png', size: 4, mediaType: 'image/png', virtualPath: 'broken.png' },
     }
-    const app = {
-      backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection: {
+    const backend = { protocol: 'dinkster', id: 'native', connection: {
         ...assetLocationMethods,
         fetchAssetBytes: vi.fn().mockResolvedValue(new Uint8Array([0, 1, 2, 3])),
         listMounts: vi.fn().mockResolvedValue([]),
-      } }),
+      } }
+    const app = {
+      backendForTab: () => backend,
+      retainPickerAssets: vi.fn().mockResolvedValue(undefined),
       dispatchTo: vi.fn(),
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState

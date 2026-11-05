@@ -30,8 +30,10 @@ Output-descriptor Apply shows command refusals and transport errors above the
 draft, separately from descriptor validation and metadata-probe errors. The
 draft remains available for retry and closes only after command acceptance.
 
-Native asset pickers confirm an independent incomplete owner before publishing
-a newly selected reference or starting its server preview. Picks are processed
+Native asset pickers confirm an independent incomplete owner for stored selections
+on open and before publishing a newly selected reference or starting its server
+preview. Apply stays disabled during initial admission and after refusal until a
+selection is admitted; Cancel remains available. Picks are processed
 in invocation order; Apply is disabled while a pick is pending. Refusal preserves
 the previous selection and reports the failure inline. Cancel discards the local
 draft without releasing acknowledged owners. The staged selection keeps its
