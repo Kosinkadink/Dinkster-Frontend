@@ -266,7 +266,7 @@ it.each(['valid', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-obj',
   dispose()
 })
 
-it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no-rendition', 'changed-result', 'close', 'edited', 'divergent', 'width-overflow', 'rendition-mismatch', 'asset-producer', 'malformed-asset', 'base-file', 'splat-file', 'cloud-file', 'admission-held', 'admission-refused', 'admission-close', 'admission-edited', 'admission-result', 'reader-expired'] as const)('resolves exact producer metadata or abstains for %s', async (variant) => {
+it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no-rendition', 'changed-result', 'close', 'edited', 'divergent', 'width-overflow', 'rendition-mismatch', 'asset-producer', 'malformed-asset', 'base-file', 'splat-file', 'cloud-file', 'admission-held', 'admission-refused', 'admission-close', 'admission-edited', 'admission-result', 'reader-expired', 'bytes-held', 'bytes-refused', 'bytes-close', 'bytes-edited', 'bytes-result', 'stored-manifest'] as const)('resolves exact producer metadata or abstains for %s', async (variant) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:producer')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const schema = parseDinksterSchema('Preview3DProducerFixture', { interface: [
@@ -282,9 +282,10 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
   const initial = { camera_info: { ...fixtures.camera, fov: 11 }, model_3d_info: [fixtures.transform], recording: '' }
   const cameraInfo = { ...fixtures.camera, fov: 79, extension: 'linked-camera' }
   const models = [{ ...fixtures.transform, position: { x: -8, y: 4, z: 1 }, extension: 'linked-model' }, { name: 'second-linked' }]
-  const assetProducer = variant === 'asset-producer' || variant === 'malformed-asset'
+  const assetProducer = variant === 'asset-producer' || variant === 'malformed-asset' || variant === 'stored-manifest'
   const store = new DocumentStore({ ...imported.document!, graphs: { g0: { ...graph,
-    nodes: { ...graph.nodes, n1: { ...graph.nodes.n1!, values: { viewport_state: initial, model_file: { ...primary, digest: `blake3:${'f'.repeat(64)}` } } },
+    nodes: { ...graph.nodes, n1: { ...graph.nodes.n1!, values: { viewport_state: initial, model_file: { ...primary, digest: `blake3:${'f'.repeat(64)}` },
+      ...(variant === 'stored-manifest' ? { model_3d: { format: 'gltf', source: primary, resources: {} } } : {}) } },
       source: { id: asNodeId('source'), type: 'Source', values: {} } },
     links: Object.fromEntries([assetProducer ? 'model_file' : 'model_3d', 'camera_info', 'model_3d_info', 'width'].map((port) => [port, {
       id: asLinkId(port), from: { node: asNodeId('source'), port: asPortId(port) }, to: { node: asNodeId('n1'), port: asPortId(port) },
@@ -308,6 +309,7 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
   const paused = new Promise<void>((resolve) => { release = resolve })
   let started = false
   let admissionStarted = false
+  let byteAdmissionStarted = false
   let renditionCount = 0
   const reads: string[] = []
   const connection = {
@@ -336,7 +338,8 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
         renditionCount++
         if (nested && query.nodeId !== 'current') throw new Error('wrong instance')
         if (variant === 'changed-result') execution = { ...execution, key: 'owner:new-job' }
-        const value = query.outputId === 'model_3d' ? { format: variant === 'splat-file' || variant === 'cloud-file' ? 'ply' : 'gltf', source: primary, resources: {} }
+        const value = query.outputId === 'model_3d' ? { format: variant === 'splat-file' || variant === 'cloud-file' ? 'ply' : 'gltf', source: primary,
+          resources: variant === 'bytes-held' ? { 'buffers/mesh.bin': { ...primary, digest: `blake3:${'a'.repeat(64)}`, name: 'mesh.bin' } } : {} }
           : query.outputId === 'camera-output' ? cameraInfo : models
         return { available: true, mime: 'application/json', fingerprint: variant === 'rendition-mismatch' ? 'different' : 'same', bytes: new TextEncoder().encode(JSON.stringify(value)).buffer }
       },
@@ -346,6 +349,15 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
   const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry, registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ id: 'owner', protocol: 'dinkster', connection }),
     executionForTab: () => execution, compileTabCached: () => ({ ok: true, artifact: liveArtifact }),
+    readFile3dAssetForExecution: async (ref: ExecutionState['ref'], asset: { digest: string }, signal: AbortSignal) => {
+      if (variant === 'stored-manifest') throw new Error('Stored model must not borrow an unrelated producer')
+      expect(ref).toEqual({ connection: 'owner', prompt: 'job' })
+      byteAdmissionStarted = true
+      if (variant.startsWith('bytes-')) await paused
+      signal.throwIfAborted()
+      if (variant === 'bytes-refused') throw new Error('The selected model file is unavailable.')
+      return connection.fetchAssetBytes(asset.digest)
+    },
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
@@ -353,6 +365,15 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
     target: { kind: 'input', nodeId: 'n1', valueKey: 'viewport_state' }, label: 'Viewport', spec: inputsOf(schema)[1]!.widget,
     declaredType: inputsOf(schema)[1]!.type, multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  if (variant.startsWith('bytes-')) {
+    await vi.waitFor(() => expect(byteAdmissionStarted).toBe(true))
+    expect(reads).toEqual([])
+    expect(fixtures.loads).toEqual([])
+    if (variant === 'bytes-close') dispose()
+    else if (variant === 'bytes-edited') store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'value', value: 4 } })
+    else if (variant === 'bytes-result') execution = { ...execution, key: 'owner:new-job' }
+    release!()
+  }
   if (variant.startsWith('admission-') && variant !== 'admission-refused') {
     await vi.waitFor(() => expect(admissionStarted).toBe(true))
     expect(renditionCount).toBe(0)
@@ -369,20 +390,20 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
     else store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'value', value: 4 } })
     release!()
   }
-  if (!['current', 'nested', 'asset-producer', 'base-file', 'splat-file', 'cloud-file', 'admission-held'].includes(variant)) {
-    if (variant !== 'close' && variant !== 'admission-close') await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
+  if (!['current', 'nested', 'asset-producer', 'base-file', 'splat-file', 'cloud-file', 'admission-held', 'bytes-held', 'stored-manifest'].includes(variant)) {
+    if (variant !== 'close' && variant !== 'admission-close' && variant !== 'bytes-close') await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
     else await paused
-    expect(reads).toEqual([])
+    expect(reads).toEqual(variant === 'bytes-edited' || variant === 'bytes-result' ? [primary.digest] : [])
     expect(fixtures.loads).toEqual([])
     if (variant.startsWith('admission-')) expect(renditionCount).toBe(0)
     if (variant === 'reader-expired') expect(renditionCount).toBe(1)
     expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual(initial)
-    if (variant !== 'close' && variant !== 'admission-close') dispose()
+    if (variant !== 'close' && variant !== 'admission-close' && variant !== 'bytes-close') dispose()
     return
   }
   await vi.waitFor(() => expect(document.querySelector<HTMLInputElement>('#load3d-fov')?.value).toBe('79'))
   expect(document.querySelector<HTMLInputElement>('#load3d-position-x')!.value).toBe('-8')
-  expect(reads).toEqual([primary.digest])
+  expect(reads).toEqual(variant === 'bytes-held' ? [primary.digest, `blake3:${'a'.repeat(64)}`] : [primary.digest])
   Array.from(document.querySelectorAll('button')).find((button) => button.textContent === 'Apply')!.click()
   await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual({ ...initial, camera_info: cameraInfo, model_3d_info: models }))
   dispose()

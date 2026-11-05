@@ -1,4 +1,4 @@
-import { asPortId, buildRerouteIndex, companionSourcesOf, defaultValuesOf, occurrencesForView, parseAssetTypeId, portRefKey, type Json } from '@dinkster/core'
+import { asPortId, buildRerouteIndex, companionSourcesOf, defaultValuesOf, occurrencesForView, parseAssetTypeId, portRefKey, type ExecutionRef, type Json } from '@dinkster/core'
 import { createSignal, For, onCleanup, onMount, Show, type Component } from 'solid-js'
 import { viewInstancePath } from '../app-state.js'
 import { liveExactnessFor } from '../companion-display.js'
@@ -79,6 +79,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         return source?.kind === 'producer' ? [{ inputId, source }] : []
       })
       const unavailable = () => new Error(message('load3dWidget.unavailable'))
+      let producerExecution: ExecutionRef | undefined
       if (producers.length > 0) {
         if (producers.some(({ source }) => { return graph?.nodes[source.node] === undefined })) throw unavailable()
         const execution = props.editor.app.executionForTab(ed.tab)
@@ -91,6 +92,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         if (!execution || execution.status !== 'completed' || !ran || !current || !exact || !path || ownerDepth < 0
           || execution.ref.connection !== backend.id || ran.connection !== backend.id || current.connection !== backend.id
           || ran.snapshot.lineage !== ed.tab.store.doc.lineage || current.snapshot.lineage !== ed.tab.store.doc.lineage) throw unavailable()
+        producerExecution = execution.ref
         sourcesCurrent = () => {
           const navigation = viewInstancePath(ed.tab)
           const fresh = props.editor.app.compileTabCached(ed.tab)
@@ -179,14 +181,19 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         })
       )) throw new Error(message('load3dWidget.unavailable'))
       const model = object(manifest === undefined ? inputValue('model_file') : file3d.source)
+      const modelExecution = sources?.get(manifest === undefined ? 'model_file' : 'model_3d')?.kind === 'producer'
+        ? producerExecution : undefined
       const assetUrl = async (ref: Record<string, Json>) => {
         if (ref.verification === 'unverified' && (typeof ref.localBinding !== 'string' || !ref.localBinding || 'digest' in ref)) {
           throw new Error(message('load3dWidget.unavailable'))
         }
         if (ref.verification !== 'unverified' && typeof ref.digest !== 'string') throw new Error(message('load3dWidget.chooseModel'))
-        const bytes = ref.verification === 'unverified'
-          ? await backend.connection.fetchLocalAssetBytes(ref.localBinding as string, abort.signal)
-          : await backend.connection.fetchAssetBytes(ref.digest as string, abort.signal)
+        if (!live || !sourcesCurrent()) throw unavailable()
+        const bytes = modelExecution !== undefined
+          ? await props.editor.app.readFile3dAssetForExecution(modelExecution, ref, abort.signal)
+          : ref.verification === 'unverified'
+            ? await backend.connection.fetchLocalAssetBytes(ref.localBinding as string, abort.signal)
+            : await backend.connection.fetchAssetBytes(ref.digest as string, abort.signal)
         if (!live || !sourcesCurrent() || !bytes) throw new Error(message('load3dWidget.unavailable'))
         const url = URL.createObjectURL(new Blob([bytes], { type: String(ref.mediaType ?? 'application/octet-stream') }))
         urls.push(url)

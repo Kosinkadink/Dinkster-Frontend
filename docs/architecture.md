@@ -122,6 +122,12 @@ metadata; closing, editing or replacing the execution refuses stale work before
 fetch and publication. Original model resources and viewer handles have separate
 lifetimes and are not covered by this metadata boundary.
 
+Load3d original model and sidecar reads selected from producer outputs use the
+captured execution's original-byte reader. A stored manifest remains the source
+even when other inputs have producers; stored inputs and local grants keep their
+existing paths. Closing aborts the read and stale source state cannot publish
+object URLs. This boundary does not cover viewer decode or native handles.
+
 Live and mirrored structured outputs and preview records also await incomplete
 shown-result ownership, including records with no known digest. Later events
 for that execution wait for admission so completion cannot overtake the held
