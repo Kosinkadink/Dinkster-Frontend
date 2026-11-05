@@ -267,8 +267,9 @@ describe('retained app dispatch', () => {
     vi.unstubAllGlobals()
   })
 
-  it.each(['live', 'edited', 'closed', 'disconnected', 'disposed', 'refused'] as const)(
-    'binds input-image decode and cache reads to acknowledged document ownership: %s', async (scenario) => {
+  it.each((['image', 'model3d'] as const).flatMap((kind) =>
+    (['live', 'edited', 'closed', 'disconnected', 'disposed', 'refused'] as const).map((scenario) => ({ kind, scenario }))))(
+    'binds input-$kind decode and cache reads to acknowledged document ownership: $scenario', async ({ kind, scenario }) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       app = createWorkflowApp([schema])
       expect(app.openDocument(session().doc, 'Image owner')).toEqual([])
@@ -298,12 +299,20 @@ describe('retained app dispatch', () => {
         assetUrlForExecution: () => '',
         assetUrlForInput: (digest) => ownerApp.connection.assetUrl(digest),
         inputAssetReader: (digest) => ownerApp.workflowAssetReader(tab, digest),
+        renderModel3dPoster: async () => {
+          const read = deferred<void>()
+          reads.push(read)
+          await read.promise
+          return { image: {} as CanvasImageSource, width: 13, height: 7 }
+        },
         onDecoded: () => decoded.resolve(),
       })
       try {
         expect(app.workflowAssetReader(tab, asset('f').digest)).toBeUndefined()
-        const source = loader.inputAssetSource!(asset('a').digest, 'image/png', 'image')!
+        const mime = kind === 'image' ? 'image/png' : 'model/gltf-binary'
+        const source = loader.inputAssetSource!(asset('a').digest, mime, kind)!
         const pending = source.load()
+        expect(reads).toHaveLength(0)
         const { owner, declaration } = await requested.promise
         expect(declaration.digests).toEqual([asset('a').digest])
         expect(reads).toHaveLength(0)
@@ -339,7 +348,7 @@ describe('retained app dispatch', () => {
         expect(loader.resolve(source)).toMatchObject({ width: 13, height: 7 })
         expect((await app.dispatchTo(tab, replace('b'))).ok).toBe(true)
         expect(loader.resolve(source)).toBeUndefined()
-        const replacement = loader.inputAssetSource!(asset('b').digest, 'image/png', 'image')!
+        const replacement = loader.inputAssetSource!(asset('b').digest, mime, kind)!
         expect(replacement.key).not.toBe(source.key)
         const live = replacement.load()
         await vi.waitFor(() => expect(reads).toHaveLength(3))

@@ -902,15 +902,7 @@ export function createPreviewLoader(deps: {
       }
       const url = deps.assetUrlForInput(digest)
       if (url === undefined) return undefined
-      if (mediaKind === 'model3d') {
-        return {
-          key: directMediaKey(digest, mediaType, url),
-          failureKey: `asset-url:${url}`,
-          mediaKind,
-          load: () => model3dPreview(url, mediaType),
-        }
-      }
-      if (mediaKind !== 'image') {
+      if (mediaKind !== 'image' && mediaKind !== 'model3d') {
         return {
           key: directMediaKey(digest, mediaType, url),
           failureKey: `asset-url:${url}`,
@@ -920,17 +912,19 @@ export function createPreviewLoader(deps: {
       }
       const owner = deps.inputAssetReader?.(digest)
       if (deps.inputAssetReader !== undefined && owner === undefined) return undefined
+      const key = mediaKind === 'model3d' ? directMediaKey(digest, mediaType, url) : `asset:${digest}`
       return {
-        key: `asset:${digest}${owner === undefined ? '' : `:${owner.key}`}`,
+        key: owner === undefined ? key : `${key}:${owner.key}`,
         failureKey: `asset-url:${url}`,
+        ...(mediaKind === 'model3d' ? { mediaKind } : {}),
         ...(owner === undefined ? {} : { current: owner.current }),
         load: (signal) => {
           const decode = async (): Promise<NodePreview> => {
             signal?.throwIfAborted()
-            const preview = await decodeUrl(url)
+            const preview = mediaKind === 'model3d' ? await model3dPreview(url, mediaType) : await decodeUrl(url)
             if (signal?.aborted || owner?.current() === false) {
               release(preview)
-              throw new Error('Workflow image reader changed during decode')
+              throw new Error('Workflow asset reader changed during decode')
             }
             return preview
           }

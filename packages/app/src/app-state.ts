@@ -4825,7 +4825,7 @@ export class AppState {
     return backend?.protocol === 'dinkster' ? backend.connection.values() : undefined
   }
 
-  /** Capture one document's ownership before a native input-image decode can begin. */
+  /** Capture one document's ownership before input-image decode or model-poster work. */
   workflowAssetReader(tab: Tab, digest: string): {
     readonly key: string
     current(): boolean
