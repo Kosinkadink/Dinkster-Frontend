@@ -62,6 +62,12 @@ loader and revokes its local URL. A cancellation-ignoring body remains owned
 until settlement and cannot create or publish a late URL. The detail rail
 uses the same loader as cards, without an unadmitted digest-URL fallback.
 
+Library workflows and recorded-run workflows admit their source-document
+digest through independent preview ownership before fetching or parsing the
+payload. The captured backend and open intent must remain current through
+body settlement. Parsed local data then enters workflow-root admission;
+publishing the new tab is separate from the payload read it supersedes.
+
 These manifests do not enumerate all frontend holders or enable collection.
 Bounded output descriptors, rendition fingerprints and cache keys are not
 complete typed asset-reference sets. The backend source gate

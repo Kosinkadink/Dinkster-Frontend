@@ -171,6 +171,66 @@ describe('owned collection pages', () => {
 })
 
 describe('owned entry actions', () => {
+  it.each(['library', 'run'] as const)('admits %s payloads before reading and refuses obsolete publication', async (source) => {
+    const { a, tab } = twoBackends()
+    vi.spyOn(a.connection, 'getLibraryRecord').mockResolvedValue(record())
+    vi.spyOn(a.connection, 'getHistoryRun').mockResolvedValue(run())
+    let admit!: () => void
+    const admission = new Promise<void>((resolve) => { admit = resolve })
+    let finish!: () => void
+    const body = new Promise<string>((resolve) => { finish = () => resolve(JSON.stringify({ ...DOC, lineage: 'payload-opened' })) })
+    const retain = vi.spyOn(a.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      if (owner.ownerKind === 'preview') await admission
+      return { ...owner, ...declaration, revision: declaration.revision + 1 }
+    })
+    const fetch = vi.spyOn(a.connection, 'fetchAssetText').mockReturnValue(body)
+    let settled = false
+    const opening = (source === 'library' ? app.openFromLibrary('r1', a.id) : app.openRunWorkflow('run-1', a.id))
+      .finally(() => { settled = true })
+    await vi.waitFor(() => expect(retain).toHaveBeenCalled())
+    expect(fetch).not.toHaveBeenCalled()
+    expect(retain.mock.calls[0]).toMatchObject([{ ownerKind: 'preview' }, { complete: false, digests: [DIGEST] }])
+    expect(app.activeTab()).toBe(tab)
+    admit()
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(DIGEST))
+    app.openDocument({ ...DOC, lineage: 'newer-open' }, 'Newer document')
+    const newer = app.activeTab()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    finish()
+    expect(await opening).toBe(false)
+    expect(app.activeTab()).toBe(newer)
+    expect(app.tabs.get().some((candidate) => candidate.store.doc.lineage === 'payload-opened')).toBe(false)
+    expect(app.problems.get().some((problem) => ['library.openFailed', 'history.openFailed'].includes(problem.code))).toBe(false)
+  })
+
+  it.each(['library', 'run'].flatMap((source) => ['refused', 'mismatched', 'superseded', 'removed'].map((scenario) => ({ source, scenario }))))(
+    'refuses $source payload bytes after $scenario admission', async ({ source, scenario }) => {
+      const { a, tab } = twoBackends()
+      vi.spyOn(a.connection, 'getLibraryRecord').mockResolvedValue(record())
+      vi.spyOn(a.connection, 'getHistoryRun').mockResolvedValue(run())
+      let admit!: () => void
+      const admission = new Promise<void>((resolve) => { admit = resolve })
+      const retain = vi.spyOn(a.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+        await admission
+        if (scenario === 'refused') throw new Error('ownership refused')
+        return { ...owner, ...declaration, revision: declaration.revision + (scenario === 'mismatched' ? 2 : 1) }
+      })
+      vi.spyOn(a.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      const fetch = vi.spyOn(a.connection, 'fetchAssetText').mockResolvedValue(JSON.stringify(DOC))
+      const opening = source === 'library' ? app.openFromLibrary('r1', a.id) : app.openRunWorkflow('run-1', a.id)
+      await vi.waitFor(() => expect(retain).toHaveBeenCalled())
+      if (scenario === 'superseded') app.openDocument({ ...DOC, lineage: 'newer-open' }, 'Newer')
+      if (scenario === 'removed') app.removeBackend(a.id)
+      const current = app.activeTab()
+      admit()
+      expect(await opening).toBe(false)
+      expect(fetch).not.toHaveBeenCalled()
+      expect(app.activeTab()).toBe(current)
+      if (scenario !== 'superseded') expect(current).toBe(tab)
+    },
+  )
+
   it('openFromLibrary resolves the record on its owner, not the active backend', async () => {
     const { a, b, tab } = twoBackends()
     app.setTabTarget(tab.id, b.id) // the click lands while B is active

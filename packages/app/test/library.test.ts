@@ -407,8 +407,12 @@ describe('openFromLibrary', () => {
     let deliverBytes!: (text: string) => void
     vi.spyOn(backend.connection, 'fetchAssetText').mockReturnValue(new Promise((done) => { deliverBytes = done }))
     let acknowledge!: (revision: number) => void
-    const requested = vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) =>
-      new Promise((done) => { acknowledge = (revision) => done({ ...owner, ...declaration, revision }) }))
+    const requested = vi.fn()
+    vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
+      if (owner.ownerKind === 'preview') return Promise.resolve({ ...owner, ...declaration, revision: declaration.revision + 1 })
+      requested(owner, declaration)
+      return new Promise((done) => { acknowledge = (revision) => done({ ...owner, ...declaration, revision }) })
+    })
     vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
     const publishedHomes: string[] = []
     const unsubscribe = app.tabs.subscribe((tabs) => {

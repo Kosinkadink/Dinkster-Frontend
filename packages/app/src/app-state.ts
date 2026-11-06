@@ -201,7 +201,7 @@ import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegist
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
-import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainWorkflowAssets, workflowAssetRoots } from './workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainWorkflowAssets, workflowAssetRoots } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -7475,10 +7475,13 @@ export class AppState {
       // backend must still report ownerGone, not silently return.
       if (!this.ownerStillLive(backend)) return false
       if (!record) return false
-      const text = await backend.connection.fetchAssetText(record.digest)
+      const json = await readAssetPreview(backend.connection, record.digest, async () => {
+        const text = await backend.connection.fetchAssetText(record.digest)
+        return text === undefined ? undefined : JSON.parse(text) as unknown
+      }, () => stillWanted() && this.backends.get().includes(backend))
       if (!this.ownerStillLive(backend)) return false
-      if (text === undefined) return false
-      const tab = await this.openRetainedDocument(JSON.parse(text) as unknown, record.name, backend, stillWanted)
+      if (json === undefined) return false
+      const tab = await this.openRetainedDocument(json, record.name, backend, stillWanted)
       if (!tab || !this.tabs.get().includes(tab)) return false
       this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id })
       this.markTabClean(tab.id)
@@ -7486,7 +7489,7 @@ export class AppState {
     } catch (e) {
       // A rejection from a retired backend (removal disconnects/aborts) is
       // an ownership loss, not a transport diagnosis worth surfacing.
-      if (this.ownerStillLive(backend)) {
+      if (this.ownerStillLive(backend) && stillWanted()) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
           diag('error', 'validation', 'library.openFailed', `failed to open workflow from library: ${e instanceof Error ? e.message : String(e)}`),
         ])
@@ -7575,17 +7578,19 @@ export class AppState {
         ])
         return false
       }
-      const text = await backend.connection.fetchAssetText(run.sourceDocument)
+      const json = await readAssetPreview(backend.connection, run.sourceDocument, async () => {
+        const text = await backend.connection.fetchAssetText(run.sourceDocument!)
+        return text === undefined ? undefined : JSON.parse(text) as unknown
+      }, () => stillWanted() && this.backends.get().includes(backend))
       if (!this.ownerStillLive(backend)) return false
-      if (text === undefined) return false
-      const json = JSON.parse(text) as unknown
+      if (json === undefined) return false
       const meta = (json as { meta?: { title?: unknown } }).meta
       const title = typeof meta?.title === 'string' ? meta.title : `Run ${run.jobId.slice(0, 8)}`
       const tab = await this.openRetainedDocument(json, title, backend, stillWanted)
       if (!tab || !this.tabs.get().includes(tab)) return false
       return true
     } catch (e) {
-      if (this.ownerStillLive(backend)) {
+      if (this.ownerStillLive(backend) && stillWanted()) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
           diag('error', 'validation', 'history.openFailed', `failed to open run workflow: ${e instanceof Error ? e.message : String(e)}`),
         ])
