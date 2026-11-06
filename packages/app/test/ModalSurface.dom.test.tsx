@@ -659,6 +659,79 @@ describe('ASSET widget modal integration', () => {
     } finally { admit?.(); finish?.(); unmount() }
   })
 
+  it.each(['accepted', 'refused', 'closed', 'expired', 'closed-resource', 'failed-resource', 'replacement'] as const)('borrows the picker owner until native video reset settles: %s', async (outcome) => {
+    const initial = { digest: `blake3:${'e'.repeat(64)}`, name: 'stored.webm', size: 4,
+      mediaType: 'video/webm', virtualPath: 'videos/stored.webm' }
+    const next = { ...initial, digest: `blake3:${'f'.repeat(64)}`, name: 'replacement.webm' }
+    let current = true
+    let reads = 0
+    let admit!: () => void
+    const reader = { key: 'picker-video', current: () => current, read: async <T,>(consume: () => Promise<T>) => {
+      reads++
+      try {
+        await new Promise<void>((resolve) => { admit = resolve })
+        if (outcome === 'refused') throw new Error('Video ownership refused')
+        return await consume()
+      } finally { reads-- }
+    } }
+    const backend = { protocol: 'dinkster', id: 'native', connection: { ...assetLocationMethods,
+      listMounts: async () => [], listLocalAssets: async () => ({ assets: [{ asset: next, aliases: [next.name],
+        observations: [{ kind: 'media/video', created: 0, origin: {} }] }] }),
+      checkAssetAvailability: async () => [{ digest: next.digest, status: 'available' }],
+      assetUrl: (digest: string) => `/api/assets/${digest}`,
+    } }
+    const app = { backendForTab: () => backend, retainPickerAssets: vi.fn().mockResolvedValue(reader),
+      widgetRegistry: { kind: () => undefined } } as unknown as AppState
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+    const load = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+    const root = document.createElement('div'); document.body.append(root)
+    const unmount = render(() => <WidgetEditor app={app} ed={widgetState('ASSET', {}, initial)} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+    let video: HTMLVideoElement | undefined
+    try {
+      await vi.waitFor(() => expect(admit).toBeTypeOf('function'))
+      video = root.querySelector<HTMLVideoElement>('[data-testid="asset-video-preview"]')!
+      expect(video.getAttribute('src')).toBeNull()
+      expect(reads).toBe(1)
+      if (outcome === 'closed') unmount()
+      if (outcome === 'expired') current = false
+      admit()
+      if (outcome === 'refused' || outcome === 'closed' || outcome === 'expired') {
+        await vi.waitFor(() => expect(reads).toBe(0))
+        expect(video.getAttribute('src')).toBeNull()
+        if (outcome === 'refused') expect(root.textContent).toContain('Video ownership refused')
+      } else {
+        await vi.waitFor(() => expect(video!.getAttribute('src')).toBe(`/api/assets/${initial.digest}`))
+        expect(reads).toBe(1)
+        Object.defineProperty(video, 'networkState', { configurable: true, value: 2 })
+        if (outcome === 'accepted') {
+          current = false
+          video.dispatchEvent(new Event('play'))
+          expect(pause).toHaveBeenCalled()
+        }
+        if (outcome === 'replacement') {
+          const previousAdmission = admit
+          await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')).not.toBeNull())
+          root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+          await vi.waitFor(() => expect(admit).not.toBe(previousAdmission))
+          admit()
+          await Promise.resolve()
+          expect(video.getAttribute('src')).toBeNull()
+          expect(reads).toBe(2)
+          video.dispatchEvent(new Event('emptied'))
+          await vi.waitFor(() => expect(video!.getAttribute('src')).toBe(`/api/assets/${next.digest}`))
+          expect(reads).toBe(1)
+        }
+        if (outcome === 'failed-resource') video.dispatchEvent(new Event('error'))
+        else unmount()
+        expect(video.getAttribute('src')).toBeNull()
+        expect(load).toHaveBeenCalledTimes(outcome === 'replacement' ? 2 : 1)
+        expect(reads).toBe(1)
+        video.dispatchEvent(new Event('emptied'))
+        await vi.waitFor(() => expect(reads).toBe(0))
+      }
+    } finally { admit?.(); unmount(); video?.dispatchEvent(new Event('emptied')) }
+  })
+
   it.each(['live', 'edited', 'closed', 'disconnected', 'registry', 'disposed'].flatMap((scenario) =>
     [false, true].map((stored) => ({ scenario, stored }))))(
     'applies admitted picks only to their captured document: $scenario stored=$stored', async ({ scenario, stored }) => {

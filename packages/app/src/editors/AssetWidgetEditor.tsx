@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type Component } from 'solid-js'
+import { createEffect, createMemo, createSignal as createSolidSignal, For, on, onCleanup, Show, type Component } from 'solid-js'
 import { assetMultiSelect, type CollectionEntry, type JsonObject } from '@dinkster/core'
 import { AssetDtoV1Client, type AssetGuessCandidate, type CandidateV1 } from '@dinkster/client'
 import { Check, RotateCw, Upload, X } from 'lucide-solid'
@@ -49,6 +49,56 @@ interface AssetPreview {
   readonly name: string
   readonly mime?: string
   readonly assetReader?: PreviewSource['assetReader']
+}
+
+function AssetVideoPreview(props: {
+  readonly preview: AssetPreview
+  readonly onError: (error?: unknown) => void
+  readonly onDimensions: (dimensions: { width: number; height: number }) => void
+}) {
+  let video!: HTMLVideoElement
+  let detached = Promise.resolve()
+  const [src, setSrc] = createSolidSignal<string>()
+  createEffect(on(createMemo(() => [props.preview.src, props.preview.assetReader] as const,
+    undefined, { equals: (a, b) => a[0] === b[0] && a[1] === b[1] }), ([url, reader]) => {
+    let current = true
+    let detach: (() => void) | undefined
+    onCleanup(() => { current = false; detach?.() })
+    const consume = async (): Promise<void> => {
+      await detached
+      if (!current || reader?.current() === false) return
+      if (reader === undefined) { setSrc(url); return }
+      await new Promise<void>((resolve) => {
+        detach = () => {
+          const empty = video.networkState === HTMLMediaElement.NETWORK_EMPTY
+          detached = new Promise<void>((done) => {
+            const reset = () => { video.removeEventListener('emptied', reset); done(); resolve() }
+            if (!empty) video.addEventListener('emptied', reset, { once: true })
+            // Removing the element alone does not settle native resource selection.
+            video.pause()
+            setSrc(undefined)
+            video.removeAttribute('src')
+            video.load()
+            if (empty) reset()
+          })
+        }
+        setSrc(url)
+      })
+    }
+    void (reader === undefined ? consume() : reader.read(consume)).catch((error: unknown) => {
+      if (current) props.onError(error)
+    })
+  }))
+  return <video ref={video} class="asset-preview" data-testid="asset-video-preview" src={src()}
+    controls playsinline preload="metadata"
+    onPlay={() => { if (props.preview.assetReader?.current() === false) video.pause() }}
+    onError={() => props.onError()}
+    onLoadedMetadata={() => {
+      if (props.preview.assetReader?.current() === false) return
+      if (video.videoWidth > 0 && video.videoHeight > 0) props.onDimensions({ width: video.videoWidth, height: video.videoHeight })
+    }}>
+    <a href={props.preview.src} download={props.preview.name}>Download video</a>
+  </video>
 }
 
 const GENERIC_UPLOAD_MAX_BYTES = 16 * 1024 * 1024
@@ -333,7 +383,8 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         kind,
         src: backend.connection.assetUrl(ref.digest),
         name: ref.name,
-        ...(kind === 'model3d' ? { mime: ref.mediaType, assetReader: selectionReader } : {}),
+        assetReader: selectionReader,
+        ...(kind === 'model3d' ? { mime: ref.mediaType } : {}),
       })
       return
     }
@@ -919,21 +970,14 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                         <a href={preview().src} download={preview().name}>Download video</a>
                       </div>
                     }>
-                      <video
-                        class="asset-preview"
-                        data-testid="asset-video-preview"
-                        src={preview().src}
-                        controls
-                        playsinline
-                        preload="metadata"
-                        onError={() => setAssetPreviewFailed(true)}
-                        onLoadedMetadata={(event) => {
-                          const { videoWidth, videoHeight } = event.currentTarget
-                          if (videoWidth > 0 && videoHeight > 0) setAssetPreviewDims({ width: videoWidth, height: videoHeight })
+                      <AssetVideoPreview
+                        preview={preview()}
+                        onError={(error) => {
+                          if (error !== undefined) setAssetError(error instanceof Error ? error.message : String(error))
+                          setAssetPreviewFailed(true)
                         }}
-                      >
-                        <a href={preview().src} download={preview().name}>Download video</a>
-                      </video>
+                        onDimensions={setAssetPreviewDims}
+                      />
                     </Show>
                   </Show>
                   </Show>

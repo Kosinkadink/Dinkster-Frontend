@@ -115,6 +115,13 @@ expired readers cannot start loading, and obsolete work cannot publish its
 poster. Local-file posters keep their separate path. This does not certify
 collection thumbnails, native asynchronous teardown or retained-owner release.
 
+Native picker video assigns its source only inside the captured selection
+reader. Closing, failure or replacement resets the native resource; the read
+stays active until `emptied` (or an already-empty resource) confirms the reset,
+and a replacement waits for that reset before attaching. Refused or expired
+admission cannot assign a source. Local-file previews remain separate. This
+does not certify other native handles or release retained owners.
+
 Recorded FILE_3D original and sidecar digest reads acknowledge their newly
 revealed identities as incomplete shown-result roots on the original live or
 retired backend before fetching bytes. The captured result and observed
