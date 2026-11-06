@@ -2,6 +2,7 @@ import { IDBFactory as FakeIDBFactory } from 'fake-indexeddb'
 import { describe, expect, it, vi } from 'vitest'
 import {
   IMAGE_DOCUMENT_MEDIA_TYPE,
+  DinksterValuesClient,
   type DinksterConnection,
   type ImageDocumentDependency,
   type LibraryRecord,
@@ -25,6 +26,7 @@ import {
 import { exportImageDocumentSnapshot, openGraphImageDocument } from '../src/image-document-graph.js'
 import type { AppState } from '../src/app-state.js'
 import { imageDocumentPreviewRefusal } from '../src/image-document-renderer.js'
+import { RetainedAssetReader } from '../src/workflow-asset-retention.js'
 
 const SOURCE_PIXELS = new Uint8ClampedArray([
   255, 0, 0, 255,
@@ -1152,6 +1154,64 @@ describe('ImageDocument library persistence', () => {
 })
 
 describe('graph image document opening', () => {
+  it.each(['accepted', 'closed', 'failed'] as const)('owns graph decode through reference-render settlement: %s', async (mode) => {
+    const factory = new FakeIDBFactory()
+    const source = new ImageDocumentLocalStore('graph-owner-source', factory)
+    const target = new ImageDocumentLocalStore('graph-owner-target', factory)
+    try {
+      const draft = await imported(source)
+      const resource = Object.values(draft.document.resources)[0]!
+      const remote = connectionFor(draft.document, (await source.getResource(resource.digest))!.bytes)
+      const canonical = serializeImageDocument(draft.document)
+      const reader = new RetainedAssetReader(remote.connection, {
+        scope: 'local', ownerKind: 'shown-result', ownerId: 'graph-result',
+        revision: 1, complete: false, digests: [],
+      }, () => true)
+      const values = new DinksterValuesClient({ baseUrl: 'http://test', clientId: 'graph-owner',
+        admitPeek: async () => reader,
+        fetchFn: async (url) => new URL(url).searchParams.has('rendition')
+          ? new Response(canonical, { headers: { 'Content-Type': IMAGE_DOCUMENT_MEDIA_TYPE,
+            'X-Dinkster-Type-Id': 'dinkster.layers', 'X-Dinkster-Fingerprint': 'graph-owner',
+            'X-Dinkster-Rendition': 'document' } })
+          : new Response(JSON.stringify({ available: true,
+            descriptor: { typeId: 'dinkster.layers', fingerprint: 'graph-owner' },
+            renditions: [{ kind: 'document', mime: IMAGE_DOCUMENT_MEDIA_TYPE }],
+          }), { headers: { 'Content-Type': 'application/json' } }),
+      })
+      const entered = deferred<void>()
+      const render = deferred<void>()
+      const referenceRender = remote.methods.renderImageDocument.getMockImplementation()!
+      remote.methods.renderImageDocument.mockImplementation(async (...args) => {
+        entered.resolve()
+        await render.promise
+        return referenceRender(...args)
+      })
+      const connection = { ...remote.methods, values: () => values } as unknown as DinksterConnection
+      const opening = openGraphImageDocument(connection, target, { jobId: 'job', nodeId: 'producer', outputId: 'layers' })
+      const outcome = opening.then((value) => ({ value }), (error: unknown) => ({ error }))
+      await entered.promise
+      let closed = false
+      const closing = mode === 'accepted' ? undefined : reader.close().then(() => { closed = true })
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(closed).toBe(false)
+      if (mode === 'failed') render.reject(new Error('Reference render failed'))
+      else render.resolve()
+      const result = await outcome
+      if (mode === 'accepted') {
+        expect('value' in result && serializeImageDocument(result.value.document)).toBe(canonical)
+        expect('value' in result && result.value.render.sourceCanonical).toBe(canonical)
+      } else {
+        expect('error' in result && (result.error as Error).message).toContain(mode === 'failed' ? 'Reference render failed' : 'changed during read')
+        await closing
+        expect(closed).toBe(true)
+      }
+    } finally {
+      await source.close()
+      await target.close()
+    }
+  })
+
   it('refuses exports when the destination tab, graph or backend changes during adoption', async () => {
     const local = new ImageDocumentLocalStore('export', new FakeIDBFactory())
     try {
@@ -1208,7 +1268,9 @@ describe('graph image document opening', () => {
       typeId: 'dinkster.layers', mime: IMAGE_DOCUMENT_MEDIA_TYPE, kind: 'document', reportedKind: 'document',
       bytes: new TextEncoder().encode(canonical).buffer,
     }))
-    const connection = { ...remote.methods, values: () => ({ peek, rendition }) } as unknown as DinksterConnection
+    const connection = { ...remote.methods, values: () => ({ peek, rendition,
+      read: <T>(_query: unknown, _descriptor: unknown, consume: () => Promise<T>) => consume(),
+    }) } as unknown as DinksterConnection
     const query = { jobId: 'remote-job', nodeId: 'group[2]/producer', outputId: 'layers', element: [1] }
     try {
       const opened = await openGraphImageDocument(connection, target, query)
@@ -1248,7 +1310,9 @@ describe('graph image document opening', () => {
     const remote = connectionFor(draft.document, resourceBytes)
     const peek = vi.fn()
     const rendition = vi.fn()
-    const connection = { ...remote.methods, values: () => ({ peek, rendition }) } as unknown as DinksterConnection
+    const connection = { ...remote.methods, values: () => ({ peek, rendition,
+      read: <T>(_query: unknown, _descriptor: unknown, consume: () => Promise<T>) => consume(),
+    }) } as unknown as DinksterConnection
     const query = { jobId: 'job', nodeId: 'node', outputId: 'layers' }
     const descriptor = { typeId: 'dinkster.layers', fingerprint: 'one' }
     try {

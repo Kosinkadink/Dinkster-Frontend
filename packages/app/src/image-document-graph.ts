@@ -65,50 +65,52 @@ export async function openGraphImageDocument(
   const native = peek.renditions.find((rendition) =>
     rendition.kind === 'document' && rendition.mime.split(';', 1)[0] === IMAGE_DOCUMENT_MEDIA_TYPE)
   if (native === undefined) throw new Error('This value owner does not advertise a native ImageDocument rendition')
-  const result = await values.rendition(query, 'document', { descriptor: peek.descriptor })
-  if (!result.available) throw new Error(`Layer document unavailable: ${result.error}`)
-  if (result.fingerprint !== peek.descriptor.fingerprint ||
-    result.typeId !== peek.descriptor.typeId || result.reportedKind !== 'document' ||
-    result.mime !== native.mime || result.mime !== IMAGE_DOCUMENT_MEDIA_TYPE) {
-    throw new Error('Layer document rendition does not match the selected graph value')
-  }
-  if (result.bytes.byteLength > MAX_IMAGE_DOCUMENT_BYTES) throw new Error('Layer document exceeds the document size limit')
-  const bytes = new Uint8Array(result.bytes)
-  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-  const parsed: unknown = JSON.parse(text)
-  if (canonicalJson(parsed) !== text) throw new Error('Layer document rendition is not canonical')
-  const loaded = loadImageDocument(parsed)
-  if (loaded.document === undefined) {
-    throw new Error(loaded.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
-  }
-  if (serializeImageDocument(loaded.document) !== text) {
-    throw new Error('Layer document rendition cannot be opened without changing its canonical bytes')
-  }
-  const current = await store.recoverDraft(loaded.document.lineage)
-  if (current !== undefined && serializeImageDocument(current.document) !== serializeImageDocument(loaded.document)) {
-    throw new Error('This layer document has unsaved local edits; use the recovered draft instead')
-  }
-  const adopted = await adoptExactImageDocumentBytes(
-    connection,
-    loaded.document,
-    bytes,
-    GRAPH_IMAGE_DOCUMENT_SCOPE,
-  )
-  const render = await renderAdoptedImageDocument(
-    connection,
-    store,
-    adopted.digest,
-    text,
-    GRAPH_IMAGE_DOCUMENT_SCOPE,
-  )
-  await hydrateImageDocumentResources(connection, store, loaded.document, GRAPH_IMAGE_DOCUMENT_SCOPE)
-  const draft = current ?? await store.saveDraft(
-    loaded.document,
-    `${query.nodeId} / ${query.outputId}`,
-    undefined,
-    null,
-  )
-  return { draft, render, document: loaded.document }
+  return values.read(query, peek.descriptor, async () => {
+    const result = await values.rendition(query, 'document', { descriptor: peek.descriptor })
+    if (!result.available) throw new Error(`Layer document unavailable: ${result.error}`)
+    if (result.fingerprint !== peek.descriptor.fingerprint ||
+      result.typeId !== peek.descriptor.typeId || result.reportedKind !== 'document' ||
+      result.mime !== native.mime || result.mime !== IMAGE_DOCUMENT_MEDIA_TYPE) {
+      throw new Error('Layer document rendition does not match the selected graph value')
+    }
+    if (result.bytes.byteLength > MAX_IMAGE_DOCUMENT_BYTES) throw new Error('Layer document exceeds the document size limit')
+    const bytes = new Uint8Array(result.bytes)
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    const parsed: unknown = JSON.parse(text)
+    if (canonicalJson(parsed) !== text) throw new Error('Layer document rendition is not canonical')
+    const loaded = loadImageDocument(parsed)
+    if (loaded.document === undefined) {
+      throw new Error(loaded.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+    }
+    if (serializeImageDocument(loaded.document) !== text) {
+      throw new Error('Layer document rendition cannot be opened without changing its canonical bytes')
+    }
+    const current = await store.recoverDraft(loaded.document.lineage)
+    if (current !== undefined && serializeImageDocument(current.document) !== serializeImageDocument(loaded.document)) {
+      throw new Error('This layer document has unsaved local edits; use the recovered draft instead')
+    }
+    const adopted = await adoptExactImageDocumentBytes(
+      connection,
+      loaded.document,
+      bytes,
+      GRAPH_IMAGE_DOCUMENT_SCOPE,
+    )
+    const render = await renderAdoptedImageDocument(
+      connection,
+      store,
+      adopted.digest,
+      text,
+      GRAPH_IMAGE_DOCUMENT_SCOPE,
+    )
+    await hydrateImageDocumentResources(connection, store, loaded.document, GRAPH_IMAGE_DOCUMENT_SCOPE)
+    const draft = current ?? await store.saveDraft(
+      loaded.document,
+      `${query.nodeId} / ${query.outputId}`,
+      undefined,
+      null,
+    )
+    return { draft, render, document: loaded.document }
+  })
 }
 
 const same = (left: unknown, right: unknown): boolean => left === undefined || right === undefined

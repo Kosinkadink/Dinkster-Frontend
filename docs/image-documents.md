@@ -61,6 +61,11 @@ document or for a failed adoption or render. Missing capabilities, dependency
 grants, unsupported format versions, changed values, failed renders, and
 conflicting local edits produce visible errors.
 
+The admitted value reader covers canonical decode, adoption, reference rendering,
+resource hydration and draft creation, not only the rendition response body.
+Closing that reader waits for actual consumer settlement and refuses its return.
+This does not replace the workspace's separate open-intent and project checks.
+
 **Export snapshot to graph** explicitly adopts the current document and its
 resources on the destination backend, then adds `dinkster.layers.load` wired to
 `dinkster.layers.flatten`. These nodes hold a document AssetRef and composite selector, not pixels,
