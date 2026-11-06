@@ -534,6 +534,10 @@ export function importLitegraphSubgraphs(
         ...(promoted ? { promoted: true } : {}),
       }]
     })
+    const authoredInstances = [root, ...[...definitions.values()].map((definition) => definition.raw)]
+      .flatMap((graph) => graph['nodes']
+        .filter((node: Mutable) => node['type'] === id || node['type'] === `#${id}`)
+        .map((node: Mutable) => ({ graph, node })))
     const candidate: GraphDef = {
       ...nativeBody, id: id as GraphDef['id'], name: def.raw['name'] ?? id,
       nodes: Object.fromEntries(Object.entries(nativeBody.nodes).filter(([key]) => key !== `n${def.inputNode}` && key !== `n${def.outputNode}`)),
@@ -541,10 +545,11 @@ export function importLitegraphSubgraphs(
         !nodeEnd(link.from, `n${def.inputNode}`) && !nodeEnd(link.to, `n${def.outputNode}`))),
       boundary: { inputs: boundary('inputs').map((item) => {
         const rawSlot = def.raw['inputs'].find((slot: Mutable) => slot['id'] === item.id)
-        const instances: Mutable[] = [root, ...[...definitions.values()].map((definition) => definition.raw)]
-          .flatMap((graph) => graph['nodes'].filter((node: Mutable) => node['type'] === id || node['type'] === `#${id}`))
-        if (!instances.length || instances.some((node) => node['inputs']?.some((input: Mutable) =>
-          (input['name'] === item.id || input['name'] === rawSlot?.['name']) && input['link'] != null))) return item
+        if (!authoredInstances.length || authoredInstances.some(({ graph, node }) =>
+          node['inputs']?.some((input: Mutable, index: number) =>
+            (input['name'] === item.id || input['name'] === rawSlot?.['name']) &&
+            (input['link'] != null || graph['links']?.some((link: any[]) =>
+              Number(link[3]) === Number(node['id']) && Number(link[4]) === index))))) return item
         const bindings = [item.binds, ...(item.alsoBinds ?? [])].filter((binding) => {
           if (binding.kind !== 'port' || binding.viaReroute !== undefined) return true
           const node = nativeBody.nodes[binding.node]

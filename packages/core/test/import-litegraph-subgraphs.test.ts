@@ -84,6 +84,28 @@ describe('LiteGraph subgraphs', () => {
     expect(linked.diagnostics.map(item => item.code)).not.toContain('import.subgraphs.obsoleteInput')
     expect(linked.diagnostics.map(item => item.code)).toContain('import.subgraphs.boundaryUnresolved')
 
+    for (const socketLink of [null, undefined]) {
+      const nodes = [{ ...instance(10), inputs: [
+        { name: 'value', widget: { name: 'value' } },
+        { name: 'obsolete', link: socketLink },
+      ] }, relay(20)]
+      for (const nested of [false, true]) {
+        const graph = { nodes, links: [link(10, 20, 0, 10, 1)] }
+        const authored = nested ? {
+          ...raw, nodes: [instance(30, 'outer')], definitions: { subgraphs: [
+            ...raw.definitions.subgraphs,
+            { ...definition('outer'), ...graph, inputs: [], outputs: [] },
+          ] },
+        } : { ...raw, ...graph }
+        const fromTopology = importLitegraph(authored as JsonObject, resolve)
+        expect(fromTopology.diagnostics.map(item => item.code)).not.toContain('import.subgraphs.obsoleteInput')
+        expect(fromTopology.diagnostics.map(item => item.code)).toContain('import.subgraphs.boundaryUnresolved')
+      }
+      const otherSlot = importLitegraph({ ...raw, nodes, links: [link(10, 20, 0, 10, 0)] } as JsonObject, resolve)
+      expect(otherSlot.diagnostics.map(item => item.code)).toContain('import.subgraphs.obsoleteInput')
+      expect(otherSlot.diagnostics.map(item => item.code)).not.toContain('import.subgraphs.boundaryUnresolved')
+    }
+
     const dormant = importLitegraph({ ...raw, nodes: [] } as JsonObject, resolve)
     expect(dormant.diagnostics.map(item => item.code)).not.toContain('import.subgraphs.obsoleteInput')
     expect(dormant.diagnostics.map(item => item.code)).toContain('import.subgraphs.boundaryUnresolved')
