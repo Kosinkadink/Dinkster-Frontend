@@ -463,7 +463,8 @@ export async function openImageDocumentFromLibrary(
   if (record.scope !== scope || mediaTypeBase(record.mediaType) !== IMAGE_DOCUMENT_MEDIA_TYPE) {
     throw new Error('library record is not an ImageDocument')
   }
-  const text = await connection.fetchAssetText(record.digest)
+  const text = await withImageResourceRead(connection, store, scope, [record.digest],
+    () => connection.fetchAssetText(record.digest))
   if (text === undefined) throw new Error('ImageDocument bytes are not held by the server')
   const bytes = new TextEncoder().encode(text)
   if (bytes.byteLength > MAX_IMAGE_DOCUMENT_BYTES) {

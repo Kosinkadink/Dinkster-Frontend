@@ -161,8 +161,9 @@ function transaction(transaction: IDBTransaction): Promise<void> {
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((done) => { resolve = done })
-  return { promise, resolve }
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
 }
 
 describe('ImageDocument local persistence', () => {
@@ -920,6 +921,91 @@ describe('ImageDocument library persistence', () => {
     })).rejects.toThrow('ownership changed')
     expect(remote.methods.patchLibraryRecord).toHaveBeenCalledTimes(1)
     await store.close()
+  })
+
+  it('admits library source bytes before reading and holds ownership through body settlement', async () => {
+    const factory = new FakeIDBFactory()
+    const store = new ImageDocumentLocalStore('source-read', factory)
+    try {
+      const draft = await imported(store)
+      const bytes = (await store.getResource(draft.document.resources.r0!.digest))!.bytes
+      const remote = connectionFor(draft.document, bytes)
+      remote.methods.getLibraryRecord.mockResolvedValueOnce({ ...remote.library, scope: 'project-scope' })
+      const requested = deferred<RetainedAssetOwner>()
+      const admission = deferred<RetainedAssets>()
+      const fetching = deferred<void>()
+      const body = deferred<string>()
+      remote.methods.retainAssets.mockImplementationOnce(async (owner) => {
+        requested.resolve(owner)
+        return admission.promise
+      })
+      remote.methods.fetchAssetText.mockImplementationOnce(async () => {
+        fetching.resolve(undefined)
+        return body.promise
+      })
+      const opening = openImageDocumentFromLibrary(remote.connection, store, remote.library.id, 'project-scope', 'backend-a')
+      const owner = await requested.promise
+      expect(owner.scope).toBe('project-scope')
+      expect(await store.resourceReads()).toMatchObject([{ owner, digests: [remote.digest], projectId: 'source-read' }])
+      expect(remote.methods.fetchAssetText).not.toHaveBeenCalled()
+      admission.resolve({ ...owner, revision: 1, complete: true, digests: [remote.digest] })
+      await fetching.promise
+      expect(remote.methods.releaseRetainedAssets).not.toHaveBeenCalled()
+      expect(await store.resourceReads()).toHaveLength(1)
+      body.resolve(serializeImageDocument(draft.document))
+      expect((await opening)?.document).toEqual(draft.document)
+      expect(await store.resourceReads()).toEqual([])
+      expect(remote.methods.releaseRetainedAssets).toHaveBeenCalledWith(owner, 1)
+    } finally { await store.close() }
+  })
+
+  it.each(['refused', 'mismatched', 'lost-ack'] as const)('does not bypass %s library source admission', async (mode) => {
+    const store = new ImageDocumentLocalStore(`source-${mode}`, new FakeIDBFactory())
+    try {
+      const draft = await imported(store)
+      const bytes = (await store.getResource(draft.document.resources.r0!.digest))!.bytes
+      const remote = connectionFor(draft.document, bytes)
+      remote.methods.retainAssets.mockImplementationOnce(async (owner, declaration) => {
+        if (mode !== 'mismatched') throw new Error('Lost or refused admission')
+        return { ...owner, ...declaration, revision: 1, digests: [draft.document.resources.r0!.digest] }
+      })
+      remote.methods.fetchRetainedAssets.mockImplementationOnce(async (owner) => mode === 'lost-ack'
+        ? { ...owner, revision: 1, complete: true, digests: [remote.digest] }
+        : undefined)
+      const opening = openImageDocumentFromLibrary(remote.connection, store, remote.library.id, 'local', 'backend-a')
+      if (mode === 'lost-ack') {
+        expect((await opening)?.document).toEqual(draft.document)
+        expect(await store.resourceReads()).toEqual([])
+      } else {
+        await expect(opening).rejects.toThrow(mode === 'refused' ? 'admission' : 'acknowledgment differs')
+        expect(remote.methods.fetchAssetText).not.toHaveBeenCalled()
+        expect(remote.methods.releaseRetainedAssets).not.toHaveBeenCalled()
+        expect(await store.resourceReads()).toMatchObject([{ digests: [remote.digest] }])
+      }
+    } finally { await store.close() }
+  })
+
+  it('settles a failed library source body before closing its durable read', async () => {
+    const store = new ImageDocumentLocalStore('failed-source', new FakeIDBFactory())
+    try {
+      const draft = await imported(store)
+      const bytes = (await store.getResource(draft.document.resources.r0!.digest))!.bytes
+      const remote = connectionFor(draft.document, bytes)
+      const fetching = deferred<void>()
+      const body = deferred<string>()
+      remote.methods.fetchAssetText.mockImplementationOnce(async () => {
+        fetching.resolve(undefined)
+        return body.promise
+      })
+      const opening = openImageDocumentFromLibrary(remote.connection, store, remote.library.id, 'local', 'backend-a')
+      const rejected = expect(opening).rejects.toThrow('Body failed')
+      await fetching.promise
+      expect(await store.resourceReads()).toMatchObject([{ digests: [remote.digest] }])
+      expect(remote.methods.releaseRetainedAssets).not.toHaveBeenCalled()
+      body.reject(new Error('Body failed'))
+      await rejected
+      expect(await store.resourceReads()).toEqual([])
+    } finally { await store.close() }
   })
 
   it('opens only canonical documents with matching manifests and stages missing resources', async () => {

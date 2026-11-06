@@ -107,6 +107,11 @@ Unconfirmed owners remain journaled across restart; closing an editor or local
 store does not release them. This read lifetime does not certify workflow,
 execution-result, editor-history or durable document retention completeness.
 
+Library source-document JSON uses the same scoped journal and acknowledgment
+before fetching its complete text body. That read ends only when the text
+settles; validation and resource hydration then consume the self-contained local
+text. Refused or unconfirmed admission cannot fall back to an unprotected read.
+
 Authoritative rendered PNG reads use the same scoped journal and acknowledgment
 before fetching and verifying the declared output identity. Display and download
 use the verified local Blob, not a second unprotected server read. The keyed
