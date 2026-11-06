@@ -189,7 +189,7 @@ successor may share a hidden predecessor's name without changing identity.
 Input-family `copy` mappings preserve authored suffix IDs and order by default.
 Explicit `memberIds: 'targetPositions'` maps that order to declared target
 positions, including values, controllers, labels, links, net sinks and fixed
-boundary bindings. Historical migrations can declare a historical family root
+boundary bindings. Same-type migrations can declare a historical family root
 with `sourceTemplate`: persisted members and incoming addresses provide
 evidence even without widget values. Historical flat addresses migrate;
 already-canonical sparse members remain unchanged on rescan. Whole-family
@@ -198,18 +198,12 @@ is preserved, while ancestor instances retain their own suffixes and consume
 the migrated definition prefix. Stale binding identities and unsupported
 nested source state fail explicitly.
 
-The `migration` marker may accompany a node type rename. Its historical-input
-guard still declines modern state, allowing a separate identity rule to rename
-an already-modern node without renumbering its members. Same-type migrations
-remain one-shot; type-changing migrations follow the ordinary chain cycle guard.
-
-Explicit `copy` mappings retain stored static and family-member literals even
-when the target input has no widget, for ordinary replacements and historical
-migrations alike. Widget presentation does not determine whether a native input
-can store a value; controller modes still require a controller-capable target
-widget. Use `link` to move a connection without copying a stored value. Complete
-input-family copies also preserve whole-family boundary bindings when the target
-retains every template input and requested slot selection.
+Explicit `copy` mappings in marked same-type migrations retain stored static
+and family-member literals even when the target input has no widget. Widget
+presentation does not determine whether a native input can store a value;
+controller modes still require a controller-capable target widget. Ordinary
+cross-type replacements retain their warning-and-drop behavior for non-widget
+literals.
 
 In native graphs, numeric widgets on an `INT | FLOAT` input submit a `FLOAT` typed literal,
 including stored, promoted and default values. The backend must advertise

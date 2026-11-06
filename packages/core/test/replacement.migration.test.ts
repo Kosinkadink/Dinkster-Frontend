@@ -321,26 +321,13 @@ describe('wire-28 same-type stored-workflow migration', () => {
     })
   })
 
-  it.each(['dinkster.image.to_mask', 'fixture.renamed_mask'])('decodes and atomically applies the nested tolerance/integer migration to %s', (targetType) => {
-    const renamed = {
-      ...fixture,
-      nodeType: targetType,
-      replacements: fixture.replacements.map((rule) => ({
-        ...rule, cases: rule.cases.map((candidate) => ({ ...candidate, to: targetType })),
-      })),
-    }
-    const decoded = parseDinksterNodes({ schemaVersion: 1, nodes: { [targetType]: renamed } })
-    expect(decoded.diagnostics).toEqual([])
-    const resolve = (type: string) => decoded.schemas.get(type)
-    const rule = decoded.schemas.get(targetType)!.replacements![0]!
-    const registry = createReplacementRegistry()
-    expect(registry.register('schema', rule)).toEqual([])
+  it('plans and atomically applies the nested tolerance/integer migration', () => {
     const before = historicalDocument(true)
     const planned = planReplacement(before, 'g0', 'mask', rule, resolve)
     expect(planned.diagnostics).toEqual([])
     expect(planned.plan).toMatchObject({
       from: 'dinkster.image.to_mask',
-      to: targetType,
+      to: 'dinkster.image.to_mask',
       caseIndex: 5,
       dynamic: {
         policy: { selected: 'tolerance_color' },
@@ -370,9 +357,9 @@ describe('wire-28 same-type stored-workflow migration', () => {
 
     const items = scanReplacements(before, registry, resolve)
     expect(items).toHaveLength(1)
-    expect(items[0]).toMatchObject({ status: 'terminal', safe: true, terminalType: targetType })
+    expect(items[0]).toMatchObject({ status: 'terminal', safe: true, terminalType: 'dinkster.image.to_mask' })
     const invocation = replacementInvocation(items, before, resolve)!
-    const store = replacementStore(before, resolve)
+    const store = replacementStore(before)
     const appliedResult = store.dispatch(invocation)
     expect(appliedResult.diagnostics).toEqual([])
     expect(appliedResult.ok).toBe(true)
@@ -380,7 +367,7 @@ describe('wire-28 same-type stored-workflow migration', () => {
     const applied = store.doc.graphs.g0!
     expect(applied.nodes.mask).toMatchObject({
       id: 'mask',
-      type: targetType,
+      type: 'dinkster.image.to_mask',
       dynamic: {
         policy: { selected: 'tolerance_color' },
         'policy.color_source': { selected: 'integer' },
