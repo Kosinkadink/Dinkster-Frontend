@@ -1983,7 +1983,7 @@ function planReplacementForCase(
     if (b.node !== nodeId) return
     const label = alsoIndex === undefined ? `boundary ${side} '${itemId}'` : `boundary ${side} '${itemId}' alsoBinds[${alsoIndex}]`
     if (side === 'input' && b.kind === 'family' && alsoIndex === undefined &&
-        rule.migration !== undefined && matched.to === node.type && (b.members?.length ?? 0) === 0) {
+        rule.migration !== undefined && (b.members?.length ?? 0) === 0) {
       const families = [...preparedInputFamilies.entries()].filter(([id, prepared]) => {
         const mapping = matched.inputFamilies?.[id]
         return mapping?.kind === 'copy' && mapping.memberIds === 'targetPositions' &&

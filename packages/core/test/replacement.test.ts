@@ -1377,15 +1377,15 @@ describe('input family replacement', () => {
     expect(overflow.diagnostics.some((diagnostic) => diagnostic.code === 'replace.target.familyMembers')).toBe(true)
   })
 
-  it.each([false, true].flatMap((named) => [false, true].flatMap((flat) =>
-    ['unconnected', 'linked', 'inferred', 'forwarded', 'selected', ...(flat ? ['flatCanonical'] : [])].map((evidence) => ({ named, flat, evidence })),
-  )))(
-    'migrates historical family state without widget values (named=$named, flat=$flat, evidence=$evidence)',
-    ({ named, flat, evidence }) => {
+  it.each(['FamilySame', 'FamilyRenamed'].flatMap((targetType) => [false, true].flatMap((named) => [false, true].flatMap((flat) =>
+    ['unconnected', 'linked', 'inferred', 'forwarded', 'selected', ...(flat ? ['flatCanonical'] : [])].map((evidence) => ({ targetType, named, flat, evidence })),
+  ))))(
+    'migrates historical family state without widget values (target=$targetType, named=$named, flat=$flat, evidence=$evidence)',
+    ({ targetType, named, flat, evidence }) => {
       const members = named ? ['a', 'b'] : ['item0', 'item1']
       const oldMembers = evidence === 'flatCanonical' ? members : ['oldB', 'oldA']
       const connected = evidence !== 'unconnected'
-      const target = schemaOf('FamilySame', [{
+      const target = schemaOf(targetType, [{
         ...familyInput('values', []),
         dynamic: { kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
           template: [input('value')],
@@ -1394,7 +1394,7 @@ describe('input family replacement', () => {
         },
       }])
       const rule: ReplacementRule = { from: 'FamilySame', migration: { historicalInputs: ['values'] }, cases: [{
-        to: 'FamilySame', inputFamilies: { values: {
+        to: targetType, inputFamilies: { values: {
           kind: 'copy', sourceFamily: 'values', memberIds: 'targetPositions',
           sourceTemplate: { inputs: ['value'], ...(flat ? { memberPort: 'values.values' } : {}) },
           inputs: { value: { kind: 'copy', input: 'value' } },
@@ -1414,7 +1414,7 @@ describe('input family replacement', () => {
         boundary: { inputs: [{ id: 'forwarded', binds: { kind: 'family' as const, ...port('old', 'values'),
           ...(evidence === 'selected' ? { slots: ['value'] } : {}) } }], outputs: [] },
       } : {}) }) })
-      const resolve = (type: string) => type === 'FamilySame' ? target : schemas[type]
+      const resolve = (type: string) => type === targetType ? target : schemas[type]
       const planned = planReplacement(original, 'g0', 'old', rule, resolve)
       expect(planned.plan).toBeDefined()
       if (!planned.plan) return
@@ -1422,7 +1422,7 @@ describe('input family replacement', () => {
       const registry = createReplacementRegistry()
       expect(registry.register('schema', rule)).toEqual([])
       expect(scanReplacements(original, registry, resolve)).toMatchObject([
-        { status: 'terminal', safe: true, hops: [{ plan: { to: 'FamilySame' } }] },
+        { status: 'terminal', safe: true, hops: [{ plan: { to: targetType } }] },
       ])
       const store = new DocumentStore(original, coreCommandRegistry())
       expect(store.dispatch({ command: 'node.replace', params: { plan: planned.plan } as unknown as Json }).ok).toBe(true)
@@ -1474,15 +1474,15 @@ describe('input family replacement', () => {
     },
   )
 
-  it.each([1, 2])('preserves occurrence-owned family suffixes through %i ancestors during migration', (depth) => {
+  it.each([1, 2].flatMap((depth) => ['FamilySame', 'FamilyRenamed'].map((targetType) => ({ depth, targetType }))))('preserves occurrence-owned family suffixes through $depth ancestors migrating to $targetType', ({ depth, targetType }) => {
     const targetRoot = depth === 1 ? 'values' : 'canonical'
-    const target = schemaOf('FamilySame', [{
+    const target = schemaOf(targetType, [{
       ...familyInput(targetRoot, []),
       dynamic: { kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
         template: [widgetInput('value', 0)], naming: { kind: 'prefix', prefix: 'item', min: 1, max: 6 } },
     }])
     const rule: ReplacementRule = { from: 'FamilySame', migration: { historicalInputs: ['values'] }, cases: [{
-      to: 'FamilySame', inputFamilies: { [targetRoot]: { kind: 'copy', sourceFamily: 'values', memberIds: 'targetPositions',
+      to: targetType, inputFamilies: { [targetRoot]: { kind: 'copy', sourceFamily: 'values', memberIds: 'targetPositions',
         sourceTemplate: { inputs: ['value'] }, inputs: { value: { kind: 'copy', input: 'value' } } } },
     }] }
     const leaf = graph({ id: 'leaf', nodes: {
@@ -1504,7 +1504,7 @@ describe('input family replacement', () => {
       } }) } : {}),
       leaf,
     })
-    const resolve = (type: string) => type === 'FamilySame' ? target : schemas[type]
+    const resolve = (type: string) => type === targetType ? target : schemas[type]
     const planned = planReplacement(original, 'leaf', 'old', rule, resolve)
     expect(planned.plan, JSON.stringify(planned.diagnostics)).toBeDefined()
     if (!planned.plan) return
