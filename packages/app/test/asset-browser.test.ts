@@ -1,17 +1,39 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DinksterConnection } from '@dinkster/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { DinksterConnection, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
 import { assetSourcesStatus, committableAssetRef, isBrowserPreviewable, isCompatible, mediaKindForAccept } from '../src/asset-browser/helpers.js'
 import { assetCollectionSource, assetEntryKindOf, assetEntryOf, assetEntryPickable, assetItemOf, assetKindOf } from '../src/asset-browser/collection-adapter.js'
 import { clearMetadataCache, inspectAssetMetadata } from '../src/asset-browser/metadata.js'
 import { mountAssetSource, mountAssetSources, normalizeMountEntry } from '../src/asset-browser/mountAssetSource.js'
 import { localAssetSource } from '../src/asset-browser/localAssetSource.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from '../src/asset-browser/types.js'
+import { initializeProjectScope } from '../src/projects.js'
+import { reconcileWorkflowRetentions } from '../src/workflow-asset-retention.js'
 
 const item = normalizeMountEntry('mount:m', 'm', { virtualPath: 'images/a.png', name: 'a.png', digest: 'blake3:a', size: 12, mediaType: 'image/png', kind: 'media/image' })
+function previewFixture() {
+  const entries = new Map<string, string>()
+  const storage = { get length() { return entries.size }, key: (index: number) => [...entries.keys()][index] ?? null,
+    getItem: (key: string) => entries.get(key) ?? null, setItem: (key: string, value: string) => { entries.set(key, value) } }
+  vi.stubGlobal('localStorage', storage)
+  const listeners = new Set<() => void>()
+  const retainAssets = vi.fn(async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => ({ ...owner, ...declaration, revision: 1 }))
+  const fetchRetainedAssets = vi.fn().mockResolvedValue(undefined)
+  const releaseRetainedAssets = vi.fn()
+  const connection = { id: 'browser', assetUrl: (digest: string) => `/assets/${digest}`, retainAssets, fetchRetainedAssets, releaseRetainedAssets,
+    status: { subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } } } } as unknown as DinksterConnection
+  let current = true
+  const owner = { connection, current: () => current }
+  const model = { ...item, digest: `blake3:${'a'.repeat(64)}`, name: 'model.glb', mediaType: 'model/gltf-binary' }
+  return { entries, storage, listeners, retainAssets, fetchRetainedAssets, releaseRetainedAssets, owner,
+    stale: () => { current = false }, entry: assetEntryOf(model, connection.assetUrl, owner) }
+}
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); initializeProjectScope('default') })
+
 it('does not enter the model thumbnail renderer after cancellation during its lazy import', async () => {
   const viewer = await import('../src/model3d-viewer.js')
   const renderer = vi.spyOn(viewer, 'renderModel3dPosterUrl').mockResolvedValue('blob:model')
-  const entry = assetEntryOf({ ...item, name: 'model.glb', mediaType: 'model/gltf-binary' }, () => '/model.glb')
+  const f = previewFixture()
+  const entry = assetEntryOf({ ...item, name: 'model.glb', mediaType: 'model/gltf-binary' }, () => '/model.glb', f.owner)
   const abort = new AbortController()
   try {
     const pending = entry.thumbRender!(abort.signal)
@@ -21,6 +43,71 @@ it('does not enter the model thumbnail renderer after cancellation during its la
     await expect(entry.thumbRender!()).resolves.toBe('blob:model')
     expect(renderer).toHaveBeenCalledWith('/model.glb', 'model/gltf-binary')
   } finally { renderer.mockRestore() }
+})
+
+it.each(['accepted', 'refused', 'closed', 'project', 'connection', 'mismatched'])(
+  'admits shared model thumbnails only after exact preview ownership: %s', async (scenario) => {
+    const viewer = await import('../src/model3d-viewer.js')
+    const renderer = vi.spyOn(viewer, 'renderModel3dPosterUrl').mockResolvedValue('blob:model')
+    const f = previewFixture()
+    let admit!: () => void
+    const admission = new Promise<void>((resolve) => { admit = resolve })
+    f.retainAssets.mockImplementation(async (owner, declaration) => {
+      await admission
+      if (scenario === 'refused') throw new Error('refused')
+      return { ...owner, ...declaration, revision: scenario === 'mismatched' ? 2 : 1 }
+    })
+    const pending = f.entry.thumbRender!().then((url) => url, () => 'refused')
+    await vi.waitFor(() => expect(f.entries.size).toBe(1))
+    expect(renderer).not.toHaveBeenCalled()
+    const intent = JSON.parse([...f.entries.values()][0]!)
+    expect(intent).toMatchObject({ owner: { scope: 'local', ownerKind: 'preview' }, preview: true, complete: false,
+      digests: [`blake3:${'a'.repeat(64)}`] })
+    expect(intent.documentLineage).toBeUndefined()
+    if (scenario === 'closed') f.stale()
+    if (scenario === 'project') initializeProjectScope('different-project')
+    if (scenario === 'connection') for (const listener of f.listeners) listener()
+    admit()
+    expect(await pending).toBe(scenario === 'accepted' ? 'blob:model' : 'refused')
+    expect(renderer).toHaveBeenCalledTimes(scenario === 'accepted' ? 1 : 0)
+    expect(f.releaseRetainedAssets).not.toHaveBeenCalled()
+    expect(f.listeners.size).toBe(0)
+    if (scenario === 'accepted') {
+      f.fetchRetainedAssets.mockResolvedValue({ ...intent.owner, revision: 1, complete: false, digests: intent.digests })
+      expect(await reconcileWorkflowRetentions(f.owner.connection, new AbortController().signal, f.storage)).toBe(true)
+    }
+  },
+)
+
+it.each(['resolve', 'reject'])('keeps cancelled shared thumbnail work owned through actual %s settlement', async (scenario) => {
+  const viewer = await import('../src/model3d-viewer.js')
+  let finish!: () => void
+  const body = new Promise<string>((resolve, reject) => { finish = () => scenario === 'resolve' ? resolve('blob:late') : reject(new Error('render failed')) })
+  const renderer = vi.spyOn(viewer, 'renderModel3dPosterUrl').mockReturnValue(body)
+  const f = previewFixture()
+  const abort = new AbortController()
+  let settled = false
+  const pending = f.entry.thumbRender!(abort.signal).then(() => 'published', () => 'refused').finally(() => { settled = true })
+  await vi.waitFor(() => expect(renderer).toHaveBeenCalledTimes(1))
+  abort.abort()
+  f.stale()
+  await Promise.resolve()
+  expect(settled).toBe(false)
+  expect(f.listeners.size).toBe(1)
+  expect(JSON.parse([...f.entries.values()][0]!).acknowledgedRevision).toBe(1)
+  finish()
+  expect(await pending).toBe('refused')
+  expect(f.listeners.size).toBe(0)
+  expect(f.entries.size).toBe(1)
+  expect(f.releaseRetainedAssets).not.toHaveBeenCalled()
+})
+
+it('refuses model thumbnails with no captured preview owner', async () => {
+  const viewer = await import('../src/model3d-viewer.js')
+  const renderer = vi.spyOn(viewer, 'renderModel3dPosterUrl').mockResolvedValue('blob:model')
+  const entry = assetEntryOf({ ...item, name: 'model.glb', mediaType: 'model/gltf-binary' }, () => '/model.glb')
+  await expect(entry.thumbRender!()).rejects.toThrow('ownership unavailable')
+  expect(renderer).not.toHaveBeenCalled()
 })
 
 describe('local recorded asset source', () => {

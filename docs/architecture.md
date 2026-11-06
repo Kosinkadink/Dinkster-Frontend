@@ -45,6 +45,15 @@ DELETE requires the acknowledged positive revision and returns a complete
 empty manifest at the next revision, preserving the durable tombstone.
 Restart, disconnection and view unmount do not authorize release.
 
+Shared asset-browser model thumbnails acknowledge independent incomplete
+`preview` ownership before entering the poster queue/cache. The project,
+connection and browser/picker lifetime must still match before publication.
+Cancellation does not settle pending native rendering or encoding; the read
+spans actual poster completion. Preview intents use the same durable journal
+and exact GET reconciliation as workflow/result intents, without assigning
+arbitrary catalog entries to a workflow. These conservative owners are not
+released by thumbnail disposal.
+
 These manifests do not enumerate all frontend holders or enable collection.
 Bounded output descriptors, rendition fingerprints and cache keys are not
 complete typed asset-reference sets. The backend source gate

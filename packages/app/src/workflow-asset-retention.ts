@@ -32,7 +32,7 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { isAssetRef } from './image-editor.js'
-import { scopedStorageKey } from './projects.js'
+import { activeProjectId, scopedStorageKey } from './projects.js'
 
 const primitiveNames = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO'])
 const widgetTypes = new Set(['STRING', 'INT', 'FLOAT', 'NUMBER', 'BOOLEAN', 'COMBO', 'ASSET'])
@@ -340,6 +340,9 @@ export async function reconcileWorkflowRetentions(
           ? typeof owner.ownerId === 'string' && /^workflow-candidate:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
             typeof intent.documentLineage === 'string' && intent.documentLineage.length > 0 &&
             Number.isSafeInteger(intent.documentRevision) && (intent.documentRevision as number) >= 0
+          : owner?.ownerKind === 'preview'
+            ? typeof owner.ownerId === 'string' && /^asset-preview:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
+              intent.preview === true && intent.complete === false
           : owner?.ownerKind === 'shown-result' && typeof owner.ownerId === 'string' &&
             /^execution-result:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
             typeof intent.executionKey === 'string' && intent.executionKey.length > 0
@@ -393,6 +396,30 @@ export async function retainExecutionAssets(
   return retainAssetRoots(connection, 'shown-result', { executionKey: executionKey(ref) }, roots, storage)
 }
 
+/** Catalog entries have independent preview ownership, not workflow roots. */
+export async function readAssetPreview<T>(
+  connection: DinksterConnection,
+  digest: string,
+  consume: () => Promise<T>,
+  stillCurrent: () => boolean,
+): Promise<T> {
+  const project = activeProjectId()
+  let connectionChanged = false
+  const unsubscribe = connection.status.subscribe(() => { connectionChanged = true })
+  const current = () => !connectionChanged && activeProjectId() === project && stillCurrent()
+  let reader: RetainedAssetReader | undefined
+  try {
+    if (!current()) throw new Error('Asset preview changed before admission')
+    const retained = await retainAssetRoots(connection, 'preview', { preview: true }, { complete: false, digests: [digest] }, globalThis.localStorage)
+    reader = new RetainedAssetReader(connection, retained, current)
+    return await reader.read(consume)
+  } finally {
+    // Cancellation closes publication, not a shared renderer's pending work.
+    await reader?.close()
+    unsubscribe()
+  }
+}
+
 /** Acknowledged protection outlives all admitted reads, including pending bodies. */
 export class RetainedAssetReader {
   private closed = false
@@ -429,15 +456,15 @@ export class RetainedAssetReader {
 
 async function retainAssetRoots(
   connection: DinksterConnection,
-  ownerKind: 'document' | 'shown-result',
-  context: { readonly documentLineage: string; readonly documentRevision: number; readonly clipboardText?: string } | { readonly executionKey: string },
+  ownerKind: 'document' | 'shown-result' | 'preview',
+  context: { readonly documentLineage: string; readonly documentRevision: number; readonly clipboardText?: string } | { readonly executionKey: string } | { readonly preview: true },
   roots: ReturnType<typeof workflowAssetRoots>,
   storage: Pick<Storage, 'setItem'>,
 ): Promise<RetainedAssets> {
   if (roots.refusal !== undefined) throw new Error(roots.refusal)
   const digests = roots.digests
   if (digests.length > 4096) throw new Error('Workflow exceeds the retained identity limit')
-  const owner = { scope: 'local', ownerKind, ownerId: `${ownerKind === 'document' ? 'workflow-candidate' : 'execution-result'}:${uuidv4()}` }
+  const owner = { scope: 'local', ownerKind, ownerId: `${ownerKind === 'document' ? 'workflow-candidate' : ownerKind === 'preview' ? 'asset-preview' : 'execution-result'}:${uuidv4()}` }
   const key = scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)
   const intent = {
     version: 3, connectionId: connection.id, assetBaseUrl: connection.assetUrl(''), owner, digests, complete: roots.complete,

@@ -1,6 +1,6 @@
 import { AssetDtoV1Client, AssetDtoV1HttpError, type CandidateV1, type CatalogRequestV1 } from '@dinkster/client'
 import type { CollectionEntry, CollectionSource } from '@dinkster/core'
-import { assetEntryOf } from './collection-adapter.js'
+import { assetEntryOf, type AssetPreviewOwner } from './collection-adapter.js'
 import { formatSize } from './helpers.js'
 
 const details = (
@@ -26,7 +26,7 @@ const details = (
   ...(candidate.assetRef ? [{ label: 'Virtual path', text: candidate.assetRef.virtualPath }] : []),
 ]
 
-const entry = (candidate: CandidateV1, assetUrl?: (digest: string) => string): CollectionEntry => {
+const entry = (candidate: CandidateV1, assetUrl?: (digest: string) => string, previewOwner?: AssetPreviewOwner): CollectionEntry => {
   const size = candidate.assetRef?.size ?? candidate.size
   const mediaType = candidate.assetRef?.mediaType ?? candidate.mediaType
   const id = `federated:${JSON.stringify([candidate.logicalId, candidate.variantId, candidate.digest])}`
@@ -40,7 +40,7 @@ const entry = (candidate: CandidateV1, assetUrl?: (digest: string) => string): C
       availability: candidate.availability.status === 'local' && candidate.assetRef !== undefined
         && candidate.compatibility.status !== 'incompatible' ? 'available' : 'unavailable',
       source: { id: 'federated-assets', label: 'Federated catalog' },
-    }, assetUrl),
+    }, assetUrl, previewOwner),
     badges: size !== undefined ? [formatSize(size)] : [],
     details: details(candidate, size, mediaType),
   }
@@ -57,7 +57,7 @@ const unavailable = (title: string, reason: string): CollectionEntry => ({
 export function federatedCollectionSource(
   client: AssetDtoV1Client,
   onFailure?: (message: string | undefined) => void,
-  options: { fixedKind?: string; assetUrl?: (digest: string) => string } = {},
+  options: { fixedKind?: string; assetUrl?: (digest: string) => string; previewOwner?: AssetPreviewOwner } = {},
 ): CollectionSource {
   const providers = new Set<string>()
   const sources = new Set<string>()
@@ -101,7 +101,7 @@ export function federatedCollectionSource(
               (!providerId || provider.source.providerId === providerId)
               && (!sourceId || provider.source.sourceId === sourceId)))
           : page.items
-        return { items: filtered.map((candidate) => entry(candidate, options.assetUrl)), ...(page.nextCursor !== undefined ? { cursor: page.nextCursor } : {}) }
+        return { items: filtered.map((candidate) => entry(candidate, options.assetUrl, options.previewOwner)), ...(page.nextCursor !== undefined ? { cursor: page.nextCursor } : {}) }
       } catch (error) {
         if (req.signal?.aborted === true) throw error
         const code = error instanceof AssetDtoV1HttpError ? error.error.error.code : 'catalog-error'

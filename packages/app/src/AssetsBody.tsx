@@ -269,22 +269,25 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
   })
   const sources = createMemo((): readonly CollectionSource[] => {
     const browsable = presentedAdapters()
-    const assetUrl = (digest: string): string => props.connection.assetUrl(digest)
+    const connection = props.connection
+    const assetUrl = (digest: string): string => connection.assetUrl(digest)
     const healthGeneration = discoveryGeneration
+    const previewOwner = { connection, current: () => live && props.connection === connection && healthGeneration === discoveryGeneration }
     const reportFailures = (failures: readonly AssetSourceFailure[]): void => {
       if (!live || healthGeneration !== discoveryGeneration) return
       setSourceFailures(Object.fromEntries(failures.map((failure) => [failure.sourceId, { label: failure.label, message: failure.message }])))
     }
     const federated = props.federatedContract
-      ? { ...federatedCollectionSource(new AssetDtoV1Client(props.baseUrl ?? '', props.federatedContract), () => undefined), id: 'federated-assets', label: 'Federated catalog' }
+      ? { ...federatedCollectionSource(new AssetDtoV1Client(props.baseUrl ?? '', props.federatedContract), () => undefined, { previewOwner }), id: 'federated-assets', label: 'Federated catalog' }
       : undefined
     const local = allAssetsCollectionSource(browsable, unavailable(), assetUrl, {
+      previewOwner,
       onSourceFailures: reportFailures,
       ...(federated ? { additionalSources: [federated] } : {}),
     })
     return [
       local,
-      ...browsable.map((adapter) => assetCollectionSource(adapter, { assetUrl })),
+      ...browsable.map((adapter) => assetCollectionSource(adapter, { assetUrl, previewOwner })),
       ...(federated ? [federated] : []),
     ]
   })

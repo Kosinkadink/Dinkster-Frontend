@@ -10,9 +10,17 @@
  */
 
 import type { CollectionEntry, CollectionSource } from '@dinkster/core'
+import type { DinksterConnection } from '@dinkster/client'
 import type { AssetBrowserItem, AssetSourceAdapter } from './types.js'
 import { committableAssetRef, formatSize, isBrowserPreviewable, isCompatible } from './helpers.js'
 import { isModel3dMime } from '../model3d-mime.js'
+import { readAssetPreview } from '../workflow-asset-retention.js'
+import { activeProjectId } from '../projects.js'
+
+export interface AssetPreviewOwner {
+  readonly connection: DinksterConnection
+  readonly current: () => boolean
+}
 
 const EXTENSION_KINDS: Readonly<Record<string, string>> = {
   png: 'image', jpg: 'image', jpeg: 'image', webp: 'image', gif: 'image', bmp: 'image',
@@ -30,7 +38,8 @@ export function assetKindOf(item: Pick<AssetBrowserItem, 'kind' | 'name'>): stri
 }
 
 /** One asset row (or folder row) in the common display vocabulary. */
-export function assetEntryOf(item: AssetBrowserItem, assetUrl?: (digest: string) => string): CollectionEntry {
+export function assetEntryOf(item: AssetBrowserItem, assetUrl?: (digest: string) => string, previewOwner?: AssetPreviewOwner): CollectionEntry {
+  const project = activeProjectId()
   if (item.folder === true) {
     return {
       id: item.id,
@@ -57,10 +66,13 @@ export function assetEntryOf(item: AssetBrowserItem, assetUrl?: (digest: string)
         ? {
             thumbRender: async (signal?: AbortSignal) => {
               signal?.throwIfAborted()
+              if (previewOwner === undefined) throw new Error('Asset preview ownership unavailable')
               const url = assetUrl(item.digest!)
               const viewer = await import('../model3d-viewer.js')
               signal?.throwIfAborted()
-              return viewer.renderModel3dPosterUrl(url, item.mediaType!)
+              return readAssetPreview(previewOwner.connection, item.digest!,
+                () => viewer.renderModel3dPosterUrl(url, item.mediaType!),
+                () => signal?.aborted !== true && activeProjectId() === project && previewOwner.current())
             },
           }
         : {}),
@@ -106,7 +118,7 @@ export function assetEntryPickable(accept: readonly string[], kind?: string): (e
  */
 export function assetCollectionSource(
   adapter: AssetSourceAdapter,
-  opts: { readonly assetUrl?: (digest: string) => string; readonly fixedKind?: string } = {},
+  opts: { readonly assetUrl?: (digest: string) => string; readonly fixedKind?: string; readonly previewOwner?: AssetPreviewOwner } = {},
 ): CollectionSource {
   const seenKinds = new Set<string>()
   return {
@@ -147,8 +159,8 @@ export function assetCollectionSource(
       }
       return {
         items: [
-          ...(page.folders ?? nav.folders).map((f) => assetEntryOf(f, opts.assetUrl)),
-          ...page.items.map((i) => assetEntryOf(i, opts.assetUrl)),
+          ...(page.folders ?? nav.folders).map((f) => assetEntryOf(f, opts.assetUrl, opts.previewOwner)),
+          ...page.items.map((i) => assetEntryOf(i, opts.assetUrl, opts.previewOwner)),
         ],
         ...(page.cursor !== undefined ? { cursor: page.cursor } : {}),
         ...(page.total !== undefined ? { total: page.total } : {}),

@@ -724,12 +724,17 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const assetPanelSources = createMemo(() => {
     const adapters = assetSources() ?? []
     const assetUrl = assetUrlOf()
+    const backend = props.app.backendForTab(ed.tab)
+    const ownership = backend.protocol === 'dinkster'
+      ? { previewOwner: { connection: backend.connection, current: () => live && props.app.backendForTab(ed.tab) === backend && activeProjectId() === project } }
+      : {}
     const fixedKind = assetBrowseKind()
     if (usesLogicalModelSource()) {
       return logicalModels() === undefined ? [] : [logicalModelCollectionSource(() => logicalModels() ?? [])]
     }
     const federated = props.federatedAssets === undefined ? undefined : {
       ...federatedCollectionSource(new AssetDtoV1Client('', props.federatedAssets), () => undefined, {
+        ...ownership,
         ...(fixedKind !== undefined ? { fixedKind } : {}),
         ...(assetUrl !== undefined ? { assetUrl } : {}),
       }),
@@ -740,15 +745,16 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       const imported = adapters.filter((adapter) => mountPresentationClass({ id: adapter.id.replace(/^mount:/, ''), kind: fixedKind }) === 'input')
       const generated = adapters.filter((adapter) => mountPresentationClass({ id: adapter.id.replace(/^mount:/, ''), kind: fixedKind }) === 'output')
       return [
-        allAssetsCollectionSource(adapters, [], assetUrl, { fixedKind, failWhenAllSourcesFail: true, additionalSources }),
-        ...(imported.length > 0 ? [allAssetsCollectionSource(imported, [], assetUrl, { id: 'imported-assets', label: 'Imported', fixedKind, failWhenAllSourcesFail: true })] : []),
-        ...(generated.length > 0 ? [allAssetsCollectionSource(generated, [], assetUrl, { id: 'generated-assets', label: 'Generated', fixedKind, failWhenAllSourcesFail: true })] : []),
+        allAssetsCollectionSource(adapters, [], assetUrl, { ...ownership, fixedKind, failWhenAllSourcesFail: true, additionalSources }),
+        ...(imported.length > 0 ? [allAssetsCollectionSource(imported, [], assetUrl, { ...ownership, id: 'imported-assets', label: 'Imported', fixedKind, failWhenAllSourcesFail: true })] : []),
+        ...(generated.length > 0 ? [allAssetsCollectionSource(generated, [], assetUrl, { ...ownership, id: 'generated-assets', label: 'Generated', fixedKind, failWhenAllSourcesFail: true })] : []),
       ]
     }
     return [
-      ...(federated ? [allAssetsCollectionSource(adapters, [], assetUrl, { additionalSources, failWhenAllSourcesFail: true })] : []),
+      ...(federated ? [allAssetsCollectionSource(adapters, [], assetUrl, { ...ownership, additionalSources, failWhenAllSourcesFail: true })] : []),
       ...adapters.map((adapter) =>
       assetCollectionSource(adapter, {
+        ...ownership,
         ...(assetUrl !== undefined ? { assetUrl } : {}),
         ...(fixedKind !== undefined ? { fixedKind } : {}),
       }

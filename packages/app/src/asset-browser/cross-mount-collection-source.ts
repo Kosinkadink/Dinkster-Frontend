@@ -1,6 +1,6 @@
 import type { MountDescriptor } from '@dinkster/client'
 import type { CollectionEntry, CollectionPageRequest, CollectionSource } from '@dinkster/core'
-import { assetCollectionSource, assetEntryOf, assetItemOf } from './collection-adapter.js'
+import { assetCollectionSource, assetEntryOf, assetItemOf, type AssetPreviewOwner } from './collection-adapter.js'
 import type { AssetSourceAdapter } from './types.js'
 
 interface CrossMountCursor {
@@ -68,11 +68,13 @@ export function allAssetsCollectionSource(
     readonly failWhenAllSourcesFail?: boolean
     readonly onSourceFailures?: (failures: readonly AssetSourceFailure[]) => void
     readonly additionalSources?: readonly CollectionSource[]
+    readonly previewOwner?: AssetPreviewOwner
   } = {},
 ): CollectionSource {
   const sources = [...adapters.map((adapter) => assetCollectionSource(adapter, {
       ...(assetUrl ? { assetUrl } : {}),
       ...(options.fixedKind ? { fixedKind: options.fixedKind } : {}),
+      ...(options.previewOwner ? { previewOwner: options.previewOwner } : {}),
     })), ...(options.additionalSources ?? [])]
   let generation = 0
   let activeSignature = ''
@@ -162,7 +164,7 @@ export function allAssetsCollectionSource(
           { label: 'Location', text: `${item.source.label}: ${item.virtualPath ?? ''}` },
         ]
         const details = [...new Map(facts.map((fact) => [JSON.stringify(fact), fact])).values()]
-        const merged = assetEntryOf({ ...chosen, id: `all-assets:${item.digest}`, details }, assetUrl)
+        const merged = assetEntryOf({ ...chosen, id: `all-assets:${item.digest}`, details }, assetUrl, options.previewOwner)
         assetGroups.set(item.digest, merged)
         grouped.set(merged.id, merged)
       }
