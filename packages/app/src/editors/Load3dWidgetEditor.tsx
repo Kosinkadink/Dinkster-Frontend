@@ -65,6 +65,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   let viewerCurrent = (): boolean => true
   const releaseUrls = () => { urls.splice(0).forEach((url) => URL.revokeObjectURL(url)) }
   let pendingCapture: ReturnType<Model3dViewerHandle['capture']> | undefined
+  let pendingRecording = Promise.resolve()
   const backendCurrent = (): boolean => props.editor.app.backendForTab(ed.tab).connection === backend.connection
   let sourcesCurrent = (): boolean => ed.tab.store.revision === revision && backendCurrent()
   onCleanup(() => {
@@ -260,6 +261,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         } finally {
           if (viewer === mounted) { viewer = undefined; mounted.dispose() }
           await pendingCapture?.catch(() => {})
+          await pendingRecording
         }
       }
       viewerPending = true
@@ -278,7 +280,9 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       if (recorder?.state === 'recording') recorder.stop()
       return
     }
+    let settle: (() => void) | undefined
     try {
+      if (!viewerCurrent() || !sourcesCurrent()) throw new Error(message('load3dWidget.unavailable'))
       const capture = viewer!.recordingStream(Number(inputValue('width') ?? 1024), Number(inputValue('height') ?? 1024))
       stopRecording = capture.stop
       const currentRecorder = new MediaRecorder(capture.stream)
@@ -286,24 +290,27 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       video = undefined
       let failed = false
       const chunks: Blob[] = []
+      pendingRecording = new Promise<void>((resolve) => { settle = resolve })
       currentRecorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data) }
       currentRecorder.onstop = () => {
         capture.stop()
         if (live && recorder === currentRecorder) {
-          if (!failed) video = new Blob(chunks, { type: currentRecorder.mimeType })
+          if (!failed && sourcesCurrent() && viewerCurrent()) video = new Blob(chunks, { type: currentRecorder.mimeType })
           setRecording(false)
         }
+        settle?.()
       }
       currentRecorder.onerror = () => {
         failed = true
         capture.stop()
         if (currentRecorder.state === 'recording') currentRecorder.stop()
-        if (live && recorder === currentRecorder) { setRecording(false); setError(message('load3dWidget.recordingFailed')) }
+        if (live && recorder === currentRecorder) setError(message('load3dWidget.recordingFailed'))
       }
       currentRecorder.start()
       setRecording(true)
     } catch (reason) {
       stopRecording?.()
+      settle?.()
       setError(reason instanceof Error ? reason.message : String(reason))
     }
   }

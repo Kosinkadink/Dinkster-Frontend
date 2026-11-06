@@ -149,7 +149,12 @@ the handle promptly but waits for any pending capture encoding before settling
 that borrow and revoking object URLs. Expired viewer ownership refuses capture,
 and expiration during capture or upload prevents late publication. Producer
 models acknowledge the selected primary and sidecar digest union as incomplete
-shown-result roots for this lifetime. This does not certify local bindings, native asynchronous teardown,
+shown-result roots for this lifetime. Recording also retains the mounted borrow
+until MediaRecorder delivers its final stop event, including close or error
+while final data is pending. Tracks and the viewer stop promptly; failed,
+expired or obsolete recordings cannot publish a captured video. A failed start
+settles without waiting for an event from a recorder that never started.
+This does not certify local bindings, other native asynchronous teardown,
 complete dependencies or retained-owner retirement.
 
 Live and mirrored structured outputs and preview records also await incomplete

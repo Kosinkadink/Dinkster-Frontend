@@ -34,7 +34,7 @@ vi.mock('../src/model3d-viewer.js', () => ({
 
 afterEach(() => { document.body.replaceChildren(); fixtures.loads.length = 0; fixtures.mount = undefined; fixtures.capture = undefined; fixtures.disposed = 0; vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture-close-rejected', 'capture-expired', 'capture-late-expired', 'capture-success', 'capture-rejected'] as const)('keeps authored state on failure and cancel and captures undoably from %s', async (source) => {
+it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture-close-rejected', 'capture-expired', 'capture-late-expired', 'capture-success', 'capture-rejected', 'recording-close', 'recording-stop-close', 'recording-error-close', 'recording-expired', 'recording-start-failed', 'recording-success', 'recording-late-expired'] as const)('keeps authored state on failure and cancel and captures undoably from %s', async (source) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const schema = parseDinksterSchema('Load3DFixture', { interface: [
@@ -52,7 +52,7 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture
   const store = new DocumentStore({ ...doc, graphs: { ...doc.graphs, g0: {
     ...graph,
     nodes: { ...graph.nodes, source: { id: asNodeId('source'), type: schema.type, values: { model_file: linkedModel } } },
-    links: source === 'stored' || source.startsWith('capture-') || source === 'broken-net' ? graph.links : { l1: {
+    links: source === 'stored' || source.startsWith('capture-') || source.startsWith('recording-') || source === 'broken-net' ? graph.links : { l1: {
       id: asLinkId('l1'), from: { node: asNodeId(source === 'tap' ? 'source' : 'missing'), tap: asPortId('model_file') }, to,
     } },
     nets: source !== 'broken-net' ? graph.nets : { net: { id: asNetId('net'), name: 'model', source: { node: asNodeId('missing'), port: asPortId('out') }, sinks: [to] } },
@@ -97,6 +97,66 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture
     return
   }
   await vi.waitFor(() => expect(document.querySelector('#load3d-position-x')).not.toBeNull())
+  if (source.startsWith('recording-')) {
+    let instance!: {
+      state: string
+      onstop?: () => void
+      onerror?: () => void
+      ondataavailable?: (event: { data: Blob }) => void
+    }
+    vi.stubGlobal('MediaRecorder', class {
+      state = 'inactive'
+      mimeType = 'video/webm'
+      onstop?: () => void
+      onerror?: () => void
+      ondataavailable?: (event: { data: Blob }) => void
+      constructor() { instance = this }
+      start() { if (source === 'recording-start-failed') throw new Error('recording start failed'); this.state = 'recording' }
+      stop() { this.state = 'inactive' }
+    })
+    fail = false
+    if (source === 'recording-expired') current = false
+    button('Record viewport').click()
+    if (source === 'recording-expired') {
+      expect(instance).toBeUndefined()
+      expect(document.body.textContent).toContain('The selected model file is unavailable.')
+    } else if (source === 'recording-start-failed') {
+      expect(document.body.textContent).toContain('recording start failed')
+    } else {
+      expect(instance.state).toBe('recording')
+      expect(activeReads).toBe(1)
+      if (source === 'recording-error-close') {
+        instance.onerror!()
+        expect(button('Apply').disabled).toBe(true)
+      }
+      else if (source !== 'recording-close') button('Stop recording').click()
+      if (source.endsWith('close')) {
+        dispose()
+        expect(instance.state).toBe('inactive')
+        expect(fixtures.disposed).toBe(1)
+        await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+        expect(activeReads).toBe(1)
+        expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+      }
+      if (source === 'recording-late-expired') current = false
+      instance.ondataavailable!({ data: new Blob(['recorded frames']) })
+      instance.onstop!()
+      if (source.endsWith('close')) await vi.waitFor(() => expect(activeReads).toBe(0))
+      else {
+        button('Apply').click()
+        if (source === 'recording-success') await vi.waitFor(() => expect(uploads).toEqual(['viewport-image.png', 'viewport-mask.png', 'viewport-normal.png', 'viewport-recording.webm']))
+        else await vi.waitFor(() => expect(button('Apply').disabled).toBe(false))
+      }
+    }
+    if (source !== 'recording-success') {
+      expect(uploads).toEqual([])
+      expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(initial)
+    }
+    if (!source.endsWith('close')) dispose()
+    await vi.waitFor(() => expect(activeReads).toBe(0))
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1)
+    return
+  }
   if (source.startsWith('capture-')) {
     let release!: () => void
     let reject!: (reason: Error) => void
