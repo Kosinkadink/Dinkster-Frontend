@@ -49,6 +49,42 @@ const prompt = (document: WorkflowDocument, resolver = resolve) => {
 }
 
 describe('LiteGraph subgraphs', () => {
+  it('keeps an obsolete exposed input unbound without breaking valid boundary inputs', () => {
+    const raw = { nodes: [instance(10)], links: [], definitions: { subgraphs: [{
+      ...definition(),
+      nodes: [{ ...relay(), inputs: [
+        { name: 'value', widget: { name: 'value' }, link: 1 },
+        { name: 'obsolete', link: 3 },
+      ] }],
+      inputs: [
+        { id: 'in', name: 'value', type: 'INT', linkIds: [1] },
+        { id: 'stale', name: 'obsolete', type: 'INT', linkIds: [3] },
+      ],
+      links: [link(1, -10, 0, 1, 0), link(2, 1, 0, -20, 0), link(3, -10, 1, 1, 1)],
+    }] } }
+    const original = structuredClone(raw)
+    const result = importLitegraph(raw as JsonObject, resolve)
+    expect(result.diagnostics.map(item => item.code)).toContain('import.subgraphs.obsoleteInput')
+    expect(result.diagnostics.map(item => item.code)).not.toContain('import.subgraphs.boundaryUnresolved')
+    const body = result.document!.graphs['inner']!
+    expect(body.boundary!.inputs[1]!.binds).toEqual({ kind: 'unbound', type: { kind: 'concrete', name: 'INT' } })
+    expect(deriveBoundarySchema(body, resolve).diagnostics.filter(item => item.severity === 'error')).toEqual([])
+    expect(prompt(result.document!)['n10.n1']!.inputs).toEqual({ value: 19 })
+    expect(raw).toEqual(original)
+
+    const unknown = importLitegraph(raw as JsonObject, () => undefined)
+    expect(unknown.diagnostics.map(item => item.code)).not.toContain('import.subgraphs.obsoleteInput')
+    expect(unknown.diagnostics.map(item => item.code)).toContain('import.subgraphs.boundaryUnresolved')
+
+    const connected = { ...raw, nodes: [{ ...instance(10), inputs: [
+      { name: 'value', widget: { name: 'value' } },
+      { name: 'obsolete', link: 10 },
+    ] }, relay(20)], links: [link(10, 20, 0, 10, 1)] }
+    const linked = importLitegraph(connected as JsonObject, resolve)
+    expect(linked.diagnostics.map(item => item.code)).not.toContain('import.subgraphs.obsoleteInput')
+    expect(linked.diagnostics.map(item => item.code)).toContain('import.subgraphs.boundaryUnresolved')
+  })
+
   it.each([false, true])('forwards a dynamic selector and separate branch widgets (keyed: %s)', (keyed) => {
     const render: NodeSchema = {
       type: 'Render', displayName: 'Render', category: 'test', source: 'v3', isOutputNode: true,

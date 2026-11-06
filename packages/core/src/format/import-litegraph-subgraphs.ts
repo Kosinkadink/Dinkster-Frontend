@@ -539,7 +539,36 @@ export function importLitegraphSubgraphs(
       nodes: Object.fromEntries(Object.entries(nativeBody.nodes).filter(([key]) => key !== `n${def.inputNode}` && key !== `n${def.outputNode}`)),
       links: Object.fromEntries(Object.entries(nativeBody.links).filter(([, link]) =>
         !nodeEnd(link.from, `n${def.inputNode}`) && !nodeEnd(link.to, `n${def.outputNode}`))),
-      boundary: { inputs: boundary('inputs'), outputs: boundary('outputs') },
+      boundary: { inputs: boundary('inputs').map((item) => {
+        const rawSlot = def.raw['inputs'].find((slot: Mutable) => slot['id'] === item.id)
+        const connected = [root, ...[...definitions.values()].map((definition) => definition.raw)].some((graph) =>
+          graph['nodes'].some((node: Mutable) => (node['type'] === id || node['type'] === `#${id}`) &&
+            node['inputs']?.some((input: Mutable) =>
+              (input['name'] === item.id || input['name'] === rawSlot?.['name']) && input['link'] != null)))
+        if (connected) return item
+        const bindings = [item.binds, ...(item.alsoBinds ?? [])].filter((binding) => {
+          if (binding.kind !== 'port' || binding.viaReroute !== undefined) return true
+          const node = nativeBody.nodes[binding.node]
+          const schema = node && localResolve(node.type)
+          if (!schema) return true
+          const rawNode = def.raw['nodes'].find((raw: Mutable) => `n${raw['id']}` === binding.node)
+          if (rawNode?.['inputs']?.some((input: Mutable) => input['name'] === binding.port && input['widget'])) return true
+          const route = resolveBoundaryRoute(schema, binding, 'input', node.values, node.dynamic)
+          if (route.ok || route.code !== 'boundary.unknownPort') return true
+          diagnostics.push(diag('warning', 'import', 'import.subgraphs.obsoleteInput',
+            `Subgraph ${id}: input '${item.displayName}' targets absent port '${binding.port}' on '${node.type}'; binding left unconnected`,
+            { data: { graphId: id, boundaryId: item.id, nodeId: binding.node, port: binding.port } }))
+          return false
+        })
+        if (bindings.length === 1 && bindings[0] === item.binds && !item.alsoBinds) return item
+        const { alsoBinds: _alsoBinds, promoted: _promoted, ...rest } = item
+        return {
+          ...rest,
+          binds: bindings[0] ?? { kind: 'unbound' as const, type: importedSlotType(rawSlot?.['type']) },
+          ...(bindings.length > 1 ? { alsoBinds: bindings.slice(1) } : {}),
+          ...(bindings.length > 0 && item.promoted ? { promoted: true } : {}),
+        }
+      }), outputs: boundary('outputs') },
     }
     const derived = deriveBoundarySchema(candidate, localResolve)
     const deriveErrors = derived.diagnostics.filter((item) => item.severity === 'error')
