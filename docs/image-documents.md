@@ -25,6 +25,12 @@ submitted may finish without rollback. Membership changes recheck their captured
 context after opening the database and reading the draft, before submitting the
 write. A stale read aborts that transaction without changing membership.
 
+Shared image lists stay with the workspace, project, backend connection, and
+request that opened them. Closing the dialog invalidates a pending refresh;
+stale results and errors do not reopen it. A list from an obsolete owner cannot
+start a join. Pending list requests keep the workspace busy and settle before
+disposal closes its store.
+
 Closing the library dialog (including Escape), changing its backend connection,
 or leaving its project invalidates a pending library open. A settled stale read
 does not open a tab or start another resource/draft write. An already submitted

@@ -746,6 +746,9 @@ export function ImageDocumentWorkspace(props: {
   let libraryOwner: ReturnType<AppState['libraryBackend']>
   let openingLibrary: Promise<unknown> | undefined
   let recovering: Promise<void> | undefined
+  let collaborationListIntent = 0
+  let collaborationListCurrent = (): boolean => false
+  const pendingCollaborationLists = new Set<Promise<void>>()
   const pendingGraphOpens = new Set<Promise<void>>()
   const pendingImports = new Set<Promise<void>>()
   const leaving = new Set<OpenImageDocument>()
@@ -770,7 +773,7 @@ export function ImageDocumentWorkspace(props: {
   }
 
   const setBusy = (value: boolean): void => {
-    const pending = value || pendingImports.size > 0 || pendingGraphOpens.size > 0
+    const pending = value || pendingImports.size > 0 || pendingGraphOpens.size > 0 || pendingCollaborationLists.size > 0
     setBusySignal(pending)
     props.onBusyChange(pending)
   }
@@ -1039,27 +1042,44 @@ export function ImageDocumentWorkspace(props: {
     setConfirmingEnd(true)
     queueMicrotask(() => endConfirmButton?.focus())
   }
+  const closeCollaboration = (): void => {
+    collaborationListIntent += 1
+    setCollaborationOpen(false)
+  }
   const refreshCollaboration = async (): Promise<void> => {
+    const intent = ++collaborationListIntent
     const backend = backendForCollaboration()
     if (backend?.protocol !== 'dinkster') {
       setCollaborationSessions([])
       setLocalizedError('imageDocument.workspace.error.sharingRequiresBackend')
       return
     }
+    const connection = backend.connection
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      collaborationListIntent === intent && backendForCollaboration() === backend && backend.connection === connection
     setBusy(true)
     setError(undefined)
-    try {
+    const task: Promise<void> = (async () => {
       const sessions = await props.app.collabTransport.list(backend.baseUrl, COLLAB_SCOPE)
+      if (!current()) return
+      collaborationListCurrent = current
       setCollaborationSessions(sessions.filter((descriptor) => descriptor.documentKind === 'image'))
       setCollaborationOpen(true)
-      queueMicrotask(() => collaborationDialog?.focus())
-    } catch (cause) {
-      if (live) setLocalizedError('imageDocument.workspace.error.sharedListFailed', { reason: messageOf(cause) })
-    } finally {
+      queueMicrotask(() => { if (current()) collaborationDialog?.focus() })
+    })().catch((cause) => {
+      if (current()) setLocalizedError('imageDocument.workspace.error.sharedListFailed', { reason: messageOf(cause) })
+    }).finally(() => {
+      pendingCollaborationLists.delete(task)
       if (live) setBusy(false)
-    }
+    })
+    pendingCollaborationLists.add(task)
+    await task
   }
   const joinShared = async (descriptor: CollabSessionDescriptor): Promise<void> => {
+    if (!collaborationListCurrent()) {
+      closeCollaboration()
+      return
+    }
     const backend = backendForCollaboration()
     if (backend?.protocol !== 'dinkster') return
     const duplicate = documents().find((entry) =>
@@ -1164,7 +1184,7 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingGraphOpens, ...pendingImports, ...current.flatMap((entry) => [
+    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
       entry.hydrate.catch(() => undefined),
     ])]).finally(() => store.close())
@@ -1505,11 +1525,11 @@ export function ImageDocumentWorkspace(props: {
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
               event.preventDefault()
-              setCollaborationOpen(false)
+              closeCollaboration()
             }
           }}
         >
-          <header><strong>{message('imageDocument.workspace.dialog.shared.title')}</strong><ProductButton type="button" onClick={() => setCollaborationOpen(false)}>{message('imageDocument.workspace.action.close')}</ProductButton></header>
+          <header><strong>{message('imageDocument.workspace.dialog.shared.title')}</strong><ProductButton type="button" onClick={closeCollaboration}>{message('imageDocument.workspace.action.close')}</ProductButton></header>
           <Show when={collaborationSessions().length > 0} fallback={<p>{message('imageDocument.workspace.dialog.shared.empty')}</p>}>
             <For each={collaborationSessions()}>{(descriptor) =>
               <ProductButton

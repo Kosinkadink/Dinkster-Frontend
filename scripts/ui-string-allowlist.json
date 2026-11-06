@@ -536,6 +536,7 @@
     "text:() const [authoritativeError, setAuthoritativeError] = createSignal",
     "text:() const [libraryOpen, setLibraryOpen] = createSignal(false) const [libraryRecords, setLibraryRecords] = createSignal",
     "text:() const leaving = new Set",
+    "text:() const pendingGraphOpens = new Set",
     "text:() const pendingImports = new Set",
     "text:([]) const [activeLineage, setActiveLineage] = createSignal('') const [loading, setLoading] = createSignal(true) const [busy, setBusySignal] = createSignal(false) const [error, setErrorValue] = createSignal",
     "text:([]) const [collaborationOpen, setCollaborationOpen] = createSignal(false) const [collaborationSessions, setCollaborationSessions] = createSignal",
@@ -549,13 +550,14 @@
     "text:URL.revokeObjectURL(assetUrl)) return",
     "text:candidate.layer.id === layerId)! return (",
     "text:documentValue().masks[maskId]! return (",
+    "text:false const pendingCollaborationLists = new Set",
     "text:hydrate: Promise",
     "text:let openingLibrary: Promise",
+    "text:live && activeProjectId() === store.projectId && collaborationListIntent === intent && backendForCollaboration() === backend && backend.connection === connection setBusy(true) setError(undefined) const task: Promise",
     "text:tablist.querySelector",
     "text:true, ): Promise",
     "text:void name: string draft: ImageDocumentDraft persist: Promise",
     "text:window.removeEventListener('keydown', onShortcut)) const updateLayer = (changes: Omit",
-    "text:| undefined const pendingGraphOpens = new Set",
     "text:| undefined let recovering: Promise"
   ],
   "ImageEditor.tsx": [

@@ -43,6 +43,87 @@ afterEach(() => {
 })
 
 describe('ImageDocumentWorkspace', () => {
+  it.each(['accepted', 'failed', 'project', 'project-failed', 'backend', 'connection', 'dispose', 'closed', 'selection'])(
+    'keeps the shared image list with its original request and owner (%s)', async (outcome) => {
+      vi.stubGlobal('indexedDB', new FakeIDBFactory())
+      let backend = { id: 'list-owner', protocol: 'dinkster', baseUrl: 'http://list.test',
+        connection: {} as DinksterConnection }
+      const descriptor: CollabSessionDescriptor = { protocolVersion: COLLAB_PROTOCOL_VERSION,
+        sessionId: 'listed-session', scope: 'shared', documentKind: 'image', documentId: 'Listed image',
+        revision: 0, snapshotRevision: 0 }
+      let finish!: () => void
+      let fail!: (cause: Error) => void
+      const held = new Promise<void>((resolve, reject) => { finish = resolve; fail = reject })
+      let entered = false
+      let first = outcome === 'closed'
+      const connect = () => { throw new Error('Obsolete selection connected') }
+      const app = { libraryBackend: () => undefined, collabBackend: () => backend,
+        backends: { get: () => [backend] }, collabActorId: 'alice',
+        collabTransport: { list: async () => {
+          if (first) { first = false; return [descriptor] }
+          entered = true
+          await held
+          return [descriptor]
+        }, connect }, showTransientStatus: vi.fn(),
+      } as unknown as AppState
+      const inspect = new ImageDocumentLocalStore(activeProjectId())
+      const close = ImageDocumentLocalStore.prototype.close
+      let closed = false
+      vi.spyOn(ImageDocumentLocalStore.prototype, 'close').mockImplementation(async function (this: ImageDocumentLocalStore) {
+        if (this !== inspect) closed = true
+        await close.call(this)
+      })
+      const root = document.createElement('div')
+      document.body.append(root)
+      let busy = false
+      const dispose = render(() => <ImageDocumentWorkspace active app={app}
+        onBusyChange={(value) => { busy = value }} onClose={() => undefined} />, root)
+      const browse = (): void => root.querySelector<HTMLButtonElement>('[data-testid="image-collab-browse"]')!.click()
+      try {
+        await vi.waitFor(() => expect(root.textContent).toContain('No image documents are open'))
+        browse()
+        if (outcome === 'closed') {
+          await vi.waitFor(() => expect(root.querySelector('[data-testid="image-collab-join"]')).not.toBeNull())
+          browse()
+        }
+        await vi.waitFor(() => expect(entered).toBe(true))
+        expect(busy).toBe(true)
+        if (outcome.startsWith('project')) initializeProjectScope('other-project')
+        if (outcome === 'backend') backend = { ...backend }
+        if (outcome === 'connection') backend.connection = {} as DinksterConnection
+        if (outcome === 'dispose') {
+          dispose()
+          await inspect.recoverDrafts()
+          expect(closed).toBe(false)
+        }
+        if (outcome === 'closed') root.querySelector('[role="dialog"]')!
+          .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        if (outcome.endsWith('failed')) fail(new Error('List unavailable'))
+        else finish()
+        if (outcome !== 'dispose') {
+          await vi.waitFor(() => expect(busy).toBe(false))
+          if (outcome === 'accepted' || outcome === 'selection') {
+            expect(root.querySelector('[data-testid="image-collab-join"]')?.textContent).toContain('Listed image')
+            if (outcome === 'selection') {
+              backend = { ...backend }
+              root.querySelector<HTMLButtonElement>('[data-testid="image-collab-join"]')!.click()
+              expect(root.querySelector('[role="dialog"]')).toBeNull()
+            }
+          } else {
+            expect(root.querySelector('[role="dialog"]')).toBeNull()
+          }
+          expect(root.querySelector('[role="alert"]')?.textContent ?? '').toBe(outcome === 'failed'
+            ? 'Shared images could not be listed: List unavailable' : '')
+        }
+      } finally {
+        finish()
+        dispose()
+      }
+      await vi.waitFor(() => expect(closed).toBe(true))
+      await inspect.close()
+    },
+  )
+
   it.each(['accepted', 'missing', 'project', 'backend', 'connection', 'dispose', 'snapshot-project', 'snapshot-dispose',
     'write-project', 'write-backend', 'write-connection', 'write-dispose', 'write-accepted', 'submitted-project'])(
     'keeps recovery membership with its original workspace and connection (%s)', async (outcome) => {
