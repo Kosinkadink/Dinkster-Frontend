@@ -742,6 +742,9 @@ export function ImageDocumentWorkspace(props: {
   let collaborationDialog!: HTMLDivElement
   let endConfirmButton: HTMLButtonElement | undefined
   let live = true
+  let libraryIntent = 0
+  let libraryOwner: ReturnType<AppState['libraryBackend']>
+  let openingLibrary: Promise<unknown> | undefined
   const leaving = new Set<OpenImageDocument>()
 
   const setError = (value: string | undefined): void => { setErrorValue(value) }
@@ -1133,10 +1136,10 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all(current.flatMap((entry) => [
+    void Promise.all([openingLibrary?.catch(() => undefined), ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
       entry.hydrate.catch(() => undefined),
-    ])).finally(() => store.close())
+    ])]).finally(() => store.close())
   })
 
   const importDocument = async (file: File): Promise<void> => {
@@ -1266,12 +1269,24 @@ export function ImageDocumentWorkspace(props: {
       if (live) setBusy(false)
     }
   }
+  const currentLibraryIntent = (intent: number, backend: NonNullable<typeof libraryOwner>): boolean => {
+    const current = props.app.libraryBackend()
+    return live && activeProjectId() === store.projectId && libraryIntent === intent &&
+      current?.id === backend.id && current.connection === backend.connection
+  }
+  const closeLibrary = (): void => {
+    libraryIntent += 1
+    libraryOwner = undefined
+    setLibraryOpen(false)
+  }
   const browseLibrary = async (): Promise<void> => {
     const backend = props.app.libraryBackend()
     if (backend === undefined) {
       setLocalizedError('imageDocument.workspace.error.openLibraryRequiresBackend')
       return
     }
+    const intent = ++libraryIntent
+    libraryOwner = backend
     setBusy(true)
     setError(undefined)
     try {
@@ -1280,28 +1295,36 @@ export function ImageDocumentWorkspace(props: {
         label: 'image-document',
         limit: 100,
       })
+      if (!currentLibraryIntent(intent, backend)) return
       setLibraryRecords(page.records.filter((record) => record.mediaType.split(';', 1)[0] === IMAGE_DOCUMENT_MEDIA_TYPE))
       setLibraryOpen(true)
-      queueMicrotask(() => libraryDialog?.focus())
+      queueMicrotask(() => { if (currentLibraryIntent(intent, backend)) libraryDialog?.focus() })
     } catch (cause) {
-      setLocalizedError('imageDocument.workspace.error.libraryOpenFailed', { reason: messageOf(cause) })
+      if (currentLibraryIntent(intent, backend)) setLocalizedError('imageDocument.workspace.error.libraryOpenFailed', { reason: messageOf(cause) })
     } finally {
       if (live) setBusy(false)
     }
   }
   const openLibraryRecord = async (record: LibraryRecord): Promise<void> => {
-    const backend = props.app.libraryBackend()
-    if (backend === undefined) return
+    const backend = libraryOwner
+    const intent = libraryIntent
+    if (backend === undefined || !currentLibraryIntent(intent, backend)) return
     setBusy(true)
     setError(undefined)
+    const task = openImageDocumentFromLibrary(backend.connection, store, record.id, LIBRARY_SCOPE, backend.id, () => {
+      if (!currentLibraryIntent(intent, backend)) throw new Error('Image library open is no longer current')
+    })
+    openingLibrary = task
     try {
-      const draft = await openImageDocumentFromLibrary(backend.connection, store, record.id, LIBRARY_SCOPE, backend.id)
+      const draft = await task
+      if (!currentLibraryIntent(intent, backend)) return
       if (draft === undefined) throw new Error(message('imageDocument.workspace.error.libraryRecordMissing'))
       openDraft(draft)
-      setLibraryOpen(false)
+      closeLibrary()
     } catch (cause) {
-      setLocalizedError('imageDocument.workspace.error.openImageFailed', { reason: messageOf(cause) })
+      if (currentLibraryIntent(intent, backend)) setLocalizedError('imageDocument.workspace.error.openImageFailed', { reason: messageOf(cause) })
     } finally {
+      openingLibrary = undefined
       if (live) setBusy(false)
     }
   }
@@ -1416,11 +1439,11 @@ export function ImageDocumentWorkspace(props: {
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
               event.preventDefault()
-              setLibraryOpen(false)
+              closeLibrary()
             }
           }}
         >
-          <header><strong>{message('imageDocument.workspace.dialog.library.title')}</strong><ProductButton type="button" onClick={() => setLibraryOpen(false)}>{message('imageDocument.workspace.action.close')}</ProductButton></header>
+          <header><strong>{message('imageDocument.workspace.dialog.library.title')}</strong><ProductButton type="button" onClick={closeLibrary}>{message('imageDocument.workspace.action.close')}</ProductButton></header>
           <Show when={libraryRecords().length > 0} fallback={<p>{message('imageDocument.workspace.dialog.library.empty')}</p>}>
             <For each={libraryRecords()}>{(record) => <ProductButton type="button" disabled={busy()} onClick={() => void openLibraryRecord(record)}><strong>{record.name}</strong><small>{message('imageDocument.workspace.dialog.library.revision', { revision: record.revision })}</small></ProductButton>}</For>
           </Show>

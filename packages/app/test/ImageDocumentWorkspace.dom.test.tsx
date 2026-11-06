@@ -9,6 +9,7 @@ import {
   IMAGE_OPACITY_MAX,
   registerCatalog,
   setLocale,
+  serializeImageDocument,
   type CollabClientOp,
   type CollabConnection,
   type CollabConnectionEvent,
@@ -22,7 +23,7 @@ import type { AppState } from '../src/app-state.js'
 import type { CollabTransport } from '../src/collab.js'
 import { ImageDocumentWorkspace } from '../src/ImageDocumentWorkspace.js'
 import { ImageDocumentLocalStore, imageDocumentDigest, importSingleRaster } from '../src/image-document-local.js'
-import { activeProjectId } from '../src/projects.js'
+import { activeProjectId, initializeProjectScope } from '../src/projects.js'
 
 const rgba = new Uint8ClampedArray([
   255, 0, 0, 255,
@@ -35,9 +36,101 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   setLocale('en')
+  initializeProjectScope('default')
 })
 
 describe('ImageDocumentWorkspace', () => {
+  it.each([
+    ...['accepted', 'close', 'escape', 'backend', 'project', 'dispose', 'failure'].map((outcome) => [outcome, 'source']),
+    ...['accepted', 'close', 'dispose'].map((outcome) => [outcome, 'resource']),
+  ])(
+    'settles a library read without publishing stale bytes (%s, %s)', async (outcome, phase) => {
+      vi.stubGlobal('indexedDB', new FakeIDBFactory())
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      const seedStore = new ImageDocumentLocalStore(activeProjectId())
+      const seed = await importSingleRaster(
+        new File([new Uint8Array([1])], 'Library source.png', { type: 'image/png' }), seedStore,
+        { lineage: 'library-open-lifetime', normalize: async () => ({ width: 2, height: 1, rgba }) },
+      )
+      const text = serializeImageDocument(seed.document)
+      const resource = Object.values(seed.document.resources)[0]!
+      const staged = (await seedStore.getResource(resource.digest))!
+      await seedStore.close()
+      vi.stubGlobal('indexedDB', new FakeIDBFactory())
+      const store = new ImageDocumentLocalStore(activeProjectId())
+      const record = {
+        id: 'library-record', scope: 'local', name: 'Library source', digest: imageDocumentDigest(new TextEncoder().encode(text)),
+        mediaType: IMAGE_DOCUMENT_MEDIA_TYPE, labels: ['image-document'], revision: 1, created: 1, modified: 1,
+      }
+      let finish!: (text: string) => void
+      let fail!: (error: Error) => void
+      const response = new Promise<string>((resolve, reject) => { finish = resolve; fail = reject })
+      let finishResource!: (bytes: ArrayBuffer) => void
+      const resourceResponse = new Promise<ArrayBuffer>((resolve) => { finishResource = resolve })
+      const fetchAssetText = vi.fn(() => phase === 'source' ? response : Promise.resolve(text))
+      const fetchAssetBytes = vi.fn(() => phase === 'resource' ? resourceResponse : Promise.resolve(Uint8Array.from(staged.bytes).buffer))
+      const release = vi.fn(async (owner: RetainedAssetOwner, revision: number) =>
+        ({ ...owner, revision: revision + 1, complete: true, digests: [] }))
+      const connection = {
+        id: 'library-owner',
+        assetUrl: (digest: string) => `http://library.test/${digest}`,
+        listLibrary: async () => ({ records: [record] }),
+        getLibraryRecord: async () => record,
+        fetchAssetText,
+        fetchAssetBytes,
+        fetchImageDocumentDependencies: async () => Object.values(seed.document.resources).map((resource) => ({
+          resourceId: resource.id, ...resource,
+        })),
+        retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) =>
+          ({ ...owner, ...declaration, revision: declaration.revision + 1 }),
+        releaseRetainedAssets: release,
+      } as unknown as DinksterConnection
+      let backend = { id: 'library-owner', connection }
+      const app = { libraryBackend: () => backend, showTransientStatus: vi.fn() } as unknown as AppState
+      const root = document.createElement('div')
+      document.body.append(root)
+      let isBusy = true
+      const dispose = render(() => <ImageDocumentWorkspace active app={app}
+        onBusyChange={(value) => { isBusy = value }} onClose={() => undefined} />, root)
+      const button = (label: string) => [...root.querySelectorAll<HTMLButtonElement>('button')]
+        .find((element) => element.textContent === label)!
+      await vi.waitFor(() => expect(button('Open library')?.disabled).toBe(false))
+      button('Open library').click()
+      await vi.waitFor(() => expect(root.querySelector('[role="dialog"]')).not.toBeNull())
+      const select = root.querySelector<HTMLButtonElement>('[role="dialog"] > button')!
+      select.click()
+      await vi.waitFor(() => expect(fetchAssetText).toHaveBeenCalledOnce())
+      if (phase === 'resource') await vi.waitFor(() => expect(fetchAssetBytes).toHaveBeenCalledOnce())
+      if (outcome === 'close') button('Close').click()
+      if (outcome === 'escape') root.querySelector('[role="dialog"]')!
+        .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      if (outcome === 'backend') backend = { ...backend, connection: {} as DinksterConnection }
+      if (outcome === 'project') initializeProjectScope('other-project')
+      if (outcome === 'dispose') dispose()
+      if (outcome === 'failure') fail(new Error('source failed'))
+      else if (phase === 'resource') finishResource(Uint8Array.from(staged.bytes).buffer)
+      else finish(text)
+      await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(phase === 'resource' || outcome === 'accepted' ? 2 : 1))
+      await vi.waitFor(() => expect(isBusy).toBe(false))
+      if (outcome === 'accepted') {
+        await vi.waitFor(() => expect(root.querySelector('[role="tab"]')?.textContent).toBe('Library source'))
+        expect((await store.recoverDraft(seed.document.lineage))?.name).toBe('Library source')
+        expect((await store.getResource(resource.digest))?.bytes).toEqual(staged.bytes)
+      } else {
+        expect(root.querySelector('[role="tab"]')).toBeNull()
+        expect(await store.recoverDraft(seed.document.lineage)).toBeUndefined()
+        expect(await store.getResource(resource.digest)).toBeUndefined()
+        expect(root.querySelector('[role="alert"]')?.textContent ?? '').toBe(
+          outcome === 'failure' ? 'Image could not be opened: source failed' : '',
+        )
+      }
+      await vi.waitFor(async () => expect(await store.resourceReads()).toEqual([]))
+      if (outcome !== 'dispose') dispose()
+      initializeProjectScope('default')
+      await store.close()
+    },
+  )
+
   it('updates open workspace chrome without reopening data or translating document values', async () => {
     registerCatalog('de-DE', {
       'imageDocument.workspace.action.back': '[Zuruck zu Arbeitsablaufen]',
@@ -70,8 +163,9 @@ describe('ImageDocumentWorkspace', () => {
       modified: 1,
       revision: 7,
     }], cursor: undefined }))
+    const libraryBackend = { id: 'RAW-backend', connection: { listLibrary } }
     const app = {
-      libraryBackend: () => ({ id: 'RAW-backend', connection: { listLibrary } }),
+      libraryBackend: () => libraryBackend,
       collabBackend: () => undefined,
       backends: { get: () => [] },
       showTransientStatus: vi.fn(),

@@ -10,6 +10,12 @@ tabs to durable images. **New from image** creates a document from PNG, JPEG, or
 WebP. The workspace restores every valid draft in the current project and keeps
 workflow tabs unchanged when you switch back.
 
+Closing the library dialog (including Escape), changing its backend connection,
+or leaving its project invalidates a pending library open. A settled stale read
+does not open a tab or start another resource/draft write. An already submitted
+local transaction is allowed to settle. Disposing the workspace keeps its store
+open until the pending library read and its retention cleanup have settled.
+
 The workspace uses shared Product buttons and text fields, including primary
 publish/render actions and danger actions for removal and ending a shared
 session. Hidden Product file inputs retain native image selection for documents,

@@ -156,6 +156,7 @@ export async function hydrateImageDocumentResources(
   store: ImageDocumentLocalStore,
   document: ImageDocument,
   scope: string,
+  assertCurrent: () => void = () => undefined,
 ): Promise<void> {
   const loaded = loadImageDocument(document)
   if (loaded.document === undefined) throw new Error('cannot hydrate an invalid ImageDocument')
@@ -163,14 +164,17 @@ export async function hydrateImageDocumentResources(
   const missing = new Set<string>()
   for (const resource of resources) {
     const local = await store.getResource(resource.digest)
+    assertCurrent()
     if (local !== undefined && !stagedMatches(resource, local)) {
       throw new Error(`local ImageDocument resource does not match its descriptor: ${resource.id}`)
     }
     if (local === undefined && resource.inline === undefined) missing.add(resource.digest)
   }
   await withImageResourceRead(connection, store, scope, [...missing].sort(), async () => {
+    assertCurrent()
     for (const resource of resources) {
       const local = await store.getResource(resource.digest)
+      assertCurrent()
       if (local !== undefined) {
         if (!stagedMatches(resource, local)) {
           throw new Error(`local ImageDocument resource does not match its descriptor: ${resource.id}`)
@@ -179,6 +183,7 @@ export async function hydrateImageDocumentResources(
         const fetched = resource.inline === undefined
           ? await connection.fetchAssetBytes(resource.digest)
           : Uint8Array.from(atob(resource.inline), (character) => character.charCodeAt(0))
+        assertCurrent()
         if (fetched === undefined) {
           throw new Error(`ImageDocument resource is not held by the server: ${resource.id}`)
         }
@@ -457,14 +462,20 @@ export async function openImageDocumentFromLibrary(
   recordId: string,
   scope: string,
   connectionId: string,
+  assertCurrent: () => void = () => undefined,
 ): Promise<ImageDocumentDraft | undefined> {
+  assertCurrent()
   const record = await connection.getLibraryRecord(recordId, scope)
+  assertCurrent()
   if (record === undefined) return undefined
   if (record.scope !== scope || mediaTypeBase(record.mediaType) !== IMAGE_DOCUMENT_MEDIA_TYPE) {
     throw new Error('library record is not an ImageDocument')
   }
-  const text = await withImageResourceRead(connection, store, scope, [record.digest],
-    () => connection.fetchAssetText(record.digest))
+  const text = await withImageResourceRead(connection, store, scope, [record.digest], () => {
+    assertCurrent()
+    return connection.fetchAssetText(record.digest)
+  })
+  assertCurrent()
   if (text === undefined) throw new Error('ImageDocument bytes are not held by the server')
   const bytes = new TextEncoder().encode(text)
   if (bytes.byteLength > MAX_IMAGE_DOCUMENT_BYTES) {
@@ -484,11 +495,13 @@ export async function openImageDocumentFromLibrary(
     throw new Error('library ImageDocument is invalid or non-canonical')
   }
   const dependencies = await connection.fetchImageDocumentDependencies(record.digest)
+  assertCurrent()
   const expected = expectedDependencies(loaded.document)
   if (dependencies === undefined || !manifestMatches(dependencies, expected)) {
     throw new Error('ImageDocument dependency manifest does not match its document')
   }
   const existingDraft = await store.recoverDraft(loaded.document.lineage)
+  assertCurrent()
   if (existingDraft !== undefined) {
     if (serializeImageDocument(existingDraft.document) !== serializeImageDocument(loaded.document)) {
       throw new Error('local ImageDocument draft has unsaved changes')
@@ -499,7 +512,8 @@ export async function openImageDocumentFromLibrary(
       throw new Error('local ImageDocument draft belongs to another library record')
     }
   }
-  await hydrateImageDocumentResources(connection, store, loaded.document, scope)
+  await hydrateImageDocumentResources(connection, store, loaded.document, scope, assertCurrent)
+  assertCurrent()
   return store.saveDraft(loaded.document, record.name, {
     recordId: record.id,
     revision: record.revision,
