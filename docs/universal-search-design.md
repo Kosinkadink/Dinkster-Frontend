@@ -93,6 +93,27 @@ Node display names are presentation and may collide. Duplicate display names
 show pack, category, and canonical type context. Result identity and placement
 always retain the exact canonical node type.
 
+## Static pack schemas
+
+`RemoteNodeCatalog` reads `schemas/index.json` and its referenced
+`packs/<name>/<version>/schemas.json` files directly beneath one configured
+static prefix. URLs stay relative to that prefix, so a recursive static copy
+does not require registry API routes. Only the authenticated first-party
+publisher entries advertised by the index are accepted. Pack identity,
+version, SHA-256 body digest and schema wire version are validated before
+ordinary node interfaces are decoded with `parseDinksterSchema`.
+
+The client exposes preview-only `CatalogNode` records, not an executable
+registry. `cached()` synchronously reads previously validated bodies;
+`refresh()` coalesces concurrent calls, uses up to four schema requests at a
+time with five-second request deadlines, and revalidates bodies with ETags.
+Persistent cache keys include each full resource URL, isolating mirrors.
+Missing or invalid network data falls back to validated cached bodies; an
+uncached offline client returns an empty external catalog. A successful empty
+index removes old discovery entries, and a changed digest never falls back
+to a body from the previous digest. Storage failure does not prevent a live
+response from being used.
+
 ## Node placement
 
 Activating a node result arms click-to-place without changing the workflow
