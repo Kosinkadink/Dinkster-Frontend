@@ -499,6 +499,14 @@ export const audioRecordKind: WidgetKind<(AssetRef & JsonObject) | null> = {
   defaultView: () => 'core.audioRecord',
 }
 
+export const webcamKind: WidgetKind<(AssetRef & JsonObject) | null> = {
+  type: 'WEBCAM',
+  valueSchema: { version: 1, validate: (value: unknown): value is (AssetRef & JsonObject) | null => value === null || (isAssetRef(value) && value.mediaType.startsWith('image/')) },
+  defaultValue: (spec) => webcamKind.valueSchema.validate(spec.default) ? spec.default : null,
+  validate: () => [],
+  defaultView: () => 'core.webcam',
+}
+
 export const mountKind: WidgetKind<string | null> = {
   type: 'MOUNT',
   valueSchema: { version: 1, validate: (value: unknown): value is string | null => value === null || typeof value === 'string' },
@@ -833,6 +841,13 @@ export const audioRecordView: WidgetView<Json> = {
       isAssetRef(value) ? value.name : 'no recording', state, 'widget.edit', !isAssetRef(value))
   },
 }
+export const webcamView: WidgetView<Json> = {
+  ...makeCompactView<Json>('core.webcam', 'WEBCAM'),
+  drawCompact(ctx, value, spec, state) {
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
+      isAssetRef(value) ? value.name : 'no camera frame', state, 'widget.edit', !isAssetRef(value))
+  },
+}
 export const mountView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.mount', 'MOUNT'),
   drawCompact(ctx, value, spec, state) {
@@ -902,11 +917,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView]) {
+    multiSelectView, listView, colorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

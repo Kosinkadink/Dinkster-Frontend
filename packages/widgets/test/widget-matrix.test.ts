@@ -26,6 +26,7 @@ const cases: Array<{
   { type: 'COMPOSITOR', options: {}, explicit: { version: 2, documentDigest: `blake3:${'a'.repeat(64)}`, commands: [{ op: 'layer', id: 'layer-0', changes: { visible: false } }] }, intrinsic: { version: 2, documentDigest: null, commands: [] }, invalid: { version: 2, documentDigest: 'bad', commands: [] }, view: 'core.compositor' },
   { type: 'ASSET', options: {}, explicit: asset, intrinsic: undefined, invalid: { ...asset, size: -1 }, view: 'core.asset' },
   { type: 'AUDIO_RECORD', options: {}, explicit: { ...asset, name: 'recording.webm', mediaType: 'audio/webm' }, intrinsic: undefined, invalid: asset, view: 'core.audioRecord' },
+  { type: 'WEBCAM', options: {}, explicit: asset, intrinsic: undefined, invalid: { ...asset, mediaType: 'audio/webm' }, view: 'core.webcam' },
   { type: 'MOUNT', options: {}, explicit: 'archive', intrinsic: null, invalid: 'Invalid/Mount', invalidCode: 'widget.MOUNT.invalid', view: 'core.mount' },
   { type: 'LOAD_3D', options: {}, explicit: { image: asset, mask: '', camera_info: { fov: 53 } }, intrinsic: undefined, invalid: [], view: 'core.load3d' },
 ]
@@ -59,6 +60,7 @@ const dispositions = [
   { type: 'BUTTON', compact: 'core.button', expanded: 'registered command action popover' },
   { type: 'MARKDOWN', compact: 'core.markdown', expanded: 'safe preview and source popover' },
   { type: 'AUDIO_RECORD', compact: 'core.audioRecord', expanded: 'explicit recording and staged audio asset modal' },
+  { type: 'WEBCAM', compact: 'core.webcam', expanded: 'camera capture and staged PNG asset modal' },
   { type: 'COLORS', compact: 'core.colors', expanded: 'ordered palette draft popover' },
 ] as const
 
@@ -267,6 +269,7 @@ describe('compact display through the real registered views', () => {
     ['core.compositor', 'COMPOSITOR', { version: 2, documentDigest: null, commands: [] }, {}],
     ['core.asset', 'ASSET', asset, {}],
     ['core.audioRecord', 'AUDIO_RECORD', null, {}],
+    ['core.webcam', 'WEBCAM', null, {}],
     ['core.toggle', 'BOOLEAN', false, {}],
     ['core.text', 'STRING', 'x', {}],
   ] as const)('%s registers NO hit region when read-only (connected row)', (viewId, widgetType, value, options) => {
