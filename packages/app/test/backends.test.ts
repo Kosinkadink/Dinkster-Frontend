@@ -866,6 +866,43 @@ describe('compile and registry routing', () => {
 })
 
 describe('execution output routing', () => {
+  it.each(['live', 'removed', 'replaced', 'disposed'] as const)('keeps model resources admitted through the %s viewer lifetime', async (mode) => {
+    const backend = addOffline('http://model-owner:8188')
+    const ref = foreignRun(String(backend.id), 'model-viewer')
+    const digests = ['a', 'c'].map((value) => `blake3:${value.repeat(64)}`)
+    let admit!: () => void
+    const admission = new Promise<void>((resolve) => { admit = resolve })
+    const retain = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      await admission
+      return { ...owner, ...declaration, revision: declaration.revision + 1 }
+    })
+    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    const release = vi.spyOn(backend.connection, 'releaseRetainedAssets')
+    if (mode === 'removed') app.removeBackend(backend.id)
+    const reader = app.file3dAssetReaderForExecution(ref, digests.map((digest) => ({ digest })))!
+    let finish!: () => void
+    const mounted = new Promise<void>((resolve) => { finish = resolve })
+    let entered = false
+    let settled = false
+    const pending = reader.read(async () => { entered = true; await mounted; return 'disposed model' })
+      .then((result) => { settled = true; return result }, () => { settled = true; return 'refused' })
+    try {
+      await vi.waitFor(() => expect(retain).toHaveBeenCalledOnce())
+      expect(retain.mock.calls[0]![1]).toEqual({ revision: 0, complete: false, digests })
+      expect(entered).toBe(false)
+      admit()
+      await vi.waitFor(() => expect(entered).toBe(true))
+      if (mode === 'replaced') app.store.hydrateOutputs(ref, { model: { replacement: 'new' } })
+      if (mode === 'disposed') app.dispose()
+      expect(reader.current()).toBe(mode === 'live' || mode === 'removed')
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(settled).toBe(false)
+      finish()
+      expect(await pending).toBe(mode === 'live' || mode === 'removed' ? 'disposed model' : 'refused')
+      expect(release).not.toHaveBeenCalled()
+    } finally { admit(); finish(); await pending }
+  })
+
   it.each(['live', 'removed', 'refused', 'replaced-admission', 'replaced-body', 'disconnected', 'disposed', 'aborted'] as const)(
     'admits original-model bytes before reading through the %s execution owner', async (mode) => {
       const backend = addOffline('http://model-owner:8188')

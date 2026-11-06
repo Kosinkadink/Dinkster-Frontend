@@ -60,6 +60,9 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   let stopRecording: (() => void) | undefined
   let video: Blob | undefined
   const abort = new AbortController()
+  let viewerPending = false
+  let settleViewer: (() => void) | undefined
+  const releaseUrls = () => { urls.splice(0).forEach((url) => URL.revokeObjectURL(url)) }
   const backendCurrent = (): boolean => props.editor.app.backendForTab(ed.tab).connection === backend.connection
   let sourcesCurrent = (): boolean => ed.tab.store.revision === revision && backendCurrent()
   onCleanup(() => {
@@ -68,7 +71,9 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
     if (recorder?.state === 'recording') recorder.stop()
     stopRecording?.()
     viewer?.dispose()
-    urls.forEach((url) => URL.revokeObjectURL(url))
+    viewer = undefined
+    settleViewer?.()
+    if (!viewerPending) releaseUrls()
   })
   onMount(() => {
     void (async () => {
@@ -229,17 +234,38 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         && /^property\s+float\s+scale_0\s*$/m.test(header)
         && /^property\s+float\s+rot_0\s*$/m.test(header)
       const mime = format === 'gltf' ? 'model/gltf+json' : unspecified ? gaussian ? 'model/ply' : 'application/octet-stream' : String(model.mediaType ?? 'model/gltf-binary')
-      const mounted = await mountModel3dViewer(viewport, primary.url, mime, { resources,
-        ...(format ? { format } : {}), pointCloud: node?.type === 'PreviewPointCloud' })
-      if (!live || !sourcesCurrent()) { mounted.dispose(); return }
-      viewer = mounted
-      const cameraInfo = inputValue('camera_info') ?? initial.camera_info
-      if (cameraInfo) viewer.setCameraState(cameraInfo as unknown as Model3dCameraState)
-      const models = inputValue('model_3d_info') ?? initial.model_3d_info
-      if (Array.isArray(models) && models[0]) viewer.setModelTransform(models[0] as unknown as Model3dTransform)
-      setCamera(viewer.cameraState())
-      setTransform(viewer.modelTransform())
-      setClips(viewer.animationClips())
+      const assets = [model, ...resourceRefs.map(([, ref]) => object(ref))].filter((ref) => ref.verification !== 'unverified')
+      const reader = !assets.length ? undefined : modelExecution !== undefined
+        ? props.editor.app.file3dAssetReaderForExecution(modelExecution, assets)
+        : props.editor.app.workflowAssetReader(ed.tab, assets[0]!.digest as string)
+      if (assets.length && !reader) throw unavailable()
+      const mount = async () => {
+        if (!live || !sourcesCurrent() || reader?.current() === false) throw unavailable()
+        const mounted = await mountModel3dViewer(viewport, primary.url, mime, { resources,
+          ...(format ? { format } : {}), pointCloud: node?.type === 'PreviewPointCloud' })
+        if (!live || !sourcesCurrent() || reader?.current() === false) { mounted.dispose(); return }
+        viewer = mounted
+        try {
+          const cameraInfo = inputValue('camera_info') ?? initial.camera_info
+          if (cameraInfo) viewer.setCameraState(cameraInfo as unknown as Model3dCameraState)
+          const models = inputValue('model_3d_info') ?? initial.model_3d_info
+          if (Array.isArray(models) && models[0]) viewer.setModelTransform(models[0] as unknown as Model3dTransform)
+          setCamera(viewer.cameraState())
+          setTransform(viewer.modelTransform())
+          setClips(viewer.animationClips())
+          await new Promise<void>((resolve) => { settleViewer = resolve })
+        } finally {
+          if (viewer === mounted) { viewer = undefined; mounted.dispose() }
+        }
+      }
+      viewerPending = true
+      try {
+        if (reader === undefined) await mount()
+        else await reader.read(mount)
+      } finally {
+        viewerPending = false
+        if (!live) releaseUrls()
+      }
     })().catch((reason: unknown) => { if (live) setError(reason instanceof Error ? reason.message : String(reason)) })
   })
 

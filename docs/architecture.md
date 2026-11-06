@@ -128,7 +128,13 @@ even when other inputs have producers. Stored and literal digest resources use
 the captured document/history reader; missing, refused or expired admission
 cannot publish object URLs or enable Apply. Closing aborts the read and stale
 source state cannot publish object URLs. Local grants keep their separate path.
-This boundary does not cover viewer decode or native handles.
+Load3d also borrows the captured owner independently across model decode, mount
+and the mounted viewer. Closing while mount is pending keeps its read and object
+URLs alive until the late handle is disposed. Closing a mounted viewer disposes
+the handle before settling that borrow. Producer models acknowledge the selected
+primary and sidecar digest union as incomplete shown-result roots for this
+lifetime. This does not certify local bindings, native asynchronous teardown,
+complete dependencies or retained-owner retirement.
 
 Live and mirrored structured outputs and preview records also await incomplete
 shown-result ownership, including records with no known digest. Later events

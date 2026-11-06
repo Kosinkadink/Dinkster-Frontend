@@ -4929,6 +4929,45 @@ export class AppState {
     return reader
   }
 
+  /** Revealed model resources borrow their execution through decode and viewer disposal. */
+  file3dAssetReaderForExecution(ref: ExecutionRef, assets: readonly Readonly<Record<string, Json>>[]): ReturnType<AppState['workflowAssetReader']> {
+    const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
+    if (backend?.protocol !== 'dinkster') return undefined
+    const execution = this.store.get(ref)
+    const generation = this.assetConnectionGenerations.get(backend.connection)
+    const current = (): boolean => {
+      const latest = this.store.get(ref)
+      return !this.disposed && execution !== undefined && latest !== undefined &&
+        latest.queuedAt === execution.queuedAt && latest.outputs === execution.outputs &&
+        latest.artifacts === execution.artifacts && latest.artifact === execution.artifact &&
+        latest.sourceDocument === execution.sourceDocument &&
+        (this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)) === backend &&
+        generation === this.assetConnectionGenerations.get(backend.connection)
+    }
+    if (!current()) return undefined
+    const roots = executionAssetRoots({ outputs: { model: { assets } }, artifacts: [] }, () => undefined)
+    let admission: Promise<RetainedAssetReader> | undefined
+    return {
+      key: `model:${++this.workflowAssetReaderSequence}`,
+      current,
+      read: async <T>(consume: () => Promise<T>): Promise<T> => {
+        if (!current()) throw new Error('Original model owner is unavailable')
+        admission ??= retainExecutionAssets(backend.connection, ref, roots)
+          .then((retained) => new RetainedAssetReader(backend.connection, retained, current))
+          .catch((error: unknown) => { admission = undefined; throw error })
+        const owned = await admission
+        this.valueAssetReaders.set(owned, (this.valueAssetReaders.get(owned) ?? 0) + 1)
+        try {
+          return await owned.read(consume)
+        } finally {
+          const remaining = this.valueAssetReaders.get(owned)! - 1
+          if (remaining === 0) this.valueAssetReaders.delete(owned)
+          else this.valueAssetReaders.set(owned, remaining)
+        }
+      },
+    }
+  }
+
   /** Granted original model bytes stay bound to the execution's native owner. */
   async readFile3dAssetForExecution(ref: ExecutionRef, asset: Readonly<Record<string, Json>>, signal?: AbortSignal): Promise<ArrayBuffer | undefined> {
     const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
@@ -4939,26 +4978,14 @@ export class AppState {
       signal?.throwIfAborted()
       return bytes
     }
-    const execution = this.store.get(ref)
-    const generation = this.assetConnectionGenerations.get(backend.connection)
-    const current = (): boolean => {
-      const latest = this.store.get(ref)
-      return !this.disposed && !signal?.aborted && execution !== undefined && latest !== undefined &&
-        latest.queuedAt === execution.queuedAt && latest.outputs === execution.outputs &&
-        latest.artifacts === execution.artifacts && latest.artifact === execution.artifact &&
-        latest.sourceDocument === execution.sourceDocument &&
-        (this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)) === backend &&
-        generation === this.assetConnectionGenerations.get(backend.connection)
-    }
-    if (!current()) throw new Error('Original model owner is unavailable')
-    const roots = executionAssetRoots({ outputs: { model: { asset } }, artifacts: [] }, () => undefined)
-    const retained = await retainExecutionAssets(backend.connection, ref, roots)
+    const reader = this.file3dAssetReaderForExecution(ref, [asset])
+    if (!reader) throw new Error('Original model owner is unavailable')
+    const bytes = await reader.read(() => {
+      signal?.throwIfAborted()
+      return backend.connection.fetchAssetBytes(asset.digest as string, signal)
+    })
     signal?.throwIfAborted()
-    const reader = new RetainedAssetReader(backend.connection, retained, current)
-    this.valueAssetReaders.set(reader, 1)
-    try {
-      return await reader.read(() => backend.connection.fetchAssetBytes(asset.digest as string, signal))
-    } finally { this.valueAssetReaders.delete(reader) }
+    return bytes
   }
 
   /**

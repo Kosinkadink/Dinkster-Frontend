@@ -11,12 +11,15 @@ const fixtures = vi.hoisted(() => ({
   camera: { position: { x: 3, y: 2, z: 7 }, target: { x: 1, y: 0, z: -2 }, zoom: 1.5, cameraType: 'perspective', fov: 53 },
   transform: { position: { x: 2, y: -1, z: 4 }, quaternion: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 2, z: 3 } },
   loads: [] as { mime: string; format?: string; resources?: Readonly<Record<string, string>> }[],
+  mount: undefined as (() => Promise<void>) | undefined,
+  disposed: 0,
 }))
 vi.mock('../src/model3d-viewer.js', () => ({
   mountModel3dViewer: async (_host: HTMLElement, _url: string, mime: string, options: { format?: string; resources?: Readonly<Record<string, string>> }) => {
     fixtures.loads.push({ mime, ...options })
+    await fixtures.mount?.()
     return {
-      dispose() {},
+      dispose() { fixtures.disposed++ },
       cameraState: () => fixtures.camera,
       setCameraState: (state: typeof fixtures.camera) => { fixtures.camera = state },
       modelTransform: () => fixtures.transform,
@@ -28,7 +31,7 @@ vi.mock('../src/model3d-viewer.js', () => ({
   },
 }))
 
-afterEach(() => { document.body.replaceChildren(); fixtures.loads.length = 0; vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { document.body.replaceChildren(); fixtures.loads.length = 0; fixtures.mount = undefined; fixtures.disposed = 0; vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 it.each(['stored', 'tap', 'broken-link', 'broken-net'] as const)('keeps authored state on failure and cancel and captures undoably from %s', async (source) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
@@ -67,7 +70,7 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net'] as const)('keeps authored
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ protocol: 'dinkster', connection }),
-    workflowAssetReader: () => ({ read: async <T,>(consume: () => Promise<T>) => consume() }),
+    workflowAssetReader: () => ({ current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
@@ -149,7 +152,7 @@ it.each(['read', 'upload'] as const)('refuses a stored-source backend retarget d
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ protocol: 'dinkster', connection: current }),
-    workflowAssetReader: () => ({ read: async <T,>(consume: () => Promise<T>) => consume() }),
+    workflowAssetReader: () => ({ current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
@@ -172,7 +175,7 @@ it.each(['read', 'upload'] as const)('refuses a stored-source backend retarget d
   dispose()
 })
 
-it.each(['valid', 'reader-held', 'reader-refused', 'reader-expired', 'reader-close', 'reader-edited', 'reader-missing', 'sidecar-refused', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-obj', 'empty-ply', 'empty-gaussian-ply', 'empty-splat', 'empty-spz', 'empty-ksplat', 'empty-unsupported', 'empty-local', 'local-source', 'local-resource', 'revoked-local', 'empty-binding', 'missing-format', 'array-resources', 'null-source', 'scalar-manifest', 'parent-resource', 'null-resource', 'unverified-source', 'negative-size', 'unknown-field'] as const)('handles %s FILE_3D preview metadata without reading a dormant file', async (variant) => {
+it.each(['valid', 'viewer-held', 'viewer-refused', 'viewer-close', 'viewer-edited', 'viewer-expired', 'viewer-close-mount', 'viewer-mounted-close', 'reader-held', 'reader-refused', 'reader-expired', 'reader-close', 'reader-edited', 'reader-missing', 'sidecar-refused', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-obj', 'empty-ply', 'empty-gaussian-ply', 'empty-splat', 'empty-spz', 'empty-ksplat', 'empty-unsupported', 'empty-local', 'local-source', 'local-resource', 'revoked-local', 'empty-binding', 'missing-format', 'array-resources', 'null-source', 'scalar-manifest', 'parent-resource', 'null-resource', 'unverified-source', 'negative-size', 'unknown-field'] as const)('handles %s FILE_3D preview metadata without reading a dormant file', async (variant) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const schema = parseDinksterSchema('Preview3DAdvancedFixture', { interface: [
@@ -233,13 +236,25 @@ it.each(['valid', 'reader-held', 'reader-refused', 'reader-expired', 'reader-clo
   const pending = new Promise<void>((resolve) => { release = resolve })
   let entered = false
   let settled = false
+  let readCount = 0
+  let activeReads = 0
+  let current = true
+  if (variant === 'viewer-close-mount' || variant === 'viewer-expired') fixtures.mount = () => pending
   const app = {
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ protocol: 'dinkster', connection }),
     workflowAssetReader: (_tab: Tab, digest: string) => variant === 'reader-missing' ? undefined : ({
+      current: () => current,
       read: async <T,>(consume: () => Promise<T>) => {
+        const viewerRead = ++readCount === 3 && variant.startsWith('viewer-')
+        activeReads++
         try {
+          if (viewerRead && !['viewer-close-mount', 'viewer-expired', 'viewer-mounted-close'].includes(variant)) {
+            entered = true
+            await pending
+            if (variant === 'viewer-refused') throw new Error('The selected model file is unavailable.')
+          }
           if (variant.startsWith('reader-') || (variant === 'sidecar-refused' && digest === sidecar.digest)) {
             entered = true
             await pending
@@ -248,7 +263,7 @@ it.each(['valid', 'reader-held', 'reader-refused', 'reader-expired', 'reader-clo
           const result = await consume()
           if (variant === 'reader-expired') throw new Error('The selected model file is unavailable.')
           return result
-        } finally { settled = true }
+        } finally { settled = true; activeReads-- }
       },
     }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
@@ -259,6 +274,48 @@ it.each(['valid', 'reader-held', 'reader-refused', 'reader-expired', 'reader-clo
     spec: inputsOf(schema)[1]!.widget, declaredType: inputsOf(schema)[1]!.type,
     multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  if (variant.startsWith('viewer-')) {
+    const apply = Array.from(document.querySelectorAll('button')).find((element) => element.textContent === 'Apply')!
+    if (variant === 'viewer-close-mount' || variant === 'viewer-expired' || variant === 'viewer-mounted-close') {
+      await vi.waitFor(() => expect(fixtures.loads).toHaveLength(1))
+      expect(activeReads).toBe(1)
+      if (variant === 'viewer-mounted-close') {
+        await vi.waitFor(() => expect(apply.disabled).toBe(false))
+        dispose()
+      } else {
+        expect(apply.disabled).toBe(true)
+        if (variant === 'viewer-close-mount') dispose()
+        else current = false
+        expect(activeReads).toBe(1)
+        expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+        release()
+      }
+      await vi.waitFor(() => expect(activeReads).toBe(0))
+      expect(fixtures.disposed).toBe(1)
+      if (variant === 'viewer-expired') { expect(apply.disabled).toBe(true); dispose() }
+      await vi.waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2))
+    } else {
+      await vi.waitFor(() => expect(entered).toBe(true))
+      expect(apply.disabled).toBe(true)
+      expect(fixtures.loads).toEqual([])
+      if (variant === 'viewer-close') dispose()
+      if (variant === 'viewer-edited') store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'camera_info', value: null } })
+      release()
+      if (variant === 'viewer-held') {
+        await vi.waitFor(() => expect(apply.disabled).toBe(false))
+        expect(activeReads).toBe(1)
+        dispose()
+      } else if (variant !== 'viewer-close') {
+        await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
+        expect(apply.disabled).toBe(true)
+        dispose()
+      }
+      await vi.waitFor(() => expect(activeReads).toBe(0))
+      expect(fixtures.loads).toHaveLength(variant === 'viewer-held' ? 1 : 0)
+    }
+    expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual(initial)
+    return
+  }
   if (variant.startsWith('reader-') || variant === 'sidecar-refused') {
     const apply = Array.from(document.querySelectorAll('button')).find((element) => element.textContent === 'Apply')!
     if (variant !== 'reader-missing') {
@@ -396,7 +453,11 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
   }
   const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry, registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ id: 'owner', protocol: 'dinkster', connection }),
-    workflowAssetReader: () => ({ read: async <T,>(consume: () => Promise<T>) => consume() }),
+    workflowAssetReader: () => ({ current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
+    file3dAssetReaderForExecution: () => {
+      if (variant === 'stored-manifest') throw new Error('Stored viewer must not borrow an unrelated producer')
+      return { current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }
+    },
     executionForTab: () => execution, compileTabCached: () => ({ ok: true, artifact: liveArtifact }),
     readFile3dAssetForExecution: async (ref: ExecutionState['ref'], asset: { digest: string }, signal: AbortSignal) => {
       if (variant === 'stored-manifest') throw new Error('Stored model must not borrow an unrelated producer')
