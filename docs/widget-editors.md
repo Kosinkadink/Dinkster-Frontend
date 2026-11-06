@@ -12,6 +12,21 @@ them. Real promoted widgets and after-generate controllers keep their order.
 
 ## Descriptor fields
 
+The WEBCAM row opens a camera capture dialog. Capture frame requests browser
+camera permission, takes one PNG resized to the node's width and height, stages
+it on the node's native backend, and releases the camera tracks. A zero width
+uses the camera's native dimensions for both axes. Use frame
+commits the asset reference as an undoable input edit; Cancel or closing the
+dialog leaves the stored value unchanged. Camera errors retain the browser's
+named error (for example NotFoundError when no camera is available).
+With capture_on_queue enabled, queue captures and saves a fresh frame for each
+included camera before submitting. Disabled capture reuses the saved frame.
+Changing the workflow or backend during capture refuses that queue attempt
+without overwriting the input. Closing the tab cancels capture.
+Connected image inputs retain their source instead of opening the camera.
+Occurrences sharing a saved frame must use matching capture dimensions;
+promote their image inputs separately to capture different sizes.
+
 An unknown field on a known widget descriptor produces a
 `schema.widget.unknownField` warning naming the node, input and field. The
 decoder ignores that field and keeps the node and its supported widget

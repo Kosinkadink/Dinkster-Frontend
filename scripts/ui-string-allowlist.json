@@ -985,6 +985,9 @@
     "text:session().status !== 'idle' const surfaceState = createMemo",
     "text:session().status === 'ready' ? (session() as Extract"
   ],
+  "editors/WebcamWidgetEditor.tsx": [
+    "text:() const [preview, setPreview] = createSignal"
+  ],
   "help/LearnPanel.tsx": [
     "text:() const [guideState, setGuideState] = createSignal",
     "text:selectedLocale(descriptor) return ("
