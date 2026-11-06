@@ -2,6 +2,16 @@
 
 Dinkster translates legacy ComfyUI LiteGraph workflows when `AppState.openDocument` receives their JSON. Widget arrays are mapped to schema input IDs. Legacy ASSET widget values remain strings until the user decides whether to replace them.
 
+The shared `DinksterConnection` client exposes `planPackInstall` for exact
+pack/version selections and `applyPackInstall` for the server-held confirmation
+token. Planning returns the manager's review text and does not install.
+Applying never retries automatically: a transport failure may have happened
+after the host changed its installation. HTTP failures retain their status and
+structured body as `PackInstallError`; absent opt-in routes remain unavailable.
+Only a validated successful activation counts as completion. Callers refresh
+the same backend's installed registry afterward; the client does not rewrite
+the document or assume a topology-specific Desktop install path.
+
 An empty string in an optional file widget omits that input while consuming its
 original widget position. Required file widgets, nonempty filenames and named
 source selections stay unchanged. Empty strings on ordinary text widgets remain
