@@ -755,6 +755,7 @@ export function ImageDocumentWorkspace(props: {
   const pendingImports = new Set<Promise<void>>()
   const leaving = new Set<OpenImageDocument>()
   const pendingCollaborationLeaves = new Set<Promise<void>>()
+  const pendingCollaborationEnds = new Set<Promise<void>>()
 
   const setError = (value: string | undefined): void => { setErrorValue(value) }
   const setLocalizedError = (key: string, params?: MessageParams): void => {
@@ -778,7 +779,7 @@ export function ImageDocumentWorkspace(props: {
   const setBusy = (value: boolean): void => {
     const pending = value || pendingImports.size > 0 || pendingGraphOpens.size > 0 ||
       pendingCollaborationLists.size > 0 || pendingCollaborationJoins.size > 0 || pendingCollaborationShares.size > 0 ||
-      pendingCollaborationLeaves.size > 0
+      pendingCollaborationLeaves.size > 0 || pendingCollaborationEnds.size > 0
     setBusySignal(pending)
     props.onBusyChange(pending)
   }
@@ -1062,21 +1063,29 @@ export function ImageDocumentWorkspace(props: {
   }
   const endShared = async (entry: OpenImageDocument): Promise<void> => {
     if (entry.collaboration === undefined) return
+    const shared = entry.collaboration
+    const session = entry.session
+    const backend = backendForCollaboration()
+    const connection = backend?.protocol === 'dinkster' ? backend.connection : undefined
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      documents().includes(entry) && entry.session === session && entry.collaboration === shared &&
+      backendForCollaboration() === backend && (backend?.protocol !== 'dinkster' || backend.connection === connection)
+    if (!current()) return
     setCollaborationTransition(true)
     setBusy(true)
     setError(undefined)
-    try {
-      await props.app.collabTransport.end(
-        entry.collaboration.baseUrl,
-        entry.collaboration.descriptor.sessionId,
-      )
-      if (documents().includes(entry)) await leaveShared(entry)
-    } catch (cause) {
-      if (live) setLocalizedError('imageDocument.workspace.error.endFailed', { reason: messageOf(cause) })
-    } finally {
-      if (live) setCollaborationTransition(false)
+    const task: Promise<void> = (async () => {
+      await props.app.collabTransport.end(shared.baseUrl, shared.descriptor.sessionId)
+      if (current()) await leaveShared(entry)
+    })().catch((cause) => {
+      if (current()) setLocalizedError('imageDocument.workspace.error.endFailed', { reason: messageOf(cause) })
+    }).finally(() => {
+      pendingCollaborationEnds.delete(task)
+      if (live && pendingCollaborationEnds.size === 0) setCollaborationTransition(false)
       if (live) setBusy(false)
-    }
+    })
+    pendingCollaborationEnds.add(task)
+    await task
   }
   const askToEndShared = (): void => {
     setConfirmingEnd(true)
@@ -1234,7 +1243,7 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...current.flatMap((entry) => [
+    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
       entry.hydrate.catch(() => undefined),
     ])]).finally(() => store.close())

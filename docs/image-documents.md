@@ -52,6 +52,12 @@ reads cannot start another draft or membership write, or publish a local tab
 or error. Draft and membership transactions recheck before submitting writes;
 already submitted writes may finish without rollback.
 
+Ending a shared session captures the document, membership, project, backend,
+and connection before sending the request. A stale reply cannot start local
+leave or publish an error. Busy state and disposal wait for the end request and
+its local fallback to settle, even if a remote-ended notification replaces the
+tab first. Already submitted server requests may finish without rollback.
+
 Closing the library dialog (including Escape), changing its backend connection,
 or leaving its project invalidates a pending library open. A settled stale read
 does not open a tab or start another resource/draft write. An already submitted
