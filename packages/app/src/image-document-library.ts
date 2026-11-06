@@ -87,8 +87,11 @@ export async function uploadImageDocumentResource(
   resource: ImageRasterResource,
   scope: string,
   signal?: AbortSignal,
+  assertCurrent: () => void = () => undefined,
 ): Promise<void> {
+  assertCurrent()
   const staged = await store.getResource(resource.digest)
+  assertCurrent()
   if (staged === undefined) throw new Error(`ImageDocument resource is not staged: ${resource.id}`)
   if (!stagedMatches(resource, staged)) {
     throw new Error(`staged ImageDocument resource does not match its descriptor: ${resource.id}`)

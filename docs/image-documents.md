@@ -38,6 +38,13 @@ cannot publish membership, shared tabs, or errors. Disposal waits for the join
 to settle and close its rejected session before closing the local store.
 Already submitted local writes may finish without rollback.
 
+Sharing captures the local document session, revision, project, and backend
+connection before waiting for persistence. A stale resource read cannot start
+an upload; later stale upload/create/snapshot results cannot begin adoption or
+publish membership, tabs, or errors. Busy state and disposal wait for the share
+to settle, including ending a newly created session rejected by its owner.
+Already submitted uploads and local writes may finish without rollback.
+
 Closing the library dialog (including Escape), changing its backend connection,
 or leaving its project invalidates a pending library open. A settled stale read
 does not open a tab or start another resource/draft write. An already submitted

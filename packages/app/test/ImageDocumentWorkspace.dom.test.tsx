@@ -43,6 +43,113 @@ afterEach(() => {
 })
 
 describe('ImageDocumentWorkspace', () => {
+  it.each(['accepted', 'failed', 'project', 'backend', 'connection', 'dispose', 'upload-project', 'upload-dispose',
+    'snapshot-project', 'snapshot-dispose', 'read-project', 'read-dispose'])(
+    'settles image publication with its captured owner (%s)', async (outcome) => {
+      vi.stubGlobal('indexedDB', new FakeIDBFactory())
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      const inspect = new ImageDocumentLocalStore(activeProjectId())
+      const seed = await importSingleRaster(new File(['source'], 'Share source.png', { type: 'image/png' }), inspect,
+        { lineage: 'share-owner', normalize: async () => ({ width: 2, height: 1, rgba }) })
+      const resource = Object.values(seed.document.resources)[0]!
+      const descriptor: CollabSessionDescriptor = { protocolVersion: COLLAB_PROTOCOL_VERSION,
+        sessionId: 'share-session', scope: 'shared', documentKind: 'image', documentId: seed.document.lineage,
+        revision: 0, snapshotRevision: 0 }
+      let finish!: () => void
+      let fail!: (cause: Error) => void
+      const held = new Promise<void>((resolve, reject) => { finish = resolve; fail = reject })
+      let finishEnd!: () => void
+      const ended = new Promise<void>((resolve) => { finishEnd = resolve })
+      let entered = false
+      let cleaning = false
+      let sessionClosed = false
+      let sharing = false
+      let uploads = 0
+      const getResource = ImageDocumentLocalStore.prototype.getResource
+      vi.spyOn(ImageDocumentLocalStore.prototype, 'getResource').mockImplementation(async function (this: ImageDocumentLocalStore, digest) {
+        if (sharing && outcome.startsWith('read-') && this !== inspect) { entered = true; await held }
+        return getResource.call(this, digest)
+      })
+      const connection = { sessionId: descriptor.sessionId,
+        fetchSnapshot: async () => {
+          if (outcome.startsWith('snapshot-')) { entered = true; await held }
+          return { revision: 0, document: seed.document }
+        },
+        fetchOps: async () => ({ kind: 'ops', ops: [] }),
+        onEvent: () => () => undefined,
+        close: () => { sessionClosed = true },
+      } as unknown as CollabConnection
+      let backend = { id: 'share-owner', protocol: 'dinkster', baseUrl: 'http://share.test',
+        connection: { uploadMediaAsset: async () => {
+          uploads += 1
+          if (outcome.startsWith('upload-')) { entered = true; await held }
+          return { digest: resource.digest, name: 'source.png', size: resource.byteSize,
+            mediaType: resource.mediaType, virtualPath: 'input/source.png' }
+        } } as unknown as DinksterConnection }
+      const app = { libraryBackend: () => undefined, collabBackend: () => backend,
+        backends: { get: () => [backend] }, collabActorId: 'alice',
+        collabTransport: { create: async () => {
+          if (!outcome.includes('-')) { entered = true; await held }
+          return descriptor
+        }, connect: () => connection, end: async () => { cleaning = true; await ended } },
+        showTransientStatus: vi.fn(),
+      } as unknown as AppState
+      const close = ImageDocumentLocalStore.prototype.close
+      let workspaceClosed = false
+      vi.spyOn(ImageDocumentLocalStore.prototype, 'close').mockImplementation(async function (this: ImageDocumentLocalStore) {
+        if (this !== inspect) workspaceClosed = true
+        await close.call(this)
+      })
+      const root = document.createElement('div')
+      document.body.append(root)
+      let busy = false
+      const dispose = render(() => <ImageDocumentWorkspace active app={app}
+        onBusyChange={(value) => { busy = value }} onClose={() => undefined} />, root)
+      try {
+        await vi.waitFor(() => expect(root.querySelector('[role="tab"]')?.textContent).toBe('Share source'))
+        sharing = true
+        root.querySelector<HTMLButtonElement>('[data-testid="image-collab-share"]')!.click()
+        await vi.waitFor(() => expect(entered).toBe(true))
+        expect(busy).toBe(true)
+        if (outcome.endsWith('project')) initializeProjectScope('other-project')
+        if (outcome === 'backend') backend = { ...backend }
+        if (outcome === 'connection') backend.connection = {} as DinksterConnection
+        if (outcome.endsWith('dispose')) {
+          dispose()
+          await inspect.recoverDrafts()
+          expect(workspaceClosed).toBe(false)
+        }
+        if (outcome === 'failed') fail(new Error('Creation unavailable'))
+        else finish()
+        if (outcome !== 'accepted' && outcome !== 'failed' && !outcome.startsWith('upload-') && !outcome.startsWith('read-')) {
+          await vi.waitFor(() => expect(cleaning).toBe(true))
+          if (outcome.endsWith('dispose')) expect(workspaceClosed).toBe(false)
+          else expect(busy).toBe(true)
+        }
+        finishEnd()
+        if (!outcome.endsWith('dispose')) {
+          await vi.waitFor(() => expect(busy).toBe(false))
+          expect(root.querySelector('.image-document-shared-status')?.textContent)
+            .toBe(outcome === 'accepted' ? 'Shared' : undefined)
+          expect(root.querySelector('.image-document-error')?.textContent ?? '').toBe(outcome === 'failed'
+            ? 'Share failed: Creation unavailable' : '')
+        } else await vi.waitFor(() => expect(workspaceClosed).toBe(true))
+        const saved = (await inspect.recoverDraft(seed.document.lineage))!
+        expect(saved.collaboration).toEqual(outcome === 'accepted'
+          ? { sessionId: descriptor.sessionId, baseUrl: backend.baseUrl } : undefined)
+        if (outcome !== 'accepted') expect(saved.updatedAt).toBe(seed.updatedAt)
+        if (outcome.startsWith('snapshot-')) expect(sessionClosed).toBe(true)
+        if (outcome.startsWith('read-')) expect(uploads).toBe(0)
+      } finally {
+        finish()
+        finishEnd()
+        dispose()
+      }
+      await vi.waitFor(() => expect(workspaceClosed).toBe(true))
+      await inspect.close()
+    },
+  )
+
   it.each(['accepted', 'failed', 'project', 'backend', 'connection', 'closed', 'dispose'])(
     'settles an explicit shared image join with its captured owner (%s)', async (outcome) => {
       vi.stubGlobal('indexedDB', new FakeIDBFactory())

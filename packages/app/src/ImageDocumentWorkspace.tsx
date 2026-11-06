@@ -750,6 +750,7 @@ export function ImageDocumentWorkspace(props: {
   let collaborationListCurrent = (): boolean => false
   const pendingCollaborationLists = new Set<Promise<void>>()
   const pendingCollaborationJoins = new Set<Promise<void>>()
+  const pendingCollaborationShares = new Set<Promise<void>>()
   const pendingGraphOpens = new Set<Promise<void>>()
   const pendingImports = new Set<Promise<void>>()
   const leaving = new Set<OpenImageDocument>()
@@ -775,7 +776,7 @@ export function ImageDocumentWorkspace(props: {
 
   const setBusy = (value: boolean): void => {
     const pending = value || pendingImports.size > 0 || pendingGraphOpens.size > 0 ||
-      pendingCollaborationLists.size > 0 || pendingCollaborationJoins.size > 0
+      pendingCollaborationLists.size > 0 || pendingCollaborationJoins.size > 0 || pendingCollaborationShares.size > 0
     setBusySignal(pending)
     props.onBusyChange(pending)
   }
@@ -948,11 +949,14 @@ export function ImageDocumentWorkspace(props: {
   const uploadSharedSnapshotResources = async (
     connection: DinksterConnection,
     documentSnapshot: ImageDocument,
+    assertCurrent: () => void,
   ): Promise<void> => {
     const uploaded = new Set<string>()
     for (const resource of Object.values(documentSnapshot.resources)) {
       if (uploaded.has(resource.digest)) continue
-      await uploadImageDocumentResource(connection, store, resource, COLLAB_SCOPE)
+      assertCurrent()
+      await uploadImageDocumentResource(connection, store, resource, COLLAB_SCOPE, undefined, assertCurrent)
+      assertCurrent()
       uploaded.add(resource.digest)
     }
   }
@@ -960,38 +964,52 @@ export function ImageDocumentWorkspace(props: {
     const entry = active()
     const backend = backendForCollaboration()
     if (entry === undefined || entry.collaboration !== undefined || backend?.protocol !== 'dinkster') return
+    const connection = backend.connection
+    const expectedSession = entry.session
+    const expectedRevision = entry.session.revision
+    const documentSnapshot = entry.session.doc
+    let shared = false
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      backendForCollaboration() === backend && backend.connection === connection &&
+      (shared || (active() === entry && entry.session === expectedSession && entry.session.revision === expectedRevision))
+    const assertCurrent = (): void => {
+      if (!current()) throw new Error(message('imageDocument.workspace.error.imageChangedDuringShare'))
+    }
     setCollaborationTransition(true)
     setBusy(true)
     setError(undefined)
-    let created: CollabSessionDescriptor | undefined
-    try {
-      await entry.persist
-      const expectedSession = entry.session
-      const expectedRevision = entry.session.revision
-      const documentSnapshot = entry.session.doc
-      await uploadSharedSnapshotResources(backend.connection, documentSnapshot)
-      created = await props.app.collabTransport.create(backend.baseUrl, {
-        scope: COLLAB_SCOPE,
-        documentId: entry.session.doc.lineage,
-        documentKind: 'image',
-        snapshot: documentSnapshot,
-      })
-      if (active() !== entry || entry.session !== expectedSession || entry.session.revision !== expectedRevision) {
-        throw new Error(message('imageDocument.workspace.error.imageChangedDuringShare'))
+    const task: Promise<void> = (async () => {
+      let created: CollabSessionDescriptor | undefined
+      try {
+        await entry.persist
+        assertCurrent()
+        await uploadSharedSnapshotResources(connection, documentSnapshot, assertCurrent)
+        assertCurrent()
+        created = await props.app.collabTransport.create(backend.baseUrl, {
+          scope: COLLAB_SCOPE,
+          documentId: documentSnapshot.lineage,
+          documentKind: 'image',
+          snapshot: documentSnapshot,
+        })
+        assertCurrent()
+        await adoptShared(created, backend.baseUrl, entry, current)
+        shared = true
+        setConfirmingEnd(false)
+        setCollaborationOpen(false)
+        props.app.showTransientStatus(message('imageDocument.workspace.status.sharing', { name: entry.name }))
+      } catch (cause) {
+        if (created !== undefined) {
+          await props.app.collabTransport.end(backend.baseUrl, created.sessionId).catch(() => undefined)
+        }
+        if (current()) setLocalizedError('imageDocument.workspace.error.shareFailed', { reason: messageOf(cause) })
       }
-      await adoptShared(created, backend.baseUrl, entry)
-      setConfirmingEnd(false)
-      setCollaborationOpen(false)
-      props.app.showTransientStatus(message('imageDocument.workspace.status.sharing', { name: entry.name }))
-    } catch (cause) {
-      if (created !== undefined) {
-        void props.app.collabTransport.end(backend.baseUrl, created.sessionId).catch(() => undefined)
-      }
-      if (live) setLocalizedError('imageDocument.workspace.error.shareFailed', { reason: messageOf(cause) })
-    } finally {
-      if (live) setCollaborationTransition(false)
+    })().finally(() => {
+      pendingCollaborationShares.delete(task)
+      if (live && pendingCollaborationShares.size === 0) setCollaborationTransition(false)
       if (live) setBusy(false)
-    }
+    })
+    pendingCollaborationShares.add(task)
+    await task
   }
   async function leaveShared(entry: OpenImageDocument, remote = false): Promise<void> {
     if (entry.collaboration === undefined || !documents().includes(entry) || leaving.has(entry)) return
@@ -1196,7 +1214,7 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...current.flatMap((entry) => [
+    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
       entry.hydrate.catch(() => undefined),
     ])]).finally(() => store.close())
