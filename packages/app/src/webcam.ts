@@ -24,10 +24,7 @@ export async function captureWebcamFrame(
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
-      video: {
-        ...(dimensions.width ? { width: { ideal: dimensions.width } } : {}),
-        ...(dimensions.height ? { height: { ideal: dimensions.height } } : {}),
-      },
+      video: true,
     })
     signal?.throwIfAborted()
     video.srcObject = stream
@@ -37,11 +34,11 @@ export async function captureWebcamFrame(
       throw new DOMException('Camera returned an empty frame.', 'NotReadableError')
     }
     const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
+    canvas.width = dimensions.width || video.videoWidth
+    canvas.height = dimensions.width ? dimensions.height ?? 0 : video.videoHeight
     const context = canvas.getContext('2d')
     if (!context) throw new Error('Camera capture requires a canvas context.')
-    context.drawImage(video, 0, 0)
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
     const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
       (value) => value ? resolve(value) : reject(new Error('Camera PNG encoding failed.')),
       'image/png',

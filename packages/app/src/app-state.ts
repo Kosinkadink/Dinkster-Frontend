@@ -63,6 +63,7 @@ import {
   numericStepConstraints,
   outputCountInputsOf,
   outputsOf,
+  occurrenceDynamicView,
   parseMaskPaintRecipe,
   EMPTY_SUBGRAPH_DEFINITION,
   EMPTY_SUBGRAPH_VIEW,
@@ -161,6 +162,7 @@ import {
   LiveEmbeddingAndLoraInventoryProvider,
   registerCoreWidgets,
   SchemaTextCompletionProvider,
+  webcamKind,
   type TextWidgetEditorExtension,
 } from '@dinkster/widgets'
 import { BYPASSED_BADGE, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Viewport } from '@dinkster/canvas'
@@ -209,6 +211,7 @@ import { activeProjectId, scopedSharedName, scopedStorageKey } from './projects.
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
 import { registerCoreWidgetEditors } from './editors/widget-editors.js'
+import { captureWebcamFrame, webcamError } from './webcam.js'
 import {
   clearExecutionResultJobRef,
   clearExecutionResults,
@@ -7282,7 +7285,7 @@ export class AppState {
   }
 
   /** Compile against the tab's TARGET backend: its registry, its identity. */
-  compileTab(tab: Tab, scope: ExecutionScope = { kind: 'full' }): CompileResult | undefined {
+  compileTab(tab: Tab, scope: ExecutionScope = { kind: 'full' }, choices?: readonly SelectorChoice[]): CompileResult | undefined {
     // Same registry read compileInputForTab makes (signals are synchronous):
     // captured here so the retained-registry association below is exact.
     const registry = this.backendForTab(tab).registry.get()
@@ -7290,6 +7293,10 @@ export class AppState {
     if (!registry || !input) return undefined
     const result = compile({
       ...input,
+      ...(choices === undefined ? {} : {
+        candidateOverride: ({ graph, selector }: { graph: string; selector: string }) =>
+          choices.find((choice) => choice.graph === graph && choice.selector === selector)?.candidate,
+      }),
       // Random selector policies roll HERE, at the app boundary - compile is
       // pure and records the exact outcome in the artifact's `choices`, so a
       // frozen view always shows the branch THIS execution took. A fresh
@@ -7959,6 +7966,52 @@ export class AppState {
     this.queueRefusal.set(tab)
   }
 
+  private async captureQueueWebcams(tab: Tab, artifact: CompileArtifact, signal: AbortSignal): Promise<WorkflowDocument> {
+    const backend = this.backendForTab(tab)
+    const registry = backend.registry.get()!
+    const document = tab.store.doc
+    const invocations: CommandInvocation[] = []
+    const capturedOwners = new Set<string>()
+    for (const [runtimeId, node] of Object.entries(artifact.prompt)) {
+      if (node.inputs['capture_on_queue'] !== true) continue
+      const schema = registry.resolve(node.class_type)
+      const input = schema && inputsOf(schema).find((item) => item.widget?.widgetType === webcamKind.type)
+      if (input === undefined || Array.isArray(node.inputs[input.id])) continue
+      const occurrence = parseOccurrenceKey(artifact.provenance.toSource[runtimeId]!)
+      const location = resolveNodeOccurrence(document, occurrence)!
+      const topology = effectiveOccurrenceTopology(document, registry.resolve, occurrence)
+      if (effectiveTopologyDrivesPort(topology, location.graphId, occurrence.instancePath, {
+        node: occurrence.node, port: asPortId(input.id),
+      })) continue
+      const view = occurrenceDynamicView(document, registry.resolve, occurrence.instancePath)
+      const owner = view.valueOwners.get(occurrence.node)?.get(input.id) ?? {
+        graphId: location.graphId, nodeId: occurrence.node, valueKey: input.id,
+      }
+      const key = JSON.stringify(owner)
+      if (capturedOwners.has(key)) continue
+      capturedOwners.add(key)
+      const file = await captureWebcamFrame({
+        width: typeof node.inputs['width'] === 'number' ? node.inputs['width'] : 0,
+        height: typeof node.inputs['height'] === 'number' ? node.inputs['height'] : 0,
+      }, signal)
+      const ref = await backend.connection.uploadMediaAsset(file, {
+        scope: 'local', kind: 'media/image', name: file.name, signal,
+      })
+      signal.throwIfAborted()
+      if (tab.store.doc !== document || backend.registry.get() !== registry || this.backendForTab(tab) !== backend) {
+        throw new Error('Workflow or backend changed while capturing webcam; queue again.')
+      }
+      invocations.push({ command: 'node.setValue', params: {
+        graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: { ...ref },
+      } })
+    }
+    if (invocations.length === 0) return document
+    signal.throwIfAborted()
+    const outcome = this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })
+    if (!outcome.ok) throw new Error('Could not save captured webcam frame.')
+    return tab.store.doc
+  }
+
   async queue(
     tab: Tab,
     scope: ExecutionScope = { kind: 'full' },
@@ -7980,8 +8033,8 @@ export class AppState {
     // results must not touch the replacement's Problems entries.
     if (!this.tabs.get().includes(tab)) return
     const requestedPlacement = placement === undefined ? undefined : { ...placement }
-    const compiledDocument = tab.store.doc
-    const result = this.compileTab(tab, scope)
+    let compiledDocument = tab.store.doc
+    let result = this.compileTab(tab, scope)
     if (!result) return
     if (!result.ok) {
       // Queueing refreshes THIS tab's Problems entries (compile results
@@ -7990,8 +8043,9 @@ export class AppState {
       this.refuseQueue(tab, this.queueRefusalDiagnostics(tab, result.diagnostics))
       return
     }
+    const initialArtifact = result.artifact
     const missingRequired = requiredRootNodes.filter((required) =>
-      !Object.values(result.artifact.provenance.toSource).some((key) => {
+      !Object.values(initialArtifact.provenance.toSource).some((key) => {
         const occurrence = parseOccurrenceKey(key)
         return occurrence.instancePath[0] === required ||
           (occurrence.instancePath.length === 0 && occurrence.node === required)
@@ -8012,10 +8066,37 @@ export class AppState {
     // provenance as the owner view, and feature setting as of the queue
     // action. Edits during the submission awaits below can no longer shape
     // what completion applies.
-    const plan = this.preparedAdvancement(tab.store, result.artifact)
+    let plan = this.preparedAdvancement(tab.store, result.artifact)
     const lease = this.retainSubmissionWorld(tab, result.artifact)
     let consentOwnsLease = false
     try {
+      const choices = result.artifact.choices
+      const captureBackend = this.backendForTab(tab)
+      const captureRegistry = captureBackend.registry.get()
+      let capturedDocument: WorkflowDocument
+      try {
+        capturedDocument = await this.captureQueueWebcams(tab, result.artifact, lease.signal)
+        if (tab.store.doc !== capturedDocument || this.backendForTab(tab) !== captureBackend || captureBackend.registry.get() !== captureRegistry) {
+          throw new Error('Workflow or backend changed while capturing webcam; queue again.')
+        }
+      } catch (error) {
+        if (!lease.signal.aborted && this.tabs.get().includes(tab)) {
+          this.refuseQueue(tab, [diag('error', 'validation', 'submit.webcamCaptureFailed', webcamError(error))])
+        }
+        return
+      }
+      if (capturedDocument !== compiledDocument) {
+        compiledDocument = capturedDocument
+        result = this.compileTab(tab, scope, choices)
+        if (result === undefined || lease.signal.aborted) return
+        if (!result.ok) {
+          this.refuseQueue(tab, this.queueRefusalDiagnostics(tab, result.diagnostics))
+          return
+        }
+        this.replaceProblems(tab.id, result.artifact.diagnostics)
+        plan = this.preparedAdvancement(tab.store, result.artifact)
+      }
+      if (lease.signal.aborted) return
       // The artifact records its target connection; submit() cross-checks it.
       // Native backends get the advisory sourceDocument stamp: the exact
       // producing document (environment stamp inside) as a content-addressed

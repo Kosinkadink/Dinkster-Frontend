@@ -1,8 +1,9 @@
 import { render } from 'solid-js/web'
 import { afterEach, expect, it, vi } from 'vitest'
-import { coreCommandRegistry, DocumentStore, importLitegraph, inputsOf, parseDinksterSchema } from '@dinkster/core'
+import { asNodeId, coreCommandRegistry, diag, DINKSTER_SCHEMA_WIRE_VERSION, DocumentStore, importLitegraph, inputsOf, parseDinksterSchema } from '@dinkster/core'
+import { buildDinksterRegistry } from '@dinkster/client'
 import { createWidgetRegistry } from '@dinkster/widgets'
-import type { AppState, Tab } from '../src/app-state.js'
+import { AppState, type Tab } from '../src/app-state.js'
 import { captureWebcamFrame } from '../src/webcam.js'
 import { WidgetEditor } from '../src/WidgetEditor.js'
 
@@ -18,17 +19,19 @@ function camera() {
   Object.defineProperty(HTMLVideoElement.prototype, 'videoWidth', { configurable: true, get: () => 320 })
   Object.defineProperty(HTMLVideoElement.prototype, 'videoHeight', { configurable: true, get: () => 240 })
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage() {} } as unknown as CanvasRenderingContext2D)
-  vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => callback(new Blob(['frame'], { type: 'image/png' })))
+  vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (this: HTMLCanvasElement, callback) {
+    callback(this.width && this.height ? new Blob([`${this.width}x${this.height}`], { type: 'image/png' }) : null)
+  })
   return { stop, stream, open }
 }
 
-it('captures a PNG using camera constraints and releases tracks, including a late permission grant', async () => {
+it('resizes a PNG to requested dimensions and releases tracks, including a late permission grant', async () => {
   const device = camera()
-  const file = await captureWebcamFrame({ width: 640, height: 480 })
+  const file = await captureWebcamFrame({ width: 640, height: 180 })
   expect(file.name).toBe('webcam.png')
   expect(file.type).toBe('image/png')
-  expect(await file.text()).toBe('frame')
-  expect(device.open).toHaveBeenCalledWith({ audio: false, video: { width: { ideal: 640 }, height: { ideal: 480 } } })
+  expect(await file.text()).toBe('640x180')
+  expect(device.open).toHaveBeenCalledWith({ audio: false, video: true })
   expect(device.stop).toHaveBeenCalledOnce()
   let grant!: (stream: MediaStream) => void
   device.open.mockImplementationOnce(() => new Promise((resolve) => { grant = resolve }))
@@ -38,6 +41,12 @@ it('captures a PNG using camera constraints and releases tracks, including a lat
   grant(device.stream)
   await expect(pending).rejects.toHaveProperty('name', 'AbortError')
   expect(device.stop).toHaveBeenCalledTimes(2)
+})
+
+it('uses native dimensions for zero width and rejects a zero-height requested canvas', async () => {
+  camera()
+  expect(await (await captureWebcamFrame({ width: 0, height: 96 })).text()).toBe('320x240')
+  await expect(captureWebcamFrame({ width: 640, height: 0 })).rejects.toThrow('Camera PNG encoding failed.')
 })
 
 it('preserves named browser errors without inventing a frame', async () => {
@@ -54,10 +63,11 @@ it('stages capture, preserves the saved frame on cancel or device failure, and a
   const schema = parseDinksterSchema('dinkster.image.webcam_capture', { interface: [
     { role: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM' } },
     { role: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, default: 640 },
+    { role: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, default: 180 },
   ] }).schema!
   const saved = { digest: `blake3:${'a'.repeat(64)}`, name: 'saved.png', size: 8, mediaType: 'image/png', virtualPath: 'input/saved.png' }
   const captured = { ...saved, digest: `blake3:${'b'.repeat(64)}`, name: 'webcam.png' }
-  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [saved, 640] }], links: [] }, () => schema)
+  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [saved, 640, 180] }], links: [] }, () => schema)
   const store = new DocumentStore(imported.document!, coreCommandRegistry())
   const tab = { store } as unknown as Tab
   const registry = createWidgetRegistry()
@@ -93,4 +103,78 @@ it('stages capture, preserves the saved frame on cancel or device failure, and a
   expect(store.undo()).toBe(true)
   expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(saved)
   dispose()
+})
+
+async function queueSetup(captureOnQueue = true) {
+  const app = new AppState()
+  const backend = app.backends.get()[0]!
+  const type = 'dinkster.image.webcam_capture'
+  backend.registry.set(buildDinksterRegistry(backend.id, { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: { [type]: { interface: [
+    { role: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM' } },
+    { role: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, default: 640 },
+    { role: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, default: 180 },
+    { role: 'input', id: 'capture_on_queue', type: { kind: 'concrete', types: ['BOOLEAN'] }, default: true },
+    { role: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+  ] } } }))
+  const saved = { digest: `blake3:${'a'.repeat(64)}`, name: 'saved.png', size: 8, mediaType: 'image/png', virtualPath: 'input/saved.png' }
+  await app.importWorkflowFile({ name: 'camera.json', text: async () => JSON.stringify({ nodes: [
+    { id: 1, type, widgets_values: [saved, 640, 180, captureOnQueue] },
+    { id: 2, type, widgets_values: [saved, 640, 180, true] },
+  ], links: [] }) })
+  const tab = app.activeTab()!
+  const captured = { ...saved, digest: `blake3:${'b'.repeat(64)}`, name: 'webcam.png' }
+  const upload = vi.spyOn(backend.connection, 'uploadMediaAsset').mockResolvedValue(captured)
+  vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(`blake3:${'c'.repeat(64)}`)
+  const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
+    ok: false, diagnostics: [diag('error', 'validation', 'submit.test', 'stop after submission')],
+  })
+  const queue = () => app.queue(tab, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('n1') }] })
+  return { app, backend, tab, saved, captured, upload, submit, queue }
+}
+
+it('queues a fresh scoped frame and a matching snapshot, while disabled capture reuses the saved asset', async () => {
+  const device = camera()
+  for (const enabled of [true, false]) {
+    const state = await queueSetup(enabled)
+    try {
+      await state.queue()
+      expect(state.submit, JSON.stringify(state.app.problems.get())).toHaveBeenCalledOnce()
+      const artifact = state.submit.mock.calls[0]![0]
+      const expected = enabled ? state.captured : state.saved
+      expect(Object.values(artifact.prompt).map((node) => node.inputs.image)).toEqual([expected])
+      expect(artifact.snapshot.graphs.g0!.nodes.n1!.values.image).toEqual(expected)
+      expect(state.tab.store.doc.graphs.g0!.nodes.n2!.values.image).toEqual(state.saved)
+      if (enabled) {
+        expect(await state.upload.mock.calls[0]![0].text()).toBe('640x180')
+        expect(state.tab.store.undo()).toBe(true)
+        expect(state.tab.store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(state.saved)
+      } else expect(state.upload).not.toHaveBeenCalled()
+    } finally { state.app.dispose() }
+  }
+  expect(device.open).toHaveBeenCalledOnce()
+})
+
+it('refuses queue on device failure or edits during capture without replacing a saved frame', async () => {
+  const device = camera()
+  for (const failure of ['device', 'edited', 'closed']) {
+    const state = await queueSetup()
+    try {
+      if (failure === 'device') {
+        device.open.mockRejectedValueOnce(new DOMException('Requested device not found', 'NotFoundError'))
+        await state.queue()
+        expect(state.app.problems.get().some((problem) => problem.message.includes('NotFoundError')), JSON.stringify(state.app.problems.get())).toBe(true)
+      } else {
+        let grant!: (stream: MediaStream) => void
+        device.open.mockImplementationOnce(() => new Promise((resolve) => { grant = resolve }))
+        const pending = state.queue()
+        await vi.waitFor(() => expect(grant).toBeDefined())
+        if (failure === 'closed') state.app.closeTab(state.tab.id)
+        else state.app.dispatchTo(state.tab, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'width', value: 96 } })
+        grant(device.stream)
+        await pending
+      }
+      expect(state.submit).not.toHaveBeenCalled()
+      expect(state.tab.store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(state.saved)
+    } finally { state.app.dispose() }
+  }
 })
