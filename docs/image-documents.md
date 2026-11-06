@@ -45,6 +45,13 @@ publish membership, tabs, or errors. Busy state and disposal wait for the share
 to settle, including ending a newly created session rejected by its owner.
 Already submitted uploads and local writes may finish without rollback.
 
+Leaving a shared image, including fallback after the remote session ends,
+keeps its original document, project, backend, and connection. Pending leaves
+keep the workspace busy and its store open through actual settlement. Stale
+reads cannot start another draft or membership write, or publish a local tab
+or error. Draft and membership transactions recheck before submitting writes;
+already submitted writes may finish without rollback.
+
 Closing the library dialog (including Escape), changing its backend connection,
 or leaving its project invalidates a pending library open. A settled stale read
 does not open a tab or start another resource/draft write. An already submitted

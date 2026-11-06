@@ -537,6 +537,7 @@
     "text:() const [libraryOpen, setLibraryOpen] = createSignal(false) const [libraryRecords, setLibraryRecords] = createSignal",
     "text:() const leaving = new Set",
     "text:() const pendingCollaborationJoins = new Set",
+    "text:() const pendingCollaborationLeaves = new Set",
     "text:() const pendingCollaborationShares = new Set",
     "text:() const pendingGraphOpens = new Set",
     "text:() const pendingImports = new Set",

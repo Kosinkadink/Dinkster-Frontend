@@ -316,16 +316,25 @@ export class ImageDocumentLocalStore {
     name: string,
     library?: ImageLibraryLink,
     expectedUpdatedAt?: number | null,
+    assertCurrent: () => void = () => undefined,
   ): Promise<ImageDocumentDraft> {
     const loaded = loadImageDocument(document)
     if (loaded.document === undefined) throw new Error('cannot persist an invalid ImageDocument draft')
     const canonical = serializeImageDocument(loaded.document)
     const key = draftKey(this.projectId, loaded.document.lineage)
     const database = await this.database
+    assertCurrent()
     const transaction = database.transaction(DRAFTS, 'readwrite')
     const done = transactionDone(transaction)
     const store = transaction.objectStore(DRAFTS)
     const existing = await requestResult(store.get(key) as IDBRequest<DraftRecord | undefined>)
+    try {
+      assertCurrent()
+    } catch (cause) {
+      transaction.abort()
+      await done.catch(() => undefined)
+      throw cause
+    }
     if (expectedUpdatedAt !== undefined) {
       const matches = expectedUpdatedAt === null
         ? existing === undefined || parseDraft(existing) === undefined

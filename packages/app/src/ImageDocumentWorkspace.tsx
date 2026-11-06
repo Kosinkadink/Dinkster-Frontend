@@ -754,6 +754,7 @@ export function ImageDocumentWorkspace(props: {
   const pendingGraphOpens = new Set<Promise<void>>()
   const pendingImports = new Set<Promise<void>>()
   const leaving = new Set<OpenImageDocument>()
+  const pendingCollaborationLeaves = new Set<Promise<void>>()
 
   const setError = (value: string | undefined): void => { setErrorValue(value) }
   const setLocalizedError = (key: string, params?: MessageParams): void => {
@@ -776,7 +777,8 @@ export function ImageDocumentWorkspace(props: {
 
   const setBusy = (value: boolean): void => {
     const pending = value || pendingImports.size > 0 || pendingGraphOpens.size > 0 ||
-      pendingCollaborationLists.size > 0 || pendingCollaborationJoins.size > 0 || pendingCollaborationShares.size > 0
+      pendingCollaborationLists.size > 0 || pendingCollaborationJoins.size > 0 || pendingCollaborationShares.size > 0 ||
+      pendingCollaborationLeaves.size > 0
     setBusySignal(pending)
     props.onBusyChange(pending)
   }
@@ -1013,32 +1015,50 @@ export function ImageDocumentWorkspace(props: {
   }
   async function leaveShared(entry: OpenImageDocument, remote = false): Promise<void> {
     if (entry.collaboration === undefined || !documents().includes(entry) || leaving.has(entry)) return
+    const shared = entry.collaboration
+    const session = entry.session
+    const backend = backendForCollaboration()
+    const connection = backend?.protocol === 'dinkster' ? backend.connection : undefined
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      documents().includes(entry) && entry.session === session && entry.collaboration === shared &&
+      backendForCollaboration() === backend && (backend?.protocol !== 'dinkster' || backend.connection === connection)
+    const assertCurrent = (): void => {
+      if (!current()) throw new Error('Shared image leave is no longer current')
+    }
     leaving.add(entry)
     setCollaborationTransition(true)
-    if (!remote) setBusy(true)
+    setBusy(true)
     setError(undefined)
-    try {
-      entry.stop()
-      await entry.persist
-      const documentSnapshot = entry.session.doc
-      entry.collaboration.session.close()
-      const current = await store.recoverDraft(documentSnapshot.lineage)
-      await store.saveDraft(documentSnapshot, entry.name, undefined, current?.updatedAt ?? null)
-      const unlinked = await store.setCollaboration(documentSnapshot.lineage, undefined)
-      if (!documents().includes(entry)) return
-      const local = attach({ ...unlinked, document: documentSnapshot, name: entry.name })
-      replaceEntry(entry, local)
-      setConfirmingEnd(false)
-      props.app.showTransientStatus(message(remote
-        ? 'imageDocument.workspace.status.sharedEnded'
-        : 'imageDocument.workspace.status.leftShared', { name: entry.name }))
-    } catch (cause) {
-      if (live) setLocalizedError('imageDocument.workspace.error.leaveFailed', { reason: messageOf(cause) })
-    } finally {
+    const task: Promise<void> = (async () => {
+      try {
+        entry.stop()
+        await entry.persist
+        assertCurrent()
+        const documentSnapshot = session.doc
+        shared.session.close()
+        const saved = await store.recoverDraft(documentSnapshot.lineage)
+        assertCurrent()
+        await store.saveDraft(documentSnapshot, entry.name, undefined, saved?.updatedAt ?? null, assertCurrent)
+        assertCurrent()
+        const unlinked = await store.setCollaboration(documentSnapshot.lineage, undefined, assertCurrent)
+        assertCurrent()
+        const local = attach({ ...unlinked, document: documentSnapshot, name: entry.name })
+        replaceEntry(entry, local)
+        setConfirmingEnd(false)
+        props.app.showTransientStatus(message(remote
+          ? 'imageDocument.workspace.status.sharedEnded'
+          : 'imageDocument.workspace.status.leftShared', { name: entry.name }))
+      } catch (cause) {
+        if (current()) setLocalizedError('imageDocument.workspace.error.leaveFailed', { reason: messageOf(cause) })
+      }
+    })().finally(() => {
       leaving.delete(entry)
-      if (live) setCollaborationTransition(false)
-      if (!remote && live) setBusy(false)
-    }
+      pendingCollaborationLeaves.delete(task)
+      if (live && pendingCollaborationLeaves.size === 0) setCollaborationTransition(false)
+      if (live) setBusy(false)
+    })
+    pendingCollaborationLeaves.add(task)
+    await task
   }
   const endShared = async (entry: OpenImageDocument): Promise<void> => {
     if (entry.collaboration === undefined) return
@@ -1214,7 +1234,7 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...current.flatMap((entry) => [
+    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
       entry.hydrate.catch(() => undefined),
     ])]).finally(() => store.close())
