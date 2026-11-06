@@ -556,7 +556,7 @@ export function importLitegraphSubgraphs(
           const route = resolveBoundaryRoute(schema, binding, 'input', node.values, node.dynamic)
           if (route.ok || route.code !== 'boundary.unknownPort') return true
           diagnostics.push(diag('warning', 'import', 'import.subgraphs.obsoleteInput',
-            `Subgraph ${id}: input '${item.displayName}' targets absent port '${binding.port}' on '${node.type}'; binding left unconnected`,
+            `Subgraph ${id}: '${item.displayName}' targets absent '${node.type}.${binding.port}'; left unconnected`,
             { data: { graphId: id, boundaryId: item.id, nodeId: binding.node, port: binding.port } }))
           return false
         })
