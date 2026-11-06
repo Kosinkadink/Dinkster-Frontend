@@ -929,6 +929,34 @@ export interface WorkflowRequirementPlan {
   readonly errors: readonly string[]
 }
 
+export interface PackInstallPlan {
+  readonly confirmation: string
+  readonly plan: Readonly<Record<string, unknown>>
+  readonly review: string
+  readonly expiresInSeconds: number
+}
+
+export interface PackInstallResult {
+  readonly generation: number
+  readonly activation: {
+    readonly epoch: number
+    readonly added: readonly string[]
+    readonly removed: readonly string[]
+    readonly reloaded: readonly string[]
+    readonly unchanged: readonly string[]
+  }
+}
+
+export class PackInstallError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: Readonly<Record<string, unknown>> | undefined,
+  ) {
+    super(typeof body?.['detail'] === 'string' && body['detail'] !== '' ? body['detail']
+      : typeof body?.['error'] === 'string' ? body['error'] : `Pack installation request failed: ${status}`)
+  }
+}
+
 export interface AssetSelectionOption {
   readonly name: string
   readonly shape: 'file' | 'pair' | 'directory' | 'literal'
@@ -2685,6 +2713,52 @@ export class DinksterConnection {
       matches.push(...parseAssetGuessMatches(await res.json()))
     }
     return matches
+  }
+
+  private async packInstallRequest(action: 'plan' | 'apply', body: unknown): Promise<Record<string, unknown>> {
+    const response = await this.fetchFn(`${this.baseUrl}/api/packs/install/${action}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+    const payload = await responsePayload(response)
+    if (!response.ok) throw new PackInstallError(response.status, payload)
+    if (payload === undefined) throw new Error(`Malformed pack installation ${action} response`)
+    return payload
+  }
+
+  /** Request a review only; the server retains the executable plan. */
+  async planPackInstall(packs: readonly { readonly pack: string; readonly version: string }[]): Promise<PackInstallPlan> {
+    const body = await this.packInstallRequest('plan', { packs: packs.map(({ pack, version }) => ({ pack, version })) })
+    const plan = body['plan']
+    if (typeof body['confirmation'] !== 'string' || body['confirmation'].length === 0 ||
+      typeof body['review'] !== 'string' ||
+      !Number.isSafeInteger(body['expiresInSeconds']) || (body['expiresInSeconds'] as number) <= 0 ||
+      typeof plan !== 'object' || plan === null || Array.isArray(plan) ||
+      (plan as Record<string, unknown>)['format'] !== 'dinkster.plan/1') {
+      throw new Error('Malformed pack installation plan response')
+    }
+    return { confirmation: body['confirmation'], plan: plan as Record<string, unknown>,
+      review: body['review'], expiresInSeconds: body['expiresInSeconds'] as number }
+  }
+
+  /** Apply only a human-confirmed token, without retrying a possibly completed mutation. */
+  async applyPackInstall(confirmation: string): Promise<PackInstallResult> {
+    const body = await this.packInstallRequest('apply', { confirmation })
+    const raw = body['activation']
+    const invalid = () => new Error('Malformed pack installation activation response')
+    if (!Number.isSafeInteger(body['generation']) || (body['generation'] as number) < 1 ||
+      typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
+    const activation = raw as Record<string, unknown>
+    const failed = activation['failed']
+    if (!Number.isSafeInteger(activation['epoch']) || (activation['epoch'] as number) < 0 ||
+      activation['generation'] !== body['generation'] || activation['rolledBack'] !== false ||
+      typeof failed !== 'object' || failed === null || Array.isArray(failed) || Object.keys(failed).length !== 0 ||
+      !['added', 'removed', 'reloaded', 'unchanged'].every((key) =>
+        Array.isArray(activation[key]) && (activation[key] as unknown[]).every((pack) => typeof pack === 'string'))) throw invalid()
+    return { generation: body['generation'] as number, activation: {
+      epoch: activation['epoch'] as number,
+      added: activation['added'] as string[], removed: activation['removed'] as string[],
+      reloaded: activation['reloaded'] as string[], unchanged: activation['unchanged'] as string[],
+    } }
   }
 
   /** Read host requirements without granting download or installation consent. */
