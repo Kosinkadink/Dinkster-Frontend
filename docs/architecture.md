@@ -108,6 +108,13 @@ fetch bytes, and stale selection readers or changed backend/project targets
 cannot publish object URLs. This byte-read boundary does not cover image decode
 or native video/model resource lifetimes and does not release retained owners.
 
+Picker model posters independently borrow the captured selection reader across
+the shared render queue, model load, render and poster encoding. Closing or
+replacing the selection keeps started work tracked until settlement; refused or
+expired readers cannot start loading, and obsolete work cannot publish its
+poster. Local-file posters keep their separate path. This does not certify
+collection thumbnails, native asynchronous teardown or retained-owner release.
+
 Recorded FILE_3D original and sidecar digest reads acknowledge their newly
 revealed identities as incomplete shown-result roots on the original live or
 retired backend before fetching bytes. The captured result and observed

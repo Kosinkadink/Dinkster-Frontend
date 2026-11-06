@@ -605,6 +605,60 @@ describe('ASSET widget modal integration', () => {
     } finally { finish?.(); unmount() }
   })
 
+  it.each(['accepted', 'refused', 'closed', 'expired', 'stale-body', 'closed-body'] as const)('borrows the admitted picker owner through model poster rendering: %s', async (outcome) => {
+    const viewer = await import('../src/model3d-viewer.js')
+    const initial = { digest: `blake3:${'e'.repeat(64)}`, name: 'stored.glb', size: 4,
+      mediaType: 'model/gltf-binary', virtualPath: 'models/stored.glb' }
+    let current = true
+    let reading = false
+    let admit!: () => void
+    let finish!: () => void
+    const reader = { key: 'picker-poster', current: () => current, read: async <T,>(consume: () => Promise<T>) => {
+      reading = true
+      try {
+        await new Promise<void>((resolve) => { admit = resolve })
+        if (outcome === 'refused') throw new Error('Poster ownership refused')
+        return await consume()
+      } finally { reading = false }
+    } }
+    const poster = vi.spyOn(viewer, 'renderModel3dPosterUrl').mockImplementation(async () => {
+      if (outcome.endsWith('-body')) await new Promise<void>((resolve) => { finish = resolve })
+      return 'blob:picker-poster'
+    })
+    const backend = { protocol: 'dinkster', id: 'native', connection: { ...assetLocationMethods,
+      listMounts: async () => [], listLocalAssets: async () => ({ assets: [] }), checkAssetAvailability: async () => [],
+      assetUrl: (digest: string) => `/api/assets/${digest}`,
+    } }
+    const app = { backendForTab: () => backend, retainPickerAssets: vi.fn().mockResolvedValue(reader),
+      widgetRegistry: { kind: () => undefined } } as unknown as AppState
+    const root = document.createElement('div'); document.body.append(root)
+    const unmount = render(() => <WidgetEditor app={app} ed={widgetState('ASSET', {}, initial)} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+    try {
+      await vi.waitFor(() => expect(admit).toBeTypeOf('function'))
+      expect(reading).toBe(true)
+      expect(poster).not.toHaveBeenCalled()
+      expect(root.querySelector('[data-testid="asset-model3d-loading"]')).not.toBeNull()
+      if (outcome === 'closed') unmount()
+      if (outcome === 'expired') current = false
+      admit()
+      if (outcome.endsWith('-body')) {
+        await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+        if (outcome === 'closed-body') unmount()
+        else current = false
+        expect(reading).toBe(true)
+        finish()
+      }
+      await vi.waitFor(() => expect(reading).toBe(false))
+      if (outcome === 'accepted') {
+        await vi.waitFor(() => expect(root.querySelector('img[alt="3D model preview"]')?.getAttribute('src')).toBe('blob:picker-poster'))
+        expect(poster).toHaveBeenCalledWith(`/api/assets/${initial.digest}`, initial.mediaType)
+      } else {
+        expect(root.querySelector('img[alt="3D model preview"]')).toBeNull()
+        if (!outcome.endsWith('-body')) expect(poster).not.toHaveBeenCalled()
+      }
+    } finally { admit?.(); finish?.(); unmount() }
+  })
+
   it.each(['live', 'edited', 'closed', 'disconnected', 'registry', 'disposed'].flatMap((scenario) =>
     [false, true].map((stored) => ({ scenario, stored }))))(
     'applies admitted picks only to their captured document: $scenario stored=$stored', async ({ scenario, stored }) => {

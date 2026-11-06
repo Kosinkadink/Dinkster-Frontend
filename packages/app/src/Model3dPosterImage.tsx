@@ -1,4 +1,5 @@
 import { Show, createResource, onCleanup } from 'solid-js'
+import type { PreviewSource } from './node-previews.js'
 
 /**
  * Poster still for a GLB or splat PLY source, rendered lazily through the
@@ -10,16 +11,24 @@ export function Model3dPosterImage(props: {
   readonly src: string
   readonly name: string
   readonly mime?: string | undefined
+  readonly assetReader?: PreviewSource['assetReader']
 }) {
   let request = 0
   onCleanup(() => { request += 1 })
   const [poster] = createResource(
-    () => ({ src: props.src, mime: props.mime }),
+    () => ({ src: props.src, mime: props.mime, reader: props.assetReader }),
     async (source) => {
       const current = ++request
       const viewer = await import('./model3d-viewer.js')
       if (current !== request) return undefined
-      return viewer.renderModel3dPosterUrl(source.src, source.mime)
+      const render = async () => {
+        if (current !== request) return undefined
+        if (source.reader?.current() === false) throw new Error('Picker preview ownership changed')
+        return viewer.renderModel3dPosterUrl(source.src, source.mime)
+      }
+      const url = await (source.reader === undefined ? render() : source.reader.read(render))
+      if (current !== request || source.reader?.current() === false) return undefined
+      return url
     },
   )
   const url = (): string | undefined => (poster.state === 'ready' ? poster() : undefined)

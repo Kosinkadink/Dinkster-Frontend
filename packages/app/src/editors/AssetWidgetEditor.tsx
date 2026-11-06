@@ -48,6 +48,7 @@ interface AssetPreview {
   readonly src: string
   readonly name: string
   readonly mime?: string
+  readonly assetReader?: PreviewSource['assetReader']
 }
 
 const GENERIC_UPLOAD_MAX_BYTES = 16 * 1024 * 1024
@@ -332,7 +333,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         kind,
         src: backend.connection.assetUrl(ref.digest),
         name: ref.name,
-        ...(kind === 'model3d' ? { mime: ref.mediaType } : {}),
+        ...(kind === 'model3d' ? { mime: ref.mediaType, assetReader: selectionReader } : {}),
       })
       return
     }
@@ -891,7 +892,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               <Show when={assetPreview()}>
                 {(preview) => (
                   <Show when={preview().kind !== 'model3d'} fallback={
-                    <Model3dPosterImage src={preview().src} name={preview().name} mime={preview().mime} />
+                    <Model3dPosterImage src={preview().src} name={preview().name} mime={preview().mime} assetReader={preview().assetReader} />
                   }>
                   <Show when={preview().kind === 'video'} fallback={
                     <Show when={!assetPreviewFailed()} fallback={
