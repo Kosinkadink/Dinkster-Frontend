@@ -23,6 +23,9 @@ With capture_on_queue enabled, queue captures and saves a fresh frame for each
 included camera before submitting. Disabled capture reuses the saved frame.
 Changing the workflow or backend during capture refuses that queue attempt
 without overwriting the input. Closing the tab cancels capture.
+Connected image inputs retain their source instead of opening the camera.
+Occurrences sharing a saved frame must use matching capture dimensions;
+promote their image inputs separately to capture different sizes.
 
 An unknown field on a known widget descriptor produces a
 `schema.widget.unknownField` warning naming the node, input and field. The

@@ -115,6 +115,8 @@ async function queueSetup(captureOnQueue = true) {
     { role: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, default: 180 },
     { role: 'input', id: 'capture_on_queue', type: { kind: 'concrete', types: ['BOOLEAN'] }, default: true },
     { role: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+  ] }, 'test.frame': { interface: [
+    { role: 'output', id: 'frame', type: { kind: 'concrete', types: ['WEBCAM'] } },
   ] } } }))
   const saved = { digest: `blake3:${'a'.repeat(64)}`, name: 'saved.png', size: 8, mediaType: 'image/png', virtualPath: 'input/saved.png' }
   await app.importWorkflowFile({ name: 'camera.json', text: async () => JSON.stringify({ nodes: [
@@ -124,12 +126,12 @@ async function queueSetup(captureOnQueue = true) {
   const tab = app.activeTab()!
   const captured = { ...saved, digest: `blake3:${'b'.repeat(64)}`, name: 'webcam.png' }
   const upload = vi.spyOn(backend.connection, 'uploadMediaAsset').mockResolvedValue(captured)
-  vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(`blake3:${'c'.repeat(64)}`)
+  const sourceUpload = vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(`blake3:${'c'.repeat(64)}`)
   const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
     ok: false, diagnostics: [diag('error', 'validation', 'submit.test', 'stop after submission')],
   })
   const queue = () => app.queue(tab, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('n1') }] })
-  return { app, backend, tab, saved, captured, upload, submit, queue }
+  return { app, backend, tab, saved, captured, upload, sourceUpload, submit, queue }
 }
 
 it('queues a fresh scoped frame and a matching snapshot, while disabled capture reuses the saved asset', async () => {
@@ -177,4 +179,133 @@ it('refuses queue on device failure or edits during capture without replacing a 
       expect(state.tab.store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(state.saved)
     } finally { state.app.dispose() }
   }
+})
+
+it('does not replace connected literal camera inputs with unused captures', async () => {
+  const device = camera()
+  for (const kind of ['valueSource', 'tap', 'net']) {
+    const state = await queueSetup()
+    try {
+      const document = state.tab.store.doc
+      const graph = document.graphs.g0!
+      const connected = { ...state.saved, digest: `blake3:${'d'.repeat(64)}`, name: 'connected.png' }
+      expect(state.app.openDocument({ ...document, graphs: { ...document.graphs, g0: {
+        ...graph,
+        nodes: { ...graph.nodes, n2: kind === 'net'
+          ? { ...graph.nodes.n2!, type: 'test.frame', values: {} }
+          : { ...graph.nodes.n2!, values: { ...graph.nodes.n2!.values, image: connected } } },
+        valueSources: { v0: { id: 'v0', value: connected, type: { kind: 'concrete', types: ['WEBCAM'] } } },
+        links: kind === 'net' ? {} : { l0: {
+          id: 'l0', from: kind === 'tap' ? { node: 'n2', tap: 'image' } : { valueSource: 'v0' }, to: { node: 'n1', port: 'image' },
+        } },
+        nets: kind === 'net' ? { net0: { id: 'net0', name: 'camera', source: { node: 'n2', port: 'frame' }, sinks: [{ node: 'n1', port: 'image' }] } } : {},
+      } } }, 'Connected camera')).toEqual([])
+      const tab = state.app.activeTab()!
+      await state.app.queue(tab, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('n1') }] })
+      expect(state.submit, JSON.stringify(state.app.problems.get())).toHaveBeenCalledOnce()
+      const prompt = state.submit.mock.calls[0]![0].prompt
+      const expected = kind === 'net' ? [Object.entries(prompt).find(([, node]) => node.class_type === 'test.frame')![0], 0] : connected
+      expect(Object.values(prompt).find((node) => node.class_type === 'dinkster.image.webcam_capture')?.inputs.image).toEqual(expected)
+      expect(state.upload).not.toHaveBeenCalled()
+      expect(tab.store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(state.saved)
+    } finally { state.app.dispose() }
+  }
+  expect(device.open).not.toHaveBeenCalled()
+})
+
+it('rejects edits and undo notified by saving a capture instead of submitting a different document', async () => {
+  camera()
+  for (const timing of ['synchronous', 'microtask']) {
+    const state = await queueSetup()
+    let scheduled = false
+    const unsubscribe = state.tab.store.document.subscribe(() => {
+      if (scheduled) return
+      scheduled = true
+      if (timing === 'microtask') queueMicrotask(() => state.tab.store.undo())
+      else state.app.dispatchTo(state.tab, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'width', value: 96 } })
+    })
+    try {
+      await state.queue()
+      expect(scheduled).toBe(true)
+      expect(state.submit).not.toHaveBeenCalled()
+      expect(state.app.problems.get().some((problem) => problem.code === 'submit.webcamCaptureFailed')).toBe(true)
+    } finally { unsubscribe(); state.app.dispose() }
+  }
+})
+
+it('saves a nested camera on its promoted owner and preserves a connected boundary literal', async () => {
+  const device = camera()
+  for (const connected of [false, true]) {
+    const state = await queueSetup()
+    try {
+      const document = state.tab.store.doc
+      const root = document.graphs.g0!
+      const frame = { ...state.saved, digest: `blake3:${'e'.repeat(64)}`, name: 'boundary.png' }
+      expect(state.app.openDocument({ ...document, graphs: {
+        g0: { ...root, nodes: { n1: { id: 'n1', type: '#camera', values: { frame: state.saved } } },
+          valueSources: { v0: { id: 'v0', value: frame, type: { kind: 'concrete', types: ['WEBCAM'] } } },
+          links: connected ? { l0: { id: 'l0', from: { valueSource: 'v0' }, to: { node: 'n1', port: 'frame' } } } : {},
+        },
+        camera: { id: 'camera', name: 'Camera', nodes: { inner: { ...root.nodes.n1!, id: 'inner' } },
+          links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+          boundary: {
+            inputs: [{ id: 'frame', promoted: true, binds: { kind: 'port', node: 'inner', port: 'image' } }],
+            outputs: [{ id: 'result', binds: { kind: 'port', node: 'inner', port: 'image' } }],
+          },
+        },
+      } }, 'Nested camera')).toEqual([])
+      const tab = state.app.activeTab()!
+      await state.app.queue(tab, { kind: 'partial', targets: [{ instancePath: [asNodeId('n1')], node: asNodeId('inner') }] })
+      expect(state.submit, JSON.stringify(state.app.problems.get())).toHaveBeenCalledOnce()
+      expect(Object.values(state.submit.mock.calls[0]![0].prompt)[0]!.inputs.image, JSON.stringify({ upload: state.upload.mock.calls.length, prompt: state.submit.mock.calls[0]![0].prompt, document: tab.store.doc })).toEqual(connected ? frame : state.captured)
+      expect(tab.store.doc.graphs.g0!.nodes.n1!.values.frame).toEqual(connected ? state.saved : state.captured)
+      expect(tab.store.doc.graphs.camera!.nodes.inner!.values.image).toEqual(state.saved)
+      expect(state.upload.mock.calls).toHaveLength(connected ? 0 : 1)
+    } finally { state.app.dispose() }
+  }
+  expect(device.open).toHaveBeenCalledOnce()
+})
+
+it('keeps disabled-camera submission and source-document serialization synchronous with compilation', async () => {
+  camera()
+  const state = await queueSetup(false)
+  try {
+    const pending = state.queue()
+    state.app.dispatchTo(state.tab, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'width', value: 96 } })
+    await pending
+    expect(state.submit).toHaveBeenCalledOnce()
+    expect(Object.values(state.submit.mock.calls[0]![0].prompt)[0]!.inputs.width).toBe(640)
+    const source = JSON.parse(state.sourceUpload.mock.calls[0]![0] as string)
+    expect(source.graphs.g0.nodes.n1.values.width).toBe(640)
+    expect(state.tab.store.doc.graphs.g0!.nodes.n1!.values.width).toBe(96)
+  } finally { state.app.dispose() }
+})
+
+it('refuses incompatible dimensions for two included occurrences sharing a saved frame', async () => {
+  const device = camera()
+  const state = await queueSetup()
+  try {
+    const document = state.tab.store.doc
+    const root = document.graphs.g0!
+    expect(state.app.openDocument({ ...document, graphs: {
+      g0: { ...root, nodes: {
+        n1: { id: 'n1', type: '#camera', values: { width: 640, height: 180 } },
+        n2: { id: 'n2', type: '#camera', values: { width: 320, height: 240 } },
+      } },
+      camera: { id: 'camera', name: 'Camera', nodes: { inner: { ...root.nodes.n1!, id: 'inner' } },
+        links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+        boundary: {
+          inputs: ['width', 'height'].map((id) => ({ id, promoted: true, binds: { kind: 'port', node: 'inner', port: id } })),
+          outputs: [{ id: 'result', binds: { kind: 'port', node: 'inner', port: 'image' } }],
+        },
+      },
+    } }, 'Shared camera')).toEqual([])
+    const tab = state.app.activeTab()!
+    await state.app.queue(tab, { kind: 'partial', targets: ['n1', 'n2'].map((id) => ({ instancePath: [asNodeId(id)], node: asNodeId('inner') })) })
+    expect(state.submit).not.toHaveBeenCalled()
+    expect(state.app.problems.get().some((problem) => problem.message.includes('matching dimensions'))).toBe(true)
+    expect(tab.store.doc.graphs.camera!.nodes.inner!.values.image).toEqual(state.saved)
+    expect(state.upload).not.toHaveBeenCalled()
+    expect(device.open).not.toHaveBeenCalled()
+  } finally { state.app.dispose() }
 })

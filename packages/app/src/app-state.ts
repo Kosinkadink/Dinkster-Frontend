@@ -7966,12 +7966,12 @@ export class AppState {
     this.queueRefusal.set(tab)
   }
 
-  private async captureQueueWebcams(tab: Tab, artifact: CompileArtifact, signal: AbortSignal): Promise<WorkflowDocument> {
+  private captureQueueWebcams(tab: Tab, artifact: CompileArtifact, signal: AbortSignal): Promise<WorkflowDocument> | undefined {
     const backend = this.backendForTab(tab)
     const registry = backend.registry.get()!
     const document = tab.store.doc
-    const invocations: CommandInvocation[] = []
-    const capturedOwners = new Set<string>()
+    const captures: { owner: { graphId: string; nodeId: string; valueKey: string }; width: number; height: number }[] = []
+    const capturedOwners = new Map<string, { width: number; height: number }>()
     for (const [runtimeId, node] of Object.entries(artifact.prompt)) {
       if (node.inputs['capture_on_queue'] !== true) continue
       const schema = registry.resolve(node.class_type)
@@ -7979,37 +7979,59 @@ export class AppState {
       if (input === undefined || Array.isArray(node.inputs[input.id])) continue
       const occurrence = parseOccurrenceKey(artifact.provenance.toSource[runtimeId]!)
       const location = resolveNodeOccurrence(document, occurrence)!
-      const topology = effectiveOccurrenceTopology(document, registry.resolve, occurrence)
-      if (effectiveTopologyDrivesPort(topology, location.graphId, occurrence.instancePath, {
-        node: occurrence.node, port: asPortId(input.id),
-      })) continue
+      const graph = document.graphs[location.graphId]!
+      const target = { node: occurrence.node, port: asPortId(input.id) }
+      const definitionDriven = Object.values(graph.links).some((link) =>
+        isPortEndpoint(link.to) && link.to.node === target.node && link.to.port === target.port) ||
+        Object.values(graph.nets).some((net) => net.sinks.some((sink) => sink.node === target.node && sink.port === target.port))
+      if (occurrence.instancePath.length === 0 && definitionDriven) continue
+      if (occurrence.instancePath.length > 0) {
+        const topology = effectiveOccurrenceTopology(document, registry.resolve, {
+          instancePath: occurrence.instancePath.slice(0, -1),
+          node: occurrence.instancePath.at(-1)!,
+        })
+        if (effectiveTopologyDrivesPort(topology, graph.id, occurrence.instancePath, target)) continue
+      }
       const view = occurrenceDynamicView(document, registry.resolve, occurrence.instancePath)
       const owner = view.valueOwners.get(occurrence.node)?.get(input.id) ?? {
         graphId: location.graphId, nodeId: occurrence.node, valueKey: input.id,
       }
       const key = JSON.stringify(owner)
-      if (capturedOwners.has(key)) continue
-      capturedOwners.add(key)
-      const file = await captureWebcamFrame({
+      const dimensions = {
         width: typeof node.inputs['width'] === 'number' ? node.inputs['width'] : 0,
         height: typeof node.inputs['height'] === 'number' ? node.inputs['height'] : 0,
-      }, signal)
-      const ref = await backend.connection.uploadMediaAsset(file, {
-        scope: 'local', kind: 'media/image', name: file.name, signal,
-      })
-      signal.throwIfAborted()
-      if (tab.store.doc !== document || backend.registry.get() !== registry || this.backendForTab(tab) !== backend) {
-        throw new Error('Workflow or backend changed while capturing webcam; queue again.')
       }
-      invocations.push({ command: 'node.setValue', params: {
-        graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: { ...ref },
-      } })
+      const previous = capturedOwners.get(key)
+      if (previous !== undefined) {
+        if (previous.width !== dimensions.width || previous.height !== dimensions.height) {
+          throw new Error('Cameras sharing a saved frame require matching dimensions; promote their image inputs separately.')
+        }
+        continue
+      }
+      capturedOwners.set(key, dimensions)
+      captures.push({ owner, ...dimensions })
     }
-    if (invocations.length === 0) return document
-    signal.throwIfAborted()
-    const outcome = this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })
-    if (!outcome.ok) throw new Error('Could not save captured webcam frame.')
-    return tab.store.doc
+    if (captures.length === 0) return undefined
+    return (async () => {
+      const invocations: CommandInvocation[] = []
+      for (const { owner, width, height } of captures) {
+        const file = await captureWebcamFrame({ width, height }, signal)
+        const ref = await backend.connection.uploadMediaAsset(file, {
+          scope: 'local', kind: 'media/image', name: file.name, signal,
+        })
+        signal.throwIfAborted()
+        if (tab.store.doc !== document || backend.registry.get() !== registry || this.backendForTab(tab) !== backend) {
+          throw new Error('Workflow or backend changed while capturing webcam; queue again.')
+        }
+        invocations.push({ command: 'node.setValue', params: {
+          graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: { ...ref },
+        } })
+      }
+      signal.throwIfAborted()
+      const outcome = this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })
+      if (!outcome.ok) throw new Error('Could not save captured webcam frame.')
+      return outcome.doc
+    })()
   }
 
   async queue(
@@ -8075,7 +8097,8 @@ export class AppState {
       const captureRegistry = captureBackend.registry.get()
       let capturedDocument: WorkflowDocument
       try {
-        capturedDocument = await this.captureQueueWebcams(tab, result.artifact, lease.signal)
+        const capture = this.captureQueueWebcams(tab, result.artifact, lease.signal)
+        capturedDocument = capture === undefined ? compiledDocument : await capture
         if (tab.store.doc !== capturedDocument || this.backendForTab(tab) !== captureBackend || captureBackend.registry.get() !== captureRegistry) {
           throw new Error('Workflow or backend changed while capturing webcam; queue again.')
         }
