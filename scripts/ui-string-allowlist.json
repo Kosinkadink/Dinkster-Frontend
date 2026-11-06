@@ -552,9 +552,11 @@
     "text:hydrate: Promise",
     "text:let openingLibrary: Promise",
     "text:tablist.querySelector",
+    "text:true, ): Promise",
     "text:void name: string draft: ImageDocumentDraft persist: Promise",
     "text:window.removeEventListener('keydown', onShortcut)) const updateLayer = (changes: Omit",
-    "text:| undefined const pendingGraphOpens = new Set"
+    "text:| undefined const pendingGraphOpens = new Set",
+    "text:| undefined let recovering: Promise"
   ],
   "ImageEditor.tsx": [
     "attribute:aria-label:Mask tools",

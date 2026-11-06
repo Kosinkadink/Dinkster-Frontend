@@ -745,6 +745,7 @@ export function ImageDocumentWorkspace(props: {
   let libraryIntent = 0
   let libraryOwner: ReturnType<AppState['libraryBackend']>
   let openingLibrary: Promise<unknown> | undefined
+  let recovering: Promise<void> | undefined
   const pendingGraphOpens = new Set<Promise<void>>()
   const pendingImports = new Set<Promise<void>>()
   const leaving = new Set<OpenImageDocument>()
@@ -869,7 +870,12 @@ export function ImageDocumentWorkspace(props: {
     descriptor: CollabSessionDescriptor,
     baseUrl: string,
     previous?: OpenImageDocument,
+    isCurrent: () => boolean = () => true,
   ): Promise<OpenImageDocument> => {
+    const assertCurrent = (): void => {
+      if (!isCurrent()) throw new Error('Shared image recovery is no longer current')
+    }
+    assertCurrent()
     if (descriptor.documentKind !== 'image') throw new Error('collaboration session is not an ImageDocument')
     const backend = backendForCollaboration(baseUrl)
     if (backend?.protocol !== 'dinkster') throw new Error(message('imageDocument.workspace.error.collaborationBackendDisconnected'))
@@ -878,39 +884,46 @@ export function ImageDocumentWorkspace(props: {
       sessionId: descriptor.sessionId,
       actorId: props.app.collabActorId,
     })
-    let session: SharedImageDocumentSession
+    let session: SharedImageDocumentSession | undefined
     try {
       session = await connectSharedImageDocumentSession(connection, descriptor, {
         actorId: props.app.collabActorId,
         onConflict: (conflict) => {
-          if (live) setLocalizedError('imageDocument.workspace.error.conflict', { reason: conflict.message })
+          if (live && isCurrent()) setLocalizedError('imageDocument.workspace.error.conflict', { reason: conflict.message })
         },
         onError: (reason) => {
-          if (live) setLocalizedError('imageDocument.workspace.error.sessionFailed', { reason })
+          if (live && isCurrent()) setLocalizedError('imageDocument.workspace.error.sessionFailed', { reason })
         },
       })
+      assertCurrent()
       if (session.doc.lineage !== descriptor.documentId) {
         throw new Error('shared ImageDocument lineage does not match the session')
       }
       await previous?.persist
+      assertCurrent()
       await session.settle()
+      assertCurrent()
       const sharedDocument = session.doc
-      await hydrateImageDocumentResources(backend.connection, store, sharedDocument, descriptor.scope)
+      await hydrateImageDocumentResources(backend.connection, store, sharedDocument, descriptor.scope, assertCurrent)
+      assertCurrent()
       if (previous !== undefined &&
         serializeImageDocument(previous.session.doc) !== serializeImageDocument(sharedDocument)) {
         throw new Error('the local image differs from the shared session; publish or discard it before joining')
       }
       const existing = await store.recoverDraft(session.doc.lineage)
+      assertCurrent()
       const saved = await store.saveDraft(
         sharedDocument,
         previous?.name ?? existing?.name ?? descriptor.documentId,
         undefined,
         existing?.updatedAt ?? null,
       )
+      assertCurrent()
       const linked = await store.setCollaboration(session.doc.lineage, {
         sessionId: descriptor.sessionId,
         baseUrl,
       })
+      assertCurrent()
       const next = attach({ ...linked, document: sharedDocument, name: saved.name }, {
         descriptor,
         baseUrl,
@@ -922,7 +935,8 @@ export function ImageDocumentWorkspace(props: {
       setResourceTick((tick) => tick + 1)
       return next
     } catch (cause) {
-      connection.close()
+      if (session === undefined) connection.close()
+      else session.close()
       throw cause
     }
   }
@@ -1093,8 +1107,9 @@ export function ImageDocumentWorkspace(props: {
   }
 
   onMount(() => {
-    void store.recoverDrafts().then(async (recovery) => {
-      if (!live) return
+    const current = (): boolean => live && activeProjectId() === store.projectId
+    recovering = store.recoverDrafts().then(async (recovery) => {
+      if (!current()) return
       const recovered = recovery.drafts.map((draft) => attach(draft))
       setDocuments(recovered)
       setActiveLineage(recovered.at(-1)?.draft.document.lineage ?? '')
@@ -1102,33 +1117,40 @@ export function ImageDocumentWorkspace(props: {
         setLocalizedError('imageDocument.workspace.error.invalidDrafts', { count: recovery.rejectedLineages.length })
       }
       for (const draft of recovery.drafts) {
-        if (!live || draft.collaboration === undefined) continue
+        if (!current() || draft.collaboration === undefined) continue
         const previous = documents().find((entry) => entry.draft.document.lineage === draft.document.lineage)
-        const backend = backendForCollaboration(draft.collaboration.baseUrl)
+        const baseUrl = draft.collaboration.baseUrl
+        const backend = backendForCollaboration(baseUrl)
         if (previous === undefined || backend?.protocol !== 'dinkster') continue
+        const connection = backend.connection
+        const rejoinCurrent = (): boolean => current() &&
+          backendForCollaboration(baseUrl) === backend && backend.connection === connection
         setCollaborationTransition(true)
         try {
           const descriptor = await props.app.collabTransport.get(
             draft.collaboration.baseUrl,
             draft.collaboration.sessionId,
           )
+          if (!rejoinCurrent()) continue
           if (descriptor === undefined || descriptor.documentKind !== 'image' ||
             descriptor.documentId !== draft.document.lineage) {
-            previous.draft = await store.setCollaboration(draft.document.lineage, undefined)
+            const unlinked = await store.setCollaboration(draft.document.lineage, undefined)
+            if (!rejoinCurrent()) continue
+            previous.draft = unlinked
             refresh()
             continue
           }
-          await adoptShared(descriptor, draft.collaboration.baseUrl, previous)
+          await adoptShared(descriptor, baseUrl, previous, rejoinCurrent)
         } catch (cause) {
-          if (live) setLocalizedError('imageDocument.workspace.error.rejoinFailed', { reason: messageOf(cause) })
+          if (rejoinCurrent()) setLocalizedError('imageDocument.workspace.error.rejoinFailed', { reason: messageOf(cause) })
         } finally {
-          if (live) setCollaborationTransition(false)
+          if (current()) setCollaborationTransition(false)
         }
       }
     }).catch((cause) => {
-      if (live) setLocalizedError('imageDocument.workspace.error.recoveryFailed', { reason: messageOf(cause) })
+      if (current()) setLocalizedError('imageDocument.workspace.error.recoveryFailed', { reason: messageOf(cause) })
     }).finally(() => {
-      if (live) setLoading(false)
+      if (current()) setLoading(false)
     })
   })
   onCleanup(() => {
@@ -1139,7 +1161,7 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all([openingLibrary?.catch(() => undefined), ...pendingGraphOpens, ...pendingImports, ...current.flatMap((entry) => [
+    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingGraphOpens, ...pendingImports, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
       entry.hydrate.catch(() => undefined),
     ])]).finally(() => store.close())

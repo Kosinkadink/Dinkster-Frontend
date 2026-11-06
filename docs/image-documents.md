@@ -16,6 +16,13 @@ draft write or publish a tab/error. Disposal waits for pending imports before
 closing the store; concurrent imports remain busy until they all settle.
 Already submitted transactions may finish, without rollback.
 
+Startup recovery stays with its original project and workspace. Saved shared
+membership is rejoined only while its captured backend and connection remain
+current. Stale lookups do not clear membership, and stale snapshot/resource
+reads cannot start another local write or publish a shared tab/error. Disposal
+keeps the store open until recovery and rejoin settle; transactions already
+submitted may finish without rollback.
+
 Closing the library dialog (including Escape), changing its backend connection,
 or leaving its project invalidates a pending library open. A settled stale read
 does not open a tab or start another resource/draft write. An already submitted

@@ -43,6 +43,85 @@ afterEach(() => {
 })
 
 describe('ImageDocumentWorkspace', () => {
+  it.each(['accepted', 'missing', 'project', 'backend', 'connection', 'dispose', 'snapshot-project', 'snapshot-dispose'])(
+    'keeps recovery membership with its original workspace and connection (%s)', async (outcome) => {
+      vi.stubGlobal('indexedDB', new FakeIDBFactory())
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      const inspect = new ImageDocumentLocalStore(activeProjectId())
+      const seed = await importSingleRaster(new File(['source'], 'Recovered source.png', { type: 'image/png' }), inspect,
+        { lineage: 'recovery-owner', normalize: async () => ({ width: 2, height: 1, rgba }) })
+      const baseUrl = 'http://recovery.test'
+      const membership = { sessionId: 'recovered-session', baseUrl }
+      const saved = await inspect.setCollaboration(seed.document.lineage, membership)
+      const descriptor: CollabSessionDescriptor = { protocolVersion: COLLAB_PROTOCOL_VERSION,
+        ...membership, scope: 'shared', documentKind: 'image', documentId: seed.document.lineage,
+        revision: 0, snapshotRevision: 0 }
+      let finish!: () => void
+      const held = new Promise<void>((resolve) => { finish = resolve })
+      let entered = false
+      let closed = false
+      const snapshotHeld = outcome.startsWith('snapshot')
+      const connection = {
+        sessionId: membership.sessionId,
+        fetchSnapshot: async () => {
+          if (snapshotHeld) { entered = true; await held }
+          return { revision: 0, document: seed.document }
+        },
+        fetchOps: async () => ({ kind: 'ops', ops: [] }),
+        onEvent: () => () => undefined,
+        close: () => { closed = true },
+      } as unknown as CollabConnection
+      let backend = { id: 'recovery-owner', protocol: 'dinkster', baseUrl,
+        connection: {} as DinksterConnection }
+      const app = { libraryBackend: () => undefined, collabBackend: () => backend,
+        backends: { get: () => [backend] }, collabActorId: 'alice',
+        collabTransport: {
+          get: async () => {
+            if (!snapshotHeld) { entered = true; await held }
+            return outcome === 'accepted' || snapshotHeld ? descriptor : undefined
+          },
+          connect: () => connection,
+        }, showTransientStatus: vi.fn(),
+      } as unknown as AppState
+      const close = ImageDocumentLocalStore.prototype.close
+      let workspaceClosed = false
+      vi.spyOn(ImageDocumentLocalStore.prototype, 'close').mockImplementation(async function (this: ImageDocumentLocalStore) {
+        if (this !== inspect) workspaceClosed = true
+        await close.call(this)
+      })
+      const root = document.createElement('div')
+      document.body.append(root)
+      const dispose = render(() => <ImageDocumentWorkspace active app={app}
+        onBusyChange={() => undefined} onClose={() => undefined} />, root)
+      try {
+        await vi.waitFor(() => expect(entered).toBe(true))
+        if (outcome.includes('project')) initializeProjectScope('other-project')
+        if (outcome === 'backend') backend = { ...backend }
+        if (outcome === 'connection') backend.connection = {} as DinksterConnection
+        if (outcome.includes('dispose')) {
+          dispose()
+          await inspect.recoverDraft(seed.document.lineage)
+          expect(workspaceClosed).toBe(false)
+        }
+        finish()
+        if (outcome === 'accepted') {
+          await vi.waitFor(() => expect(root.querySelector('.image-document-shared-status')?.textContent).toBe('Shared'))
+        } else if (!outcome.includes('project') && !outcome.includes('dispose')) {
+          await vi.waitFor(() => expect(root.querySelector('[data-testid="image-document-editor"]')).not.toBeNull())
+        }
+      } finally {
+        finish()
+        dispose()
+      }
+      await vi.waitFor(() => expect(workspaceClosed).toBe(true))
+      const recovered = (await inspect.recoverDraft(seed.document.lineage))!
+      expect(recovered.collaboration).toEqual(outcome === 'missing' ? undefined : membership)
+      if (outcome !== 'accepted' && outcome !== 'missing') expect(recovered.updatedAt).toBe(saved.updatedAt)
+      if (snapshotHeld || outcome === 'accepted') expect(closed).toBe(true)
+      await inspect.close()
+    },
+  )
+
   it.each(['accepted', 'failed', 'project', 'project-failed', 'dispose', 'dispose-failed', 'overlap', 'overlap-dispose'])(
     'settles a local image decode without stale writes or publication (%s)', async (outcome) => {
       vi.stubGlobal('indexedDB', new FakeIDBFactory())
