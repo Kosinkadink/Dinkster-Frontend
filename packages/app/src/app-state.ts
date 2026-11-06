@@ -7824,6 +7824,7 @@ export class AppState {
     backend: Backend & { readonly protocol: 'dinkster' },
     registry: SchemaRegistry,
     result: PersistedExecutionResult,
+    stillCurrent: () => boolean,
   ): Promise<Parameters<ExecutionStore['restoreCompleted']>[0] | null | undefined> {
     if (result.ref.connection !== backend.id || result.proof.connection !== backend.id ||
       result.proof.schemaHash !== registry.hash) return undefined
@@ -7839,21 +7840,22 @@ export class AppState {
       job.jobRef !== result.jobRef || job.sourceDocument !== result.sourceDocument ||
       job.submittedBy?.principalId !== result.submittedBy?.principalId ||
       job.submittedBy?.kind !== result.submittedBy?.kind) return undefined
-    const source = await backend.connection.fetchAssetText(result.sourceDocument)
-    if (source === undefined) return undefined
-    let loaded
-    try {
-      loaded = loadDocument(JSON.parse(source) as unknown)
-    } catch {
-      return undefined
-    }
-    if (loaded.document === undefined) return undefined
+    const document = await readAssetPreview(backend.connection, result.sourceDocument, async () => {
+      const source = await backend.connection.fetchAssetText(result.sourceDocument)
+      if (source === undefined) return undefined
+      try {
+        return loadDocument(JSON.parse(source) as unknown).document
+      } catch {
+        return undefined
+      }
+    }, stillCurrent)
+    if (document === undefined) return undefined
     const choices = new Map((result.proof.choices ?? []).map((choice) => [
       JSON.stringify([choice.graph, choice.selector]),
       choice.candidate,
     ]))
     const compiled = compile({
-      document: loaded.document,
+      document,
       revision: result.proof.revision,
       resolve: registry.resolve,
       scope: result.proof.scope,
@@ -7951,7 +7953,7 @@ export class AppState {
       for (const result of loadExecutionResults(identity)) {
         if (!current()) return
         try {
-          const restored = await this.validatedExecutionResult(backend, registry, result)
+          const restored = await this.validatedExecutionResult(backend, registry, result, current)
           if (!current()) return
           if (restored === undefined) removeExecutionResult(result)
           else if (restored !== null) {

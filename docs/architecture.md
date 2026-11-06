@@ -68,6 +68,12 @@ payload. The captured backend and open intent must remain current through
 body settlement. Parsed local data then enters workflow-root admission;
 publishing the new tab is separate from the payload read it supersedes.
 
+Startup restoration of persisted results also admits source-workflow bytes
+before parsing or compiling their proof. The original backend, registry and
+connection lifetime must remain current. Refused or stale reads preserve the
+saved result for retry; malformed or absent source documents remain invalid.
+Shown-result ownership and publication follow separately after proof validation.
+
 These manifests do not enumerate all frontend holders or enable collection.
 Bounded output descriptors, rendition fingerprints and cache keys are not
 complete typed asset-reference sets. The backend source gate
