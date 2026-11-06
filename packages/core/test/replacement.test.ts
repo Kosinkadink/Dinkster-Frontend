@@ -653,23 +653,27 @@ describe('planReplacement values', () => {
     expect(failed.diagnostics.some((d) => d.code === 'replace.transform.scale')).toBe(true)
   })
 
-  it('carries controller modes to the mapped target input', () => {
+  it.each([
+    { kind: 'value' as const, stored: true },
+    { kind: 'copy' as const, stored: true },
+    { kind: 'copy' as const, stored: false },
+  ])('carries controller modes to the mapped target input ($kind, stored=$stored)', ({ kind, stored }) => {
     const rule: ReplacementRule = {
       from: 'OldSeeded',
-      cases: [{ to: 'SeededNode', inputs: { seed: { kind: 'value', input: 'noise_seed' } } }],
+      cases: [{ to: 'SeededNode', inputs: { seed: { kind, input: 'noise_seed' } } }],
     }
     const d = doc({
       g0: graph({
         id: 'g0',
-        nodes: { old: node('old', 'OldSeeded', { noise_seed: 42 }, { controllers: { noise_seed: 'randomize' } }) },
+        nodes: { old: node('old', 'OldSeeded', stored ? { noise_seed: 42 } : {}, { controllers: { noise_seed: 'randomize' } }) },
       }),
     })
     const out = planReplacement(d, 'g0', 'old', rule, resolve)
-    expect(out.plan!.values.seed).toBe(42)
+    expect(out.plan!.values.seed).toBe(stored ? 42 : 0)
     expect(out.plan!.controllers).toEqual({ seed: 'randomize' })
   })
 
-  it('rejects value writes to a target input with no widget (except copy, which warns)', () => {
+  it('rejects invented values without widgets but preserves explicit copies', () => {
     const constantRule: ReplacementRule = {
       from: 'OldNode',
       cases: [{ to: 'NoWidgetTarget', inputs: { image: { kind: 'constant', value: 1 } } }],
@@ -686,7 +690,12 @@ describe('planReplacement values', () => {
     const d2 = doc({ g0: graph({ id: 'g0', nodes: { old: node('old', 'OldNode', { in_image: 'stored' }) } }) })
     const out = planReplacement(d2, 'g0', 'old', copyRule, resolve)
     expect(out.plan).toBeDefined()
-    expect(out.diagnostics.some((x) => x.code === 'replace.value.dropped' && x.severity === 'warning')).toBe(true)
+    expect(out.diagnostics).toEqual([])
+    expect(out.plan!.values).toEqual({ image: 'stored' })
+    const linkOnly = planReplacement(d2, 'g0', 'old', {
+      from: 'OldNode', cases: [{ to: 'NoWidgetTarget', inputs: { image: { kind: 'link', input: 'in_image' } } }],
+    }, resolve)
+    expect(linkOnly.plan!.values).toEqual({})
   })
 
   it('rejects unknown target inputs/outputs and dynamic member paths', () => {
@@ -1190,7 +1199,11 @@ describe('input family replacement', () => {
   }
   const familyResolve = (type: string): NodeSchema | undefined => familySchemas[type]
 
-  it.each(['ConcatenateVideo', 'dinkster-video.concatenate_video'])('preserves non-widget static and ordered family literals migrating to %s', (targetType) => {
+  it.each([
+    { targetType: 'ConcatenateVideo', historical: true },
+    { targetType: 'dinkster-video.concatenate_video', historical: true },
+    { targetType: 'dinkster-video.concatenate_video', historical: false },
+  ])('preserves non-widget static and ordered family literals migrating to $targetType (historical=$historical)', ({ targetType, historical }) => {
     const target = schemaOf(targetType, [
       input('complete_audio', { type: { kind: 'concrete', name: 'BOOLEAN' } }),
       {
@@ -1203,19 +1216,20 @@ describe('input family replacement', () => {
       },
     ])
     const rule: ReplacementRule = {
-      from: 'ConcatenateVideo', migration: { historicalInputs: ['videos'] }, cases: [{
+      from: 'ConcatenateVideo', ...(historical ? { migration: { historicalInputs: ['videos'] } } : {}), cases: [{
         to: targetType, inputs: { complete_audio: { kind: 'copy', input: 'complete_audio' } },
         inputFamilies: { videos: {
-          kind: 'copy', sourceFamily: 'videos', memberIds: 'targetPositions',
+          kind: 'copy', sourceFamily: 'videos', ...(historical ? { memberIds: 'targetPositions' as const } : {}),
           sourceTemplate: { inputs: ['video'] }, inputs: { video: { kind: 'copy', input: 'video' } },
         } },
       }],
     }
+    const members = historical ? ['m9', 'm2'] : ['video3', 'video1']
     const original = doc({ g0: graph({ id: 'g0', nodes: {
       old: node('old', 'ConcatenateVideo', {
-        'videos.m9': ['clip-b', 'clip-c'], 'videos.m2': ['clip-a'], complete_audio: false,
-      }, { dynamic: { videos: { members: ['m9', 'm2'] } } }),
-    } }) })
+        [`videos.${members[0]}`]: ['clip-b', 'clip-c'], [`videos.${members[1]}`]: ['clip-a'], complete_audio: false,
+      }, { dynamic: { videos: { members } } }),
+    }, boundary: { inputs: [{ id: 'clips', binds: { kind: 'family', ...port('old', 'videos') } }], outputs: [] } }) })
     const resolve = (type: string) => type === target.type ? target : undefined
     const registry = createReplacementRegistry()
     expect(registry.register('schema', rule)).toEqual([])
@@ -1226,14 +1240,16 @@ describe('input family replacement', () => {
     const store = new DocumentStore(original, coreCommandRegistry())
     expect(store.dispatch(replacementInvocation(items, original, resolve)!).ok).toBe(true)
     expect(store.doc.graphs.g0!.nodes.old!.type).toBe(targetType)
+    expect(store.doc.graphs.g0!.nodes.old!.dynamic!.videos!.members).toEqual(historical ? ['video0', 'video1'] : members)
+    expect(store.doc.graphs.g0!.boundary).toEqual(original.graphs.g0!.boundary)
     expect(store.doc.graphs.g0!.nodes.old!.values).toEqual({
-      'videos.video0': ['clip-b', 'clip-c'], 'videos.video1': ['clip-a'], complete_audio: false,
+      [historical ? 'videos.video0' : 'videos.video3']: ['clip-b', 'clip-c'], 'videos.video1': ['clip-a'], complete_audio: false,
     })
     const compiled = compile({ document: store.doc, revision: 1, resolve, scope: { kind: 'full' },
       connection: asConnectionId('test'), schemaHash: 'test' })
     expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
     if (compiled.ok) expect(compiled.artifact.prompt.old!.inputs).toEqual({
-      'videos.video0': ['clip-b', 'clip-c'], 'videos.video1': ['clip-a'], complete_audio: false,
+      [historical ? 'videos.video0' : 'videos.video3']: ['clip-b', 'clip-c'], 'videos.video1': ['clip-a'], complete_audio: false,
     })
     expect(scanReplacements(store.doc, registry, resolve)).toEqual([])
     expect(store.undo()).toBe(true)
@@ -1635,14 +1651,14 @@ describe('input family replacement', () => {
     expect(store.doc.graphs.g0!.nets.routed!.sinks).toEqual([mport('old', 'refs.refs', 'ref1')])
   })
 
-  it('copies a differently named family with suffixes, order, values, controllers, links, and net sinks', () => {
+  it.each([false, true])('copies a differently named family with suffixes, order, values, controllers, links, and net sinks (stored=$stored)', (stored) => {
     const original = doc({
       g0: graph({
         id: 'g0',
         nodes: {
           src: node('src', 'Producer'),
           old: node('old', 'FamilyOld', {
-            'operands.b': 2,
+            ...(stored ? { 'operands.b': 2 } : {}),
             'operands.a': 1,
           }, {
             controllers: { 'operands.b': 'increment' },
@@ -1675,7 +1691,7 @@ describe('input family replacement', () => {
     const planned = planReplacement(original, 'g0', 'old', rule, familyResolve)
     expect(planned.diagnostics).toEqual([])
     expect(planned.plan?.dynamic).toEqual({ values: { members: ['b', 'a'] } })
-    expect(planned.plan?.values).toEqual({ 'values.b': 2, 'values.a': 1 })
+    expect(planned.plan?.values).toEqual({ 'values.b': stored ? 2 : 0, 'values.a': 1 })
     expect(planned.plan?.controllers).toEqual({ 'values.b': 'increment' })
     expect(planned.plan?.inputRewires).toEqual([{ link: 'linked', port: 'values.b' }])
     expect(planned.plan?.netSinks).toEqual([
@@ -1688,7 +1704,7 @@ describe('input family replacement', () => {
     expect(store.doc.graphs.g0!.nodes.old).toMatchObject({
       type: 'FamilyNew',
       dynamic: { values: { members: ['b', 'a'] } },
-      values: { 'values.b': 2, 'values.a': 1 },
+      values: { 'values.b': stored ? 2 : 0, 'values.a': 1 },
     })
     expect(store.undo()).toBe(true)
     expect(store.doc).toEqual(original)

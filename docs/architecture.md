@@ -203,12 +203,13 @@ guard still declines modern state, allowing a separate identity rule to rename
 an already-modern node without renumbering its members. Same-type migrations
 remain one-shot; type-changing migrations follow the ordinary chain cycle guard.
 
-Explicit `copy` mappings in marked historical migrations retain stored static
-and family-member literals even when the target input has no widget. Widget
-presentation does not determine whether a native input can store a value;
-controller modes still require a controller-capable target widget. Ordinary
-cross-type replacements retain their warning-and-drop behavior for non-widget
-literals.
+Explicit `copy` mappings retain stored static and family-member literals even
+when the target input has no widget, for ordinary replacements and historical
+migrations alike. Widget presentation does not determine whether a native input
+can store a value; controller modes still require a controller-capable target
+widget. Use `link` to move a connection without copying a stored value. Complete
+input-family copies also preserve whole-family boundary bindings when the target
+retains every template input and requested slot selection.
 
 In native graphs, numeric widgets on an `INT | FLOAT` input submit a `FLOAT` typed literal,
 including stored, promoted and default values. The backend must advertise

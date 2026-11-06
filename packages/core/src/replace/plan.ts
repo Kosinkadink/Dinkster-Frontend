@@ -1391,7 +1391,7 @@ function planReplacementForCase(
     const raw = storedSourceValue(state, sourceInput)
     const ctrl = copyController ? state.node.controllers?.[sourceInput] : undefined
     if (raw === undefined) {
-      if (rule.migration !== undefined && ctrl !== undefined) {
+      if ((mapping.kind === 'copy' || rule.migration !== undefined) && ctrl !== undefined) {
         const targetControllers = address.localId === undefined ? controllers : helperControllers.get(address.localId)!
         targetControllers[targetValueKey(address)] = ctrl
         consumedControllers.add(sourceInput)
@@ -1495,12 +1495,7 @@ function planReplacementForCase(
           )
           break
         }
-        if (spec.widget !== undefined || storesCount || rule.migration !== undefined)
-          copyValueTo(address, mapping, mapping.input, spec.widget?.controller !== undefined)
-        else if (state.node.values[mapping.input] !== undefined)
-          warnings.push(
-            diag('warning', 'replace.value.dropped', `replace: stored value of '${mapping.input}' is lost - target input '${targetInput}' has no widget`),
-          )
+        copyValueTo(address, mapping, mapping.input, spec.widget?.controller !== undefined)
         moveConnectionTo(address, mapping.input)
         break
     }
@@ -1565,16 +1560,7 @@ function planReplacementForCase(
       } else if (mapping.kind === 'link') {
         moveConnectionTo(address, source)
       } else {
-        if (spec.widget !== undefined || rule.migration !== undefined)
-          copyValueTo(address, mapping, source, spec.widget?.controller !== undefined)
-        else if (state.node.values[source] !== undefined)
-          warnings.push(
-            diag(
-              'warning',
-              'replace.value.dropped',
-              `replace: stored value of '${source}' is lost - target family input '${family.id}.${targetInput}' has no widget`,
-            ),
-          )
+        copyValueTo(address, mapping, source, spec.widget?.controller !== undefined)
         moveConnectionTo(address, source)
       }
     }
@@ -1982,12 +1968,10 @@ function planReplacementForCase(
   const migrateBinding = (side: 'input' | 'output', itemId: string, b: BoundaryBinding, alsoIndex?: number): void => {
     if (b.node !== nodeId) return
     const label = alsoIndex === undefined ? `boundary ${side} '${itemId}'` : `boundary ${side} '${itemId}' alsoBinds[${alsoIndex}]`
-    if (side === 'input' && b.kind === 'family' && alsoIndex === undefined &&
-        rule.migration !== undefined && (b.members?.length ?? 0) === 0) {
+    if (side === 'input' && b.kind === 'family' && alsoIndex === undefined && (b.members?.length ?? 0) === 0) {
       const families = [...preparedInputFamilies.entries()].filter(([id, prepared]) => {
         const mapping = matched.inputFamilies?.[id]
-        return mapping?.kind === 'copy' && mapping.memberIds === 'targetPositions' &&
-          mapping.sourceTemplate !== undefined && prepared.sourceFamily?.id === b.port &&
+        return mapping?.kind === 'copy' && prepared.sourceFamily?.id === b.port &&
           prepared.targetAddress.nodeId === nodeId &&
           prepared.targetFamily.template.length === prepared.sourceFamily.inputs.length &&
           prepared.targetFamily.template.every((input) => {
