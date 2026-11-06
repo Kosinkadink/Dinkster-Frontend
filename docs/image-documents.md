@@ -64,6 +64,10 @@ does not open a tab or start another resource/draft write. An already submitted
 local transaction is allowed to settle. Disposing the workspace keeps its store
 open until the pending library read and its retention cleanup have settled.
 
+Library listings capture their backend object and connection before requesting
+records. A stale reply cannot open the list or publish an error. Pending lists
+remain busy and keep the local store open until the request settles.
+
 The workspace uses shared Product buttons and text fields, including primary
 publish/render actions and danger actions for removal and ending a shared
 session. Hidden Product file inputs retain native image selection for documents,

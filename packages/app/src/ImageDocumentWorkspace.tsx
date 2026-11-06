@@ -744,6 +744,8 @@ export function ImageDocumentWorkspace(props: {
   let live = true
   let libraryIntent = 0
   let libraryOwner: ReturnType<AppState['libraryBackend']>
+  let libraryConnection: DinksterConnection | undefined
+  const pendingLibraryLists = new Set<Promise<void>>()
   let openingLibrary: Promise<unknown> | undefined
   let recovering: Promise<void> | undefined
   let collaborationListIntent = 0
@@ -779,7 +781,7 @@ export function ImageDocumentWorkspace(props: {
   const setBusy = (value: boolean): void => {
     const pending = value || pendingImports.size > 0 || pendingGraphOpens.size > 0 ||
       pendingCollaborationLists.size > 0 || pendingCollaborationJoins.size > 0 || pendingCollaborationShares.size > 0 ||
-      pendingCollaborationLeaves.size > 0 || pendingCollaborationEnds.size > 0
+      pendingCollaborationLeaves.size > 0 || pendingCollaborationEnds.size > 0 || pendingLibraryLists.size > 0
     setBusySignal(pending)
     props.onBusyChange(pending)
   }
@@ -1243,7 +1245,7 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
+    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingLibraryLists, ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
       entry.hydrate.catch(() => undefined),
     ])]).finally(() => store.close())
@@ -1397,11 +1399,12 @@ export function ImageDocumentWorkspace(props: {
   const currentLibraryIntent = (intent: number, backend: NonNullable<typeof libraryOwner>): boolean => {
     const current = props.app.libraryBackend()
     return live && activeProjectId() === store.projectId && libraryIntent === intent &&
-      current?.id === backend.id && current.connection === backend.connection
+      current === backend && current.connection === libraryConnection
   }
   const closeLibrary = (): void => {
     libraryIntent += 1
     libraryOwner = undefined
+    libraryConnection = undefined
     setLibraryOpen(false)
   }
   const browseLibrary = async (): Promise<void> => {
@@ -1412,10 +1415,12 @@ export function ImageDocumentWorkspace(props: {
     }
     const intent = ++libraryIntent
     libraryOwner = backend
+    const connection = backend.connection
+    libraryConnection = connection
     setBusy(true)
     setError(undefined)
-    try {
-      const page = await backend.connection.listLibrary({
+    const task: Promise<void> = (async () => {
+      const page = await connection.listLibrary({
         scope: LIBRARY_SCOPE,
         label: 'image-document',
         limit: 100,
@@ -1424,11 +1429,14 @@ export function ImageDocumentWorkspace(props: {
       setLibraryRecords(page.records.filter((record) => record.mediaType.split(';', 1)[0] === IMAGE_DOCUMENT_MEDIA_TYPE))
       setLibraryOpen(true)
       queueMicrotask(() => { if (currentLibraryIntent(intent, backend)) libraryDialog?.focus() })
-    } catch (cause) {
+    })().catch((cause) => {
       if (currentLibraryIntent(intent, backend)) setLocalizedError('imageDocument.workspace.error.libraryOpenFailed', { reason: messageOf(cause) })
-    } finally {
+    }).finally(() => {
+      pendingLibraryLists.delete(task)
       if (live) setBusy(false)
-    }
+    })
+    pendingLibraryLists.add(task)
+    await task
   }
   const openLibraryRecord = async (record: LibraryRecord): Promise<void> => {
     const backend = libraryOwner

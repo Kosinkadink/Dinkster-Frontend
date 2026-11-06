@@ -43,6 +43,69 @@ afterEach(() => {
 })
 
 describe('ImageDocumentWorkspace', () => {
+  it.each(['accepted', 'failed', 'project', 'backend', 'connection', 'dispose', 'project-failed', 'dispose-failed'])(
+    'keeps the image library list with its captured owner (%s)', async (outcome) => {
+      vi.stubGlobal('indexedDB', new FakeIDBFactory())
+      let finish!: (page: { records: LibraryRecord[] }) => void
+      let fail!: (cause: Error) => void
+      const response = new Promise<{ records: LibraryRecord[] }>((resolve, reject) => { finish = resolve; fail = reject })
+      let entered = false
+      const connection = { listLibrary: async () => { entered = true; return response } } as unknown as DinksterConnection
+      let backend = { id: 'list-owner', connection }
+      const app = { libraryBackend: () => backend, showTransientStatus: vi.fn() } as unknown as AppState
+      const inspect = new ImageDocumentLocalStore(activeProjectId())
+      const close = ImageDocumentLocalStore.prototype.close
+      let closed = false
+      vi.spyOn(ImageDocumentLocalStore.prototype, 'close').mockImplementation(async function (this: ImageDocumentLocalStore) {
+        if (this !== inspect) closed = true
+        await close.call(this)
+      })
+      const root = document.createElement('div')
+      document.body.append(root)
+      let busy = true
+      const dispose = render(() => <ImageDocumentWorkspace active app={app}
+        onBusyChange={(value) => { busy = value }} onClose={() => undefined} />, root)
+      const button = (label: string) => [...root.querySelectorAll<HTMLButtonElement>('button')]
+        .find((element) => element.textContent === label)!
+      try {
+        await vi.waitFor(() => expect(root.textContent).not.toContain('Recovering image drafts...'))
+        await vi.waitFor(() => expect(button('Open library')?.disabled).toBe(false))
+        button('Open library').click()
+        await vi.waitFor(() => expect(entered).toBe(true))
+        expect(busy).toBe(true)
+        if (outcome.startsWith('project')) initializeProjectScope('other-project')
+        if (outcome === 'backend') backend = { ...backend }
+        if (outcome === 'connection') backend.connection = {} as DinksterConnection
+        if (outcome.startsWith('dispose')) {
+          dispose()
+          await inspect.recoverDrafts()
+          expect(closed).toBe(false)
+        }
+        if (outcome.endsWith('failed')) fail(new Error('List unavailable'))
+        else finish({ records: [
+          { id: 'listed-image', name: 'Listed image', mediaType: IMAGE_DOCUMENT_MEDIA_TYPE, revision: 3 } as LibraryRecord,
+          { id: 'other', name: 'Not an image document', mediaType: 'text/plain' } as LibraryRecord,
+        ] })
+        if (outcome.startsWith('dispose')) await vi.waitFor(() => expect(closed).toBe(true))
+        else {
+          await vi.waitFor(() => expect(busy).toBe(false))
+          expect(root.querySelector('[role="dialog"]') !== null).toBe(outcome === 'accepted')
+          expect(root.querySelector('[role="alert"]')?.textContent ?? '').toBe(outcome === 'failed'
+            ? 'Image library could not be opened: List unavailable' : '')
+          if (outcome === 'accepted') {
+            expect(root.querySelector('[role="dialog"]')?.textContent).toContain('Listed image')
+            expect(root.querySelector('[role="dialog"]')?.textContent).not.toContain('Not an image document')
+          }
+        }
+      } finally {
+        finish({ records: [] })
+        dispose()
+      }
+      await vi.waitFor(() => expect(closed).toBe(true))
+      await inspect.close()
+    },
+  )
+
   it.each(['accepted', 'failed', 'project', 'backend', 'connection', 'dispose', 'project-failed', 'dispose-failed', 'remote'])(
     'keeps shared image end settlement with its captured owner (%s)', async (outcome) => {
       vi.stubGlobal('indexedDB', new FakeIDBFactory())
