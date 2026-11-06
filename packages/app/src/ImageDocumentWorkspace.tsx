@@ -746,6 +746,7 @@ export function ImageDocumentWorkspace(props: {
   let libraryOwner: ReturnType<AppState['libraryBackend']>
   let openingLibrary: Promise<unknown> | undefined
   const pendingGraphOpens = new Set<Promise<void>>()
+  const pendingImports = new Set<Promise<void>>()
   const leaving = new Set<OpenImageDocument>()
 
   const setError = (value: string | undefined): void => { setErrorValue(value) }
@@ -768,8 +769,9 @@ export function ImageDocumentWorkspace(props: {
   }
 
   const setBusy = (value: boolean): void => {
-    setBusySignal(value)
-    props.onBusyChange(value)
+    const pending = value || pendingImports.size > 0 || pendingGraphOpens.size > 0
+    setBusySignal(pending)
+    props.onBusyChange(pending)
   }
 
   const refresh = (): void => {
@@ -1137,24 +1139,32 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all([openingLibrary?.catch(() => undefined), ...pendingGraphOpens, ...current.flatMap((entry) => [
+    void Promise.all([openingLibrary?.catch(() => undefined), ...pendingGraphOpens, ...pendingImports, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
       entry.hydrate.catch(() => undefined),
     ])]).finally(() => store.close())
   })
 
   const importDocument = async (file: File): Promise<void> => {
+    const current = (): boolean => live && activeProjectId() === store.projectId
+    const assertCurrent = (): void => {
+      if (!current()) throw new Error('Image import is no longer current')
+    }
     setBusy(true)
     setError(undefined)
-    try {
-      openDraft(await importSingleRaster(file, store))
-    } catch (cause) {
-      setLocalizedError('imageDocument.workspace.error.imageImportFailed', { reason: messageOf(cause) })
-    } finally {
-      importInput.value = ''
-      setBusy(false)
-      setLoading(false)
-    }
+    const task: Promise<void> = importSingleRaster(file, store, { assertCurrent }).then((draft) => {
+      if (current()) openDraft(draft)
+    }).catch((cause) => {
+      if (current()) setLocalizedError('imageDocument.workspace.error.imageImportFailed', { reason: messageOf(cause) })
+    }).finally(() => {
+      pendingImports.delete(task)
+      if (live) {
+        importInput.value = ''
+        setBusy(false)
+      }
+    })
+    pendingImports.add(task)
+    await task
   }
   let openingGraph: GraphImageDocumentRequest | undefined
   createEffect(() => {

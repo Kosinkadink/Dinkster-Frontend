@@ -572,9 +572,12 @@ export async function importSingleRaster(
   options?: {
     readonly lineage?: string
     readonly normalize?: (file: File) => Promise<ImageRaster>
+    readonly assertCurrent?: () => void
   },
 ): Promise<ImageDocumentDraft> {
+  options?.assertCurrent?.()
   const prepared = await prepareImageRaster(file, options?.normalize)
+  options?.assertCurrent?.()
   const resourceId = asImageResourceId('r0')
   const layerId = asImageLayerId('l1')
   const lineage = asImageLineageId(options?.lineage ?? `image-${uuidv4()}`)
@@ -615,5 +618,6 @@ export async function importSingleRaster(
     resources: { [resourceId]: resource },
   }
   await store.stageResource(resource, prepared.bytes, `${name}.png`)
+  options?.assertCurrent?.()
   return store.saveDraft(document, name, undefined, null)
 }

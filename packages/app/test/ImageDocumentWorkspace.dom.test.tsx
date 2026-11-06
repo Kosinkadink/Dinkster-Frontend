@@ -43,6 +43,62 @@ afterEach(() => {
 })
 
 describe('ImageDocumentWorkspace', () => {
+  it.each(['accepted', 'failed', 'project', 'project-failed', 'dispose', 'dispose-failed', 'overlap', 'overlap-dispose'])(
+    'settles a local image decode without stale writes or publication (%s)', async (outcome) => {
+      vi.stubGlobal('indexedDB', new FakeIDBFactory())
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      vi.stubGlobal('OffscreenCanvas', class {
+        getContext() { return { drawImage: () => undefined, getImageData: () => ({ data: rgba }) } }
+      })
+      let finish!: () => void
+      let fail!: (error: Error) => void
+      const decoding = new Promise<void>((resolve, reject) => { finish = resolve; fail = reject })
+      let entered = false
+      let released = false
+      vi.stubGlobal('createImageBitmap', async (file: File) => {
+        if (file.name === 'first.png') { entered = true; await decoding }
+        return { width: 2, height: 1, close: () => { released = true } }
+      })
+      const inspect = new ImageDocumentLocalStore(activeProjectId())
+      const app = { libraryBackend: () => undefined, showTransientStatus: vi.fn() } as unknown as AppState
+      const root = document.createElement('div')
+      document.body.append(root)
+      let busy = false
+      const dispose = render(() => <ImageDocumentWorkspace active app={app}
+        onBusyChange={(value) => { busy = value }} onClose={() => undefined} />, root)
+      await vi.waitFor(() => expect(root.textContent).toContain('No image documents are open'))
+      const input = root.querySelector<HTMLInputElement>('input[type="file"]')!
+      const choose = (name: string): void => {
+        Object.defineProperty(input, 'files', { configurable: true, value: [new File(['source'], name, { type: 'image/png' })] })
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      choose('first.png')
+      await vi.waitFor(() => expect(entered).toBe(true))
+      expect(busy).toBe(true)
+      if (outcome.startsWith('overlap')) {
+        choose('second.png')
+        await vi.waitFor(() => expect(root.querySelector('[role="tab"]')?.textContent).toBe('second'))
+        expect(busy).toBe(true)
+      }
+      if (outcome.startsWith('project')) initializeProjectScope('other-project')
+      if (outcome.includes('dispose')) dispose()
+      if (outcome.includes('failed')) fail(new Error('Raster decode failed'))
+      else finish()
+      await vi.waitFor(() => expect(busy).toBe(false))
+      const expected = outcome === 'accepted' ? ['first'] : outcome === 'overlap' ? ['first', 'second']
+        : outcome === 'overlap-dispose' ? ['second'] : []
+      await vi.waitFor(async () => expect((await inspect.recoverDrafts()).drafts.map((draft) => draft.name).sort()).toEqual(expected))
+      if (!outcome.includes('dispose')) {
+        expect([...root.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent).sort()).toEqual(expected)
+        if (outcome === 'failed') expect(root.querySelector('[role="alert"]')?.textContent).toContain('Raster decode failed')
+        if (outcome.startsWith('project')) expect(root.querySelector('[role="alert"]')).toBeNull()
+        dispose()
+      }
+      if (!outcome.includes('failed')) await vi.waitFor(() => expect(released).toBe(true))
+      await inspect.close()
+    },
+  )
+
   it.each(['accepted', 'cancelled', 'replaced', 'backend', 'connection', 'project', 'dispose', 'dispose-bytes', 'replaced-dispose', 'failed'])(
     'settles a graph open without stale publication or local writes (%s)', async (outcome) => {
       const source = new ImageDocumentLocalStore('graph-source', new FakeIDBFactory())

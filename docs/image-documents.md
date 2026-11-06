@@ -10,6 +10,12 @@ tabs to durable images. **New from image** creates a document from PNG, JPEG, or
 WebP. The workspace restores every valid draft in the current project and keeps
 workflow tabs unchanged when you switch back.
 
+Local image imports stay with their original project and workspace. A decode
+that settles after project change or disposal cannot start another resource or
+draft write or publish a tab/error. Disposal waits for pending imports before
+closing the store; concurrent imports remain busy until they all settle.
+Already submitted transactions may finish, without rollback.
+
 Closing the library dialog (including Escape), changing its backend connection,
 or leaving its project invalidates a pending library open. A settled stale read
 does not open a tab or start another resource/draft write. An already submitted
