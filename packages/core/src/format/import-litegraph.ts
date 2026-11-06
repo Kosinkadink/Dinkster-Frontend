@@ -64,6 +64,10 @@ import {
   convertLitegraphLoops,
   convertLitegraphListConsumers,
 } from './import-litegraph-loops.js'
+import { createTransactionBuilder } from '../commands/contract.js'
+import { REPLACE_COMMANDS } from '../commands/replace-commands.js'
+import { planReplacement } from '../replace/plan.js'
+import type { ReplacementRule } from '../replace/model.js'
 
 // -- litegraph wire shapes (loose: this is foreign, hostile JSON) ------------
 
@@ -165,6 +169,49 @@ export interface ImportLitegraphResult {
   /** Present only when there are no error-level diagnostics. */
   readonly document?: WorkflowDocument
   readonly diagnostics: readonly Diagnostic[]
+}
+
+/** Import-only interfaces never join the installed schema registry. */
+export interface ComfyTranslation {
+  readonly pack: string
+  readonly version: string
+  readonly rule: ReplacementRule
+  readonly schema: NodeSchema
+}
+
+export interface ImportedNodePackResolution {
+  readonly graphId: string
+  readonly nodeId: string
+  readonly type: string
+  readonly sourceClass: string
+  readonly status: 'installed' | 'installable' | 'unknown'
+  readonly pack?: string
+  readonly version?: string
+}
+
+/** Recompute after registry changes; the imported document is not rewritten. */
+export function resolveImportedNodePacks(
+  document: WorkflowDocument,
+  resolve: (type: string) => NodeSchema | undefined,
+): readonly ImportedNodePackResolution[] {
+  return Object.entries(document.graphs).flatMap(([graphId, graph]) =>
+    Object.values(graph.nodes).map((node): ImportedNodePackResolution => {
+      const metadata = node.ext?.['importer.comfyTranslation']
+      const translation = metadata !== null && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? metadata as JsonObject : undefined
+      const pack = typeof translation?.['pack'] === 'string' ? translation['pack'] : undefined
+      const version = typeof translation?.['version'] === 'string' ? translation['version'] : undefined
+      const sourceClass = typeof translation?.['sourceClass'] === 'string' ? translation['sourceClass'] : node.type
+      const installed = node.virtual === true || resolve(node.type)?.type === node.type ||
+        (node.type.startsWith('#') && document.graphs[node.type.slice(1)] !== undefined)
+      return {
+        graphId, nodeId: node.id, type: node.type, sourceClass,
+        status: installed ? 'installed' : pack !== undefined ? 'installable' : 'unknown',
+        ...(pack !== undefined ? { pack } : {}),
+        ...(version !== undefined ? { version } : {}),
+      }
+    }),
+  )
 }
 
 const imp = (severity: 'error' | 'warning' | 'info', code: string, message: string): Diagnostic =>
@@ -639,21 +686,57 @@ export function importLitegraph(
   input: JsonObject,
   resolve: (type: string) => NodeSchema | undefined,
   upgrades: ComfyNodeUpgradeTable = COMFY_NODE_UPGRADES,
+  translations: readonly ComfyTranslation[] = [],
 ): ImportLitegraphResult {
   const ingress = ownJson(input)
   if (!ingress.ok) return { diagnostics: [imp('error', 'import.notJson', `workflow rejected: ${ingress.reason}`)] }
+  const bySource = new Map(translations.map((record) => [record.rule.from, record]))
+  const importSchemas = new Map(translations.flatMap((record) => [
+    [record.rule.from, { ...record.schema, type: record.rule.from }] as const,
+    [record.schema.type, record.schema] as const,
+  ]))
+  const resolveForImport = (type: string): NodeSchema | undefined => {
+    const installed = resolve(type)
+    return installed?.type === type ? installed : importSchemas.get(type)
+  }
   const result = importLitegraphSubgraphs(ingress.value as JsonObject, (type) => {
-    const schema = resolve(type)
+    const schema = resolveForImport(type)
     return schema?.type === type ? schema : undefined
   }, (graph, localResolve, definitions) =>
     importLitegraphGraph(graph, localResolve, definitions, upgrades))
   if (!result.document) return result
-  const retained = ownJson({ ...result.document,
+  let document = result.document
+  const diagnostics = [...result.diagnostics]
+  for (const [graphId, graph] of Object.entries(document.graphs)) {
+    for (const node of Object.values(graph.nodes)) {
+      const record = bySource.get(node.type)
+      if (record === undefined) continue
+      const planned = planReplacement(document, graphId, node.id, record.rule, resolveForImport)
+      // A failed translation is advisory: retain the editable imported node.
+      diagnostics.push(...planned.diagnostics.map((entry) => ({ ...entry, severity: entry.severity === 'error' ? 'warning' as const : entry.severity })))
+      if (planned.plan === undefined) continue
+      const tx = createTransactionBuilder(document)
+      const applied = REPLACE_COMMANDS.find((command) => command.id === 'node.replace')!.run(
+        document, { plan: planned.plan } as unknown as Json, tx,
+        { kind: 'initial', schemaResolverFor: () => resolveForImport },
+      )
+      diagnostics.push(...applied.map((entry) => ({ ...entry, severity: entry.severity === 'error' ? 'warning' as const : entry.severity })))
+      if (applied.some((entry) => entry.severity === 'error')) continue
+      const translated = tx.result().doc
+      const translatedNode = translated.graphs[graphId]!.nodes[node.id]!
+      tx.set(['graphs', graphId, 'nodes', node.id, 'ext'], {
+        ...translatedNode.ext,
+        'importer.comfyTranslation': { sourceClass: record.rule.from, pack: record.pack, version: record.version },
+      })
+      document = tx.result().doc
+    }
+  }
+  const retained = ownJson({ ...document,
     lineage: `lg-${fnv1a(JSON.stringify(ingress.value))}` as WorkflowDocument['lineage'],
-    ext: { ...result.document.ext, 'importer.comfyWorkflow': ingress.value },
+    ext: { ...document.ext, 'importer.comfyWorkflow': ingress.value },
   })
-  if (!retained.ok) return { diagnostics: [...result.diagnostics, imp('error', 'import.notJson', `workflow provenance rejected: ${retained.reason}`)] }
-  return { ...result, document: retained.value as unknown as WorkflowDocument }
+  if (!retained.ok) return { diagnostics: [...diagnostics, imp('error', 'import.notJson', `workflow provenance rejected: ${retained.reason}`)] }
+  return { diagnostics, document: retained.value as unknown as WorkflowDocument }
 }
 
 export interface ImportedAssetLiteral {

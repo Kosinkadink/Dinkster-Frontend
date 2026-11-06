@@ -2,6 +2,20 @@
 
 Dinkster translates legacy ComfyUI LiteGraph workflows when `AppState.openDocument` receives their JSON. Widget arrays are mapped to schema input IDs. Legacy ASSET widget values remain strings until the user decides whether to replace them.
 
+The core importer also accepts first-party replacement rules with import-only
+node interfaces. These interfaces decode positional widgets without installing
+the owning packs and never join the executable schema registry. Conversion
+uses the ordinary replacement planner and preserves the source class, owning
+pack and version on each translated node. Unknown classes keep their original
+values for review. Versioned widget-stream upgrades run before conversion.
+
+Pack resolution is separate from conversion: translated nodes are installed
+only when their exact native type exists in the selected backend registry,
+otherwise installable from their recorded pack. Nodes with neither a schema
+nor translation remain unknown. Recomputing resolution after a registry change
+does not re-import or modify the document. The application import path still
+uses its installed catalog unless translation records are supplied.
+
 An empty string in an optional file widget omits that input while consuming its
 original widget position. Required file widgets, nonempty filenames and named
 source selections stay unchanged. Empty strings on ordinary text widgets remain

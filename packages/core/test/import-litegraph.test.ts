@@ -14,7 +14,7 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { Diagnostic } from '../src/diagnostics.js'
 import type { JsonObject } from '../src/format/document.js'
-import { importLitegraph, type ComfyNodeUpgradeTable } from '../src/format/import-litegraph.js'
+import { importLitegraph, resolveImportedNodePacks, type ComfyNodeUpgradeTable, type ComfyTranslation } from '../src/format/import-litegraph.js'
 import { exportVirtualNodesToLitegraph } from '../src/format/export-litegraph.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId } from '../src/ids.js'
@@ -36,6 +36,70 @@ const resizeImageMaskSchema = parseDinksterSchema(
 
 const errorsOf = (d: readonly Diagnostic[]) => d.filter((x) => x.severity === 'error')
 const codesOf = (d: readonly Diagnostic[]) => d.map((x) => x.code)
+
+it('converts supplied first-party interfaces before resolving installed packs', () => {
+  const translations: ComfyTranslation[] = [
+    ['KSampler', 'dinkster-sampling', 'dinkster.sampling.k_sampler'],
+    ['CheckpointLoaderSimple', 'dinkster-models', 'dinkster.models.checkpoint_loader_simple'],
+    ['VAEDecode', 'dinkster-latent', 'dinkster.latent.vae_decode'],
+    ['SaveImage', 'dinkster-image', 'dinkster.image.save_image'],
+  ].map(([from, pack, type]) => {
+    const source = schemas.get(from!)!
+    return {
+      pack: pack!, version: '0.0.1', schema: { ...source, type: type!, items: source.items.map((item) =>
+        item.kind === 'input' && item.id === 'ckpt_name'
+          ? { ...item, widget: { ...item.widget!, options: { options: ['other.safetensors', 'specific.safetensors'] } } }
+          : item) },
+      rule: { from: from!, cases: [{ to: type!,
+        inputs: Object.fromEntries(source.items.filter((item) => item.kind === 'input').map((item) => [item.id, { kind: 'copy' as const, input: item.id }])),
+        outputs: Object.fromEntries(source.items.filter((item) => item.kind === 'output').map((item) => [item.id, item.id])),
+      }] },
+    }
+  })
+  const foreign: JsonObject = { nodes: [
+    { id: 1, type: 'CheckpointLoaderSimple', widgets_values: ['specific.safetensors'], outputs: [{ name: 'MODEL' }, { name: 'CLIP' }, { name: 'VAE' }] },
+    { id: 2, type: 'KSampler', widgets_values: [31415, 'increment', 17, 6.5, 'heun', 'karras', 0.73],
+      inputs: [{ name: 'model', link: 1 }], outputs: [{ name: 'LATENT' }] },
+    { id: 3, type: 'VAEDecode', inputs: [{ name: 'samples', link: 2 }, { name: 'vae', link: 3 }], outputs: [{ name: 'IMAGE' }] },
+    { id: 4, type: 'SaveImage', widgets_values: ['nested/specific-prefix'], inputs: [{ name: 'images', link: 4 }] },
+    { id: 5, type: 'UnknownExample', widgets_values: [81, 'keep me'] },
+  ], links: [[1, 1, 0, 2, 0, 'MODEL'], [2, 2, 0, 3, 0, 'LATENT'], [3, 1, 2, 3, 1, 'VAE'], [4, 3, 0, 4, 0, 'IMAGE']] }
+  const empty = () => undefined
+  const imported = importLitegraph(foreign, empty, undefined, translations)
+  expect(errorsOf(imported.diagnostics)).toEqual([])
+  const document = imported.document!
+  const graph = document.graphs.g0!
+  expect(Object.values(graph.nodes).map((node) => node.type)).toEqual([
+    'dinkster.models.checkpoint_loader_simple', 'dinkster.sampling.k_sampler',
+    'dinkster.latent.vae_decode', 'dinkster.image.save_image', 'UnknownExample',
+  ])
+  expect(graph.nodes.n2!.values).toEqual({ seed: 31415, steps: 17, cfg: 6.5, sampler_name: 'heun', scheduler: 'karras', denoise: 0.73 })
+  expect(graph.nodes.n2!.controllers).toEqual({ seed: 'increment' })
+  expect(graph.nodes.n4!.values.filename_prefix).toBe('nested/specific-prefix')
+  expect(Object.values(graph.links).map((link) => [link.from, link.to])).toEqual([
+    [{ node: 'n1', port: 'out0' }, { node: 'n2', port: 'model' }],
+    [{ node: 'n2', port: 'out0' }, { node: 'n3', port: 'samples' }],
+    [{ node: 'n1', port: 'out2' }, { node: 'n3', port: 'vae' }],
+    [{ node: 'n3', port: 'out0' }, { node: 'n4', port: 'images' }],
+  ])
+  expect(graph.nodes.n5!.ext!['importer.rawWidgetValues']).toEqual([81, 'keep me'])
+  expect(imported.diagnostics.filter((entry) => entry.code === 'import.schema.missing')).toEqual([
+    expect.objectContaining({ message: expect.stringContaining('UnknownExample') }),
+  ])
+  expect(resolveImportedNodePacks(document, empty).map((node) => [node.status, node.pack])).toEqual([
+    ['installable', 'dinkster-models'], ['installable', 'dinkster-sampling'],
+    ['installable', 'dinkster-latent'], ['installable', 'dinkster-image'], ['unknown', undefined],
+  ])
+  const oneInstalled = (type: string) => translations.find((record) => record.schema.type === type && record.pack === 'dinkster-sampling')?.schema
+  expect(resolveImportedNodePacks(document, oneInstalled).map((node) => node.status)).toEqual([
+    'installable', 'installed', 'installable', 'installable', 'unknown',
+  ])
+  const allInstalled = (type: string) => translations.find((record) => record.schema.type === type)?.schema
+  expect(resolveImportedNodePacks(document, allInstalled).filter((node) => node.status === 'installable')).toEqual([])
+  expect(loadDocument(JSON.parse(JSON.stringify(document))).document).toEqual(document)
+  expect(importLitegraph(foreign, allInstalled, undefined, translations).document).toEqual(document)
+  expect(checkDocument(document)).toEqual([])
+})
 
 it('imports authored combo choices and typed index separately from linked extra dependencies', () => {
   const combo = parseDinksterSchema('CustomCombo', {
