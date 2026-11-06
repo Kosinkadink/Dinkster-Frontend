@@ -356,6 +356,9 @@
     "text:props.app.collabBackend() const [pending, setPending] = createSignal",
     "text:string | undefined, ): Promise"
   ],
+  "CollectionImage.tsx": [
+    "text:void readonly onLoad?: JSX.EventHandler"
+  ],
   "CollectionPanel.tsx": [
     "text:( props.modeKey !== undefined ? readCollectionViewMode(storage, props.modeKey, props.defaultMode ?? 'list') : props.defaultMode ?? 'list', ) const [query, setQuery] = createSolidSignal('') const [folder, setFolder] = createSolidSignal('') const [filters, setFilters] = createSolidSignal",
     "text:([]) const [cursor, setCursor] = createSolidSignal",
@@ -910,7 +913,7 @@
     "text:() const [previewFailed, setPreviewFailed] = createSignal(false) return (",
     "text:adapter.id === props.item.source.id) return (",
     "text:props.detail.variant return (",
-    "text:props.entry?.thumbUrl ?? (props.assetUrl !== undefined && selected.digest !== undefined && isBrowserPreviewable(selected) ? props.assetUrl(selected.digest) : undefined) return (",
+    "text:selectionItemOf(props.entry)) return (",
     "text:void) | undefined readonly additionalFacts?: NonNullable"
   ],
   "editors/AssetSelectionEditor.tsx": [

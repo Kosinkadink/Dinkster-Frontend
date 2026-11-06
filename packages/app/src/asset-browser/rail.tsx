@@ -12,6 +12,7 @@ import { createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-
 import type { CollectionEntry } from '@dinkster/core'
 import type { DinksterConnection } from '@dinkster/client'
 import { AssetFileLocation } from '../AssetFileLocation.js'
+import { CollectionImage } from '../CollectionImage.js'
 import { activeProjectId } from '../projects.js'
 import { ProductNotice } from '../ProductForm.js'
 import { ProductEmptyState } from '../ProductSurfaces.js'
@@ -103,7 +104,7 @@ function AssetFacts(props: {
 
 function AssetEntrySelectionContent(props: {
   readonly item: AssetBrowserItem
-  readonly previewUrl?: string | undefined
+  readonly preview?: CollectionEntry | undefined
   readonly adapters: readonly AssetSourceAdapter[]
   readonly backendId: string
   readonly additionalFacts: NonNullable<CollectionEntry['details']>
@@ -120,23 +121,15 @@ function AssetEntrySelectionContent(props: {
         </div>
         <Show when={props.item.size !== undefined}><span>{formatSize(props.item.size)}</span></Show>
       </header>
-      <Show when={props.previewUrl}>
-        {(previewUrl) => (
-          <Show when={!previewFailed()} fallback={
-            <div class="asset-preview asset-preview-fallback" data-testid="asset-image-fallback" role="status">{message('assets.preview.unavailable')}</div>
-          }>
-            <img
-              class="asset-preview"
-              src={previewUrl()}
-              alt={message('assets.preview.alt', { name: props.item.name })}
-              onError={() => setPreviewFailed(true)}
-              onLoad={(event) => {
-                const { naturalWidth, naturalHeight } = event.currentTarget
-                if (naturalWidth > 0 && naturalHeight > 0) setDimensions({ width: naturalWidth, height: naturalHeight })
-              }}
-            />
-          </Show>
-        )}
+      <Show when={props.preview}>
+        {(entry) => <CollectionImage entry={entry()} class="asset-preview"
+          alt={message('assets.preview.alt', { name: props.item.name })}
+          fallback={<Show when={previewFailed()}><div class="asset-preview asset-preview-fallback" data-testid="asset-image-fallback" role="status">{message('assets.preview.unavailable')}</div></Show>}
+          onError={() => setPreviewFailed(true)}
+          onLoad={(event) => {
+            const { naturalWidth, naturalHeight } = event.currentTarget
+            if (naturalWidth > 0 && naturalHeight > 0) setDimensions({ width: naturalWidth, height: naturalHeight })
+          }} />}
       </Show>
       <Show when={!previewFailed() ? dimensions() : undefined}>
         {(value) => <div class="asset-preview-caption" data-testid="asset-preview-caption">{value().width} x {value().height}</div>}
@@ -154,14 +147,9 @@ export function AssetEntrySelection(props: {
   readonly connection: Pick<DinksterConnection, 'fetchAssetLocations'>
   readonly backendUrl: string
   readonly backendLabel?: string | undefined
-  readonly assetUrl?: ((digest: string) => string) | undefined
 }) {
   const message = useAppMessage()
   const item = createMemo((): AssetBrowserItem | undefined => selectionItemOf(props.entry))
-  const previewUrl = (selected: AssetBrowserItem): string | undefined =>
-    props.entry?.thumbUrl ?? (props.assetUrl !== undefined && selected.digest !== undefined && isBrowserPreviewable(selected)
-      ? props.assetUrl(selected.digest)
-      : undefined)
   return (
     <section class="asset-selection-summary asset-browser-selection" data-testid="asset-selection-summary" aria-label={message('assets.selection.title')}>
       <Show when={item()} keyed fallback={
@@ -180,7 +168,7 @@ export function AssetEntrySelection(props: {
           const backendUrl = props.backendUrl
           const project = activeProjectId()
           return <>
-            <AssetEntrySelectionContent item={selected} previewUrl={previewUrl(selected)} adapters={props.adapters} backendId={props.backendId} additionalFacts={selectionDetailsOf(props.entry)} />
+            <AssetEntrySelectionContent item={selected} preview={isBrowserPreviewable(selected) ? props.entry : undefined} adapters={props.adapters} backendId={props.backendId} additionalFacts={selectionDetailsOf(props.entry)} />
             <Show when={committableAssetRef(selected)}>{(ref) => <AssetFileLocation
               connection={connection} backendUrl={backendUrl} backendLabel={props.backendLabel}
               digest={ref().digest} project={project}

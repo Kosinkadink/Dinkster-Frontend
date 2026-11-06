@@ -54,6 +54,14 @@ and exact GET reconciliation as workflow/result intents, without assigning
 arbitrary catalog entries to a workflow. These conservative owners are not
 released by thumbnail disposal.
 
+Asset image thumbnails and selection-detail images use that independent
+preview admission through the complete response body. Their native image
+source is then a self-contained Blob URL, not a CAS URL; decode and display
+no longer borrow backend bytes. Closing or replacing the image aborts its
+loader and revokes its local URL. A cancellation-ignoring body remains owned
+until settlement and cannot create or publish a late URL. The detail rail
+uses the same loader as cards, without an unadmitted digest-URL fallback.
+
 These manifests do not enumerate all frontend holders or enable collection.
 Bounded output descriptors, rendition fingerprints and cache keys are not
 complete typed asset-reference sets. The backend source gate

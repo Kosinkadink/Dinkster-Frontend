@@ -19,15 +19,55 @@ function previewFixture() {
   const retainAssets = vi.fn(async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => ({ ...owner, ...declaration, revision: 1 }))
   const fetchRetainedAssets = vi.fn().mockResolvedValue(undefined)
   const releaseRetainedAssets = vi.fn()
-  const connection = { id: 'browser', assetUrl: (digest: string) => `/assets/${digest}`, retainAssets, fetchRetainedAssets, releaseRetainedAssets,
+  const fetchAssetBytes = vi.fn().mockResolvedValue(new Uint8Array([17, 31, 7]).buffer)
+  const connection = { id: 'browser', assetUrl: (digest: string) => `/assets/${digest}`, retainAssets, fetchRetainedAssets, releaseRetainedAssets, fetchAssetBytes,
     status: { subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } } } } as unknown as DinksterConnection
   let current = true
   const owner = { connection, current: () => current }
   const model = { ...item, digest: `blake3:${'a'.repeat(64)}`, name: 'model.glb', mediaType: 'model/gltf-binary' }
-  return { entries, storage, listeners, retainAssets, fetchRetainedAssets, releaseRetainedAssets, owner,
+  return { entries, storage, listeners, retainAssets, fetchRetainedAssets, releaseRetainedAssets, fetchAssetBytes, owner,
     stale: () => { current = false }, entry: assetEntryOf(model, connection.assetUrl, owner) }
 }
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); initializeProjectScope('default') })
+
+it.each(['accepted', 'refused', 'mismatched', 'project', 'connection', 'closed'])(
+  'admits image bodies before creating self-contained local URLs: %s', async (scenario) => {
+    const f = previewFixture()
+    const digest = `blake3:${'b'.repeat(64)}`
+    const entry = assetEntryOf({ ...item, digest }, f.owner.connection.assetUrl, f.owner)
+    let admit!: () => void
+    const admission = new Promise<void>((resolve) => { admit = resolve })
+    f.retainAssets.mockImplementation(async (owner, declaration) => {
+      await admission
+      if (scenario === 'refused') throw new Error('refused')
+      return { ...owner, ...declaration, revision: scenario === 'mismatched' ? 2 : 1 }
+    })
+    const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:owned-image')
+    const revokeUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
+    const abort = new AbortController()
+    const pending = entry.thumbRender!(abort.signal).then((url) => url, () => 'refused')
+    await vi.waitFor(() => expect(f.retainAssets).toHaveBeenCalledTimes(1))
+    expect(f.fetchAssetBytes).not.toHaveBeenCalled()
+    expect(createUrl).not.toHaveBeenCalled()
+    if (scenario === 'project') initializeProjectScope('different-project')
+    if (scenario === 'connection') for (const listener of f.listeners) listener()
+    if (scenario === 'closed') abort.abort()
+    admit()
+    expect(await pending).toBe(scenario === 'accepted' ? 'blob:owned-image' : 'refused')
+    expect(f.fetchAssetBytes).toHaveBeenCalledTimes(scenario === 'accepted' ? 1 : 0)
+    expect(createUrl).toHaveBeenCalledTimes(scenario === 'accepted' ? 1 : 0)
+    expect(f.listeners.size).toBe(0)
+    expect(f.releaseRetainedAssets).not.toHaveBeenCalled()
+    if (scenario === 'accepted') {
+      const blob = createUrl.mock.calls[0]![0] as Blob
+      expect(blob.type).toBe('image/png')
+      expect([...new Uint8Array(await blob.arrayBuffer())]).toEqual([17, 31, 7])
+      expect(revokeUrl).not.toHaveBeenCalled()
+      abort.abort()
+      expect(revokeUrl).toHaveBeenCalledExactlyOnceWith('blob:owned-image')
+    }
+  },
+)
 
 it('does not enter the model thumbnail renderer after cancellation during its lazy import', async () => {
   const viewer = await import('../src/model3d-viewer.js')
@@ -213,11 +253,14 @@ describe('asset -> collection adapter', () => {
     expect(assetItemOf(undefined)).toBeUndefined()
     expect(assetItemOf({ id: 'x', title: 'no ref' })).toBeUndefined()
   })
-  it('thumbnails only browser-previewable entries, through the digest URL', () => {
+  it('loads only browser-previewable image thumbnails without exposing a digest URL', () => {
     const url = (digest: string): string => `/assets/${digest}`
-    expect(assetEntryOf(item, url).thumbUrl).toBe('/assets/blake3:a')
+    expect(assetEntryOf(item, url).thumbUrl).toBeUndefined()
+    expect(assetEntryOf(item, url).thumbRender).toBeTypeOf('function')
     expect(assetEntryOf({ ...item, kind: 'model/lora' }, url).thumbUrl).toBeUndefined()
+    expect(assetEntryOf({ ...item, kind: 'model/lora' }, url).thumbRender).toBeUndefined()
     expect(assetEntryOf(item).thumbUrl).toBeUndefined()
+    expect(assetEntryOf(item).thumbRender).toBeUndefined()
   })
   it('maps folder rows to navigation entries without a ref (AP10)', () => {
     const folder: AssetBrowserItem = { id: 'mount:m:sub', name: 'sub', folder: true, childCount: 3, virtualPath: 'sub', source: { id: 'mount:m', label: 'm' } }

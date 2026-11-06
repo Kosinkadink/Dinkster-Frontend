@@ -61,7 +61,19 @@ export function assetEntryOf(item: AssetBrowserItem, assetUrl?: (digest: string)
     // entries have no direct pixels, so they get a lazy poster render
     // instead of a URL.
     ...(assetUrl !== undefined && item.digest !== undefined && isBrowserPreviewable(item)
-      ? { thumbUrl: assetUrl(item.digest) }
+      ? { thumbRender: async (signal?: AbortSignal) => {
+          if (previewOwner === undefined || signal === undefined) throw new Error('Asset preview ownership unavailable')
+          signal.throwIfAborted()
+          const blob = await readAssetPreview(previewOwner.connection, item.digest!, async () => {
+            const bytes = await previewOwner.connection.fetchAssetBytes(item.digest!, signal)
+            if (bytes === undefined) throw new Error('Asset preview is unavailable')
+            return new Blob([bytes], { type: item.mediaType! })
+          }, () => !signal.aborted && activeProjectId() === project && previewOwner.current())
+          signal.throwIfAborted()
+          const url = URL.createObjectURL(blob)
+          signal.addEventListener('abort', () => URL.revokeObjectURL(url), { once: true })
+          return url
+        } }
       : assetUrl !== undefined && item.digest !== undefined && (item.availability === undefined || item.availability === 'available') && isModel3dMime(item.mediaType)
         ? {
             thumbRender: async (signal?: AbortSignal) => {
