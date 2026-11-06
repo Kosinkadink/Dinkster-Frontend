@@ -114,9 +114,24 @@ index removes old discovery entries, and a changed digest never falls back
 to a body from the previous digest. Storage failure does not prevent a live
 response from being used.
 
+`search.registryUrl` selects the registry or static mirror prefix; clearing
+it disables external discovery. Opening search revalidates in the background,
+without delaying installed results. `core.nodes` ranks the combined display
+corpus, retaining search terms and omitting external nodes whose type or pack
+is already installed on the active backend. External rows always identify
+their pack and localized Not installed state.
+
+Both installed and external node results paint their ordinary schema with
+the palette's `paintSchemaPreview`, CanvasRenderer and current widget views.
+Selecting an external node opens a pack/version/platform preview prompt,
+never placement. The host rechecks the schema fingerprint and backend at
+selection, rejecting stale results. The prompt reports when installation is
+unavailable without altering the workflow. A later installed result uses
+the ordinary placement path.
+
 ## Node placement
 
-Activating a node result arms click-to-place without changing the workflow
+Activating an installed node result arms click-to-place without changing the workflow
 and returns focus to the canvas the search opened over. The ghost appears
 immediately at the current cursor position - zero mouse movement required -
 whenever the cursor is inside the canvas, and otherwise the status bar names

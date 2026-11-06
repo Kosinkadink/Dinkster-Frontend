@@ -14,16 +14,12 @@
 
 import { createEffect, createMemo, createSignal as createSolidSignal, createUniqueId, For, on, onCleanup, onMount, Show } from 'solid-js'
 import {
-  CanvasRenderer,
-  createRegistryPainter,
   defaultTokens,
   presentedType,
   typeExprCanonicalLabel,
   typeIdDisplayLabel,
   type LinkDropContext,
   type LinkDoubleClickContext,
-  type TextMeasurer,
-  type WidgetMeasure,
 } from '@dinkster/canvas'
 import {
   autoConnectTarget,
@@ -49,7 +45,7 @@ import {
 } from '@dinkster/core'
 import { placeFloatingSurface } from './floating-surface.js'
 import { useAppMessage } from './locale.js'
-import { palettePreviewLayout } from './palette-node-preview.js'
+import { paintSchemaPreview } from './palette-node-preview.js'
 import { SearchInput, SearchResultGroup, SearchResultRow, SearchState } from './SearchSurface.js'
 
 /**
@@ -594,41 +590,8 @@ export function NodePalette(props: {
   const paintPaletteNodePreview = (entry: PaletteEntry): void => {
     const canvas = palettePreviewCanvas
     if (!canvas || entry.schema === undefined) return
-    canvas.removeAttribute('data-preview-ready')
     try {
-      const measureCanvas = document.createElement('canvas').getContext('2d')
-      if (!measureCanvas) throw new Error('Canvas2D is unavailable')
-      const measure: TextMeasurer = (text, style) => {
-        measureCanvas.font = style === 'title' || style === 'renamedTitle'
-          ? `${style === 'renamedTitle' ? 'italic ' : ''}600 ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`
-          : `${defaultTokens.fontSize}px ${defaultTokens.fontFamily}`
-        return measureCanvas.measureText(text).width
-      }
-      const widgetMeasure: WidgetMeasure = (spec) => {
-        const kind = props.widgetRegistry.kind(spec.widgetType)
-        if (!kind) return undefined
-        const viewId = kind.defaultView(spec)
-        const view = props.widgetRegistry.viewsFor(spec.widgetType).find((candidate) => candidate.id === viewId)
-        return view ? { viewId, rows: view.measure(spec).rows } : undefined
-      }
-      const { node, layout } = palettePreviewLayout(entry.schema, defaultTokens, measure, widgetMeasure)
-      const availableWidth = Math.max(1, (canvas.parentElement?.clientWidth ?? layout.width + 16) - 16)
-      const scale = Math.min(1, availableWidth / layout.width, 240 / layout.height)
-      const width = Math.max(1, Math.ceil(layout.width * scale + 12))
-      const height = Math.max(1, Math.ceil(layout.height * scale + 12))
-      canvas.style.width = `${width}px`
-      canvas.style.height = `${height}px`
-      const renderer = new CanvasRenderer(canvas, defaultTokens, createRegistryPainter(props.widgetRegistry))
-      renderer.setGridVisible(false)
-      renderer.setScene({
-        graphId: '__palette_preview__',
-        nodes: [{ id: node.id, x: 0, y: 0, node, layout, isSubgraph: entry.kind === 'subgraph' }],
-        links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
-      })
-      renderer.setViewport({ x: 6, y: 6, scale })
-      renderer.renderNow()
-      renderer.dispose()
-      canvas.dataset.previewReady = entry.type
+      paintSchemaPreview(canvas, entry.schema, props.widgetRegistry, entry.kind === 'subgraph')
     } catch (error) {
       if (!previewPaintFailures.has(entry.type)) {
         previewPaintFailures.add(entry.type)

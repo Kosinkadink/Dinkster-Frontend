@@ -1,4 +1,12 @@
 {
+  "search.registryUrl.name": "Node catalog static prefix",
+  "search.registryUrl.description": "Registry or static mirror prefix for first-party node search. Clear to search installed nodes only.",
+  "search.notInstalled": "Not installed",
+  "search.previewUnavailable": "The node preview could not be rendered.",
+  "search.installTitle": "Install node pack",
+  "search.platforms": "Supported platforms",
+  "search.installUnavailable": "Pack installation is not available from this backend. No node has been placed.",
+  "search.close": "Close",
   "canvasImport.title": "Import image",
   "canvasImport.description": "Choose where to import {name}. Nothing is uploaded until you confirm.",
   "canvasImport.confirm": "Import image",
