@@ -43,6 +43,105 @@ afterEach(() => {
 })
 
 describe('ImageDocumentWorkspace', () => {
+  it.each(['accepted', 'failed', 'project', 'backend', 'connection', 'dispose', 'project-failed', 'dispose-failed', 'record-project', 'record-dispose', 'link-project', 'link-dispose'])(
+    'keeps library publication with its original workspace (%s)', async (outcome) => {
+      vi.stubGlobal('indexedDB', new FakeIDBFactory())
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      const inspect = new ImageDocumentLocalStore(activeProjectId())
+      const seed = await importSingleRaster(new File(['source'], 'Publish source.png', { type: 'image/png' }), inspect,
+        { lineage: 'publication-owner', normalize: async () => ({ width: 2, height: 1, rgba }) })
+      const resource = Object.values(seed.document.resources)[0]!
+      const dependencies = [{ resourceId: resource.id, digest: resource.digest, byteSize: resource.byteSize,
+        mediaType: resource.mediaType, width: resource.width, height: resource.height,
+        colorSpace: resource.colorSpace, channelDepth: resource.channelDepth, alphaMode: resource.alphaMode }]
+      let finish!: () => void
+      let fail!: (cause: Error) => void
+      const held = new Promise<void>((resolve, reject) => { finish = resolve; fail = reject })
+      let entered = false
+      let published = false
+      let documentDigest = ''
+      let dispose!: () => void
+      const invalidate = (): void => {
+        if (outcome.includes('dispose')) dispose()
+        else initializeProjectScope('other-project')
+      }
+      if (outcome.startsWith('link-')) {
+        const link = ImageDocumentLocalStore.prototype.linkDraft
+        vi.spyOn(ImageDocumentLocalStore.prototype, 'linkDraft').mockImplementation(async function (this: ImageDocumentLocalStore, ...args) {
+          const get = FakeIDBObjectStore.prototype.get
+          const spy = vi.spyOn(FakeIDBObjectStore.prototype, 'get').mockImplementation(function (this: IDBObjectStore, key) {
+            const request = get.call(this, key)
+            if (this.name === 'drafts') request.addEventListener('success', () => { entered = true; invalidate(); spy.mockRestore() }, { once: true })
+            return request
+          })
+          return link.apply(this, args)
+        })
+      }
+      const connection = {
+        uploadMediaAsset: async () => ({ digest: resource.digest, size: resource.byteSize, mediaType: resource.mediaType }),
+        adoptImageDocument: async (bytes: Uint8Array) => {
+          documentDigest = imageDocumentDigest(bytes)
+          if (!outcome.startsWith('record-') && !outcome.startsWith('link-')) { entered = true; await held }
+          return { digest: documentDigest, mediaType: IMAGE_DOCUMENT_MEDIA_TYPE, byteSize: bytes.byteLength, dependencies }
+        },
+        createLibraryRecord: async (request: { scope: string; name: string }) => {
+          published = true
+          if (outcome.startsWith('record-')) { entered = true; await held }
+          return { id: 'published-image', scope: request.scope, name: request.name, digest: documentDigest,
+            mediaType: IMAGE_DOCUMENT_MEDIA_TYPE, labels: ['image-document'], created: 1, modified: 1, revision: 1 }
+        },
+      } as unknown as DinksterConnection
+      let backend = { id: 'publication-backend', connection }
+      const statuses: string[] = []
+      const app = { libraryBackend: () => backend, showTransientStatus: (text: string) => { statuses.push(text) } } as unknown as AppState
+      const close = ImageDocumentLocalStore.prototype.close
+      let closed = false
+      vi.spyOn(ImageDocumentLocalStore.prototype, 'close').mockImplementation(async function (this: ImageDocumentLocalStore) {
+        if (this !== inspect) closed = true
+        await close.call(this)
+      })
+      const root = document.createElement('div')
+      document.body.append(root)
+      let busy = false
+      dispose = render(() => <ImageDocumentWorkspace active app={app}
+        onBusyChange={(value) => { busy = value }} onClose={() => undefined} />, root)
+      try {
+        await vi.waitFor(() => expect(root.querySelector('[role="tab"]')?.textContent).toBe('Publish source'))
+        ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Publish')!.click()
+        await vi.waitFor(() => expect(entered).toBe(true))
+        if (!outcome.startsWith('link-')) {
+          expect(busy).toBe(true)
+          if (outcome.includes('project') || outcome.includes('dispose')) invalidate()
+          if (outcome === 'backend') backend = { ...backend }
+          if (outcome === 'connection') backend.connection = {} as DinksterConnection
+          if (outcome.includes('dispose')) { await inspect.recoverDrafts(); expect(closed).toBe(false) }
+          if (outcome.endsWith('failed')) fail(new Error('Adoption unavailable'))
+          else finish()
+        }
+        if (outcome.includes('dispose')) await vi.waitFor(() => expect(closed).toBe(true))
+        else await vi.waitFor(() => expect(busy).toBe(false))
+        const saved = (await inspect.recoverDraft(seed.document.lineage))!
+        if (outcome === 'accepted') {
+          expect(saved.library?.recordId).toBe('published-image')
+          expect(saved.updatedAt).toBeGreaterThan(seed.updatedAt)
+          expect(statuses).toEqual(['Published image document: Publish source'])
+        } else {
+          expect(saved.library).toBeUndefined()
+          expect(saved.updatedAt).toBe(seed.updatedAt)
+          expect(statuses).toEqual([])
+        }
+        expect(published).toBe(outcome === 'accepted' || outcome.startsWith('record-') || outcome.startsWith('link-'))
+        if (!outcome.includes('dispose')) expect(root.querySelector('.image-document-error')?.textContent ?? '')
+          .toBe(outcome === 'failed' ? 'Publish failed: Adoption unavailable' : '')
+      } finally {
+        finish()
+        dispose()
+      }
+      await vi.waitFor(() => expect(closed).toBe(true))
+      await inspect.close()
+    },
+  )
+
   it.each(['accepted', 'failed', 'project', 'dispose', 'project-failed', 'dispose-failed', 'edit-project', 'edit-dispose'])(
     'keeps queued image draft saves with their original workspace (%s)', async (outcome) => {
       vi.stubGlobal('indexedDB', new FakeIDBFactory())
@@ -1271,8 +1370,9 @@ describe('ImageDocumentWorkspace', () => {
       }),
       createLibraryRecord,
     } as unknown as DinksterConnection
+    const backend = { id: 'backend-a', connection }
     const app = {
-      libraryBackend: () => ({ id: 'backend-a', connection }),
+      libraryBackend: () => backend,
       showTransientStatus: vi.fn(),
     } as unknown as AppState
     const root = document.createElement('div')

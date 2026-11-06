@@ -22,6 +22,13 @@ the store rechecks before its put. Explicit Save draft remains busy and holds
 store close through settlement. Already submitted writes may finish without
 rollback. Backend selection does not invalidate local-only saves.
 
+Library publication keeps its original project, workspace, document session,
+backend, and connection. Stale work cannot start another upload, adoption,
+record mutation, or local link write, or publish status/errors. Pending
+publication holds busy state and store close until settlement. Submitted writes
+may finish without rollback; edits during a current publication remain queued
+behind its confirmed link.
+
 Startup recovery stays with its original project and workspace. Saved shared
 membership is rejoined only while its captured backend and connection remain
 current. Stale lookups do not clear membership, and stale snapshot/resource

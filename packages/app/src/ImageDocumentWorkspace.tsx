@@ -747,6 +747,7 @@ export function ImageDocumentWorkspace(props: {
   let libraryConnection: DinksterConnection | undefined
   const pendingLibraryLists = new Set<Promise<void>>()
   const pendingDraftSaves = new Set<Promise<void>>()
+  const pendingPublications = new Set<Promise<void>>()
   let openingLibrary: Promise<unknown> | undefined
   let recovering: Promise<void> | undefined
   let collaborationListIntent = 0
@@ -783,7 +784,7 @@ export function ImageDocumentWorkspace(props: {
     const pending = value || pendingImports.size > 0 || pendingGraphOpens.size > 0 ||
       pendingCollaborationLists.size > 0 || pendingCollaborationJoins.size > 0 || pendingCollaborationShares.size > 0 ||
       pendingCollaborationLeaves.size > 0 || pendingCollaborationEnds.size > 0 || pendingLibraryLists.size > 0 ||
-      pendingDraftSaves.size > 0
+      pendingDraftSaves.size > 0 || pendingPublications.size > 0
     setBusySignal(pending)
     props.onBusyChange(pending)
   }
@@ -1255,7 +1256,7 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingDraftSaves, ...pendingLibraryLists, ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
+    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingPublications, ...pendingDraftSaves, ...pendingLibraryLists, ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
       entry.hydrate.catch(() => undefined),
     ])]).finally(() => store.close())
@@ -1344,27 +1345,42 @@ export function ImageDocumentWorkspace(props: {
       setLocalizedError('imageDocument.workspace.error.publishingRequiresBackend')
       return
     }
+    const connection = backend.connection
+    const session = entry.session
+    const snapshot = session.doc
+    const name = entry.name
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      documents().includes(entry) && entry.session === session &&
+      props.app.libraryBackend() === backend && backend.connection === connection
+    const assertCurrent = (): void => {
+      if (!current()) throw new Error('Image publication is no longer current')
+    }
     setBusy(true)
     setError(undefined)
     const task = entry.persist.catch(() => undefined).then(async () => {
-      const saved = await saveImageDocumentToLibrary(backend.connection, store, entry.session.doc, {
+      assertCurrent()
+      const saved = await saveImageDocumentToLibrary(connection, store, snapshot, {
         scope: LIBRARY_SCOPE,
         connectionId: backend.id,
-        name: entry.name,
+        name,
+        assertCurrent,
         ...(entry.draft.library !== undefined ? { link: entry.draft.library } : {}),
       })
+      if (!current()) return
       entry.draft = saved.draft
-      if (live) refresh()
+      refresh()
     })
     entry.persist = task.catch(() => undefined)
-    try {
-      await task
-      if (live) props.app.showTransientStatus(message('imageDocument.workspace.status.published', { name: entry.name }))
-    } catch (cause) {
-      if (live) setLocalizedError('imageDocument.workspace.error.publishFailed', { reason: messageOf(cause) })
-    } finally {
+    const pending: Promise<void> = task.then(() => {
+      if (current()) props.app.showTransientStatus(message('imageDocument.workspace.status.published', { name }))
+    }).catch((cause) => {
+      if (current()) setLocalizedError('imageDocument.workspace.error.publishFailed', { reason: messageOf(cause) })
+    }).finally(() => {
+      pendingPublications.delete(pending)
       if (live) setBusy(false)
-    }
+    })
+    pendingPublications.add(pending)
+    await pending
   }
   const renderAuthoritative = async (
     documentSnapshot: ImageDocument,

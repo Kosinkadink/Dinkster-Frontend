@@ -379,6 +379,7 @@ export class ImageDocumentLocalStore {
     name: string,
     library: ImageLibraryLink,
     expectedUpdatedAt: number | null,
+    assertCurrent: () => void = () => undefined,
   ): Promise<ImageDocumentDraft> {
     const loaded = loadImageDocument(document)
     if (loaded.document === undefined || !validLibraryLink(library)) {
@@ -386,10 +387,18 @@ export class ImageDocumentLocalStore {
     }
     const key = draftKey(this.projectId, loaded.document.lineage)
     const database = await this.database
+    assertCurrent()
     const transaction = database.transaction(DRAFTS, 'readwrite')
     const done = transactionDone(transaction)
     const store = transaction.objectStore(DRAFTS)
     const existing = await requestResult(store.get(key) as IDBRequest<DraftRecord | undefined>)
+    try {
+      assertCurrent()
+    } catch (cause) {
+      transaction.abort()
+      await done.catch(() => undefined)
+      throw cause
+    }
     const existingDraft = existing === undefined ? undefined : parseDraft(existing)
     const preserveCurrent = existingDraft !== undefined && existing?.updatedAt !== expectedUpdatedAt
     const current = preserveCurrent ? existingDraft : { document: loaded.document, name }

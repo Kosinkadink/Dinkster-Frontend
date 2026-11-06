@@ -239,7 +239,9 @@ async function publishLibraryRecord(
     readonly folder?: string
     readonly link?: ImageLibraryLink
   },
+  assertCurrent: () => void = () => undefined,
 ): Promise<LibraryRecord> {
+  assertCurrent()
   const link = options.link
   if (link?.connectionId === options.connectionId && link.scope === options.scope) {
     const patch = {
@@ -255,6 +257,7 @@ async function publishLibraryRecord(
     try {
       first = await connection.patchLibraryRecord(link.recordId, patch)
     } catch (error) {
+      assertCurrent()
       try {
         const fresh = await connection.getLibraryRecord(link.recordId, options.scope)
         if (fresh !== undefined && linkedRecord(fresh, link, options.scope).digest === options.digest) {
@@ -266,7 +269,9 @@ async function publishLibraryRecord(
       throw error
     }
     if (first.ok) return linkedRecord(first.record, link, options.scope)
+    assertCurrent()
     const fresh = await connection.getLibraryRecord(link.recordId, options.scope)
+    assertCurrent()
     if (fresh === undefined) throw new Error('linked image library record no longer exists')
     linkedRecord(fresh, link, options.scope)
     if (fresh.digest === options.digest) return fresh
@@ -369,7 +374,9 @@ async function adoptOwnedImageDocument(
   document: ImageDocument,
   scope: string,
   signal?: AbortSignal,
+  assertCurrent: () => void = () => undefined,
 ): Promise<AdoptedImageDocumentForRender> {
+  assertCurrent()
   const dependencies = expectedDependencies(document)
   const canonical = serializeImageDocument(document)
   const bytes = new TextEncoder().encode(canonical)
@@ -377,9 +384,11 @@ async function adoptOwnedImageDocument(
   const uploaded = new Set<string>()
   for (const resource of Object.values(document.resources)) {
     if (resource.inline !== undefined || uploaded.has(resource.digest)) continue
-    await uploadImageDocumentResource(connection, store, resource, scope, signal)
+    await uploadImageDocumentResource(connection, store, resource, scope, signal, assertCurrent)
+    assertCurrent()
     uploaded.add(resource.digest)
   }
+  assertCurrent()
   const adopted = await connection.adoptImageDocument(bytes, {
     scope,
     expectedDigest: digest,
@@ -416,16 +425,21 @@ export async function saveImageDocumentToLibrary(
     readonly folder?: string
     readonly link?: ImageLibraryLink
     readonly signal?: AbortSignal
+    readonly assertCurrent?: () => void
   },
 ): Promise<SavedImageDocument> {
+  const assertCurrent = options.assertCurrent ?? (() => undefined)
+  assertCurrent()
   const loaded = loadImageDocument(document)
   if (loaded.document === undefined) throw new Error('cannot save an invalid ImageDocument')
   const owned = loaded.document
   const existingDraft = await store.recoverDraft(owned.lineage)
+  assertCurrent()
   let expectedDraftUpdatedAt = existingDraft?.updatedAt ?? null
   let link = existingDraft?.library ?? options.link
   if (link?.connectionId === options.connectionId && link.scope === options.scope) {
     link = await reconcilePendingLink(connection, link)
+    assertCurrent()
   }
   const canonical = serializeImageDocument(owned)
   const bytes = new TextEncoder().encode(canonical)
@@ -434,13 +448,15 @@ export async function saveImageDocumentToLibrary(
     const pendingDraft = await store.linkDraft(owned, options.name, {
       ...link,
       pendingDigest: digest,
-    }, expectedDraftUpdatedAt)
+    }, expectedDraftUpdatedAt, assertCurrent)
+    assertCurrent()
     if (serializeImageDocument(pendingDraft.document) !== canonical || pendingDraft.name !== options.name) {
       throw new Error('ImageDocument draft changed concurrently')
     }
     expectedDraftUpdatedAt = pendingDraft.updatedAt
   }
-  await adoptOwnedImageDocument(connection, store, owned, options.scope, options.signal)
+  await adoptOwnedImageDocument(connection, store, owned, options.scope, options.signal, assertCurrent)
+  assertCurrent()
   const record = await publishLibraryRecord(connection, {
     scope: options.scope,
     connectionId: options.connectionId,
@@ -449,7 +465,8 @@ export async function saveImageDocumentToLibrary(
     ...(options.labels !== undefined ? { labels: options.labels } : {}),
     ...(options.folder !== undefined ? { folder: options.folder } : {}),
     ...(link !== undefined ? { link } : {}),
-  })
+  }, assertCurrent)
+  assertCurrent()
   if (record.scope !== options.scope || record.digest !== digest ||
     mediaTypeBase(record.mediaType) !== IMAGE_DOCUMENT_MEDIA_TYPE) {
     throw new Error('server returned a mismatched ImageDocument library record')
@@ -460,7 +477,7 @@ export async function saveImageDocumentToLibrary(
     digest,
     scope: options.scope,
     connectionId: options.connectionId,
-  }, expectedDraftUpdatedAt)
+  }, expectedDraftUpdatedAt, assertCurrent)
   return { document: owned, digest, record, draft }
 }
 
