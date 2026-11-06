@@ -535,6 +535,7 @@
     "text:() const [authoritativeBusy, setAuthoritativeBusy] = createSignal(false) const [authoritativeResult, setAuthoritativeResult] = createSignal",
     "text:() const [authoritativeError, setAuthoritativeError] = createSignal",
     "text:() const [libraryOpen, setLibraryOpen] = createSignal(false) const [libraryRecords, setLibraryRecords] = createSignal",
+    "text:() const leaving = new Set",
     "text:([]) const [activeLineage, setActiveLineage] = createSignal('') const [loading, setLoading] = createSignal(true) const [busy, setBusySignal] = createSignal(false) const [error, setErrorValue] = createSignal",
     "text:([]) const [collaborationOpen, setCollaborationOpen] = createSignal(false) const [collaborationSessions, setCollaborationSessions] = createSignal",
     "text:([]) const [confirmingEnd, setConfirmingEnd] = createSignal(false) const [collaborationTransition, setCollaborationTransition] = createSignal(false) const [resourceTick, setResourceTick] = createSignal(0) const [metadataTick, setMetadataTick] = createSignal(0) let importInput!: HTMLInputElement let tablist!: HTMLDivElement let libraryDialog!: HTMLDivElement let collaborationDialog!: HTMLDivElement let endConfirmButton: HTMLButtonElement | undefined let live = true let libraryIntent = 0 let libraryOwner: ReturnType",
@@ -552,7 +553,7 @@
     "text:tablist.querySelector",
     "text:void name: string draft: ImageDocumentDraft persist: Promise",
     "text:window.removeEventListener('keydown', onShortcut)) const updateLayer = (changes: Omit",
-    "text:| undefined const leaving = new Set"
+    "text:| undefined const pendingGraphOpens = new Set"
   ],
   "ImageEditor.tsx": [
     "attribute:aria-label:Mask tools",

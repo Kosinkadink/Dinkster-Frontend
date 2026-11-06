@@ -57,16 +57,21 @@ export async function openGraphImageDocument(
   connection: DinksterConnection,
   store: ImageDocumentLocalStore,
   query: ValueQuery,
+  assertCurrent: () => void = () => undefined,
 ): Promise<OpenedGraphImageDocument> {
+  assertCurrent()
   const values = connection.values()
   const peek = await values.peek(query)
+  assertCurrent()
   if (!peek.available) throw new Error(`Layer value unavailable: ${peek.error}`)
   if (!isLayerDocumentType(peek.descriptor.typeId)) throw new Error('The graph output is not a layer document')
   const native = peek.renditions.find((rendition) =>
     rendition.kind === 'document' && rendition.mime.split(';', 1)[0] === IMAGE_DOCUMENT_MEDIA_TYPE)
   if (native === undefined) throw new Error('This value owner does not advertise a native ImageDocument rendition')
   return values.read(query, peek.descriptor, async () => {
+    assertCurrent()
     const result = await values.rendition(query, 'document', { descriptor: peek.descriptor })
+    assertCurrent()
     if (!result.available) throw new Error(`Layer document unavailable: ${result.error}`)
     if (result.fingerprint !== peek.descriptor.fingerprint ||
       result.typeId !== peek.descriptor.typeId || result.reportedKind !== 'document' ||
@@ -86,6 +91,7 @@ export async function openGraphImageDocument(
       throw new Error('Layer document rendition cannot be opened without changing its canonical bytes')
     }
     const current = await store.recoverDraft(loaded.document.lineage)
+    assertCurrent()
     if (current !== undefined && serializeImageDocument(current.document) !== serializeImageDocument(loaded.document)) {
       throw new Error('This layer document has unsaved local edits; use the recovered draft instead')
     }
@@ -95,14 +101,20 @@ export async function openGraphImageDocument(
       bytes,
       GRAPH_IMAGE_DOCUMENT_SCOPE,
     )
+    assertCurrent()
     const render = await renderAdoptedImageDocument(
       connection,
       store,
       adopted.digest,
       text,
       GRAPH_IMAGE_DOCUMENT_SCOPE,
+      'composite',
+      undefined,
+      assertCurrent,
     )
-    await hydrateImageDocumentResources(connection, store, loaded.document, GRAPH_IMAGE_DOCUMENT_SCOPE)
+    assertCurrent()
+    await hydrateImageDocumentResources(connection, store, loaded.document, GRAPH_IMAGE_DOCUMENT_SCOPE, assertCurrent)
+    assertCurrent()
     const draft = current ?? await store.saveDraft(
       loaded.document,
       `${query.nodeId} / ${query.outputId}`,

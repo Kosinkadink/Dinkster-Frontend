@@ -70,7 +70,11 @@ conflicting local edits produce visible errors.
 The admitted value reader covers canonical decode, adoption, reference rendering,
 resource hydration and draft creation, not only the rendition response body.
 Closing that reader waits for actual consumer settlement and refuses its return.
-This does not replace the workspace's separate open-intent and project checks.
+The workspace also checks its captured graph request, backend connection and
+project before continuing reads, hydration, draft writes or tab/error publication.
+A replacement request does not let an older open publish or clear its busy state.
+Workspace disposal waits for all pending graph opens before closing the store.
+Already submitted local transactions may settle; they are not rolled back.
 
 **Export snapshot to graph** explicitly adopts the current document and its
 resources on the destination backend, then adds `dinkster.layers.load` wired to

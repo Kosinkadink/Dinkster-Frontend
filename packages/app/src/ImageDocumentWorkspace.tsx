@@ -745,6 +745,7 @@ export function ImageDocumentWorkspace(props: {
   let libraryIntent = 0
   let libraryOwner: ReturnType<AppState['libraryBackend']>
   let openingLibrary: Promise<unknown> | undefined
+  const pendingGraphOpens = new Set<Promise<void>>()
   const leaving = new Set<OpenImageDocument>()
 
   const setError = (value: string | undefined): void => { setErrorValue(value) }
@@ -1136,7 +1137,7 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all([openingLibrary?.catch(() => undefined), ...current.flatMap((entry) => [
+    void Promise.all([openingLibrary?.catch(() => undefined), ...pendingGraphOpens, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
       entry.hydrate.catch(() => undefined),
     ])]).finally(() => store.close())
@@ -1160,14 +1161,22 @@ export function ImageDocumentWorkspace(props: {
     const request = props.graphRequest
     if (loading() || request === undefined || openingGraph === request) return
     openingGraph = request
+    const backend = props.app.backendFor(request.connectionId)
+    const connection = backend?.protocol === 'dinkster' ? backend.connection : undefined
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      props.graphRequest === request && props.app.backendFor(request.connectionId) === backend &&
+      (backend?.protocol !== 'dinkster' || backend.connection === connection)
+    const assertCurrent = (): void => {
+      if (!current()) throw new Error('Graph image open is no longer current')
+    }
     setBusy(true)
     setError(undefined)
-    void (async () => {
-      const backend = props.app.backendFor(request.connectionId)
+    const task: Promise<void> = (async () => {
       if (backend?.protocol !== 'dinkster') throw new Error(message('imageDocument.workspace.error.selectedOwnerUnavailable'))
       await Promise.all(documents().map((entry) => entry.persist))
-      const opened = await openGraphImageDocument(backend.connection, store, request.query)
-      if (live && props.graphRequest === request) openDraft(opened.draft, opened.render, {
+      assertCurrent()
+      const opened = await openGraphImageDocument(backend.connection, store, request.query, assertCurrent)
+      if (current()) openDraft(opened.draft, opened.render, {
         connectionId: request.connectionId,
         sourceTabId: request.sourceTabId,
         graphId: request.graphId,
@@ -1177,13 +1186,15 @@ export function ImageDocumentWorkspace(props: {
         document: opened.document,
       })
     })().catch((cause) => {
-      if (live && props.graphRequest === request) setLocalizedError('imageDocument.workspace.error.graphOpenFailed', { reason: messageOf(cause) })
+      if (current()) setLocalizedError('imageDocument.workspace.error.graphOpenFailed', { reason: messageOf(cause) })
     }).finally(() => {
+      pendingGraphOpens.delete(task)
       if (live && props.graphRequest === request) {
         props.onGraphRequestHandled?.()
-        setBusy(false)
       }
+      if (live && pendingGraphOpens.size === 0) setBusy(false)
     })
+    pendingGraphOpens.add(task)
   })
   const saveDraft = async (entry: OpenImageDocument): Promise<void> => {
     setBusy(true)

@@ -334,14 +334,19 @@ export async function renderAdoptedImageDocument(
   scope: string,
   selector = 'composite',
   signal?: AbortSignal,
+  assertCurrent: () => void = () => undefined,
 ): Promise<VerifiedImageDocumentRender> {
+  assertCurrent()
   const response = await connection.renderImageDocument(digest, {
     scope,
     selector,
     ...(signal !== undefined ? { signal } : {}),
   })
+  assertCurrent()
   return withImageResourceRead(connection, store, scope, [response.asset.digest], async () => {
+    assertCurrent()
     const fetched = await connection.fetchAssetBytes(response.asset.digest)
+    assertCurrent()
     if (fetched === undefined) throw new Error('Rendered ImageDocument PNG is not held by the server')
     const bytes = new Uint8Array(fetched)
     if (bytes.byteLength !== response.asset.size || imageDocumentDigest(bytes) !== response.asset.digest) {
