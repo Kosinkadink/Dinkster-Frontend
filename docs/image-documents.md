@@ -16,6 +16,12 @@ draft write or publish a tab/error. Disposal waits for pending imports before
 closing the store; concurrent imports remain busy until they all settle.
 Already submitted transactions may finish, without rollback.
 
+Queued draft saves keep their original project, workspace, and document session.
+Stale work cannot submit another local write or publish saved status or errors;
+the store rechecks before its put. Explicit Save draft remains busy and holds
+store close through settlement. Already submitted writes may finish without
+rollback. Backend selection does not invalidate local-only saves.
+
 Startup recovery stays with its original project and workspace. Saved shared
 membership is rejoined only while its captured backend and connection remain
 current. Stale lookups do not clear membership, and stale snapshot/resource

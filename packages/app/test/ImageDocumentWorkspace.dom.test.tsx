@@ -43,6 +43,77 @@ afterEach(() => {
 })
 
 describe('ImageDocumentWorkspace', () => {
+  it.each(['accepted', 'failed', 'project', 'dispose', 'project-failed', 'dispose-failed', 'edit-project', 'edit-dispose'])(
+    'keeps queued image draft saves with their original workspace (%s)', async (outcome) => {
+      vi.stubGlobal('indexedDB', new FakeIDBFactory())
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      const inspect = new ImageDocumentLocalStore(activeProjectId())
+      const seed = await importSingleRaster(new File(['source'], 'Save source.png', { type: 'image/png' }), inspect,
+        { lineage: 'save-owner', normalize: async () => ({ width: 2, height: 1, rgba }) })
+      const baseline = (await inspect.recoverDraft(seed.document.lineage))!
+      let finish!: () => void
+      let fail!: (cause: Error) => void
+      const held = new Promise<void>((resolve, reject) => { finish = resolve; fail = reject })
+      let entered = false
+      const save = ImageDocumentLocalStore.prototype.saveDraft
+      vi.spyOn(ImageDocumentLocalStore.prototype, 'saveDraft').mockImplementation(async function (this: ImageDocumentLocalStore, ...args) {
+        entered = true
+        await held
+        return save.apply(this, args)
+      })
+      const close = ImageDocumentLocalStore.prototype.close
+      let closed = false
+      vi.spyOn(ImageDocumentLocalStore.prototype, 'close').mockImplementation(async function (this: ImageDocumentLocalStore) {
+        if (this !== inspect) closed = true
+        await close.call(this)
+      })
+      const statuses: string[] = []
+      const app = { libraryBackend: () => undefined, showTransientStatus: (text: string) => { statuses.push(text) } } as unknown as AppState
+      const root = document.createElement('div')
+      document.body.append(root)
+      let busy = false
+      const dispose = render(() => <ImageDocumentWorkspace active app={app}
+        onBusyChange={(value) => { busy = value }} onClose={() => undefined} />, root)
+      try {
+        await vi.waitFor(() => expect(root.querySelector('[role="tab"]')?.textContent).toBe('Save source'))
+        if (outcome.startsWith('edit')) root.querySelector<HTMLElement>('[role="slider"][aria-label="Layer opacity"]')!
+          .dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+        else [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Save draft')!.click()
+        await vi.waitFor(() => expect(entered).toBe(true))
+        if (!outcome.startsWith('edit')) expect(busy).toBe(true)
+        if (outcome.includes('project')) initializeProjectScope('other-project')
+        if (outcome.includes('dispose')) {
+          dispose()
+          await inspect.recoverDrafts()
+          expect(closed).toBe(false)
+        }
+        if (outcome.endsWith('failed')) fail(new Error('Save unavailable'))
+        else finish()
+        if (outcome.includes('dispose')) await vi.waitFor(() => expect(closed).toBe(true))
+        else if (outcome.startsWith('edit')) {
+          dispose()
+          await vi.waitFor(() => expect(closed).toBe(true))
+        } else await vi.waitFor(() => expect(busy).toBe(false))
+        const saved = (await inspect.recoverDraft(seed.document.lineage))!
+        if (outcome === 'accepted') {
+          expect(saved.updatedAt).toBeGreaterThan(baseline.updatedAt)
+          expect(statuses).toEqual(['Saved image draft: Save source'])
+        } else {
+          expect(saved.updatedAt).toBe(baseline.updatedAt)
+          expect(saved.document).toEqual(baseline.document)
+          expect(statuses).toEqual([])
+        }
+        if (!outcome.includes('dispose') && !outcome.startsWith('edit')) expect(root.querySelector('.image-document-error')?.textContent ?? '')
+          .toBe(outcome === 'failed' ? 'Draft recovery save failed: Save unavailable' : '')
+      } finally {
+        finish()
+        dispose()
+      }
+      await vi.waitFor(() => expect(closed).toBe(true))
+      await inspect.close()
+    },
+  )
+
   it.each(['accepted', 'failed', 'project', 'backend', 'connection', 'dispose', 'project-failed', 'dispose-failed'])(
     'keeps the image library list with its captured owner (%s)', async (outcome) => {
       vi.stubGlobal('indexedDB', new FakeIDBFactory())

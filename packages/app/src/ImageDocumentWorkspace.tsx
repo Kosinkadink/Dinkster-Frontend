@@ -746,6 +746,7 @@ export function ImageDocumentWorkspace(props: {
   let libraryOwner: ReturnType<AppState['libraryBackend']>
   let libraryConnection: DinksterConnection | undefined
   const pendingLibraryLists = new Set<Promise<void>>()
+  const pendingDraftSaves = new Set<Promise<void>>()
   let openingLibrary: Promise<unknown> | undefined
   let recovering: Promise<void> | undefined
   let collaborationListIntent = 0
@@ -781,7 +782,8 @@ export function ImageDocumentWorkspace(props: {
   const setBusy = (value: boolean): void => {
     const pending = value || pendingImports.size > 0 || pendingGraphOpens.size > 0 ||
       pendingCollaborationLists.size > 0 || pendingCollaborationJoins.size > 0 || pendingCollaborationShares.size > 0 ||
-      pendingCollaborationLeaves.size > 0 || pendingCollaborationEnds.size > 0 || pendingLibraryLists.size > 0
+      pendingCollaborationLeaves.size > 0 || pendingCollaborationEnds.size > 0 || pendingLibraryLists.size > 0 ||
+      pendingDraftSaves.size > 0
     setBusySignal(pending)
     props.onBusyChange(pending)
   }
@@ -791,12 +793,20 @@ export function ImageDocumentWorkspace(props: {
     setMetadataTick((tick) => tick + 1)
   }
   const queuePersist = (entry: OpenImageDocument, snapshot = entry.session.doc, name = entry.name): void => {
+    const session = entry.session
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      documents().includes(entry) && entry.session === session
+    const assertCurrent = (): void => {
+      if (!current()) throw new Error('Image draft save is no longer current')
+    }
     entry.persist = entry.persist.catch(() => undefined).then(async () => {
-      const saved = await store.saveDraft(snapshot, name, undefined, entry.draft.updatedAt)
+      assertCurrent()
+      const saved = await store.saveDraft(snapshot, name, undefined, entry.draft.updatedAt, assertCurrent)
+      if (!current()) return
       entry.draft = saved
-      if (live) refresh()
+      refresh()
     }).catch((cause) => {
-      if (live) setError(`Draft recovery save failed: ${messageOf(cause)}`)
+      if (current()) setError(`Draft recovery save failed: ${messageOf(cause)}`)
     })
   }
   const scheduleHydrate = (entry: OpenImageDocument): void => {
@@ -1245,7 +1255,7 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingLibraryLists, ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
+    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingDraftSaves, ...pendingLibraryLists, ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
       entry.hydrate.catch(() => undefined),
     ])]).finally(() => store.close())
@@ -1313,12 +1323,20 @@ export function ImageDocumentWorkspace(props: {
     pendingGraphOpens.add(task)
   })
   const saveDraft = async (entry: OpenImageDocument): Promise<void> => {
+    const session = entry.session
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      documents().includes(entry) && entry.session === session
     setBusy(true)
     setError(undefined)
     queuePersist(entry)
-    await entry.persist
-    if (live && error() === undefined) props.app.showTransientStatus(message('imageDocument.workspace.status.saved', { name: entry.name }))
-    if (live) setBusy(false)
+    const task: Promise<void> = entry.persist.then(() => {
+      if (current() && error() === undefined) props.app.showTransientStatus(message('imageDocument.workspace.status.saved', { name: entry.name }))
+    }).finally(() => {
+      pendingDraftSaves.delete(task)
+      if (live) setBusy(false)
+    })
+    pendingDraftSaves.add(task)
+    await task
   }
   const publish = async (entry: OpenImageDocument): Promise<void> => {
     const backend = props.app.libraryBackend()
