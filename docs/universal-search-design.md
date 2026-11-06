@@ -129,8 +129,16 @@ the palette's `paintSchemaPreview`, CanvasRenderer and current widget views.
 Selecting an external node opens a pack/version/platform preview prompt,
 never placement. The host rechecks the schema fingerprint and backend at
 selection, rejecting stale results. The prompt reports when installation is
-unavailable without altering the workflow. A later installed result uses
-the ordinary placement path.
+unavailable without altering the workflow. Review installation calls the
+same backend's `DinksterConnection.planPackInstall` with the exact pack and
+version. The server's review is shown as text before Confirm installation
+submits its single-use confirmation through `applyPackInstall`. Neither step
+places a node or changes the document. Apply is never automatically retried.
+The prompt rejects a changed active backend, blocks dismissal during a request,
+refreshes the original backend's schemas after successful activation, and
+reports when the node has not appeared yet. Close and select the installed
+result again to use the ordinary placement path. Non-opted-in hosts report
+installation unavailable; managed hosts and Desktop use the same HTTP client.
 
 ## Node placement
 

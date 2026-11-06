@@ -1,14 +1,30 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
-import type { NodeSchema } from '@dinkster/core'
 import catalog from '../../core/fixtures/dinkster-nodes-comfy.json' with { type: 'json' }
 import { expect, test } from './fixtures.js'
 
 test('uninstalled search renders the same real preview as installed search and never places on selection', async ({ page }) => {
   const wire = { ...catalog.nodes['comfy.EmptyImage'], pack: 'image-tools', displayName: 'Catalog Image', searchTerms: ['catalog-resample'] }
   const body = JSON.stringify({ packName: 'image-tools', version: '1.10.0', schemas: [{ nodeType: 'image.catalog', schemaVersion: 1, schemaWireVersion: 1, schemaSignature: 'catalog-image', role: 'compute', schema: wire }] })
-  await page.route(/\/api\/nodes(?:\?.*)?$/, (route) => route.fulfill({ json: { ...catalog, nodes: {} } }))
+  let installed = false
+  let plans = 0
+  let applies = 0
+  await page.route(/\/api\/nodes(?:\?.*)?$/, (route) => route.fulfill({ json: { ...catalog, nodes: installed ? { 'image.catalog': wire } : {} } }))
+  await page.route('**/api/packs/install/plan', (route) => {
+    expect(route.request().postDataJSON()).toEqual({ packs: [{ pack: 'image-tools', version: '1.10.0' }] })
+    plans++
+    return plans === 1 ? route.fulfill({ status: 404, json: { error: 'not-found' } }) : route.fulfill({ json: {
+      confirmation: 'server-confirmation', plan: { format: 'dinkster.plan/1' },
+      review: 'Install image-tools 1.10.0\nAdd isolated image dependencies; keep existing packs unchanged.', expiresInSeconds: 900,
+    } })
+  })
+  await page.route('**/api/packs/install/apply', (route) => {
+    expect(route.request().postDataJSON()).toEqual({ confirmation: 'server-confirmation' })
+    applies++
+    installed = true
+    return route.fulfill({ json: { generation: 2, activation: { generation: 2, epoch: 3, added: ['image-tools'], removed: [], reloaded: [], unchanged: [], failed: {}, rolledBack: false } } })
+  })
   await page.route('https://catalog.example/static/**', (route) => route.fulfill({
     headers: { 'Access-Control-Allow-Origin': '*' },
     body: route.request().url().endsWith('index.json') ? JSON.stringify({ schemaVersion: 1, items: [{ name: 'image-tools', publisher: 'dinkster', version: '1.10.0', displayName: 'Image Tools', platforms: ['linux', 'darwin'], url: 'packs/image-tools/1.10.0/schemas.json', digest: `sha256:${createHash('sha256').update(body).digest('hex')}` }] }) : body,
@@ -31,14 +47,20 @@ test('uninstalled search renders the same real preview as installed search and n
   await expect(prompt).toContainText('linux, darwin')
   await expect(page.getByTestId('graph-canvas')).not.toHaveAttribute('data-placement-ghost', 'visible')
   if (proof) await page.screenshot({ path: join(proof, 'uninstalled-prompt.png') })
-  await page.keyboard.press('Escape')
-  await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as {
-      searchCatalog: { get(): readonly { schema: NodeSchema }[] }
-      registerSchemas(schemas: readonly NodeSchema[]): void
-    }
-    app.registerSchemas([app.searchCatalog.get()[0]!.schema])
-  })
+  expect(applies).toBe(0)
+  await prompt.getByRole('button', { name: 'Review installation', exact: true }).click()
+  await expect(prompt).toContainText('Pack installation is not available')
+  if (proof) await page.screenshot({ path: join(proof, 'unavailable-prompt.png') })
+  await prompt.getByRole('button', { name: 'Review installation', exact: true }).click()
+  await expect(prompt).toContainText('keep existing packs unchanged')
+  expect(applies).toBe(0)
+  if (proof) await page.screenshot({ path: join(proof, 'review-prompt.png') })
+  await prompt.getByRole('button', { name: 'Confirm installation', exact: true }).click()
+  await expect(prompt).toContainText('Installed. Close this prompt')
+  expect(applies).toBe(1)
+  await expect(page.getByTestId('graph-canvas')).not.toHaveAttribute('data-placement-ghost', 'visible')
+  if (proof) await page.screenshot({ path: join(proof, 'installed-prompt.png') })
+  await prompt.getByRole('button', { name: 'Close', exact: true }).click()
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('@ catalog-resample')
   await expect(row).not.toContainText('Not installed')
@@ -48,4 +70,6 @@ test('uninstalled search renders the same real preview as installed search and n
   await page.setViewportSize({ width: 620, height: 820 })
   await expect(preview).toBeVisible()
   if (proof) await page.screenshot({ path: join(proof, 'installed-search-narrow.png') })
+  await row.click()
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-placement-ghost', 'visible')
 })
