@@ -281,7 +281,7 @@ it('keeps disabled-camera submission and source-document serialization synchrono
   } finally { state.app.dispose() }
 })
 
-it('refuses incompatible dimensions for two included occurrences sharing a saved frame', async () => {
+it.each([false, true])('validates shared-frame dimensions with native sizing %s', async (native) => {
   const device = camera()
   const state = await queueSetup()
   try {
@@ -289,8 +289,8 @@ it('refuses incompatible dimensions for two included occurrences sharing a saved
     const root = document.graphs.g0!
     expect(state.app.openDocument({ ...document, graphs: {
       g0: { ...root, nodes: {
-        n1: { id: 'n1', type: '#camera', values: { width: 640, height: 180 } },
-        n2: { id: 'n2', type: '#camera', values: { width: 320, height: 240 } },
+        n1: { id: 'n1', type: '#camera', values: { width: native ? 0 : 640, height: 180 } },
+        n2: { id: 'n2', type: '#camera', values: { width: native ? 0 : 320, height: 240 } },
       } },
       camera: { id: 'camera', name: 'Camera', nodes: { inner: { ...root.nodes.n1!, id: 'inner' } },
         links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
@@ -302,6 +302,14 @@ it('refuses incompatible dimensions for two included occurrences sharing a saved
     } }, 'Shared camera')).toEqual([])
     const tab = state.app.activeTab()!
     await state.app.queue(tab, { kind: 'partial', targets: ['n1', 'n2'].map((id) => ({ instancePath: [asNodeId(id)], node: asNodeId('inner') })) })
+    if (native) {
+      expect(state.submit, JSON.stringify(state.app.problems.get())).toHaveBeenCalledOnce()
+      expect(state.upload).toHaveBeenCalledOnce()
+      expect(device.open).toHaveBeenCalledOnce()
+      expect(tab.store.doc.graphs.camera!.nodes.inner!.values.image).toEqual(state.captured)
+      for (const node of Object.values(state.submit.mock.calls[0]![0].prompt)) expect(node.inputs.image).toEqual(state.captured)
+      return
+    }
     expect(state.submit).not.toHaveBeenCalled()
     expect(state.app.problems.get().some((problem) => problem.message.includes('matching dimensions'))).toBe(true)
     expect(tab.store.doc.graphs.camera!.nodes.inner!.values.image).toEqual(state.saved)

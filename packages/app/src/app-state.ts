@@ -8003,7 +8003,7 @@ export class AppState {
       }
       const previous = capturedOwners.get(key)
       if (previous !== undefined) {
-        if (previous.width !== dimensions.width || previous.height !== dimensions.height) {
+        if (previous.width !== dimensions.width || (dimensions.width !== 0 && previous.height !== dimensions.height)) {
           throw new Error('Cameras sharing a saved frame require matching dimensions; promote their image inputs separately.')
         }
         continue
