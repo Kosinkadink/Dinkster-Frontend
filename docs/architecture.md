@@ -189,7 +189,7 @@ successor may share a hidden predecessor's name without changing identity.
 Input-family `copy` mappings preserve authored suffix IDs and order by default.
 Explicit `memberIds: 'targetPositions'` maps that order to declared target
 positions, including values, controllers, labels, links, net sinks and fixed
-boundary bindings. Same-type migrations can declare a historical family root
+boundary bindings. Historical migrations can declare a historical family root
 with `sourceTemplate`: persisted members and incoming addresses provide
 evidence even without widget values. Historical flat addresses migrate;
 already-canonical sparse members remain unchanged on rescan. Whole-family
@@ -198,7 +198,12 @@ is preserved, while ancestor instances retain their own suffixes and consume
 the migrated definition prefix. Stale binding identities and unsupported
 nested source state fail explicitly.
 
-Explicit `copy` mappings in marked same-type migrations retain stored static
+The `migration` marker may accompany a node type rename. Its historical-input
+guard still declines modern state, allowing a separate identity rule to rename
+an already-modern node without renumbering its members. Same-type migrations
+remain one-shot; type-changing migrations follow the ordinary chain cycle guard.
+
+Explicit `copy` mappings in marked historical migrations retain stored static
 and family-member literals even when the target input has no widget. Widget
 presentation does not determine whether a native input can store a value;
 controller modes still require a controller-capable target widget. Ordinary

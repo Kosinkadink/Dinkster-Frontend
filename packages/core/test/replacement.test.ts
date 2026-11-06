@@ -372,7 +372,7 @@ describe('isReplacementRule', () => {
     expect(isReplacementRule(stale)).toBe(false)
   })
 
-  it('validates same-type migration markers', () => {
+  it('validates historical migration markers with same-type or renamed targets', () => {
     const valid = {
       from: 'A',
       migration: { historicalInputs: ['legacy.value', 'selector'] },
@@ -411,7 +411,7 @@ describe('isReplacementRule', () => {
       migration: { historicalInputs: ['legacy'] },
       cases: [{ to: 'B' }],
     }
-    expect(isReplacementRule(changesType)).toBe(false)
+    expect(isReplacementRule(changesType)).toBe(true)
   })
 
   it('rejects cyclic internal links, doubly-fed inputs, and malformed helper addresses', () => {
@@ -1190,8 +1190,8 @@ describe('input family replacement', () => {
   }
   const familyResolve = (type: string): NodeSchema | undefined => familySchemas[type]
 
-  it('preserves non-widget static and ordered family literals in a same-type migration', () => {
-    const target = schemaOf('ConcatenateVideo', [
+  it.each(['ConcatenateVideo', 'dinkster-video.concatenate_video'])('preserves non-widget static and ordered family literals migrating to %s', (targetType) => {
+    const target = schemaOf(targetType, [
       input('complete_audio', { type: { kind: 'concrete', name: 'BOOLEAN' } }),
       {
         ...familyInput('videos', []),
@@ -1204,7 +1204,7 @@ describe('input family replacement', () => {
     ])
     const rule: ReplacementRule = {
       from: 'ConcatenateVideo', migration: { historicalInputs: ['videos'] }, cases: [{
-        to: 'ConcatenateVideo', inputs: { complete_audio: { kind: 'copy', input: 'complete_audio' } },
+        to: targetType, inputs: { complete_audio: { kind: 'copy', input: 'complete_audio' } },
         inputFamilies: { videos: {
           kind: 'copy', sourceFamily: 'videos', memberIds: 'targetPositions',
           sourceTemplate: { inputs: ['video'] }, inputs: { video: { kind: 'copy', input: 'video' } },
@@ -1217,12 +1217,15 @@ describe('input family replacement', () => {
       }, { dynamic: { videos: { members: ['m9', 'm2'] } } }),
     } }) })
     const resolve = (type: string) => type === target.type ? target : undefined
-    const planned = planReplacement(original, 'g0', 'old', rule, resolve)
-    expect(planned.diagnostics.filter((diagnostic) => diagnostic.severity !== 'info')).toEqual([])
-    expect(planned.plan).toBeDefined()
-    if (!planned.plan) return
+    const registry = createReplacementRegistry()
+    expect(registry.register('schema', rule)).toEqual([])
+    const items = scanReplacements(original, registry, resolve)
+    expect(items).toHaveLength(1)
+    expect(items[0]!.safe).toBe(true)
+    expect(items[0]!.hops).toHaveLength(1)
     const store = new DocumentStore(original, coreCommandRegistry())
-    expect(store.dispatch({ command: 'node.replace', params: { plan: planned.plan } as unknown as Json }).ok).toBe(true)
+    expect(store.dispatch(replacementInvocation(items, original, resolve)!).ok).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.old!.type).toBe(targetType)
     expect(store.doc.graphs.g0!.nodes.old!.values).toEqual({
       'videos.video0': ['clip-b', 'clip-c'], 'videos.video1': ['clip-a'], complete_audio: false,
     })
@@ -1232,10 +1235,11 @@ describe('input family replacement', () => {
     if (compiled.ok) expect(compiled.artifact.prompt.old!.inputs).toEqual({
       'videos.video0': ['clip-b', 'clip-c'], 'videos.video1': ['clip-a'], complete_audio: false,
     })
-    expect(planReplacement(store.doc, 'g0', 'old', rule, resolve).plan).toBeUndefined()
+    expect(scanReplacements(store.doc, registry, resolve)).toEqual([])
     expect(store.undo()).toBe(true)
     expect(store.doc).toEqual(original)
     expect(store.redo()).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.old!.type).toBe(targetType)
     expect(store.doc.graphs.g0!.nodes.old!.values.complete_audio).toBe(false)
   })
 
@@ -3450,11 +3454,11 @@ describe('scanReplacements', () => {
     expect(items[0]!.rule).toBe(basicRule)
   })
 
-  it('tries later rules after a same-type migration cleanly declines', () => {
+  it.each(['OldNode', 'NewNode'])('tries later rules after a historical migration to %s cleanly declines', (targetType) => {
     const declined: ReplacementRule = {
       from: 'OldNode',
       migration: { historicalInputs: ['legacy'] },
-      cases: [{ to: 'OldNode' }],
+      cases: [{ to: targetType }],
     }
     const items = scanReplacements(
       doc({ g0: graph({ id: 'g0', nodes: { old: node('old', 'OldNode') } }) }),
