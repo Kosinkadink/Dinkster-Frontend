@@ -112,7 +112,10 @@ Missing or invalid network data falls back to validated cached bodies; an
 uncached offline client returns an empty external catalog. A successful empty
 index removes old discovery entries, and a changed digest never falls back
 to a body from the previous digest. Storage failure does not prevent a live
-response from being used.
+response from being used. Responses are streamed with a 16 MiB body limit,
+including when Content-Length is absent or inaccurate. Discovery accepts at
+most 1,024 packs and 16,384 nodes per pack; oversized input is rejected, not
+silently truncated. Cached input is subject to the same limits.
 
 `search.registryUrl` selects the registry or static mirror prefix; clearing
 it disables external discovery. Opening search revalidates in the background,

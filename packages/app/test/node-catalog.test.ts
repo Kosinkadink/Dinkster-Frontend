@@ -1,5 +1,5 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
-import { sha256Hex } from '@dinkster/core'
 import { RemoteNodeCatalog } from '../src/node-catalog.js'
 
 const prefix = 'https://registry.example/static'
@@ -21,7 +21,7 @@ const schemaBody = (changes: Record<string, unknown> = {}) => JSON.stringify({
 const indexBody = (body = schemaBody(), changes: Record<string, unknown> = {}) => JSON.stringify({
   schemaVersion: 1, items: [{
     name: pack, publisher: 'dinkster', version: '1.10.0', displayName: 'Image Tools', platforms: ['linux', 'darwin'],
-    url: path, digest: `sha256:${sha256Hex(body)}`, ...changes,
+    url: path, digest: `sha256:${createHash('sha256').update(body).digest('hex')}`, ...changes,
   }],
 })
 const storage = () => {
@@ -114,5 +114,30 @@ describe('static first-party node catalog', () => {
     expect(await a).toHaveLength(1)
     expect(fetchFn).toHaveBeenCalledTimes(2)
     expect(await new RemoteNodeCatalog('', cache, fetchFn).refresh()).toEqual([])
+  })
+  it('accepts canonical epoch versions and stops oversized streamed responses without replacing valid cache', async () => {
+    const cache = storage()
+    const epochBody = schemaBody({ version: '1!2.0' })
+    const epochIndex = indexBody(epochBody, { version: '1!2.0', url: 'packs/image-tools/1!2.0/schemas.json' })
+    const fetchFn = vi.fn<typeof fetch>(async (url) => new Response(String(url).endsWith('index.json') ? epochIndex : epochBody))
+    const catalog = new RemoteNodeCatalog(prefix, cache, fetchFn)
+    const original = await catalog.refresh()
+    expect(original).toHaveLength(1)
+    expect(original[0]!.pack.version).toBe('1!2.0')
+    let cancelled = false
+    fetchFn.mockImplementation(async () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new Uint8Array(16 * 1024 * 1024 + 1)) },
+      cancel() { cancelled = true },
+    })))
+    expect(await catalog.refresh()).toEqual(original)
+    expect(cancelled).toBe(true)
+    expect(catalog.cached()).toEqual(original)
+  })
+  it('rejects excessive discovery entries before issuing schema requests', async () => {
+    const entry = JSON.parse(indexBody()).items[0] as Record<string, unknown>
+    const items = Array.from({ length: 1025 }, (_, i) => ({ ...entry, name: `pack-${i}`, url: `packs/pack-${i}/1.10.0/schemas.json` }))
+    const fetchFn = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ schemaVersion: 1, items })))
+    expect(await new RemoteNodeCatalog(prefix, storage(), fetchFn).refresh()).toEqual([])
+    expect(fetchFn).toHaveBeenCalledTimes(1)
   })
 })

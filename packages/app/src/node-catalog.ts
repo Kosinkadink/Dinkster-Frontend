@@ -18,6 +18,9 @@ export interface CatalogNode {
 type CacheStorage = Pick<Storage, 'getItem' | 'setItem'>
 interface CachedBody { readonly body: string; readonly etag?: string }
 const CACHE_PREFIX = 'dinkster.node-catalog.v1:'
+const MAX_BODY_BYTES = 16 * 1024 * 1024
+const MAX_PACKS = 1024
+const MAX_NODES_PER_PACK = 16384
 const object = (value: unknown): Record<string, unknown> => {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected object')
   return value as Record<string, unknown>
@@ -25,7 +28,7 @@ const object = (value: unknown): Record<string, unknown> => {
 
 function decodeIndex(body: string): readonly CatalogPack[] {
   const index = object(JSON.parse(body))
-  if (index['schemaVersion'] !== 1 || !Array.isArray(index['items'])) throw new Error('Unsupported schema index')
+  if (index['schemaVersion'] !== 1 || !Array.isArray(index['items']) || index['items'].length > MAX_PACKS) throw new Error('Unsupported schema index')
   const names = new Set<string>()
   return index['items'].map((value: unknown) => {
     const item = object(value)
@@ -49,7 +52,7 @@ function decodeIndex(body: string): readonly CatalogPack[] {
 function decodeSchemas(body: string, pack: CatalogPack): readonly CatalogNode[] {
   if (`sha256:${sha256Hex(body)}` !== pack.digest) throw new Error('Schema digest mismatch')
   const envelope = object(JSON.parse(body))
-  if (envelope['packName'] !== pack.name || envelope['version'] !== pack.version || !Array.isArray(envelope['schemas'])) {
+  if (envelope['packName'] !== pack.name || envelope['version'] !== pack.version || !Array.isArray(envelope['schemas']) || envelope['schemas'].length > MAX_NODES_PER_PACK) {
     throw new Error('Schema envelope mismatch')
   }
   const types = new Set<string>()
@@ -82,8 +85,11 @@ export class RemoteNodeCatalog {
 
   private read(url: string): CachedBody | undefined {
     try {
-      const value = object(JSON.parse(this.storage?.getItem(CACHE_PREFIX + url) ?? 'null'))
+      const stored = this.storage?.getItem(CACHE_PREFIX + url) ?? 'null'
+      if (stored.length > MAX_BODY_BYTES * 2) return undefined
+      const value = object(JSON.parse(stored))
       if (typeof value['body'] !== 'string' || (value['etag'] !== undefined && typeof value['etag'] !== 'string')) return undefined
+      if (new TextEncoder().encode(value['body']).length > MAX_BODY_BYTES) return undefined
       return { body: value['body'], ...(typeof value['etag'] === 'string' ? { etag: value['etag'] } : {}) }
     } catch { return undefined }
   }
@@ -97,7 +103,25 @@ export class RemoteNodeCatalog {
     })
     if (response.status === 304 && cached !== undefined) return decode(cached.body)
     if (!response.ok) throw new Error(`Schema catalog request failed: ${response.status}`)
-    const body = await response.text()
+    if (Number(response.headers.get('Content-Length')) > MAX_BODY_BYTES) {
+      await response.body?.cancel()
+      throw new Error('Schema catalog response is too large')
+    }
+    const reader = response.body?.getReader()
+    if (reader === undefined) throw new Error('Schema catalog response has no body')
+    let body = ''
+    let bytes = 0
+    const decoder = new TextDecoder('utf-8', { fatal: true })
+    try {
+      while (true) {
+        const chunk = await reader.read()
+        if (chunk.done) break
+        bytes += chunk.value.byteLength
+        if (bytes > MAX_BODY_BYTES) throw new Error('Schema catalog response is too large')
+        body += decoder.decode(chunk.value, { stream: true })
+      }
+      body += decoder.decode()
+    } finally { await reader.cancel(); reader.releaseLock() }
     const decoded = decode(body)
     const etag = response.headers.get('ETag')
     try { this.storage?.setItem(CACHE_PREFIX + url, JSON.stringify({ body, ...(etag === null ? {} : { etag }) })) } catch { /* Storage may be full or unavailable. */ }
