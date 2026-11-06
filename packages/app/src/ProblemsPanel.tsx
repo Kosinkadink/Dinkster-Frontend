@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
-import { diag, type Diagnostic } from '@dinkster/core'
+import { diag, type Diagnostic, type ImportedNodePackResolution } from '@dinkster/core'
 import type { CompatSkip, PackInferenceUnavailable } from '@dinkster/client'
 import { diagnosticFocusTarget, type AppState, type MigrationNotice } from './app-state.js'
 import { groupProblemDiagnostics, type ProblemGroup } from './problem-display.js'
@@ -47,6 +47,7 @@ export interface ProblemsPanelProps {
   readonly compatSkips: () => readonly CompatSkip[]
   readonly migrationNotice?: () => MigrationNotice | undefined
   readonly packInferenceUnavailable?: () => readonly PackInferenceUnavailable[]
+  readonly importedNodes?: () => readonly ImportedNodePackResolution[]
   readonly disclosure?: ProblemsDisclosure
   readonly onShowInContext?: (diagnostic: Diagnostic) => void
 }
@@ -69,6 +70,16 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
     return owner !== undefined && props.app.canUndoMigrationNotice(owner)
   }
   const disclosure = props.disclosure ?? createProblemsDisclosure()
+  const missingPacks = createMemo(() => {
+    const packs = new Map<string, ImportedNodePackResolution[]>()
+    for (const node of props.importedNodes?.() ?? []) {
+      if (node.status !== 'installable' || node.pack === undefined) continue
+      const nodes = packs.get(node.pack) ?? []
+      nodes.push(node)
+      packs.set(node.pack, nodes)
+    }
+    return [...packs].sort(([left], [right]) => left.localeCompare(right))
+  })
   const packDiagnostics = createMemo(() => [
     ...props.compatSkips().map((skip) => diag('info', 'schema', 'pack.compatSkipped', `${skip.packId}: ${skip.nodeId} - ${skip.reason}`)),
     ...(props.packInferenceUnavailable?.() ?? []).map((pack) => diag(
@@ -91,9 +102,32 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
   return (
     <section class="rail-section" data-testid="problems-panel" data-native-text-scope>
       <ProductPanelHeader title={message('shell.panel.problems.title')} />
+      <Show when={missingPacks().length > 0}>
+        <section class="problems-group imported-packs-report" data-testid="imported-packs-report" data-severity="warning">
+          <div class="problems-group-header">
+            <span class="problems-group-title">{message('problems.importedPacks.title')}</span>
+            <span class="problems-group-count">{missingPacks().length}</span>
+          </div>
+          <p>{message('problems.importedPacks.hint')}</p>
+          <For each={missingPacks()}>{([pack, nodes]) => (
+            <section class="problem" data-pack={pack}>
+              <h3>{pack}</h3>
+              <ul>
+                <For each={nodes}>{(node) => (
+                  <li>
+                    <span>{node.sourceClass}</span>
+                    <code>{node.graphId}/{node.nodeId}</code>
+                    <span class="imported-pack-status">{message('problems.importedPacks.installable')}</span>
+                  </li>
+                )}</For>
+              </ul>
+            </section>
+          )}</For>
+        </section>
+      </Show>
       <Show
         when={props.migrationNotice?.() !== undefined || groups().length > 0}
-        fallback={<ProductEmptyState title={message('problems.empty')} />}
+        fallback={<Show when={missingPacks().length === 0}><ProductEmptyState title={message('problems.empty')} /></Show>}
       >
         <Show when={props.migrationNotice?.()}>{(notice) => (
           <section class="problems-group" data-testid="migration-notice">

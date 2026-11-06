@@ -53,6 +53,7 @@ import {
   stampEnvironment,
   t,
   importLitegraph,
+  type ComfyTranslation,
   isIntegerWidgetValue,
   isValueDiagnostic,
   loadDocument,
@@ -2248,6 +2249,7 @@ interface BackendBase {
   readonly label: string
   readonly baseUrl: string
   readonly registry: Signal<SchemaRegistry | undefined>
+  readonly comfyTranslations: Signal<readonly ComfyTranslation[]>
   /** Execution locations advertised by the current native server life. */
   readonly workerCatalog: Signal<WorkerCatalogState>
   readonly templatesEnabled: Signal<boolean>
@@ -4008,6 +4010,7 @@ export class AppState {
       label,
       baseUrl,
       registry,
+      comfyTranslations: createSignal<readonly ComfyTranslation[]>([]),
       workerCatalog,
       templatesEnabled: createSignal(false),
       schemaState: createSignal<
@@ -4716,6 +4719,9 @@ export class AppState {
       if (
         node.type.startsWith('#') ||
         (node.virtual === true && this.virtualNodeSchema(node.type)?.virtual === true) ||
+        // Translated nodes use the live missing-pack report, not a warning
+        // captured before installation that would survive registry refresh.
+        node.ext?.['importer.comfyTranslation'] !== undefined ||
         registry.resolve(node.type)
       )
         continue
@@ -6099,7 +6105,7 @@ export class AppState {
       ? importVia ?? (active !== undefined ? this.backendForTab(active) : this.backends.get()[0])
       : undefined
     const importRegistry = importBackend?.registry.get()
-    const legacyLoaded = legacy ? this.importLegacy(json, importRegistry) : undefined
+    const legacyLoaded = legacy ? this.importLegacy(json, importRegistry, importBackend?.comfyTranslations.get()) : undefined
     const loaded = legacyLoaded ?? loadDocument(json)
     if (!loaded.document) {
       // No tab exists to own a failed load; the errors are app-scoped
@@ -6868,18 +6874,18 @@ export class AppState {
     this.reportProblems(tab.id, drift)
   }
 
-  private importLegacy(json: unknown, registry = this.registry.get()): {
+  private importLegacy(json: unknown, registry: SchemaRegistry | undefined, translations: readonly ComfyTranslation[] = []): {
     readonly document?: WorkflowDocument
     readonly diagnostics: readonly Diagnostic[]
   } {
-    if (!registry) {
+    if (!registry && translations.length === 0) {
       return {
         diagnostics: [
           diag('error', 'import', 'import.registryMissing', 'cannot translate a legacy litegraph workflow before node schemas are loaded'),
         ],
       }
     }
-    return importLitegraph(json as JsonObject, registry.resolve)
+    return importLitegraph(json as JsonObject, registry?.resolve ?? (() => undefined), undefined, translations)
   }
 
   /**

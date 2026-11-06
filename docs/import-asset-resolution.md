@@ -14,7 +14,13 @@ only when their exact native type exists in the selected backend registry,
 otherwise installable from their recorded pack. Nodes with neither a schema
 nor translation remain unknown. Recomputing resolution after a registry change
 does not re-import or modify the document. The application import path still
-uses its installed catalog unless translation records are supplied.
+uses its installed catalog unless translation records are supplied to the
+selected backend's import catalog. With supplied records, opening does not
+require an installed registry. The Problems panel groups installable nodes
+by first-party pack name and shows each source class and graph/node identity.
+This report is advisory: the document remains editable, unknown classes keep
+their own diagnostics, and registry changes recompute the report without
+replacing the document or its undo history.
 
 An empty string in an optional file widget omits that input while consuming its
 original widget position. Required file widgets, nonempty filenames and named
