@@ -749,6 +749,7 @@ export function ImageDocumentWorkspace(props: {
   let collaborationListIntent = 0
   let collaborationListCurrent = (): boolean => false
   const pendingCollaborationLists = new Set<Promise<void>>()
+  const pendingCollaborationJoins = new Set<Promise<void>>()
   const pendingGraphOpens = new Set<Promise<void>>()
   const pendingImports = new Set<Promise<void>>()
   const leaving = new Set<OpenImageDocument>()
@@ -773,7 +774,8 @@ export function ImageDocumentWorkspace(props: {
   }
 
   const setBusy = (value: boolean): void => {
-    const pending = value || pendingImports.size > 0 || pendingGraphOpens.size > 0 || pendingCollaborationLists.size > 0
+    const pending = value || pendingImports.size > 0 || pendingGraphOpens.size > 0 ||
+      pendingCollaborationLists.size > 0 || pendingCollaborationJoins.size > 0
     setBusySignal(pending)
     props.onBusyChange(pending)
   }
@@ -1076,12 +1078,17 @@ export function ImageDocumentWorkspace(props: {
     await task
   }
   const joinShared = async (descriptor: CollabSessionDescriptor): Promise<void> => {
-    if (!collaborationListCurrent()) {
+    const listCurrent = collaborationListCurrent
+    if (!listCurrent()) {
       closeCollaboration()
       return
     }
     const backend = backendForCollaboration()
     if (backend?.protocol !== 'dinkster') return
+    const connection = backend.connection
+    let joined = false
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      backendForCollaboration() === backend && backend.connection === connection && (joined || listCurrent())
     const duplicate = documents().find((entry) =>
       entry.collaboration?.descriptor.sessionId === descriptor.sessionId &&
       entry.collaboration.baseUrl === backend.baseUrl,
@@ -1094,16 +1101,21 @@ export function ImageDocumentWorkspace(props: {
     setCollaborationTransition(true)
     setBusy(true)
     setError(undefined)
-    try {
-      const previous = documents().find((entry) => entry.draft.document.lineage === descriptor.documentId)
-      await adoptShared(descriptor, backend.baseUrl, previous)
-      setCollaborationOpen(false)
-    } catch (cause) {
-      if (live) setLocalizedError('imageDocument.workspace.error.joinFailed', { reason: messageOf(cause) })
-    } finally {
-      if (live) setCollaborationTransition(false)
+    const previous = documents().find((entry) => entry.draft.document.lineage === descriptor.documentId)
+    const task: Promise<void> = adoptShared(descriptor, backend.baseUrl, previous, current).then(() => {
+      if (current()) {
+        joined = true
+        setCollaborationOpen(false)
+      }
+    }).catch((cause) => {
+      if (current()) setLocalizedError('imageDocument.workspace.error.joinFailed', { reason: messageOf(cause) })
+    }).finally(() => {
+      pendingCollaborationJoins.delete(task)
+      if (live && pendingCollaborationJoins.size === 0) setCollaborationTransition(false)
       if (live) setBusy(false)
-    }
+    })
+    pendingCollaborationJoins.add(task)
+    await task
   }
   const tabName = (entry: OpenImageDocument): string => { metadataTick(); return entry.name }
   const tabId = (lineage: ImageDocument['lineage']): string => `image-document-tab-${encodeURIComponent(lineage)}`
@@ -1184,7 +1196,7 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...current.flatMap((entry) => [
+    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
       entry.hydrate.catch(() => undefined),
     ])]).finally(() => store.close())

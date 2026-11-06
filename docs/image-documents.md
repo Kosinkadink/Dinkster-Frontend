@@ -31,6 +31,13 @@ stale results and errors do not reopen it. A list from an obsolete owner cannot
 start a join. Pending list requests keep the workspace busy and settle before
 disposal closes its store.
 
+An explicit join keeps the list request's original owner through snapshot,
+resource hydration, and local membership updates. Closing that dialog or changing
+its project/backend connection invalidates the pending join; stale continuations
+cannot publish membership, shared tabs, or errors. Disposal waits for the join
+to settle and close its rejected session before closing the local store.
+Already submitted local writes may finish without rollback.
+
 Closing the library dialog (including Escape), changing its backend connection,
 or leaving its project invalidates a pending library open. A settled stale read
 does not open a tab or start another resource/draft write. An already submitted
