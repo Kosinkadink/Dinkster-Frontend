@@ -10,6 +10,7 @@ An unconnected subgraph socket targeting a non-widget input absent from the
 installed node schema stays exposed but unbound, with an obsolete-input warning.
 It supplies no backend input. Connected sockets, saved widget bindings and
 missing schemas remain unresolved rather than discarding authored data.
+Unused definitions retain their authored bindings for diagnosis.
 Subgraph inputs can attach to authored reroute junctions. Their port binding
 identifies the schema authority while `viaReroute` identifies the actual input
 attachment; downstream fan-out is derived from the retained links. Compilation

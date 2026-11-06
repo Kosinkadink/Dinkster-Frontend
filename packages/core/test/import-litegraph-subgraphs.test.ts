@@ -83,6 +83,10 @@ describe('LiteGraph subgraphs', () => {
     const linked = importLitegraph(connected as JsonObject, resolve)
     expect(linked.diagnostics.map(item => item.code)).not.toContain('import.subgraphs.obsoleteInput')
     expect(linked.diagnostics.map(item => item.code)).toContain('import.subgraphs.boundaryUnresolved')
+
+    const dormant = importLitegraph({ ...raw, nodes: [] } as JsonObject, resolve)
+    expect(dormant.diagnostics.map(item => item.code)).not.toContain('import.subgraphs.obsoleteInput')
+    expect(dormant.diagnostics.map(item => item.code)).toContain('import.subgraphs.boundaryUnresolved')
   })
 
   it.each([false, true])('forwards a dynamic selector and separate branch widgets (keyed: %s)', (keyed) => {

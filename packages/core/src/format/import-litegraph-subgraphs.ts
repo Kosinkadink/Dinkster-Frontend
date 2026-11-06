@@ -541,11 +541,10 @@ export function importLitegraphSubgraphs(
         !nodeEnd(link.from, `n${def.inputNode}`) && !nodeEnd(link.to, `n${def.outputNode}`))),
       boundary: { inputs: boundary('inputs').map((item) => {
         const rawSlot = def.raw['inputs'].find((slot: Mutable) => slot['id'] === item.id)
-        const connected = [root, ...[...definitions.values()].map((definition) => definition.raw)].some((graph) =>
-          graph['nodes'].some((node: Mutable) => (node['type'] === id || node['type'] === `#${id}`) &&
-            node['inputs']?.some((input: Mutable) =>
-              (input['name'] === item.id || input['name'] === rawSlot?.['name']) && input['link'] != null)))
-        if (connected) return item
+        const instances: Mutable[] = [root, ...[...definitions.values()].map((definition) => definition.raw)]
+          .flatMap((graph) => graph['nodes'].filter((node: Mutable) => node['type'] === id || node['type'] === `#${id}`))
+        if (!instances.length || instances.some((node) => node['inputs']?.some((input: Mutable) =>
+          (input['name'] === item.id || input['name'] === rawSlot?.['name']) && input['link'] != null))) return item
         const bindings = [item.binds, ...(item.alsoBinds ?? [])].filter((binding) => {
           if (binding.kind !== 'port' || binding.viaReroute !== undefined) return true
           const node = nativeBody.nodes[binding.node]
