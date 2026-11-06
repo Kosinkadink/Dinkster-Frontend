@@ -62,7 +62,9 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   const abort = new AbortController()
   let viewerPending = false
   let settleViewer: (() => void) | undefined
+  let viewerCurrent = (): boolean => true
   const releaseUrls = () => { urls.splice(0).forEach((url) => URL.revokeObjectURL(url)) }
+  let pendingCapture: ReturnType<Model3dViewerHandle['capture']> | undefined
   const backendCurrent = (): boolean => props.editor.app.backendForTab(ed.tab).connection === backend.connection
   let sourcesCurrent = (): boolean => ed.tab.store.revision === revision && backendCurrent()
   onCleanup(() => {
@@ -245,6 +247,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
           ...(format ? { format } : {}), pointCloud: node?.type === 'PreviewPointCloud' })
         if (!live || !sourcesCurrent() || reader?.current() === false) { mounted.dispose(); return }
         viewer = mounted
+        viewerCurrent = () => reader?.current() !== false
         try {
           const cameraInfo = inputValue('camera_info') ?? initial.camera_info
           if (cameraInfo) viewer.setCameraState(cameraInfo as unknown as Model3dCameraState)
@@ -256,6 +259,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
           await new Promise<void>((resolve) => { settleViewer = resolve })
         } finally {
           if (viewer === mounted) { viewer = undefined; mounted.dispose() }
+          await pendingCapture?.catch(() => {})
         }
       }
       viewerPending = true
@@ -309,6 +313,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
     setBusy(true)
     setError(undefined)
     try {
+      if (!viewerCurrent()) throw new Error(message('load3dWidget.unavailable'))
       const cameraInfo = inputValue('camera_info') ?? initial.camera_info
       const models = inputValue('model_3d_info') ?? initial.model_3d_info
       const modelInfo = Array.isArray(models) ? models : []
@@ -318,26 +323,27 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         model_3d_info: [{ ...object(modelInfo[0]), ...JSON.parse(JSON.stringify(viewer.modelTransform())) }, ...modelInfo.slice(1)],
       }
       if (!metadataOnly) {
-        const capture = await viewer.capture(Number(inputValue('width') ?? 1024), Number(inputValue('height') ?? 1024))
+        pendingCapture = viewer.capture(Number(inputValue('width') ?? 1024), Number(inputValue('height') ?? 1024))
+        const capture = await pendingCapture
         for (const name of ['image', 'mask', 'normal'] as const) {
-          if (!live || !sourcesCurrent()) return
+          if (!live || !sourcesCurrent() || !viewerCurrent()) return
           const file = new File([capture[name]], `viewport-${name}.png`, { type: 'image/png' })
           const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/image', name: file.name, signal: abort.signal })
           next[name] = JSON.parse(JSON.stringify(ref)) as Json
         }
         if (video) {
-          if (!live || !sourcesCurrent()) return
+          if (!live || !sourcesCurrent() || !viewerCurrent()) return
           const file = new File([video], 'viewport-recording.webm', { type: video.type })
           const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/video', name: file.name, signal: abort.signal })
           next.recording = JSON.parse(JSON.stringify(ref)) as Json
         } else if (next.recording === undefined) next.recording = ''
       }
-      if (!live || abort.signal.aborted) return
+      if (!live || abort.signal.aborted || !viewerCurrent()) return
       if (ed.tab.execution || !sourcesCurrent()) { props.close(); return }
       props.commitValue(next)
     } catch (reason) {
       if (live) setError(reason instanceof Error ? reason.message : String(reason))
-    } finally { if (live) setBusy(false) }
+    } finally { pendingCapture = undefined; if (live) setBusy(false) }
   }
   const changeCamera = (update: Partial<Model3dCameraState>): void => {
     if (!viewer || busy()) return

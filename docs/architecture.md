@@ -145,9 +145,11 @@ source state cannot publish object URLs. Local grants keep their separate path.
 Load3d also borrows the captured owner independently across model decode, mount
 and the mounted viewer. Closing while mount is pending keeps its read and object
 URLs alive until the late handle is disposed. Closing a mounted viewer disposes
-the handle before settling that borrow. Producer models acknowledge the selected
-primary and sidecar digest union as incomplete shown-result roots for this
-lifetime. This does not certify local bindings, native asynchronous teardown,
+the handle promptly but waits for any pending capture encoding before settling
+that borrow and revoking object URLs. Expired viewer ownership refuses capture,
+and expiration during capture or upload prevents late publication. Producer
+models acknowledge the selected primary and sidecar digest union as incomplete
+shown-result roots for this lifetime. This does not certify local bindings, native asynchronous teardown,
 complete dependencies or retained-owner retirement.
 
 Live and mirrored structured outputs and preview records also await incomplete

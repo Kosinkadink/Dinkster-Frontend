@@ -12,6 +12,7 @@ const fixtures = vi.hoisted(() => ({
   transform: { position: { x: 2, y: -1, z: 4 }, quaternion: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 2, z: 3 } },
   loads: [] as { mime: string; format?: string; resources?: Readonly<Record<string, string>> }[],
   mount: undefined as (() => Promise<void>) | undefined,
+  capture: undefined as (() => Promise<void>) | undefined,
   disposed: 0,
 }))
 vi.mock('../src/model3d-viewer.js', () => ({
@@ -25,15 +26,15 @@ vi.mock('../src/model3d-viewer.js', () => ({
       modelTransform: () => fixtures.transform,
       setModelTransform: (state: typeof fixtures.transform) => { fixtures.transform = state },
       animationClips: () => [],
-      capture: async () => ({ image: new Blob(['scene']), mask: new Blob(['alpha']), normal: new Blob(['normals']) }),
+      capture: async () => { await fixtures.capture?.(); return { image: new Blob(['scene']), mask: new Blob(['alpha']), normal: new Blob(['normals']) } },
       recordingStream: () => ({ stream: {}, stop() {} }),
     }
   },
 }))
 
-afterEach(() => { document.body.replaceChildren(); fixtures.loads.length = 0; fixtures.mount = undefined; fixtures.disposed = 0; vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { document.body.replaceChildren(); fixtures.loads.length = 0; fixtures.mount = undefined; fixtures.capture = undefined; fixtures.disposed = 0; vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-it.each(['stored', 'tap', 'broken-link', 'broken-net'] as const)('keeps authored state on failure and cancel and captures undoably from %s', async (source) => {
+it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture-close-rejected', 'capture-expired', 'capture-late-expired', 'capture-success', 'capture-rejected'] as const)('keeps authored state on failure and cancel and captures undoably from %s', async (source) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const schema = parseDinksterSchema('Load3DFixture', { interface: [
@@ -51,7 +52,7 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net'] as const)('keeps authored
   const store = new DocumentStore({ ...doc, graphs: { ...doc.graphs, g0: {
     ...graph,
     nodes: { ...graph.nodes, source: { id: asNodeId('source'), type: schema.type, values: { model_file: linkedModel } } },
-    links: source === 'stored' || source === 'broken-net' ? graph.links : { l1: {
+    links: source === 'stored' || source.startsWith('capture-') || source === 'broken-net' ? graph.links : { l1: {
       id: asLinkId('l1'), from: { node: asNodeId(source === 'tap' ? 'source' : 'missing'), tap: asPortId('model_file') }, to,
     } },
     nets: source !== 'broken-net' ? graph.nets : { net: { id: asNetId('net'), name: 'model', source: { node: asNodeId('missing'), port: asPortId('out') }, sinks: [to] } },
@@ -59,9 +60,13 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net'] as const)('keeps authored
   const tab = { store } as unknown as Tab
   const registry = createWidgetRegistry()
   let fail = true
+  let activeReads = 0
+  let current = true
+  const uploads: string[] = []
   const connection = {
     fetchAssetBytes: async (digest: string) => digest === (source === 'tap' ? linkedModel.digest : model.digest) ? new Uint8Array([1]) : undefined,
     uploadMediaAsset: async (file: File) => {
+      uploads.push(file.name)
       if (fail && file.name.includes('mask')) throw new Error('upload denied')
       return { ...model, name: file.name, mediaType: file.type }
     },
@@ -70,7 +75,10 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net'] as const)('keeps authored
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ protocol: 'dinkster', connection }),
-    workflowAssetReader: () => ({ current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
+    workflowAssetReader: () => ({ current: () => current, read: async <T,>(consume: () => Promise<T>) => {
+      activeReads++
+      try { return await consume() } finally { activeReads-- }
+    } }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
@@ -89,6 +97,48 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net'] as const)('keeps authored
     return
   }
   await vi.waitFor(() => expect(document.querySelector('#load3d-position-x')).not.toBeNull())
+  if (source.startsWith('capture-')) {
+    let release!: () => void
+    let reject!: (reason: Error) => void
+    const pending = new Promise<void>((resolve, refuse) => { release = resolve; reject = refuse })
+    let capturing = false
+    fixtures.capture = () => { capturing = true; return pending }
+    fail = false
+    if (source === 'capture-expired') current = false
+    button('Apply').click()
+    if (source === 'capture-expired') {
+      await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
+      expect(capturing).toBe(false)
+    } else {
+      await vi.waitFor(() => expect(capturing).toBe(true))
+      expect(activeReads).toBe(1)
+      if (source.startsWith('capture-close')) {
+        dispose()
+        expect(fixtures.disposed).toBe(1)
+        await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+        expect(activeReads).toBe(1)
+        expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+      }
+      if (source === 'capture-late-expired') current = false
+      if (source.endsWith('rejected')) reject(new Error('capture failed'))
+      else release()
+      if (source.startsWith('capture-close')) {
+        await vi.waitFor(() => expect(activeReads).toBe(0))
+        expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1)
+      } else if (source === 'capture-success') {
+        await vi.waitFor(() => expect(uploads).toHaveLength(3))
+        await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values.image).not.toEqual(initial))
+        expect(activeReads).toBe(1)
+      } else await vi.waitFor(() => expect(button('Apply').disabled).toBe(false))
+    }
+    if (source !== 'capture-success') {
+      expect(uploads).toEqual([])
+      expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(initial)
+    }
+    if (!source.startsWith('capture-close')) dispose()
+    await vi.waitFor(() => expect(activeReads).toBe(0))
+    return
+  }
   if (source === 'stored') {
     vi.stubGlobal('MediaRecorder', class {
       state = 'inactive'
