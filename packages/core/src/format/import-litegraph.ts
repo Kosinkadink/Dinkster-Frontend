@@ -708,9 +708,18 @@ export function importLitegraph(
   let document = result.document
   const diagnostics = [...result.diagnostics]
   for (const [graphId, graph] of Object.entries(document.graphs)) {
-    for (const node of Object.values(graph.nodes)) {
+    const pending = Object.values(graph.nodes).map((node) => ({ nodeId: node.id as string, sources: [] as string[], sourceClass: node.type }))
+    for (let index = 0; index < pending.length; index++) {
+      const { nodeId, sources, sourceClass } = pending[index]!
+      const node = document.graphs[graphId]!.nodes[nodeId]
+      if (node === undefined) continue
       const record = bySource.get(node.type)
       if (record === undefined) continue
+      // Helpers inherit ancestry too: fresh helper IDs must not evade cycle detection.
+      if (sources.includes(node.type)) {
+        diagnostics.push(imp('warning', 'import.translation.cycle', `translation cycle at '${node.type}' in ${graphId}/${nodeId}; node kept for review`))
+        continue
+      }
       const planned = planReplacement(document, graphId, node.id, record.rule, resolveForImport)
       // A failed translation is advisory: retain the editable imported node.
       diagnostics.push(...planned.diagnostics.map((entry) => ({ ...entry, severity: entry.severity === 'error' ? 'warning' as const : entry.severity })))
@@ -726,9 +735,14 @@ export function importLitegraph(
       const translatedNode = translated.graphs[graphId]!.nodes[node.id]!
       tx.set(['graphs', graphId, 'nodes', node.id, 'ext'], {
         ...translatedNode.ext,
-        'importer.comfyTranslation': { sourceClass: record.rule.from, pack: record.pack, version: record.version },
+        'importer.comfyTranslation': { sourceClass, pack: record.pack, version: record.version },
       })
       document = tx.result().doc
+      const ancestry = [...sources, node.type]
+      if (translatedNode.type !== node.type) pending.push({ nodeId, sources: ancestry, sourceClass })
+      for (const helper of planned.plan.createdNodes ?? []) {
+        pending.push({ nodeId: helper.nodeId, sources: ancestry, sourceClass: helper.type })
+      }
     }
   }
   const retained = ownJson({ ...document,

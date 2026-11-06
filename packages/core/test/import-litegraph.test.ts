@@ -101,6 +101,76 @@ it('converts supplied first-party interfaces before resolving installed packs', 
   expect(checkDocument(document)).toEqual([])
 })
 
+it.each([false, true])('fully translates primary and helper chains inside a subgraph: %s', (nested) => {
+  const schema = (type: string): NodeSchema => ({
+    type, displayName: type, category: 'test', source: 'v3', isOutputNode: false,
+    items: [
+      { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+        widget: { widgetType: 'FLOAT', options: {}, default: 0 } },
+      { kind: 'input', id: 'dependency', type: { kind: 'concrete', name: 'FLOAT' }, optional: true },
+      { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } },
+    ],
+  })
+  const translations: ComfyTranslation[] = [
+    { pack: 'first-pack', version: '1', schema: schema('Intermediate'), rule: {
+      from: 'Authored', cases: [{ to: 'Intermediate',
+        inputs: { value: { kind: 'copy', input: 'value' } }, outputs: { out: 'out' },
+        nodes: { helper: { type: 'Intermediate', values: { value: 17 } } },
+        links: [{ from: 'helper:out', to: 'dependency' }],
+      }],
+    } },
+    { pack: 'final-pack', version: '2', schema: schema('native.final'), rule: {
+      from: 'Intermediate', cases: [{ to: 'native.final',
+        inputs: { value: { kind: 'value', input: 'value', transform: { kind: 'scale', factor: 3 } },
+          dependency: { kind: 'copy', input: 'dependency' } },
+        outputs: { out: 'out' },
+      }],
+    } },
+  ]
+  const nodes = [{ id: 1, type: 'Authored', widgets_values: [7], outputs: [{ name: 'out' }] }]
+  const foreign: JsonObject = nested
+    ? { nodes: [{ id: 2, type: 'inner' }], definitions: { subgraphs: [
+      { id: 'inner', name: 'inner', version: 1, nodes, inputs: [], outputs: [], links: [] },
+    ] } }
+    : { nodes, links: [] }
+  const imported = importLitegraph(foreign, () => undefined, undefined, translations)
+  expect(errorsOf(imported.diagnostics)).toEqual([])
+  const document = imported.document!
+  const translated = Object.values(document.graphs).find((graph) => graph.nodes.n1?.type === 'native.final')!
+  expect(Object.values(translated.nodes).map((node) => [node.id, node.type, node.values.value])).toEqual([
+    ['n1', 'native.final', 21], ['n1:helper', 'native.final', 51],
+  ])
+  expect(Object.values(translated.links).map((link) => [link.from, link.to])).toEqual([
+    [{ node: 'n1:helper', port: 'out' }, { node: 'n1', port: 'dependency' }],
+  ])
+  const statuses = resolveImportedNodePacks(document, () => undefined).filter((node) => node.graphId === translated.id)
+  expect(statuses.map((node) => [node.sourceClass, node.status, node.pack, node.version])).toEqual([
+    ['Authored', 'installable', 'final-pack', '2'], ['Intermediate', 'installable', 'final-pack', '2'],
+  ])
+  expect(checkDocument(document)).toEqual([])
+})
+
+it.each(['type-cycle', 'recursive-helper', 'same-type'])('keeps %s translations finite and editable', (shape) => {
+  const schema = (type: string): NodeSchema => ({
+    type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, items: [],
+  })
+  const translations: ComfyTranslation[] = [
+    { pack: 'first', version: '1', schema: schema(shape === 'same-type' ? 'A' : 'B'),
+      rule: { from: 'A', cases: [{ to: shape === 'same-type' ? 'A' : 'B',
+        ...(shape === 'recursive-helper' ? { nodes: { helper: { type: 'A' } } } : {}),
+      }] } },
+    ...(shape === 'type-cycle' ? [{ pack: 'second', version: '2', schema: schema('A'),
+      rule: { from: 'B', cases: [{ to: 'A' }] } }] : []),
+  ]
+  const result = importLitegraph({ nodes: [{ id: 1, type: 'A' }], links: [] }, () => undefined, undefined, translations)
+  expect(errorsOf(result.diagnostics)).toEqual([])
+  expect(Object.values(result.document!.graphs.g0!.nodes).map((node) => node.type)).toEqual(
+    shape === 'recursive-helper' ? ['B', 'A'] : ['A'],
+  )
+  expect(result.diagnostics.filter((entry) => entry.code === 'import.translation.cycle')).toHaveLength(shape === 'same-type' ? 0 : 1)
+  expect(checkDocument(result.document!)).toEqual([])
+})
+
 it('imports authored combo choices and typed index separately from linked extra dependencies', () => {
   const combo = parseDinksterSchema('CustomCombo', {
     outputNode: true, additionalInputs: { kind: 'wildcard' },

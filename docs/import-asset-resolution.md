@@ -8,6 +8,11 @@ the owning packs and never join the executable schema registry. Conversion
 uses the ordinary replacement planner and preserves the source class, owning
 pack and version on each translated node. Unknown classes keep their original
 values for review. Versioned widget-stream upgrades run before conversion.
+Conversion follows chained rules and newly created helper nodes, including
+inside subgraph definitions, before resolving packs. A repeated source type
+in a primary/helper ancestry stops that branch with a nonblocking diagnostic;
+a same-type rule runs once. The final pack is reported while the original
+source class remains available for review.
 
 Pack resolution is separate from conversion: translated nodes are installed
 only when their exact native type exists in the selected backend registry,
