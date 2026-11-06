@@ -415,16 +415,25 @@ export class ImageDocumentLocalStore {
   async setCollaboration(
     lineage: string,
     collaboration: ImageCollaborationLink | undefined,
+    assertCurrent: () => void = () => undefined,
   ): Promise<ImageDocumentDraft> {
     if (collaboration !== undefined && !validCollaborationLink(collaboration)) {
       throw new Error('invalid ImageDocument collaboration membership')
     }
     const database = await this.database
+    assertCurrent()
     const transaction = database.transaction(DRAFTS, 'readwrite')
     const done = transactionDone(transaction)
     const records = transaction.objectStore(DRAFTS)
     const key = draftKey(this.projectId, lineage)
     const existing = await requestResult(records.get(key) as IDBRequest<DraftRecord | undefined>)
+    try {
+      assertCurrent()
+    } catch (cause) {
+      transaction.abort()
+      await done.catch(() => undefined)
+      throw cause
+    }
     const current = existing === undefined ? undefined : parseDraft(existing)
     if (current === undefined) {
       transaction.abort()

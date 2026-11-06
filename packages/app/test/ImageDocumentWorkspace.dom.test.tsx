@@ -3,7 +3,7 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { IDBFactory as FakeIDBFactory } from 'fake-indexeddb'
+import { IDBFactory as FakeIDBFactory, IDBObjectStore as FakeIDBObjectStore } from 'fake-indexeddb'
 import { DinksterValuesClient, IMAGE_DOCUMENT_MEDIA_TYPE, type DinksterConnection, type LibraryRecord, type RetainedAssetOwner, type RetainedAssetDeclaration } from '@dinkster/client'
 import {
   COLLAB_PROTOCOL_VERSION,
@@ -43,7 +43,8 @@ afterEach(() => {
 })
 
 describe('ImageDocumentWorkspace', () => {
-  it.each(['accepted', 'missing', 'project', 'backend', 'connection', 'dispose', 'snapshot-project', 'snapshot-dispose'])(
+  it.each(['accepted', 'missing', 'project', 'backend', 'connection', 'dispose', 'snapshot-project', 'snapshot-dispose',
+    'write-project', 'write-backend', 'write-connection', 'write-dispose', 'write-accepted', 'submitted-project'])(
     'keeps recovery membership with its original workspace and connection (%s)', async (outcome) => {
       vi.stubGlobal('indexedDB', new FakeIDBFactory())
       vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
@@ -61,6 +62,7 @@ describe('ImageDocumentWorkspace', () => {
       let entered = false
       let closed = false
       const snapshotHeld = outcome.startsWith('snapshot')
+      const writeHeld = outcome.startsWith('write-') || outcome.startsWith('submitted-')
       const connection = {
         sessionId: membership.sessionId,
         fetchSnapshot: async () => {
@@ -93,17 +95,46 @@ describe('ImageDocumentWorkspace', () => {
       document.body.append(root)
       const dispose = render(() => <ImageDocumentWorkspace active app={app}
         onBusyChange={() => undefined} onClose={() => undefined} />, root)
+      const invalidate = (): void => {
+        if (outcome.includes('project')) initializeProjectScope('other-project')
+        if (outcome.endsWith('backend')) backend = { ...backend }
+        if (outcome.endsWith('connection')) backend.connection = {} as DinksterConnection
+        if (outcome.includes('dispose')) dispose()
+      }
+      let writeTransition = false
+      if (outcome === 'submitted-project') {
+        const put = FakeIDBObjectStore.prototype.put
+        vi.spyOn(FakeIDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value, key) {
+          const request = put.call(this, value, key)
+          if (this.name === 'drafts') request.addEventListener('success', () => {
+            writeTransition = true
+            invalidate()
+          }, { once: true })
+          return request
+        })
+      } else if (writeHeld) {
+        const get = FakeIDBObjectStore.prototype.get
+        vi.spyOn(FakeIDBObjectStore.prototype, 'get').mockImplementation(function (this: IDBObjectStore, key) {
+          const request = get.call(this, key)
+          if (this.name === 'drafts' && !writeTransition) {
+            request.addEventListener('success', () => {
+              if (writeTransition) return
+              writeTransition = true
+              invalidate()
+            }, { once: true })
+          }
+          return request
+        })
+      }
       try {
         await vi.waitFor(() => expect(entered).toBe(true))
-        if (outcome.includes('project')) initializeProjectScope('other-project')
-        if (outcome === 'backend') backend = { ...backend }
-        if (outcome === 'connection') backend.connection = {} as DinksterConnection
-        if (outcome.includes('dispose')) {
-          dispose()
+        if (!writeHeld) invalidate()
+        if (!writeHeld && outcome.includes('dispose')) {
           await inspect.recoverDraft(seed.document.lineage)
           expect(workspaceClosed).toBe(false)
         }
         finish()
+        if (writeHeld) await vi.waitFor(() => expect(writeTransition).toBe(true))
         if (outcome === 'accepted') {
           await vi.waitFor(() => expect(root.querySelector('.image-document-shared-status')?.textContent).toBe('Shared'))
         } else if (!outcome.includes('project') && !outcome.includes('dispose')) {
@@ -115,8 +146,9 @@ describe('ImageDocumentWorkspace', () => {
       }
       await vi.waitFor(() => expect(workspaceClosed).toBe(true))
       const recovered = (await inspect.recoverDraft(seed.document.lineage))!
-      expect(recovered.collaboration).toEqual(outcome === 'missing' ? undefined : membership)
-      if (outcome !== 'accepted' && outcome !== 'missing') expect(recovered.updatedAt).toBe(saved.updatedAt)
+      const unlinked = outcome === 'missing' || outcome === 'write-accepted' || outcome === 'submitted-project'
+      expect(recovered.collaboration).toEqual(unlinked ? undefined : membership)
+      if (outcome !== 'accepted' && !unlinked) expect(recovered.updatedAt).toBe(saved.updatedAt)
       if (snapshotHeld || outcome === 'accepted') expect(closed).toBe(true)
       await inspect.close()
     },

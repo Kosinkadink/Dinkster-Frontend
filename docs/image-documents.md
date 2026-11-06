@@ -20,8 +20,10 @@ Startup recovery stays with its original project and workspace. Saved shared
 membership is rejoined only while its captured backend and connection remain
 current. Stale lookups do not clear membership, and stale snapshot/resource
 reads cannot start another local write or publish a shared tab/error. Disposal
-keeps the store open until recovery and rejoin settle; transactions already
-submitted may finish without rollback.
+keeps the store open until recovery and rejoin settle; writes already
+submitted may finish without rollback. Membership changes recheck their captured
+context after opening the database and reading the draft, before submitting the
+write. A stale read aborts that transaction without changing membership.
 
 Closing the library dialog (including Escape), changing its backend connection,
 or leaving its project invalidates a pending library open. A settled stale read

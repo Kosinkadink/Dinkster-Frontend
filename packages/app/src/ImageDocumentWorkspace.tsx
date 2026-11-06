@@ -922,7 +922,7 @@ export function ImageDocumentWorkspace(props: {
       const linked = await store.setCollaboration(session.doc.lineage, {
         sessionId: descriptor.sessionId,
         baseUrl,
-      })
+      }, assertCurrent)
       assertCurrent()
       const next = attach({ ...linked, document: sharedDocument, name: saved.name }, {
         descriptor,
@@ -1125,6 +1125,9 @@ export function ImageDocumentWorkspace(props: {
         const connection = backend.connection
         const rejoinCurrent = (): boolean => current() &&
           backendForCollaboration(baseUrl) === backend && backend.connection === connection
+        const assertRejoinCurrent = (): void => {
+          if (!rejoinCurrent()) throw new Error('Shared image recovery is no longer current')
+        }
         setCollaborationTransition(true)
         try {
           const descriptor = await props.app.collabTransport.get(
@@ -1134,7 +1137,7 @@ export function ImageDocumentWorkspace(props: {
           if (!rejoinCurrent()) continue
           if (descriptor === undefined || descriptor.documentKind !== 'image' ||
             descriptor.documentId !== draft.document.lineage) {
-            const unlinked = await store.setCollaboration(draft.document.lineage, undefined)
+            const unlinked = await store.setCollaboration(draft.document.lineage, undefined, assertRejoinCurrent)
             if (!rejoinCurrent()) continue
             previous.draft = unlinked
             refresh()
