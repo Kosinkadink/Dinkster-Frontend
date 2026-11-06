@@ -67,6 +67,7 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net'] as const)('keeps authored
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ protocol: 'dinkster', connection }),
+    workflowAssetReader: () => ({ read: async <T,>(consume: () => Promise<T>) => consume() }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
@@ -148,6 +149,7 @@ it.each(['read', 'upload'] as const)('refuses a stored-source backend retarget d
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ protocol: 'dinkster', connection: current }),
+    workflowAssetReader: () => ({ read: async <T,>(consume: () => Promise<T>) => consume() }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
@@ -170,7 +172,7 @@ it.each(['read', 'upload'] as const)('refuses a stored-source backend retarget d
   dispose()
 })
 
-it.each(['valid', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-obj', 'empty-ply', 'empty-gaussian-ply', 'empty-splat', 'empty-spz', 'empty-ksplat', 'empty-unsupported', 'empty-local', 'local-source', 'local-resource', 'revoked-local', 'empty-binding', 'missing-format', 'array-resources', 'null-source', 'scalar-manifest', 'parent-resource', 'null-resource', 'unverified-source', 'negative-size', 'unknown-field'] as const)('handles %s FILE_3D preview metadata without reading a dormant file', async (variant) => {
+it.each(['valid', 'reader-held', 'reader-refused', 'reader-expired', 'reader-close', 'reader-edited', 'reader-missing', 'sidecar-refused', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-obj', 'empty-ply', 'empty-gaussian-ply', 'empty-splat', 'empty-spz', 'empty-ksplat', 'empty-unsupported', 'empty-local', 'local-source', 'local-resource', 'revoked-local', 'empty-binding', 'missing-format', 'array-resources', 'null-source', 'scalar-manifest', 'parent-resource', 'null-resource', 'unverified-source', 'negative-size', 'unknown-field'] as const)('handles %s FILE_3D preview metadata without reading a dormant file', async (variant) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const schema = parseDinksterSchema('Preview3DAdvancedFixture', { interface: [
@@ -227,10 +229,28 @@ it.each(['valid', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-obj',
     fetchLocalAssetBytes: async (binding: string) => { localReads.push(binding); return variant === 'revoked-local' ? undefined : bytes.buffer },
     uploadMediaAsset: async () => { throw new Error('metadata must not upload captures') },
   }
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => { release = resolve })
+  let entered = false
+  let settled = false
   const app = {
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ protocol: 'dinkster', connection }),
+    workflowAssetReader: (_tab: Tab, digest: string) => variant === 'reader-missing' ? undefined : ({
+      read: async <T,>(consume: () => Promise<T>) => {
+        try {
+          if (variant.startsWith('reader-') || (variant === 'sidecar-refused' && digest === sidecar.digest)) {
+            entered = true
+            await pending
+          }
+          if (variant === 'reader-refused' || (variant === 'sidecar-refused' && digest === sidecar.digest)) throw new Error('The selected model file is unavailable.')
+          const result = await consume()
+          if (variant === 'reader-expired') throw new Error('The selected model file is unavailable.')
+          return result
+        } finally { settled = true }
+      },
+    }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
@@ -239,6 +259,34 @@ it.each(['valid', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-obj',
     spec: inputsOf(schema)[1]!.widget, declaredType: inputsOf(schema)[1]!.type,
     multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  if (variant.startsWith('reader-') || variant === 'sidecar-refused') {
+    const apply = Array.from(document.querySelectorAll('button')).find((element) => element.textContent === 'Apply')!
+    if (variant !== 'reader-missing') {
+      await vi.waitFor(() => expect(entered).toBe(true))
+      expect(apply.disabled).toBe(true)
+      expect(reads).toEqual(variant === 'sidecar-refused' ? [primary.digest] : [])
+      expect(fixtures.loads).toEqual([])
+      if (variant === 'reader-close') dispose()
+      if (variant === 'reader-edited') store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'camera_info', value: null } })
+      release()
+    }
+    if (variant === 'reader-held') {
+      await vi.waitFor(() => expect(document.querySelector('#load3d-fov')).not.toBeNull())
+      expect(apply.disabled).toBe(false)
+      expect(reads).toEqual([primary.digest, sidecar.digest])
+      expect(fixtures.loads).toHaveLength(1)
+    } else {
+      if (variant === 'reader-close') await vi.waitFor(() => expect(settled).toBe(true))
+      else await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
+      expect(reads).toEqual(variant === 'sidecar-refused' || variant === 'reader-expired' ? [primary.digest] : [])
+      expect(URL.createObjectURL).toHaveBeenCalledTimes(variant === 'sidecar-refused' ? 1 : 0)
+      expect(fixtures.loads).toEqual([])
+      if (variant !== 'reader-close') expect(apply.disabled).toBe(true)
+    }
+    expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual(initial)
+    if (variant !== 'reader-close') dispose()
+    return
+  }
   if (variant !== 'valid' && variant !== 'explicit-precedence' && variant !== 'local-source' && variant !== 'local-resource' && !(variant.startsWith('empty-') && variant !== 'empty-binding' && variant !== 'empty-unsupported')) {
     await vi.waitFor(() => expect(document.body.textContent).toContain('The selected model file is unavailable.'))
     expect(Array.from(document.querySelectorAll('button')).find((element) => element.textContent === 'Apply')!.disabled).toBe(true)
@@ -348,6 +396,7 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
   }
   const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry, registryForTab: () => ({ resolve: () => schema }),
     backendForTab: () => ({ id: 'owner', protocol: 'dinkster', connection }),
+    workflowAssetReader: () => ({ read: async <T,>(consume: () => Promise<T>) => consume() }),
     executionForTab: () => execution, compileTabCached: () => ({ ok: true, artifact: liveArtifact }),
     readFile3dAssetForExecution: async (ref: ExecutionState['ref'], asset: { digest: string }, signal: AbortSignal) => {
       if (variant === 'stored-manifest') throw new Error('Stored model must not borrow an unrelated producer')

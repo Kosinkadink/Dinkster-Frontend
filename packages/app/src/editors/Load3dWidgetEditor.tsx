@@ -189,11 +189,17 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         }
         if (ref.verification !== 'unverified' && typeof ref.digest !== 'string') throw new Error(message('load3dWidget.chooseModel'))
         if (!live || !sourcesCurrent()) throw unavailable()
+        const reader = modelExecution === undefined && ref.verification !== 'unverified'
+          ? props.editor.app.workflowAssetReader(ed.tab, ref.digest as string) : undefined
+        if (modelExecution === undefined && ref.verification !== 'unverified' && !reader) throw unavailable()
         const bytes = modelExecution !== undefined
           ? await props.editor.app.readFile3dAssetForExecution(modelExecution, ref, abort.signal)
           : ref.verification === 'unverified'
             ? await backend.connection.fetchLocalAssetBytes(ref.localBinding as string, abort.signal)
-            : await backend.connection.fetchAssetBytes(ref.digest as string, abort.signal)
+            : await reader!.read(async () => {
+              if (!live || !sourcesCurrent()) throw unavailable()
+              return backend.connection.fetchAssetBytes(ref.digest as string, abort.signal)
+            })
         if (!live || !sourcesCurrent() || !bytes) throw new Error(message('load3dWidget.unavailable'))
         const url = URL.createObjectURL(new Blob([bytes], { type: String(ref.mediaType ?? 'application/octet-stream') }))
         urls.push(url)

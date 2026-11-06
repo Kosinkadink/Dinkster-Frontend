@@ -124,9 +124,11 @@ lifetimes and are not covered by this metadata boundary.
 
 Load3d original model and sidecar reads selected from producer outputs use the
 captured execution's original-byte reader. A stored manifest remains the source
-even when other inputs have producers; stored inputs and local grants keep their
-existing paths. Closing aborts the read and stale source state cannot publish
-object URLs. This boundary does not cover viewer decode or native handles.
+even when other inputs have producers. Stored and literal digest resources use
+the captured document/history reader; missing, refused or expired admission
+cannot publish object URLs or enable Apply. Closing aborts the read and stale
+source state cannot publish object URLs. Local grants keep their separate path.
+This boundary does not cover viewer decode or native handles.
 
 Live and mirrored structured outputs and preview records also await incomplete
 shown-result ownership, including records with no known digest. Later events
