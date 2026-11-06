@@ -107,6 +107,11 @@ only those consumers. **Bake to asset** remains the explicit replacement path
 for other eligible image inputs. The graph command validates the source asset,
 paint node, and mask topology before making one undoable change.
 
+Mask source loading requires acknowledged workflow asset ownership before
+fetching. The read remains owned through the response body and PNG decode;
+closing, replacing the target, or changing its owner prevents late pixels from
+entering the edit session. Refused ownership leaves the source unavailable.
+
 ## Switching kinds (the app view)
 
 The app view (`AppView.tsx`, docs/app-view.md) is the first non-graph
