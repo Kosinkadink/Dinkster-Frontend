@@ -34,6 +34,8 @@ const boot = async (page: Page): Promise<void> => {
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
   await expect(page.getByTestId('status-bar')).toHaveText(/^connected\s*\d+ node schemas/)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.problems.get()
+    .some((problem) => problem.code === 'workflow.startup.ownershipUnconfirmed'))).toBe(false)
 }
 
 const closeGallery = async (page: Page): Promise<void> => {

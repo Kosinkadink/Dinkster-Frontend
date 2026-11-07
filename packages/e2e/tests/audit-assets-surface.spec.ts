@@ -66,10 +66,12 @@ test('uses the configured All assets source while preserving curated per-mount b
   await expect.poll(() => page.getByRole('option').count()).toBeGreaterThan(0)
   const federated = catalogRequests > 0
   if (federated) {
-    await expect(page.getByRole('option')).toHaveCount(2)
+    await expect(page.getByRole('option')).toHaveCount(5)
     await expect(page.getByRole('option', { name: /Federated Winner\.safetensors/ })).toBeVisible()
     await expect(page.getByRole('option', { name: /Federated Second\.safetensors/ })).toBeVisible()
-    await expect(page.getByRole('option', { name: /local\.safetensors/ })).toHaveCount(0)
+    await expect(page.getByRole('option', { name: /local\.safetensors/ })).toBeVisible()
+    await expect(page.getByRole('option', { name: /image\.png/ })).toBeVisible()
+    await expect(page.getByRole('option', { name: /second\.safetensors/ })).toBeVisible()
     await expect(page.getByRole('option', { name: /duplicate\.safetensors/ })).toHaveCount(0)
     const winner = page.getByRole('option', { name: /Federated Winner\.safetensors/ })
     await expect(winner.locator('.collection-subtitle')).toHaveCount(0)
@@ -120,12 +122,11 @@ test('uses the configured All assets source while preserving curated per-mount b
 
   await sourceSelect.click()
   await sourceList.getByRole('option', { name: 'All assets', exact: true }).click()
-  await expect(page.getByRole('option')).toHaveCount(federated ? 2 : 4)
+  await expect(page.getByRole('option')).toHaveCount(federated ? 5 : 4)
+  await expect(page.getByRole('option', { name: /local\.safetensors/ })).toBeVisible()
   if (federated) {
-    await expect(page.getByRole('option', { name: /local\.safetensors/ })).toHaveCount(0)
     await expect(page.getByRole('option', { name: /Federated Winner\.safetensors/ })).toBeVisible()
   } else {
-    await expect(page.getByRole('option', { name: /local\.safetensors/ })).toBeVisible()
     await expect(page.getByRole('option', { name: /Federated Winner\.safetensors/ })).toHaveCount(0)
   }
 
