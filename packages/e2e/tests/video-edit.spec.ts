@@ -58,6 +58,10 @@ test.beforeEach(async ({ page }) => {
 async function openDocument(page: Page, kind: 'trim' | 'crop' | 'both', values: Record<string, unknown> = { video_edit: imported, strict_duration: false }, linked: string[] = []) {
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(Object.keys(catalog.nodes).length)
+  await expect.poll(() => page.evaluate(() => {
+    const tab = window.__dinksterTest!.app.activeTab()
+    return tab !== undefined && 'status' in tab.store
+  })).toBe(true)
   await page.evaluate(({ kind, values, linked }) => {
     const app = window.__dinksterTest!.app
     app.openDocument({
