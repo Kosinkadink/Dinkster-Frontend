@@ -263,7 +263,11 @@ Publication remains the strict default: collaboration sharing and library save
 refuse that document. Local download is not publication: admitted documents export
 losslessly with opaque data and ownership warnings preserved, without posting a
 retention declaration. Malformed or invalid identities still refuse export.
-Other dormant diagnostics are not admitted by this exception.
+An unread dynamic state key is part of that condition only when core attributes
+its exact schema-declared path and state table to an unsupported dormant branch.
+The record preserves both error diagnostics and names that branch. Active
+elaboration errors, unrelated unread keys and unresolved family member state
+still refuse admission; no branch identities are resolved by this classification.
 An incomplete document is never evidence of cleanup eligibility for anything it
 references: a collector must retain those assets or defer collection until the
 roots are complete. No collector runs on the strength of this record.

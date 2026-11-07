@@ -457,6 +457,40 @@ describe('retained app dispatch', () => {
     }
   })
 
+  it.each(['active', 'dormant', 'invalid', 'unknown'] as const)('classifies %s nested wire15 state without certifying dormant ownership', (variant) => {
+    const codec: NodeSchema['items'][number] = {
+      kind: 'input', id: 'codec', optional: false, type: { kind: 'concrete', name: 'STRING' },
+      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'auto', inputs: [] }] },
+    }
+    const dynamic: NodeSchema = { ...schema, items: [{
+      kind: 'input', id: 'format', optional: false, type: { kind: 'concrete', name: 'STRING' },
+      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+        { key: 'auto', inputs: variant === 'dormant' ? [] : [codec] },
+        { key: 'other', inputs: variant === 'dormant' ? [codec] : [] },
+      ] },
+    }] }
+    const local = session()
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Loader', values: { opaque: asset('a') }, dynamic: {
+        format: { selected: 'auto' },
+        [variant === 'unknown' ? 'format.unrelated' : 'format.codec']: { selected: variant === 'invalid' ? 'bad' : 'auto' },
+      } },
+    } } } }
+    const history = createLocalSession(document, coreCommandRegistry([], () => dynamic)).historySnapshot()
+    const roots = workflowAssetRoots(document, history, () => dynamic, [], 'admission')
+    expect(roots.complete).toBe(false)
+    expect(roots.digests).toEqual([asset('a').digest])
+    expect(roots.refusal).toBe(variant === 'invalid' || variant === 'unknown' ? 'Workflow dynamic identities are invalid' : undefined)
+    if (variant === 'active' || variant === 'dormant') {
+      expect(roots.incompleteDiagnostics).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'elab.dormant.unsupported', severity: 'error' }),
+        expect.objectContaining({ code: 'elab.dynamic.unknownState', severity: 'error',
+          data: { dormantBranch: 'format' }, message: expect.stringContaining('format.codec') }),
+      ]))
+    }
+    expect(workflowAssetRoots(document, history, () => dynamic).refusal).toBe('Workflow dynamic identities are invalid')
+  })
+
   it.each(['artifact', 'associated', 'output', 'model3d', 'retained'] as const)(
     'owns recorded %s fetch, decode and replacement independently of the active tab', async (route) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })

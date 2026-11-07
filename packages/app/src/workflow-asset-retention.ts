@@ -202,7 +202,8 @@ export function workflowAssetRoots(
     const active = elaborateInterface(schema, node, connectivity, { promoteGhosts: false })
     const stored = dynamic || Object.keys(node.dynamic ?? {}).length > 0
       ? elaborateInterface(schema, node, connectivity, { promoteGhosts: false, includeDormant: true }) : active
-    const unsupportedDormant = stored.diagnostics.filter((diagnostic) => diagnostic.code === 'elab.dormant.unsupported')
+    const unsupportedDormant = stored.diagnostics.filter((diagnostic) => diagnostic.code === 'elab.dormant.unsupported' ||
+      (diagnostic.code === 'elab.dynamic.unknownState' && typeof diagnostic.data?.['dormantBranch'] === 'string'))
     if (unsupportedDormant.length > 0) {
       complete = false
       for (const diagnostic of unsupportedDormant) incompleteDiagnostics.push({ ...diagnostic,
@@ -212,7 +213,7 @@ export function workflowAssetRoots(
     }
     if (active.diagnostics.some((diagnostic) => diagnostic.severity === 'error') ||
       stored.diagnostics.some((diagnostic) => diagnostic.severity === 'error' &&
-        (purpose === 'publication' || diagnostic.code !== 'elab.dormant.unsupported'))) {
+        (purpose === 'publication' || !unsupportedDormant.includes(diagnostic)))) {
       complete = false
       refusal = 'Workflow dynamic identities are invalid'
     }
