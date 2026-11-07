@@ -35,7 +35,7 @@ into the import-only catalog using the ordinary schema and replacement-rule deco
 reads revalidate the connection-local ETag; invalid or duplicate-source data
 does not replace the cached index. Successful refreshes publish the import
 catalog before the executable registry; responses from an earlier server life
-are discarded. Translation lookup failures retain available import metadata,
+and their failure warnings are discarded. Translation lookup failures retain available import metadata,
 are logged and do not prevent opening documents through the installed-schema path. The
 endpoint's wheel-owned snapshot is independent of installed packs; its
 development versions do not establish registry availability. Mirror selection

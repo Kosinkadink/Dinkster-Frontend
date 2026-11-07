@@ -4174,7 +4174,7 @@ export class AppState {
             const [fresh, translations] = await Promise.all([
               connection.fetchSchemas(),
               connection.fetchComfyTranslations().catch((error: unknown) => {
-                this.log('warn', label, `ComfyUI translation index unavailable: ${String(error)}`)
+                if (gen === staleGen) this.log('warn', label, `ComfyUI translation index unavailable: ${String(error)}`)
                 return undefined
               }),
             ])

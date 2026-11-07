@@ -381,12 +381,16 @@ describe('reconnect capability invalidation', () => {
     expect(app.problems.get().some((p) => p.code === 'schema.refreshFailed')).toBe(true)
   })
 
-  it('never commits a response fetched under the PREVIOUS server life', async () => {
+  it.each([false, true])('discards previous-server metadata and warnings when lookup fails=%s', async (fails) => {
     backend.registry.set({ ...reg(backend, 3), graphFeatures: ['typedLiteral'] })
     let resolveFirst!: (r: SchemaRegistry) => void
     let resolveOldTranslations!: (records: readonly ComfyTranslation[]) => void
+    let rejectOldTranslations!: (error: Error) => void
     vi.mocked(nativeConnection().fetchComfyTranslations)
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveOldTranslations = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve, reject) => {
+        resolveOldTranslations = resolve
+        rejectOldTranslations = reject
+      }))
       .mockResolvedValue(translations('0.0.2'))
     const fetchSpy = vi.spyOn(backend.connection, 'fetchSchemas')
       .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
@@ -398,10 +402,12 @@ describe('reconnect capability invalidation', () => {
     // committing would restore the capabilities the reconnect invalidated.
     setStatus('connected')
     resolveFirst({ ...reg(backend, 3), graphFeatures: ['typedLiteral'] })
-    resolveOldTranslations(translations('0.0.1'))
+    if (fails) rejectOldTranslations(new Error('obsolete metadata request'))
+    else resolveOldTranslations(translations('0.0.1'))
     await flush()
     expect(fetchSpy).toHaveBeenCalledTimes(2)
     expect(backend.registry.get()?.graphFeatures).toBeUndefined()
+    expect(app.logs.get().some((entry) => entry.message.includes('obsolete metadata request'))).toBe(false)
     app.openDocument({ nodes: [{ id: 1, type: 'StringLength' }], links: [] }, 'Current server import', backend)
     expect(resolveImportedNodePacks(app.activeTab()!.store.doc, backend.registry.get()!.resolve)[0]?.version).toBe('0.0.2')
   })
