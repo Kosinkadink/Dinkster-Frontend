@@ -6,7 +6,7 @@
  * normal command path, that spec pin/unpin never resets the value, that the
  * raw JSON fallback cannot corrupt state, and that frozen tabs stay read-only.
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 import fixture from '../../core/fixtures/workflows/value-source.json' with { type: 'json' }
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
@@ -83,6 +83,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
   const nativeFixture = structuredClone(fixture)
   nativeFixture.graphs.g0.links.l7.from.port = 'IMAGE'
   const failures = await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Values'), nativeFixture)
