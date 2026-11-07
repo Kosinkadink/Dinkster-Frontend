@@ -264,6 +264,10 @@ save refuse that document. Other dormant diagnostics are not admitted by this ex
 An incomplete document is never evidence of cleanup eligibility for anything it
 references: a collector must retain those assets or defer collection until the
 roots are complete. No collector runs on the strength of this record.
+App View layout, exposed controls and exposed previews contribute no roots only
+when their core parsers and serializers reproduce every stored field exactly.
+Unknown fields and malformed entries remain opaque, contribute any known asset
+roots and keep the document incomplete.
 The union includes current, undo, redo, proposed and shared pending roots.
 The journal includes the exact completeness declaration. Exact acknowledgment or
 exact owner reconciliation, including completeness and the new revision, precedes

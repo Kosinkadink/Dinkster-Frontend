@@ -248,6 +248,7 @@ const makeApp = (server: FakeCollabServer, withBackend = true): AppState => {
       app.addBackend('http://collab', 'collab', false, 'dinkster')!
     app.setTabTarget(activeTab(app).id, backend.id)
   }
+  installSeedFlattenRegistry(app)
   return app
 }
 
@@ -283,9 +284,13 @@ const planSeedFlatten = (app: AppState, tab: Tab) => flattenInvocation(
 )
 
 const seedFlattenSchemas: readonly NodeSchema[] = [
+  { type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false, items: [] },
   {
     type: 'EmptyImage', displayName: 'Empty Image', category: 'test', source: 'v3', isOutputNode: false,
     items: [
+      { kind: 'input', id: 'width', type: { kind: 'concrete', name: 'INT' }, optional: true },
+      { kind: 'input', id: 'height', type: { kind: 'concrete', name: 'INT' }, optional: true },
+      { kind: 'input', id: 'batch_size', type: { kind: 'concrete', name: 'INT' }, optional: true },
       { kind: 'input', id: 'color', type: { kind: 'concrete', name: 'INT' }, optional: true },
       { kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'IMAGE' }, isList: false },
     ],
@@ -294,12 +299,15 @@ const seedFlattenSchemas: readonly NodeSchema[] = [
     type: 'PreviewImage', displayName: 'Preview Image', category: 'test', source: 'v3', isOutputNode: true,
     items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
   },
+  {
+    type: 'AssetHolder', displayName: 'Asset holder', category: 'test', source: 'v3', isOutputNode: false,
+    items: [{ kind: 'input', id: 'held', type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } }, optional: false }],
+  },
 ]
 
 const installSeedFlattenRegistry = (app: AppState): void => {
-  const backend = app.backends.get()[0]!
   const schemas = new Map(seedFlattenSchemas.map((schema) => [schema.type, schema]))
-  backend.registry.set({
+  for (const backend of app.backends.get()) backend.registry.set({
     connection: backend.id,
     hash: 't19-seed-flatten',
     schemas,
@@ -570,7 +578,7 @@ describe('share', () => {
     expect((await app.dispatchTo(prior, { command: 'node.setValue', params: { graphId: prior.store.doc.root,
       nodeId: node.id, inputId: 'held', value: asset('b') } })).ok).toBe(true)
     vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-      expect(declaration).toEqual({ revision: 0, complete: false, digests: [asset('a').digest, asset('b').digest] })
+      expect(declaration).toEqual({ revision: 0, complete: true, digests: [asset('a').digest, asset('b').digest] })
       return { ...owner, ...declaration, revision: accepted ? 1 : 2 }
     })
     vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
@@ -738,7 +746,7 @@ describe('join and convergence', () => {
       const request = new Promise<void>((resolve) => { requested = resolve })
       vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
         expect(localStorage.getItem(`dinkster.workflow-retentions.${owner.ownerId}`)).not.toBeNull()
-        expect(declaration).toEqual({ revision: 0, complete: false, digests: [digest] })
+        expect(declaration).toEqual({ revision: 0, complete: true, digests: [digest] })
         requested()
         return new Promise((resolve) => {
           acknowledge = () => resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
@@ -1144,7 +1152,9 @@ describe('lifecycle races', () => {
     })
     const backendA = appA.addBackend('http://collab', 'collab', false, 'dinkster')
     if (!backendA || backendA.protocol !== 'dinkster') throw new Error('native backend setup failed')
-    backendA.registry.set(buildDinksterRegistry(asConnectionId(backendA.id), nodesPayload))
+    for (const backend of appA.backends.get()) {
+      backend.registry.set(buildDinksterRegistry(asConnectionId(backend.id), nodesPayload))
+    }
     const appB = makeApp(server)
     expect(appA.openDocument({
       format: 'dinkster-workflow',

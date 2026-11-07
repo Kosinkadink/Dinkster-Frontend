@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { asPromptId, diag, type DinksterNodesPayload, type JsonObject } from '@dinkster/core'
+import { asPromptId, diag, type DinksterNodesPayload, type JsonObject, type NodeSchema } from '@dinkster/core'
 import { buildDinksterRegistry, type LibraryRecord } from '@dinkster/client'
 import {
   AppState,
@@ -109,6 +109,15 @@ function nativeSetup(): { backend: Extract<Backend, { protocol: 'dinkster' }>; t
 describe('saveWorkflow', () => {
   it.each(['available', 'denied', 'edited', 'timed out'] as const)('saves an early snapshot with optional location lookup %s', async (outcome) => {
     const { backend } = nativeSetup()
+    const source: NodeSchema = { type: 'test.asset-location', displayName: 'Asset location', category: 'test', source: 'v3', isOutputNode: false,
+      items: [
+        { kind: 'input', id: 'a', type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } }, optional: false },
+        { kind: 'input', id: 'b', type: { kind: 'concrete', name: 'INT' }, optional: false },
+        { kind: 'output', id: 'sum', type: { kind: 'concrete', name: 'INT' }, isList: false },
+      ] }
+    const catalog = backend.registry.get()!
+    const schemas = new Map([...catalog.schemas, [source.type, source]])
+    backend.registry.set({ ...catalog, schemas, resolve: (type) => schemas.get(type) })
     const deadline = new AbortController()
     const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal)
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
@@ -121,7 +130,7 @@ describe('saveWorkflow', () => {
     vi.spyOn(backend.connection, 'createLibraryRecord').mockResolvedValue(record({ digest: DIGEST2 }))
     const asset = { digest: DIGEST, name: 'early.png', size: 19, mediaType: 'image/png', virtualPath: 'input/early.png' }
     app.openDocument({ ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0, nodes: {
-      ...CHAIN_DOC.graphs.g0.nodes, n0: { ...CHAIN_DOC.graphs.g0.nodes.n0, values: { a: asset, b: 4 } },
+      ...CHAIN_DOC.graphs.g0.nodes, n0: { ...CHAIN_DOC.graphs.g0.nodes.n0, type: source.type, values: { a: asset, b: 4 } },
     } } } }, 'Early save')
     const tab = app.activeTab()!
     app.setTabTarget(tab.id, backend.id)
@@ -129,7 +138,7 @@ describe('saveWorkflow', () => {
     await vi.waitFor(() => expect(locations).toHaveBeenCalled())
     expect(upload).not.toHaveBeenCalled()
     if (outcome === 'edited') {
-      expect((await app.dispatchTo(tab, { command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n0', values: { a: 99 } } })).ok).toBe(true)
+      expect((await app.dispatchTo(tab, { command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n0', values: { a: { ...asset, digest: DIGEST2 } } } })).ok).toBe(true)
     }
     if (outcome === 'denied') reject(new Error('operator access denied'))
     else if (outcome === 'available') resolve(['/machine/original/early.png'])

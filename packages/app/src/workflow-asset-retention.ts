@@ -1,13 +1,23 @@
 import { uuidv4, type DinksterConnection, type ExecutionState, type RetainedAssetOwner, type RetainedAssets } from '@dinkster/client'
 import {
+  APP_LAYOUT_EXT_KEY,
   EMPTY_CONNECTIVITY,
+  EXPOSED_EXT_KEY,
+  EXPOSED_PREVIEWS_EXT_KEY,
   MASK_PAINT_SOURCE_EXT_KEY,
   MAX_DYNAMIC_STATE_DEPTH,
+  appLayout,
+  appLayoutItemToJson,
   buildGraphConnectivity,
+  canonicalJson,
   documentNodeResolver,
   elabInputsOf,
   elaborateInterface,
   executionKey,
+  exposedParameters,
+  exposedPreviews,
+  exposedPreviewsToJson,
+  exposedToJson,
   isDinksterClipboardEnvelope,
   isAssetWidgetInput,
   maskPaintSourceNodeId,
@@ -277,7 +287,24 @@ export function workflowAssetRoots(
         }
       }
     }
-    checkExtensions(snapshot as unknown as Json)
+    const layout = appLayout(snapshot)
+    const parsedExtensions = new Map<string, unknown>([
+      [APP_LAYOUT_EXT_KEY, layout === undefined ? undefined : {
+        version: layout.version,
+        desktop: { items: layout.desktop.items.map(appLayoutItemToJson) },
+        mobile: layout.mobile,
+      }],
+      [EXPOSED_EXT_KEY, exposedToJson(exposedParameters(snapshot))],
+      [EXPOSED_PREVIEWS_EXT_KEY, exposedPreviewsToJson(exposedPreviews(snapshot))],
+    ])
+    // A tolerant parser may discard future fields; only a lossless round trip certifies no hidden roots.
+    for (const [key, value] of Object.entries(snapshot.ext ?? {})) {
+      const parsed = parsedExtensions.get(key)
+      if (parsed !== undefined && canonicalJson(parsed) === canonicalJson(value)) continue
+      complete = false
+      opaqueRoots(value)
+    }
+    for (const [key, value] of Object.entries(snapshot)) if (key !== 'ext') checkExtensions(value as Json)
   }
   visit(document)
   for (const snapshot of additionalDocuments) visit(snapshot)

@@ -273,6 +273,23 @@ describe('retained app dispatch', () => {
     vi.unstubAllGlobals()
   })
 
+  it.each([false, true])('certifies parsed App View layout only when every stored field round-trips, unknown=%s', async (unknown) => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    app = createWorkflowApp([schema])
+    const document: WorkflowDocument = { ...session().doc, ext: { 'dinkster.appLayout': {
+      mobile: { items: [], customized: false },
+      desktop: { items: [{ text: 'Instructions', role: 'heading', kind: 'text', id: 'instructions',
+        ...(unknown ? { future: { nested: asset('b') } } : {}),
+      }] }, version: 1,
+    } } }
+    expect(app.openDocument(document, 'App View ownership')).toEqual([])
+    const tab = app.activeTab()!
+    expect(workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(), resolve)).toEqual({
+      complete: !unknown, digests: unknown ? [asset('a').digest, asset('b').digest] : [asset('a').digest],
+    })
+    if (unknown) expect(await app.shareActiveTab()).toBe('Workflow ownership unconfirmed. Publication, sharing and export remain unavailable.')
+  })
+
   it.each(['warning', 'error'] as const)('keeps generated-id warnings visible while shared ownership admits only valid identities: %s', async (severity) => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     app = createWorkflowApp([schema])

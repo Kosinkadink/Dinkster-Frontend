@@ -719,6 +719,13 @@ describe('workflow file commands', () => {
     const app = new AppState()
     const backend = app.addBackend('http://native:8000', 'Original machine', false, 'dinkster')!
     if (backend.protocol !== 'dinkster') throw new Error('native backend required')
+    prepareWorkflowApp(app)
+    const schema: NodeSchema = {
+      type: 'test.asset-download', displayName: 'Asset download', category: 'test', source: 'v3', isOutputNode: false,
+      items: [{ kind: 'input', id: 'a', type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } }, optional: false }],
+    }
+    backend.registry.set({ connection: backend.id, schemas: new Map([[schema.type, schema]]),
+      hash: 'asset-download', diagnostics: [], resolve: (type) => type === schema.type ? schema : undefined })
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
     const asset = { digest: 'blake3:' + 'c'.repeat(64), name: 'download.png', size: 23,
       mediaType: 'image/png', virtualPath: 'input/download.png' }
@@ -730,7 +737,7 @@ describe('workflow file commands', () => {
     expect(app.openDocument({ ...base, lineage: 'early-download', graphs: {
       [base.root]: { ...base.graphs[base.root], nodes: {
         ...base.graphs[base.root]!.nodes,
-        download: { id: 'download', type: 'std.math.add_ints', values: { a: asset } },
+        download: { id: 'download', type: schema.type, values: { a: asset } },
       } },
     } }, 'Early download')).toEqual([])
     const tab = app.activeTab()!
