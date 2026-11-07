@@ -5916,7 +5916,7 @@ export class AppState {
     const registry = this.registryForTab(tab)
     const roots = workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(),
       this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
-    if (!roots.complete) throw new Error(`${roots.refusal ?? 'Workflow ownership unconfirmed'}. Publication, sharing and export remain unavailable.`)
+    if (!roots.complete) throw new Error(`${roots.refusal ?? 'Workflow ownership unconfirmed'}. Publication and sharing remain unavailable.`)
   }
 
   private reportIncompleteOwnership(owner: ProblemOwner, roots: ReturnType<typeof workflowAssetRoots>): void {
@@ -5925,7 +5925,7 @@ export class AppState {
       'warning', 'validation', 'workflow.execution.ownershipUnconfirmed',
       'Workflow ownership unconfirmed.',
       { data: { reason: roots.incompleteDiagnostics.map((diagnostic) => diagnostic.message).join('; '),
-        effect: 'Execution retains known active assets. Publication, sharing and export remain unavailable.' } },
+        effect: 'Execution retains known active assets. Publication and sharing remain unavailable.' } },
     )])
   }
 
@@ -7138,7 +7138,10 @@ export class AppState {
     let url: string | undefined
     let anchor: HTMLAnchorElement | undefined
     try {
-      this.requireCompleteWorkflow(tab)
+      const registry = this.registryForTab(tab)
+      const roots = workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(),
+        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
+      if (roots.refusal !== undefined) throw new Error(roots.refusal)
       const snapshot = await this.documentWithAssetLocations(tab)
       if (this.disposed || !this.tabs.get().includes(tab) || this.backendForTab(tab) !== backend) return false
       const blob = new Blob([`${JSON.stringify(snapshot, null, 2)}\n`], {

@@ -266,6 +266,16 @@ describe('workflow retention recovery', () => {
 
 describe('retained app dispatch', () => {
   let app: AppState | undefined
+  const captureDownloads = (): Blob[] => {
+    const downloads: Blob[] = []
+    vi.stubGlobal('document', { createElement: () => ({ click() {}, remove() {} }), body: { append() {} } })
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => {
+      downloads.push(blob as Blob)
+      return 'blob:workflow-download'
+    })
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    return downloads
+  }
   afterEach(() => {
     app?.dispose()
     app = undefined
@@ -287,7 +297,17 @@ describe('retained app dispatch', () => {
     expect(workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(), resolve)).toEqual({
       complete: !unknown, digests: unknown ? [asset('a').digest, asset('b').digest] : [asset('a').digest],
     })
-    if (unknown) expect(await app.shareActiveTab()).toBe('Workflow ownership unconfirmed. Publication, sharing and export remain unavailable.')
+    if (unknown) {
+      expect(await app.shareActiveTab()).toBe('Workflow ownership unconfirmed. Publication and sharing remain unavailable.')
+      expect(await app.saveWorkflow(tab.id)).toBe(false)
+    }
+    const downloads = captureDownloads()
+    const before = app.exportDocument(tab.id)
+    const retention = vi.mocked(app.connection.retainAssets)
+    retention.mockClear()
+    expect(await app.exportWorkflow(tab.id)).toBe(true)
+    expect(JSON.parse(await downloads[0]!.text())).toEqual(before)
+    expect(retention).not.toHaveBeenCalled()
   })
 
   it.each(['warning', 'error'] as const)('keeps generated-id warnings visible while shared ownership admits only valid identities: %s', async (severity) => {
@@ -336,6 +356,9 @@ describe('retained app dispatch', () => {
         expect(app.problems.get()).toContainEqual(expect.objectContaining({
           code: 'workspace.authority.failed', message: 'Shared workspace unavailable: Workflow dynamic identities are invalid',
         }))
+        const downloads = captureDownloads()
+        expect(await app.exportWorkflow(current.id)).toBe(false)
+        expect(downloads).toHaveLength(0)
       }
       const after = elaborateInterface(resolveDocument('g0', instance)!, instance, EMPTY_CONNECTIVITY, { includeDormant: true }).diagnostics
       expect(after).toEqual(diagnostics)
@@ -373,8 +396,17 @@ describe('retained app dispatch', () => {
     vi.spyOn(app.connection, 'fetchTemplateBody').mockResolvedValue(document)
     expect(await app.openTemplate('test', 'dormant', 'Dormant ownership', app.connection.id)).toBe(true)
     const tab = app.activeTab()!
-    expect(await app.shareActiveTab()).toBe('Workflow dynamic identities are invalid. Publication, sharing and export remain unavailable.')
-    expect(await app.exportWorkflow(tab.id)).toBe(false)
+    expect(await app.shareActiveTab()).toBe('Workflow dynamic identities are invalid. Publication and sharing remain unavailable.')
+    const downloads = captureDownloads()
+    const before = app.exportDocument(tab.id)
+    const warnings = app.problems.get().filter((problem) => problem.code === 'workflow.execution.ownershipUnconfirmed')
+    expect(warnings).not.toHaveLength(0)
+    const retention = vi.mocked(app.connection.retainAssets)
+    retention.mockClear()
+    expect(await app.exportWorkflow(tab.id)).toBe(true)
+    expect(JSON.parse(await downloads[0]!.text())).toEqual(before)
+    expect(retention).not.toHaveBeenCalled()
+    expect(app.problems.get().filter((problem) => problem.code === 'workflow.execution.ownershipUnconfirmed')).toEqual(warnings)
     expect(await app.saveWorkflow(tab.id)).toBe(false)
     const documents = new SharedWorkerDocumentAuthority()
     const workspace = new SharedWorkerTabAuthority()
@@ -407,7 +439,7 @@ describe('retained app dispatch', () => {
       }))
       expect(html).toContain('Workflow ownership unconfirmed.')
       expect(html).toContain('Loader (n0): Dormant wire15 inputs require branch-specific identity resolution')
-      expect(html).toContain('Publication, sharing and export remain unavailable.')
+      expect(html).toContain('Publication and sharing remain unavailable.')
       const beforePublication = shared.store.doc
       const prepared = shared.store.prepareDispatch!(replace('b'))
       if (!prepared.ok) throw new Error('candidate rejected before retention')

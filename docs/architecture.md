@@ -259,8 +259,11 @@ promoting and reading retain known active roots with
 `complete: false`; the durable intent preserves the node-qualified diagnostic
 and its severity in `incompleteDiagnostics`. Problems keeps an ownership-unconfirmed
 warning naming the node and reason, and the workspace tab may be shared.
-Publication remains the strict default: collaboration sharing, export and library
-save refuse that document. Other dormant diagnostics are not admitted by this exception.
+Publication remains the strict default: collaboration sharing and library save
+refuse that document. Local download is not publication: admitted documents export
+losslessly with opaque data and ownership warnings preserved, without posting a
+retention declaration. Malformed or invalid identities still refuse export.
+Other dormant diagnostics are not admitted by this exception.
 An incomplete document is never evidence of cleanup eligibility for anything it
 references: a collector must retain those assets or defer collection until the
 roots are complete. No collector runs on the strength of this record.
