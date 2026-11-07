@@ -8983,7 +8983,15 @@ export class AppState {
       // Catalog defaults can introduce assets or opaque roots after startup admission.
       const roots = workflowAssetRoots(result.artifact.snapshot,
         { revision: result.artifact.revision, undo: [], redo: [] },
-        this.resolverWithVirtualNodes(registry.resolve))
+        this.resolverWithVirtualNodes(registry.resolve), [], 'execution')
+      if (roots.incompleteDiagnostics !== undefined) {
+        this.reportProblems(tab.id, [diag(
+          'warning', 'validation', 'workflow.execution.ownershipUnconfirmed',
+          'Workflow ownership unconfirmed.',
+          { data: { reason: roots.incompleteDiagnostics.map((diagnostic) => diagnostic.message).join('; '),
+            effect: 'Execution retains known active assets. Publication, sharing and export remain unavailable.' } },
+        )])
+      }
       if (!roots.complete || roots.digests.length > 0) {
         const owners = this.submissionAssetOwners
         const owned = owners.get(tab)

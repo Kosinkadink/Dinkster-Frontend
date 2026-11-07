@@ -17,6 +17,7 @@ import {
   valueSourceConsumersOf,
   valueKeyOf,
   type CommandOutcome,
+  type Diagnostic,
   type DocumentNodeResolver,
   type ExecutionRef,
   type HistorySnapshot,
@@ -60,10 +61,13 @@ export function workflowAssetRoots(
   history: HistorySnapshot,
   resolve: SchemaResolver,
   additionalDocuments: readonly WorkflowDocument[] = [],
-): { readonly complete: boolean; readonly digests: readonly string[]; readonly refusal?: string } {
+  purpose: 'publication' | 'execution' = 'publication',
+): { readonly complete: boolean; readonly digests: readonly string[]; readonly refusal?: string;
+  readonly incompleteDiagnostics?: readonly Diagnostic[] } {
   const digests = new Set<string>()
   let complete = true
   let refusal: string | undefined
+  const incompleteDiagnostics: Diagnostic[] = []
   const checkedOpaque = new WeakSet<object>()
   // Unknown storage can reveal known roots without certifying that these are all of them.
   const opaqueRoots = (value: Json): void => {
@@ -188,11 +192,20 @@ export function workflowAssetRoots(
     const active = elaborateInterface(schema, node, connectivity, { promoteGhosts: false })
     const stored = dynamic || Object.keys(node.dynamic ?? {}).length > 0
       ? elaborateInterface(schema, node, connectivity, { promoteGhosts: false, includeDormant: true }) : active
-    if (active.diagnostics.length > 0 || stored.diagnostics.length > 0) {
+    const unsupportedDormant = stored.diagnostics.filter((diagnostic) => diagnostic.code === 'elab.dormant.unsupported')
+    if (unsupportedDormant.length > 0) {
+      complete = false
+      for (const diagnostic of unsupportedDormant) incompleteDiagnostics.push({ ...diagnostic,
+        refs: [{ graphId: graph.id, nodeId: node.id }],
+        message: `${node.title ?? node.type} (${node.id}): ${diagnostic.message}`,
+      })
+    }
+    if (active.diagnostics.length > 0 || stored.diagnostics.some((diagnostic) =>
+      purpose !== 'execution' || diagnostic.code !== 'elab.dormant.unsupported')) {
       complete = false
       refusal = 'Workflow dynamic identities are invalid'
     }
-    const inputs = elabInputsOf(stored)
+    const inputs = unsupportedDormant.length > 0 ? [...elabInputsOf(stored), ...elabInputsOf(active)] : elabInputsOf(stored)
     for (const { spec } of inputs) {
       if (spec.ext !== undefined && Object.keys(spec.ext).some((key) => key !== 'default')) complete = false
       if (spec.widget !== undefined && !widgetTypes.has(spec.widget.widgetType)) complete = false
@@ -260,7 +273,8 @@ export function workflowAssetRoots(
       visit(snapshot, replayed.applied)
     }
   }
-  return { complete, digests: [...digests].sort(), ...(refusal === undefined ? {} : { refusal }) }
+  return { complete, digests: [...digests].sort(), ...(refusal === undefined ? {} : { refusal }),
+    ...(incompleteDiagnostics.length === 0 ? {} : { incompleteDiagnostics }) }
 }
 
 /** Known result identities are roots, but opaque runtime values are never certified complete. */
@@ -470,6 +484,7 @@ async function retainAssetRoots(
   const key = scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)
   const intent = {
     version: 3, connectionId: connection.id, assetBaseUrl: connection.assetUrl(''), owner, digests, complete: roots.complete,
+    ...(roots.incompleteDiagnostics === undefined ? {} : { incompleteDiagnostics: roots.incompleteDiagnostics }),
     ...context,
   }
   storage.setItem(key, JSON.stringify(intent))

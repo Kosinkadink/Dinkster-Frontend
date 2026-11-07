@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createComponent } from 'solid-js'
+import { renderToString } from 'solid-js/web'
 import {
   DINKSTER_SCHEMA_WIRE_VERSION, MASK_PAINT_SOURCE_EXT_KEY, asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asPromptId, asValueSourceId, coreCommandRegistry, createLocalSession,
   serializeSelection, type GraphDef, type NodeSchema, type WorkflowDocument,
@@ -11,6 +13,7 @@ import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions
 import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { createPreviewLoader } from '../src/node-previews.js'
+import { ProblemsPanel } from '../src/ProblemsPanel.js'
 
 const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
   size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
@@ -265,6 +268,51 @@ describe('retained app dispatch', () => {
     app = undefined
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it('executes valid active roots but keeps unsupported dormant ownership ineligible and publication refused', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    const dynamic: NodeSchema = { ...schema, items: [{
+      kind: 'input', id: 'mode', optional: false, type: { kind: 'concrete', name: 'STRING' },
+      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'active', inputs: [{
+        kind: 'input', id: 'file', optional: false, type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } },
+        widget: { widgetType: 'ASSET', options: {}, default: asset('a') },
+      }] }] },
+    }] }
+    app = createWorkflowApp([dynamic])
+    const ownerApp = app
+    const local = session()
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Loader', values: {}, dynamic: { mode: { selected: 'active' } } },
+    } } } }
+    expect(app.openDocument(document, 'Dormant ownership')).toEqual([])
+    const tab = app.activeTab()!
+    vi.spyOn(app.connection, 'uploadAsset').mockResolvedValue(asset('c').digest)
+    const execution = { connection: app.connection.id, prompt: asPromptId('dormant-run') }
+    vi.spyOn(app.connection, 'submit').mockResolvedValue({ ok: true, execution })
+    await app.queueSelection(tab, ['n0'])
+    expect(app.store.get(execution)?.artifact?.snapshot).toBeDefined()
+    const records = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+      .filter((key) => key.includes('dinkster.workflow-retentions.'))
+      .map((key) => JSON.parse(localStorage.getItem(key)!))
+    expect(records).toContainEqual(expect.objectContaining({ complete: false, digests: [asset('a').digest],
+      acknowledgedRevision: 1, incompleteDiagnostics: [expect.objectContaining({ severity: 'error',
+        code: 'elab.dormant.unsupported', message: expect.stringContaining('Loader (n0)'),
+      })] }))
+    const html = renderToString(() => createComponent(ProblemsPanel, {
+      app: ownerApp, diagnostics: () => ownerApp.problems.get(), compatSkips: () => [],
+    }))
+    expect(html).toContain('Workflow ownership unconfirmed.')
+    expect(html).toContain('Loader (n0): Dormant wire15 inputs require branch-specific identity resolution')
+    expect(html).toContain('Publication, sharing and export remain unavailable.')
+    const beforePublication = tab.store.doc
+    const prepared = tab.store.prepareDispatch!(replace('b'))
+    if (!prepared.ok) throw new Error('candidate rejected before retention')
+    await expect(admitWorkflowDispatch(app.connection, prepared, () => dynamic, () => true))
+      .rejects.toThrow('Workflow dynamic identities are invalid')
+    expect(tab.store.doc).toBe(beforePublication)
+    // Incomplete roots never establish cleanup eligibility, even after exact acknowledgment.
+    expect(records.some((record) => record.complete && record.digests.includes(asset('a').digest))).toBe(false)
   })
 
   it.each(['artifact', 'associated', 'output', 'model3d'] as const)(

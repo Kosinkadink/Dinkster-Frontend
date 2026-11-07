@@ -241,6 +241,15 @@ a digest. Unmarked asset filename strings and malformed AssetRef objects still r
 This conservative document owner blocks collection; it does not certify byte
 availability or global retention completeness. Malformed identities, invalid
 dynamic identities and stale history replay still refuse publication.
+Execution alone permits the dormant census diagnostic `elab.dormant.unsupported`
+when active elaboration is valid. Known active roots are retained with
+`complete: false`; the durable intent preserves the node-qualified diagnostic
+and its severity in `incompleteDiagnostics`. Problems keeps an ownership-unconfirmed
+warning naming the node and reason. Publication, sharing and export still refuse
+that document; other dormant diagnostics are not admitted by this exception.
+An incomplete document is never evidence of cleanup eligibility for anything it
+references: a collector must retain those assets or defer collection until the
+roots are complete. No collector runs on the strength of this record.
 The union includes current, undo, redo, proposed and shared pending roots.
 The journal includes the exact completeness declaration. Exact acknowledgment or
 exact owner reconciliation, including completeness and the new revision, precedes
