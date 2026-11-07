@@ -1,4 +1,4 @@
-import { expect, selectProductOption, test, type Page } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const MOCK = 'http://asset-guesses.test'
@@ -72,11 +72,25 @@ async function setup(page: Page, guesses: Guesses): Promise<void> {
     await route.fulfill({ json: { matches: body.names.map((query) => ({ query, candidates: guesses[query] ?? [] })) } })
   })
   await page.goto('/')
+  await waitForStartupOwnership(page)
   await page.getByTestId('backends-toggle').click()
   await page.getByTestId('backend-url-input').fill(MOCK)
   await page.getByTestId('backend-add').click()
   await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
   await expect.poll(() => page.evaluate((url) => window.__dinksterTest!.app.backends.get().find((b) => b.baseUrl === url)?.registry.get()?.schemas.size, MOCK)).toBe(2)
+}
+
+async function openImportedDocument(page: Page, json: unknown, title: string) {
+  const opened = await page.evaluate(async ({ json, title, url }) => {
+    const app = window.__dinksterTest!.app
+    const backend = app.backends.get().find((candidate) => candidate.baseUrl === url)!
+    const retained = app as unknown as {
+      openRetainedDocument(json: unknown, title: string, backend: unknown, stillWanted: () => boolean): Promise<unknown>
+    }
+    return await retained.openRetainedDocument(json, title, backend, () => true) !== undefined
+  }, { json, title, url: MOCK })
+  expect(opened).toBe(true)
+  return opened
 }
 
 const values = (page: Page) => page.evaluate(() => {
@@ -92,7 +106,7 @@ const hasModelAssetBadValue = (page: Page) => page.evaluate(() => {
 })
 
 test('manual asset resolution awaits dispatch and keeps refused choices', async ({ page }, testInfo) => {
-  await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: {} }))
+  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 503, json: {} }))
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'local-fixture', schemaWire: 1 }, nodes: {},
   } }))
@@ -101,7 +115,7 @@ test('manual asset resolution awaits dispatch and keeps refused choices', async 
     digest: DIGEST, name: RAW_MODEL, confidence: 'stem', held: true,
     virtualPath: MODEL_PATH, size: MODEL_SIZE, mediaType: 'application/octet-stream',
   }] })
-  await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Imported model'), modelOnlyWorkflow())
+  await openImportedDocument(page, modelOnlyWorkflow(), 'Imported model')
   await page.evaluate((id) => {
     const app = window.__dinksterTest!.app
     app.setTabTarget(app.activeTab()!.id, id)
@@ -149,7 +163,7 @@ test('auto-resolves an obvious path match and prompts only for leftovers', async
     digest: DIGEST, name: RAW_MODEL, confidence: 'path', held: true,
     virtualPath: MODEL_PATH, size: MODEL_SIZE, mediaType: 'application/octet-stream',
   }] })
-  expect(await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Assets'), workflow())).toEqual([])
+  expect(await openImportedDocument(page, workflow(), 'Assets')).toBe(true)
   await page.evaluate((backendId) => {
     const app = window.__dinksterTest!.app
     app.setTabTarget(app.activeTab()!.id, backendId)
@@ -171,10 +185,10 @@ test('auto-resolves an obvious path match and prompts only for leftovers', async
     mediaType: 'application/octet-stream', virtualPath: MODEL_PATH,
   }, image: RAW_IMAGE })
   await expect.poll(() => hasModelAssetBadValue(page)).toBe(false)
-  const exported = await page.evaluate(() => {
+  const exported = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
-    tab.store.dispatch({
+    const outcome = await app.dispatchTo(tab, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'n2', inputId: 'image', value: {
         digest: `blake3:${'b'.repeat(64)}`,
@@ -184,6 +198,7 @@ test('auto-resolves an obvious path match and prompts only for leftovers', async
         virtualPath: 'mounts/comfy-input/missing.png',
       } },
     })
+    if (!outcome.ok) throw new Error('fixture asset edit was refused')
     const compiled = app.compileTab(tab)
     if (!compiled?.ok) throw new Error('accepted assets did not compile')
     const prompt = (compiled.artifact as unknown as { prompt: Record<string, { inputs: Record<string, unknown> }> }).prompt
@@ -214,7 +229,7 @@ test('digest and basename signals auto-resolve a subdirectory path without promp
     digest: `blake3:${'c'.repeat(64)}`, name: RAW_MODEL, confidence: 'path', held: true,
     virtualPath: `other/${RAW_MODEL}`, size: 1, mediaType: 'application/octet-stream',
   }] })
-  await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Nested digest'), workflowWithDigest(nested))
+  await openImportedDocument(page, workflowWithDigest(nested), 'Nested digest')
   await expect.poll(() => page.evaluate(() => typeof window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.model === 'object')).toBe(true)
   await expect(page.getByTestId('import-asset-resolution-dialog')).not.toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.model)).toEqual(
@@ -229,7 +244,7 @@ test('a unique exact-name digest auto-resolves without prompting', async ({ page
     digest: DIGEST, name: RAW_MODEL, confidence: 'name', held: true,
     virtualPath: MODEL_PATH, size: MODEL_SIZE, mediaType: 'application/octet-stream',
   }] })
-  await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Unique name'), modelOnlyWorkflow())
+  await openImportedDocument(page, modelOnlyWorkflow(), 'Unique name')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(1)
   await expect(page.getByTestId('import-asset-resolution-dialog')).not.toBeVisible()
 })
@@ -239,7 +254,7 @@ test('ambiguous collisions remain unresolved and show their reason', async ({ pa
     { digest: DIGEST, name: RAW_MODEL, confidence: 'path', held: true, virtualPath: MODEL_PATH, size: MODEL_SIZE, mediaType: 'application/octet-stream' },
     { digest: `blake3:${'c'.repeat(64)}`, name: RAW_MODEL, confidence: 'path', held: true, virtualPath: `other/${RAW_MODEL}`, size: 1, mediaType: 'application/octet-stream' },
   ] })
-  await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Ambiguous'), workflow())
+  await openImportedDocument(page, workflow(), 'Ambiguous')
   const row = page.getByTestId('import-asset-row').filter({ hasText: RAW_MODEL })
   await expect(row.getByTestId('import-asset-reason')).toContainText('Multiple different assets match')
   await expect(row).toContainText(DIGEST)
@@ -250,7 +265,7 @@ test('ambiguous collisions remain unresolved and show their reason', async ({ pa
 
 test('keeps incomplete candidates visible but disabled and unresolved', async ({ page }) => {
   await setup(page, { [RAW_MODEL]: [{ digest: DIGEST, name: RAW_MODEL, confidence: 'path', held: true }] })
-  await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Incomplete asset'), workflow())
+  await openImportedDocument(page, workflow(), 'Incomplete asset')
   const row = page.getByTestId('import-asset-row').filter({ hasText: RAW_MODEL })
   await expect(row.getByRole('radio', { name: /v1-5-pruned-emaonly-fp16\.safetensors/ })).toBeDisabled()
   await expect(row).toContainText('Incomplete asset metadata - cannot select.')
@@ -262,7 +277,7 @@ test('Escape cancels without mutation and restores focus to the opener', async (
   await setup(page, { [RAW_MODEL]: [{ digest: DIGEST, name: RAW_MODEL, confidence: 'name', held: true, size: MODEL_SIZE, mediaType: 'application/octet-stream' }] })
   const opener = page.getByRole('button', { name: 'New workflow' })
   await opener.focus()
-  await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Cancel assets'), workflow())
+  await openImportedDocument(page, workflow(), 'Cancel assets')
   const dialog = page.getByTestId('import-asset-resolution-dialog')
   await expect(dialog).toBeVisible()
   expect(await page.evaluate(() => document.querySelector('[data-testid="import-asset-resolution-dialog"]')!.contains(document.activeElement))).toBe(true)
@@ -278,7 +293,7 @@ test('backdrop cancels without mutation and restores focus to the opener', async
   await setup(page, { [RAW_MODEL]: [{ digest: DIGEST, name: RAW_MODEL, confidence: 'name', held: true, size: MODEL_SIZE, mediaType: 'application/octet-stream' }] })
   const opener = page.getByRole('button', { name: 'New workflow' })
   await opener.focus()
-  await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Backdrop assets'), workflow())
+  await openImportedDocument(page, workflow(), 'Backdrop assets')
   const dialog = page.getByTestId('import-asset-resolution-dialog')
   await expect(dialog).toBeVisible()
   await page.mouse.click(2, 2)
@@ -290,7 +305,7 @@ test('backdrop cancels without mutation and restores focus to the opener', async
 test('shows stem candidates unresolved with a caution', async ({ page }) => {
   const stemName = 'cat.ckpt'
   await setup(page, { [stemName]: [{ digest: DIGEST, name: 'cat.safetensors', confidence: 'stem', held: false }] })
-  await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Stem asset'), workflow(stemName))
+  await openImportedDocument(page, workflow(stemName), 'Stem asset')
   const stemRow = page.getByTestId('import-asset-row').filter({ hasText: stemName })
   await expect(stemRow.getByRole('radio', { name: /Leave unresolved/ })).toHaveAttribute('aria-checked', 'true')
   await expect(stemRow.getByRole('radio', { name: /cat\.safetensors/ })).toHaveAttribute('aria-checked', 'false')
@@ -301,7 +316,7 @@ test('shows stem candidates unresolved with a caution', async ({ page }) => {
 
 test('opens with no-match rows when every name is unmatched', async ({ page }) => {
   await setup(page, {})
-  await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'No matches'), workflow())
+  await openImportedDocument(page, workflow(), 'No matches')
   const rows = page.getByTestId('import-asset-row')
   await expect(rows).toHaveCount(2)
   await expect(rows).toHaveText([new RegExp(`${RAW_MODEL}.*No candidates returned`), new RegExp(`${RAW_IMAGE}.*No candidates returned`)])
@@ -316,7 +331,7 @@ test('stages multiple choices and accepts them as one atomic batch and undo', as
     }],
     [RAW_IMAGE]: [{ ...IMAGE_REF, confidence: 'stem', held: true }],
   })
-  await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Atomic choices'), workflow())
+  await openImportedDocument(page, workflow(), 'Atomic choices')
   await page.waitForFunction(() => {
     const tab = window.__dinksterTest!.app.activeTab()
     return tab !== undefined && 'status' in tab.store
@@ -344,7 +359,7 @@ test('stages multiple choices and accepts them as one atomic batch and undo', as
 test('lookup failure stays out of the dialog and reports through Problems', async ({ page }) => {
   await setup(page, {})
   await page.route(`${MOCK}/api/assets/guess`, (route) => route.fulfill({ status: 500, body: 'resolver unavailable' }))
-  await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Resolver failure'), workflow())
+  await openImportedDocument(page, workflow(), 'Resolver failure')
   await expect(page.getByTestId('import-asset-resolution-dialog')).not.toBeVisible()
   await expect(page.getByTestId('problems-panel')).toContainText('import.assets.guessFailed')
   await expect(page.getByTestId('problems-panel')).toContainText('POST /api/assets/guess failed: 500')
@@ -363,7 +378,7 @@ test('closing an import while lookup is in flight prevents a stale decision', as
     await route.fulfill({ json: { matches: body.names.map((query) => ({ query, candidates: [] })) } })
     finished = true
   })
-  await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Closed lookup'), workflow())
+  await openImportedDocument(page, workflow(), 'Closed lookup')
   await expect.poll(() => started).toBe(true)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as { activeTab(): { id: string }; closeTab(id: string): void }
@@ -387,7 +402,7 @@ test('narrow, reduced-motion, and 200 percent zoom keep long candidates and the 
   await setup(page, { [RAW_MODEL]: candidates, [RAW_IMAGE]: candidates.map((candidate, index) => ({ ...candidate, digest: `blake3:${String(index + 5).repeat(64)}`, name: `Image candidate ${index + 1}.png` })) })
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Long candidates'), workflow())
+  await openImportedDocument(page, workflow(), 'Long candidates')
   const dialog = page.getByTestId('import-asset-resolution-dialog')
   await expect(dialog).toBeVisible()
   const bounds = await dialog.boundingBox()
