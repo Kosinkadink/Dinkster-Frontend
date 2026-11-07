@@ -546,7 +546,7 @@ export function importLitegraphSubgraphs(
       boundary: { inputs: boundary('inputs').map((item) => {
         const rawSlot = def.raw['inputs'].find((slot: Mutable) => slot['id'] === item.id)
         if (!authoredInstances.length || authoredInstances.some(({ graph, node }) =>
-          node['inputs']?.some((input: Mutable, index: number) =>
+          (node['inputs'] ?? def.raw['inputs']).some((input: Mutable, index: number) =>
             (input['name'] === item.id || input['name'] === rawSlot?.['name']) &&
             (input['link'] != null || graph['links']?.some((link: any[]) =>
               Number(link[3]) === Number(node['id']) && Number(link[4]) === index))))) return item
