@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, test } from '@playwright/test'
+import { expect, nativeTest as test } from './fixtures.js'
 
 const pathSchema = {
   schemaVersion: 1, nodeType: 'comfy.VHS_LoadVideoPath', displayName: 'VHS_LoadVideoPath',
@@ -15,7 +15,7 @@ const schemas = [
 
 test('loads wire41 serializer fixtures and the native path widget without browser chunk transport', async ({ page }, testInfo) => {
   const valueRequests: string[] = []
-  await page.route('/api/**', (route) => {
+  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => {
     if (route.request().url().includes('/api/values')) valueRequests.push(route.request().url())
     return route.fulfill({ status: 404, json: { error: 'isolated schema fixture' } })
   })
@@ -37,10 +37,10 @@ test('loads wire41 serializer fixtures and the native path widget without browse
   })).toMatchObject({
     id: 'video', widget: { widgetType: 'STRING', options: { placeholder: 'X://insert/path/here.mp4' } },
   })
-  await page.evaluate((types) => {
+  await page.evaluate(async (types) => {
     const tab = window.__dinksterTest!.app.activeTab()!
     for (const [index, type] of types.entries()) {
-      const result = tab.store.dispatch({ command: 'node.add', params: {
+      const result = await window.__dinksterTest!.app.dispatchTo(tab, { command: 'node.add', params: {
         graphId: tab.store.doc.root, type, values: {}, position: { x: 120 + (index % 2) * 380, y: 110 + Math.floor(index / 2) * 240 },
       } })
       if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))

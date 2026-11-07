@@ -55,6 +55,7 @@ test('uses the configured All assets source while preserving curated per-mount b
     return route.fulfill({ json: { contractVersion: 1, items: [secondCandidate, candidate] } })
   })
   await page.route('/api/assets/*', (route) => route.fulfill({ contentType: 'image/png', body: pixel }))
+  await page.route('**/api/assets/catalog?*', (route) => route.fulfill({ json: { assets: [] } }))
 
   await page.goto('/')
   const assetsToggle = page.getByTestId('assets-toggle')

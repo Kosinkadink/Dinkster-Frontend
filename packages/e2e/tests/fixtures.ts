@@ -13,6 +13,12 @@ import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json' with
 const nativeCatalogBackend = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 let nativeCatalogAvailable: Promise<boolean> | undefined
 
+export async function waitForStartupOwnership(page: Page): Promise<void> {
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined &&
+    !window.__dinksterTest.app.problems.get().some((problem) =>
+      problem.code === 'workflow.startup.ownershipUnconfirmed'))).toBe(true)
+}
+
 export async function skipWithoutNativeCatalog(request: APIRequestContext, testInfo: TestInfo): Promise<void> {
   nativeCatalogAvailable ??= request.get(`${nativeCatalogBackend}/api/nodes`, { timeout: 3000 })
     .then(async (response) => {
