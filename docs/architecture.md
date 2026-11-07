@@ -74,6 +74,12 @@ connection lifetime must remain current. Refused or stale reads preserve the
 saved result for retry; malformed or absent source documents remain invalid.
 Shown-result ownership and publication follow separately after proof validation.
 
+Retained previews carry the original stored execution for each runtime
+occurrence, including when a partial run displays outputs from several runs.
+The composite overlay is presentation data, not an ownership record. Recorded
+asset reads admit the original execution and keep its replacement and connection
+lifetime guards through decode and download in both graph and App views.
+
 These manifests do not enumerate all frontend holders or enable collection.
 Bounded output descriptors, rendition fingerprints and cache keys are not
 complete typed asset-reference sets. The backend source gate

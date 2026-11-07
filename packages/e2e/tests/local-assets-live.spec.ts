@@ -7,6 +7,10 @@ if (!nativeFrontend) throw new Error('Native frontend is required')
 test.use({ baseURL: nativeFrontend })
 
 async function openPicker(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const tab = window.__dinksterTest!.app.activeTab()
+    return tab?.id === 'local-catalog-proof' && 'status' in tab.store
+  })
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes
     .find((entry) => entry.id === 'asset')?.layout.rows.some((entry) => entry.kind === 'widget' && entry.inputId === 'file'))).toBe(true)
   const point = await page.evaluate(() => {
@@ -104,8 +108,7 @@ for (const state of ['retired', 'inactive', 'linked'] as const) {
     let finishPlan: (() => Promise<void>) | undefined
     if (state === 'inactive') await page.route('**/api/workflows/plan', async (route) => {
       if (!route.request().postData()?.includes('unavailable-asset-inactive')) return route.continue()
-      const response = await route.fetch()
-      finishPlan = () => route.fulfill({ response })
+      finishPlan = () => route.fulfill({ status: 503, json: { error: 'Requirements service unavailable' } })
     })
     await page.goto('/')
     await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)

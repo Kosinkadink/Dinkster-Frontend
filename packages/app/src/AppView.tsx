@@ -538,7 +538,8 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         running: runtimeIds.some((runtimeId) => exec?.nodes[runtimeId]?.state === 'running'),
         frozen: tab.execution !== undefined,
         exactProducer,
-        ...(retained === undefined ? {} : { retainedRuntimeIds: retained.retainedRuntimeIds }),
+        ...(retained === undefined ? {} : { retainedRuntimeIds: retained.retainedRuntimeIds,
+          ...(retained.executionOwners === undefined ? {} : { executionOwners: retained.executionOwners }) }),
         companionSources: companionSourcesOf(def, undefined, (nodeId, inputId) => {
           const node = def.nodes[nodeId]
           const schema = node === undefined ? undefined : resolveSchema?.(node.type)

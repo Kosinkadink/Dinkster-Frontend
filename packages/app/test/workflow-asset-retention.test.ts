@@ -315,7 +315,7 @@ describe('retained app dispatch', () => {
     expect(records.some((record) => record.complete && record.digests.includes(asset('a').digest))).toBe(false)
   })
 
-  it.each(['artifact', 'associated', 'output', 'model3d'] as const)(
+  it.each(['artifact', 'associated', 'output', 'model3d', 'retained'] as const)(
     'owns recorded %s fetch, decode and replacement independently of the active tab', async (route) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       app = createWorkflowApp([schema])
@@ -353,7 +353,10 @@ describe('retained app dispatch', () => {
       })
       try {
         expect(app.executionAssetReader(state, [asset('f').digest])).toBeUndefined()
-        const source = loader.sourceFor(state, ['n1'], false)!
+        const presentation = route === 'retained' ? { ...state, artifacts: [...state.artifacts] } : state
+        if (route === 'retained') expect(app.executionAssetReader(presentation, [asset('a').digest])).toBeUndefined()
+        const source = loader.sourceFor(presentation, ['n1'], false, 0,
+          route === 'retained' ? new Map([['n1', state]]) : undefined)!
         const pending = source.load()
         const { owner, declaration } = await requested.promise
         expect(declaration.digests).toEqual(route === 'associated' ? [asset('a').digest, asset('b').digest] : [asset('a').digest])

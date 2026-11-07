@@ -152,6 +152,7 @@ export interface PreviewLoader {
     runtimeIds: readonly string[],
     running: boolean,
     outputIndex?: number,
+    executionOwners?: ReadonlyMap<string, ExecutionState>,
   ): PreviewSource | undefined
   inventoryFor?(exec: ExecutionState, runtimeIds: readonly string[]): readonly ExecutedImage[]
   /** Selected renderable ASSET input, independent of execution state. */
@@ -344,6 +345,7 @@ export function deriveNodePreviewSurface(args: {
   readonly frozen: boolean
   readonly exactProducer: ((runtimeId: string) => boolean) | undefined
   readonly retainedRuntimeIds?: ReadonlySet<string>
+  readonly executionOwners?: ReadonlyMap<string, ExecutionState>
   readonly companionSources: CompanionSourceMap
   readonly values: DinksterValuesClient | undefined
   readonly selectedAsset: SelectedPreviewAsset | undefined
@@ -362,7 +364,7 @@ export function deriveNodePreviewSurface(args: {
     const currentRuntimeIds = args.runtimeIds.filter((runtimeId) => args.retainedRuntimeIds?.has(runtimeId) !== true)
     const retainedRuntimeIds = args.runtimeIds.filter((runtimeId) => args.retainedRuntimeIds?.has(runtimeId) === true)
     const currentImages = args.loader.inventoryFor?.(exec, currentRuntimeIds) ?? []
-    source = args.loader.sourceFor(exec, currentRuntimeIds, args.running, args.outputIndex?.(args.outputKey))
+    source = args.loader.sourceFor(exec, currentRuntimeIds, args.running, args.outputIndex?.(args.outputKey), args.executionOwners)
     if (source?.output !== undefined) {
       executedOutput = {
         key: args.outputKey,
@@ -375,7 +377,7 @@ export function deriveNodePreviewSurface(args: {
     if (source === undefined && retainedRuntimeIds.length > 0) {
       const retainedKey = `${args.outputKey}\u0000retained`
       const retainedImages = args.loader.inventoryFor?.(exec, retainedRuntimeIds) ?? []
-      source = args.loader.sourceFor(exec, retainedRuntimeIds, false, args.outputIndex?.(retainedKey))
+      source = args.loader.sourceFor(exec, retainedRuntimeIds, false, args.outputIndex?.(retainedKey), args.executionOwners)
       if (source?.output !== undefined) {
         executedOutput = {
           key: retainedKey,
@@ -775,7 +777,7 @@ export function createPreviewLoader(deps: {
   return {
     inventoryFor,
 
-    sourceFor(exec, runtimeIds, running, outputIndex = 0) {
+    sourceFor(exec, runtimeIds, running, outputIndex = 0, executionOwners) {
       const idSet = new Set(runtimeIds)
       const matches = (runtimeId: string) => idSet.has(runtimeId)
 
@@ -834,7 +836,8 @@ export function createPreviewLoader(deps: {
             : undefined
       const ownedSource = (source: PreviewSource, digests: readonly string[]): PreviewSource | undefined => {
         if (deps.executionAssetReader === undefined) return source
-        const owner = deps.executionAssetReader(exec, digests)
+        const execution = source.runtimeId === undefined ? exec : executionOwners?.get(source.runtimeId) ?? exec
+        const owner = deps.executionAssetReader(execution, digests)
         if (owner === undefined) return undefined
         return {
           ...source,

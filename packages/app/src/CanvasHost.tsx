@@ -4562,6 +4562,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ? new Set(props.app.scanTabReplacements(tab).filter((item) => item.graphId === gid).map((item) => item.nodeId))
           : undefined,
         retainedRuntimeIds: retained?.retainedRuntimeIds,
+        executionOwners: retained?.executionOwners,
         nodeProblems,
         ...(() => {
           const dismissed = exec === undefined ? undefined : dismissedErrorNodes().get(exec.key)
