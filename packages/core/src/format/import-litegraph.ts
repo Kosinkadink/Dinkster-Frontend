@@ -675,6 +675,45 @@ const fnv1a = (s: string): string => {
   return (h >>> 0).toString(16).padStart(8, '0')
 }
 
+/** Rule-local helper names may repeat across import hops, unlike graph IDs. */
+function freshImportHelpers(rule: ReplacementRule, graph: GraphDef, nodeId: string): ReplacementRule {
+  if (!rule.cases.some((branch) => Object.keys(branch.nodes ?? {}).length > 0)) return rule
+  const occupied = new Set([
+    graph.nodes, graph.links, graph.nets, graph.reroutes, graph.valueSources ?? {}, graph.selectors ?? {},
+  ].flatMap((entities) => Object.keys(entities)))
+  return { ...rule, cases: rule.cases.map((branch) => {
+    if (branch.nodes === undefined) return branch
+    const reserved = new Set(Object.keys(branch.nodes))
+    const names = new Map<string, string>()
+    for (const localId of Object.keys(branch.nodes)) {
+      let fresh = localId
+      let suffix = 1
+      while (occupied.has(`${nodeId}:${fresh}`) || (fresh !== localId && reserved.has(fresh))) {
+        fresh = `${localId}_${suffix++}`
+      }
+      reserved.add(fresh)
+      names.set(localId, fresh)
+    }
+    const address = (value: string): string => {
+      const colon = value.indexOf(':')
+      if (colon < 0) return value
+      const renamed = names.get(value.slice(0, colon))
+      return renamed === undefined ? value : `${renamed}${value.slice(colon)}`
+    }
+    const keys = <T>(entries: Readonly<Record<string, T>>): Record<string, T> =>
+      Object.fromEntries(Object.entries(entries).map(([key, value]) => [address(key), value]))
+    return {
+      ...branch,
+      nodes: Object.fromEntries(Object.entries(branch.nodes).map(([key, value]) => [names.get(key)!, value])),
+      ...(branch.inputs !== undefined ? { inputs: keys(branch.inputs) } : {}),
+      ...(branch.outputs !== undefined ? { outputs: keys(branch.outputs) } : {}),
+      ...(branch.slotVariants !== undefined ? { slotVariants: keys(branch.slotVariants) } : {}),
+      ...(branch.inputFamilies !== undefined ? { inputFamilies: keys(branch.inputFamilies) } : {}),
+      ...(branch.links !== undefined ? { links: branch.links.map((link) => ({ from: address(link.from), to: address(link.to) })) } : {}),
+    }
+  }) }
+}
+
 /**
  * Translate a legacy litegraph workflow into a v1 dinkster document. `resolve`
  * supplies the ordinary schemas used to decode each authored class.
@@ -720,7 +759,8 @@ export function importLitegraph(
         diagnostics.push(imp('warning', 'import.translation.cycle', `translation cycle at '${node.type}' in ${graphId}/${nodeId}; node kept for review`))
         continue
       }
-      const planned = planReplacement(document, graphId, node.id, record.rule, resolveForImport)
+      const rule = freshImportHelpers(record.rule, document.graphs[graphId]!, node.id)
+      const planned = planReplacement(document, graphId, node.id, rule, resolveForImport)
       // A failed translation is advisory: retain the editable imported node.
       diagnostics.push(...planned.diagnostics.map((entry) => ({ ...entry, severity: entry.severity === 'error' ? 'warning' as const : entry.severity })))
       if (planned.plan === undefined) continue

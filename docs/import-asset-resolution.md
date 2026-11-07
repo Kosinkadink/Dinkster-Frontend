@@ -13,6 +13,9 @@ inside subgraph definitions, before resolving packs. A repeated source type
 in a primary/helper ancestry stops that branch with a nonblocking diagnostic;
 a same-type rule runs once. The final pack is reported while the original
 source class remains available for review.
+Repeated helper-local names receive deterministic unused names for each import
+hop, with their port, family and construct addresses renamed together. Existing
+helpers and the ordinary replacement command's collision checks stay intact.
 
 Pack resolution is separate from conversion: translated nodes are installed
 only when their exact native type exists in the selected backend registry,

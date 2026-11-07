@@ -108,6 +108,7 @@ it.each([false, true])('fully translates primary and helper chains inside a subg
       { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
         widget: { widgetType: 'FLOAT', options: {}, default: 0 } },
       { kind: 'input', id: 'dependency', type: { kind: 'concrete', name: 'FLOAT' }, optional: true },
+      { kind: 'input', id: 'secondDependency', type: { kind: 'concrete', name: 'FLOAT' }, optional: true },
       { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } },
     ],
   })
@@ -122,7 +123,9 @@ it.each([false, true])('fully translates primary and helper chains inside a subg
     { pack: 'final-pack', version: '2', schema: schema('native.final'), rule: {
       from: 'Intermediate', cases: [{ to: 'native.final',
         inputs: { value: { kind: 'value', input: 'value', transform: { kind: 'scale', factor: 3 } },
-          dependency: { kind: 'copy', input: 'dependency' } },
+          dependency: { kind: 'copy', input: 'dependency' }, 'helper:value': { kind: 'constant', value: 29 } },
+        nodes: { helper: { type: 'native.helper' } },
+        links: [{ from: 'helper:out', to: 'secondDependency' }],
         outputs: { out: 'out' },
       }],
     } },
@@ -133,19 +136,25 @@ it.each([false, true])('fully translates primary and helper chains inside a subg
       { id: 'inner', name: 'inner', version: 1, nodes, inputs: [], outputs: [], links: [] },
     ] } }
     : { nodes, links: [] }
-  const imported = importLitegraph(foreign, () => undefined, undefined, translations)
+  const installedHelper = schema('native.helper')
+  const resolveHelper = (type: string) => type === installedHelper.type ? installedHelper : undefined
+  const imported = importLitegraph(foreign, resolveHelper, undefined, translations)
   expect(errorsOf(imported.diagnostics)).toEqual([])
   const document = imported.document!
   const translated = Object.values(document.graphs).find((graph) => graph.nodes.n1?.type === 'native.final')!
   expect(Object.values(translated.nodes).map((node) => [node.id, node.type, node.values.value])).toEqual([
     ['n1', 'native.final', 21], ['n1:helper', 'native.final', 51],
+    ['n1:helper_1', 'native.helper', 29], ['n1:helper:helper', 'native.helper', 29],
   ])
   expect(Object.values(translated.links).map((link) => [link.from, link.to])).toEqual([
     [{ node: 'n1:helper', port: 'out' }, { node: 'n1', port: 'dependency' }],
+    [{ node: 'n1:helper_1', port: 'out' }, { node: 'n1', port: 'secondDependency' }],
+    [{ node: 'n1:helper:helper', port: 'out' }, { node: 'n1:helper', port: 'secondDependency' }],
   ])
-  const statuses = resolveImportedNodePacks(document, () => undefined).filter((node) => node.graphId === translated.id)
+  const statuses = resolveImportedNodePacks(document, resolveHelper).filter((node) => node.graphId === translated.id)
   expect(statuses.map((node) => [node.sourceClass, node.status, node.pack, node.version])).toEqual([
     ['Authored', 'installable', 'final-pack', '2'], ['Intermediate', 'installable', 'final-pack', '2'],
+    ['native.helper', 'installed', undefined, undefined], ['native.helper', 'installed', undefined, undefined],
   ])
   expect(checkDocument(document)).toEqual([])
 })
