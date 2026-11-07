@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { deflateSync } from 'node:zlib'
-import { expect, test, type Page, type Request } from '@playwright/test'
-import { selectProductOption } from './fixtures.js'
+import type { Request } from '@playwright/test'
+import { expect, nativeTest as test, selectProductOption, waitForStartupOwnership, type Page } from './fixtures.js'
 
 interface AssetRef {
   digest: string
@@ -191,6 +191,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
+  await waitForStartupOwnership(page)
   const required = await page.evaluate(() => {
     const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas
     return schemas?.has('dinkster.load_image') === true && schemas.has('dinkster.save_image')

@@ -6,10 +6,11 @@
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
 import { diag, type DinksterNodesPayload } from '@dinkster/core'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const nodesPayload = JSON.parse(
@@ -22,7 +23,13 @@ const nodesPayload = JSON.parse(
 let app: AppState
 
 beforeEach(() => {
-  app = new AppState()
+  app = createWorkflowApp(null)
+})
+
+afterEach(() => {
+  app.dispose()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 /** Compilable chain document for backend-coupled async tests. */
@@ -54,6 +61,8 @@ const CHAIN_DOC = {
 function nativeSetup(): { backend: Extract<Backend, { protocol: 'dinkster' }>; tab: Tab } {
   const added = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
   if (!added || added.protocol !== 'dinkster') throw new Error('addBackend rejected')
+  vi.spyOn(added.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   added.registry.set(buildDinksterRegistry(added.id, nodesPayload))
   expect(app.openDocument(CHAIN_DOC, 'Chain')).toEqual([])
   const tab = app.activeTab()!
@@ -226,7 +235,7 @@ describe('live preview policy on submit', () => {
       ok: false,
       diagnostics: [diag('error', 'validation', 'submit.expected', 'stop after POST')],
     })
-    expect(app.dispatchTo(tab, { command: 'workflow.setPreviews', params: { previews: 'quality' } }).ok).toBe(true)
+    expect((await app.dispatchTo(tab, { command: 'workflow.setPreviews', params: { previews: 'quality' } })).ok).toBe(true)
 
     await app.queue(tab)
     expect(submit).toHaveBeenCalledTimes(1)
@@ -242,15 +251,15 @@ describe('live preview policy on submit', () => {
       ok: false,
       diagnostics: [diag('error', 'validation', 'submit.expected', 'stop after POST')],
     })
-    expect(app.dispatchTo(tab, {
+    expect((await app.dispatchTo(tab, {
       command: 'node.setPreviews',
       params: { graphId: 'g0', nodeIds: ['n1'], previews: 'off' },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
     // Equal to the base mode: must be omitted from the wire.
-    expect(app.dispatchTo(tab, {
+    expect((await app.dispatchTo(tab, {
       command: 'node.setPreviews',
       params: { graphId: 'g0', nodeIds: ['n0'], previews: 'cheap' },
-    }).ok).toBe(true)
+    })).ok).toBe(true)
 
     await app.queue(tab)
     expect(submit).toHaveBeenCalledTimes(1)

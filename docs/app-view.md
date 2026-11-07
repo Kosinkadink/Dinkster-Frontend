@@ -38,6 +38,67 @@ controls. Arrange state belongs to the tab UI, survives an editor-kind switch,
 and is not document data or persisted across reloads. Frozen tabs cannot enter
 Arrange mode.
 
+Parameter and preview label renames wait for final command acceptance before
+closing. Pending fields stay read only and ignore repeated Enter. A refusal
+keeps the exact draft with an inline notice for retry. Escape or blur dismisses
+the field without cancelling a submitted command. Leaving Arrange mode,
+switching tabs or replacing the document session discards transient rename UI;
+old completion cannot close a newer rename. Empty labels still clear overrides.
+
+Authored text, group titles and queue labels also await final edit outcomes.
+Pending fields stay read only, with formatting/style and queue target choices
+disabled for the affected placement. Refusal preserves exact drafts with an
+inline notice; submit again to retry. Accepted titles and queue labels are
+trimmed. Changing mode, tab or document session invalidates old completion
+notices without cancelling submitted commands. Text markup remains in the draft
+after refusal, so retry with Ctrl+Enter rather than applying formatting again.
+
+Inline text and primitive-list fields also wait for final acceptance. Enter
+submits a single line; Ctrl+Enter or Cmd+Enter submits a multiline or list
+draft. Change and blur submit new edits, but retrying an unchanged refused draft
+requires the submit shortcut. Pending fields are read only and ignore duplicate
+submissions. Refusal preserves the exact text for retry,
+including list formatting; only accepted list values become stored arrays.
+Unaccepted text/list/number drafts defer the desktop/mobile presentation switch so
+resizing does not discard them.
+Escape restores the stored value and clears the local notice without cancelling
+an already submitted command. Old completion cannot alter a reverted or
+unmounted field.
+
+Inline numbers use final command acceptance for typed and stepped values.
+While pending, the field is read only and steppers are disabled. Refusal retains
+the exact typed text or proposed step; Enter retries it and Escape restores the
+stored number and clears its notice. Blur does not retry an unchanged refused
+number. Integer stepping stays exact beyond JavaScript's safe-integer range.
+
+Boolean toggles are disabled while their command is pending and display only
+the stored value. Combo menus remain open during pending selection and refusal;
+the stored selection changes only after acceptance. Duplicate selections are
+ignored while pending. Escape, Tab or an outside click dismisses the menu
+without cancelling a submitted command, and an old completion cannot close a
+newer menu or show a stale refusal.
+
+The Arrange group selector also waits for final command acceptance. Its menu
+stays open while creating an automatic placement or moving an existing one;
+refusal leaves the stored parent unchanged and shows the layout notice above
+the Arrange controls. Retry the active option with Enter. Dismissing the menu
+invalidates its completion notices without cancelling the submitted command.
+
+Text-style selection also keeps its menu open until acceptance. Pending choices
+are not repeated; refusal preserves the stored role and shows a notice above
+the text controls. Retry an option without reopening the menu. Escape, Tab or
+an outside click dismisses it without cancelling the command or allowing its
+late refusal to appear in a newer menu. Other text edits disable style changes
+while pending, but a pending style choice still permits keyboard dismissal.
+
+Grid move/resize gestures and mobile reorder gestures/buttons wait for final
+command acceptance. While a gesture command is pending, further gestures are
+ignored and mobile reorder buttons are disabled. Stored positions and order
+remain unchanged on refusal, with a notice above the Arrange controls; repeat
+the gesture to retry. Keyboard focus is restored only after acceptance in the
+same tab, document session and Arrange breakpoint. Changing that scope clears
+the notice without cancelling a submitted command.
+
 App View uses the shared Product button, text, number, checkbox and select
 controls in both modes. Group and text-style selectors support the same
 combobox keyboard navigation and focus restoration as shell settings.

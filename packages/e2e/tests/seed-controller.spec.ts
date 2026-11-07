@@ -60,6 +60,17 @@ const state = (page: Page) => page.evaluate(() => {
 })
 
 test.beforeEach(async ({ page }, testInfo) => {
+  const mockControllerDispatch = testInfo.annotations.some((annotation) => annotation.type === 'mock-controller-dispatch')
+  if (mockControllerDispatch) {
+    await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: {} }))
+    await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'controller-fixture', schemaWire: 1 }, nodes: {},
+    } }))
+    await page.routeWebSocket('**/api/events?*', () => {})
+    await page.goto('/')
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
+    return
+  }
   const mockLegacyDiscovery = testInfo.annotations.some((annotation) => annotation.type === 'mock-legacy-discovery')
   if (mockLegacyDiscovery) {
     await page.route('/system_stats', (route) =>
@@ -86,6 +97,104 @@ test.beforeEach(async ({ page }, testInfo) => {
     tab.store.dispatch({ command: 'node.setController', params: { graphId: tab.store.doc.root, nodeId: 'n0', inputId: 'width', mode: 'fixed' } })
     test.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
+})
+
+test('controller choice awaits acceptance and preserves refused or newer menus', {
+  annotation: { type: 'mock-controller-dispatch' },
+}, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1366, height: 768 })
+  await page.evaluate(() => {
+    const bridge = window.__dinksterTest!
+    bridge.app.registerSchemas([{
+      type: 'ControlledSeed', displayName: 'Controlled seed', category: 'test', source: 'v3', isOutputNode: false,
+      items: ['seed', 'other'].map((id) => ({
+        kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'INT' }, optional: false,
+        widget: { widgetType: 'INT', options: { min: 0, max: 1000, step: 1 }, default: 100, controller: 'after_generate' as const },
+      })),
+    }])
+    const diagnostics = bridge.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'controller-dispatch', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        n0: { id: 'n0', type: 'ControlledSeed', values: { seed: 100, other: 200 }, controllers: { seed: 'fixed', other: 'increment' } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { g0: { nodes: { n0: { position: { x: 100, y: 100 } } } } } },
+    }, 'Controller dispatch')
+    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
+  })
+  await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'n0'))).toBe(true)
+  await page.evaluate(() => {
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    const app = window.__dinksterTest!.app as any
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__controllerPending = []
+    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
+      ;(window as any).__controllerPending.push((accepted: boolean) => resolve(accepted
+        ? dispatch(tab, invocation)
+        : { ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Controller change refused for test' }] }))
+    })
+  })
+  const mode = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.controllers?.seed)
+  const menu = page.getByTestId('seed-controller-menu')
+  const choose = page.getByTestId('seed-controller-randomize')
+  const open = async (inputId = 'seed') => {
+    const point = await chipPoint(page, inputId)
+    await page.mouse.click(point.x, point.y)
+    await expect(menu).toBeVisible()
+  }
+  const settle = (index: number, accepted: boolean) => page.evaluate(({ index, accepted }) => {
+    ;(window as any).__controllerPending[index](accepted)
+  }, { index, accepted })
+  await open()
+  await expect(choose).toHaveClass(/seed-controller-option/)
+  await page.screenshot({ path: testInfo.outputPath('controller-default.png') })
+  await choose.click()
+  await expect(menu).toHaveAttribute('aria-busy', 'true')
+  await expect(choose).toBeDisabled()
+  await expect(page.getByTestId('seed-controller-fixed')).toHaveAttribute('aria-checked', 'true')
+  expect(await mode()).toBe('fixed')
+  await choose.dispatchEvent('click')
+  expect(await page.evaluate(() => (window as any).__controllerPending.length)).toBe(1)
+  await page.screenshot({ path: testInfo.outputPath('controller-pending.png') })
+  await settle(0, false)
+  await expect(choose).toBeEnabled()
+  await expect(menu).toHaveAttribute('aria-busy', 'false')
+  await expect(page.getByTestId('controller-refusal')).toContainText('Controller change refused for test')
+  expect(await mode()).toBe('fixed')
+  await page.screenshot({ path: testInfo.outputPath('controller-refused.png') })
+  await choose.click()
+  await expect(page.getByTestId('controller-refusal')).toHaveCount(0)
+  await settle(1, true)
+  await expect(menu).not.toBeVisible()
+  await expect.poll(mode).toBe('randomize')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.seed)).toBe(100)
+  await page.screenshot({ path: testInfo.outputPath('controller-accepted.png') })
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  await expect.poll(mode).toBe('fixed')
+
+  await open()
+  await choose.click()
+  await page.keyboard.press('Escape')
+  await expect(menu).not.toBeVisible()
+  await open('other')
+  await choose.click()
+  await settle(2, true)
+  await expect(menu).toBeVisible()
+  await expect(page.getByTestId('seed-controller-increment')).toHaveAttribute('aria-checked', 'true')
+  await expect(choose).toBeDisabled()
+  await expect(menu).toHaveAttribute('aria-busy', 'true')
+  await settle(3, false)
+  await expect(choose).toBeEnabled()
+  await expect(page.getByTestId('controller-refusal')).toContainText('Controller change refused for test')
+  await expect.poll(mode).toBe('randomize')
+  await choose.click()
+  await page.keyboard.press('Escape')
+  await open()
+  await settle(4, false)
+  await expect(menu).toBeVisible()
+  await expect(choose).toBeEnabled()
+  await expect(page.getByTestId('controller-refusal')).toHaveCount(0)
+  await expect(page.getByTestId('gesture-refusal-toast')).toHaveCount(0)
 })
 
 test('controller chip opens a detailed menu, selects a persistent mode, and undo restores it', async ({ page }) => {

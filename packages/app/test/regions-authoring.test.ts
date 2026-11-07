@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   checkDocument,
   deriveBoundarySchema,
@@ -6,13 +6,15 @@ import {
   type NodeSchema,
   type RegionContract,
 } from '@dinkster/core'
-import { AppState, pushGraph } from '../src/app-state.js'
+import { pushGraph, type AppState } from '../src/app-state.js'
 import { commitRegionCreation } from '../src/CanvasHost.js'
 import { registerCoreSearchProviders, runSearchAction } from '../src/universal-search.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 beforeAll(() => {
   Object.defineProperty(globalThis, 'location', { value: new URL('http://localhost/'), configurable: true })
 })
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 const regionProblems = (app: AppState) =>
   checkDocument(app.activeTab()!.store.doc).filter((problem) =>
@@ -37,18 +39,49 @@ const sameIdPrimitive = (type: string, name: 'FLOAT' | 'BOOLEAN'): NodeSchema =>
   ],
 })
 
+const regionSchemas: readonly NodeSchema[] = [
+  sameIdPrimitive('dinkster.float', 'FLOAT'),
+  sameIdPrimitive('dinkster.boolean', 'BOOLEAN'),
+  { type: 'std.math.add_ints', displayName: 'Add Ints', category: 'test', source: 'v3', isOutputNode: false,
+    items: [
+      { kind: 'input', id: 'a', type: { kind: 'concrete', name: 'INT' }, optional: false },
+      { kind: 'input', id: 'b', type: { kind: 'concrete', name: 'INT' }, optional: false },
+      { kind: 'output', id: 'sum', type: { kind: 'concrete', name: 'INT' } },
+    ] },
+]
+
 describe('region creation actions', () => {
+  it.each([false, true])('waits for region acceptance %s before selecting its occurrence', async (accepted) => {
+    const app = createWorkflowApp(regionSchemas)
+    const tab = app.createWorkflow()
+    const root = tab.store.doc.root
+    const dispatch = app.dispatchTo.bind(app)
+    let settle!: () => void
+    vi.spyOn(app, 'dispatchTo').mockImplementation((owner, invocation) => new Promise((resolve) => {
+      settle = () => resolve(accepted ? dispatch(owner, invocation) : { ok: false, diagnostics: [] })
+    }) as never)
+    const selected: string[] = []
+    const pending = commitRegionCreation(app, tab, root, { x: 12, y: 34 }, 'fold', (id) => selected.push(id))
+    expect(selected).toEqual([])
+    expect(Object.keys(tab.store.doc.graphs[root]!.nodes)).toEqual([])
+    settle()
+    expect((await pending).ok).toBe(accepted)
+    expect(selected).toEqual(accepted ? ['n1'] : [])
+    expect(tab.store.doc.graphs[root]!.nodes.n1?.region?.kind).toBe(accepted ? 'fold' : undefined)
+    app.dispose()
+  })
+
   it.each([
     ['map', 'region.createMap'],
     ['fold', 'region.createFold'],
     ['while', 'region.createWhile'],
-  ] as const)('creates one valid %s region batch and drills through the ordinary occurrence path', (kind, commandId) => {
-    const app = new AppState()
+  ] as const)('creates one valid %s region batch and drills through the ordinary occurrence path', async (kind, commandId) => {
+    const app = createWorkflowApp(regionSchemas)
     const tab = app.createWorkflow()
     const root = tab.store.doc.root
 
     const selected: string[] = []
-    const outcome = commitRegionCreation(app, tab, root, { x: 12, y: 34 }, kind, (nodeId) => selected.push(nodeId))
+    const outcome = await commitRegionCreation(app, tab, root, { x: 12, y: 34 }, kind, (nodeId) => selected.push(nodeId))
     expect(outcome.ok).toBe(true)
     const occurrenceId = Object.keys(tab.store.doc.graphs[root]!.nodes)[0]!
     const occurrence = tab.store.doc.graphs[root]!.nodes[occurrenceId]!
@@ -70,8 +103,8 @@ describe('region creation actions', () => {
     expect(tab.graphStack.get()).toEqual([root])
   })
 
-  it('uses the real catalog primitive shapes for the map, fold, and while templates', () => {
-    const app = new AppState()
+  it('uses the real catalog primitive shapes for the map, fold, and while templates', async () => {
+    const app = createWorkflowApp(regionSchemas)
     const expected = {
       map: ['dinkster.float'],
       fold: ['std.math.add_ints'],
@@ -79,7 +112,7 @@ describe('region creation actions', () => {
     } as const
     for (const kind of ['map', 'fold', 'while'] as const) {
       const tab = app.createWorkflow()
-      expect(app.createRegion(tab, tab.store.doc.root, { x: 0, y: 0 }, kind).ok).toBe(true)
+      expect((await app.createRegion(tab, tab.store.doc.root, { x: 0, y: 0 }, kind)).ok).toBe(true)
       const occurrence = Object.values(tab.store.doc.graphs[tab.store.doc.root]!.nodes)[0]!
       const definition = tab.store.doc.graphs[occurrence.type.slice(1)]!
       expect(Object.values(definition.nodes).map((node) => node.type)).toEqual(expected[kind])
@@ -93,8 +126,8 @@ describe('region creation actions', () => {
     }
   })
 
-  it.each(['map', 'while'] as const)('derives and lowers a real %s region with same-id primitive ports', (kind) => {
-    const app = new AppState()
+  it.each(['map', 'while'] as const)('derives and lowers a real %s region with same-id primitive ports', async (kind) => {
+    const app = createWorkflowApp()
     const schemas = new Map([
       ['dinkster.float', sameIdPrimitive('dinkster.float', 'FLOAT')],
       ['dinkster.boolean', sameIdPrimitive('dinkster.boolean', 'BOOLEAN')],
@@ -109,7 +142,7 @@ describe('region creation actions', () => {
     })
     const tab = app.createWorkflow()
 
-    expect(app.createRegion(tab, tab.store.doc.root, { x: 0, y: 0 }, kind).ok).toBe(true)
+    expect((await app.createRegion(tab, tab.store.doc.root, { x: 0, y: 0 }, kind)).ok).toBe(true)
     const occurrence = Object.values(tab.store.doc.graphs[tab.store.doc.root]!.nodes)[0]!
     const definition = tab.store.doc.graphs[occurrence.type.slice(1)]!
     const resolve = documentResolver(tab.store.doc, (type) => schemas.get(type))
@@ -128,18 +161,18 @@ describe('region creation actions', () => {
     }
   })
 
-  it('disables every region action for a frozen tab', () => {
-    const app = new AppState()
+  it('disables every region action for a frozen tab', async () => {
+    const app = createWorkflowApp()
     const tab = app.createWorkflow()
     ;(tab as { execution?: unknown }).execution = { connection: 'test', prompt: 'frozen' }
     for (const id of ['region.createMap', 'region.createFold', 'region.createWhile']) {
       expect(app.commands.get(id)?.enabled?.()).toBe(false)
     }
-    expect(app.createRegion(tab, tab.store.doc.root, { x: 0, y: 0 }, 'map').ok).toBe(false)
+    expect((await app.createRegion(tab, tab.store.doc.root, { x: 0, y: 0 }, 'map')).ok).toBe(false)
   })
 
   it('exposes and invokes all three actions through universal search', () => {
-    const app = new AppState()
+    const app = createWorkflowApp()
     const dispose = registerCoreSearchProviders(app)
     const createRegion = vi.fn(() => true)
     app.canvasBridge.set({ createRegion } as never)

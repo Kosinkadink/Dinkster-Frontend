@@ -5,18 +5,26 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it, vi } from 'vitest'
-import { AppState } from '../src/app-state.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { AppState } from '../src/app-state.js'
 import { historicalRegistry } from './historical-schemas.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const workflowText = readFileSync(join(here, 'fixtures/unresolved-output-dependency.json'), 'utf8')
+let app: AppState | undefined
+
+afterEach(() => {
+  app?.dispose()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 describe('queueing a loaded workflow whose output depends on an unresolved node', () => {
   it('refuses with one diagnostic per unresolved node explaining the refusal', async () => {
-    const app = new AppState()
+    app = createWorkflowApp(null)
     const backend = app.backends.get()[0]!
     backend.registry.set(historicalRegistry(backend.id))
     const submit = vi.fn()

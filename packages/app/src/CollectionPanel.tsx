@@ -37,6 +37,7 @@ import { ProductSelect } from './ProductSelect.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { SearchInput } from './SearchSurface.js'
+import { CollectionImage } from './CollectionImage.js'
 
 const PAGE_SIZE = 24
 const DEBOUNCE_MS = 120
@@ -339,7 +340,7 @@ export function CollectionPanel(props: {
           && rootEl?.contains(active) === true && active.dataset['entry'] !== undefined
           ? active.dataset['entry']
           : undefined
-        setItems(append ? [...items(), ...page.items] : page.items)
+        setItems(append ? [...new Map([...items(), ...page.items].map((entry) => [entry.id, entry])).values()] : page.items)
         setCursor(page.cursor)
         setTotal(page.total)
         setPageOwner(page.owner)
@@ -502,25 +503,9 @@ export function CollectionPanel(props: {
   }
 
   const Thumb = (p: { entry: CollectionEntry }) => {
-    const [failed, setFailed] = createSolidSignal(false)
-    const [rendered, setRendered] = createSolidSignal<string>()
-    // Rendered thumbnails (no direct pixels; thumbUrl wins when present).
-    createEffect(() => {
-      const render = p.entry.thumbUrl === undefined ? p.entry.thumbRender : undefined
-      setRendered(undefined)
-      if (render === undefined) return
-      let live = true
-      onCleanup(() => { live = false })
-      render().then(
-        (url) => { if (live) setRendered(url) },
-        () => { if (live) setFailed(true) },
-      )
-    })
     const fallback = () => props.entryFallback?.(p.entry)
       ?? <span class="collection-initials" aria-hidden="true">{initialsOf(p.entry.title)}</span>
-    return <Show when={!failed() ? p.entry.thumbUrl ?? rendered() : undefined} fallback={fallback()}>
-      {(url) => <img class="collection-thumb" src={url()} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />}
-    </Show>
+    return <CollectionImage entry={p.entry} class="collection-thumb" alt="" fallback={fallback()} />
   }
 
   const Details = (p: { entry: CollectionEntry }) => (

@@ -9,6 +9,16 @@ image is present.
 
 The node context menu also offers Copy for the clicked node or current node selection. The empty-canvas context menu offers Paste and anchors the pasted content at the menu invocation position. These entries use the same clipboard and paste command paths as the keyboard shortcuts.
 
+For native libraries, graph Copy confirms a separate retained owner before
+writing to the system clipboard. Its durable journal associates the exact
+copied text with known asset roots from the captured source document, including
+unselected source nodes used by connected paste. Internal paste remains
+available while confirmation is pending; its destination still confirms newly
+introduced assets. Refusal leaves the system clipboard unchanged, discards the
+pending fallback, and appears in Problems. Closing or editing the source tab
+does not revoke a captured copy. Clipboard declarations remain incomplete and
+are not released on overwrite, tab close or restart; they do not enable cleanup.
+
 ## Envelope
 
 The system clipboard receives JSON with this versioned outer shape:
