@@ -253,12 +253,14 @@ dynamic identities and stale history replay still refuse publication.
 History array additions insert before occupied entries without overwriting them;
 object additions still require an absent key, and replacements and removals
 still require their recorded value.
-Execution alone permits the dormant census diagnostic `elab.dormant.unsupported`
-when active elaboration is valid. Known active roots are retained with
+Document admission and execution permit the dormant census diagnostic
+`elab.dormant.unsupported` when active elaboration is valid. Opening, restoring,
+promoting and reading retain known active roots with
 `complete: false`; the durable intent preserves the node-qualified diagnostic
 and its severity in `incompleteDiagnostics`. Problems keeps an ownership-unconfirmed
-warning naming the node and reason. Publication, sharing and export still refuse
-that document; other dormant diagnostics are not admitted by this exception.
+warning naming the node and reason, and the workspace tab may be shared.
+Publication remains the strict default: collaboration sharing, export and library
+save refuse that document. Other dormant diagnostics are not admitted by this exception.
 An incomplete document is never evidence of cleanup eligibility for anything it
 references: a collector must retain those assets or defer collection until the
 roots are complete. No collector runs on the strength of this record.

@@ -61,7 +61,7 @@ export function workflowAssetRoots(
   history: HistorySnapshot,
   resolve: SchemaResolver,
   additionalDocuments: readonly WorkflowDocument[] = [],
-  purpose: 'publication' | 'execution' = 'publication',
+  purpose: 'publication' | 'admission' | 'execution' = 'publication',
 ): { readonly complete: boolean; readonly digests: readonly string[]; readonly refusal?: string;
   readonly incompleteDiagnostics?: readonly Diagnostic[] } {
   const digests = new Set<string>()
@@ -202,7 +202,7 @@ export function workflowAssetRoots(
     }
     if (active.diagnostics.some((diagnostic) => diagnostic.severity === 'error') ||
       stored.diagnostics.some((diagnostic) => diagnostic.severity === 'error' &&
-        (purpose !== 'execution' || diagnostic.code !== 'elab.dormant.unsupported'))) {
+        (purpose === 'publication' || diagnostic.code !== 'elab.dormant.unsupported'))) {
       complete = false
       refusal = 'Workflow dynamic identities are invalid'
     }
