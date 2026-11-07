@@ -391,6 +391,7 @@ test('emptying the selection is refused; hiding a required socket-only slot warn
 
   // Hiding req commits (commands are schema-blind) but derivation flags it.
   await slotToggle(page, 'req').click()
+  await expect(page.getByTestId('boundary-panel')).toHaveAttribute('aria-busy', 'false')
   expect(await fwdSlots(page)).toEqual(['sub', 'tag'])
   await expect(page.locator('[data-testid=boundary-diag][data-code="boundary.slotStarved"]')).toBeVisible()
 
@@ -505,10 +506,13 @@ test('dense and long-path content stays contained and its scroll tail remains re
 
 test('invalid selection and unavailable schema states remain explicit', async ({ page }) => {
   const panel = page.getByTestId('boundary-panel')
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
-    command: 'boundary.setSlots',
-    params: { graphId: 'sub', side: 'inputs', itemId: 'fwd', slots: ['unknown'] },
-  }).ok)).toBe(true)
+  expect(await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    return (await app.dispatchTo(app.activeTab()!, {
+      command: 'boundary.setSlots',
+      params: { graphId: 'sub', side: 'inputs', itemId: 'fwd', slots: ['unknown'] },
+    })).ok
+  })).toBe(true)
   const item = panel.locator('[data-testid=boundary-item][data-boundary-id=fwd]')
   await expect(item.locator('[data-code="boundary.slotUnknown"]')).toHaveAttribute('role', 'alert')
   await item.evaluate((element) => element.scrollIntoView({ block: 'center' }))
