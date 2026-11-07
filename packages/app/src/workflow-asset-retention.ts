@@ -200,8 +200,9 @@ export function workflowAssetRoots(
         message: `${node.title ?? node.type} (${node.id}): ${diagnostic.message}`,
       })
     }
-    if (active.diagnostics.length > 0 || stored.diagnostics.some((diagnostic) =>
-      purpose !== 'execution' || diagnostic.code !== 'elab.dormant.unsupported')) {
+    if (active.diagnostics.some((diagnostic) => diagnostic.severity === 'error') ||
+      stored.diagnostics.some((diagnostic) => diagnostic.severity === 'error' &&
+        (purpose !== 'execution' || diagnostic.code !== 'elab.dormant.unsupported'))) {
       complete = false
       refusal = 'Workflow dynamic identities are invalid'
     }

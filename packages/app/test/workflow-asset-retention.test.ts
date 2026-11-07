@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createComponent } from 'solid-js'
 import { renderToString } from 'solid-js/web'
 import {
-  DINKSTER_SCHEMA_WIRE_VERSION, MASK_PAINT_SOURCE_EXT_KEY, asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asPromptId, asValueSourceId, coreCommandRegistry, createLocalSession,
+  DINKSTER_SCHEMA_WIRE_VERSION, EMPTY_CONNECTIVITY, MASK_PAINT_SOURCE_EXT_KEY, asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asPromptId, asValueSourceId, coreCommandRegistry, createLocalSession, documentNodeResolver, elaborateInterface,
   serializeSelection, type GraphDef, type NodeSchema, type WorkflowDocument,
 } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
@@ -14,6 +14,8 @@ import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { createPreviewLoader } from '../src/node-previews.js'
 import { ProblemsPanel } from '../src/ProblemsPanel.js'
+import { SharedWorkerDocumentAuthority, type WorkerPortLike } from '../src/shared-worker-authority.js'
+import { SharedWorkerTabAuthority } from '../src/workspace-worker-authority.js'
 
 const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
   size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
@@ -268,6 +270,70 @@ describe('retained app dispatch', () => {
     app = undefined
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it.each(['warning', 'error'] as const)('keeps generated-id warnings visible while shared ownership admits only valid identities: %s', async (severity) => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    app = createWorkflowApp([schema])
+    const local = session()
+    const root = local.doc.graphs.g0!
+    const document: WorkflowDocument = { ...local.doc, graphs: {
+      g0: { ...root, nodes: { instance: { id: asNodeId('instance'), type: '#inner', values: {},
+        ...(severity === 'error' ? { dynamic: { unknown: { members: [], seq: 0 } } } : {}),
+      } } },
+      inner: { ...root, id: asGraphDefId('inner'), boundary: {
+        inputs: [{ id: asPortId('workflow.input.files'), binds: { kind: 'port', node: asNodeId('n0'), port: asPortId('files') } }],
+        outputs: [],
+      } },
+    } }
+    expect(app.openDocument(document, 'Generated boundary')).toEqual([])
+    const tab = app.activeTab()!
+    const resolveDocument = documentNodeResolver(document, app.registryForTab(tab)!.resolve)
+    const instance = document.graphs.g0!.nodes.instance!
+    const diagnostics = elaborateInterface(resolveDocument('g0', instance)!, instance, EMPTY_CONNECTIVITY, { includeDormant: true }).diagnostics
+    expect(diagnostics).toContainEqual(expect.objectContaining({ severity: 'warning', code: 'elab.id.reserved' }))
+    expect(diagnostics.some((entry) => entry.severity === 'error')).toBe(severity === 'error')
+    const documents = new SharedWorkerDocumentAuthority()
+    const workspace = new SharedWorkerTabAuthority()
+    const channels: MessageChannel[] = []
+    const connect = (authority: { connect(port: WorkerPortLike): void }) => {
+      const channel = new MessageChannel()
+      channels.push(channel)
+      authority.connect(channel.port2)
+      return channel.port1
+    }
+    try {
+      await app.enableWorkspaceAuthority(() => connect(documents), () => connect(workspace))
+      const current = app.activeTab()!
+      expect('status' in current.store).toBe(severity === 'warning')
+      const roots = workflowAssetRoots(current.store.doc, current.store.historySnapshot(), app.registryForTab(current)!.resolve)
+      if (severity === 'warning') {
+        expect(roots).toEqual({ complete: true, digests: [asset('a').digest] })
+        const records = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+          .filter((key) => key.includes('dinkster.workflow-retentions.'))
+          .map((key) => JSON.parse(localStorage.getItem(key)!))
+        expect(records).toContainEqual(expect.objectContaining({ complete: true, digests: [asset('a').digest], acknowledgedRevision: 1 }))
+      } else {
+        expect(roots).toMatchObject({ complete: false, refusal: 'Workflow dynamic identities are invalid' })
+        expect(app.problems.get()).toContainEqual(expect.objectContaining({
+          code: 'workspace.authority.failed', message: 'Shared workspace unavailable: Workflow dynamic identities are invalid',
+        }))
+      }
+      const after = elaborateInterface(resolveDocument('g0', instance)!, instance, EMPTY_CONNECTIVITY, { includeDormant: true }).diagnostics
+      expect(after).toEqual(diagnostics)
+      const ownerApp = app
+      const html = renderToString(() => createComponent(ProblemsPanel, {
+        app: ownerApp, diagnostics: () => after, compatSkips: () => [],
+      }))
+      expect(html).toContain('elab.id.reserved')
+      expect(html).toContain('workflow.input.files')
+    } finally {
+      app.dispose()
+      for (const channel of channels) {
+        channel.port1.close()
+        channel.port2.close()
+      }
+    }
   })
 
   it('executes valid active roots but keeps unsupported dormant ownership ineligible and publication refused', async () => {

@@ -34,6 +34,9 @@ generations use distinct IDs. PUT sends `{revision, digests, complete}` with
 canonical, sorted, deduplicated `blake3:` identities (at most 4096). Unknown or
 opaque typed values require incomplete ownership, not an empty complete set.
 The transport rejects oversized declarations rather than truncating them.
+Ownership admission refuses error-severity elaboration diagnostics. Warning
+and info diagnostics remain visible without making known roots incomplete;
+generated boundary IDs containing reserved characters are one such warning.
 
 An acknowledgment must match the exact scope, owner kind and ID. Mutations
 also require the requested canonical set, completeness and next revision.
