@@ -137,6 +137,7 @@ test('execution row opens a frozen view pinned to that execution', async ({ page
 test('frozen snapshot survives live edits and both sides report divergence', async ({ page }) => {
   await queueAndComplete(page)
   await page.getByTestId('execution-row').first().locator('.execution-open').click()
+  await expect(page.getByTestId('tab-bar').locator('.tab.frozen.active')).toHaveCount(1)
   const frozenTabId = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.id)
 
   // Back to live; the sync chip matches the execution before any edit.

@@ -1160,6 +1160,10 @@ not hide or disable valid actions.
 
 **Multi-window (one app, several OS windows, shared state).** A same-origin SharedWorker owns each live document's canonical snapshot, revision, and ordered patch log. Windows dispatch serializable commands and receive patches while derived state (elaboration, typing, layout) recomputes locally, so the render hot path never crosses IPC. Selection, viewport, and frozen execution-tab focus remain per-window view state; shared workspace focus always names a live tab. All windows use one durable `client_id` per backend connection, and normalized execution registrations and events are mirrored across the workspace so every view observes live runs. Electron main owns native-window assignment and durable bounds; browser-only launchers coordinate equivalent pop-out assignments over a same-origin channel.
 
+Remote document admission confirms ownership against the receiving tab's current
+backend, including after retargeting. A store or destination change while that
+acknowledgment is pending refuses the stale admission.
+
 **Multi-user (real-time collaboration on one workflow) - significant but additive, not a rewrite.** The classic rewrite-forcers are already absent by design: no shared mutable object graph, no positional arrays, no index-based links, no side-channel mutations. Stable UUIDs, ID-keyed values, and discrete commands with patches are the prerequisites for any sync scheme. The pragmatic path is a server-ordered command log (Figma-style: optimistic local apply, rebase to canonical order, last-writer-wins per property), which the per-entity/per-property document shape suits. Genuinely remaining work: selective per-user undo (the hard classic collab problem), a sync/presence/permissions server, and conflict UX. The execution model cooperates as-is: runs are snapshot-anchored objects keyed by `prompt_id`, so concurrent users queueing from one evolving document just produce independent frozen views.
 
 **Binding guards (enforced from the initial contracts, cheap now, expensive to retrofit):**

@@ -880,6 +880,26 @@ describe('AppState multi-window workspace', () => {
     expect(app.tabs.get().some((tab) => tab.title === 'Opened during startup')).toBe(true)
   })
 
+  it('admits peer edits against the current backend after a shared tab is retargeted', async () => {
+    const factories = authorityFactories()
+    const first = createEditableApp()
+    const second = createEditableApp()
+    first.openDocument(workflow(), 'Shared workflow')
+    second.openDocument(workflow(), 'Shared workflow')
+    await Promise.all([first, second].map((app) => app.enableWorkspaceAuthority(factories.document, factories.workspace)))
+    const target = second.addBackend('http://other:8000', 'Other', false, 'dinkster', false)!
+    target.registry.set(second.registry.get())
+    vi.spyOn(target.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+      ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+    const right = second.activeTab()!
+    second.setTabTarget(right.id, target.id)
+    expect((await first.dispatchTo(first.activeTab()!, {
+      command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: 'Received on current target' },
+    })).ok).toBe(true)
+    await vi.waitFor(() => expect(second.activeTab()!.store.doc.graphs.g0!.nodes.n1!.title).toBe('Received on current target'))
+    expect((right.store as unknown as { status: { get(): string } }).status.get()).toBe('live')
+  })
+
   it('keeps a local edit made while authority promotion is opening', async () => {
     const authority = new SharedWorkerDocumentAuthority()
     const renderers: MemoryPort[] = []

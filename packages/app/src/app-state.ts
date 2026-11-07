@@ -3914,12 +3914,16 @@ export class AppState {
           actorId: this.workspaceActorId,
           schemaResolverFor: (document) => documentResolver(document, resolve),
           validateCommit: (current, candidate, history, retainedDocuments) => this.validateWorkflowCommit(current, candidate, history, resolve, retainedDocuments),
-          beforeRemoteDocument: (document, revision, current, history, retainedDocuments) => this.confirmRemoteDocumentOwnership(
-            backend, document, revision, current, history, retainedDocuments,
-            () => this.workspaceAuthorityEnabled && generation === this.workspaceAuthorityGeneration &&
-              (session === undefined || this.tabs.get().some((candidate) =>
-                candidate.store === session && this.backendForTab(candidate) === backend)),
-          ),
+          beforeRemoteDocument: (document, revision, current, history, retainedDocuments) => {
+            const owner = this.tabs.get().find((candidate) => candidate.store === (session ?? tab.store))
+            const destination = owner === undefined ? undefined : this.backendForTab(owner)
+            return this.confirmRemoteDocumentOwnership(
+              destination, document, revision, current, history, retainedDocuments,
+              () => this.workspaceAuthorityEnabled && generation === this.workspaceAuthorityGeneration &&
+                owner !== undefined && this.tabs.get().some((candidate) =>
+                  candidate.store === owner.store && this.backendForTab(candidate) === destination),
+            )
+          },
           onConflict: (conflict) => this.reportProblems(tab.id, conflict.diagnostics),
           onError: (message) => this.reportProblems(tab.id, [
             diag('error', 'command', 'workspace.authority.failed', message),

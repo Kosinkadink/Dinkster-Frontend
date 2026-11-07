@@ -123,6 +123,10 @@ async function openDocument(page: Page, lineage: string, includeOutput: boolean,
     } as never, 'Image byte proof')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   }, { lineage, includeOutput, includeLoad })
+  await page.waitForFunction((lineage) => {
+    const tab = window.__dinksterTest!.app.activeTab()
+    return tab?.store.doc.lineage === lineage && 'status' in tab.store
+  }, lineage)
 }
 
 async function openLoadImageAssetEditor(page: Page): Promise<void> {
