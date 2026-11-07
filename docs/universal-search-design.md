@@ -93,9 +93,62 @@ Node display names are presentation and may collide. Duplicate display names
 show pack, category, and canonical type context. Result identity and placement
 always retain the exact canonical node type.
 
+## Static pack schemas
+
+`RemoteNodeCatalog` reads `schemas/index.json` and its referenced
+`packs/<name>/<version>/schemas.json` files directly beneath one configured
+static prefix. URLs stay relative to that prefix, so a recursive static copy
+does not require registry API routes. Only the authenticated first-party
+publisher entries advertised by the index are accepted. Pack identity,
+version, SHA-256 body digest and schema wire version are validated before
+ordinary node interfaces are decoded with `parseDinksterSchema`.
+
+The client exposes preview-only `CatalogNode` records, not an executable
+registry. `cached()` synchronously reads previously validated bodies;
+`refresh()` coalesces concurrent calls, uses up to four schema requests at a
+time with five-second request deadlines, and revalidates bodies with ETags.
+Persistent cache keys include each full resource URL, isolating mirrors.
+Missing or invalid network data falls back to validated cached bodies; an
+uncached offline client returns an empty external catalog. A successful empty
+index removes old discovery entries, and a changed digest never falls back
+to a body from the previous digest. Storage failure does not prevent a live
+response from being used. Responses are streamed with a 16 MiB body limit,
+including when Content-Length is absent or inaccurate. Discovery accepts at
+most 1,024 packs and 16,384 nodes per pack; oversized input is rejected, not
+silently truncated. Cached input is subject to the same limits.
+
+`search.registryUrl` selects the registry or static mirror prefix; clearing
+it disables external discovery. Opening search revalidates in the background,
+without delaying installed results. `core.nodes` ranks the combined display
+corpus, retaining search terms and omitting external nodes whose type or pack
+is already installed on the active backend. External rows always identify
+their pack and localized Not installed state.
+
+Both installed and external node results paint their ordinary schema with
+the palette's `paintSchemaPreview`, CanvasRenderer and current widget views.
+Selecting an external node opens a pack/version/platform preview prompt,
+never placement. The host rechecks the schema fingerprint and backend at
+selection, rejecting stale results. The prompt reports when installation is
+unavailable without altering the workflow. Review installation calls the
+same backend's `DinksterConnection.planPackInstall` with the exact pack and
+version. The server's review is shown as text before Confirm installation
+submits its single-use confirmation through `applyPackInstall`. Neither step
+places a node or changes the document. Apply is never automatically retried.
+The prompt rejects a changed active backend, expires confirmations locally,
+refreshes the original backend's schemas after successful activation, and
+reports when the node has not appeared yet. Close and select the installed
+result again to use the ordinary placement path. Non-opted-in hosts report
+installation unavailable; managed hosts and Desktop use the same HTTP client.
+Planning has a 30-second deadline. Closing or Cancel waiting aborts the local
+request, not the backend mutation. Lost responses, malformed success responses
+and post-mutation failures leave the outcome unknown and disable further
+installation, even after closing/reopening the prompt. Refresh installed catalog
+can confirm the originally requested node arrived. A definite pre-mutation
+HTTP rejection allows a new review; uncertain completion never retries itself.
+
 ## Node placement
 
-Activating a node result arms click-to-place without changing the workflow
+Activating an installed node result arms click-to-place without changing the workflow
 and returns focus to the canvas the search opened over. The ghost appears
 immediately at the current cursor position - zero mouse movement required -
 whenever the cursor is inside the canvas, and otherwise the status bar names

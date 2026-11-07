@@ -9,7 +9,7 @@ export type SearchHostAction =
   | { readonly kind: 'host'; readonly action: 'tab.activate'; readonly params: { readonly id: string } }
   | {
       readonly kind: 'host'
-      readonly action: 'node.armPlacement'
+      readonly action: 'node.armPlacement' | 'node.previewInstall'
       readonly params: { readonly type: string; readonly schemaKey: string; readonly backendId: string }
     }
 
@@ -222,12 +222,12 @@ export function decodeSearchHostAction(value: unknown): SearchHostAction | undef
       params: Object.freeze({ category: params['category']!, ...(params['id'] === undefined ? {} : { id: params['id'] }) }),
     })
   }
-  if (value['action'] === 'node.armPlacement') {
+  if (value['action'] === 'node.armPlacement' || value['action'] === 'node.previewInstall') {
     const params = exactStringParams(value['params'], ['type', 'schemaKey', 'backendId'])
     if (params === undefined) return undefined
     return Object.freeze({
       kind: 'host',
-      action: 'node.armPlacement',
+      action: value['action'],
       params: Object.freeze({ type: params['type']!, schemaKey: params['schemaKey']!, backendId: params['backendId']! }),
     })
   }

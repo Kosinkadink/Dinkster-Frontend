@@ -238,6 +238,7 @@
 .search-show-more:hover { background: var(--dinkster-interaction-hover); }
 .search-show-more.active { color: var(--dinkster-text-on-selected); background: var(--dinkster-surface-selected); border-color: var(--dinkster-border-selected); }
 .search-show-more:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); }
+.node-install-review { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
 .search-feedback { margin: var(--dinkster-space-8); }
 .search-progress { display: inline-flex; animation: search-progress-spin var(--dinkster-motion-standard) linear infinite; }
 @keyframes search-progress-spin { to { transform: rotate(360deg); } }
