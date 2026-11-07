@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { deflateSync } from 'node:zlib'
 import type { Request } from '@playwright/test'
+import type { WorkflowDocument } from '@dinkster/core'
 import { expect, nativeTest as test, selectProductOption, waitForStartupOwnership, type Page } from './fixtures.js'
 
 interface AssetRef {
@@ -159,6 +160,11 @@ async function assetRef(page: Page): Promise<AssetRef> {
 
 async function assertExportReopen(page: Page): Promise<void> {
   const before = await assetRef(page)
+  await expect.poll(() => page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const exported = app.exportDocument(app.activeTab()!.id) as WorkflowDocument | undefined
+    return exported?.meta?.ext?.['dinkster.assetLocations'] !== undefined
+  })).toBe(true)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const exported = app.exportDocument(app.activeTab()!.id)

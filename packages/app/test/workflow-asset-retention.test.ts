@@ -16,6 +16,7 @@ import { createPreviewLoader } from '../src/node-previews.js'
 import { ProblemsPanel } from '../src/ProblemsPanel.js'
 import { SharedWorkerDocumentAuthority, type WorkerPortLike } from '../src/shared-worker-authority.js'
 import { SharedWorkerTabAuthority } from '../src/workspace-worker-authority.js'
+import { stampAssetLocations } from '../src/workflow-asset-locations.js'
 
 const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
   size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
@@ -1047,6 +1048,22 @@ describe('retained workflow opens', () => {
 
 describe('workflow candidate admission', () => {
   const assetType = { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } as const
+  it.each(['location', 'extra-field', 'wrong-version', 'asset-value'] as const)(
+    'keeps saved location hints distinct from stored asset identities: %s', (scenario) => {
+      const local = session()
+      const saved = stampAssetLocations(local.doc, new Map([[asset('a').digest,
+        { machine: 'Original workstation', paths: ['/original/a.bin'] }]]))
+      const document = JSON.parse(JSON.stringify(saved)) as WorkflowDocument
+      const locations = document.meta!.ext!['dinkster.assetLocations'] as any
+      if (scenario === 'extra-field') locations.observations[0].hidden = asset('b')
+      if (scenario === 'wrong-version') locations.version = 2
+      if (scenario === 'asset-value') (document.graphs.g0!.nodes.n0!.values as any).files = [{ digest: asset('a').digest }]
+      expect(workflowAssetRoots(document, local.historySnapshot(), resolve))
+        .toEqual({ complete: false, digests: scenario === 'extra-field' ? [asset('a').digest, asset('b').digest] :
+          scenario === 'asset-value' ? [] : [asset('a').digest],
+          ...(scenario === 'location' ? {} : { refusal: 'Workflow asset identity is malformed' }) })
+    })
+
   it('accepts parsed scalar schema metadata without treating it as asset storage', () => {
     const local = session()
     const registry = buildDinksterRegistry(asConnectionId('retention'), { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: {

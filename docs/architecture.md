@@ -886,6 +886,9 @@ history are unchanged. Reopened missing-asset details show matching last-known
 machine/path hints without reading them. Hints with a different digest or input
 occurrence are ignored; permission failures preserve previous hints rather than
 inventing a location or inferring byte presence.
+The ownership census recognizes exact version-1 location observations as hints,
+not malformed five-field AssetRefs. Their extension still makes the census
+incomplete; malformed or extended observations retain the conservative checks.
 
 Missing-asset Problems rows offer **Locate or replace** for reachable node
 definitions. The action navigates to the input and opens its ordinary compatible

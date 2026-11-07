@@ -225,6 +225,22 @@ export function workflowAssetRoots(
     }
   }
   const visit = (snapshot: WorkflowDocument, changes?: readonly PatchOp[]): void => {
+    const locations = snapshot.meta?.ext?.['dinkster.assetLocations'] as Record<string, unknown> | undefined
+    if (typeof locations === 'object' && locations !== null && !Array.isArray(locations) &&
+      locations['version'] === 1 && Array.isArray(locations['observations']) &&
+      Object.keys(locations).every((key) => key === 'version' || key === 'observations')) {
+      // Location observations name past identities, not five-field asset values.
+      for (const observation of locations['observations']) {
+        if (typeof observation !== 'object' || observation === null || Array.isArray(observation)) continue
+        if (Object.keys(observation).length === 7 &&
+          ['graph', 'node', 'input', 'machine'].every((key) => typeof observation[key] === 'string') &&
+          Number.isSafeInteger(observation['index']) && (observation['index'] as number) >= 0 &&
+          typeof observation['digest'] === 'string' && /^blake3:[0-9a-f]{64}$/.test(observation['digest']) &&
+          Array.isArray(observation['paths']) && observation['paths'].every((path) => typeof path === 'string')) {
+          checkedOpaque.add(observation)
+        }
+      }
+    }
     const schemas = documentNodeResolver(snapshot, resolve)
     if (Object.values(snapshot.graphs).some((graph) => Object.keys(graph.valueSources ?? {}).length > 0)) hasContextualValues = true
     // Instances and literal producers depend on schemas outside the changed node.
