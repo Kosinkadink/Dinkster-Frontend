@@ -15,6 +15,15 @@ test('reports missing packs and preserves edits as the active registry gains the
       'dinkster.image.save_image': { schemaVersion: 1, displayName: 'SaveImage', interface: [] },
     } : {},
   } }))
+  await page.route('/api/comfy-translations', (route) => route.fulfill({ json: {
+    schemaVersion: 1, items: [
+      ['SaveImage', 'dinkster-image', 'dinkster.image.save_image'],
+      ['KSampler', 'dinkster-sampling', 'dinkster.sampling.k_sampler'],
+    ].map(([from, pack, type]) => ({ pack, version: '0.0.1',
+      schema: { nodeType: type, schemaVersion: 1, displayName: from, interface: [] },
+      rule: { from, cases: [{ to: type, inputs: {}, outputs: {} }] },
+    })),
+  } }))
   await page.route('/api/packs/install/plan', (route) => {
     plans.push(route.request().postDataJSON())
     return refuse ? route.fulfill({ status: 404, json: { detail: 'Pack installation is not enabled on this host.' } })
@@ -33,18 +42,10 @@ test('reports missing packs and preserves edits as the active registry gains the
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)
+  await page.waitForFunction(() => window.__dinksterTest?.app.backends.get()[0]?.comfyTranslations.get().length === 2)
   const opened = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const backend = app.backends.get()[0]!
-    // Ordinary import interfaces, not installed runtime or producer snapshots.
-    backend.comfyTranslations.set([
-      ['SaveImage', 'dinkster-image', 'dinkster.image.save_image'],
-      ['KSampler', 'dinkster-sampling', 'dinkster.sampling.k_sampler'],
-    ].map(([from, pack, type]) => ({
-      pack: pack!, version: '0.0.1', schema: { type: type!, displayName: from!, items: [],
-        source: 'v3' as const, category: 'import', isOutputNode: false },
-      rule: { from: from!, cases: [{ to: type!, inputs: {}, outputs: {} }] },
-    })))
     app.openDocument({ nodes: [
       { id: 1, type: 'SaveImage', pos: [20, 40] },
       { id: 2, type: 'SaveImage', pos: [20, 240] },

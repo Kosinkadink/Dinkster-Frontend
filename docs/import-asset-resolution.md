@@ -30,6 +30,15 @@ This report is advisory: the document remains editable, unknown classes keep
 their own diagnostics, and registry changes recompute the report without
 replacing the document or its undo history.
 
+Backend startup reads `GET /api/comfy-translations` into its import-only
+catalog using the ordinary schema and replacement-rule decoders. Conditional
+reads revalidate the connection-local ETag; invalid or duplicate-source data
+does not replace the cached index. Translation lookup failures are logged and
+do not prevent opening documents through the installed-schema path. The
+endpoint's wheel-owned snapshot is independent of installed packs; its
+development versions do not establish registry availability. Mirror selection
+is owned by the metadata-serving backend, not inferred from installed schemas.
+
 The shared `DinksterConnection` client exposes `planPackInstall` for exact
 pack/version selections and `applyPackInstall` for the server-held confirmation
 token. Planning returns the manager's review text and does not install.

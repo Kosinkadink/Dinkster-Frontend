@@ -41,6 +41,8 @@ import {
   outputsOf,
   packsFromDinksterWire,
   parseDinksterNodes,
+  parseDinksterSchema,
+  isReplacementRule,
   sha256Hex,
   graphFeaturesFromDinksterWire,
   mergeableTypesFromDinksterWire,
@@ -49,6 +51,7 @@ import {
   schemaForEditorRole,
   validateDinksterGraph,
   type CompileArtifact,
+  type ComfyTranslation,
   type ConnectionId,
   type Diagnostic,
   type ExecutionArm,
@@ -56,6 +59,7 @@ import {
   type DinksterInputWire,
   type DinksterJobWire,
   type DinksterNodesPayload,
+  type DinksterWireSchema,
   type DinksterRawJson,
   type DinksterRawMessage,
   type ExecutionRef,
@@ -2723,6 +2727,48 @@ export class DinksterConnection {
     if (!response.ok) throw new PackInstallError(response.status, payload)
     if (payload === undefined) throw new Error(`Malformed pack installation ${action} response`)
     return payload
+  }
+
+  private comfyTranslationCache: { readonly etag: string | null; readonly records: readonly ComfyTranslation[] } | undefined
+  private comfyTranslationRequestGeneration = 0
+
+  /** Import-only metadata; never adds schemas to the executable registry. */
+  async fetchComfyTranslations(): Promise<readonly ComfyTranslation[]> {
+    const generation = ++this.comfyTranslationRequestGeneration
+    const cached = this.comfyTranslationCache
+    return requestWithDeadline(async (signal) => {
+      const response = await this.fetchFn(`${this.baseUrl}/api/comfy-translations`, {
+        signal, ...(cached?.etag ? { headers: { 'If-None-Match': cached.etag } } : {}),
+      })
+      if (response.status === 304 && cached) return cached.records
+      if (!response.ok) throw new Error(`GET /api/comfy-translations failed: ${response.status}`)
+      const raw: unknown = await response.json()
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('Malformed ComfyUI translation index')
+      const index = raw as Record<string, unknown>
+      if (index['schemaVersion'] !== 1 || !Array.isArray(index['items'])) throw new Error('Malformed ComfyUI translation index')
+      const sources = new Set<string>()
+      const records = index['items'].map((item: unknown): ComfyTranslation => {
+        if (typeof item !== 'object' || item === null || Array.isArray(item)) throw new Error('Malformed ComfyUI translation record')
+        const row = item as Record<string, unknown>
+        const schema = row['schema']
+        if (typeof row['pack'] !== 'string' || !row['pack'] || typeof row['version'] !== 'string' || !row['version'] ||
+          !isReplacementRule(row['rule']) || typeof schema !== 'object' || schema === null || Array.isArray(schema)) {
+          throw new Error('Malformed ComfyUI translation record')
+        }
+        const type = (schema as Record<string, unknown>)['nodeType']
+        const rule = row['rule']
+        if (typeof type !== 'string' || !type || sources.has(rule.from) || !rule.cases.every((branch) => branch.to === type)) {
+          throw new Error('Ambiguous ComfyUI translation identity')
+        }
+        sources.add(rule.from)
+        const decoded = parseDinksterSchema(type, schema as DinksterWireSchema)
+        if (!decoded.schema) throw new Error(`Invalid ComfyUI import interface: ${type}`)
+        return { pack: row['pack'], version: row['version'], rule, schema: decoded.schema }
+      })
+      signal.throwIfAborted()
+      if (generation === this.comfyTranslationRequestGeneration) this.comfyTranslationCache = { etag: response.headers.get('ETag'), records }
+      return records
+    })
   }
 
   /** Request a review only; the server retains the executable plan. */

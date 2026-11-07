@@ -7179,11 +7179,18 @@ export class AppState {
     const current = (): boolean =>
       this.backends.get().includes(backend) && this.schemaRequests.get(backend) === request
     try {
-      const registry = await backend.connection.fetchSchemas()
+      const [registry, translations] = await Promise.all([
+        backend.connection.fetchSchemas(),
+        backend.connection.fetchComfyTranslations().catch((error: unknown) => {
+          this.log('warn', backend.label, `ComfyUI translation index unavailable: ${String(error)}`)
+          return undefined
+        }),
+      ])
       if (!current()) return
       await this.prepareExtensionWorld(backend, registry)
       if (!current()) return
       const layered = this.layerExtraSchemas(registry)
+      if (translations !== undefined) backend.comfyTranslations.set(translations)
       backend.registry.set(layered)
       backend.schemaState.set({ status: 'ready' })
       backend.invalidateRemoteChoices()

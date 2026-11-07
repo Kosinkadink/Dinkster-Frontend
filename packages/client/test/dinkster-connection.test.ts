@@ -15,6 +15,8 @@ import {
   asPortId,
   asPromptId,
   compile,
+  importLitegraph,
+  resolveImportedNodePacks,
   loadDocument,
   type CompileArtifact,
   type Diagnostic,
@@ -64,6 +66,44 @@ const ref = (jobId: string): ExecutionRef => ({ connection: C0, prompt: asPrompt
 
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+
+it('decodes and revalidates backend-local import metadata without installing schemas', async () => {
+  const row = { pack: 'dinkster-text', version: '0.0.1',
+    rule: { from: 'StringLength', cases: [{ to: 'dinkster.text.string_length',
+      inputs: { string: { kind: 'copy', input: 'string' } }, outputs: { length: 'length' } }] },
+    schema: { schemaVersion: 1, nodeType: 'dinkster.text.string_length', interface: [
+      { role: 'input', id: 'string', type: { kind: 'concrete', types: ['STRING'] } },
+      { role: 'output', id: 'length', type: { kind: 'concrete', types: ['INT'] } },
+    ] } }
+  let payload: unknown = { schemaVersion: 1, items: [row] }
+  let status = 200
+  let etag = '"first"'
+  const calls: { url: string; etag: string | null }[] = []
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'importer',
+    fetchFn: async (url, init) => {
+      calls.push({ url, etag: new Headers(init?.headers).get('If-None-Match') })
+      return new Response(status === 304 ? null : JSON.stringify(payload), { status, headers: { ETag: etag } })
+    }, webSocketFactory: () => ({}) as WebSocketLike })
+  const first = await connection.fetchComfyTranslations()
+  const imported = importLitegraph({ nodes: [{ id: 1, type: 'StringLength', widgets_values: ['asymmetric value'] }], links: [] },
+    () => undefined, undefined, first)
+  expect(imported.document!.graphs.g0!.nodes.n1).toMatchObject({ type: 'dinkster.text.string_length', values: { string: 'asymmetric value' } })
+  expect(resolveImportedNodePacks(imported.document!, () => undefined)).toEqual([
+    expect.objectContaining({ status: 'installable', pack: 'dinkster-text', version: '0.0.1' }),
+  ])
+  status = 304
+  expect(await connection.fetchComfyTranslations()).toBe(first)
+  status = 200
+  etag = '"second"'
+  payload = { schemaVersion: 1, items: [{ ...row, version: '0.0.2' }] }
+  expect((await connection.fetchComfyTranslations())[0]!.version).toBe('0.0.2')
+  payload = { schemaVersion: 1, items: [row, row] }
+  await expect(connection.fetchComfyTranslations()).rejects.toThrow('Ambiguous')
+  status = 304
+  expect((await connection.fetchComfyTranslations())[0]!.version).toBe('0.0.2')
+  expect(calls.map((call) => call.etag)).toEqual([null, '"first"', '"first"', '"second"', '"second"'])
+  expect(calls.every((call) => call.url === '/selected/api/comfy-translations')).toBe(true)
+})
 
 it.each([
   { format: 'dinkster.plan/1', base: null },
