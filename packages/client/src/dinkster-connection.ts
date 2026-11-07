@@ -2732,8 +2732,7 @@ export class DinksterConnection {
     if (typeof body['confirmation'] !== 'string' || body['confirmation'].length === 0 ||
       typeof body['review'] !== 'string' ||
       !Number.isSafeInteger(body['expiresInSeconds']) || (body['expiresInSeconds'] as number) <= 0 ||
-      typeof plan !== 'object' || plan === null || Array.isArray(plan) ||
-      (plan as Record<string, unknown>)['format'] !== 'dinkster.plan/1') {
+      typeof plan !== 'object' || plan === null || Array.isArray(plan)) {
       throw new Error('Malformed pack installation plan response')
     }
     return { confirmation: body['confirmation'], plan: plan as Record<string, unknown>,

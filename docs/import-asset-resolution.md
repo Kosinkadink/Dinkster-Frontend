@@ -33,6 +33,9 @@ replacing the document or its undo history.
 The shared `DinksterConnection` client exposes `planPackInstall` for exact
 pack/version selections and `applyPackInstall` for the server-held confirmation
 token. Planning returns the manager's review text and does not install.
+The plan member is an opaque JSON object owned by the host: managed roots use
+an installer plan and Desktop uses its project software plan. The renderer
+does not interpret that payload or send it back for execution.
 Applying never retries automatically: a transport failure may have happened
 after the host changed its installation. HTTP failures retain their status and
 structured body as `PackInstallError`; absent opt-in routes remain unavailable.

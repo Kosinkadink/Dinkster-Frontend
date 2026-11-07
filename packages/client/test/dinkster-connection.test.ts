@@ -65,8 +65,11 @@ const ref = (jobId: string): ExecutionRef => ({ connection: C0, prompt: asPrompt
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
-it('plans exact pack selections and applies only the explicit confirmation on the same backend', async () => {
-  const plan = { confirmation: 'opaque-review-token', plan: { format: 'dinkster.plan/1', base: null },
+it.each([
+  { format: 'dinkster.plan/1', base: null },
+  { format: 'desktop.project-software/1', retained: { engine: 'sealed', constraints: ['cpu'] } },
+])('plans exact pack selections with an opaque host plan and applies only confirmation', async (hostPlan) => {
+  const plan = { confirmation: 'opaque-review-token', plan: hostPlan,
     review: 'Install sampling 2.1 and image 3.2', expiresInSeconds: 900 }
   const activation = { generation: 3, epoch: 7, added: ['sampling', 'image'], removed: [],
     reloaded: ['models'], unchanged: ['base'], failed: {}, diagnostics: [], rolledBack: false }
@@ -111,7 +114,7 @@ it('rejects malformed installation success and activation rollback instead of re
     webSocketFactory: () => ({}) as WebSocketLike })
   const plan = { confirmation: 'token', plan: { format: 'dinkster.plan/1' }, review: 'Review', expiresInSeconds: 900 }
   for (const invalid of [null, [], { ...plan, confirmation: '' }, { ...plan, plan: [] },
-    { ...plan, plan: { format: 'other' } }, { ...plan, review: 4 }, { ...plan, expiresInSeconds: 0 }]) {
+    { ...plan, plan: null }, { ...plan, review: 4 }, { ...plan, expiresInSeconds: 0 }]) {
     response = invalid
     await expect(connection.planPackInstall([{ pack: 'image', version: '1' }])).rejects.toThrow('Malformed')
   }
