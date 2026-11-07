@@ -70,7 +70,8 @@ const imageWorkflow = {
 }
 
 describe('authored workflows on a native backend', () => {
-  it('opens with only import interfaces and resolves a later registry without changing edits', () => {
+  it('opens with missing packs and resolves a later registry without changing edits', () => {
+    loadNativeSchemas()
     const backend = app.backends.get()[0]!
     const registry = historicalRegistry(backend.id)
     const source = registry.resolve('SaveImage')!
@@ -82,11 +83,11 @@ describe('authored workflows on a native backend', () => {
         outputs: {},
       }] },
     }])
-    app.openDocument({ nodes: [{ id: 1, type: 'SaveImage', widgets_values: ['specific/prefix'] }], links: [] }, 'Offline')
+    expect(app.openDocument({ nodes: [{ id: 1, type: 'SaveImage', widgets_values: ['specific/prefix'] }], links: [] }, 'Offline')).toEqual([])
     const tab = app.activeTab()!
     expect(tab.store.doc.graphs.g0!.nodes.n1!.type).toBe(type)
     expect(tab.store.doc.graphs.g0!.nodes.n1!.values.filename_prefix).toBe('specific/prefix')
-    expect(resolveImportedNodePacks(tab.store.doc, () => undefined)[0]!.status).toBe('installable')
+    expect(resolveImportedNodePacks(tab.store.doc, backend.registry.get()!.resolve)[0]!.status).toBe('installable')
     expect(tab.store.dispatch({ command: 'node.setValue', params: {
       graphId: 'g0', nodeId: 'n1', inputId: 'filename_prefix', value: 'edited/prefix',
     } }).ok).toBe(true)
@@ -172,7 +173,15 @@ describe('authored workflows on a native backend', () => {
     }
   })
 
-  it('refuses LiteGraph import before schemas without changing the active document', () => {
+  it.each([false, true])('refuses LiteGraph import before schemas with translations available=%s without changing the active document', (available) => {
+    if (available) {
+      const backend = app.backends.get()[0]!
+      const schema = historicalRegistry(backend.id).resolve('EmptyImage')!
+      backend.comfyTranslations.set([{
+        pack: 'dinkster-image', version: '0.0.1', schema,
+        rule: { from: 'EmptyImage', cases: [{ to: 'EmptyImage', inputs: {}, outputs: {} }] },
+      }])
+    }
     const tab = app.activeTab()!
     const authored = structuredClone(tab.store.doc)
     expect(app.openDocument(imageWorkflow, 'Image chain')).toContainEqual(expect.objectContaining({ code: 'import.registryMissing' }))

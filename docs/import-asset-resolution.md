@@ -24,7 +24,9 @@ nor translation remain unknown. Recomputing resolution after a registry change
 does not re-import or modify the document. The application import path still
 uses its installed catalog unless translation records are supplied to the
 selected backend's import catalog. With supplied records, opening does not
-require an installed registry. The Problems panel groups installable nodes
+require the translated nodes' packs to be installed, but the executable schema
+registry must be loaded. Import-only records do not bypass the application's
+pre-schema refusal. The Problems panel groups installable nodes
 by first-party pack name and shows each source class and graph/node identity.
 This report is advisory: the document remains editable, unknown classes keep
 their own diagnostics, and registry changes recompute the report without

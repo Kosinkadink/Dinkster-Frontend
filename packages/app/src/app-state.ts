@@ -6885,14 +6885,14 @@ export class AppState {
     readonly document?: WorkflowDocument
     readonly diagnostics: readonly Diagnostic[]
   } {
-    if (!registry && translations.length === 0) {
+    if (!registry) {
       return {
         diagnostics: [
           diag('error', 'import', 'import.registryMissing', 'cannot translate a legacy litegraph workflow before node schemas are loaded'),
         ],
       }
     }
-    return importLitegraph(json as JsonObject, registry?.resolve ?? (() => undefined), undefined, translations)
+    return importLitegraph(json as JsonObject, registry.resolve, undefined, translations)
   }
 
   /**
