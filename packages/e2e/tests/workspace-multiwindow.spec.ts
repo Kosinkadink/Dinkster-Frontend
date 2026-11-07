@@ -1,6 +1,6 @@
 import type { Dialog, Page } from '@playwright/test'
 import type { NodeSchema } from '@dinkster/core'
-import { expect, test } from './fixtures.js'
+import { expect, test, waitForStartupOwnership as waitForOwnership } from './fixtures.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json' with { type: 'json' }
 
 test.beforeEach(async ({ context }) => {
@@ -13,9 +13,18 @@ test.beforeEach(async ({ context }) => {
   })
 })
 
-async function disableNativeDiscovery(page: Page): Promise<void> {
-  await page.route('/api/nodes*', (route) => route.fulfill({ status: 502, body: 'no native backend' }))
+async function disableSupervisorDiscovery(page: Page): Promise<void> {
+  // Keep the same-origin catalog: ownership admission needs the document schemas.
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
+}
+
+async function waitForStartupOwnership(page: Page): Promise<void> {
+  await waitForOwnership(page)
+  await page.evaluate(() => window.__dinksterTest!.app.registerSchemas(
+    ['TestNode', 'NewLocalNode'].map((type) => ({
+      type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, items: [],
+    })),
+  ))
 }
 
 const tabIds = (page: Page): Promise<string[]> => page.evaluate(() =>
@@ -23,7 +32,7 @@ const tabIds = (page: Page): Promise<string[]> => page.evaluate(() =>
 
 for (const accepted of [true, false]) {
   test(`image session waits for editor ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }, info) => {
-    await disableNativeDiscovery(page)
+    await disableSupervisorDiscovery(page)
     const png = await page.evaluate(() => {
       const canvas = document.createElement('canvas')
       canvas.width = 128
@@ -35,7 +44,7 @@ for (const accepted of [true, false]) {
     })
     await page.route('**/api/assets/**', (route) => route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64') }))
     await page.goto('/')
-    await page.waitForFunction(() => window.__dinksterTest !== undefined)
+    await waitForStartupOwnership(page)
     await page.evaluate(() => {
       const app = window.__dinksterTest!.app
       const schema: NodeSchema = {
@@ -44,8 +53,7 @@ for (const accepted of [true, false]) {
           type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } },
           widget: { widgetType: 'ASSET', options: { accept: ['image/png'] } } }],
       }
-      app.registry.set({ connection: app.connection.id, schemas: new Map([[schema.type, schema]]),
-        diagnostics: [], hash: 'image-editor-fixture', resolve: (type: string) => type === schema.type ? schema : undefined })
+      app.registerSchemas([schema])
       app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'editor-assets', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'Root', nodes: { n0: { id: 'n0', type: 'ImageLoader', values: {
           image: { digest: `blake3:${'a'.repeat(64)}`, name: 'source.png', size: 100,
@@ -89,9 +97,9 @@ for (const accepted of [true, false]) {
 
 for (const accepted of [true, false]) {
   test(`ordinary asset edits wait for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }, info) => {
-    await disableNativeDiscovery(page)
+    await disableSupervisorDiscovery(page)
     await page.goto('/')
-    await page.waitForFunction(() => window.__dinksterTest !== undefined)
+    await waitForStartupOwnership(page)
     await page.evaluate(() => {
       const app = window.__dinksterTest!.app
       const schema: NodeSchema = {
@@ -99,8 +107,7 @@ for (const accepted of [true, false]) {
         items: [{ kind: 'input', id: 'file', optional: false,
           type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } }],
       }
-      app.registry.set({ connection: app.connection.id, schemas: new Map([[schema.type, schema]]),
-        diagnostics: [], hash: 'asset-fixture', resolve: (type: string) => type === schema.type ? schema : undefined })
+      app.registerSchemas([schema])
       app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'ordinary-assets', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'Root', nodes: { n0: { id: 'n0', type: 'AssetLoader', values: {
           file: { digest: `blake3:${'a'.repeat(64)}`, name: 'before.bin', size: 7,
@@ -166,11 +173,11 @@ for (const accepted of [true, false]) {
 for (const accepted of [true, false]) {
   test(`foreign shared edits wait for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page, context }, info) => {
     await page.goto('/')
-    await page.waitForFunction(() => window.__dinksterTest !== undefined)
+    await waitForStartupOwnership(page)
     const viewer = await context.newPage()
-    await disableNativeDiscovery(viewer)
+    await disableSupervisorDiscovery(viewer)
     await viewer.goto('/')
-    await viewer.waitForFunction(() => window.__dinksterTest !== undefined)
+    await waitForStartupOwnership(viewer)
     await expect.poll(() => viewer.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc))
       .toEqual(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc))
     let acknowledge!: () => void
@@ -210,7 +217,7 @@ for (const accepted of [true, false]) {
 }
 
 for (const accepted of [true, false]) {
-  test(`restored startup waits for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }, info) => {
+  test(`restored startup renders before ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }, info) => {
     const digest = `blake3:${'e'.repeat(64)}`
     await page.addInitScript(({ document, digest }) => {
       const closed = { ...document, lineage: 'closed-recovery', ext: { held: {
@@ -237,21 +244,25 @@ for (const accepted of [true, false]) {
     await page.goto('/')
     await expect.poll(() => requests).toBeGreaterThan(0)
     await expect.poll(() => recoveryRequested).toBe(true)
-    expect(await page.evaluate(() => window.__dinksterTest)).toBeUndefined()
-    await expect(page.getByRole('tab', { name: /^Basic,/ })).toHaveCount(0)
+    await expect(page.getByRole('tab', { name: /^Basic,/ })).toBeVisible()
+    await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
+    expect(await page.evaluate(() => window.__dinksterTest!.app.tabs.get().every(
+      (tab) => !('status' in tab.store)))).toBe(true)
+    await expect(page.getByTestId('problems-panel')).toContainText('Workflow ownership unconfirmed.')
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('dinkster.openTabs')!))
     expect(saved.tabs.map((tab: { title: string }) => tab.title)).toEqual(['Basic', 'Subgraph'])
     await page.screenshot({ path: info.outputPath('recovery-pending.png') })
-    const failure = accepted ? undefined : page.waitForEvent('pageerror')
     released = true
     release()
     if (accepted) {
-      await page.waitForFunction(() => window.__dinksterTest !== undefined)
+      await waitForStartupOwnership(page)
       await expect(page.getByRole('tab', { name: /^Basic,/ })).toBeVisible()
       expect(await tabIds(page)).toEqual(saved.tabs.map((tab: { doc: { lineage: string } }) => tab.doc.lineage))
     } else {
-      expect((await failure!).message).toContain('409')
-      expect(await page.evaluate(() => window.__dinksterTest)).toBeUndefined()
+      await expect(page.getByTestId('problems-panel')).toContainText('409')
+      await expect(page.getByRole('tab', { name: /^Basic,/ })).toBeVisible()
+      expect(await page.evaluate(() => window.__dinksterTest!.app.tabs.get().every(
+        (tab) => !('status' in tab.store)))).toBe(true)
       expect(await page.evaluate(() => JSON.parse(localStorage.getItem('dinkster.openTabs')!).tabs))
         .toEqual(saved.tabs)
     }
@@ -262,11 +273,11 @@ for (const accepted of [true, false]) {
 for (const accepted of [true, false]) {
   test(`incoming workspace tabs wait for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page, context }, info) => {
     await page.goto('/')
-    await page.waitForFunction(() => window.__dinksterTest !== undefined)
+    await waitForStartupOwnership(page)
     const viewer = await context.newPage()
-    await disableNativeDiscovery(viewer)
+    await disableSupervisorDiscovery(viewer)
     await viewer.goto('/')
-    await viewer.waitForFunction(() => window.__dinksterTest !== undefined)
+    await waitForStartupOwnership(viewer)
     await expect.poll(() => tabIds(viewer)).toEqual(await tabIds(page))
     await expect.poll(() => viewer.evaluate(() => window.__dinksterTest!.app.tabs.get().every(
       (tab) => 'status' in tab.store))).toBe(true)
@@ -305,7 +316,7 @@ for (const accepted of [true, false]) {
 
 test('workspace promotion preserves a local edit while ownership acknowledgment is pending', async ({ page }, info) => {
   await page.goto('/')
-  await page.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(page)
   await page.screenshot({ path: info.outputPath('workspace-default.png') })
   let acknowledge!: () => Promise<void>
   let requested!: () => void
@@ -358,12 +369,12 @@ test('workspace promotion preserves a local edit while ownership acknowledgment 
 test('two windows converge tab operations and restore the durable inventory', async ({ page, context }) => {
   await page.addInitScript(() => localStorage.removeItem('dinkster.openTabs'))
   await page.goto('/')
-  await page.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(page)
   await expect.poll(async () => (await tabIds(page)).length).toBeGreaterThan(0)
   const second = await context.newPage()
-  await disableNativeDiscovery(second)
+  await disableSupervisorDiscovery(second)
   await second.goto('/')
-  await second.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(second)
   await expect.poll(() => tabIds(second)).toEqual(await tabIds(page))
 
   const created = await page.evaluate(() => {
@@ -424,21 +435,21 @@ test('two windows converge tab operations and restore the durable inventory', as
   await Promise.all([page.close(), second.close()])
 
   const reopened = await context.newPage()
-  await disableNativeDiscovery(reopened)
+  await disableSupervisorDiscovery(reopened)
   await reopened.goto('/')
-  await reopened.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(reopened)
   await expect.poll(() => tabIds(reopened)).toEqual(expected)
 })
 
 test('pagehide stages the latest document while another window holds the persistence lock', async ({ page, context }) => {
   await page.addInitScript(() => localStorage.removeItem('dinkster.openTabs'))
   await page.goto('/')
-  await page.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(page)
   await page.waitForTimeout(500)
   const blocker = await context.newPage()
-  await disableNativeDiscovery(blocker)
+  await disableSupervisorDiscovery(blocker)
   await blocker.goto('/')
-  await blocker.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(blocker)
   await blocker.evaluate(async () => {
     const state = globalThis as typeof globalThis & { releasePersistenceLock?: () => void }
     void navigator.locks.request('dinkster.openTabs.commit', async () => {
@@ -485,9 +496,9 @@ test('pagehide stages the latest document while another window holds the persist
   })
   await blocker.close()
   const reopened = await context.newPage()
-  await disableNativeDiscovery(reopened)
+  await disableSupervisorDiscovery(reopened)
   await reopened.goto('/')
-  await reopened.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(reopened)
   await expect.poll(() => reopened.evaluate((id) => {
     const tab = window.__dinksterTest!.app.tabs.get().find((entry) => entry.id === id)!
     return Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes).length
@@ -502,19 +513,19 @@ test('concurrent dirty pagehide candidates are all reconciled before restart', a
     }
   })
   await page.goto('/')
-  await page.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(page)
   const later = page
   const earlier = await context.newPage()
-  await disableNativeDiscovery(earlier)
+  await disableSupervisorDiscovery(earlier)
   await earlier.goto('/')
-  await earlier.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(earlier)
   await expect.poll(() => tabIds(earlier)).toEqual(await tabIds(later))
   const lineage = (await tabIds(later))[0]!
 
   const blocker = await context.newPage()
-  await disableNativeDiscovery(blocker)
+  await disableSupervisorDiscovery(blocker)
   await blocker.goto('/')
-  await blocker.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(blocker)
   await later.waitForTimeout(500)
   await blocker.evaluate(async () => {
     const state = globalThis as typeof globalThis & { releasePersistenceLock?: () => void }
@@ -632,9 +643,9 @@ test('concurrent dirty pagehide candidates are all reconciled before restart', a
 
   await Promise.all([earlier.close(), later.close(), blocker.close()])
   const reopened = await context.newPage()
-  await disableNativeDiscovery(reopened)
+  await disableSupervisorDiscovery(reopened)
   await reopened.goto('/')
-  await reopened.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(reopened)
   await expect.poll(() => reopened.evaluate((id) => {
     const app = window.__dinksterTest!.app as unknown as {
       tabs: { get(): ReadonlyArray<{ id: string; store: { doc: { root: string; graphs: Record<string, { name: string }> } } }> }
@@ -647,11 +658,11 @@ test('concurrent dirty pagehide candidates are all reconciled before restart', a
 test('a reconnect fallback cannot overwrite a fresher document at the same workspace revision', async ({ page, context }) => {
   await page.addInitScript(() => localStorage.removeItem('dinkster.openTabs'))
   await page.goto('/')
-  await page.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(page)
   const stale = await context.newPage()
-  await disableNativeDiscovery(stale)
+  await disableSupervisorDiscovery(stale)
   await stale.goto('/')
-  await stale.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(stale)
   await expect.poll(() => tabIds(stale)).toEqual(await tabIds(page))
   // Edit a workflow created empty here: the startup tab set depends on
   // same-origin discovery (a conclusive v1 answer seeds two-node fixture
@@ -717,9 +728,9 @@ test('a reconnect fallback cannot overwrite a fresher document at the same works
 
   await Promise.all([page.close(), stale.close()])
   const reopened = await context.newPage()
-  await disableNativeDiscovery(reopened)
+  await disableSupervisorDiscovery(reopened)
   await reopened.goto('/')
-  await reopened.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(reopened)
   await expect.poll(() => reopened.evaluate((id) => {
     const tab = window.__dinksterTest!.app.tabs.get().find((entry) => entry.id === id)!
     return Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes).length
