@@ -30,11 +30,13 @@ This report is advisory: the document remains editable, unknown classes keep
 their own diagnostics, and registry changes recompute the report without
 replacing the document or its undo history.
 
-Backend startup reads `GET /api/comfy-translations` into its import-only
-catalog using the ordinary schema and replacement-rule decoders. Conditional
+Backend startup, schema changes and reconnects read `GET /api/comfy-translations`
+into the import-only catalog using the ordinary schema and replacement-rule decoders. Conditional
 reads revalidate the connection-local ETag; invalid or duplicate-source data
-does not replace the cached index. Translation lookup failures are logged and
-do not prevent opening documents through the installed-schema path. The
+does not replace the cached index. Successful refreshes publish the import
+catalog before the executable registry; responses from an earlier server life
+are discarded. Translation lookup failures retain available import metadata,
+are logged and do not prevent opening documents through the installed-schema path. The
 endpoint's wheel-owned snapshot is independent of installed packs; its
 development versions do not establish registry availability. Mirror selection
 is owned by the metadata-serving backend, not inferred from installed schemas.

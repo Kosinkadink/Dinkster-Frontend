@@ -7,6 +7,7 @@
  * normalizer -> wire listener), so this covers the full pipeline.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { resolveImportedNodePacks, type ComfyTranslation } from '@dinkster/core'
 import { EngineNotReadyError, type DinksterDiagnostics, type SchemaRegistry } from '@dinkster/client'
 import { AppState, GLOBAL_PROBLEMS_OWNER, type Backend } from '../src/app-state.js'
 
@@ -21,6 +22,13 @@ const reg = (backend: Backend, epoch?: number): SchemaRegistry => ({
   resolve: () => undefined,
   ...(epoch !== undefined ? { epoch } : {}),
 })
+
+const translations = (version: string): readonly ComfyTranslation[] => [{
+  pack: 'dinkster-text', version,
+  schema: { type: 'dinkster.text.string_length', displayName: 'String Length', category: 'text',
+    source: 'v3', isOutputNode: false, items: [] },
+  rule: { from: 'StringLength', cases: [{ to: 'dinkster.text.string_length', inputs: {}, outputs: {} }] },
+}]
 
 /** Push a raw wire message through the connection's real WS data path. */
 const push = (backend: Backend, msg: Record<string, unknown>): void => {
@@ -45,9 +53,31 @@ beforeEach(() => {
   if (!b) throw new Error('addBackend rejected')
   backend = b
   vi.spyOn(nativeConnection(), 'fetchCompositionFailures').mockResolvedValue(undefined)
+  vi.spyOn(nativeConnection(), 'fetchComfyTranslations').mockResolvedValue([])
 })
 
 describe('schema_changed epoch invalidation', () => {
+  it.each([
+    ['schema_changed', true], ['reconnect', true], ['schema_changed', false], ['reconnect', false],
+  ] as const)('imports after %s with metadata available=%s', async (event, available) => {
+    backend.registry.set(reg(backend, 1))
+    backend.comfyTranslations.set(translations('0.0.1'))
+    vi.spyOn(nativeConnection(), 'fetchSchemas').mockResolvedValue(reg(backend, 2))
+    if (available) vi.mocked(nativeConnection().fetchComfyTranslations).mockResolvedValue(translations('0.0.2'))
+    else vi.mocked(nativeConnection().fetchComfyTranslations).mockRejectedValue(new Error('metadata offline'))
+    if (event === 'reconnect') {
+      ;(backend.connection.status as unknown as { set(value: string): void }).set('connected')
+    } else push(backend, { type: 'schema_changed', epoch: 2 })
+    await vi.waitFor(() => expect(backend.registry.get()?.epoch).toBe(2))
+
+    app.openDocument({ nodes: [{ id: 1, type: 'StringLength' }], links: [] }, 'Refreshed import', backend)
+    const document = app.activeTab()!.store.doc
+    expect(document.graphs.g0!.nodes.n1!.type).toBe('dinkster.text.string_length')
+    expect(resolveImportedNodePacks(document, backend.registry.get()!.resolve)).toEqual([
+      expect.objectContaining({ status: 'installable', pack: 'dinkster-text', version: available ? '0.0.2' : '0.0.1' }),
+    ])
+  })
+
   it('refetches once and replaces the registry when a newer epoch is pinged', async () => {
     backend.registry.set(reg(backend, 1))
     const fetchSpy = vi
@@ -354,6 +384,10 @@ describe('reconnect capability invalidation', () => {
   it('never commits a response fetched under the PREVIOUS server life', async () => {
     backend.registry.set({ ...reg(backend, 3), graphFeatures: ['typedLiteral'] })
     let resolveFirst!: (r: SchemaRegistry) => void
+    let resolveOldTranslations!: (records: readonly ComfyTranslation[]) => void
+    vi.mocked(nativeConnection().fetchComfyTranslations)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOldTranslations = resolve }))
+      .mockResolvedValue(translations('0.0.2'))
     const fetchSpy = vi.spyOn(backend.connection, 'fetchSchemas')
       .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
       .mockResolvedValue(reg(backend, 3)) // the new life: no features
@@ -364,9 +398,12 @@ describe('reconnect capability invalidation', () => {
     // committing would restore the capabilities the reconnect invalidated.
     setStatus('connected')
     resolveFirst({ ...reg(backend, 3), graphFeatures: ['typedLiteral'] })
+    resolveOldTranslations(translations('0.0.1'))
     await flush()
     expect(fetchSpy).toHaveBeenCalledTimes(2)
     expect(backend.registry.get()?.graphFeatures).toBeUndefined()
+    app.openDocument({ nodes: [{ id: 1, type: 'StringLength' }], links: [] }, 'Current server import', backend)
+    expect(resolveImportedNodePacks(app.activeTab()!.store.doc, backend.registry.get()!.resolve)[0]?.version).toBe('0.0.2')
   })
 
   it('a reconnect during a FAILING refresh gets exactly one follow-up fetch, which never retries itself', async () => {

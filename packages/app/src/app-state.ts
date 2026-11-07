@@ -4171,7 +4171,13 @@ export class AppState {
             const goal = targetEpoch
             const gen = staleGen // a fetch issued now observes this server life
             attemptGen = gen
-            const fresh = await connection.fetchSchemas()
+            const [fresh, translations] = await Promise.all([
+              connection.fetchSchemas(),
+              connection.fetchComfyTranslations().catch((error: unknown) => {
+                this.log('warn', label, `ComfyUI translation index unavailable: ${String(error)}`)
+                return undefined
+              }),
+            ])
             // A reconnect landed mid-fetch: this response may belong to the
             // PREVIOUS server life. Never commit it - committing would
             // restore capabilities the strip below just invalidated - loop
@@ -4183,6 +4189,7 @@ export class AppState {
               continue
             }
             const layered = this.layerExtraSchemas(fresh)
+            if (translations !== undefined) base.comfyTranslations.set(translations)
             registry.set(layered)
             base.invalidateRemoteChoices()
             this.refreshWorkerCatalog(nativeBackend, layered)
