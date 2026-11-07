@@ -381,9 +381,10 @@ describe('reconnect capability invalidation', () => {
     expect(app.problems.get().some((p) => p.code === 'schema.refreshFailed')).toBe(true)
   })
 
-  it.each([false, true])('discards previous-server metadata and warnings when lookup fails=%s', async (fails) => {
+  it.each([[false, false], [true, false], [true, true]])('discards previous-server metadata when lookup fails=%s and schemas fail early=%s', async (fails, schemasFailEarly) => {
     backend.registry.set({ ...reg(backend, 3), graphFeatures: ['typedLiteral'] })
     let resolveFirst!: (r: SchemaRegistry) => void
+    let rejectFirst!: (error: Error) => void
     let resolveOldTranslations!: (records: readonly ComfyTranslation[]) => void
     let rejectOldTranslations!: (error: Error) => void
     vi.mocked(nativeConnection().fetchComfyTranslations)
@@ -393,7 +394,10 @@ describe('reconnect capability invalidation', () => {
       }))
       .mockResolvedValue(translations('0.0.2'))
     const fetchSpy = vi.spyOn(backend.connection, 'fetchSchemas')
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve, reject) => {
+        resolveFirst = resolve
+        rejectFirst = reject
+      }))
       .mockResolvedValue(reg(backend, 3)) // the new life: no features
     push(backend, { type: 'schema_changed', epoch: 4 })
     expect(fetchSpy).toHaveBeenCalledTimes(1)
@@ -401,7 +405,10 @@ describe('reconnect capability invalidation', () => {
     // response advertising typedLiteral must be discarded, not committed -
     // committing would restore the capabilities the reconnect invalidated.
     setStatus('connected')
-    resolveFirst({ ...reg(backend, 3), graphFeatures: ['typedLiteral'] })
+    if (schemasFailEarly) {
+      rejectFirst(new Error('old schema connection reset'))
+      await vi.waitFor(() => expect(backend.comfyTranslations.get()[0]?.version).toBe('0.0.2'))
+    } else resolveFirst({ ...reg(backend, 3), graphFeatures: ['typedLiteral'] })
     if (fails) rejectOldTranslations(new Error('obsolete metadata request'))
     else resolveOldTranslations(translations('0.0.1'))
     await flush()
