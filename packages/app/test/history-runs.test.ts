@@ -7,12 +7,11 @@
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asPromptId, diag, type DinksterNodesPayload, type ExecutionRef } from '@dinkster/core'
 import { buildDinksterRegistry, type HistoryRunRecord } from '@dinkster/client'
 import { AppState, LIBRARY_SCOPE, type Backend, type Tab } from '../src/app-state.js'
 import { groupNoOpHistoryRuns, historySource, runIdOfEntry, runsFilterOf, runsSource } from '../src/collections.js'
-import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -68,13 +67,7 @@ const CHAIN_DOC = {
 let app: AppState
 
 beforeEach(() => {
-  app = createWorkflowApp(null)
-})
-
-afterEach(() => {
-  app.dispose()
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
+  app = new AppState()
 })
 
 /** A native backend with live schemas and an open tab targeted at it. */
@@ -82,8 +75,6 @@ function nativeSetup(): { backend: Extract<Backend, { protocol: 'dinkster' }>; t
   const added = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
   if (!added || added.protocol !== 'dinkster') throw new Error('addBackend rejected')
   added.registry.set(buildDinksterRegistry(added.id, nodesPayload))
-  vi.spyOn(added.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   expect(app.openDocument(CHAIN_DOC, 'Chain')).toEqual([])
   const tab = app.activeTab()!
   app.setTabTarget(tab.id, added.id)

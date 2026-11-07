@@ -7,7 +7,6 @@ import { ExtensionWorld, type FrontendActivationContext } from '../src/extension
 import { HostUiContributionRegistry } from '../src/host-ui.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry } from '../src/settings.js'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
-import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 function setup() {
   const settings = new SettingsRegistry(undefined)
@@ -442,12 +441,10 @@ describe('connection extension worlds', () => {
 
   it('retains the compiled world for a frozen run and disposes it after eviction', async () => {
     ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
-    const app = createWorkflowApp(null)
+    const app = new AppState()
     try {
       const tab = openNativeFixture(app)
       const backend = app.addBackend('/frozen', 'Frozen', false, 'dinkster')!
-      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-        ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
       const nodes = JSON.parse(readFileSync(new URL('../../core/fixtures/dinkster-nodes-comfy.json', import.meta.url), 'utf8'))
       const registry = buildDinksterRegistry(backend.id, nodes)
       const snapshot: EffectiveExtensionSnapshot = { format: 'dinkster.extension-snapshot', version: 1, frontendApi: '1.0.0', extensions: [] }
@@ -467,7 +464,7 @@ describe('connection extension worlds', () => {
       const ref = { connection: backend.id, prompt: asPromptId('frozen') }
       app.registerRun(tab, ref, compiled.artifact)
       app.store.apply({ kind: 'completed', execution: ref, timestamp: 1 })
-      expect(await app.openExecutionView(ref)).toBe(true)
+      expect(app.openExecutionView(ref)).toBe(true)
       const frozenTab = app.activeTab()!
       fetch.mockResolvedValue({ ...registry, extensionSnapshotPair: { digest: `sha256:${'b'.repeat(64)}`, snapshot } })
       await app.refreshBackendSchemas(backend)
@@ -486,11 +483,7 @@ describe('connection extension worlds', () => {
       }
       expect(app.store.get(ref)).toBeUndefined()
       expect(dispose).toHaveBeenCalledTimes(1)
-    } finally {
-      app.dispose()
-      vi.restoreAllMocks()
-      vi.unstubAllGlobals()
-    }
+    } finally { app.dispose() }
   })
 
   it('keeps conflicting versions isolated and switches presentation without reactivation', () => {
@@ -612,10 +605,10 @@ describe('submission-owned extension world lifetime', () => {
   const missing = (retryWithAssets: Extract<DinksterSubmitResult, { assetsMissing: unknown }>['retryWithAssets']): DinksterSubmitResult => ({
     ok: false, diagnostics: [], assetsMissing: { error: 'assets-missing', assets: [] }, retryWithAssets,
   })
-  const expectFrozenWorld = async (job = 'held') => {
+  const expectFrozenWorld = (job = 'held') => {
     const ref = accepted(job).execution
     expect(app.registryForExecution(ref)?.extensionSnapshotPair?.digest).toBe(digest)
-    expect(await app.openExecutionView(ref)).toBe(true)
+    expect(app.openExecutionView(ref)).toBe(true)
     expect(app.extensions).toBe(oldHost)
     expect(app.widgetRegistryForTab(app.activeTab()!)).toBe(oldWidgets)
     expect(app.commands.get('demo.command')?.label).toBe('Snapshot A')
@@ -624,12 +617,10 @@ describe('submission-owned extension world lifetime', () => {
 
   beforeEach(async () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
-    app = createWorkflowApp(null)
+    app = new AppState()
     const added = app.addBackend('/lease', 'Lease', false, 'dinkster', false)
     if (!added || added.protocol !== 'dinkster') throw new Error('expected native backend')
     backend = added
-    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-      ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
     vi.spyOn(backend, 'refreshDiagnostics').mockImplementation(() => {})
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:source')
     await refresh('a')
@@ -663,7 +654,7 @@ describe('submission-owned extension world lifetime', () => {
     upload.resolve('blake3:source')
     response.resolve(accepted())
     await queued
-    await expectFrozenWorld()
+    expectFrozenWorld()
   })
 
   it.each(['rejection', 'transport failure', 'closed before POST'])('releases a held submission on %s', async (outcome) => {
@@ -696,7 +687,7 @@ describe('submission-owned extension world lifetime', () => {
     expect(disposed).not.toHaveBeenCalled()
     response.resolve(accepted())
     await queued
-    await expectFrozenWorld()
+    expectFrozenWorld()
   })
 
   it.each(['cancel', 'close tab', 'replace tab', 'deny', 'dispose'])('releases idle consent ownership on %s after queue returns', async (action) => {
@@ -728,7 +719,7 @@ describe('submission-owned extension world lifetime', () => {
     expect(disposed).not.toHaveBeenCalled()
     response.resolve(accepted())
     await retried
-    await expectFrozenWorld()
+    expectFrozenWorld()
   })
 
   it('releases only the finished submission when two queues share a world', async () => {
@@ -743,7 +734,7 @@ describe('submission-owned extension world lifetime', () => {
     expect(disposed).not.toHaveBeenCalled()
     second.resolve(accepted())
     await queued[1]
-    await expectFrozenWorld()
+    expectFrozenWorld()
   })
 
   it('drops app-disposed submissions without installing a late accepted run', async () => {
@@ -779,7 +770,7 @@ describe('submission-owned extension world lifetime', () => {
     const compiled = app.compileTab(tab)
     if (!compiled?.ok) throw new Error('fixture compile failed')
     app.registerRun(tab, accepted().execution, compiled.artifact)
-    expect(await app.openExecutionView(accepted().execution)).toBe(true)
+    expect(app.openExecutionView(accepted().execution)).toBe(true)
     const frozen = app.activeTab()!
     app.activeTabId.set(tab.id)
     await refresh('b')

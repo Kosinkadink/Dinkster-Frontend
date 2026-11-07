@@ -7,9 +7,7 @@ import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { GlslEditor } from '../src/GlslEditor.js'
 import type { GlslShaderRunner } from '../src/glsl-shader-runner.js'
-import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 
-const apps: AppState[] = []
 const INITIAL_SOURCE = `#version 300 es
 precision highp float;
 layout(location = 0) out vec4 fragColor0;
@@ -38,21 +36,20 @@ const payload = {
   },
 } as unknown as DinksterNodesPayload
 
-async function mount() {
-  const app = prepareWorkflowApp(new AppState())
-  apps.push(app)
+function mount() {
+  const app = new AppState()
   const tab = app.tabs.get()[0]!
   app.registry.set(buildDinksterRegistry(asConnectionId('local'), payload))
   const graphId = tab.store.doc.root
   const seedNodeIds = Object.keys(tab.store.doc.graphs[graphId]!.nodes)
-  if (seedNodeIds.length > 0 && !(await app.dispatchTo(tab, {
+  if (seedNodeIds.length > 0 && !app.dispatchTo(tab, {
     command: 'node.remove', params: { graphId, nodeIds: seedNodeIds },
-  })).ok) throw new Error('failed to clear GLSL fixture graph')
+  }).ok) throw new Error('failed to clear GLSL fixture graph')
   const before = new Set(Object.keys(tab.store.doc.graphs[graphId]!.nodes))
-  if (!(await app.dispatchTo(tab, {
+  if (!app.dispatchTo(tab, {
     command: 'node.add',
     params: { graphId, type: 'dinkster.image.glsl_shader', position: { x: 20, y: 30 } },
-  })).ok) throw new Error('failed to add GLSL fixture node')
+  }).ok) throw new Error('failed to add GLSL fixture node')
   const nodeId = Object.keys(tab.store.doc.graphs[graphId]!.nodes).find((id) => !before.has(id))!
   const target = app.glslTargetForInput(tab, graphId, nodeId, 'fragment_shader')!
   const compiled = app.compileTab(tab)
@@ -95,7 +92,6 @@ async function mount() {
 }
 
 afterEach(() => {
-  for (const app of apps.splice(0)) app.dispose()
   vi.restoreAllMocks()
   document.body.replaceChildren()
   localStorage.clear()
@@ -103,7 +99,7 @@ afterEach(() => {
 
 describe('GlslEditor', () => {
   it('selects the preview output, shows runner diagnostics, and applies the exact source', async () => {
-    const mounted = await mount()
+    const mounted = mount()
     const select = mounted.root.querySelector<HTMLSelectElement>('select[aria-label="Preview output"]')!
     select.value = '2'
     select.dispatchEvent(new Event('change', { bubbles: true }))
@@ -119,90 +115,16 @@ describe('GlslEditor', () => {
     source.value = next
     source.dispatchEvent(new InputEvent('input', { bubbles: true }))
     mounted.root.querySelector<HTMLButtonElement>('button.primary')!.click()
-    await vi.waitFor(() => expect(mounted.tab.store.doc.graphs[mounted.graphId]!.nodes[mounted.nodeId]!.values['fragment_shader']).toBe(next))
-    await vi.waitFor(() => expect(mounted.app.glslEditorTarget.get()).toBeUndefined())
+    expect(mounted.tab.store.doc.graphs[mounted.graphId]!.nodes[mounted.nodeId]!.values['fragment_shader']).toBe(next)
+    expect(mounted.app.glslEditorTarget.get()).toBeUndefined()
     mounted.dispose()
     expect(mounted.runner.dispose).toHaveBeenCalledOnce()
     mounted.app.dispose()
   })
 
-  it.each([false, true])('waits for final apply result %s and does not submit twice', async (accepted) => {
-    const mounted = await mount()
-    const request = mounted.app.glslEditorTarget.get()
-    const dispatch = mounted.app.dispatchTo.bind(mounted.app)
-    let settle!: () => void
-    const pending = vi.spyOn(mounted.app, 'dispatchTo').mockImplementation((tab, invocation) =>
-      new Promise((resolve) => { settle = () => resolve(accepted ? dispatch(tab, invocation) : { ok: false, diagnostics: [] }) }) as never)
-    const apply = mounted.root.querySelector<HTMLButtonElement>('button.primary')!
-    apply.click()
-    expect(apply.disabled).toBe(true)
-    expect(mounted.root.querySelector<HTMLTextAreaElement>('[data-testid="glsl-source"]')!.disabled).toBe(true)
-    expect(mounted.app.glslEditorTarget.get()).toBe(request)
-    apply.click()
-    expect(pending).toHaveBeenCalledOnce()
-    settle()
-    await vi.waitFor(() => accepted
-      ? expect(mounted.app.glslEditorTarget.get()).toBeUndefined()
-      : expect(mounted.root.textContent).toContain('Shader update was refused'))
-    if (!accepted) {
-      expect(mounted.app.glslEditorTarget.get()).toBe(request)
-      expect(apply.disabled).toBe(false)
-    }
-    mounted.dispose()
-    mounted.app.dispose()
-  })
-
-  it('does not close a replacement editor when an old apply completes', async () => {
-    const mounted = await mount()
-    let settle!: () => void
-    vi.spyOn(mounted.app, 'dispatchTo').mockImplementation(() => new Promise((resolve) => {
-      settle = () => resolve({ ok: true })
-    }) as never)
-    mounted.root.querySelector<HTMLButtonElement>('button.primary')!.click()
-    const replacement = { ...mounted.app.glslEditorTarget.get()! }
-    mounted.app.glslEditorTarget.set(replacement)
-    settle()
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(mounted.app.glslEditorTarget.get()).toBe(replacement)
-    expect(mounted.root.querySelector<HTMLButtonElement>('button.primary')!.disabled).toBe(false)
-    mounted.dispose()
-    mounted.app.dispose()
-  })
-
-  it('does not clear a newer pending apply after leaving and returning to the same target', async () => {
-    const mounted = await mount()
-    const request = mounted.app.glslEditorTarget.get()
-    const settlements: (() => void)[] = []
-    vi.spyOn(mounted.app, 'dispatchTo').mockImplementation(() => new Promise((resolve) => {
-      settlements.push(() => resolve({ ok: false, diagnostics: [] }))
-    }) as never)
-    const apply = mounted.root.querySelector<HTMLButtonElement>('button.primary')!
-    apply.click()
-    mounted.app.activeTabId.set('another-tab')
-    await vi.waitFor(() => expect(mounted.root.textContent).not.toContain('Apply'))
-    mounted.app.activeTabId.set(mounted.tab.id)
-    mounted.app.glslEditorTarget.set(request)
-    await vi.waitFor(() => expect(mounted.root.querySelector<HTMLButtonElement>('button.primary')?.disabled).toBe(false))
-    const returnedApply = mounted.root.querySelector<HTMLButtonElement>('button.primary')!
-    returnedApply.click()
-    expect(settlements).toHaveLength(2)
-    settlements[0]!()
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(mounted.app.glslEditorTarget.get()).toBe(request)
-    expect(returnedApply.disabled).toBe(true)
-    expect(mounted.root.textContent).not.toContain('Shader update was refused')
-    settlements[1]!()
-    await vi.waitFor(() => expect(returnedApply.disabled).toBe(false))
-    expect(mounted.root.textContent).toContain('Shader update was refused')
-    mounted.dispose()
-    mounted.app.dispose()
-  })
-
   it('disables apply when the source changes concurrently', async () => {
-    const mounted = await mount()
-    expect((await mounted.app.dispatchTo(mounted.tab, {
+    const mounted = mount()
+    expect(mounted.app.dispatchTo(mounted.tab, {
       command: 'node.setValue',
       params: {
         graphId: mounted.graphId,
@@ -210,7 +132,7 @@ describe('GlslEditor', () => {
         inputId: 'fragment_shader',
         value: 'concurrent source',
       },
-    })).ok).toBe(true)
+    }).ok).toBe(true)
     const apply = mounted.root.querySelector<HTMLButtonElement>('button.primary')!
     await vi.waitFor(() => expect(apply.disabled).toBe(true))
     expect(mounted.root.querySelector('[role="alert"]')?.textContent).toContain('no longer available')
@@ -221,7 +143,7 @@ describe('GlslEditor', () => {
   })
 
   it('clears the previous result while newer runtime inputs decode', async () => {
-    const mounted = await mount()
+    const mounted = mount()
     await vi.waitFor(() => expect(mounted.root.querySelector('[role="alert"]')?.textContent)
       .toContain('Shader output 0 refused'))
     vi.mocked(HTMLImageElement.prototype.decode).mockImplementation(() => new Promise(() => {}))

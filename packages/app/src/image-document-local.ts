@@ -1,6 +1,6 @@
 import { blake3 } from '@noble/hashes/blake3.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
-import { uuidv4, type RetainedAssetOwner } from '@dinkster/client'
+import { uuidv4 } from '@dinkster/client'
 import {
   IMAGE_DOCUMENT_FORMAT_VERSION,
   IMAGE_FIXED_POINT_SCALE,
@@ -19,20 +19,10 @@ import {
 import { encodePng, type ImageRaster } from './image-png.js'
 
 const DATABASE_NAME = 'dinkster.image-documents'
-const DATABASE_VERSION = 2
+const DATABASE_VERSION = 1
 const RESOURCES = 'resources'
 const DRAFTS = 'drafts'
-const RESOURCE_READS = 'resourceReads'
 const BY_PROJECT = 'byProject'
-
-export interface ImageResourceRead {
-  readonly key: string
-  readonly projectId: string
-  readonly connectionId: string
-  readonly assetBaseUrl: string
-  readonly owner: RetainedAssetOwner
-  readonly digests: readonly string[]
-}
 
 export interface StagedImageResource {
   readonly digest: string
@@ -124,10 +114,6 @@ function openDatabase(factory: IDBFactory): Promise<IDBDatabase> {
       ? transaction.objectStore(DRAFTS)
       : database.createObjectStore(DRAFTS, { keyPath: 'key' })
     if (!drafts.indexNames.contains(BY_PROJECT)) drafts.createIndex(BY_PROJECT, 'projectId')
-    if (!database.objectStoreNames.contains(RESOURCE_READS)) {
-      const reads = database.createObjectStore(RESOURCE_READS, { keyPath: 'key' })
-      reads.createIndex(BY_PROJECT, 'projectId')
-    }
   }
   return requestResult(request).then((database) => {
     database.onversionchange = () => database.close()
@@ -215,48 +201,6 @@ export class ImageDocumentLocalStore {
     database.close()
   }
 
-  async beginResourceRead(
-    connectionId: string,
-    assetBaseUrl: string,
-    scope: string,
-    digests: readonly string[],
-  ): Promise<ImageResourceRead> {
-    const owner: RetainedAssetOwner = {
-      scope, ownerKind: 'preview', ownerId: `image-resource-read:${uuidv4()}`,
-    }
-    const read: ImageResourceRead = {
-      key: owner.ownerId, projectId: this.projectId, connectionId, assetBaseUrl,
-      owner, digests: [...new Set(digests)].sort(),
-    }
-    const database = await this.database
-    const transaction = database.transaction(RESOURCE_READS, 'readwrite')
-    const done = transactionDone(transaction)
-    transaction.objectStore(RESOURCE_READS).add(read)
-    await done
-    return read
-  }
-
-  async resourceReads(): Promise<readonly ImageResourceRead[]> {
-    const database = await this.database
-    const transaction = database.transaction(RESOURCE_READS, 'readonly')
-    const done = transactionDone(transaction)
-    const reads = await requestResult(transaction.objectStore(RESOURCE_READS)
-      .index(BY_PROJECT).getAll(this.projectId) as IDBRequest<ImageResourceRead[]>)
-    await done
-    return reads
-  }
-
-  async finishResourceRead(read: ImageResourceRead): Promise<void> {
-    if (read.projectId !== this.projectId || read.key !== read.owner.ownerId) {
-      throw new Error('resource read belongs to another local store')
-    }
-    const database = await this.database
-    const transaction = database.transaction(RESOURCE_READS, 'readwrite')
-    const done = transactionDone(transaction)
-    transaction.objectStore(RESOURCE_READS).delete(read.key)
-    await done
-  }
-
   async stageResource(
     resource: ImageRasterResource,
     bytes: Uint8Array,
@@ -316,25 +260,16 @@ export class ImageDocumentLocalStore {
     name: string,
     library?: ImageLibraryLink,
     expectedUpdatedAt?: number | null,
-    assertCurrent: () => void = () => undefined,
   ): Promise<ImageDocumentDraft> {
     const loaded = loadImageDocument(document)
     if (loaded.document === undefined) throw new Error('cannot persist an invalid ImageDocument draft')
     const canonical = serializeImageDocument(loaded.document)
     const key = draftKey(this.projectId, loaded.document.lineage)
     const database = await this.database
-    assertCurrent()
     const transaction = database.transaction(DRAFTS, 'readwrite')
     const done = transactionDone(transaction)
     const store = transaction.objectStore(DRAFTS)
     const existing = await requestResult(store.get(key) as IDBRequest<DraftRecord | undefined>)
-    try {
-      assertCurrent()
-    } catch (cause) {
-      transaction.abort()
-      await done.catch(() => undefined)
-      throw cause
-    }
     if (expectedUpdatedAt !== undefined) {
       const matches = expectedUpdatedAt === null
         ? existing === undefined || parseDraft(existing) === undefined
@@ -379,7 +314,6 @@ export class ImageDocumentLocalStore {
     name: string,
     library: ImageLibraryLink,
     expectedUpdatedAt: number | null,
-    assertCurrent: () => void = () => undefined,
   ): Promise<ImageDocumentDraft> {
     const loaded = loadImageDocument(document)
     if (loaded.document === undefined || !validLibraryLink(library)) {
@@ -387,18 +321,10 @@ export class ImageDocumentLocalStore {
     }
     const key = draftKey(this.projectId, loaded.document.lineage)
     const database = await this.database
-    assertCurrent()
     const transaction = database.transaction(DRAFTS, 'readwrite')
     const done = transactionDone(transaction)
     const store = transaction.objectStore(DRAFTS)
     const existing = await requestResult(store.get(key) as IDBRequest<DraftRecord | undefined>)
-    try {
-      assertCurrent()
-    } catch (cause) {
-      transaction.abort()
-      await done.catch(() => undefined)
-      throw cause
-    }
     const existingDraft = existing === undefined ? undefined : parseDraft(existing)
     const preserveCurrent = existingDraft !== undefined && existing?.updatedAt !== expectedUpdatedAt
     const current = preserveCurrent ? existingDraft : { document: loaded.document, name }
@@ -433,25 +359,16 @@ export class ImageDocumentLocalStore {
   async setCollaboration(
     lineage: string,
     collaboration: ImageCollaborationLink | undefined,
-    assertCurrent: () => void = () => undefined,
   ): Promise<ImageDocumentDraft> {
     if (collaboration !== undefined && !validCollaborationLink(collaboration)) {
       throw new Error('invalid ImageDocument collaboration membership')
     }
     const database = await this.database
-    assertCurrent()
     const transaction = database.transaction(DRAFTS, 'readwrite')
     const done = transactionDone(transaction)
     const records = transaction.objectStore(DRAFTS)
     const key = draftKey(this.projectId, lineage)
     const existing = await requestResult(records.get(key) as IDBRequest<DraftRecord | undefined>)
-    try {
-      assertCurrent()
-    } catch (cause) {
-      transaction.abort()
-      await done.catch(() => undefined)
-      throw cause
-    }
     const current = existing === undefined ? undefined : parseDraft(existing)
     if (current === undefined) {
       transaction.abort()
@@ -599,12 +516,9 @@ export async function importSingleRaster(
   options?: {
     readonly lineage?: string
     readonly normalize?: (file: File) => Promise<ImageRaster>
-    readonly assertCurrent?: () => void
   },
 ): Promise<ImageDocumentDraft> {
-  options?.assertCurrent?.()
   const prepared = await prepareImageRaster(file, options?.normalize)
-  options?.assertCurrent?.()
   const resourceId = asImageResourceId('r0')
   const layerId = asImageLayerId('l1')
   const lineage = asImageLineageId(options?.lineage ?? `image-${uuidv4()}`)
@@ -645,6 +559,5 @@ export async function importSingleRaster(
     resources: { [resourceId]: resource },
   }
   await store.stageResource(resource, prepared.bytes, `${name}.png`)
-  options?.assertCurrent?.()
   return store.saveDraft(document, name, undefined, null)
 }

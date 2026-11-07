@@ -1095,7 +1095,7 @@ export const outputSchemaInputsOf = (s: NodeSchema): readonly string[] =>
 export const isComboWidgetInput = (spec: InputSpec): boolean =>
   spec.widget?.widgetType === 'COMBO'
 
-export const isAssetWidgetInput = (spec: Pick<InputSpec, 'widget'>): boolean =>
+export const isAssetWidgetInput = (spec: InputSpec): boolean =>
   spec.widget?.widgetType === 'ASSET'
 
 export const isImageAssetInput = (spec: InputSpec): boolean => {

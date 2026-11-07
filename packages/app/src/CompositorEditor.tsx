@@ -140,11 +140,7 @@ export function CompositorEditor(props: { readonly app: AppState; readonly host?
   const [draft, setDraft] = createSignal<ConfiguredCompositorRecipe>()
   const [selectedId, setSelectedId] = createSignal<string>()
   const [error, setError] = createSignal<string>()
-  const [applying, setApplying] = createSignal(false)
-  let live = true
-  onCleanup(() => { live = false })
   let initializedTarget: CompositorEditorTarget | undefined
-  let session = 0
   let openedDocumentDigest: string | undefined
   let drag: {
     readonly pointerId: number
@@ -164,8 +160,6 @@ export function CompositorEditor(props: { readonly app: AppState; readonly host?
     setError(undefined)
     if (request !== initializedTarget || request?.tabId !== active) {
       initializedTarget = undefined
-      session++
-      setApplying(false)
       openedDocumentDigest = undefined
       setDraft(undefined)
       setSelectedId(undefined)
@@ -219,27 +213,15 @@ export function CompositorEditor(props: { readonly app: AppState; readonly host?
     const currentRequest = currentTarget()
     const current = runtime()
     if (!request || !currentRequest || !current || initializedTarget === request) return
-    const tab = tabs().find((candidate) => candidate.id === request.tabId)
-    if (!tab) return
-    const editing = session
-    let pending = true
-    onCleanup(() => { pending = false })
-    void props.app.retainEditorAssets(request, props.app.backendForTab(tab), current.state).then(() => {
-      if (!pending || !live || session !== editing || target() !== request || runtime() !== current) return
-      const value = copyConfiguredCompositorRecipe(current.state)
-      initializedTarget = request
-      openedDocumentDigest = current.state.documentDigest
-      setDraft(value)
-      setSelectedId(value.layers.at(-1)?.id)
-    }).catch((cause) => {
-      if (pending && live && session === editing && target() === request) {
-        setError(cause instanceof Error ? cause.message : message('compositor.error.refused'))
-      }
-    })
+    const value = copyConfiguredCompositorRecipe(current.state)
+    initializedTarget = request
+    openedDocumentDigest = current.state.documentDigest
+    setDraft(value)
+    setSelectedId(value.layers.at(-1)?.id)
   })
 
   const selectedLayer = createMemo(() => draft()?.layers.find((layer) => layer.id === selectedId()))
-  const readonly = createMemo(() => applying() || currentTarget() === undefined)
+  const readonly = createMemo(() => currentTarget() === undefined)
 
   const updateLayer = (layerId: string, update: (layer: CompositorLayer) => CompositorLayer): void => {
     const value = draft()
@@ -312,8 +294,7 @@ export function CompositorEditor(props: { readonly app: AppState; readonly host?
     }
   }
 
-  const apply = async (): Promise<void> => {
-    if (applying()) return
+  const apply = (): void => {
     const request = target()
     const current = request ? props.app.validateCompositorTarget(request) : undefined
     const value = draft()
@@ -337,29 +318,22 @@ export function CompositorEditor(props: { readonly app: AppState; readonly host?
       setError(message('compositor.error.documentMismatch'))
       return
     }
-    setApplying(true)
-    const editing = session
-    try {
-      const outcome = await props.app.dispatchTo(tab, {
-        command: 'image.compositorApply',
-        params: {
-          graphId: request.graphId,
-          nodeId: request.nodeId,
-          inputId: request.inputId,
-          instancePath: request.instancePath,
-          expectedRecipeFingerprint,
-          recipe: recipe as unknown as Json,
-        },
-      })
-      if (!live || session !== editing || target() !== request || activeTabId() !== request.tabId) return
-      if (!outcome.ok) {
-        setError(outcome.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? message('compositor.error.refused'))
-        return
-      }
-      props.app.closeImageEditor(request)
-    } finally {
-      if (live && session === editing) setApplying(false)
+    const outcome = props.app.dispatchTo(tab, {
+      command: 'image.compositorApply',
+      params: {
+        graphId: request.graphId,
+        nodeId: request.nodeId,
+        inputId: request.inputId,
+        instancePath: request.instancePath,
+        expectedRecipeFingerprint,
+        recipe: recipe as unknown as Json,
+      },
+    })
+    if (!outcome.ok) {
+      setError(outcome.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? message('compositor.error.refused'))
+      return
     }
+    props.app.closeImageEditor(request)
   }
 
   const background = createMemo(() => {

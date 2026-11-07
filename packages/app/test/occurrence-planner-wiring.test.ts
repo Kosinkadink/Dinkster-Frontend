@@ -15,7 +15,6 @@ import {
   executeCommand,
   occurrenceKey,
   type CommandInvocation,
-  type CommandOutcome,
   type EffectiveLink,
   type NodeSchema,
   type OccurrenceRef,
@@ -103,38 +102,12 @@ const bodyTo = (): OccurrenceLinkEndpoint => ({
 })
 
 describe('production occurrence planner wiring', () => {
-  it.each([true, false])('awaits occurrence connect acceptance=%s without changing the shared definition', async (accepted) => {
-    const store = new DocumentStore(fixtureDocument(), coreCommandRegistry())
-    const before = store.doc
-    const target = owner('a')
-    let complete!: () => void
-    let settled = false
-    const pending = dispatchOccurrenceIntention({
-      document: before, resolver: resolve,
-      intention: { kind: 'connect', owner: target, bodyGraph: asGraphDefId('body') as never, from: boundaryFrom(target), to: bodyTo() },
-      planner: coreOccurrencePlanner,
-      dispatch: (invocation) => new Promise<CommandOutcome>((resolve) => {
-        complete = () => resolve(accepted ? store.dispatch(invocation) : { ok: false, diagnostics: [] })
-      }),
-      report: () => undefined,
-    }).then((outcome) => { settled = true; return outcome })
-    await Promise.resolve()
-    expect(settled).toBe(false)
-    expect(store.doc).toBe(before)
-    complete()
-    expect((await pending).ok).toBe(accepted)
-    expect(store.doc.graphs.body).toEqual(before.graphs.body)
-    expect(store.doc.occurrenceTopologies?.[occurrenceKey(owner('b'))]).toBeUndefined()
-    expect(Object.keys(store.doc.occurrenceTopologies?.[occurrenceKey(target)]?.links ?? {})).toEqual(accepted ? ['l0'] : [])
-    expect(store.canUndo).toBe(accepted)
-  })
-
-  it('commits a real occurrence-local connect through the core planner and one undo restores', async () => {
+  it('commits a real occurrence-local connect through the core planner and one undo restores', () => {
     const store = new DocumentStore(fixtureDocument(), coreCommandRegistry())
     const target = owner('a')
     const report = vi.fn()
 
-    const outcome = await dispatchOccurrenceIntention({
+    const outcome = dispatchOccurrenceIntention({
       document: store.doc,
       resolver: resolve,
       intention: { kind: 'connect', owner: target, bodyGraph: asGraphDefId('body') as never, from: boundaryFrom(target), to: bodyTo() },
@@ -155,13 +128,13 @@ describe('production occurrence planner wiring', () => {
     expect(store.doc.occurrenceTopologies?.[occurrenceKey(target)]?.links ?? {}).toEqual({})
   })
 
-  it('refuses unresolvable intentions through the named planner diagnostic without dispatching', async () => {
+  it('refuses unresolvable intentions through the named planner diagnostic without dispatching', () => {
     const store = new DocumentStore(fixtureDocument(), coreCommandRegistry())
     const target = owner('a')
     const dispatch = vi.fn()
     const report = vi.fn()
 
-    const outcome = await dispatchOccurrenceIntention({
+    const outcome = dispatchOccurrenceIntention({
       document: store.doc,
       resolver: resolve,
       intention: {
@@ -181,7 +154,7 @@ describe('production occurrence planner wiring', () => {
     expect(codes).toEqual(['occurrence.link.planUnavailable'])
   })
 
-  it('disconnects and compacts an occurrence-owned member in one replayable undo record', async () => {
+  it('disconnects and compacts an occurrence-owned member in one replayable undo record', () => {
     const initial = fixtureDocument()
     const target = owner('a')
     const familyBinding = {
@@ -229,7 +202,7 @@ describe('production occurrence planner wiring', () => {
     const planned = coreOccurrencePlanner.planOccurrenceLinkMutation(configured, resolve, intention)
     expect(planned.ok).toBe(true)
     if (!planned.ok) throw new Error('disconnect planning failed')
-    const outcome = await dispatchOccurrenceIntention({
+    const outcome = dispatchOccurrenceIntention({
       document: store.doc,
       resolver: resolve,
       intention,
@@ -293,7 +266,7 @@ describe('production occurrence planner wiring', () => {
 
     const rewireStore = new DocumentStore(replayInitial, registry)
     const rewireDispatches: CommandInvocation[] = []
-    const rewire = await dispatchOccurrenceIntention({
+    const rewire = dispatchOccurrenceIntention({
       document: rewireStore.doc,
       resolver: resolve,
       intention: {

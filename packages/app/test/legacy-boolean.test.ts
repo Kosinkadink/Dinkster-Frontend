@@ -5,11 +5,10 @@
  * exactly the recognized tokens to real booleans; anything else is left for
  * the badValue advisory (value-never-hostage).
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { buildDinksterRegistry } from '@dinkster/client'
-import { DINKSTER_SCHEMA_WIRE_VERSION, type CommandOutcome, type DinksterNodesPayload } from '@dinkster/core'
-import type { AppState, Tab } from '../src/app-state.js'
-import { createWorkflowApp } from './fixtures/workflow-app.js'
+import { DINKSTER_SCHEMA_WIRE_VERSION, type DinksterNodesPayload } from '@dinkster/core'
+import { AppState, type Tab } from '../src/app-state.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -29,9 +28,8 @@ const nodesPayload: DinksterNodesPayload = {
 let app: AppState
 
 beforeEach(() => {
-  app = createWorkflowApp(null)
+  app = new AppState()
 })
-afterEach(() => { app.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 const loadSchemas = (): void => {
   const backend = app.backends.get()[0]!
@@ -65,13 +63,12 @@ const valueOf = (tab: Tab, graphId: string): unknown =>
   tab.store.doc.graphs[graphId]!.nodes.n0!.values.tapered_corners
 
 describe('legacy boolean normalization on open', () => {
-  it('rewrites recognized tokens to real booleans in every graph, one undo step', async () => {
+  it('rewrites recognized tokens to real booleans in every graph, one undo step', () => {
     loadSchemas()
     expect(app.openDocument(docJson('lin-lb-a', { tapered_corners: 'enable' }, { tapered_corners: 'OFF' }), 'T')).toEqual([])
     const tab = app.activeTab()!
-    await expect.poll(() => valueOf(tab, 'g0')).toBe(true) // 'enable' -> true
+    expect(valueOf(tab, 'g0')).toBe(true) // 'enable' -> true
     expect(valueOf(tab, 'g1')).toBe(false) // case-insensitive: 'OFF' -> false
-    await Promise.resolve()
     expect(app.problems.get().some((d) => d.code === 'upgrade.legacyBoolean')).toBe(true)
     expect(tab.store.undo()).toBe(true) // ONE step restores both strings
     expect(valueOf(tab, 'g0')).toBe('enable')
@@ -88,16 +85,15 @@ describe('legacy boolean normalization on open', () => {
     expect(app.problems.get().some((d) => d.code === 'upgrade.legacyBoolean')).toBe(false)
   })
 
-  it('defers until schemas arrive when the document opens first', async () => {
-    expect(app.registry.get()).toBeUndefined()
+  it('defers until schemas arrive when the document opens first', () => {
     expect(app.openDocument(docJson('lin-lb-c', { tapered_corners: 'yes' }), 'T')).toEqual([])
     const tab = app.activeTab()!
     expect(valueOf(tab, 'g0')).toBe('yes') // nothing to resolve against yet
     loadSchemas()
-    await expect.poll(() => valueOf(tab, 'g0')).toBe(true)
+    expect(valueOf(tab, 'g0')).toBe(true)
   })
 
-  it('re-arms on retarget but never on a mere schema refresh', async () => {
+  it('re-arms on retarget but never on a mere schema refresh', () => {
     // Open against a registry where the node type does NOT resolve: the pass
     // runs (a registry exists), converts nothing, and is consumed.
     const backend = app.backends.get()[0]!
@@ -111,45 +107,7 @@ describe('legacy boolean normalization on open', () => {
     expect(valueOf(tab, 'g0')).toBe('enable')
     // An explicit retarget re-arms it; the new target's schemas convert.
     app.setTabTarget(tab.id, backend.id)
-    await expect.poll(() => valueOf(tab, 'g0')).toBe(true)
-    await Promise.resolve()
+    expect(valueOf(tab, 'g0')).toBe(true)
     expect(app.problems.get().some((d) => d.code === 'upgrade.legacyBoolean')).toBe(true)
-  })
-
-  it.each(['accepted', 'refused', 'closed', 'replaced'])('waits for live normalization before reporting: %s', async (completion) => {
-    app.openDocument(docJson('delayed-boolean', { tapered_corners: 'enable' }), 'T')
-    const tab = app.activeTab()!
-    const dispatch = app.dispatchTo.bind(app)
-    let finish!: () => void
-    let publish!: () => Promise<void>
-    let delivered!: Promise<CommandOutcome>
-    vi.spyOn(app, 'dispatchTo').mockImplementation((owner, invocation) => {
-      let outcome!: CommandOutcome
-      publish = async () => {
-        outcome = completion === 'refused' ? { ok: false, diagnostics: [] } : await dispatch(owner, invocation)
-      }
-      delivered = new Promise<CommandOutcome>((resolve) => {
-        finish = () => resolve(outcome)
-      })
-      return delivered as unknown as CommandOutcome
-    })
-    loadSchemas()
-    expect(valueOf(tab, 'g0')).toBe('enable')
-    expect(app.problems.get().some((d) => d.code === 'upgrade.legacyBoolean')).toBe(false)
-    await publish()
-    expect(valueOf(tab, 'g0')).toBe(completion === 'refused' ? 'enable' : true)
-    expect(app.problems.get().some((d) => d.code === 'upgrade.legacyBoolean')).toBe(false)
-    if (completion === 'closed') app.closeTab(tab.id)
-    if (completion === 'replaced') app.openDocument(docJson('delayed-boolean', { tapered_corners: false }), 'Replacement')
-    finish()
-    await delivered
-    await Promise.resolve()
-    expect(app.problems.get().some((d) => d.code === 'upgrade.legacyBoolean')).toBe(completion === 'accepted')
-    expect(valueOf(tab, 'g0')).toBe(completion === 'refused' ? 'enable' : true)
-    if (completion === 'accepted') {
-      expect(tab.store.undo()).toBe(true)
-      expect(valueOf(tab, 'g0')).toBe('enable')
-    }
-    if (completion === 'replaced') expect(valueOf(app.activeTab()!, 'g0')).toBe(false)
   })
 })

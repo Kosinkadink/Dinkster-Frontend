@@ -85,9 +85,7 @@ describe('native IMAGE batch axis', () => {
     const result = await fetchPeekRendition(values, 'job', [{ node: 'n', output: 'o' }])
     expect(result.mime).toBe('image/png')
     expect(result.imageBatch).toBeUndefined()
-    expect(rendition).toHaveBeenCalledWith({ jobId: 'job', nodeId: 'n', outputId: 'o' }, 'png', {
-      descriptor: { ...descriptor, meta: { shape: [1, 32, 48, 4] } },
-    })
+    expect(rendition).toHaveBeenCalledWith({ jobId: 'job', nodeId: 'n', outputId: 'o' }, 'png', {})
   })
 
   it('never infers batch capability from PNG, shape, or structural element advertisement', async () => {

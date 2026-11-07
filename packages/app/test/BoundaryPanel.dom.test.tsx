@@ -5,9 +5,6 @@ import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppState, pushGraph, truncateGraphStack } from '../src/app-state.js'
 import { BoundaryPanel } from '../src/BoundaryPanel.js'
-import { prepareWorkflowApp } from './fixtures/workflow-app.js'
-
-const apps: AppState[] = []
 
 const schema: NodeSchema = {
   type: 'GrowTest',
@@ -42,8 +39,7 @@ const schema: NodeSchema = {
 }
 
 const mountPanel = (withWidgetTap = false, withValueSource = false) => {
-  const app = prepareWorkflowApp(new AppState())
-  apps.push(app)
+  const app = new AppState()
   const backend = app.backends.get()[0]!
   backend.registry.set({
     connection: backend.id,
@@ -105,75 +101,9 @@ const mountPanel = (withWidgetTap = false, withValueSource = false) => {
 }
 
 beforeEach(() => setLocale('en'))
-afterEach(() => {
-  for (const app of apps.splice(0)) app.dispose()
-  vi.restoreAllMocks()
-  document.body.replaceChildren()
-  localStorage.clear()
-})
-
-const delayDispatch = (app: AppState) => {
-  const dispatch = app.dispatchTo.bind(app)
-  const releases: Array<(accepted: boolean) => void> = []
-  vi.spyOn(app, 'dispatchTo').mockImplementation((tab, invocation) => new Promise<ReturnType<AppState['dispatchTo']>>((resolve) => {
-    releases.push((accepted) => resolve(accepted ? dispatch(tab, invocation) : {
-      ok: false,
-      diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Boundary edit refused for test' }],
-    }))
-  }) as unknown as ReturnType<AppState['dispatchTo']>)
-  return releases
-}
+afterEach(() => document.body.replaceChildren())
 
 describe('BoundaryPanel keyboard and accessibility', () => {
-  it('retains a refused name draft, prevents duplicate commits and clears only after accepted retry', async () => {
-    const { app, tab, root, unmount } = mountPanel()
-    const releases = delayDispatch(app)
-    const input = () => root.querySelector<HTMLInputElement>('[data-testid="boundary-name-input"]')!
-    input().value = '  Batch Masks  '
-    input().dispatchEvent(new Event('change', { bubbles: true }))
-    input().dispatchEvent(new Event('blur'))
-    expect(input().disabled).toBe(true)
-    expect(input().value).toBe('  Batch Masks  ')
-    expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBe('Items')
-    releases[0]!(false)
-    await vi.waitFor(() => expect(input().disabled).toBe(false))
-    expect(input().value).toBe('  Batch Masks  ')
-    expect(root.querySelector('[data-testid="boundary-notice"]')?.textContent).toBe('Boundary edit refused for test')
-    expect(releases).toHaveLength(1)
-    input().dispatchEvent(new Event('blur'))
-    releases[1]!(true)
-    await vi.waitFor(() => expect(input().value).toBe('Batch Masks'))
-    expect(root.querySelector('[data-testid="boundary-notice"]')).toBeNull()
-    expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBe('Batch Masks')
-    expect(tab.store.undo()).toBe(true)
-    expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBe('Items')
-    unmount()
-  })
-
-  it.each([false, true])('does not clear a newer pending draft after navigation (old acceptance: %s)', async (accepted) => {
-    const { app, tab, root, unmount } = mountPanel()
-    const releases = delayDispatch(app)
-    const input = () => root.querySelector<HTMLInputElement>('[data-testid="boundary-name-input"]')!
-    input().value = 'Old draft'
-    input().dispatchEvent(new Event('change', { bubbles: true }))
-    truncateGraphStack(tab, 1)
-    pushGraph(tab, 'sub', 'occ')
-    expect(input().value).toBe('Items')
-    expect(input().disabled).toBe(false)
-    input().value = 'New draft'
-    input().dispatchEvent(new Event('change', { bubbles: true }))
-    releases[0]!(accepted)
-    await Promise.resolve()
-    expect(input().value).toBe('New draft')
-    expect(input().disabled).toBe(true)
-    expect(root.querySelector('[data-testid="boundary-notice"]')).toBeNull()
-    releases[1]!(true)
-    await vi.waitFor(() => expect(input().disabled).toBe(false))
-    expect(input().value).toBe('New draft')
-    expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBe('New draft')
-    unmount()
-  })
-
   it('offers a definition prompt and opens through the real occurrence without editing the document', () => {
     const { app, tab, root, unmount } = mountPanel()
     truncateGraphStack(tab, 1)
@@ -267,7 +197,7 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     unmount()
   })
 
-  it('edits and clears a user-defined boundary display name', async () => {
+  it('edits and clears a user-defined boundary display name', () => {
     const { tab, root, unmount } = mountPanel()
     const input = root.querySelector<HTMLInputElement>('[data-testid="boundary-name-input"]')!
     expect(input.getAttribute('aria-label')).toBe('Input items display name')
@@ -275,7 +205,6 @@ describe('BoundaryPanel keyboard and accessibility', () => {
 
     input.value = 'Batch Masks'
     input.dispatchEvent(new Event('change', { bubbles: true }))
-    await vi.waitFor(() => expect(root.querySelector('[aria-busy="true"]')).toBeNull())
     expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBe('Batch Masks')
 
     let updated = root.querySelector<HTMLInputElement>('[data-testid="boundary-name-input"]')!
@@ -288,17 +217,16 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     updated = root.querySelector<HTMLInputElement>('[data-testid="boundary-name-input"]')!
     updated.value = '   '
     updated.dispatchEvent(new Event('change', { bubbles: true }))
-    await vi.waitFor(() => expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBeUndefined())
+    expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBeUndefined()
     unmount()
   })
 
-  it('toggles a slot with Enter and lets Escape leave the control without another edit', async () => {
+  it('toggles a slot with Enter and lets Escape leave the control without another edit', () => {
     const { tab, root, unmount } = mountPanel()
     const panel = root.querySelector<HTMLElement>('[data-testid="boundary-panel"]')!
     const tag = root.querySelector<HTMLButtonElement>('[data-slot-path="tag"]')!
     tag.focus()
     tag.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    await vi.waitFor(() => expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.binds.slots).toEqual(['image']))
     const item = tab.store.doc.graphs.sub!.boundary!.inputs[0]!
     expect(item.binds.slots).toEqual(['image'])
     const updatedTag = root.querySelector<HTMLButtonElement>('[data-slot-path="tag"]')!
@@ -311,11 +239,10 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     unmount()
   })
 
-  it('announces derivation errors and refused empty selections', async () => {
+  it('announces derivation errors and refused empty selections', () => {
     const { root, unmount } = mountPanel()
     const image = root.querySelector<HTMLButtonElement>('[data-slot-path="image"]')!
     image.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    await vi.waitFor(() => expect(root.querySelector('[aria-busy="true"]')).toBeNull())
     expect(root.querySelector('[data-testid="boundary-diag"]')?.getAttribute('role')).toBe('alert')
 
     const tag = root.querySelector<HTMLButtonElement>('[data-slot-path="tag"]')!
@@ -324,12 +251,12 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     unmount()
   })
 
-  it('presents invalid, unavailable, and empty states without inventing mutations', async () => {
+  it('presents invalid, unavailable, and empty states without inventing mutations', () => {
     const invalid = mountPanel()
-    expect((await invalid.app.dispatchTo(invalid.tab, {
+    expect(invalid.tab.store.dispatch({
       command: 'boundary.setSlots',
       params: { graphId: 'sub', side: 'inputs', itemId: 'items', slots: ['unknown'] },
-    })).ok).toBe(true)
+    }).ok).toBe(true)
     const diagnostic = invalid.root.querySelector<HTMLElement>('[data-testid="boundary-diag"]')!
     expect(diagnostic.getAttribute('role')).toBe('alert')
     expect(diagnostic.getAttribute('data-code')).toBe('boundary.slotUnknown')
@@ -375,8 +302,7 @@ const regionSchema: NodeSchema = {
 }
 
 const mountRegionPanel = (occurrence = 'fold') => {
-  const app = prepareWorkflowApp(new AppState())
-  apps.push(app)
+  const app = new AppState()
   const backend = app.backends.get()[0]!
   backend.registry.set({
     connection: backend.id,
@@ -442,39 +368,6 @@ const mountRegionPanel = (occurrence = 'fold') => {
 }
 
 describe('BoundaryPanel region occurrence context', () => {
-  it('awaits occurrence edits and keeps stale refusal out of another occurrence', async () => {
-    const { app, tab, root, unmount } = mountRegionPanel()
-    const releases = delayDispatch(app)
-    const cross = () => root.querySelector<HTMLButtonElement>('[data-region-binding="cross"]')!
-    cross().click()
-    expect(cross().disabled).toBe(true)
-    expect(tab.store.doc.graphs.root!.nodes.fold!.region?.binding).toBeUndefined()
-    releases[0]!(false)
-    await vi.waitFor(() => expect(root.querySelector('[data-testid="region-notice"]')?.textContent).toBe('Boundary edit refused for test'))
-    expect(cross().disabled).toBe(false)
-    cross().click()
-    releases[1]!(true)
-    await vi.waitFor(() => expect(cross().disabled).toBe(false))
-    expect(tab.store.doc.graphs.root!.nodes.fold!.region?.binding).toBe('cross')
-    expect(tab.store.doc.graphs.root!.nodes.while!.region?.binding).toBeUndefined()
-    expect(root.querySelector('[data-testid="region-notice"]')).toBeNull()
-    cross().click()
-    truncateGraphStack(tab, 1)
-    pushGraph(tab, 'body', 'while')
-    const max = root.querySelector<HTMLInputElement>('[data-testid="region-max-iterations"]')!
-    max.value = '17'
-    max.dispatchEvent(new Event('change', { bubbles: true }))
-    releases[2]!(false)
-    await Promise.resolve()
-    expect(cross().disabled).toBe(true)
-    expect(root.querySelector('[data-testid="region-notice"]')).toBeNull()
-    releases[3]!(true)
-    await vi.waitFor(() => expect(cross().disabled).toBe(false))
-    expect(tab.store.doc.graphs.root!.nodes.while!.region?.maxIterations).toBe(17)
-    expect(root.querySelector('[data-testid="region-notice"]')).toBeNull()
-    unmount()
-  })
-
   it('shows every role fact and accessible editing group for the drilled occurrence', () => {
     const { root, unmount } = mountRegionPanel()
     const panel = root.querySelector<HTMLElement>('[data-testid="region-panel"]')!
@@ -504,45 +397,40 @@ describe('BoundaryPanel region occurrence context', () => {
     unmount()
   })
 
-  it('dispatches exact region commands from each editing control', async () => {
-    const { app, tab, root, unmount } = mountRegionPanel()
-    const dispatch = vi.spyOn(app, 'dispatchTo')
-    const click = async (selector: string) => {
-      root.querySelector<HTMLButtonElement>(selector)!.click()
-      await vi.waitFor(() => expect(root.querySelector('[aria-busy="true"]')).toBeNull())
-    }
-    await click('[data-region-input="capture"][data-role-choice="element"]')
-    expect(dispatch).toHaveBeenLastCalledWith(tab, { command: 'region.setPortRole', params: {
+  it('dispatches exact region commands from each editing control', () => {
+    const { tab, root, unmount } = mountRegionPanel()
+    const dispatch = vi.spyOn(tab.store, 'dispatch')
+    const click = (selector: string) => root.querySelector<HTMLButtonElement>(selector)!.click()
+    click('[data-region-input="capture"][data-role-choice="element"]')
+    expect(dispatch).toHaveBeenLastCalledWith({ command: 'region.setPortRole', params: {
       graphId: 'root', nodeId: 'fold', side: 'input', portId: 'capture', role: 'element',
     } })
-    await click('[data-region-output="gathered"][data-role-choice="compact"]')
-    expect(dispatch).toHaveBeenLastCalledWith(tab, { command: 'region.setOutputRole', params: {
+    click('[data-region-output="gathered"][data-role-choice="compact"]')
+    expect(dispatch).toHaveBeenLastCalledWith({ command: 'region.setOutputRole', params: {
       graphId: 'root', nodeId: 'fold', outputId: 'gathered', role: 'compact',
     } })
-    await click('[data-region-output="stateResult"][data-state-port="state"]')
-    expect(dispatch).toHaveBeenLastCalledWith(tab, { command: 'region.setOutputRole', params: {
+    click('[data-region-output="stateResult"][data-state-port="state"]')
+    expect(dispatch).toHaveBeenLastCalledWith({ command: 'region.setOutputRole', params: {
       graphId: 'root', nodeId: 'fold', outputId: 'stateResult', role: 'state', statePort: 'state',
     } })
-    await click('[data-region-output="continue"][data-role-choice="continue"]')
-    expect(dispatch).toHaveBeenLastCalledWith(tab, { command: 'region.setContinueOutput', params: {
+    click('[data-region-output="continue"][data-role-choice="continue"]')
+    expect(dispatch).toHaveBeenLastCalledWith({ command: 'region.setContinueOutput', params: {
       graphId: 'root', nodeId: 'fold', outputId: 'continue',
     } })
-    await click('[data-region-binding="broadcast"]')
-    expect(dispatch).toHaveBeenLastCalledWith(tab, { command: 'region.setBinding', params: {
+    click('[data-region-binding="broadcast"]')
+    expect(dispatch).toHaveBeenLastCalledWith({ command: 'region.setBinding', params: {
       graphId: 'root', nodeId: 'fold', binding: 'broadcast',
     } })
     const max = root.querySelector<HTMLInputElement>('[data-testid="region-max-iterations"]')!
     max.value = '12'
     max.dispatchEvent(new Event('change', { bubbles: true }))
-    await vi.waitFor(() => expect(root.querySelector('[aria-busy="true"]')).toBeNull())
-    expect(dispatch).toHaveBeenLastCalledWith(tab, { command: 'region.setMaxIterations', params: {
+    expect(dispatch).toHaveBeenLastCalledWith({ command: 'region.setMaxIterations', params: {
       graphId: 'root', nodeId: 'fold', maxIterations: 12,
     } })
     max.value = ''
     max.dispatchEvent(new InputEvent('input', { bubbles: true }))
     max.dispatchEvent(new Event('change', { bubbles: true }))
-    await vi.waitFor(() => expect(root.querySelector('[aria-busy="true"]')).toBeNull())
-    expect(dispatch).toHaveBeenLastCalledWith(tab, { command: 'region.setMaxIterations', params: {
+    expect(dispatch).toHaveBeenLastCalledWith({ command: 'region.setMaxIterations', params: {
       graphId: 'root', nodeId: 'fold', maxIterations: null,
     } })
     unmount()
@@ -575,10 +463,9 @@ describe('BoundaryPanel region occurrence context', () => {
     mounted.unmount()
   })
 
-  it('distinguishes two occurrences and surfaces a while broadcast refusal legibly', async () => {
+  it('distinguishes two occurrences and surfaces a while broadcast refusal legibly', () => {
     const { tab, root, unmount } = mountRegionPanel('while')
     root.querySelector<HTMLButtonElement>('[data-region-binding="broadcast"]')!.click()
-    await vi.waitFor(() => expect(root.querySelector('[data-testid="region-notice"]')).not.toBeNull())
     expect(tab.store.doc.graphs.root!.nodes.while!.region?.binding).toBeUndefined()
     const notice = root.querySelector<HTMLElement>('[data-testid="region-notice"]')!
     expect(notice.getAttribute('role')).toBe('status')

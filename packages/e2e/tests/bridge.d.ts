@@ -130,8 +130,6 @@ interface DinksterBridgeTab {
       ok: boolean
       diagnostics?: readonly unknown[]
     }
-    prepareDispatch(invocation: { command: string; params: unknown }):
-      { ok: false } | { ok: true; commit(): { ok: boolean } }
     doc: {
       lineage: string
       root: string
@@ -307,11 +305,9 @@ interface DinksterTestBridge {
       register(ref: DinksterBridgeExecutionRef, artifact: DinksterBridgeCompileArtifact, timestamp?: number): void
     }
     connection: {
-      readonly id: import('@dinkster/core').ConnectionId
       status: { get(): string }
       simulateConnectionLoss(): void
     }
-    registry: { set(value: import('@dinkster/client').SchemaRegistry): void }
     tabs: { get(): readonly DinksterBridgeTab[] }
     readonly appViewEnabled: boolean
     settings: { set(id: string, value: unknown): void }
@@ -320,19 +316,17 @@ interface DinksterTestBridge {
       register(command: { id: string; label: string; run(payload?: import('@dinkster/core').Json): void; enabled?: () => boolean }): () => void
     }
     menuRegistry: import('@dinkster/core').MenuRegistry
-    flushPersistTabs(forceStage?: boolean): void
+    flushPersistTabs(): void
     activeTab(): DinksterBridgeTab | undefined
     closeTab(id: string): void
     reviewReplacements: { set(enabled: boolean): void }
     migrationNotices: { get(): ReadonlyMap<string, unknown> }
-    dispatchTo(tab: DinksterBridgeTab, invocation: { command: string; params: unknown }):
-      | { ok: boolean; diagnostics?: readonly unknown[] }
-      | Promise<{ ok: boolean; diagnostics?: readonly unknown[] }>
+    dispatchTo(tab: DinksterBridgeTab, invocation: { command: string; params: unknown }): { ok: boolean; diagnostics?: readonly unknown[] }
     /** Queue a tab against its target backend (same path as the queue button). */
     queue(tab: DinksterBridgeTab): Promise<void>
     queueSelection(tab: DinksterBridgeTab, nodeIds: readonly string[]): Promise<void>
     exportDocument(tabId: string): unknown
-    exportWorkflow(tabId: string): Promise<boolean>
+    exportWorkflow(tabId: string): boolean
     importWorkflowFile(file: Pick<File, 'name' | 'text'>): Promise<boolean>
     /** Compile a tab against its target backend (undefined: no registry). */
     compileTab(tab: DinksterBridgeTab):
@@ -341,7 +335,7 @@ interface DinksterTestBridge {
       | undefined
     registerRun(tab: DinksterBridgeTab, ref: DinksterBridgeExecutionRef, artifact: DinksterBridgeCompileArtifact): void
     /** Open (or focus) the frozen view of a registered execution. */
-    openExecutionView(ref: DinksterBridgeExecutionRef): Promise<boolean>
+    openExecutionView(ref: DinksterBridgeExecutionRef): boolean
     openDocument(json: unknown, title: string, importVia?: undefined, forkOnCollision?: boolean): readonly unknown[]
     /** Register another backend without UI panel juggling (owner-race specs). */
     addBackend(baseUrl: string, label?: string, start?: boolean, protocol?: string, persist?: boolean): ReturnType<DinksterTestBridge['app']['backends']['get']>[number] | undefined

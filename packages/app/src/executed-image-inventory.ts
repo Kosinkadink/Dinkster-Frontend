@@ -97,7 +97,7 @@ export function executedImageInventory(
               available: false, status: 406, reason: 'no-rendition', error: 'No PNG rendition supports this image batch.',
             }
             return values.rendition(query, rendition.kind, {
-              signal, descriptor: peek.descriptor,
+              signal,
               ...(rendition.parameters?.includes('batch') === true ? { batch: batchIndex } : {}),
               ...(rendition.version === undefined ? {} : { rendererVersion: rendition.version }),
             })

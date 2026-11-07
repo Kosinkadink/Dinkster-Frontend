@@ -41,11 +41,12 @@ const VideoEditImplementation: Component<WidgetEditorImplementationProps> = (pro
         params: { graphId, nodeId, inputId: 'strict_duration', value: strictDuration },
       })
     }
-    if (invocations.length === 0) { props.close(); return }
+    props.close()
+    if (invocations.length === 0) return
     const action: CommandInvocation = invocations.length === 1
       ? invocations[0]!
       : { command: 'batch', params: { invocations } } as unknown as CommandInvocation
-    props.commitCommand(withMaterializeFrames(graphId, nodeId, ed.target.materialize, action))
+    props.editor.app.dispatchTo(ed.tab, withMaterializeFrames(graphId, nodeId, ed.target.materialize, action))
   }
 
   return <div
