@@ -214,6 +214,7 @@ test.describe('asset and mount editors (mock dinkster backend)', () => {
     await expect(asset.getByTestId('collection-panel')).toBeVisible()
     await asset.getByTestId('collection-entry').first().click()
     await expect(asset.getByTestId('asset-selection-summary')).toBeVisible()
+    await expect(asset.getByTestId('collection-entry').first()).toHaveAttribute('aria-selected', 'true')
     await auditSurface(page, 'editor-asset-selected', '[data-testid=widget-modal-surface]')
   })
 
@@ -232,6 +233,7 @@ test.describe('asset and mount editors (mock dinkster backend)', () => {
     await expect(asset.getByTestId('collection-panel')).toBeVisible()
     await asset.getByTestId('collection-entry').first().click()
     await expect(asset.getByTestId('asset-selection-summary')).toBeVisible()
+    await expect(asset.getByTestId('collection-entry').first()).toHaveAttribute('aria-selected', 'true')
     await auditSurface(page, 'editor-asset-narrow', '[data-testid=widget-modal-surface]')
   })
 
