@@ -393,12 +393,12 @@ function composeBatch(
 }
 
 export interface InteractionHost {
-  /** Dispatch a document command. The controller only needs commit/reject. */
-  dispatch(invocation: CommandInvocation): { readonly ok: boolean }
+  /** Submit a document command; the host owns its final result and diagnostics. */
+  dispatch(invocation: CommandInvocation): { readonly ok: boolean } | Promise<{ readonly ok: boolean }>
   /** Current wheel policy; omitted hosts retain cursor-anchored zoom. */
   wheelNavigationMode?(): WheelNavigationMode
   /** Plan and dispatch one drilled occurrence mutation through the injected capability. */
-  dispatchOccurrenceMutation?(intention: OccurrenceLinkIntention): { readonly ok: boolean }
+  dispatchOccurrenceMutation?(intention: OccurrenceLinkIntention): { readonly ok: boolean } | Promise<{ readonly ok: boolean }>
   /** Report an occurrence gesture that cannot be represented atomically. */
   onOccurrenceMutationRefused?(code: string, message: string): void
   /** Resolve the same intrinsic value a registry-backed compact view paints. */

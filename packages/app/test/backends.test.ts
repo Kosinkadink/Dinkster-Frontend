@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   asConnectionId,
   asPromptId,
+  executionKey,
   setLocale,
   type DinksterNodesPayload,
   type ExecutionRef,
@@ -27,6 +28,8 @@ import {
 import { buildScene, defaultTokens } from '@dinkster/canvas'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
 import { historicalSchemas } from './historical-schemas.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
+import { reconcileWorkflowRetentions } from '../src/workflow-asset-retention.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -41,6 +44,8 @@ let basic: Tab
 const addOffline = (url: string, label?: string): Backend => {
   const backend = app.addBackend(url, label, false)
   if (!backend) throw new Error('addBackend rejected')
+  vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   return backend
 }
 
@@ -88,7 +93,7 @@ const foreignRun = (connection: string, prompt: string): ExecutionRef => {
 }
 
 beforeEach(() => {
-  app = new AppState()
+  app = createWorkflowApp(null)
   for (const name of ['basic', 'subgraph']) {
     app.openDocument(JSON.parse(readFileSync(join(root, `fixtures/workflows/seed-${name}.json`), 'utf8')), name)
   }
@@ -97,7 +102,11 @@ beforeEach(() => {
 
 // The FR8 tests spy on global fetch and superviseBackend; restore even when
 // an assertion fails mid-test so a leaked spy cannot poison later tests.
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  app.dispose()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 describe('default backend', () => {
   it('is backends[0] and backs the single-backend aliases', () => {
@@ -516,9 +525,182 @@ describe('backend protocols', () => {
     expect(app.backends.get()).toHaveLength(2)
   })
 
+  it.each(['live', 'removed', 'replaced', 'disconnected', 'disposed'] as const)(
+    'accepts delayed cached outputs only from the unchanged live owner: %s', async (scenario) => {
+      const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
+      const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('cached-job') }
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+        ({ ...owner, ...declaration, revision: 1 }))
+      const outputs = { image: { result: { typeId: 'asset<media/image>',
+        meta: { digest: `blake3:${'e'.repeat(64)}`, mediaType: 'image/png' } } } }
+      let finish!: (value: typeof outputs) => void
+      vi.spyOn(backend.connection, 'fetchJobOutputs').mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+      app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
+      app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
+      expect(app.store.get(ref)?.outputs).toEqual({})
+      if (scenario === 'removed' || scenario === 'replaced') app.removeBackend(backend.id)
+      if (scenario === 'replaced') app.addBackend('http://native:8000', 'Replacement', false, 'dinkster')
+      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+      if (scenario === 'disposed') app.dispose()
+      finish(outputs)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(app.store.get(ref)?.outputs).toEqual(scenario === 'live' ? outputs : {})
+      if (scenario === 'live') {
+        app.removeBackend(backend.id)
+        expect(app.store.get(ref)?.outputs).toEqual(outputs)
+      } else if (scenario !== 'disposed') {
+        const live = app.backendFor(backend.id) ?? app.addBackend('http://native:8000', 'Replacement', false, 'dinkster')!
+        const fresh = { image: { result: { typeId: 'INT', value: 37 } } }
+        vi.spyOn(live.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+          ({ ...owner, ...declaration, revision: 1 }))
+        vi.spyOn(live.connection, 'fetchJobOutputs').mockResolvedValue(fresh)
+        app.store.apply({ kind: 'started', execution: { ...ref, prompt: asPromptId('next-job') }, timestamp: 3 })
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        expect(app.store.get(ref)?.outputs).toEqual(fresh)
+      }
+    },
+  )
+
+  it.each(['accepted', 'refused', 'removed', 'disconnected', 'disposed'] as const)(
+    'journals and confirms cached result ownership before publication: %s', async (scenario) => {
+      const backend = app.backends.get()[0]!
+      const ownerBackend = scenario === 'removed' ? addOffline('http://native:8000', 'Native') : backend
+      const ref: ExecutionRef = { connection: ownerBackend.id, prompt: asPromptId('held-cache') }
+      const digest = (letter: string) => `blake3:${letter.repeat(64)}`
+      const outputs = { image: { result: { typeId: 'list<ASSET>', elementsTruncated: true,
+        elements: [{ typeId: 'ASSET', meta: { digest: digest('e') } },
+          { typeId: 'ASSET', meta: { digest: digest('f') } }] } } }
+      vi.spyOn(ownerBackend.connection, 'fetchJobOutputs').mockResolvedValue(outputs)
+      let acknowledge!: () => void
+      let requested!: () => void
+      const request = new Promise<void>((resolve) => { requested = resolve })
+      let journalKey = ''
+      let acknowledgment: Awaited<ReturnType<typeof ownerBackend.connection.retainAssets>>
+      vi.spyOn(ownerBackend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
+        journalKey = `dinkster.workflow-retentions.${owner.ownerId}`
+        acknowledgment = { ...owner, ...declaration, revision: 1 }
+        requested()
+        return new Promise((resolve, reject) => {
+          acknowledge = () => scenario === 'refused' ? reject(new Error('retention refused')) : resolve(acknowledgment)
+        })
+      })
+      vi.spyOn(ownerBackend.connection, 'fetchRetainedAssets').mockImplementation(async () =>
+        scenario === 'refused' ? undefined : acknowledgment)
+      app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
+      app.store.hydrateArtifacts(ref, [{ nodeId: 'image', digest: digest('a'), name: 'result.bin', size: 7,
+        mediaType: 'application/octet-stream', virtualPath: '', preview: { digest: digest('c'), name: 'preview.png',
+          size: 3, mediaType: 'image/png', virtualPath: '' } }])
+      app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
+      await request
+      expect(JSON.parse(localStorage.getItem(journalKey)!)).toMatchObject({
+        owner: { ownerKind: 'shown-result' }, executionKey: executionKey(ref),
+        digests: [digest('a'), digest('c'), digest('e'), digest('f')], complete: false,
+      })
+      expect(acknowledgment!).toMatchObject({ ownerKind: 'shown-result', revision: 1, complete: false,
+        digests: [digest('a'), digest('c'), digest('e'), digest('f')] })
+      expect(app.store.get(ref)?.outputs).toEqual({})
+      if (scenario === 'removed') app.removeBackend(ownerBackend.id)
+      if (scenario === 'disconnected') { ownerBackend.connection.connect(); ownerBackend.connection.disconnect() }
+      if (scenario === 'disposed') app.dispose()
+      acknowledge()
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(app.store.get(ref)?.outputs).toEqual(scenario === 'accepted' ? outputs : {})
+      expect(localStorage.getItem(journalKey)).not.toBeNull()
+      if (scenario === 'accepted') {
+        vi.spyOn(ownerBackend.connection, 'clearHistory').mockResolvedValue(1)
+        expect(await app.clearRunHistory(ownerBackend.id)).toBe(1)
+        expect(app.store.get(ref)?.outputs).toEqual(outputs)
+        expect(await reconcileWorkflowRetentions(ownerBackend.connection, new AbortController().signal)).toBe(true)
+        expect(localStorage.getItem(journalKey)).not.toBeNull()
+      }
+    },
+  )
+
+  it.each(['accepted', 'refused', 'removed', 'disconnected', 'registry-changed', 'disposed'] as const)(
+    'admits fetched completion outputs and artifacts before publication: %s', async (scenario) => {
+      const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
+      const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('owned-completion') }
+      const digest = (letter: string) => `blake3:${letter.repeat(64)}`
+      const live = { live: { value: { typeId: 'INT', value: 17 } } }
+      const outputs = { save: { image: { typeId: 'IMAGE', meta: { digest: digest('e') } } } }
+      const artifact = { nodeId: 'save', digest: digest('a'), name: 'result.png', size: 7,
+        mediaType: 'image/png', virtualPath: '', preview: { digest: digest('c'), name: 'preview.png',
+          size: 3, mediaType: 'image/png', virtualPath: '' } }
+      app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
+      app.store.hydrateOutputs(ref, live)
+      vi.spyOn(backend.connection, 'fetchJob').mockResolvedValue({ state: 'completed', outputs, artifacts: [artifact] })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      let requested = 0
+      let acknowledge!: () => void
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
+        requested += 1
+        expect(declaration.digests).toEqual([digest('a'), digest('c'), digest('e')])
+        return new Promise((resolve, reject) => {
+          acknowledge = () => scenario === 'refused' ? reject(new Error('ownership refused'))
+            : resolve({ ...owner, ...declaration, revision: 1 })
+        })
+      })
+      backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(requested).toBe(1)
+      expect(app.store.get(ref)).toMatchObject({ outputs: live, artifacts: [], artifactsHydrated: false })
+      if (scenario === 'removed') app.removeBackend(backend.id)
+      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+      if (scenario === 'registry-changed') registryFor(backend)
+      if (scenario === 'disposed') app.dispose()
+      acknowledge()
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(app.store.get(ref)).toMatchObject(scenario === 'accepted'
+        ? { outputs: { ...live, ...outputs }, artifacts: [artifact], artifactsHydrated: true }
+        : { outputs: live, artifacts: [], artifactsHydrated: false })
+    },
+  )
+
+  it.each(['accepted', 'refused', 'removed', 'disconnected', 'registry-changed', 'disposed'] as const)(
+    'admits live preview identities before ordered publication: %s', async (scenario) => {
+      const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
+      const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('owned-preview') }
+      const digest = (letter: string) => `blake3:${letter.repeat(64)}`
+      backend.connection.ingest({ type: 'run_started', jobId: ref.prompt })
+      app.store.hydrateArtifacts(ref, [{ nodeId: 'held', digest: digest('a'), name: 'held.png', size: 7,
+        mediaType: 'image/png', virtualPath: '' }])
+      let acknowledge!: () => void
+      let requested = 0
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
+        requested += 1
+        expect(declaration).toMatchObject({ complete: false, digests: [digest('a'), digest('c'), digest('e')] })
+        return new Promise((resolve, reject) => {
+          acknowledge = () => scenario === 'refused' ? reject(new Error('ownership refused'))
+            : resolve({ ...owner, ...declaration, revision: 1 })
+        })
+      })
+      backend.connection.ingest({ type: 'node_event', event: 'preview', jobId: ref.prompt, nodeId: 'image',
+        data: { mime: 'application/json', documentDigest: digest('c'), document: {
+          layers: { image: { source: { digest: digest('e') } } } } } })
+      backend.connection.ingest({ type: 'run_finished', jobId: ref.prompt })
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(requested).toBe(1)
+      expect(app.store.get(ref)?.previews).toEqual({})
+      expect(app.store.get(ref)?.status).toBe('running')
+      if (scenario === 'removed') app.removeBackend(backend.id)
+      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+      if (scenario === 'registry-changed') registryFor(backend)
+      if (scenario === 'disposed') app.dispose()
+      acknowledge()
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(app.store.get(ref)?.previews.image?.['']?.payload).toEqual(scenario === 'accepted'
+        ? { mime: 'application/json', documentDigest: digest('c'), document: {
+          layers: { image: { source: { digest: digest('e') } } } } } : undefined)
+      expect(app.store.get(ref)?.status).toBe(scenario === 'accepted' || scenario === 'refused' ? 'completed' : 'running')
+    },
+  )
+
   it('hydrates saved artifacts after a normal live Dinkster completion', async () => {
     const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
     if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')
+    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+      ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
     const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('saved-job') }
     const outputs = { save: { video: { typeId: 'VIDEO', fingerprint: 'live-output' } } }
     app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
@@ -604,7 +786,7 @@ describe('per-tab backend targeting (view state)', () => {
     expect(app.backendForTab(other)).toBe(app.backends.get()[0])
   })
 
-  it('rejects unknown backends and frozen tabs', () => {
+  it('rejects unknown backends and frozen tabs', async () => {
     const b = addOffline('http://other:8188')
     registryFor(b)
     app.setTabTarget(basic.id, asConnectionId('nope'))
@@ -615,13 +797,13 @@ describe('per-tab backend targeting (view state)', () => {
     const result = app.compileTab(basic)
     if (!result?.ok) throw new Error('compile failed')
     app.store.register(ref, result.artifact, 1)
-    expect(app.openExecutionView(ref)).toBe(true)
+    expect(await app.openExecutionView(ref)).toBe(true)
     const frozen = app.tabs.get().find((t) => t.execution)!
     app.setTabTarget(frozen.id, app.backends.get()[0]!.id)
     expect(app.tabTargets.get().has(frozen.id)).toBe(false)
   })
 
-  it('a frozen tab resolves its execution connection, not any target', () => {
+  it('a frozen tab resolves its execution connection, not any target', async () => {
     const b = addOffline('http://other:8188')
     registryFor(b)
     app.setTabTarget(basic.id, b.id)
@@ -629,7 +811,7 @@ describe('per-tab backend targeting (view state)', () => {
     if (!result?.ok) throw new Error('compile failed')
     const ref: ExecutionRef = { connection: b.id, prompt: asPromptId('p1') }
     app.store.register(ref, result.artifact, 1)
-    expect(app.openExecutionView(ref)).toBe(true)
+    expect(await app.openExecutionView(ref)).toBe(true)
     const frozen = app.tabs.get().find((t) => t.execution)!
     expect(app.backendForTab(frozen)).toBe(b)
   })
@@ -684,6 +866,281 @@ describe('compile and registry routing', () => {
 })
 
 describe('execution output routing', () => {
+  it.each(['live', 'removed', 'replaced', 'disposed'] as const)('keeps model resources admitted through the %s viewer lifetime', async (mode) => {
+    const backend = addOffline('http://model-owner:8188')
+    const ref = foreignRun(String(backend.id), 'model-viewer')
+    const digests = ['a', 'c'].map((value) => `blake3:${value.repeat(64)}`)
+    let admit!: () => void
+    const admission = new Promise<void>((resolve) => { admit = resolve })
+    const retain = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      await admission
+      return { ...owner, ...declaration, revision: declaration.revision + 1 }
+    })
+    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    const release = vi.spyOn(backend.connection, 'releaseRetainedAssets')
+    if (mode === 'removed') app.removeBackend(backend.id)
+    const reader = app.file3dAssetReaderForExecution(ref, digests.map((digest) => ({ digest })))!
+    let finish!: () => void
+    const mounted = new Promise<void>((resolve) => { finish = resolve })
+    let entered = false
+    let settled = false
+    const pending = reader.read(async () => { entered = true; await mounted; return 'disposed model' })
+      .then((result) => { settled = true; return result }, () => { settled = true; return 'refused' })
+    try {
+      await vi.waitFor(() => expect(retain).toHaveBeenCalledOnce())
+      expect(retain.mock.calls[0]![1]).toEqual({ revision: 0, complete: false, digests })
+      expect(entered).toBe(false)
+      admit()
+      await vi.waitFor(() => expect(entered).toBe(true))
+      if (mode === 'replaced') app.store.hydrateOutputs(ref, { model: { replacement: 'new' } })
+      if (mode === 'disposed') app.dispose()
+      expect(reader.current()).toBe(mode === 'live' || mode === 'removed')
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(settled).toBe(false)
+      finish()
+      expect(await pending).toBe(mode === 'live' || mode === 'removed' ? 'disposed model' : 'refused')
+      expect(release).not.toHaveBeenCalled()
+    } finally { admit(); finish(); await pending }
+  })
+
+  it.each(['live', 'removed', 'refused', 'replaced-admission', 'replaced-body', 'disconnected', 'disposed', 'aborted'] as const)(
+    'admits original-model bytes before reading through the %s execution owner', async (mode) => {
+      const backend = addOffline('http://model-owner:8188')
+      const ref = foreignRun(String(backend.id), 'admitted-model-read')
+      const digest = `blake3:${'d'.repeat(64)}`
+      let admit!: () => void
+      const admission = new Promise<void>((resolve) => { admit = resolve })
+      const retain = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+        await admission
+        if (mode === 'refused') throw new Error('Original model ownership refused')
+        return { ...owner, ...declaration, revision: declaration.revision + 1 }
+      })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      const release = vi.spyOn(backend.connection, 'releaseRetainedAssets')
+      let finish!: () => void
+      const body = new Promise<ArrayBuffer>((resolve) => { finish = () => resolve(new Uint8Array([1, 7, 3]).buffer) })
+      const fetch = vi.spyOn(backend.connection, 'fetchAssetBytes').mockImplementation(async () => body)
+      if (mode === 'removed') app.removeBackend(backend.id)
+      const abort = new AbortController()
+      let settled = false
+      const pending = app.readFile3dAssetForExecution(ref, { digest }, abort.signal)
+        .then((bytes) => { settled = true; return bytes }, () => { settled = true; return undefined })
+      try {
+        await vi.waitFor(() => expect(retain).toHaveBeenCalledOnce())
+        expect(retain.mock.calls[0]).toEqual([
+          expect.objectContaining({ scope: 'local', ownerKind: 'shown-result' }),
+          { revision: 0, complete: false, digests: [digest] },
+        ])
+        expect(fetch).not.toHaveBeenCalled()
+        expect(settled).toBe(false)
+        if (mode === 'replaced-admission') app.store.hydrateOutputs(ref, { model: { replacement: 'new-result' } })
+        admit()
+        if (mode === 'refused' || mode === 'replaced-admission') {
+          expect(await pending).toBeUndefined()
+          expect(fetch).not.toHaveBeenCalled()
+          return
+        }
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+        if (mode === 'replaced-body') app.store.hydrateOutputs(ref, { model: { replacement: 'new-result' } })
+        if (mode === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+        if (mode === 'disposed') app.dispose()
+        if (mode === 'aborted') abort.abort()
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        expect(settled).toBe(false)
+        finish()
+        expect(await pending).toEqual(mode === 'live' || mode === 'removed' ? new Uint8Array([1, 7, 3]).buffer : undefined)
+        expect(release).not.toHaveBeenCalled()
+      } finally { admit(); finish(); await pending }
+    },
+  )
+
+  it.each((['live', 'removed'] as const).flatMap((owner) =>
+    [false, true].map((local) => ({ owner, local }))))(
+    'cancels pending original-model response bodies through the $owner owner, local=$local', async ({ owner, local }) => {
+      const backend = addOffline('http://model-owner:8188')
+      const ref = foreignRun(String(backend.id), 'model-read')
+      if (owner === 'removed') app.removeBackend(backend.id)
+      const requests: string[] = []
+      let transportSignal: AbortSignal | null | undefined
+      let finish!: () => void
+      let bodyStarted!: () => void
+      const started = new Promise<void>((resolve) => { bodyStarted = resolve })
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+        requests.push(String(url))
+        transportSignal = init?.signal
+        return { ok: true, status: 200, arrayBuffer: () => {
+          bodyStarted()
+          return new Promise<ArrayBuffer>((resolve, reject) => {
+            finish = () => resolve(new Uint8Array([1, 7, 3]).buffer)
+            transportSignal?.addEventListener('abort', () => reject(transportSignal!.reason), { once: true })
+          })
+        } } as Response
+      })
+      const abort = new AbortController()
+      const pending = app.readFile3dAssetForExecution(ref, local
+        ? { verification: 'unverified', localBinding: 'model-grant' }
+        : { digest: `blake3:${'a'.repeat(64)}` }, abort.signal)
+      const result = pending.then(() => 'published', (error: unknown) => error instanceof Error ? error.name : 'refused')
+      try {
+        await started
+        abort.abort()
+        expect(transportSignal?.aborted).toBe(true)
+        expect(await result).toBe('AbortError')
+        expect(requests).toEqual([local ? 'http://model-owner:8188/api/assets/local/model-grant'
+          : `http://model-owner:8188/api/assets/blake3%3A${'a'.repeat(64)}`])
+      } finally { finish(); await result }
+    },
+  )
+
+  it.each((['live', 'removed', 'replaced', 'refused', 'disposed', 'aborted', 'transitioned'] as const).flatMap((mode) =>
+    [false, true].map((opaque) => ({ mode, opaque }))))(
+    'admits newly read descriptor roots before publication through the $mode owner, opaque=$opaque', async ({ mode, opaque }) => {
+      const backend = addOffline('http://value-owner:8188')
+      const ref = foreignRun(String(backend.id), 'value-read')
+      const digest = `blake3:${'c'.repeat(64)}`
+      const descriptor = opaque
+        ? { typeId: 'OPAQUE', fingerprint: 'opaque-result', meta: { handle: 'unrepresented dependency' } }
+        : { typeId: 'asset<media/image>', fingerprint: 'new-result', meta: { digest } }
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ available: true, descriptor, renditions: [] }))
+      let accept!: () => void
+      const barrier = new Promise<void>((resolve) => { accept = resolve })
+      const retain = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+        await barrier
+        if (mode === 'refused') throw new Error('retention refused')
+        return { ...owner, ...declaration, revision: declaration.revision + 1 }
+      })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      if (mode === 'removed') app.removeBackend(backend.id)
+      const controller = new AbortController()
+      let published = false
+      const pending = app.valuesForExecution(ref)!.peek(
+        { jobId: ref.prompt, nodeId: 'image', outputId: 'result' }, { signal: controller.signal },
+      ).then((result) => { published = true; return result })
+      await vi.waitFor(() => expect(retain).toHaveBeenCalledOnce())
+      expect(published).toBe(false)
+      expect(retain.mock.calls[0]![1]).toEqual({ revision: 0, complete: false, digests: opaque ? [] : [digest] })
+      if (mode === 'replaced') {
+        app.removeBackend(backend.id)
+        addOffline('http://value-owner:8188')
+      }
+      if (mode === 'disposed') app.dispose()
+      if (mode === 'aborted') controller.abort()
+      if (mode === 'transitioned') { backend.connection.connect(); backend.connection.disconnect() }
+      accept()
+      expect(await pending).toMatchObject(mode === 'live' || mode === 'removed'
+        ? { available: true, descriptor } : { available: false })
+      if (mode === 'refused' || mode === 'transitioned') {
+        retain.mockImplementation(async (owner, declaration) => ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+        expect(await app.valuesForExecution(ref)!.peek({ jobId: ref.prompt, nodeId: 'image', outputId: 'result' }))
+          .toMatchObject({ available: true, descriptor })
+      }
+    },
+  )
+
+  it.each(['live', 'removed', 'replaced', 'disposed', 'transitioned'] as const)(
+    'binds lazy rendition and cache reads to the admitted descriptor and captured %s owner', async (mode) => {
+      const backend = addOffline('http://lazy-value-owner:8188')
+      const ref = foreignRun(String(backend.id), 'lazy-read')
+      const query = { jobId: ref.prompt, nodeId: 'audio', outputId: 'result' }
+      let version = 1
+      const requests: string[] = []
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
+        ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const url = new URL(String(input))
+        const selector = url.searchParams.get('rendition')
+        requests.push(selector ?? 'descriptor')
+        return selector === null ? Response.json({ available: true,
+          descriptor: { typeId: 'AUDIO', fingerprint: `audio-${version}`, meta: {} },
+          renditions: [{ kind: 'window', mime: 'audio/wav', cacheKey: `window-${version}` }] })
+          : new Response(new Uint8Array([selector === 'window-1' ? 13 : 29]), {
+            headers: { 'Content-Type': 'audio/wav', ETag: selector },
+          })
+      })
+      const values = app.valuesForExecution(ref)!
+      const first = await values.peek(query)
+      version = 2
+      const second = await values.peek(query)
+      if (!first.available || !second.available) throw new Error('Expected admitted descriptors')
+      const old = await values.rendition(query, 'window', { descriptor: first.descriptor })
+      if (!old.available) throw new Error('Expected original rendition')
+      expect([...new Uint8Array(old.bytes)]).toEqual([13])
+      expect(await values.rendition(query, 'window', { descriptor: second.descriptor })).toMatchObject({ available: true })
+      expect(requests).toEqual(['descriptor', 'descriptor', 'window-1', 'window-2'])
+      for (const descriptor of [undefined, { ...first.descriptor }]) {
+        expect(await values.rendition(query, 'window', descriptor === undefined ? {} : { descriptor }))
+          .toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
+      }
+      expect(await values.rendition({ ...query, outputId: 'other' }, 'window', { descriptor: first.descriptor }))
+        .toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
+      await expect(values.read({ ...query, outputId: 'other' }, first.descriptor, async () => 17)).rejects.toThrow('admitted')
+      await expect(values.read(query, { ...first.descriptor }, async () => 17)).rejects.toThrow('admitted')
+      expect(await values.read(query, first.descriptor, async () => 23)).toBe(23)
+      if (mode === 'removed' || mode === 'replaced') app.removeBackend(backend.id)
+      if (mode === 'replaced') addOffline('http://lazy-value-owner:8188')
+      if (mode === 'disposed') app.dispose()
+      if (mode === 'transitioned') { backend.connection.connect(); backend.connection.disconnect() }
+      const decoded = values.read(query, first.descriptor, async () => 31)
+      if (mode === 'live' || mode === 'removed') expect(await decoded).toBe(31)
+      else await expect(decoded).rejects.toThrow('closed')
+      expect(await values.rendition(query, 'window', { descriptor: second.descriptor })).toMatchObject(
+        mode === 'live' || mode === 'removed' ? { available: true } : { available: false, reason: 'ownership-unconfirmed' })
+      expect(await values.rendition(query, 'window', { descriptor: first.descriptor, frame: 3 })).toMatchObject(
+        mode === 'live' || mode === 'removed' ? { available: true } : { available: false, reason: 'ownership-unconfirmed' })
+      expect(requests).toEqual(['descriptor', 'descriptor', 'window-1', 'window-2',
+        ...(mode === 'live' || mode === 'removed' ? ['window-1'] : [])])
+      if (mode === 'transitioned') {
+        const fresh = await values.peek(query)
+        if (!fresh.available) throw new Error('Expected replacement generation admission')
+        const live = await values.rendition(query, 'window', { descriptor: fresh.descriptor, frame: 7 })
+        if (!live.available) throw new Error('Expected replacement generation rendition')
+        expect([...new Uint8Array(live.bytes)]).toEqual([29])
+        expect(requests).toEqual(['descriptor', 'descriptor', 'window-1', 'window-2', 'descriptor', 'window-2'])
+      }
+    },
+  )
+
+  it('refuses late rendition bodies after a connection transition while a newly admitted reader stays live', async () => {
+    const backend = addOffline('http://pending-value-owner:8188')
+    const ref = foreignRun(String(backend.id), 'pending-value-read')
+    const query = { jobId: ref.prompt, nodeId: 'audio', outputId: 'result' }
+    const bodies: ReadableStreamDefaultController<Uint8Array>[] = []
+    const release = vi.spyOn(backend.connection, 'releaseRetainedAssets')
+    let version = 1
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = new URL(String(input))
+      const selector = url.searchParams.get('rendition')
+      if (selector === null) return Response.json({ available: true,
+        descriptor: { typeId: 'AUDIO', fingerprint: `pending-${version}`, meta: {} },
+        renditions: [{ kind: 'window', mime: 'audio/wav', cacheKey: `window-${version}` }] })
+      if (selector === 'window-2') return new Response(new Uint8Array([17, 31]))
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { bodies.push(controller) } }))
+    })
+    const values = app.valuesForExecution(ref)!
+    const old = await values.peek(query)
+    if (!old.available) throw new Error('Expected original descriptor')
+    const reads = [3, 5].map((frame) => values.rendition(query, 'window', { descriptor: old.descriptor, frame }))
+    await vi.waitFor(() => expect(bodies).toHaveLength(2))
+    backend.connection.connect()
+    backend.connection.disconnect()
+    version = 2
+    const fresh = await values.peek(query)
+    if (!fresh.available) throw new Error('Expected replacement descriptor')
+    const live = await values.rendition(query, 'window', { descriptor: fresh.descriptor })
+    if (!live.available) throw new Error('Expected replacement bytes')
+    expect([...new Uint8Array(live.bytes)]).toEqual([17, 31])
+    bodies[0]!.enqueue(new Uint8Array([13]))
+    bodies[0]!.close()
+    expect(await reads[0]).toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
+    bodies[1]!.enqueue(new Uint8Array([29]))
+    bodies[1]!.close()
+    expect(await reads[1]).toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
+    const cached = await values.rendition(query, 'window', { descriptor: fresh.descriptor })
+    if (!cached.available) throw new Error('Expected replacement cached bytes')
+    expect([...new Uint8Array(cached.bytes)]).toEqual([17, 31])
+    expect(release).not.toHaveBeenCalled()
+  })
+
   it('assetUrlForExecution uses the execution backend, not the default', () => {
     const b = addOffline('http://other:8188')
     const digest = 'blake3:' + 'ab'.repeat(32)

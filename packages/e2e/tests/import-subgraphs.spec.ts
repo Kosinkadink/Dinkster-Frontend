@@ -136,17 +136,17 @@ nativeTest('draws, rebinds, and extracts an imported input boundary with mixed d
   expect(scene.reroutes).toEqual([{ id: 'r3', x: 170, y: 180 }, { id: 'r4', x: 310, y: 180 }])
   const after = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
   expect(after).toEqual(before)
-  const rebound = await page.evaluate(() => {
+  const rebound = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     const rebind = (node: string) => app.dispatchTo(tab, { command: 'boundary.setBinding', params: {
       graphId: 'junction-body', side: 'inputs', itemId: 'in', node, port: 'value', viaReroute: 'r3',
     } })
-    const outcome = rebind('n2')
+    const outcome = await rebind('n2')
     const binding = tab.store.doc.graphs['junction-body']!.boundary!.inputs[0]!.binds
-    const restore = rebind('n1')
+    const restore = await rebind('n1')
     const revision = tab.store.revision
-    const unchanged = rebind('n1')
+    const unchanged = await rebind('n1')
     return { ok: outcome.ok && restore.ok && unchanged.ok, binding,
       unchangedRevision: tab.store.revision === revision, exported: app.exportDocument(tab.id) }
   })

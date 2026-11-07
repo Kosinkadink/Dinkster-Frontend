@@ -264,7 +264,7 @@ export async function insertDroppedImage(p: {
   readonly schemas: () => Iterable<NodeSchema> | undefined
   readonly predictedNodeId: () => string | undefined
   readonly upload: (body: File) => Promise<AssetRef>
-  readonly dispatch: (invocation: CommandInvocation) => boolean
+  readonly dispatch: (invocation: CommandInvocation) => boolean | Promise<boolean>
   readonly onInserted: (nodeId: string) => void
 }): Promise<ImageInsertOutcome> {
   if (!p.tabStillOpen()) return 'stale-tab'
@@ -290,7 +290,7 @@ export async function insertDroppedImage(p: {
     command: 'batch',
     params: { invocations: [{ command: 'node.add', params: { graphId: p.graphId, type: schema.type, position: p.position, values } }] } as unknown as Json,
   }
-  if (!p.dispatch(invocation)) return 'rejected'
+  if (!await p.dispatch(invocation)) return 'rejected'
   p.onInserted(nodeId)
   return 'inserted'
 }
@@ -313,7 +313,7 @@ export async function insertDroppedLatent(p: {
   readonly schemas: () => Iterable<NodeSchema> | undefined
   readonly predictedNodeId: () => string | undefined
   readonly upload: (file: File) => Promise<AssetRef>
-  readonly dispatch: (invocation: CommandInvocation) => boolean
+  readonly dispatch: (invocation: CommandInvocation) => boolean | Promise<boolean>
   readonly onInserted: (nodeId: string) => void
 }): Promise<LatentInsertOutcome> {
   if (!p.tabStillOpen()) return 'stale-tab'
@@ -337,7 +337,7 @@ export async function insertDroppedLatent(p: {
     command: 'batch',
     params: { invocations: [{ command: 'node.add', params: { graphId: p.graphId, type: schema.type, position: p.position, values } }] } as unknown as Json,
   }
-  if (!p.dispatch(invocation)) return 'rejected'
+  if (!await p.dispatch(invocation)) return 'rejected'
   p.onInserted(nodeId)
   return 'inserted'
 }

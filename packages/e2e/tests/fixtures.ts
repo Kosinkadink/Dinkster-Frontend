@@ -1,4 +1,4 @@
-/** Shared browser settings; backend routes belong to each spec or its live server. */
+/** Shared browser settings and isolated ownership acknowledgments. */
 import {
   test as base,
   expect,
@@ -78,9 +78,42 @@ export async function openRailPanel(page: Page, title: string): Promise<void> {
   await expect(tab).toHaveAttribute('aria-selected', 'true')
 }
 
-export const nativeTest = base.extend<{ appView: boolean }>({
+export const nativeTest = base.extend<{ appView: boolean; retentionApi: boolean }>({
   appView: [false, { option: true }],
-  context: async ({ context, appView }, use) => {
+  // Live retention proofs opt out; ordinary browser fixtures model the API
+  // independently of the older backend pinned for catalog/execution coverage.
+  retentionApi: [true, { option: true }],
+  context: async ({ context, appView, retentionApi }, use) => {
+    if (retentionApi) {
+      const owners = new Map<string, { scope: string; ownerKind: string; ownerId: string;
+        revision: number; complete: boolean; digests: string[] }>()
+      await context.route('**/api/library/retentions/*/*?scope=*', async (route) => {
+        const request = route.request()
+        const url = new URL(request.url())
+        const parts = url.pathname.split('/')
+        const scope = url.searchParams.get('scope')!
+        const ownerKind = parts.at(-2)!
+        const ownerId = decodeURIComponent(parts.at(-1)!)
+        const key = JSON.stringify([url.origin, scope, ownerKind, ownerId])
+        const previous = owners.get(key)
+        if (request.method() === 'GET') {
+          return route.fulfill(previous === undefined ? { status: 404 } : { json: previous })
+        }
+        if (request.method() !== 'PUT' && request.method() !== 'DELETE') return route.fulfill({ status: 405 })
+        const declaration = request.method() === 'PUT' ? request.postDataJSON()
+          : { revision: Number(url.searchParams.get('revision')), complete: true, digests: [] }
+        if (declaration.revision !== (previous?.revision ?? 0)) return route.fulfill({ status: 409 })
+        if (typeof declaration.complete !== 'boolean' || !Array.isArray(declaration.digests) ||
+          declaration.digests.length > 4096 || !declaration.digests.every((digest: unknown) =>
+            typeof digest === 'string' && /^blake3:[0-9a-f]{64}$/.test(digest))) {
+          return route.fulfill({ status: 422 })
+        }
+        const acknowledged = { scope, ownerKind, ownerId, revision: declaration.revision + 1,
+          complete: declaration.complete, digests: [...new Set<string>(declaration.digests)].sort() }
+        owners.set(key, acknowledged)
+        return route.fulfill({ json: acknowledged })
+      })
+    }
     if (appView) await context.addInitScript(() => {
       const stored = JSON.parse(localStorage.getItem('dinkster.settings') ?? 'null')
       localStorage.setItem('dinkster.settings', JSON.stringify({

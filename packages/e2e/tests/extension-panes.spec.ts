@@ -43,6 +43,12 @@ async function backend(page: Page, base: string, initial: string) {
     } })
     if (path === `${base}/api/extensions/snapshot`) return route.fulfill({ body, contentType: 'application/json' })
     if (path === `${base}${moduleUrl}`) return route.fulfill({ body: source, contentType: 'text/javascript', headers: { 'Cache-Control': 'private, immutable' } })
+    if (path.startsWith(`${base}/api/library/retentions/document/`)) {
+      expect(route.request().method()).toBe('PUT')
+      expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
+      return route.fulfill({ json: { scope: 'local', ownerKind: 'document',
+        ownerId: decodeURIComponent(path.split('/').at(-1)!), revision: 1, complete: false, digests: [] } })
+    }
     return route.fulfill({ status: 404 })
   })
   await page.evaluate(async (base) => {
@@ -167,14 +173,14 @@ test('simultaneous split panes paint and edit their own connection worlds regard
 test('a frozen pane keeps snapshot A widgets while its live sibling advances to snapshot B', async ({ page }) => {
   const refresh = await backend(page, '/pane-a', 'A')
   await open(page, '/pane-a', 'Live pane')
-  const frozenTitle = await page.evaluate(() => {
+  const frozenTitle = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     const compiled = app.compileTab(tab)
     if (!compiled?.ok) throw new Error('fixture did not compile')
     const ref = { connection: '/pane-a', prompt: 'pinned' }
     app.registerRun(tab, ref, compiled.artifact)
-    if (!app.openExecutionView(ref)) throw new Error('missing frozen execution')
+    if (!await app.openExecutionView(ref)) throw new Error('missing frozen execution')
     return app.activeTab()!.title
   })
   await split(page, frozenTitle)

@@ -163,7 +163,11 @@ describe('VideoEditEditor', () => {
       source={{ values, query: { jobId: 'run', nodeId: 'source', outputId: 'video' } }} onCommit={() => {}} onCancel={() => {}} />, root)
     await vi.advanceTimersByTimeAsync(110)
     expect(values.rendition).toHaveBeenCalledWith({ jobId: 'run', nodeId: 'source', outputId: 'video' }, 'frame', expect.objectContaining({ frame: '1.25s' }))
-    expect(values.rendition).toHaveBeenCalledWith(expect.anything(), 'thumbs', { signal: expect.any(AbortSignal) })
+    expect(values.rendition).toHaveBeenCalledWith(expect.anything(), 'thumbs', {
+      descriptor: { typeId: 'VIDEO', fingerprint: 'source', meta: {
+        effective: { width: 1920, height: 1080, duration: [10, 1], fps: [24, 1], frame_count: 17, frame_count_kind: 'estimated' },
+      } }, signal: expect.any(AbortSignal),
+    })
     expect(requests.map((request) => request.kind).sort()).toEqual(['frame', 'thumbs'])
     const stale = requests.find((request) => request.kind === 'frame')!
     const playhead = root.querySelector<HTMLElement>('[role="slider"][aria-label="Playhead frame"]')!
@@ -202,7 +206,9 @@ describe('VideoEditEditor', () => {
       source={{ values, query: { jobId: 'run', nodeId: 'source', outputId: 'video' } }} onCommit={() => {}} onCancel={() => {}} />, root)
     await vi.advanceTimersByTimeAsync(110)
     expect(values.rendition).toHaveBeenCalledTimes(2)
-    for (const kind of ['frame', 'thumbs']) expect(values.rendition).toHaveBeenCalledWith(expect.anything(), kind, { signal: expect.any(AbortSignal) })
+    for (const kind of ['frame', 'thumbs']) expect(values.rendition).toHaveBeenCalledWith(expect.anything(), kind, {
+      descriptor: { typeId: 'VIDEO', fingerprint: 'legacy' }, signal: expect.any(AbortSignal),
+    })
     expect(root.querySelector('[role="slider"][aria-label="Playhead frame"]')!.getAttribute('aria-disabled')).toBe('true')
     expect(root.querySelector('[data-testid="video-edit-frame-selection-unavailable"]')!.textContent).toContain('Frame selection is not advertised')
     set(input(root, 'video-trim-start-seconds'), '3')

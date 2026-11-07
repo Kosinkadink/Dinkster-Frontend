@@ -194,6 +194,7 @@ export async function fetchPeekRendition(
       const info = peeked.renditions.find((entry) => entry.kind === 'manifest' && entry.mime === 'application/json')
       if (!info) continue
       const result = await values.rendition(query, info.kind, {
+        descriptor: peeked.descriptor,
         ...(options?.signal === undefined ? {} : { signal: options.signal }),
         ...(info.version === undefined ? {} : { rendererVersion: info.version }),
       })
@@ -215,6 +216,7 @@ export async function fetchPeekRendition(
         const info = peek.renditions.find((entry) => entry.kind === 'json' && entry.mime === 'application/json')
         if (!info) throw new Error('3D preview metadata has no JSON rendition')
         const result = await values.rendition(metadataQuery, info.kind, {
+          descriptor: peek.descriptor,
           ...(options?.signal === undefined ? {} : { signal: options.signal }),
           ...(info.version === undefined ? {} : { rendererVersion: info.version }),
         })
@@ -268,6 +270,7 @@ export async function fetchPeekRendition(
       options?.signal?.throwIfAborted()
       const rendition = await values.rendition(query, kind, {
         ...renditionOptions,
+        descriptor: peeked.descriptor,
         ...(info.version !== undefined ? { rendererVersion: info.version } : {}),
       })
       options?.signal?.throwIfAborted()

@@ -123,6 +123,80 @@ async function openPalette(page: Page, edge = false): Promise<void> {
 
 test.beforeEach(async ({ page }) => installPaletteFixture(page))
 
+test('palette insertion awaits acceptance without stealing newer selection or navigation', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1366, height: 768 })
+  await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const dispatch = app.dispatchTo.bind(app)
+    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
+      ;(window as any).__completePalette = (accepted: boolean) => resolve(accepted
+        ? dispatch(tab, invocation)
+        : { ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Palette insertion refused for test' }] })
+    })
+  })
+  const state = () => page.evaluate(() => ({
+    nodes: Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes),
+    selection: [...window.__dinksterTest!.controller!.getSelection()],
+  }))
+  const insert = async () => {
+    await openPalette(page, true)
+    await page.getByTestId('palette-search').fill('Palette image producer')
+    await page.getByTestId('palette-search').press('Enter')
+    const canvas = page.getByTestId('graph-canvas')
+    const box = (await canvas.boundingBox())!
+    await page.mouse.move(box.x + 250, box.y + 200)
+    await expect(canvas).toHaveAttribute('data-placement-ghost', 'visible')
+    await page.mouse.click(box.x + 250, box.y + 200)
+    await expect(canvas).not.toHaveAttribute('data-placement-ghost', 'visible')
+  }
+  await page.screenshot({ path: testInfo.outputPath('palette-default.png') })
+  await insert()
+  expect(await state()).toEqual({ nodes: [], selection: [] })
+  await page.screenshot({ path: testInfo.outputPath('palette-pending.png') })
+  await page.evaluate(() => (window as any).__completePalette(false))
+  await expect(page.getByTestId('gesture-refusal-toast')).toContainText('Palette insertion refused for test')
+  expect(await state()).toEqual({ nodes: [], selection: [] })
+  await page.screenshot({ path: testInfo.outputPath('palette-refused.png') })
+  await page.getByTestId('gesture-refusal-toast').getByRole('button').click()
+
+  const firstId = await page.evaluate(() => (window.__dinksterTest!.app.activeTab()!.store as any).predictedNodeId('g0'))
+  expect(firstId).toBeTruthy()
+  await insert()
+  await page.evaluate(() => (window as any).__completePalette(true))
+  await expect.poll(state).toEqual({ nodes: [firstId], selection: [firstId] })
+  await page.screenshot({ path: testInfo.outputPath('palette-accepted.png') })
+  const secondId = await page.evaluate(() => (window.__dinksterTest!.app.activeTab()!.store as any).predictedNodeId('g0'))
+  await insert()
+  await page.evaluate(() => window.__dinksterTest!.controller!.setSelection([]))
+  await page.evaluate(() => (window as any).__completePalette(true))
+  await expect.poll(state).toEqual({ nodes: [firstId, secondId], selection: [] })
+
+  await insert()
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const original = app.activeTab()!
+    app.createWorkflow()
+    app.activeTabId.set(original.id)
+  })
+  await page.evaluate(() => (window as any).__completePalette(false))
+  await expect(page.getByTestId('gesture-refusal-toast')).toHaveCount(0)
+  expect(await state()).toEqual({ nodes: [firstId, secondId], selection: [] })
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  await expect.poll(state).toEqual({ nodes: [firstId], selection: [] })
+
+  const thirdId = await page.evaluate(() => (window.__dinksterTest!.app.activeTab()!.store as any).predictedNodeId('g0'))
+  await insert()
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const original = app.activeTab()!
+    app.createWorkflow()
+    app.activeTabId.set(original.id)
+  })
+  await page.evaluate(() => (window as any).__completePalette(true))
+  await expect.poll(state).toEqual({ nodes: [firstId, thirdId], selection: [] })
+})
+
 test('semantic result ownership, filters, focus, and placement stay mutation free until activation', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 950 })
   const canvas = page.getByTestId('graph-canvas')

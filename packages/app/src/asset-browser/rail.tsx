@@ -10,11 +10,15 @@
 
 import { createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js'
 import type { CollectionEntry } from '@dinkster/core'
+import type { DinksterConnection } from '@dinkster/client'
+import { AssetFileLocation } from '../AssetFileLocation.js'
+import { CollectionImage } from '../CollectionImage.js'
+import { activeProjectId } from '../projects.js'
 import { ProductNotice } from '../ProductForm.js'
 import { ProductEmptyState } from '../ProductSurfaces.js'
 import { useAppMessage } from '../locale.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from './types.js'
-import { formatSize, isBrowserPreviewable } from './helpers.js'
+import { committableAssetRef, formatSize, isBrowserPreviewable } from './helpers.js'
 import { inspectAssetMetadata, METADATA_INSPECTION_UNSUPPORTED } from './metadata.js'
 import { assetEntryKindOf, assetItemOf, assetKindOf } from './collection-adapter.js'
 import { DigestValue } from './presentation.js'
@@ -75,7 +79,8 @@ function AssetFacts(props: {
         <dt>{message('assets.fact.mediaType')}</dt><dd>{props.item.mediaType ?? message('assets.value.unknown')}</dd>
         <Show when={props.dimensions}>{(dimensions) => <><dt>{message('assets.fact.resolution')}</dt><dd>{dimensions().width} x {dimensions().height}</dd></>}</Show>
         <dt>{message('assets.fact.size')}</dt><dd>{formatSize(props.item.size)}</dd>
-        <dt>{message('assets.fact.source')}</dt><dd>{props.item.source.id === 'all-assets' ? message('assets.source.all') : props.item.source.label}</dd>
+        <dt>{message('assets.fact.source')}</dt><dd>{props.item.source.id === 'all-assets' ? message('assets.source.all')
+          : props.item.source.id === 'federated-assets' ? message('assets.source.federatedCatalog') : props.item.source.label}</dd>
         <Show when={props.item.source.id.startsWith('mount:')}><dt>{message('assets.fact.mount')}</dt><dd>{props.item.source.id.slice('mount:'.length)}</dd></Show>
         <dt>{message('assets.fact.virtualPath')}</dt><dd>{props.item.virtualPath ?? ''}</dd>
         <Show when={props.item.digest}>{(digest) => <><dt>{message('assets.fact.digest')}</dt><dd class="asset-digest"><DigestValue digest={digest()} /></dd></>}</Show>
@@ -99,7 +104,7 @@ function AssetFacts(props: {
 
 function AssetEntrySelectionContent(props: {
   readonly item: AssetBrowserItem
-  readonly previewUrl?: string | undefined
+  readonly preview?: CollectionEntry | undefined
   readonly adapters: readonly AssetSourceAdapter[]
   readonly backendId: string
   readonly additionalFacts: NonNullable<CollectionEntry['details']>
@@ -116,23 +121,15 @@ function AssetEntrySelectionContent(props: {
         </div>
         <Show when={props.item.size !== undefined}><span>{formatSize(props.item.size)}</span></Show>
       </header>
-      <Show when={props.previewUrl}>
-        {(previewUrl) => (
-          <Show when={!previewFailed()} fallback={
-            <div class="asset-preview asset-preview-fallback" data-testid="asset-image-fallback" role="status">{message('assets.preview.unavailable')}</div>
-          }>
-            <img
-              class="asset-preview"
-              src={previewUrl()}
-              alt={message('assets.preview.alt', { name: props.item.name })}
-              onError={() => setPreviewFailed(true)}
-              onLoad={(event) => {
-                const { naturalWidth, naturalHeight } = event.currentTarget
-                if (naturalWidth > 0 && naturalHeight > 0) setDimensions({ width: naturalWidth, height: naturalHeight })
-              }}
-            />
-          </Show>
-        )}
+      <Show when={props.preview}>
+        {(entry) => <CollectionImage entry={entry()} class="asset-preview"
+          alt={message('assets.preview.alt', { name: props.item.name })}
+          fallback={<Show when={previewFailed()}><div class="asset-preview asset-preview-fallback" data-testid="asset-image-fallback" role="status">{message('assets.preview.unavailable')}</div></Show>}
+          onError={() => setPreviewFailed(true)}
+          onLoad={(event) => {
+            const { naturalWidth, naturalHeight } = event.currentTarget
+            if (naturalWidth > 0 && naturalHeight > 0) setDimensions({ width: naturalWidth, height: naturalHeight })
+          }} />}
       </Show>
       <Show when={!previewFailed() ? dimensions() : undefined}>
         {(value) => <div class="asset-preview-caption" data-testid="asset-preview-caption">{value().width} x {value().height}</div>}
@@ -147,14 +144,12 @@ export function AssetEntrySelection(props: {
   readonly entry: CollectionEntry | undefined
   readonly adapters: readonly AssetSourceAdapter[]
   readonly backendId: string
-  readonly assetUrl?: ((digest: string) => string) | undefined
+  readonly connection: Pick<DinksterConnection, 'fetchAssetLocations'>
+  readonly backendUrl: string
+  readonly backendLabel?: string | undefined
 }) {
   const message = useAppMessage()
   const item = createMemo((): AssetBrowserItem | undefined => selectionItemOf(props.entry))
-  const previewUrl = (selected: AssetBrowserItem): string | undefined =>
-    props.entry?.thumbUrl ?? (props.assetUrl !== undefined && selected.digest !== undefined && isBrowserPreviewable(selected)
-      ? props.assetUrl(selected.digest)
-      : undefined)
   return (
     <section class="asset-selection-summary asset-browser-selection" data-testid="asset-selection-summary" aria-label={message('assets.selection.title')}>
       <Show when={item()} keyed fallback={
@@ -168,7 +163,18 @@ export function AssetEntrySelection(props: {
           <ProductEmptyState testId="asset-selection-empty" title={message('assets.selection.empty.detail')} />
         </>
       }>
-        {(selected) => <AssetEntrySelectionContent item={selected} previewUrl={previewUrl(selected)} adapters={props.adapters} backendId={props.backendId} additionalFacts={selectionDetailsOf(props.entry)} />}
+        {(selected) => {
+          const connection = props.connection
+          const backendUrl = props.backendUrl
+          const project = activeProjectId()
+          return <>
+            <AssetEntrySelectionContent item={selected} preview={isBrowserPreviewable(selected) ? props.entry : undefined} adapters={props.adapters} backendId={props.backendId} additionalFacts={selectionDetailsOf(props.entry)} />
+            <Show when={committableAssetRef(selected)}>{(ref) => <AssetFileLocation
+              connection={connection} backendUrl={backendUrl} backendLabel={props.backendLabel}
+              digest={ref().digest} project={project}
+              isCurrent={() => props.connection === connection && props.backendUrl === backendUrl && activeProjectId() === project} />}</Show>
+          </>
+        }}
       </Show>
     </section>
   )

@@ -61,6 +61,16 @@ const openSubmenu = async (page: Page, id: string) => {
 }
 
 test.beforeEach(async ({ page }, testInfo) => {
+  if (testInfo.annotations.some((annotation) => annotation.type === 'mock-name-dispatch')) {
+    await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: {} }))
+    await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'name-fixture', schemaWire: 1 }, nodes: {},
+    } }))
+    await page.routeWebSocket('**/api/events?*', () => {})
+    await page.goto('/')
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
+    return
+  }
   if (testInfo.annotations.some((annotation) => annotation.type === 'mock-legacy-discovery')) {
     await page.route('/system_stats', (route) =>
       route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }),
@@ -79,6 +89,89 @@ test.beforeEach(async ({ page }, testInfo) => {
 // ---------------------------------------------------------------------------
 // Context menus
 // ---------------------------------------------------------------------------
+
+test('canvas name prompts await acceptance and keep refused or newer drafts', {
+  annotation: { type: 'mock-name-dispatch' },
+}, async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'NameTest', displayName: 'Original name', category: 'test', source: 'v3', isOutputNode: false, items: [],
+    }])
+    app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'name-dispatch', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        n0: { id: 'n0', type: 'NameTest', values: {} }, n1: { id: 'n1', type: 'NameTest', values: {} },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { n0: { position: { x: 120, y: 120 } }, n1: { position: { x: 450, y: 120 } } } } } },
+    }, 'Name dispatch')
+  })
+  await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'n0'))).toBe(true)
+  await identityViewport(page)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as any
+    const dispatch = app.dispatchTo.bind(app)
+    ;(window as any).__namePending = []
+    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
+      ;(window as any).__namePending.push((accepted: boolean) => resolve(accepted ? dispatch(tab, invocation) : {
+        ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Name change refused for test' }],
+      }))
+    })
+  })
+  const input = page.getByTestId('node-prompt-input')
+  const prompt = page.getByTestId('node-prompt')
+  const open = async (id = 'n0') => {
+    await page.mouse.click(...xy(await headerPoint(page, id)), { button: 'right' })
+    await menuItem(page, 'core.node.rename').click()
+    await expect(input).toBeVisible()
+  }
+  const settle = (index: number, accepted: boolean) => page.evaluate(({ index, accepted }) => {
+    ;(window as any).__namePending[index](accepted)
+  }, { index, accepted })
+  await open()
+  await page.screenshot({ path: testInfo.outputPath('name-default.png') })
+  await input.fill('  Primary Loader  ')
+  await input.press('Enter')
+  await expect(prompt).toHaveAttribute('aria-busy', 'true')
+  await expect(input).toHaveAttribute('readonly', '')
+  await input.press('Enter')
+  expect(await page.evaluate(() => (window as any).__namePending.length)).toBe(1)
+  expect((await activeDoc(page)).graphs.g0!.nodes.n0).not.toHaveProperty('title')
+  await page.screenshot({ path: testInfo.outputPath('name-pending.png') })
+  await settle(0, false)
+  await expect(input).toHaveValue('  Primary Loader  ')
+  await expect(prompt.getByRole('alert')).toHaveText('Name change refused for test')
+  await expect(input).not.toHaveAttribute('readonly')
+  await page.screenshot({ path: testInfo.outputPath('name-refused.png') })
+  await input.press('Enter')
+  await settle(1, true)
+  await expect(prompt).toHaveCount(0)
+  expect((await activeDoc(page)).graphs.g0!.nodes.n0).toMatchObject({ title: 'Primary Loader' })
+  await page.screenshot({ path: testInfo.outputPath('name-accepted.png') })
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+  expect((await activeDoc(page)).graphs.g0!.nodes.n0).not.toHaveProperty('title')
+  await open()
+  await input.fill('Old draft')
+  await input.press('Enter')
+  await input.press('Escape')
+  await expect(prompt).toHaveCount(0)
+  await open('n1')
+  await input.fill('New draft')
+  await input.press('Enter')
+  await settle(2, true)
+  await expect(prompt).toHaveAttribute('aria-busy', 'true')
+  await expect(input).toHaveValue('New draft')
+  await settle(3, false)
+  await expect(prompt.getByRole('alert')).toHaveText('Name change refused for test')
+  expect((await activeDoc(page)).graphs.g0!.nodes.n0).toMatchObject({ title: 'Old draft' })
+  expect((await activeDoc(page)).graphs.g0!.nodes.n1).not.toHaveProperty('title')
+  await input.press('Enter')
+  await input.press('Tab')
+  await expect(prompt).toHaveCount(0)
+  await settle(4, true)
+  expect((await activeDoc(page)).graphs.g0!.nodes.n1).toMatchObject({ title: 'New draft' })
+})
 
 test('right-click on a node opens the menu; mode item commits and undoes', async ({ page }) => {
   await page.mouse.click(...xy(await headerPoint(page, 'n0')), { button: 'right' })

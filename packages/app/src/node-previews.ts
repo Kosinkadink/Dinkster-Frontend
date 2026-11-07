@@ -129,6 +129,14 @@ export interface PreviewSource {
   readonly imageBatch?: ExecutedImageBatch | undefined
   readonly refusal?: string | undefined
   readonly cancellationKey?: string
+  /** Captured document ownership must still hold before returning decoded cache entries. */
+  readonly current?: () => boolean
+  /** Native input-media consumers borrow the captured owner independently of preview work. */
+  readonly assetReader?: {
+    readonly key: string
+    current(): boolean
+    read<T>(consume: () => Promise<T>): Promise<T>
+  }
   load(signal?: AbortSignal): Promise<NodePreview>
 }
 
@@ -512,6 +520,8 @@ export function createPreviewLoader(deps: {
   assetUrlForExecution: (ref: ExecutionState['ref'], digest: string) => string
   /** Current editable tab's native asset URL; undefined on non-native tabs. */
   assetUrlForInput: (digest: string) => string | undefined
+  inputAssetReader?: (digest: string) => PreviewSource['assetReader']
+  executionAssetReader?: (execution: ExecutionState, digests: readonly string[]) => PreviewSource['assetReader']
   readFile3dAsset?: (execution: ExecutionState['ref'], asset: Readonly<Record<string, Json>>, signal?: AbortSignal) => Promise<ArrayBuffer | undefined>
   /** A finished async decode: re-assemble the preview map. */
   onDecoded: () => void
@@ -703,8 +713,9 @@ export function createPreviewLoader(deps: {
     name: string,
     mime: string,
     kind: 'image' | 'video' | 'audio' | 'model3d',
+    signal?: AbortSignal,
   ): Promise<NodePreview> => {
-    const response = await (deps.fetchRecordedOutput ?? fetch)(url)
+    const response = await (deps.fetchRecordedOutput ?? fetch)(url, signal === undefined ? undefined : { signal })
     if (!response.ok) throw new Error(`recorded output request failed (${response.status})`)
     const src = URL.createObjectURL(new Blob([await response.arrayBuffer()], { type: mime }))
     const download = { src, name }
@@ -821,6 +832,35 @@ export function createPreviewLoader(deps: {
           : artifact !== undefined && isModel3dMime(artifact.mediaType)
             ? 'model3d'
             : undefined
+      const ownedSource = (source: PreviewSource, digests: readonly string[]): PreviewSource | undefined => {
+        if (deps.executionAssetReader === undefined) return source
+        const owner = deps.executionAssetReader(exec, digests)
+        if (owner === undefined) return undefined
+        return {
+          ...source,
+          key: `${source.key}:${owner.key}`,
+          current: owner.current,
+          assetReader: owner,
+          load: async (signal) => {
+            let preview: NodePreview | undefined
+            try {
+              return await owner.read(async () => {
+                signal?.throwIfAborted()
+                preview = await source.load(signal)
+                if (signal?.aborted || !owner.current()) throw new Error('Execution asset reader changed during decode')
+                const download = preview.download
+                const load = download?.load
+                return load === undefined ? preview : { ...preview, download: { ...download!,
+                  load: (downloadSignal: AbortSignal) => owner.read(() => load(downloadSignal)),
+                } }
+              })
+            } catch (error) {
+              if (preview !== undefined) release(preview)
+              throw error
+            }
+          },
+        }
+      }
       let artifactSource: PreviewSource | undefined
       const audioHasValue = artifactKind === 'audio' && artifact !== undefined &&
         Object.values({ ...exec.outputs[artifact.nodeId], ...exec.nodes?.[artifact.nodeId]?.outputs }).some((value) =>
@@ -842,18 +882,18 @@ export function createPreviewLoader(deps: {
             return new Blob([await response.arrayBuffer()], { type: artifact.mediaType })
           },
         }
-        artifactSource = {
+        artifactSource = ownedSource({
           key: recordedMediaKey(artifact.digest, artifact.mediaType, artifactUrl, downloadName) +
             (associatedPreview === undefined ? '' : `:preview:${associatedPreview.digest}:${associatedPreview.mediaType}:${previewUrl}`),
           failureKey: `asset-url:${previewUrl ?? artifactUrl}`,
           runtimeId: artifact.nodeId,
           mediaKind: artifactKind,
           output: { index: artifactIndex, count: artifacts.length },
-          load: async () => {
+          load: async (signal) => {
             if (associatedPreview !== undefined && previewUrl !== undefined) {
               try {
                 return {
-                  ...await recordedOutputPreview(previewUrl, associatedPreview.name, associatedPreview.mediaType, 'image'),
+                  ...await recordedOutputPreview(previewUrl, associatedPreview.name, associatedPreview.mediaType, 'image', signal),
                   download,
                 }
               } catch {
@@ -861,23 +901,23 @@ export function createPreviewLoader(deps: {
               }
             }
             if (artifactKind === 'audio') return { kind: 'audio', mime: artifact.mediaType, src: '', download }
-            return recordedOutputPreview(artifactUrl, downloadName, artifact.mediaType, artifactKind)
+            return recordedOutputPreview(artifactUrl, downloadName, artifact.mediaType, artifactKind, signal)
           },
-        }
+        }, [artifact.digest, ...(associatedPreview === undefined ? [] : [associatedPreview.digest])])
       }
 
       if (running && frame) return liveFrameSource(frame)
       if (artifactSource && !imageMisses.has(artifactSource.failureKey ?? artifactSource.key)) return artifactSource
       if (image) {
         const i = image
-        return {
+        return ownedSource({
           key: i.key,
           failureKey: `image-url:${i.url}`,
           runtimeId: i.runtimeId,
           output: i.output,
           outputId: i.outputId,
-          load: () => recordedOutputPreview(i.url, i.name, i.mediaType, 'image'),
-        }
+          load: (signal) => recordedOutputPreview(i.url, i.name, i.mediaType, 'image', signal),
+        }, [selected!.digest as string])
       }
       if (artifactSource) return artifactSource
       if (frame) return liveFrameSource(frame)
@@ -894,23 +934,30 @@ export function createPreviewLoader(deps: {
       }
       const url = deps.assetUrlForInput(digest)
       if (url === undefined) return undefined
-      if (mediaKind === 'model3d') {
-        return {
-          key: directMediaKey(digest, mediaType, url),
-          failureKey: `asset-url:${url}`,
-          mediaKind,
-          load: () => model3dPreview(url, mediaType),
-        }
+      const owner = deps.inputAssetReader?.(digest)
+      if (deps.inputAssetReader !== undefined && owner === undefined) return undefined
+      const key = mediaKind !== 'image' ? directMediaKey(digest, mediaType, url) : `asset:${digest}`
+      return {
+        key: owner === undefined ? key : `${key}:${owner.key}`,
+        failureKey: `asset-url:${url}`,
+        ...(mediaKind !== 'image' ? { mediaKind } : {}),
+        ...(mediaKind !== 'image' && owner !== undefined ? { assetReader: owner } : {}),
+        ...(owner === undefined ? {} : { current: owner.current }),
+        load: (signal) => {
+          const decode = async (): Promise<NodePreview> => {
+            signal?.throwIfAborted()
+            const preview = mediaKind === 'audio'
+              ? { kind: mediaKind, mime: mediaType, src: url } as const
+              : mediaKind === 'model3d' ? await model3dPreview(url, mediaType) : await decodeUrl(url)
+            if (signal?.aborted || owner?.current() === false) {
+              release(preview)
+              throw new Error('Workflow asset reader changed during decode')
+            }
+            return preview
+          }
+          return owner === undefined ? decode() : owner.read(decode)
+        },
       }
-      if (mediaKind !== 'image') {
-        return {
-          key: directMediaKey(digest, mediaType, url),
-          failureKey: `asset-url:${url}`,
-          mediaKind,
-          load: async () => ({ kind: mediaKind, mime: mediaType, src: url }),
-        }
-      }
-      return { key: `asset:${digest}`, failureKey: `asset-url:${url}`, load: () => decodeUrl(url) }
     },
 
     peekSource(values, exec, candidates, sceneNodeId, batchIndex = 0) {
@@ -983,7 +1030,7 @@ export function createPreviewLoader(deps: {
                 descriptor: batch.descriptor, listPath: batch.query.element ?? [], batchIndex: index,
                 load: async (signal) => {
                   const result = await values.rendition(batch.query, batch.rendition.kind, {
-                    batch: index, signal,
+                    batch: index, signal, descriptor: batch.descriptor,
                     ...(batch.rendition.version !== undefined ? { rendererVersion: batch.rendition.version } : {}),
                   })
                   if (result.available && (result.mime !== 'image/png' || result.bytes.byteLength > 64 * 1024 * 1024)) {
@@ -1003,6 +1050,7 @@ export function createPreviewLoader(deps: {
     },
 
     resolveFrame(key, payload) {
+      if (disposed) return undefined
       const decoded = cache.get(key)
       if (decoded !== undefined) return decoded.image
       if (pending.has(key)) return undefined
@@ -1027,6 +1075,7 @@ export function createPreviewLoader(deps: {
     },
 
     resolve(source) {
+      if (disposed || source.current?.() === false) return undefined
       const cancellationKey = source.cancellationKey ?? source.key
       const prior = requests.get(cancellationKey)
       if (prior !== undefined && prior.key !== source.key) {
@@ -1045,7 +1094,7 @@ export function createPreviewLoader(deps: {
       requests.set(cancellationKey, { key: source.key, controller })
       source.load(controller.signal)
         .then((p) => {
-          if (disposed || controller.signal.aborted) {
+          if (disposed || controller.signal.aborted || source.current?.() === false) {
             release(p)
             return
           }
@@ -1053,7 +1102,7 @@ export function createPreviewLoader(deps: {
           deps.onDecoded()
         })
         .catch((e: unknown) => {
-          if (disposed || controller.signal.aborted) return
+          if (disposed || controller.signal.aborted || source.current?.() === false) return
           // Undecodable frame: drop, never break the loop.
           const negativeCache = (e as { negativeCache?: boolean } | null)?.negativeCache === true
           // A miss notification can synchronously re-derive the same digest

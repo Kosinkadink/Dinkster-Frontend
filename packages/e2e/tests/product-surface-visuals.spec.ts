@@ -1,7 +1,10 @@
 import { expect, nativeAppViewTest as test, type Page } from './fixtures.js'
 import type { Route } from '@playwright/test'
 
+const visualRetentions = new Map<string, unknown>()
+
 test.beforeEach(async ({ page }) => {
+  visualRetentions.clear()
   await page.clock.setFixedTime(new Date('2026-01-01T00:00:00Z'))
   await page.route('/api/**', emptyVisualBackend)
   await page.route('/memory/**', (route) =>
@@ -90,7 +93,7 @@ for (const theme of ['dark', 'light'] as const) {
     await screenshot(page, `brand-shell-${theme}`)
     await page.evaluate(() => Object.assign(window, { dinksterDesktop: {
       locale: async () => 'en',
-      status: async () => ({ phase: 'running', detail: '' }),
+      status: async () => ({ phase: 'running', detail: 'Ready' }),
       info: async () => ({ appVersion: '0.2.0', engineCommit: 'brand-visual', variant: 'cuda', storageBytes: 0, releases: [], update: { state: 'current', detail: 'Current' } }),
       onInfo: () => () => undefined,
       systemCheck: async () => ({ platform: 'linux', architecture: 'x64', freeBytes: 1, totalBytes: 2, engineReady: true, engineDetail: 'Ready', gpu: { available: false } }),
@@ -176,6 +179,8 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
     } })
   } else if (path.endsWith('/api/mounts')) {
     await route.fulfill({ json: { mounts: [] } })
+  } else if (path.endsWith('/api/assets/catalog')) {
+    await route.fulfill({ json: { assets: [] } })
   } else if (path.endsWith('/api/templates')) {
     await route.fulfill({ json: { templates: [] } })
   } else if (path.endsWith('/api/sessions')) {
@@ -184,6 +189,16 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
     await route.fulfill({ json: { records: [] } })
   } else if (path.endsWith('/api/workflows/plan')) {
     await route.fulfill({ json: { packs: [], assets: [], errors: [] } })
+  } else if (path.includes('/api/library/retentions/document/')) {
+    if (route.request().method() === 'GET') {
+      const retained = visualRetentions.get(path)
+      return retained === undefined ? route.fulfill({ status: 404 }) : route.fulfill({ json: retained })
+    }
+    const declaration = route.request().postDataJSON()
+    const retained = { ...declaration, scope: 'local', ownerKind: 'document',
+      ownerId: decodeURIComponent(path.split('/').at(-1)!), revision: declaration.revision + 1 }
+    visualRetentions.set(path, retained)
+    await route.fulfill({ json: retained })
   } else {
     await route.fulfill({ status: 502, body: 'visual fixture unavailable' })
   }
@@ -547,6 +562,7 @@ test('App view validation and remote failures keep editable controls', async ({ 
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
     await page.mouse.move(0, 0)
+    await expect(page.getByTestId('app-view-number')).toHaveValue('invalid')
     await screenshot(page, `app-control-errors-${width}`)
   }
   await page.getByTestId('app-view-number').fill('11')
@@ -851,6 +867,40 @@ test('Library Assets and Outputs use shared empty and loading states', async ({ 
     await expect(page.getByTestId('app-tooltip')).toBeHidden()
     await screenshot(page, `assets-outputs-empty-${width}`)
   }
+})
+
+test('Storage settings distinguish accounting policy and permission failures', async ({ page }) => {
+  let state: 'ready' | 'unavailable' | 'forbidden' = 'ready'
+  await page.route('**/api/library/storage', (route) => state === 'forbidden'
+    ? route.fulfill({ status: 403, body: 'operator required' })
+    : route.fulfill({ json: {
+      temporaryBytes: state === 'ready' ? 37 : null, vaultBytes: 513, adoptedBytes: 299,
+      reclaimableBytes: null, collectionEnabled: false, blocked: ['owner_completeness_unknown'],
+      policyAvailable: state === 'ready', limitBytes: state === 'ready' ? 21474836480 : null,
+    } }))
+  await boot(page)
+  await closeGallery(page)
+  await openModal(page, 'settings')
+  await page.getByRole('button', { name: 'Storage', exact: true }).click()
+  const panel = page.getByTestId('library-storage-settings')
+  await expect(panel.getByText('513 bytes', { exact: true })).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Clear eligible assets', exact: true })).toBeDisabled()
+  await screenshot(page, 'storage-ready-1440')
+  await panel.getByRole('button', { name: 'Clear eligible assets', exact: true }).scrollIntoViewIfNeeded()
+  await expect(panel.locator('#library-storage-limit')).toHaveValue('21474836480')
+  await screenshot(page, 'storage-ready-controls-1440')
+  await page.setViewportSize({ width: 900, height: 700 })
+  state = 'unavailable'
+  await panel.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await expect(panel.getByText('The saved policy is unavailable, not unlimited. Editing is disabled.', { exact: true })).toBeVisible()
+  await expect(panel.getByRole('checkbox')).not.toBeChecked()
+  await expect(panel.getByRole('checkbox')).toBeDisabled()
+  await screenshot(page, 'storage-unavailable-900')
+  state = 'forbidden'
+  await panel.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await expect(panel.getByRole('alert')).toContainText('403')
+  await expect(panel.getByRole('button', { name: 'Apply limit', exact: true })).toBeDisabled()
+  await screenshot(page, 'storage-forbidden-900')
 })
 
 test('Settings and subgraph cleanup empty states remain usable', async ({ page }) => {
@@ -1516,6 +1566,8 @@ test('Asset selection instructions stay readable for the rail and single or mult
           app: {
             backendForTab: () => ({ id: 'asset-visual', label: 'Visual fixture', baseUrl: '', protocol: 'dinkster', connection: {
               listMounts: async () => [],
+              listLocalAssets: async () => ({ assets: [] }),
+              checkAssetAvailability: async () => [],
               onMountsChanged: () => () => {},
               fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: false }),
               fetchMountLocations: async () => ({ mounts: [], activeMounts: [] }),
@@ -1570,7 +1622,7 @@ test('Saved connection rows retain actions, credential editing and connection fa
     document.querySelector('.canvas-pane')!.append(host)
     desktopWindow.dinksterDesktop = {
       locale: async () => 'en',
-      status: async () => ({ phase: 'running', detail: '' }),
+      status: async () => ({ phase: 'running', detail: 'Ready' }),
       connectionCredentials: async () => ({ custody: true, profiles: [profile.id] }),
       setConnectionCredential: async () => { host.dataset['savedToken'] = 'true' },
     }
