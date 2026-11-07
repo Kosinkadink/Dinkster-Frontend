@@ -7139,7 +7139,7 @@ export class AppState {
     let anchor: HTMLAnchorElement | undefined
     try {
       const registry = this.registryForTab(tab)
-      const roots = workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(),
+      const roots = workflowAssetRoots(tab.store.doc, { revision: tab.store.revision, undo: [], redo: [] },
         this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
       if (roots.refusal !== undefined) throw new Error(roots.refusal)
       const snapshot = await this.documentWithAssetLocations(tab)
