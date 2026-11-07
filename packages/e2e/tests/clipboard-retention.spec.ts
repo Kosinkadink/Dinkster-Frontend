@@ -1,4 +1,4 @@
-import { expect, openRailPanel, test } from './fixtures.js'
+import { expect, openRailPanel, test, waitForStartupOwnership } from './fixtures.js'
 
 for (const mode of ['system', 'fallback', 'refused'] as const) {
   test(`clipboard consumer outlives its source tab: ${mode}`, async ({ page }, info) => {
@@ -21,10 +21,9 @@ for (const mode of ['system', 'fallback', 'refused'] as const) {
       owners.set(id, { ...declaration, revision: declaration.revision + 1 })
       await route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document', ownerId: id, revision: 1 } })
     })
-    await page.route('/api/nodes*', (route) => route.fulfill({ status: 502 }))
     await page.route('/supervisor/status', (route) => route.fulfill({ status: 502 }))
     await page.goto('/')
-    await page.waitForFunction(() => window.__dinksterTest !== undefined)
+    await waitForStartupOwnership(page)
     await page.evaluate((denied) => {
       let copied: string | undefined
       Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
@@ -41,8 +40,7 @@ for (const mode of ['system', 'fallback', 'refused'] as const) {
         { kind: 'input' as const, id: 'input', optional: true, type: { kind: 'concrete' as const, name: 'FLOAT' } },
         { kind: 'output' as const, id: 'out', type: { kind: 'concrete' as const, name: 'FLOAT' } }],
       }
-      app.registry.set({ connection: app.connection.id, schemas: new Map([[schema.type, schema]]),
-        diagnostics: [], hash: 'clipboard-fixture', resolve: (type: string) => type === schema.type ? schema : undefined })
+      app.registerSchemas([schema])
       const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
         size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
       app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'clipboard-source', root: 'g0',
