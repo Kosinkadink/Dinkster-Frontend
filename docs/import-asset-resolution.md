@@ -8,6 +8,9 @@ token. Planning returns the manager's review text and does not install.
 Both methods accept an optional AbortSignal. Planning has the ordinary
 30-second metadata deadline. Cancelling an apply stops the caller's wait,
 not the backend mutation; its outcome requires installed-catalog reconciliation.
+The plan member is an opaque JSON object owned by the host: managed roots use
+an installer plan and Desktop uses its project software plan. The renderer
+does not interpret that payload or send it back for execution.
 Applying never retries automatically: a transport failure may have happened
 after the host changed its installation. HTTP failures retain their status and
 structured body as `PackInstallError`; absent opt-in routes remain unavailable.
