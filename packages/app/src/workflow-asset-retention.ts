@@ -551,17 +551,18 @@ async function retainAssetRoots(
   return acknowledged
 }
 
-/** Durable candidate ownership precedes publication; successful owners are not released on unmount. */
+/** Durable candidate ownership precedes commit; successful owners are not released on unmount. */
 export async function admitWorkflowDispatch(
   connection: DinksterConnection,
   prepared: Extract<PreparedDocumentDispatch, { readonly ok: true }>,
   resolve: SchemaResolver,
   stillCurrent: () => boolean,
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
+  purpose: 'publication' | 'admission' = 'publication',
 ): Promise<CommandOutcome> {
   // Proposed history adds only the captured current state and trims existing records.
   const roots = workflowAssetRoots(prepared.currentDocument, prepared.currentHistory, resolve,
-    [prepared.document, ...(prepared.retainedDocuments ?? [])])
+    [prepared.document, ...(prepared.retainedDocuments ?? [])], purpose)
   await retainWorkflowAssets(connection, prepared.document.lineage, prepared.history.revision, roots, storage)
   if (!stillCurrent()) throw new Error('Workflow destination changed during asset admission')
   return prepared.commit()

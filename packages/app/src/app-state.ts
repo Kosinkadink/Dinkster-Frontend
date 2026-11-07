@@ -6165,8 +6165,13 @@ export class AppState {
             live !== undefined && live.store === session && !live.execution &&
             this.backendForTab(live) === backend && this.registryForTab(live) === registry && stillWanted()
         },
+        undefined,
+        'admission',
       )
-      if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
+      if (outcome.ok) {
+        this.reportIncompleteOwnership(tab.id, workflowAssetRoots(prepared.currentDocument, prepared.currentHistory,
+          this.resolverWithVirtualNodes(registry.resolve), [prepared.document, ...(prepared.retainedDocuments ?? [])], 'admission'))
+      } else this.reportProblems(tab.id, outcome.diagnostics)
       return outcome
     } catch (error) {
       const outcome = { ok: false as const, diagnostics: [diag(

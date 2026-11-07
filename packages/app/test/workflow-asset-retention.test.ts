@@ -710,6 +710,33 @@ describe('retained app dispatch', () => {
     },
   )
 
+  it('admits fresh wire15 nodes as edits with incomplete ownership and a persistent warning', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    const dynamic: NodeSchema = { ...schema, items: [{
+      kind: 'input', id: 'mode', optional: false, type: { kind: 'concrete', name: 'STRING' },
+      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'active', inputs: [{
+        kind: 'input', id: 'file', optional: false, type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } },
+        widget: { widgetType: 'ASSET', options: {}, default: asset('a') },
+      }] }] },
+    }] }
+    app = createWorkflowApp([dynamic])
+    const tab = app.activeTab()!
+    const outcome = await app.dispatchTo(tab, { command: 'node.add', params: {
+      graphId: tab.store.doc.root, type: 'Loader', position: { x: 10, y: 20 },
+    } })
+    expect(outcome.ok).toBe(true)
+    expect(Object.values(tab.store.doc.graphs[tab.store.doc.root]!.nodes).map((node) => node.type)).toEqual(['Loader'])
+    const records = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+      .filter((key) => key.includes('dinkster.workflow-retentions.'))
+      .map((key) => JSON.parse(localStorage.getItem(key)!))
+    expect(records).toContainEqual(expect.objectContaining({ complete: false, digests: [asset('a').digest],
+      incompleteDiagnostics: [expect.objectContaining({ code: 'elab.dormant.unsupported' })] }))
+    expect(app.problems.get()).toContainEqual(expect.objectContaining({ severity: 'warning',
+      code: 'workflow.execution.ownershipUnconfirmed' }))
+    expect(await app.saveWorkflow(tab.id)).toBe(false)
+    expect(await app.shareActiveTab()).toContain('Publication and sharing remain unavailable.')
+  })
+
   it.each((['accepted', 'projection-before', 'projection-during', 'replaced', 'edited', 'registry', 'target', 'closed', 'unwanted', 'refused', 'disconnected', 'disposed'] as const)
     .flatMap((scenario) => (['explicit', 'ordinary'] as const).map((route) => ({ scenario, route }))))(
     'publishes only a current acknowledged candidate: $route $scenario', async ({ scenario, route }) => {

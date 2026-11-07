@@ -255,7 +255,7 @@ object additions still require an absent key, and replacements and removals
 still require their recorded value.
 Document admission and execution permit the dormant census diagnostic
 `elab.dormant.unsupported` when active elaboration is valid. Opening, restoring,
-promoting and reading retain known active roots with
+promoting, editing (including fresh palette nodes) and reading retain known active roots with
 `complete: false`; the durable intent preserves the node-qualified diagnostic
 and its severity in `incompleteDiagnostics`. Problems keeps an ownership-unconfirmed
 warning naming the node and reason, and the workspace tab may be shared.
