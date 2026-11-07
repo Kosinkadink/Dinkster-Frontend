@@ -40,6 +40,15 @@ Only a validated successful activation counts as completion. Callers refresh
 the same backend's installed registry afterward; the client does not rewrite
 the document or assume a topology-specific Desktop install path.
 
+The Problems report offers review for one pack or all missing packs. The
+backend's exact plan is shown before Confirm installation; Cancel makes no
+installation request. Editing or replacing the document, switching tabs or
+changing its selected backend invalidates the pending confirmation. Applying
+uses the captured backend and refreshes that backend's schemas after successful
+activation, without re-importing. Host refusals (including disabled routes),
+expired plans and installation failures remain visible in the report; apply
+is never retried automatically. The document stays editable during requests.
+
 An empty string in an optional file widget omits that input while consuming its
 original widget position. Required file widgets, nonempty filenames and named
 source selections stay unchanged. Empty strings on ordinary text widgets remain

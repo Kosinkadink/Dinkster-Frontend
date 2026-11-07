@@ -3,11 +3,33 @@ import { resolve } from 'node:path'
 import { expect, nativeTest as test, openRailPanel } from './fixtures.js'
 
 test('reports missing packs and preserves edits as the active registry gains their nodes', async ({ page }) => {
+  let installed = false
+  let applyCount = 0
+  let refuse = true
+  let releaseApply: (() => void) | undefined
+  const plans: unknown[] = []
   await page.route('/api/**', (route) => route.fulfill({ status: 503 }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, nodes: {},
+    schemaVersion: 1, epoch: installed ? 2 : 1, nodes: installed ? {
+      'dinkster.image.save_image': { schemaVersion: 1, displayName: 'SaveImage', interface: [] },
+    } : {},
   } }))
+  await page.route('/api/packs/install/plan', (route) => {
+    plans.push(route.request().postDataJSON())
+    return refuse ? route.fulfill({ status: 404, json: { detail: 'Pack installation is not enabled on this host.' } })
+      : route.fulfill({ json: { confirmation: 'server-confirmation', plan: { format: 'dinkster.plan/1' },
+        review: 'Install dinkster-image@0.0.1\nActivate a new generation on this backend.', expiresInSeconds: 900 } })
+  })
+  await page.route('/api/packs/install/apply', async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ confirmation: 'server-confirmation' })
+    applyCount++
+    if (applyCount === 1) return route.fulfill({ status: 409, json: { detail: 'Plan expired. Review a new plan.' } })
+    await new Promise<void>((resolve) => { releaseApply = resolve })
+    installed = true
+    return route.fulfill({ json: { generation: 2, activation: { generation: 2, epoch: 2,
+      added: ['dinkster-image'], removed: [], reloaded: [], unchanged: [], failed: {}, rolledBack: false } } })
+  })
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)
@@ -50,20 +72,47 @@ test('reports missing packs and preserves edits as the active registry gains the
   await expect(report.locator('[data-pack="dinkster-image"]')).toBeVisible()
   await capture('missing-packs-narrow')
   await page.setViewportSize({ width: 1440, height: 900 })
+  const reviewImage = report.locator('[data-pack="dinkster-image"]').getByRole('button', { name: 'Review this pack' })
+  await reviewImage.click()
+  await expect(report).toContainText('Pack installation is not enabled on this host.')
+  await capture('install-unavailable')
+  expect(applyCount).toBe(0)
+  refuse = false
+  await reviewImage.click()
+  await expect(report.getByTestId('pack-install-review')).toContainText('Install dinkster-image@0.0.1')
+  await capture('install-review')
+  await page.setViewportSize({ width: 780, height: 900 })
+  await capture('install-review-narrow')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await report.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(report.getByTestId('pack-install-review')).toHaveCount(0)
+  expect(applyCount).toBe(0)
+  await reviewImage.click()
+  await expect(report.getByRole('button', { name: 'Confirm installation' })).toBeVisible()
   const edited = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     const result = tab.store.dispatch({ command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n4', title: 'Keep this edit' } })
-    const backend = app.backends.get()[0]!
-    const registry = backend.registry.get()!
-    const schema = backend.comfyTranslations.get()[0]!.schema
-    backend.registry.set({ ...registry, connection: backend.id as import('@dinkster/core').ConnectionId,
-      hash: 'one-installed', schemas: new Map([[schema.type, schema]]), diagnostics: [],
-      resolve: (type) => type === schema.type ? schema : undefined })
     return { ok: result.ok, document: JSON.stringify(tab.store.doc) }
   })
   expect(edited.ok).toBe(true)
+  await expect(report.getByRole('button', { name: 'Confirm installation' })).toHaveCount(0)
+  expect(applyCount).toBe(0)
+  await reviewImage.click()
+  await report.getByRole('button', { name: 'Confirm installation' }).click()
+  await expect(report).toContainText('Plan expired. Review a new plan.')
+  expect(applyCount).toBe(1)
+  await capture('install-apply-failed')
+  await reviewImage.click()
+  await report.getByRole('button', { name: 'Confirm installation' }).click()
+  await expect(report).toContainText('Installing and activating packs...')
+  await expect(reviewImage).toBeDisabled()
+  await capture('install-applying')
+  releaseApply!()
   await expect(report.locator('[data-pack]')).toHaveCount(1)
+  expect(applyCount).toBe(2)
+  expect(plans).toEqual(Array.from({ length: 5 }, () => ({ packs: [{ pack: 'dinkster-image', version: '0.0.1' }] })))
+  expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(edited.document)
   await expect(report.locator('[data-pack="dinkster-sampling"]')).toBeVisible()
   await capture('one-pack-resolved')
   const after = await page.evaluate(() => {

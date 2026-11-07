@@ -1,12 +1,12 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { diag, type Diagnostic, type ImportedNodePackResolution } from '@dinkster/core'
-import type { CompatSkip, PackInferenceUnavailable } from '@dinkster/client'
+import type { CompatSkip, PackInferenceUnavailable, PackInstallPlan } from '@dinkster/client'
 import { diagnosticFocusTarget, type AppState, type MigrationNotice } from './app-state.js'
 import { groupProblemDiagnostics, type ProblemGroup } from './problem-display.js'
 import { RuntimeErrorHints } from './RuntimeErrorHints.js'
 import { useAppMessage } from './locale.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductActionFooter } from './ProductForm.js'
+import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductEmptyState, ProductPanelHeader } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
 
@@ -52,9 +52,18 @@ export interface ProblemsPanelProps {
   readonly onShowInContext?: (diagnostic: Diagnostic) => void
 }
 
+interface PackInstallReview {
+  readonly current: () => boolean
+  readonly phase: 'planning' | 'review' | 'applying' | 'error'
+  readonly plan?: PackInstallPlan
+  readonly error?: string
+  readonly apply?: () => Promise<void>
+}
+
 export function ProblemsPanel(props: ProblemsPanelProps) {
   const message = useAppMessage()
   const tabs = useSignal(props.app.tabs)
+  const activeTabId = useSignal(props.app.activeTabId)
   const [undoTick, setUndoTick] = createSignal(0)
   createEffect(() => {
     const owner = props.migrationNotice?.()?.owner
@@ -80,6 +89,49 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
     }
     return [...packs].sort(([left], [right]) => left.localeCompare(right))
   })
+  const [install, setInstall] = createSignal<PackInstallReview>()
+  createEffect(() => {
+    activeTabId()
+    tabs()
+    props.importedNodes?.()
+    if (install() && !install()!.current()) setInstall(undefined)
+  })
+  onCleanup(() => setInstall(undefined))
+  const planInstall = async (selectedPack?: string) => {
+    const tab = props.app.activeTab()
+    if (!tab) return
+    const backend = props.app.backendForTab(tab)
+    const document = tab.store.doc
+    const current = () => props.app.activeTab() === tab &&
+      props.app.backendForTab(tab) === backend && tab.store.doc === document
+    const request = { current, phase: 'planning' as const }
+    setInstall(request)
+    try {
+      const packs = missingPacks().filter(([pack]) => selectedPack === undefined || pack === selectedPack).map(([pack, nodes]) => {
+        const versions = new Set(nodes.map((node) => node.version))
+        const version = nodes[0]?.version
+        if (versions.size !== 1 || !version) throw new Error(message('problems.importedPacks.versionConflict'))
+        return { pack, version }
+      })
+      const plan = await backend.connection.planPackInstall(packs)
+      if (install() !== request || !current()) return
+      const review = { current, phase: 'review' as const, plan, apply: async () => {
+        if (install() !== review || !current()) { setInstall(undefined); return }
+        const applying = { current, phase: 'applying' as const, plan }
+        setInstall(applying)
+        try {
+          await backend.connection.applyPackInstall(plan.confirmation)
+          await props.app.refreshBackendSchemas(backend)
+          if (install() === applying) setInstall(undefined)
+        } catch (error) {
+          if (install() === applying && current()) setInstall({ current, phase: 'error', error: String(error) })
+        }
+      } }
+      setInstall(review)
+    } catch (error) {
+      if (install() === request && current()) setInstall({ current, phase: 'error', error: String(error) })
+    }
+  }
   const packDiagnostics = createMemo(() => [
     ...props.compatSkips().map((skip) => diag('info', 'schema', 'pack.compatSkipped', `${skip.packId}: ${skip.nodeId} - ${skip.reason}`)),
     ...(props.packInferenceUnavailable?.() ?? []).map((pack) => diag(
@@ -121,8 +173,38 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                   </li>
                 )}</For>
               </ul>
+              <ProductButton variant="secondary" size="compact"
+                disabled={install()?.phase === 'planning' || install()?.phase === 'applying'}
+                onClick={() => void planInstall(pack)}>{message('problems.importedPacks.planOne')}</ProductButton>
             </section>
           )}</For>
+          <Show when={install()?.plan}>{(plan) => (
+            <div class="problem-detail" data-testid="pack-install-review">
+              <p>{message('problems.importedPacks.reviewHint')}</p>
+              <pre>{plan().review}</pre>
+            </div>
+          )}</Show>
+          <Show when={install()?.error}>{(error) => (
+            <ProductNotice tone="error">{error()}</ProductNotice>
+          )}</Show>
+          <Show when={install()?.phase === 'planning' || install()?.phase === 'applying'}>
+            <ProductNotice tone="status">{message(install()?.phase === 'applying'
+              ? 'problems.importedPacks.applying' : 'problems.importedPacks.planning')}</ProductNotice>
+          </Show>
+          <ProductActionFooter>
+            <Show when={install()?.phase === 'review'} fallback={
+              <ProductButton variant="secondary" size="compact"
+                disabled={install()?.phase === 'planning' || install()?.phase === 'applying'}
+                onClick={() => void planInstall()}>{message('problems.importedPacks.plan')}</ProductButton>
+            }>
+              <ProductButton variant="primary" size="compact"
+                onClick={() => void install()?.apply?.()}>{message('problems.importedPacks.confirm')}</ProductButton>
+            </Show>
+            <Show when={install()?.phase === 'review'}>
+              <ProductButton variant="ghost" size="compact"
+                onClick={() => setInstall(undefined)}>{message('problems.importedPacks.cancel')}</ProductButton>
+            </Show>
+          </ProductActionFooter>
         </section>
       </Show>
       <Show
