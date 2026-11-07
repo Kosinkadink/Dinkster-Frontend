@@ -29,6 +29,12 @@ publication holds busy state and store close until settlement. Submitted writes
 may finish without rollback; edits during a current publication remain queued
 behind its confirmed link.
 
+Authoritative renders keep their original workspace, project, session, backend,
+and connection. Stale adoption/render/fetch continuations cannot publish output
+or errors. Pending renders hold busy state and store close through actual
+settlement, including retained-read cleanup. Submitted work may finish without
+rollback; edits still mark a completed render stale when its source differs.
+
 Startup recovery stays with its original project and workspace. Saved shared
 membership is rejoined only while its captured backend and connection remain
 current. Stale lookups do not clear membership, and stale snapshot/resource

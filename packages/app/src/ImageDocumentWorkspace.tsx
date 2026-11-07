@@ -128,7 +128,7 @@ function ImageDocumentEditor(props: {
   readonly onRender: (
     document: ImageDocument,
     selector: string,
-  ) => Promise<VerifiedImageDocumentRender>
+  ) => Promise<VerifiedImageDocumentRender | undefined>
   readonly onResourceReady: (resource: PreparedImageRaster) => Promise<void>
   readonly resourceTick: () => number
 }) {
@@ -203,11 +203,12 @@ function ImageDocumentEditor(props: {
     setAuthoritativeBusy(true)
     setAuthoritativeError(undefined)
     try {
-      setAuthoritativeResult(await props.onRender(snapshot, selector))
+      const result = await props.onRender(snapshot, selector)
+      if (rendererLive && result !== undefined) setAuthoritativeResult(result)
     } catch (error) {
-      setAuthoritativeError(messageOf(error))
+      if (rendererLive) setAuthoritativeError(messageOf(error))
     } finally {
-      setAuthoritativeBusy(false)
+      if (rendererLive) setAuthoritativeBusy(false)
     }
   }
   const dispatch = (invocation: ImageDocumentCommandInvocation): boolean => {
@@ -748,6 +749,7 @@ export function ImageDocumentWorkspace(props: {
   const pendingLibraryLists = new Set<Promise<void>>()
   const pendingDraftSaves = new Set<Promise<void>>()
   const pendingPublications = new Set<Promise<void>>()
+  const pendingAuthoritativeRenders = new Set<Promise<VerifiedImageDocumentRender | undefined>>()
   let openingLibrary: Promise<unknown> | undefined
   let recovering: Promise<void> | undefined
   let collaborationListIntent = 0
@@ -784,7 +786,7 @@ export function ImageDocumentWorkspace(props: {
     const pending = value || pendingImports.size > 0 || pendingGraphOpens.size > 0 ||
       pendingCollaborationLists.size > 0 || pendingCollaborationJoins.size > 0 || pendingCollaborationShares.size > 0 ||
       pendingCollaborationLeaves.size > 0 || pendingCollaborationEnds.size > 0 || pendingLibraryLists.size > 0 ||
-      pendingDraftSaves.size > 0 || pendingPublications.size > 0
+      pendingDraftSaves.size > 0 || pendingPublications.size > 0 || pendingAuthoritativeRenders.size > 0
     setBusySignal(pending)
     props.onBusyChange(pending)
   }
@@ -1256,7 +1258,7 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingPublications, ...pendingDraftSaves, ...pendingLibraryLists, ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
+    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...[...pendingAuthoritativeRenders].map((task) => task.catch(() => undefined)), ...pendingPublications, ...pendingDraftSaves, ...pendingLibraryLists, ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
       entry.hydrate.catch(() => undefined),
     ])]).finally(() => store.close())
@@ -1383,25 +1385,43 @@ export function ImageDocumentWorkspace(props: {
     await pending
   }
   const renderAuthoritative = async (
+    entry: OpenImageDocument,
     documentSnapshot: ImageDocument,
     selector: string,
-  ): Promise<VerifiedImageDocumentRender> => {
+  ): Promise<VerifiedImageDocumentRender | undefined> => {
     const backend = props.app.libraryBackend()
     if (backend === undefined) throw new Error(message('imageDocument.workspace.error.renderRequiresBackend'))
-    const adopted = await adoptImageDocumentForRender(
-      backend.connection,
-      store,
-      documentSnapshot,
-      LIBRARY_SCOPE,
-    )
-    return renderAdoptedImageDocument(
-      backend.connection,
-      store,
-      adopted.digest,
-      serializeImageDocument(adopted.document),
-      LIBRARY_SCOPE,
-      selector,
-    )
+    const connection = backend.connection
+    const session = entry.session
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      documents().includes(entry) && entry.session === session &&
+      props.app.libraryBackend() === backend && backend.connection === connection
+    const assertCurrent = (): void => {
+      if (!current()) throw new Error('Image render is no longer current')
+    }
+    setBusy(true)
+    const task = (async () => {
+      try {
+        assertCurrent()
+        const adopted = await adoptImageDocumentForRender(
+          connection, store, documentSnapshot, LIBRARY_SCOPE, undefined, assertCurrent,
+        )
+        assertCurrent()
+        const result = await renderAdoptedImageDocument(
+          connection, store, adopted.digest, serializeImageDocument(adopted.document),
+          LIBRARY_SCOPE, selector, undefined, assertCurrent,
+        )
+        if (current()) return result
+      } catch (cause) {
+        if (current()) throw cause
+      }
+      return undefined
+    })().finally(() => {
+      pendingAuthoritativeRenders.delete(task)
+      if (live) setBusy(false)
+    })
+    pendingAuthoritativeRenders.add(task)
+    return task
   }
   const exportSnapshot = async (entry: OpenImageDocument): Promise<void> => {
     setBusy(true)
@@ -1586,7 +1606,7 @@ export function ImageDocumentWorkspace(props: {
               onPublish={() => publish(entry)}
               onExport={() => exportSnapshot(entry)}
               {...(entry.origin === undefined ? {} : { onExportRecipe: () => exportRecipe(entry) })}
-              onRender={renderAuthoritative}
+              onRender={(snapshot, selector) => renderAuthoritative(entry, snapshot, selector)}
               onResourceReady={(resource) => uploadPreparedResource(entry, resource)}
               resourceTick={resourceTick}
             />

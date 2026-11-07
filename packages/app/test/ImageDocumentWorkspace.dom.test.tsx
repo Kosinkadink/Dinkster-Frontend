@@ -43,6 +43,92 @@ afterEach(() => {
 })
 
 describe('ImageDocumentWorkspace', () => {
+  it.each(['accepted', 'failed', 'project', 'backend', 'connection', 'dispose', 'project-failed', 'adopt-project', 'fetch-project', 'fetch-dispose'])(
+    'keeps authoritative rendering with its original workspace (%s)', async (outcome) => {
+      vi.stubGlobal('indexedDB', new FakeIDBFactory())
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:verified-render')
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
+      const inspect = new ImageDocumentLocalStore(activeProjectId())
+      const seed = await importSingleRaster(new File(['source'], 'Render source.png', { type: 'image/png' }), inspect,
+        { lineage: 'render-owner', normalize: async () => ({ width: 2, height: 1, rgba }) })
+      const resource = Object.values(seed.document.resources)[0]!
+      const staged = (await inspect.getResource(resource.digest))!
+      const dependencies = [{ resourceId: resource.id, digest: resource.digest, byteSize: resource.byteSize,
+        mediaType: resource.mediaType, width: resource.width, height: resource.height,
+        colorSpace: resource.colorSpace, channelDepth: resource.channelDepth, alphaMode: resource.alphaMode }]
+      let finish!: () => void
+      let fail!: (cause: Error) => void
+      const held = new Promise<void>((resolve, reject) => { finish = resolve; fail = reject })
+      let entered = false
+      let rendered = false
+      let released = false
+      const pause = async (): Promise<void> => { entered = true; await held }
+      const connection = {
+        id: 'render-owner', assetUrl: (digest: string) => `http://render.test/${digest}`,
+        uploadMediaAsset: async () => ({ digest: resource.digest, size: resource.byteSize, mediaType: resource.mediaType }),
+        adoptImageDocument: async (bytes: Uint8Array) => {
+          if (outcome.startsWith('adopt-')) await pause()
+          return { digest: imageDocumentDigest(bytes), mediaType: IMAGE_DOCUMENT_MEDIA_TYPE, byteSize: bytes.byteLength, dependencies }
+        },
+        renderImageDocument: async (digest: string) => {
+          rendered = true
+          if (!outcome.startsWith('adopt-') && !outcome.startsWith('fetch-')) await pause()
+          return { cacheKey: imageDocumentDigest(staged.bytes), cached: false,
+            asset: { digest: resource.digest, name: 'render.png', size: resource.byteSize, mediaType: 'image/png', virtualPath: '' },
+            provenance: { documentDigest: digest, selector: 'composite', profile: 'dinkster-image-document-v2-cpu-reference',
+              rendererContract: 'test-renderer', output: { width: 2, height: 1, byteSize: resource.byteSize } } }
+        },
+        fetchAssetBytes: async () => {
+          if (outcome.startsWith('fetch-')) await pause()
+          return Uint8Array.from(staged.bytes).buffer
+        },
+        retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) =>
+          ({ ...owner, ...declaration, revision: declaration.revision + 1 }),
+        releaseRetainedAssets: async (owner: RetainedAssetOwner, revision: number) => {
+          released = true
+          return { ...owner, revision: revision + 1, complete: true, digests: [] }
+        },
+      } as unknown as DinksterConnection
+      let backend = { id: 'render-backend', connection }
+      const app = { libraryBackend: () => backend, showTransientStatus: vi.fn() } as unknown as AppState
+      const close = ImageDocumentLocalStore.prototype.close
+      let closed = false
+      vi.spyOn(ImageDocumentLocalStore.prototype, 'close').mockImplementation(async function (this: ImageDocumentLocalStore) {
+        if (this !== inspect) closed = true
+        await close.call(this)
+      })
+      const root = document.createElement('div')
+      document.body.append(root)
+      let busy = false
+      const dispose = render(() => <ImageDocumentWorkspace active app={app}
+        onBusyChange={(value) => { busy = value }} onClose={() => undefined} />, root)
+      try {
+        await vi.waitFor(() => expect(root.querySelector('[role="tab"]')?.textContent).toBe('Render source'))
+        ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Render')!.click()
+        await vi.waitFor(() => expect(entered).toBe(true))
+        const busyWhilePending = busy
+        if (outcome.includes('project')) initializeProjectScope('other-project')
+        if (outcome === 'backend') backend = { ...backend }
+        if (outcome === 'connection') backend.connection = {} as DinksterConnection
+        if (outcome.includes('dispose')) { dispose(); await inspect.recoverDrafts(); expect(closed).toBe(false) }
+        if (outcome.endsWith('failed')) fail(new Error('Render unavailable'))
+        else finish()
+        if (outcome.includes('dispose')) await vi.waitFor(() => expect(closed).toBe(true))
+        else {
+          await vi.waitFor(() => expect([...root.querySelectorAll('button')].some((button) => button.textContent === 'Rendering...')).toBe(false))
+          expect(root.querySelector('[data-testid="authoritative-image-document-render"]') !== null).toBe(outcome === 'accepted')
+          expect(root.textContent?.includes('Render unavailable')).toBe(outcome === 'failed')
+        }
+        expect(busyWhilePending).toBe(true)
+        if (outcome.startsWith('adopt-')) expect(rendered).toBe(false)
+        if (outcome === 'accepted' || outcome.startsWith('fetch-')) expect(released).toBe(true)
+      } finally { finish(); dispose() }
+      await vi.waitFor(() => expect(closed).toBe(true))
+      await inspect.close()
+    },
+  )
+
   it.each(['accepted', 'failed', 'project', 'backend', 'connection', 'dispose', 'project-failed', 'dispose-failed', 'record-project', 'record-dispose', 'link-project', 'link-dispose'])(
     'keeps library publication with its original workspace (%s)', async (outcome) => {
       vi.stubGlobal('indexedDB', new FakeIDBFactory())
@@ -1510,8 +1596,9 @@ describe('ImageDocumentWorkspace', () => {
       assetUrl: vi.fn((digest: string) => `http://assets.test/${digest}`),
       createLibraryRecord,
     } as unknown as DinksterConnection
+    const backend = { id: 'backend-render', connection }
     const app = {
-      libraryBackend: () => ({ id: 'backend-render', connection }),
+      libraryBackend: () => backend,
       showTransientStatus: vi.fn(),
     } as unknown as AppState
     const root = document.createElement('div')

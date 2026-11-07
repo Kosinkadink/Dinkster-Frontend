@@ -407,10 +407,11 @@ export async function adoptImageDocumentForRender(
   document: ImageDocument,
   scope: string,
   signal?: AbortSignal,
+  assertCurrent: () => void = () => undefined,
 ): Promise<AdoptedImageDocumentForRender> {
   const loaded = loadImageDocument(document)
   if (loaded.document === undefined) throw new Error('cannot render an invalid ImageDocument')
-  return adoptOwnedImageDocument(connection, store, loaded.document, scope, signal)
+  return adoptOwnedImageDocument(connection, store, loaded.document, scope, signal, assertCurrent)
 }
 
 export async function saveImageDocumentToLibrary(
