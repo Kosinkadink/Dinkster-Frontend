@@ -751,6 +751,7 @@ export function ImageDocumentWorkspace(props: {
   const pendingPublications = new Set<Promise<void>>()
   const pendingAuthoritativeRenders = new Set<Promise<VerifiedImageDocumentRender | undefined>>()
   const pendingSnapshotExports = new Set<Promise<void>>()
+  const pendingRecipeExports = new Set<Promise<void>>()
   let openingLibrary: Promise<unknown> | undefined
   let recovering: Promise<void> | undefined
   let collaborationListIntent = 0
@@ -787,7 +788,7 @@ export function ImageDocumentWorkspace(props: {
     const pending = value || pendingImports.size > 0 || pendingGraphOpens.size > 0 ||
       pendingCollaborationLists.size > 0 || pendingCollaborationJoins.size > 0 || pendingCollaborationShares.size > 0 ||
       pendingCollaborationLeaves.size > 0 || pendingCollaborationEnds.size > 0 || pendingLibraryLists.size > 0 ||
-      pendingDraftSaves.size > 0 || pendingPublications.size > 0 || pendingAuthoritativeRenders.size > 0 || pendingSnapshotExports.size > 0
+      pendingDraftSaves.size > 0 || pendingPublications.size > 0 || pendingAuthoritativeRenders.size > 0 || pendingSnapshotExports.size > 0 || pendingRecipeExports.size > 0
     setBusySignal(pending)
     props.onBusyChange(pending)
   }
@@ -1259,7 +1260,7 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingSnapshotExports, ...[...pendingAuthoritativeRenders].map((task) => task.catch(() => undefined)), ...pendingPublications, ...pendingDraftSaves, ...pendingLibraryLists, ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
+    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingRecipeExports, ...pendingSnapshotExports, ...[...pendingAuthoritativeRenders].map((task) => task.catch(() => undefined)), ...pendingPublications, ...pendingDraftSaves, ...pendingLibraryLists, ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
       entry.hydrate.catch(() => undefined),
     ])]).finally(() => store.close())
@@ -1455,18 +1456,34 @@ export function ImageDocumentWorkspace(props: {
     await task
   }
   const exportRecipe = async (entry: OpenImageDocument): Promise<void> => {
-    if (entry.origin === undefined) return
+    const origin = entry.origin
+    if (origin === undefined) return
+    const session = entry.session
+    const snapshot = session.doc
+    const name = entry.name
+    const tab = props.app.activeTab()
+    const backend = tab === undefined ? undefined : props.app.backendForTab(tab)
+    const connection = backend?.connection
+    const destination = tab?.store
+    const graphId = tab === undefined ? undefined : currentGraphId(tab)
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      documents().includes(entry) && entry.session === session && entry.origin === origin &&
+      props.app.activeTab() === tab && (tab === undefined || (tab.store === destination &&
+        props.app.backendForTab(tab) === backend && backend?.connection === connection && currentGraphId(tab) === graphId))
     setBusy(true)
     setError(undefined)
-    try {
-      await entry.persist
-      await exportImageDocumentRecipe(props.app, entry.origin, entry.session.doc)
-      if (live) props.app.showTransientStatus(message('imageDocument.workspace.status.exportedRecipe', { name: entry.name }))
-    } catch (cause) {
-      if (live) setLocalizedError('imageDocument.workspace.error.recipeExportFailed', { reason: messageOf(cause) })
-    } finally {
+    const task: Promise<void> = entry.persist.then(async () => {
+      if (!current()) return
+      await exportImageDocumentRecipe(props.app, origin, snapshot, current)
+      if (current()) props.app.showTransientStatus(message('imageDocument.workspace.status.exportedRecipe', { name }))
+    }).catch((cause) => {
+      if (current()) setLocalizedError('imageDocument.workspace.error.recipeExportFailed', { reason: messageOf(cause) })
+    }).finally(() => {
+      pendingRecipeExports.delete(task)
       if (live) setBusy(false)
-    }
+    })
+    pendingRecipeExports.add(task)
+    await task
   }
   const currentLibraryIntent = (intent: number, backend: NonNullable<typeof libraryOwner>): boolean => {
     const current = props.app.libraryBackend()

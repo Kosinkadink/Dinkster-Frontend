@@ -8,9 +8,11 @@ import { DinksterValuesClient, IMAGE_DOCUMENT_MEDIA_TYPE, type DinksterConnectio
 import {
   COLLAB_PROTOCOL_VERSION,
   IMAGE_OPACITY_MAX,
+  canonicalJson,
   registerCatalog,
   setLocale,
   serializeImageDocument,
+  sha256Hex,
   type CollabClientOp,
   type CollabConnection,
   type CollabConnectionEvent,
@@ -43,6 +45,104 @@ afterEach(() => {
 })
 
 describe('ImageDocumentWorkspace', () => {
+  it.each(['accepted', 'failed', 'project', 'backend', 'connection', 'dispose', 'project-failed', 'preflight-project', 'preflight-backend', 'preflight-tab'])(
+    'keeps recipe export with its original workspace and source graph (%s)', async (outcome) => {
+      vi.stubGlobal('indexedDB', new FakeIDBFactory())
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:recipe-source')
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
+      const source = new ImageDocumentLocalStore('recipe-source', new FakeIDBFactory())
+      const seed = await importSingleRaster(new File(['source'], 'Recipe.png', { type: 'image/png' }), source,
+        { lineage: 'recipe-export-owner', normalize: async () => ({ width: 2, height: 1, rgba }) })
+      const resource = Object.values(seed.document.resources)[0]!
+      const staged = (await source.getResource(resource.digest))!
+      const text = serializeImageDocument(seed.document)
+      const digest = imageDocumentDigest(new TextEncoder().encode(text))
+      await source.close()
+      const inspect = new ImageDocumentLocalStore(activeProjectId())
+      const dependencies = [{ resourceId: resource.id, ...resource }]
+      const connection = {
+        id: 'recipe-owner', assetUrl: () => 'http://recipe.test/resource',
+        values: () => ({
+          peek: async () => ({ available: true, descriptor: { typeId: 'dinkster.layers', fingerprint: 'recipe-value' },
+            renditions: [{ kind: 'document', mime: IMAGE_DOCUMENT_MEDIA_TYPE }] }),
+          rendition: async () => ({ available: true, bytes: new TextEncoder().encode(text).buffer,
+            fingerprint: 'recipe-value', typeId: 'dinkster.layers', reportedKind: 'document', mime: IMAGE_DOCUMENT_MEDIA_TYPE }),
+          read: async (_query: unknown, _descriptor: unknown, action: () => Promise<unknown>) => action(),
+        }),
+        adoptImageDocument: async () => ({ digest, mediaType: IMAGE_DOCUMENT_MEDIA_TYPE,
+          byteSize: new TextEncoder().encode(text).byteLength, dependencies }),
+        renderImageDocument: async () => ({ cacheKey: digest, cached: false,
+          asset: { digest: resource.digest, size: staged.bytes.byteLength, mediaType: 'image/png', name: 'render.png', virtualPath: '' },
+          provenance: { documentDigest: digest, selector: 'composite', profile: 'dinkster-image-document-v2-cpu-reference',
+            rendererContract: 'test-renderer', encoding: 'image/png;dinkster-canonical=1',
+            source: { digest, mediaType: IMAGE_DOCUMENT_MEDIA_TYPE, dependencies },
+            output: { digest: resource.digest, byteSize: staged.bytes.byteLength, mediaType: 'image/png', width: 2, height: 1,
+              encoding: 'image/png;dinkster-canonical=1' } } }),
+        fetchAssetBytes: async () => Uint8Array.from(staged.bytes).buffer,
+        retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) =>
+          ({ ...owner, ...declaration, revision: declaration.revision + 1 }),
+        releaseRetainedAssets: async (owner: RetainedAssetOwner, revision: number) =>
+          ({ ...owner, revision: revision + 1, complete: true, digests: [] }),
+      } as unknown as DinksterConnection
+      let backend = { id: 'recipe-owner', protocol: 'dinkster', connection }
+      const graph = { id: 'g0', nodes: {}, links: {} }
+      const tab = { id: 'source-tab', graphStack: { get: () => [] }, store: { doc: { root: 'g0', graphs: { g0: graph } } } }
+      let selected: typeof tab | undefined = tab
+      const request = { connectionId: 'recipe-owner', query: { jobId: 'job', nodeId: 'producer', outputId: 'layers' },
+        sourceTabId: tab.id, graphId: 'g0', sourceNodeId: 'producer', sourceOutputId: 'layers',
+        expectedGraphFingerprint: sha256Hex(canonicalJson(graph)) } as GraphImageDocumentRequest
+      const [graphRequest, setGraphRequest] = createSignal<GraphImageDocumentRequest | undefined>(request)
+      let finish!: () => void
+      let fail!: (cause: Error) => void
+      const held = new Promise<void>((resolve, reject) => { finish = resolve; fail = reject })
+      let entered = false
+      const exported: string[] = []
+      const status = vi.fn()
+      const app = { activeTab: () => selected, backendForTab: () => backend, backendFor: () => backend, libraryBackend: () => undefined,
+        dispatchRetainedTo: async (_tab: unknown, invocation: { params: { commands: string } }, current: () => boolean) => {
+          entered = true; await held
+          if (!current()) return { ok: false, diagnostics: [] }
+          exported.push(invocation.params.commands)
+          return { ok: true }
+        }, showTransientStatus: status } as unknown as AppState
+      const close = ImageDocumentLocalStore.prototype.close
+      let closed = false
+      vi.spyOn(ImageDocumentLocalStore.prototype, 'close').mockImplementation(async function (this: ImageDocumentLocalStore) {
+        if (this !== inspect) closed = true
+        await close.call(this)
+      })
+      const root = document.createElement('div')
+      document.body.append(root)
+      let busy = false
+      const dispose = render(() => <ImageDocumentWorkspace active app={app} graphRequest={graphRequest()}
+        onGraphRequestHandled={() => setGraphRequest(undefined)} onBusyChange={(value) => { busy = value }} onClose={() => undefined} />, root)
+      try {
+        await vi.waitFor(() => expect(root.querySelector('[role="tab"]')?.textContent).toBe('producer / layers'))
+        await vi.waitFor(() => expect(busy).toBe(false))
+        ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Export editable recipe')!.click()
+        if (!outcome.startsWith('preflight-')) await vi.waitFor(() => expect(entered).toBe(true))
+        const busyWhilePending = busy
+        if (outcome.includes('project')) initializeProjectScope('other-project')
+        if (outcome.includes('backend')) backend = { ...backend }
+        if (outcome.includes('connection')) backend.connection = {} as DinksterConnection
+        if (outcome.includes('tab')) selected = undefined
+        if (outcome.includes('dispose')) { dispose(); await inspect.recoverDrafts(); expect(closed).toBe(false) }
+        if (outcome.endsWith('failed')) fail(new Error('Recipe unavailable'))
+        else finish()
+        if (outcome.includes('dispose')) await vi.waitFor(() => expect(closed).toBe(true))
+        else await vi.waitFor(() => expect(busy).toBe(false))
+        expect(busyWhilePending).toBe(true)
+        expect(exported).toEqual(outcome === 'accepted' ? ['[]'] : [])
+        expect(status.mock.calls.length).toBe(outcome === 'accepted' ? 1 : 0)
+        expect(root.textContent?.includes('Recipe unavailable')).toBe(outcome === 'failed')
+        if (outcome.startsWith('preflight-')) expect(entered).toBe(false)
+      } finally { finish(); dispose() }
+      await vi.waitFor(() => expect(closed).toBe(true))
+      await inspect.close()
+    },
+  )
+
   it.each(['accepted', 'failed', 'project', 'backend', 'connection', 'dispose', 'project-failed', 'dispatch-project', 'dispatch-connection', 'dispatch-dispose', 'preflight-tab', 'preflight-project', 'preflight-backend'])(
     'keeps snapshot export with its original source and destination (%s)', async (outcome) => {
       vi.stubGlobal('indexedDB', new FakeIDBFactory())

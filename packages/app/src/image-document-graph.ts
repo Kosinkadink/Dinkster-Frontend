@@ -187,6 +187,7 @@ export async function exportImageDocumentRecipe(
   app: AppState,
   origin: ImageDocumentGraphOrigin,
   document: ImageDocument,
+  stillWanted: () => boolean = () => true,
 ): Promise<void> {
   const tab = app.activeTab()
   if (tab === undefined || tab.execution !== undefined) throw new Error('Select the editable source workflow for recipe export')
@@ -198,6 +199,11 @@ export async function exportImageDocumentRecipe(
   }
   const backend = app.backendForTab(tab)
   if (backend.id !== origin.connectionId) throw new Error('The source backend changed since this image document was opened')
+  const connection = backend.connection
+  const session = tab.store
+  const current = (): boolean => stillWanted() && app.activeTab() === tab && tab.store === session &&
+    app.backendForTab(tab) === backend && backend.connection === connection && currentGraphId(tab) === origin.graphId
+  if (!current()) throw new Error('The source workflow or backend changed during recipe export')
   const policy = imageOutputPolicyOf(document)
   const commands = canonicalJson(imageDocumentRecipeCommands(origin.document, document))
   const outcome = await app.dispatchRetainedTo(tab, { command: 'image.documentRecipeExport', params: {
@@ -208,7 +214,7 @@ export async function exportImageDocumentRecipe(
     commands,
     format: policy.format,
     quality: policy.quality,
-  } }, () => app.activeTab() === tab && currentGraphId(tab) === origin.graphId)
+  } }, current)
   if (!outcome.ok) throw new Error(outcome.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
 }
 

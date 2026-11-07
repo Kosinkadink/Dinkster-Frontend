@@ -41,6 +41,12 @@ cannot start adoption, commit retained graph edits, or publish status/errors.
 Pending exports hold busy state and store close through settlement. Already
 submitted work may finish without rollback.
 
+Editable recipe export also retains its original workspace, project, source
+session, origin, and destination workflow/store/backend/connection. Stale
+preflight or retained-admission continuations cannot commit graph edits or
+publish status/errors. Pending recipes hold busy state and store close through
+settlement; submitted work may finish without rollback.
+
 Startup recovery stays with its original project and workspace. Saved shared
 membership is rejoined only while its captured backend and connection remain
 current. Stale lookups do not clear membership, and stale snapshot/resource
