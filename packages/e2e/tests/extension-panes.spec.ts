@@ -67,7 +67,7 @@ async function backend(page: Page, base: string, initial: string) {
 }
 
 async function open(page: Page, base: string, title: string) {
-  await page.evaluate(({ base, title }) => {
+  await page.evaluate((title) => {
     const app = window.__dinksterTest!.app
     app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: title, root: 'g0',
@@ -75,12 +75,12 @@ async function open(page: Page, base: string, title: string) {
       view: { graphs: { g0: { nodes: { preview: { position: { x: 40, y: 80 } } } } } },
       ext: { 'dinkster.exposed': [{ graphId: 'g0', nodeId: 'preview', inputId: 'value' }] },
     }, title)
-    app.setTabTarget(title, base)
-  }, { base, title })
+  }, title)
   await page.waitForFunction((title) => {
     const tab = window.__dinksterTest!.app.tabs.get().find((tab) => tab.id === title)
     return tab !== undefined && 'status' in tab.store
   }, title)
+  await page.evaluate(({ base, title }) => window.__dinksterTest!.app.setTabTarget(title, base), { base, title })
 }
 
 async function split(page: Page, title: string) {

@@ -1,4 +1,4 @@
-import { expect, openRailPanel, test, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 async function badgePoint(page: Page, nodeId: string): Promise<{ x: number; y: number }> {
   return page.evaluate((nodeId) => {
@@ -25,6 +25,7 @@ test('review-mode native deprecation badges show guidance without an executable 
   } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/3 node schemas/, { timeout: 30_000 })
+  await waitForStartupOwnership(page)
   await page.evaluate(() => window.__dinksterTest!.app.reviewReplacements.set(true))
   expect(await page.evaluate(() => window.__dinksterTest!.app.openDocument({
     nodes: [{ id: 1, type: 'AuthoredNode', pos: [120, 120] }, { id: 2, type: 'NoSuccessor', pos: [450, 120] }], links: [],

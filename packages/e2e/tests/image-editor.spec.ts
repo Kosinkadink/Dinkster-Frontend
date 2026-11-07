@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, nativeTest, skipWithoutNativeCatalog, test, type Page } from './fixtures.js'
+import { expect, nativeTest, skipWithoutNativeCatalog, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const SOURCE = `blake3:${'1'.repeat(64)}`
 const DERIVED = `blake3:${'2'.repeat(64)}`
@@ -180,11 +180,11 @@ nativeTest('image editor keeps mask edits local until one guarded AssetRef apply
       return ((await response.json()) as { digest: string }).digest
     }
     const dispatchingApp = app as unknown as {
-      dispatchTo(tab: unknown, invocation: { command: string }): unknown
+      dispatchRetainedTo(tab: unknown, invocation: { command: string }): unknown
     }
-    const originalDispatch = dispatchingApp.dispatchTo.bind(dispatchingApp)
+    const originalDispatch = dispatchingApp.dispatchRetainedTo.bind(dispatchingApp)
     ;(window as unknown as { __imageApplyCount: number }).__imageApplyCount = 0
-    dispatchingApp.dispatchTo = (owner, invocation) => {
+    dispatchingApp.dispatchRetainedTo = (owner, invocation) => {
       if (invocation.command === 'image.applyAsset') (window as unknown as { __imageApplyCount: number }).__imageApplyCount += 1
       return originalDispatch(owner as never, invocation as never)
     }
@@ -379,7 +379,7 @@ nativeTest('image editor keeps mask edits local until one guarded AssetRef apply
 })
 
 for (const opaqueMetadata of [false, true]) test(opaqueMetadata
-  ? 'image editor refuses mask graph publication with opaque metadata'
+  ? 'image editor keeps opaque mask metadata unchanged when incomplete ownership is rejected'
   : 'image editor inserts and reopens one graph-native mask paint node', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   let uploadCount = 0
@@ -391,20 +391,10 @@ for (const opaqueMetadata of [false, true]) test(opaqueMetadata
     uploadCount += 1
     return route.fulfill({ status: 500 })
   })
-  await page.route('**/mask-editor-test/api/library/retentions/document/*?scope=local', async (route) => {
-    expect(route.request().method()).toBe('PUT')
-    expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: true, digests: [SOURCE] })
-    retentionCount += 1
-    if (retentionCount === 1) await acknowledgment
-    return route.fulfill({ json: {
-      scope: 'local', ownerKind: 'document',
-      ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!),
-      revision: 1, complete: true, digests: [SOURCE],
-    } })
-  })
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
-  await page.evaluate(({ source, pngSize, opaqueMetadata }) => {
+  await waitForStartupOwnership(page)
+  await page.evaluate(async ({ source, pngSize, opaqueMetadata }) => {
     const app = window.__dinksterTest!.app
     const nativeApp = app as unknown as {
       addBackend(url: string, label: string, persist: boolean, protocol: 'dinkster', start: boolean): {
@@ -412,7 +402,7 @@ for (const opaqueMetadata of [false, true]) test(opaqueMetadata
         registry: { set(value: unknown): void }
         connection: { assetUrl(digest: string): string }
       }
-      setTabTarget(tabId: string, backendId: string): void
+      openRetainedDocument(document: unknown, title: string, backend: unknown, stillWanted: () => boolean): Promise<unknown>
     }
     const backend = nativeApp.addBackend('/mask-editor-test', 'Mask editor test', false, 'dinkster', false)
     backend.registry.set({
@@ -440,17 +430,20 @@ for (const opaqueMetadata of [false, true]) test(opaqueMetadata
         items: [{ kind: 'input', id: 'mask', type: { kind: 'concrete', name: 'MASK' }, optional: false }],
       },
     ] as never)
-    app.openDocument({
+    await nativeApp.openRetainedDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'graph-mask-paint', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         loader: { id: 'loader', type: 'dinkster.load_image', values: { image: { digest: source, name: 'source.png', size: pngSize, mediaType: 'image/png', virtualPath: '' } } },
         consumer: { id: 'consumer', type: 'MaskConsumer', values: {} },
       }, links: { mask: { id: 'mask', from: { node: 'loader', port: 'mask' }, to: { node: 'consumer', port: 'mask' }, ...(opaqueMetadata ? { ext: { retained: true } } : {}) } }, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { g0: { nodes: { loader: { position: { x: 100, y: 100 } }, consumer: { position: { x: 700, y: 100 } } } } } },
-    }, 'Graph mask paint')
-    nativeApp.setTabTarget(app.activeTab()!.id, backend.id)
+    }, 'Graph mask paint', backend, () => true)
     backend.connection.assetUrl = (digest: string) => `/api/assets/${encodeURIComponent(digest)}`
   }, { source: SOURCE, pngSize: PNG.byteLength, opaqueMetadata })
+  await page.waitForFunction(() => {
+    const tab = window.__dinksterTest!.app.activeTab()
+    return tab?.id === 'graph-mask-paint' && 'status' in tab.store
+  })
 
   await expect.poll(() => page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as {
@@ -473,13 +466,28 @@ for (const opaqueMetadata of [false, true]) test(opaqueMetadata
   })
   await expect(page.getByRole('button', { name: 'Apply mask to graph' })).toBeEnabled()
   await page.screenshot({ path: testInfo.outputPath('mask-default.png') })
+  // Hold candidate publication, not the workspace's baseline ownership handshake.
+  await page.route('**/mask-editor-test/api/library/retentions/document/*?scope=local', async (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+    expect(route.request().method()).toBe('PUT')
+    expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: !opaqueMetadata, digests: [SOURCE] })
+    retentionCount += 1
+    if (opaqueMetadata) return route.fulfill({ status: 409 })
+    if (retentionCount === 1) await acknowledgment
+    return route.fulfill({ json: {
+      scope: 'local', ownerKind: 'document',
+      ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!),
+      revision: 1, complete: true, digests: [SOURCE],
+    } })
+  })
   const before = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
+  const beforeRevision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   await page.getByRole('button', { name: 'Apply mask to graph' }).click()
   if (opaqueMetadata) {
-    await expect(page.getByRole('alert')).toHaveText('Workflow asset identities are incomplete')
+    await expect(page.getByRole('alert')).toHaveText('PUT retained assets failed: 409')
     expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)).toEqual(before)
     expect(before.graphs.g0!.links.mask).toMatchObject({ ext: { retained: true } })
-    expect(retentionCount).toBe(0)
+    expect(retentionCount).toBe(1)
     expect(uploadCount).toBe(0)
     await expect(page.getByRole('button', { name: 'Undo mask edit' })).toBeEnabled()
     await expect(page.getByRole('button', { name: 'Apply mask to graph' })).toBeEnabled()
@@ -520,6 +528,6 @@ for (const opaqueMetadata of [false, true]) test(opaqueMetadata
   await expect(page.getByTestId('image-editor')).toHaveCount(0)
   expect(await page.evaluate(() => Object.values(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes)
     .filter((node) => node.type === 'dinkster.mask.paint').length)).toBe(1)
-  expect(retentionCount).toBe(2)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(beforeRevision + 2)
   expect(uploadCount).toBe(0)
 })

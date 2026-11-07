@@ -37,14 +37,16 @@ test('loads wire41 serializer fixtures and the native path widget without browse
   })).toMatchObject({
     id: 'video', widget: { widgetType: 'STRING', options: { placeholder: 'X://insert/path/here.mp4' } },
   })
-  await page.evaluate(async (types) => {
-    const tab = window.__dinksterTest!.app.activeTab()!
-    for (const [index, type] of types.entries()) {
-      const result = await window.__dinksterTest!.app.dispatchTo(tab, { command: 'node.add', params: {
-        graphId: tab.store.doc.root, type, values: {}, position: { x: 120 + (index % 2) * 380, y: 110 + Math.floor(index / 2) * 240 },
-      } })
-      if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
-    }
+  await page.evaluate((types) => {
+    // Wire15 dormant identities are displayable but cannot authorize publication.
+    const diagnostics = window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'wire41-display', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: Object.fromEntries(types.map((type, index) =>
+        [`node-${index}`, { id: `node-${index}`, type, values: {} }])), links: {}, nets: {}, reroutes: {}, nextOrdinal: 5 } },
+      view: { graphs: { g0: { nodes: Object.fromEntries(types.map((_, index) =>
+        [`node-${index}`, { position: { x: 120 + (index % 2) * 380, y: 110 + Math.floor(index / 2) * 240 } }])) } } },
+    }, 'Wire41 display')
+    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   }, schemas.map((schema) => schema.nodeType))
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(5)
