@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   asConnectionId,
   asGraphDefId,
@@ -12,7 +12,7 @@ import {
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { DinksterConnection, buildDinksterRegistry } from '@dinkster/client'
+import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState, orderWorkspaceOperations } from '../src/app-state.js'
 import { SharedWorkerDocumentAuthority, type WorkerPortLike } from '../src/shared-worker-authority.js'
 import {
@@ -23,7 +23,6 @@ import {
 import { SharedWorkerTabAuthority } from '../src/workspace-worker-authority.js'
 import type { WorkspaceWorkerPortFactory } from '../src/workspace-worker-connection.js'
 import { IMAGE_EDITOR_KIND } from '../src/editors.js'
-import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
@@ -64,24 +63,6 @@ const memoryStorage = (reverseKeys = false): Storage => {
     get length() { return values.size },
   } as Storage
 }
-
-const editableApps: AppState[] = []
-const createEditableApp = (): AppState => {
-  const app = prepareWorkflowApp(new AppState())
-  editableApps.push(app)
-  return app
-}
-
-beforeEach(() => {
-  vi.stubGlobal('localStorage', memoryStorage())
-  vi.spyOn(DinksterConnection.prototype, 'retainAssets').mockImplementation(async (owner, declaration) =>
-    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
-})
-afterEach(() => {
-  for (const app of editableApps.splice(0)) app.dispose()
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-})
 
 const drainTasks = async (): Promise<void> => {
   for (let count = 0; count < 5; count += 1) await new Promise<void>((resolve) => setTimeout(resolve, 0))
@@ -155,186 +136,6 @@ class EventChannel {
 }
 
 describe('AppState multi-window workspace', () => {
-  it.each(['accepted', 'refused', 'retargeted', 'registry', 'disposed'] as const)(
-    'retains incoming shared edits before publishing confirmed ground: %s', async (scenario) => {
-      const factory = authorityFactories()
-      const author = createEditableApp()
-      const viewer = createEditableApp()
-      author.openDocument(workflow(), 'Shared workflow')
-      viewer.openDocument(workflow(), 'Shared workflow')
-      await Promise.all([author.enableWorkspaceAuthority(factory.document, factory.workspace),
-        viewer.enableWorkspaceAuthority(factory.document, factory.workspace)])
-      const received = () => viewer.tabs.get().find((tab) => tab.id === 'multi-window-workflow')!
-      const original = received().store.doc
-      const digest = `blake3:${'d'.repeat(64)}`
-      let acknowledge!: () => void
-      let requested!: () => void
-      const request = new Promise<void>((resolve) => { requested = resolve })
-      vi.spyOn(viewer.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-        if (!declaration.digests.includes(digest)) return { ...owner, ...declaration, revision: 1 }
-        expect(declaration.complete).toBe(false)
-        expect(localStorage.getItem(`dinkster.workflow-retentions.${owner.ownerId}`)).not.toBeNull()
-        requested()
-        return new Promise((resolve) => { acknowledge = () => resolve({ ...owner, ...declaration,
-          revision: scenario === 'refused' ? 2 : 1 }) })
-      })
-      vi.spyOn(viewer.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-      const tab = author.tabs.get().find((tab) => tab.id === 'multi-window-workflow')!
-      expect((await author.dispatchTo(tab, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1',
-        inputId: 'held', value: { digest, name: 'remote.bin', size: 11, mediaType: 'application/octet-stream', virtualPath: '' } } })).ok).toBe(true)
-      await request
-      expect(received().store.doc).toBe(original)
-      if (scenario === 'retargeted') viewer.setTabTarget(received().id, viewer.addBackend('http://other.test', 'Other', false, 'dinkster')!.id)
-      if (scenario === 'registry') viewer.registry.set({ connection: viewer.connection.id, schemas: new Map(),
-        diagnostics: [], hash: 'changed', resolve: () => undefined })
-      if (scenario === 'disposed') viewer.dispose()
-      acknowledge()
-      if (scenario === 'accepted') {
-        await vi.waitFor(() => expect(received().store.doc.graphs.g0!.nodes.n1!.values.held).toMatchObject({ digest }))
-      } else {
-        if (scenario !== 'disposed') await vi.waitFor(() => expect(viewer.problems.get().some(
-          (problem) => problem.message.includes('sync failed'))).toBe(true))
-        expect(received().store.doc).toBe(original)
-      }
-    },
-  )
-
-  it.each(['accepted', 'refused', 'edited', 'retargeted', 'disposed', 'registry', 'disconnected', 'superseded', 'running-accepted', 'running-refused'] as const)(
-    'retains incoming tab records before publishing the inventory: %s', async (scenario) => {
-      const factory = authorityFactories()
-      const author = createEditableApp()
-      const digest = `blake3:${'c'.repeat(64)}`
-      const document = workflow()
-      const incomingDocument = { ...document, ext: { held: { digest, name: 'incoming.bin', size: 11,
-        mediaType: 'application/octet-stream', virtualPath: '' } } }
-      const running = scenario.startsWith('running-')
-      if (!running) author.openDocument(incomingDocument, 'Incoming workflow')
-      await author.enableWorkspaceAuthority(factory.document, factory.workspace)
-      vi.stubGlobal('localStorage', memoryStorage())
-      const viewer = createEditableApp()
-      if (running) await viewer.enableWorkspaceAuthority(factory.document, factory.workspace)
-      const previous = viewer.tabs.get()
-      const active = viewer.activeTabId.get()
-      let released = false
-      const acknowledgments: (() => void)[] = []
-      let requested!: () => void
-      const request = new Promise<void>((resolve) => { requested = resolve })
-      vi.spyOn(viewer.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-        if (!declaration.digests.includes(digest)) return { ...owner, ...declaration, revision: 1 }
-        expect(declaration).toEqual({ revision: 0, complete: false, digests: [digest] })
-        expect(localStorage.getItem(`dinkster.workflow-retentions.${owner.ownerId}`)).not.toBeNull()
-        if (!released) await new Promise<void>((resolve) => { acknowledgments.push(resolve); requested() })
-        return { ...owner, ...declaration, revision: scenario.endsWith('refused') ? 2 : 1 }
-      })
-      vi.spyOn(viewer.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-      const opening = running
-        ? Promise.resolve(author.openDocument(incomingDocument, 'Incoming workflow')).then(drainTasks)
-        : viewer.enableWorkspaceAuthority(factory.document, factory.workspace)
-      await request
-      expect(viewer.tabs.get()).toBe(previous)
-      expect(viewer.activeTabId.get()).toBe(active)
-      if (scenario === 'edited') await viewer.dispatchTo(previous[0]!, { command: 'node.add',
-        params: { graphId: previous[0]!.store.doc.root, type: 'LocalEdit', position: { x: 1, y: 2 } } })
-      if (scenario === 'retargeted') viewer.setTabTarget(previous[0]!.id,
-        viewer.addBackend('http://new-target.test', 'New target', false, 'dinkster')!.id)
-      if (scenario === 'disposed') viewer.dispose()
-      if (scenario === 'registry') viewer.registry.set({ connection: viewer.connection.id, schemas: new Map(),
-        diagnostics: [], hash: 'changed', resolve: () => undefined })
-      if (scenario === 'disconnected') { viewer.connection.connect(); viewer.connection.disconnect() }
-      if (scenario === 'superseded') {
-        author.closeTab(document.lineage)
-        await drainTasks()
-      }
-      released = true
-      for (const acknowledge of acknowledgments) acknowledge()
-      await opening
-      await drainTasks()
-      const incoming = viewer.tabs.get().find((tab) => tab.id === document.lineage)
-      if (scenario === 'accepted' || scenario === 'running-accepted') {
-        expect(incoming?.store.doc.ext?.held).toMatchObject({ digest })
-        expect(incoming?.title).toBe('Incoming workflow')
-      } else if (scenario === 'superseded') {
-        expect(incoming).toBeUndefined()
-        expect(viewer.tabs.get().map((tab) => tab.id)).toEqual(author.tabs.get().map((tab) => tab.id))
-      } else {
-        expect(incoming).toBeUndefined()
-        expect(viewer.tabs.get().map((tab) => tab.id)).toEqual(previous.map((tab) => tab.id))
-        if (scenario === 'edited') expect(Object.values(viewer.tabs.get()[0]!.store.doc.graphs[previous[0]!.store.doc.root]!.nodes)
-          .some((node) => node.type === 'LocalEdit')).toBe(true)
-      }
-    },
-  )
-
-  it.each(['accepted', 'refused', 'edited', 'closed', 'retargeted', 'removed', 'disposed', 'registry', 'disconnected', 'metadata', 'remote'] as const)(
-    'retains a canonical workspace snapshot before replacing the local store: %s', async (scenario) => {
-      const factory = authorityFactories()
-      const app = createEditableApp()
-      app.openDocument(workflow(), 'Shared workflow')
-      const tab = app.tabs.get().find((candidate) => candidate.id === 'multi-window-workflow')!
-      const backend = app.addBackend('http://workspace.test', 'Workspace source', false, 'dinkster')!
-      backend.registry.set(app.registry.get())
-      app.setTabTarget(tab.id, backend.id)
-      const digest = `blake3:${'a'.repeat(64)}`
-      const previousDigest = `blake3:${'b'.repeat(64)}`
-      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-        ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
-      expect((await app.dispatchTo(tab, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1',
-        inputId: 'held', value: { digest: previousDigest, name: 'previous.bin', size: 9, mediaType: 'application/octet-stream', virtualPath: '' } } })).ok).toBe(true)
-      expect((await app.dispatchTo(tab, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1',
-        inputId: 'held', value: { digest, name: 'held.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } } })).ok).toBe(true)
-      let acknowledge!: () => void
-      let requested!: () => void
-      let released = false
-      const request = new Promise<void>((resolve) => { requested = resolve })
-      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-        if (released || !declaration.digests.includes(digest)) return { ...owner, ...declaration, revision: declaration.revision + 1 }
-        expect(declaration).toEqual({ revision: 0, complete: false, digests: [digest, previousDigest] })
-        expect(localStorage.getItem(`dinkster.workflow-retentions.${owner.ownerId}`)).not.toBeNull()
-        requested()
-        return new Promise((resolve) => { acknowledge = () => {
-          released = true
-          resolve({ ...owner, ...declaration,
-            revision: scenario === 'refused' ? declaration.revision + 2 : declaration.revision + 1 })
-        } })
-      })
-      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-      const promotion = app.enableWorkspaceAuthority(factory.document, factory.workspace)
-      await request
-      expect(app.tabs.get().find((candidate) => candidate.id === tab.id)?.store).toBe(tab.store)
-      if (scenario === 'edited') tab.store.dispatch({ command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: 'New local title' } })
-      if (scenario === 'closed') app.closeTab(tab.id)
-      if (scenario === 'retargeted') app.setTabTarget(tab.id, app.addBackend('http://other.test', 'Other', false, 'dinkster')!.id)
-      if (scenario === 'removed') app.removeBackend(backend.id)
-      if (scenario === 'disposed') app.dispose()
-      if (scenario === 'registry') backend.registry.set({ connection: backend.id, schemas: new Map(), diagnostics: [], hash: 'changed', resolve: () => undefined })
-      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
-      if (scenario === 'metadata') {
-        app.settings.set('features.appView.enabled', true)
-        app.setTabEditorKind(tab.id, 'app')
-      }
-      if (scenario === 'remote') {
-        const other = await connectSharedWorkerSession(tab.id, tab.store.doc, coreCommandRegistry(),
-          { actorId: 'remote-editor' }, factory.document)
-        expect(other.dispatch({ command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: 'Remote title' } }).ok).toBe(true)
-        await other.settle()
-        other.close()
-      }
-      acknowledge()
-      await promotion
-      const current = app.tabs.get().find((candidate) => candidate.id === tab.id)
-      if (scenario === 'accepted' || scenario === 'metadata') {
-        expect(current?.store).not.toBe(tab.store)
-        expect(current?.store.doc).toEqual(tab.store.doc)
-        expect(current?.store.canUndo).toBe(true)
-        expect(app.backendForTab(current!)).toBe(backend)
-        if (scenario === 'metadata') expect(current?.editorKind).toBe('app')
-        expect(current?.store.undo()).toBe(true)
-        await (current!.store as unknown as { settle(): Promise<void> }).settle()
-        expect(current?.store.doc.graphs.g0!.nodes.n1!.values.held).toMatchObject({ digest: previousDigest })
-      } else if (scenario !== 'closed') expect(current?.store).toBe(tab.store)
-    },
-  )
-
   it('opens incoming App tabs as Graph while preserving exposure in a default-off window', async () => {
     const factory = authorityFactories()
     const author = new AppState()
@@ -344,7 +145,6 @@ describe('AppState multi-window workspace', () => {
     author.setTabEditorKind('multi-window-workflow', 'app')
     await author.enableWorkspaceAuthority(factory.document, factory.workspace)
     const viewer = new AppState()
-    viewer.settings.set('features.appView.enabled', false)
     await viewer.enableWorkspaceAuthority(factory.document, factory.workspace)
     await drainTasks()
     const received = () => viewer.tabs.get().find((tab) => tab.id === 'multi-window-workflow')!
@@ -362,7 +162,7 @@ describe('AppState multi-window workspace', () => {
 
   it('uses one authoritative document with shared edit and undo visibility', async () => {
     const factory = authorityFactories()
-    const first = createEditableApp()
+    const first = new AppState()
     const second = new AppState()
     first.openDocument(workflow(), 'Shared workflow')
     second.openDocument(workflow(), 'Shared workflow')
@@ -373,9 +173,9 @@ describe('AppState multi-window workspace', () => {
     const firstTab = first.tabs.get().find((tab) => tab.id === 'multi-window-workflow')!
     const secondTab = second.tabs.get().find((tab) => tab.id === 'multi-window-workflow')!
 
-    expect((await first.dispatchTo(firstTab, {
+    expect(first.dispatchTo(firstTab, {
       command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: 'Edited in first window' },
-    })).ok).toBe(true)
+    }).ok).toBe(true)
     await (firstTab.store as unknown as { settle(): Promise<void> }).settle()
     expect(secondTab.store.doc.graphs.g0!.nodes.n1!.title).toBe('Edited in first window')
     expect(firstTab.store.undo()).toBe(true)
@@ -444,7 +244,7 @@ describe('AppState multi-window workspace', () => {
 
   it('keeps a local frozen view active without publishing it as shared workspace focus', async () => {
     const factory = authorityFactories()
-    const first = createEditableApp()
+    const first = new AppState()
     const second = new AppState()
     first.openDocument(workflow(), 'Shared workflow')
     second.openDocument(workflow(), 'Shared workflow')
@@ -464,7 +264,7 @@ describe('AppState multi-window workspace', () => {
     const ref = { connection: asConnectionId('local'), prompt: asPromptId('frozen-local') }
     first.registerRun(tab, ref, result.artifact)
 
-    expect(await first.openExecutionView(ref)).toBe(true)
+    expect(first.openExecutionView(ref)).toBe(true)
     await Promise.all([
       first.enableWorkspaceAuthority(factory.document, factory.workspace),
       second.enableWorkspaceAuthority(factory.document, factory.workspace),
@@ -476,7 +276,7 @@ describe('AppState multi-window workspace', () => {
     expect(second.activeTabId.get()).toBe('multi-window-workflow')
 
     first.activeTabId.set('multi-window-workflow')
-    expect(await first.openExecutionView(ref)).toBe(true)
+    expect(first.openExecutionView(ref)).toBe(true)
     await drainTasks()
     expect(first.activeTab()?.execution).toEqual(ref)
     expect(second.activeTabId.get()).toBe('multi-window-workflow')
@@ -484,7 +284,7 @@ describe('AppState multi-window workspace', () => {
 
   it('a shared live tab whose lineage collides with a local frozen view displaces it and releases the pin', async () => {
     const factory = authorityFactories()
-    const first = createEditableApp()
+    const first = new AppState()
     const second = new AppState()
     first.openDocument(workflow(), 'Shared workflow')
     second.openDocument(workflow(), 'Shared workflow')
@@ -504,7 +304,7 @@ describe('AppState multi-window workspace', () => {
     const ref = { connection: asConnectionId('local'), prompt: asPromptId('frozen-collision') }
     first.registerRun(tab, ref, result.artifact)
     first.store.apply({ kind: 'completed', execution: ref, timestamp: 1 })
-    expect(await first.openExecutionView(ref)).toBe(true)
+    expect(first.openExecutionView(ref)).toBe(true)
     const frozenId = first.tabs.get().find((candidate) => candidate.execution)!.id
     await Promise.all([
       first.enableWorkspaceAuthority(factory.document, factory.workspace),
@@ -530,72 +330,6 @@ describe('AppState multi-window workspace', () => {
       first.store.apply({ kind: 'completed', execution: churn, timestamp: base + i })
     }
     expect(first.store.get(ref)).toBeUndefined()
-  })
-
-  it.each([false, true].flatMap((opaque) => ['nodeOutput', 'preview'].flatMap((kind) =>
-    ['accepted', 'refused'].map((scenario) => ({ opaque, kind, scenario })),
-  )))('admits received $kind identities before later events, opaque=$opaque: $scenario', async ({ opaque, kind, scenario }) => {
-    const left = new EventChannel()
-    const right = new EventChannel()
-    left.peer = right
-    right.peer = left
-    const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
-    editableApps.push(app)
-    const ref = { connection: app.connection.id, prompt: asPromptId('received-output') }
-    const digest = `blake3:${'b'.repeat(64)}`
-    const output = { image: { typeId: 'IMAGE', meta: opaque ? { fingerprint: 'opaque-source' } : { digest } } }
-    const send = (event: unknown) => left.postMessage({ source: 'foreign-window', kind: 'event', event })
-    send({ kind: 'started', execution: ref, timestamp: 1 })
-    let requested = 0
-    let acknowledge!: () => void
-    vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-    vi.spyOn(app.connection, 'retainAssets').mockImplementation((owner, declaration) => {
-      requested += 1
-      expect(declaration.digests).toEqual(opaque ? [] : [digest])
-      expect(declaration.complete).toBe(false)
-      return new Promise((resolve, reject) => {
-        acknowledge = () => scenario === 'refused' ? reject(new Error('ownership refused'))
-          : resolve({ ...owner, ...declaration, revision: 1 })
-      })
-    })
-    send({ kind, execution: ref, timestamp: 2, runtimeNodeId: 'image',
-      ...(kind === 'nodeOutput' ? { output } : { channel: 'application/json', stream: 'structured', payload: output }) })
-    const bytes = new ArrayBuffer(3)
-    send({ kind: 'preview', execution: ref, timestamp: 3, runtimeNodeId: 'image', channel: 'image/png', payload: bytes })
-    send({ kind: 'completed', execution: ref, timestamp: 4 })
-    const other = { ...ref, prompt: asPromptId('unrelated') }
-    send({ kind: 'started', execution: other, timestamp: 5 })
-    await drainTasks()
-    expect(app.store.get(ref)).toMatchObject({ status: 'running', outputs: {}, previews: {} })
-    expect(requested).toBe(1)
-    expect(app.store.get(other)?.status).toBe('running')
-    acknowledge()
-    await drainTasks()
-    expect(app.store.get(ref)).toMatchObject({ status: 'completed',
-      outputs: scenario === 'accepted' && kind === 'nodeOutput' ? { image: output } : {} })
-    expect(app.store.get(ref)?.previews.image?.structured?.payload).toEqual(
-      scenario === 'accepted' && kind === 'preview' ? output : undefined)
-    expect(app.store.get(ref)?.previews.image?.['']?.payload).toEqual(bytes)
-    expect(right.sent).toEqual([])
-  })
-
-  it.each(['buffer', 'blob'])('publishes self-contained preview bytes without ownership admission: %s', async (kind) => {
-    const left = new EventChannel()
-    const right = new EventChannel()
-    left.peer = right
-    right.peer = left
-    const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
-    editableApps.push(app)
-    const ref = { connection: app.connection.id, prompt: asPromptId('inline-preview') }
-    vi.spyOn(app.connection, 'retainAssets').mockRejectedValue(new Error('Inline bytes have no backend roots'))
-    const bytes = new Uint8Array([7, 3, 11])
-    const payload = kind === 'buffer' ? bytes.buffer : new Blob([bytes], { type: 'image/png' })
-    left.postMessage({ source: 'foreign-window', kind: 'event', event: {
-      kind: 'preview', execution: ref, timestamp: 1, runtimeNodeId: 'image', channel: 'image/png', payload,
-    } })
-    const actual = app.store.get(ref)?.previews.image?.['']?.payload
-    expect(actual).toBeDefined()
-    expect(new Uint8Array(actual instanceof Blob ? await actual.arrayBuffer() : actual as ArrayBuffer)).toEqual(bytes)
   })
 
   it('mirrors live execution events between window stores', () => {
@@ -687,71 +421,6 @@ describe('AppState multi-window workspace', () => {
     expect(app.store.get(ref)).toBeUndefined()
   })
 
-  it.each(['accepted', 'refused', 'disposed', 'disconnected', 'removed', 'superseded', 'registry', 'opaque-accepted', 'opaque-refused', 'source-accepted', 'source-refused'] as const)('retains mirrored registration snapshots before publication: %s', async (scenario) => {
-    const left = new EventChannel()
-    const right = new EventChannel()
-    left.peer = right
-    right.peer = left
-    const app = new AppState({ workspaceEvents: right })
-    editableApps.push(app)
-    const backend = scenario === 'removed'
-      ? app.addBackend('http://registration.test', 'Registration source', false, 'dinkster')!
-      : app.backends.get()[0]!
-    const registry = buildDinksterRegistry(backend.id, {
-      schemaVersion: 1,
-      dinkster: { version: 'test', schemaWire: 1 },
-      nodes: {
-        X: {
-          schemaVersion: 1, displayName: 'X', outputNode: true,
-          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
-        },
-      },
-    })
-    backend.registry.set(registry)
-    const digest = `blake3:${'e'.repeat(64)}`
-    const opaque = scenario.startsWith('opaque-')
-    const sourceDocument = scenario.startsWith('source-') ? `blake3:${'f'.repeat(64)}` : undefined
-    const result = compile({
-      document: sourceDocument === undefined ? { ...workflow(), ext: { held: opaque ? { token: 'opaque-registration' }
-        : { digest, name: 'registration.bin', size: 17, mediaType: 'application/octet-stream', virtualPath: '' } } } : workflow(),
-      revision: 0, resolve: registry.resolve, scope: { kind: 'full' },
-      connection: backend.id, schemaHash: registry.hash,
-    })
-    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
-    let acknowledge!: () => void
-    const retain = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-      new Promise((resolve) => { acknowledge = () => resolve({ ...owner, ...declaration,
-        revision: scenario.endsWith('refused') ? 2 : 1 }) }))
-    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-    const ref = { connection: backend.id, prompt: asPromptId(`held-registration-${scenario}`) }
-    left.postMessage({ source: 'peer', kind: 'register', ref, artifact: result.artifact, timestamp: 13,
-      ...(sourceDocument === undefined ? {} : { sourceDocument }) })
-    expect(app.store.get(ref)).toBeUndefined()
-    await vi.waitFor(() => expect(retain).toHaveBeenCalled())
-    expect(retain.mock.calls.at(-1)?.[1]).toEqual({ revision: 0, complete: false,
-      digests: sourceDocument === undefined ? opaque ? [] : [digest] : [sourceDocument] })
-    left.postMessage({ source: 'peer', kind: 'event', event: { kind: 'completed', execution: ref, timestamp: 19 } })
-    expect(app.store.get(ref)).toBeUndefined()
-    if (scenario === 'disposed') app.dispose()
-    if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
-    if (scenario === 'removed') app.removeBackend(backend.id)
-    if (scenario === 'registry') backend.registry.set({ ...registry })
-    if (scenario === 'superseded') left.postMessage({ source: 'peer', kind: 'register', ref,
-      artifact: { ...result.artifact, revision: 1 }, timestamp: 29 })
-    acknowledge()
-    if (scenario.endsWith('accepted')) {
-      await vi.waitFor(() => expect(app.store.get(ref)?.status).toBe('completed'))
-      expect(app.store.get(ref)?.artifact?.snapshot.ext?.held).toEqual(result.artifact.snapshot.ext?.held)
-      expect(app.store.get(ref)?.queuedAt).toBe(13)
-      expect(app.store.get(ref)?.sourceDocument).toBe(sourceDocument)
-    } else {
-      if (scenario.endsWith('refused')) await vi.waitFor(() => expect(app.problems.get().some(
-        (problem) => problem.code === 'execution.registrationRetentionFailed')).toBe(true))
-      await drainTasks()
-      expect(app.store.get(ref)).toBeUndefined()
-    }
-  })
-
   it('rebuilds valid registrations and rejects malformed peer artifacts', () => {
     const left = new EventChannel()
     const right = new EventChannel()
@@ -794,7 +463,7 @@ describe('AppState multi-window workspace', () => {
     expect(app.store.get(corrupted)).toBeUndefined()
   })
 
-  it('retries a registration after a same-hash reconnect registry restores graph features', async () => {
+  it('retries a registration after a same-hash reconnect registry restores graph features', () => {
     const left = new EventChannel()
     const right = new EventChannel()
     left.peer = right
@@ -813,10 +482,10 @@ describe('AppState multi-window workspace', () => {
       resolve: (type: string) => schemas.get(type),
       graphFeatures: ['regions'],
     }
-    const author = createEditableApp()
+    const author = new AppState()
     author.registry.set(registry)
     const tab = author.createWorkflow()
-    expect((await author.createRegion(tab, tab.store.doc.root, { x: 0, y: 0 }, 'map')).ok).toBe(true)
+    expect(author.createRegion(tab, tab.store.doc.root, { x: 0, y: 0 }, 'map').ok).toBe(true)
     const result = author.compileTab(tab)
     if (!result?.ok) throw new Error(JSON.stringify(result?.diagnostics))
     const ref = { connection, prompt: asPromptId('run-register-region-reconnect') }
@@ -874,14 +543,14 @@ describe('AppState multi-window workspace', () => {
       authority.connect(worker)
       return renderer
     }
-    const app = createEditableApp()
+    const app = new AppState()
     app.openDocument(workflow(), 'Shared workflow')
     const tab = app.tabs.get().find((candidate) => candidate.id === 'multi-window-workflow')!
     const workspaceFactory = authorityFactories().workspace
     const promotion = app.enableWorkspaceAuthority(factory, workspaceFactory)
-    expect((await app.dispatchTo(tab, {
+    expect(app.dispatchTo(tab, {
       command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: 'Kept locally' },
-    })).ok).toBe(true)
+    }).ok).toBe(true)
     setTimeout(() => renderers.forEach((renderer) => renderer.release()), 0)
     await promotion
     pause = false
@@ -965,14 +634,14 @@ describe('AppState multi-window workspace', () => {
       authority.connect(worker)
       return renderer
     }
-    const app = createEditableApp()
+    const app = new AppState()
     app.openDocument(workflow(), 'Shared workflow')
     const tab = app.tabs.get().find((candidate) => candidate.id === 'multi-window-workflow')!
     const workspaceFactory = authorityFactories().workspace
     const promotion = app.enableWorkspaceAuthority(factory, workspaceFactory)
-    expect((await app.dispatchTo(tab, {
+    expect(app.dispatchTo(tab, {
       command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: 'Edited before promotion' },
-    })).ok).toBe(true)
+    }).ok).toBe(true)
     setTimeout(() => renderers.forEach((renderer) => renderer.release()), 0)
     await promotion
     pause = false
@@ -991,7 +660,7 @@ describe('AppState multi-window workspace', () => {
 
   it('keeps the shared session alive when a tab is replaced with new metadata', async () => {
     const factory = authorityFactories()
-    const app = createEditableApp()
+    const app = new AppState()
     app.settings.set('features.appView.enabled', true)
     app.openDocument(workflow(), 'Shared workflow')
     await app.enableWorkspaceAuthority(factory.document, factory.workspace)
@@ -1007,9 +676,9 @@ describe('AppState multi-window workspace', () => {
     await (app as unknown as { promoteWorkspaceTabs(): Promise<void> }).promoteWorkspaceTabs()
 
     expect((replaced.store as unknown as { status: { get(): string } }).status.get()).toBe('live')
-    expect((await app.dispatchTo(replaced, {
+    expect(app.dispatchTo(replaced, {
       command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: 'Edited after replacement' },
-    })).ok).toBe(true)
+    }).ok).toBe(true)
     await (replaced.store as unknown as { settle(): Promise<void> }).settle()
     expect(replaced.store.doc.graphs.g0!.nodes.n1!.title).toBe('Edited after replacement')
 
@@ -1386,7 +1055,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
 
   it('advances run-completion controllers in the promoted session', async () => {
     const factory = authorityFactories()
-    const app = createEditableApp()
+    const app = new AppState()
     ;(app.registry as unknown as { set(value: unknown): void }).set({ schemas: new Map(), resolve: () => undefined, hash: 'promotion-test' })
     app.registerSchemas([seedSchema])
     expect(app.openDocument(seedFixture(), 'Promotion Seed')).toEqual([])
@@ -1405,7 +1074,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     expect(promoted.store).not.toBe(tab.store)
 
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 14, down: 9 })
+    expect(promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 14, down: 9 })
   })
 
   it('preserves editor-role schema resolution in the promoted command registry', async () => {
@@ -1430,7 +1099,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
       ],
     }
     const factory = authorityFactories()
-    const app = createEditableApp()
+    const app = new AppState()
     ;(app.registry as unknown as { set(value: unknown): void }).set({ schemas: new Map(), resolve: () => undefined, hash: 'promotion-test' })
     app.registerSchemas([seedSchema, loadSchema, flattenSchema])
     expect(app.openDocument(seedFixture(), 'Promotion Roles')).toEqual([])
@@ -1440,7 +1109,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     await drainTasks()
     const promoted = app.tabs.get().find((candidate) => candidate.id === tab.id)!
     const graph = promoted.store.doc.graphs.g0!
-    const result = await app.dispatchTo(promoted, {
+    const result = promoted.store.dispatch({
       command: 'image.documentExport',
       params: {
         graphId: 'g0',
@@ -1464,7 +1133,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
 
   it('an edit restored through the promoted session still suppresses its advancement (ABA)', async () => {
     const factory = authorityFactories()
-    const app = createEditableApp()
+    const app = new AppState()
     ;(app.registry as unknown as { set(value: unknown): void }).set({ schemas: new Map(), resolve: () => undefined, hash: 'promotion-test' })
     app.registerSchemas([seedSchema])
     expect(app.openDocument(seedFixture(), 'Promotion Seed')).toEqual([])
@@ -1488,7 +1157,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     promoted.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value: 11 } })
     await drainTasks()
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 9 })
+    expect(promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 9 })
   })
 
   const comboRoute = '/remote/options'
@@ -1520,7 +1189,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
 
   it('applies an in-flight combo refresh to the promoted session', async () => {
     const factory = authorityFactories()
-    const app = createEditableApp()
+    const app = new AppState()
     ;(app.registry as unknown as { set(value: unknown): void }).set({ schemas: new Map(), resolve: () => undefined, hash: 'promotion-test' })
     app.registerSchemas([comboSchema])
     expect(app.openDocument(comboFixture(), 'Promotion Combo')).toEqual([])
@@ -1533,7 +1202,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     const promoted = app.tabs.get().find((candidate) => candidate.id === tab.id)!
     expect(promoted.store).not.toBe(tab.store)
 
-    await app.completeComboRefresh(plan, ['a', 'b', 'c'], () => 0.5)
+    app.completeComboRefresh(plan, ['a', 'b', 'c'], () => 0.5)
     expect(promoted.store.doc.graphs.g0!.nodes.combo!.values).toEqual({ up: 'a', down: 'c' })
   })
 })

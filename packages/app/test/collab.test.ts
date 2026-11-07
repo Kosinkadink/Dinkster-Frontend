@@ -28,7 +28,7 @@ import {
   type SharedDocumentSession,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { DinksterConnection, buildDinksterRegistry } from '@dinkster/client'
+import { buildDinksterRegistry } from '@dinkster/client'
 import nodesPayload from '../../core/fixtures/dinkster-nodes.json'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
@@ -36,7 +36,6 @@ import { AppState, type Tab } from '../src/app-state.js'
 import { bindBrowserActor, COLLAB_ACTOR_ID_KEY, COLLAB_SCOPE, stableActorId, type CollabTransport } from '../src/collab.js'
 import { APP_EDITOR_KIND } from '../src/editors.js'
 import { flattenInvocation } from '../src/subgraph-lifecycle.js'
-import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -227,22 +226,11 @@ class FakeCollabServer {
 // ---------------------------------------------------------------------------
 
 // AppStates model separate browser tabs, not Node's process-wide session storage.
-const editableApps: AppState[] = []
-beforeEach(() => {
-  vi.stubGlobal('sessionStorage', undefined)
-  vi.stubGlobal('localStorage', fakeStorage())
-  vi.spyOn(DinksterConnection.prototype, 'retainAssets').mockImplementation(async (owner, declaration) =>
-    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
-})
-afterEach(() => {
-  for (const app of editableApps.splice(0)) app.dispose()
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-})
+beforeEach(() => vi.stubGlobal('sessionStorage', undefined))
+afterEach(() => vi.unstubAllGlobals())
 
 const makeApp = (server: FakeCollabServer, withBackend = true): AppState => {
   const app = new AppState({ collabTransport: server.transport })
-  editableApps.push(app)
   if (withBackend) {
     const backend = app.backends.get().find((candidate) => candidate.baseUrl === 'http://collab') ??
       app.addBackend('http://collab', 'collab', false, 'dinkster')!
@@ -265,12 +253,8 @@ const sharedSession = (app: AppState, tabId: string): SharedDocumentSession => {
 
 const nodeCount = (tab: Tab): number => Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes).length
 
-const addNode = (app: AppState, tab: Tab, type = 'X') => {
-  const backend = app.backendForTab(tab)
-  if (backend.registry.get() === undefined) backend.registry.set({ connection: backend.id,
-    schemas: new Map(), diagnostics: [], hash: 'collab-test', resolve: () => undefined })
-  return app.dispatchTo(tab, { command: 'node.add', params: { graphId: tab.store.doc.root, type, position: { x: 0, y: 0 } } })
-}
+const addNode = (tab: Tab) =>
+  tab.store.dispatch({ command: 'node.add', params: { graphId: tab.store.doc.root, type: 'X', position: { x: 0, y: 0 } } })
 
 const planSeedFlatten = (app: AppState, tab: Tab) => flattenInvocation(
   tab.store.doc,
@@ -457,134 +441,6 @@ describe('stableActorId', () => {
 })
 
 describe('share', () => {
-  it('retains pending prefix assets before remote adoption after history is cleared', async () => {
-    const server = new FakeCollabServer()
-    const app = prepareWorkflowApp(makeApp(server))
-    const prior = activeTab(app)
-    const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
-      size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
-    expect((await app.dispatchTo(prior, { command: 'node.add', params: { graphId: prior.store.doc.root,
-      type: 'AssetHolder', position: { x: 20, y: 40 }, values: { held: asset('a') } } })).ok).toBe(true)
-    expect(await app.shareActiveTab()).toBeUndefined()
-    const tab = activeTab(app)
-    const shared = sharedSession(app, tab.id)
-    const node = Object.values(shared.doc.graphs[shared.doc.root]!.nodes)[0]!
-    const connection = [...[...server.sessions.values()][0]!.connections][0]!
-    const post = connection.postOp.bind(connection)
-    const postGate = gate()
-    const ownershipGate = gate()
-    const requested = gate()
-    vi.spyOn(connection, 'postOp').mockImplementation(async (op) => {
-      await postGate.promise
-      return post(op)
-    })
-    try {
-      for (const letter of ['b', 'c']) {
-        expect((await app.dispatchTo(tab, { command: 'node.setValue', params: { graphId: shared.doc.root,
-          nodeId: node.id, inputId: 'held', value: asset(letter) } })).ok).toBe(true)
-      }
-      shared.clearHistory()
-      expect(shared.historySnapshot().undo).toEqual([])
-      const peer = prepareWorkflowApp(makeApp(server))
-      expect(await peer.joinCollabSession(app.collabFor(tab.id)!.descriptor.sessionId)).toBeUndefined()
-      const declarations: (readonly string[])[] = []
-      vi.spyOn(app.backendForTab(tab).connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-        declarations.push([...declaration.digests])
-        requested.open()
-        await ownershipGate.promise
-        return { ...owner, ...declaration, revision: 1 }
-      })
-      expect((await peer.dispatchTo(activeTab(peer), { command: 'node.setTitle', params: {
-        graphId: shared.doc.root, nodeId: node.id, title: 'Remote title',
-      } })).ok).toBe(true)
-      await requested.promise
-      expect(declarations[0]).toEqual(['a', 'b', 'c'].map((letter) => asset(letter).digest))
-      expect(shared.doc.graphs[shared.doc.root]!.nodes[node.id]!.title).toBeUndefined()
-      ownershipGate.open()
-      await until(() => shared.doc.graphs[shared.doc.root]!.nodes[node.id]!.title === 'Remote title')
-      expect(shared.doc.graphs[shared.doc.root]!.nodes[node.id]!.values.held).toEqual(asset('c'))
-      postGate.open()
-      await shared.settle()
-    } finally {
-      ownershipGate.open()
-      postGate.open()
-    }
-  })
-
-  it.each(['dispatch', 'prepared'] as const)('refuses unadmitted shared asset publication through %s', async (route) => {
-    const server = new FakeCollabServer()
-    const app = prepareWorkflowApp(makeApp(server))
-    const prior = activeTab(app)
-    const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
-      size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
-    const added = await app.dispatchTo(prior, { command: 'node.add', params: { graphId: prior.store.doc.root,
-      type: 'AssetHolder', position: { x: 20, y: 40 }, values: { held: asset('a') } } })
-    expect(added.ok).toBe(true)
-    expect(await app.shareActiveTab()).toBeUndefined()
-    const tab = activeTab(app)
-    const shared = sharedSession(app, tab.id)
-    const node = Object.values(tab.store.doc.graphs[tab.store.doc.root]!.nodes)[0]!
-    const replace = (letter: string) => ({ command: 'node.setValue', params: {
-      graphId: tab.store.doc.root, nodeId: node.id, inputId: 'held', value: asset(letter),
-    } })
-    const original = shared.doc
-    const history = shared.historySnapshot()
-    const prepared = route === 'prepared' ? shared.prepareDispatch(replace('c')) : undefined
-    const refused = route === 'dispatch' ? shared.dispatch(replace('c'))
-      : prepared!.ok ? prepared!.commit() : prepared!
-    expect(refused).toMatchObject({ ok: false, diagnostics: [{ code: 'command.retention.required' }] })
-    await shared.settle()
-    expect(shared.doc).toBe(original)
-    expect(shared.historySnapshot()).toEqual(history)
-    const backend = app.backendForTab(tab)
-    let acknowledge!: () => void
-    const pending = new Promise<void>((resolve) => { acknowledge = resolve })
-    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-      expect(declaration.digests).toEqual([asset('a').digest, asset('b').digest])
-      await pending
-      return { ...owner, ...declaration, revision: 1 }
-    })
-    const operation = app.dispatchTo(tab, replace('b'))
-    expect(shared.doc).toBe(original)
-    expect(shared.historySnapshot()).toEqual(history)
-    acknowledge()
-    expect((await operation).ok).toBe(true)
-    await shared.settle()
-    expect(shared.doc.graphs[shared.doc.root]!.nodes[node.id]!.values.held).toEqual(asset('b'))
-    expect(shared.undo()).toBe(true)
-    await shared.settle()
-    expect(shared.doc.graphs[shared.doc.root]!.nodes[node.id]!.values.held).toEqual(asset('a'))
-  })
-
-  it.each([true, false])('retains current and undo assets before sharing, accepted=%s', async (accepted) => {
-    const server = new FakeCollabServer()
-    const app = prepareWorkflowApp(makeApp(server))
-    const prior = activeTab(app)
-    const backend = app.collabBackend()!
-    const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
-      size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
-    const added = await app.dispatchTo(prior, { command: 'node.add', params: { graphId: prior.store.doc.root,
-      type: 'AssetHolder', position: { x: 20, y: 40 }, values: { held: asset('a') } } })
-    expect(added.ok).toBe(true)
-    const node = Object.values(prior.store.doc.graphs[prior.store.doc.root]!.nodes)[0]!
-    expect((await app.dispatchTo(prior, { command: 'node.setValue', params: { graphId: prior.store.doc.root,
-      nodeId: node.id, inputId: 'held', value: asset('b') } })).ok).toBe(true)
-    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-      expect(declaration).toEqual({ revision: 0, complete: false, digests: [asset('a').digest, asset('b').digest] })
-      return { ...owner, ...declaration, revision: accepted ? 1 : 2 }
-    })
-    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-    expect(await app.shareActiveTab() === undefined).toBe(accepted)
-    expect(app.collabFor(prior.id) !== undefined).toBe(accepted)
-    expect(activeTab(app).store.canUndo).toBe(true)
-    expect(activeTab(app).store.undo()).toBe(true)
-    expect(activeTab(app).store.doc.graphs[prior.store.doc.root]!.nodes[node.id]!.values.held).toEqual(asset('a'))
-    if (!accepted) {
-      expect(activeTab(app).store).toBe(prior.store)
-      expect(server.sessions.size).toBe(0)
-    }
-  })
-
   it('T19 installs current-document schema authority for both AppState local and adopted shared tabs', async () => {
     const server = new FakeCollabServer()
     const run = async (shared: boolean): Promise<void> => {
@@ -669,7 +525,7 @@ describe('share', () => {
     const joiner = makeApp(server)
     const local = activeTab(app)
     const baseline = nodeCount(local)
-    expect((await addNode(app, local)).diagnostics).toEqual([])
+    expect(addNode(local).diagnostics).toEqual([])
     expect(local.store.canUndo).toBe(true)
 
     expect(await app.shareActiveTab()).toBeUndefined()
@@ -711,7 +567,7 @@ describe('share', () => {
     const app = makeApp(server)
     expect(await app.shareActiveTab()).toBeUndefined()
     const tab = activeTab(app)
-    expect((await addNode(app, tab)).diagnostics).toEqual([])
+    expect(addNode(tab).diagnostics).toEqual([])
     await sharedSession(app, tab.id).settle()
     const session = [...server.sessions.values()][0]!
     expect(session.log).toHaveLength(1)
@@ -721,65 +577,6 @@ describe('share', () => {
 })
 
 describe('join and convergence', () => {
-  it.each(['accepted', 'refused', 'edited', 'closed', 'retargeted', 'removed', 'registry', 'disconnected', 'disposed', 'remote-edit', 'ended', 'projection'] as const)(
-    'holds a joined snapshot before ownership acknowledgment: %s', async (scenario) => {
-      const server = new FakeCollabServer()
-      const app = prepareWorkflowApp(makeApp(server))
-      const prior = activeTab(app)
-      const backend = app.collabBackend()!
-      const digest = `blake3:${'a'.repeat(64)}`
-      expect((await app.dispatchTo(prior, { command: 'node.add', params: { graphId: prior.store.doc.root,
-        type: 'AssetHolder', position: { x: 20, y: 40 }, values: {
-          held: { digest, name: 'held.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' },
-        } } })).ok).toBe(true)
-      const shared = server.createSession(COLLAB_SCOPE, prior.id, prior.store.doc)
-      let acknowledge!: () => void
-      let requested!: () => void
-      const request = new Promise<void>((resolve) => { requested = resolve })
-      vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
-        expect(localStorage.getItem(`dinkster.workflow-retentions.${owner.ownerId}`)).not.toBeNull()
-        expect(declaration).toEqual({ revision: 0, complete: false, digests: [digest] })
-        requested()
-        return new Promise((resolve) => {
-          acknowledge = () => resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
-        })
-      })
-      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-      const joining = app.joinCollabSession(shared.sessionId)
-      await request
-      expect(app.collabFor(prior.id)).toBeUndefined()
-      expect(activeTab(app)).toBe(prior)
-      if (scenario === 'edited') expect((await addNode(app, prior)).ok).toBe(true)
-      if (scenario === 'closed') app.closeTab(prior.id)
-      if (scenario === 'retargeted') app.setTabTarget(prior.id, app.connection.id)
-      if (scenario === 'removed') app.removeBackend(backend.id)
-      if (scenario === 'registry') backend.registry.set({ connection: backend.id, schemas: new Map(), diagnostics: [], hash: 'changed', resolve: () => undefined })
-      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
-      if (scenario === 'disposed') app.dispose()
-      if (scenario === 'remote-edit') {
-        await [...shared.connections][0]!.postOp({ protocolVersion: COLLAB_PROTOCOL_VERSION,
-          opId: 'remote-edit', actorId: 'other', baseRevision: 0, patch: [], })
-      }
-      if (scenario === 'ended') [...shared.connections][0]!.emit({ kind: 'session-closed' })
-      if (scenario === 'projection') {
-        app.settings.set('features.appView.enabled', true)
-        app.setTabEditorKind(prior.id, APP_EDITOR_KIND)
-      }
-      acknowledge()
-      const accepted = scenario === 'accepted' || scenario === 'projection'
-      expect(await joining === undefined).toBe(accepted)
-      expect(app.collabFor(prior.id) !== undefined).toBe(accepted)
-      if (accepted) {
-        expect(activeTab(app).store.doc).toEqual(prior.store.doc)
-        expect(app.backendForTab(activeTab(app))).toBe(backend)
-        if (scenario === 'projection') expect(activeTab(app).editorKind).toBe(APP_EDITOR_KIND)
-      } else {
-        expect(shared.connections.size).toBe(0)
-        if (scenario !== 'closed') expect(activeTab(app).store).toBe(prior.store)
-      }
-    },
-  )
-
   it('two apps discover the same session and converge in both directions', async () => {
     const server = new FakeCollabServer()
     const appA = makeApp(server)
@@ -798,12 +595,12 @@ describe('join and convergence', () => {
 
     // A -> B
     const baseline = nodeCount(tabA)
-    expect((await addNode(appA, tabA)).diagnostics).toEqual([])
+    expect(addNode(tabA).diagnostics).toEqual([])
     await sharedSession(appA, tabA.id).settle()
     await until(() => nodeCount(tabB) === baseline + 1, 'A edit reaching B')
 
     // B -> A
-    expect((await addNode(appB, tabB)).diagnostics).toEqual([])
+    expect(addNode(tabB).diagnostics).toEqual([])
     await sharedSession(appB, tabB.id).settle()
     await until(() => nodeCount(tabA) === baseline + 2, 'B edit reaching A')
     expect(tabA.store.doc).toEqual(tabB.store.doc)
@@ -862,7 +659,7 @@ describe('leave, end, and disposal', () => {
     const tabA = activeTab(appA)
     expect(await appB.joinCollabSession(appA.collabFor(tabA.id)!.descriptor.sessionId)).toBeUndefined()
     const tabB = activeTab(appB)
-    expect((await addNode(appA, tabA)).diagnostics).toEqual([])
+    expect(addNode(tabA).diagnostics).toEqual([])
     await sharedSession(appA, tabA.id).settle()
     const expected = nodeCount(tabA)
     await until(() => nodeCount(tabB) === expected, 'edit reaching B before leave')
@@ -875,7 +672,7 @@ describe('leave, end, and disposal', () => {
     expect(serverSession.connections.size).toBe(connsBefore - 1) // transport closed
     const local = appB.tabs.get().find((t) => t.id === tabB.id)!
     expect(nodeCount(local)).toBe(expected) // document survives the downgrade
-    expect((await addNode(appB, local)).diagnostics).toEqual([]) // and stays editable locally
+    expect(addNode(local).diagnostics).toEqual([]) // and stays editable locally
     // The server session (and A's membership) lives on.
     expect(server.sessions.size).toBe(1)
     expect(appA.collabFor(tabA.id)).toBeDefined()
@@ -932,7 +729,7 @@ describe('leave, end, and disposal', () => {
     const app = makeApp(server)
     expect(await app.shareActiveTab()).toBeUndefined()
     const tab = activeTab(app)
-    expect((await addNode(app, tab)).diagnostics).toEqual([])
+    expect(addNode(tab).diagnostics).toEqual([])
     await sharedSession(app, tab.id).settle()
 
     app.leaveCollabSession(tab.id)
@@ -942,7 +739,7 @@ describe('leave, end, and disposal', () => {
     expect(local.store.canUndo).toBe(false)
     // But history works forward from the new baseline.
     const before = nodeCount(local)
-    expect((await addNode(app, local)).diagnostics).toEqual([])
+    expect(addNode(local).diagnostics).toEqual([])
     expect(local.store.canUndo).toBe(true)
     expect(local.store.undo()).toBe(true)
     expect(nodeCount(local)).toBe(before)
@@ -1051,7 +848,6 @@ const gate = (): { promise: Promise<void>; open: () => void } => {
 
 describe('lifecycle races', () => {
   it('rebases a promoted count edit over an unrelated shared operation', async () => {
-    vi.stubGlobal('localStorage', fakeStorage())
     const server = new FakeCollabServer()
     const postGate = gate()
     let holdPosts = false
@@ -1082,7 +878,6 @@ describe('lifecycle races', () => {
     })
     appA.addBackend('http://collab', 'collab', false, 'dinkster')
     const backendA = installSharedCountRegistry(appA)
-    editableApps.push(prepareWorkflowApp(appA))
     expect(appA.openDocument(sharedCountDocument(), 'Shared count edit')).toEqual([])
     appA.setTabTarget(activeTab(appA).id, backendA.id)
     expect(await appA.shareActiveTab()).toBeUndefined()
@@ -1090,22 +885,21 @@ describe('lifecycle races', () => {
 
     const appB = makeApp(server)
     const backendB = installSharedCountRegistry(appB)
-    editableApps.push(prepareWorkflowApp(appB))
     expect(await appB.joinCollabSession(appA.collabFor(tabA.id)!.descriptor.sessionId)).toBeUndefined()
     const tabB = activeTab(appB)
     appB.setTabTarget(tabB.id, backendB.id)
 
     holdPosts = true
-    expect((await appA.dispatchTo(tabA, {
+    expect(appA.dispatchTo(tabA, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'left', inputId: 'amount', value: 3 },
-    })).ok).toBe(true)
+    }).ok).toBe(true)
     await until(() => heldPosts === 1, 'promoted count POST held')
 
-    expect((await appB.dispatchTo(tabB, {
+    expect(appB.dispatchTo(tabB, {
       command: 'node.setTitle',
       params: { graphId: 'g0', nodeId: 'right', title: 'peer edit' },
-    })).ok).toBe(true)
+    }).ok).toBe(true)
     await sharedSession(appB, tabB.id).settle()
     await until(() =>
       tabA.store.doc.graphs.g0!.nodes.right!.title === 'peer edit' &&
@@ -1244,7 +1038,7 @@ describe('lifecycle races', () => {
     const localStore = tab.store
 
     const pending = app.shareActiveTab()
-    expect((await addNode(app, tab)).diagnostics).toEqual([]) // edit while create is in flight
+    expect(addNode(tab).diagnostics).toEqual([]) // edit while create is in flight
     createGate.open()
 
     expect(await pending).toMatch(/changed while sharing/)
@@ -1342,7 +1136,7 @@ describe('lifecycle races', () => {
     expect(entry!.session.status.get()).toBe('live')
   })
 
-  it.each([false, true])('simultaneous edits collide on the server and still converge, known foreign schema=%s', async (knownForeign) => {
+  it('simultaneous edits collide on the server and still converge', async () => {
     const server = new FakeCollabServer()
     const appA = makeApp(server)
     // B's WS delivery can be held so its next op is genuinely built on a
@@ -1378,22 +1172,14 @@ describe('lifecycle races', () => {
     const tabB = activeTab(appB)
     await until(() => nodeCount(tabB) === nodeCount(tabA), 'join catch-up')
     const baseline = nodeCount(tabA)
-    if (knownForeign) {
-      const schema: NodeSchema = { type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false, items: [] }
-      for (const [app, tab] of [[appA, tabA], [appB, tabB]] as const) {
-        const backend = app.backendForTab(tab)
-        backend.registry.set({ connection: backend.id, schemas: new Map([['X', schema]]),
-          diagnostics: [], hash: 'known-foreign', resolve: (type) => type === 'X' ? schema : undefined })
-      }
-    }
 
     // A commits first; B edits without having seen it, so B's op reaches
     // the server on a stale base and must be refused and rebased
     // (server-ordered optimistic concurrency; the server never transforms).
     hold.held = true
-    expect((await addNode(appA, tabA)).diagnostics).toEqual([])
+    expect(addNode(tabA).diagnostics).toEqual([])
     await sharedSession(appA, tabA.id).settle()
-    expect((await addNode(appB, tabB, knownForeign ? 'Y' : 'X')).diagnostics).toEqual([])
+    expect(addNode(tabB).diagnostics).toEqual([])
     await until(() => server.staleBases >= 1, "B's stale-base refusal")
     hold.held = false
     for (const deliver of hold.buffer.splice(0)) deliver()
@@ -1501,11 +1287,8 @@ describe('lifecycle races', () => {
   })
 
   it('drops a stale fixed-id create batch atomically and repairs the losing drill-in navigation', async () => {
-    vi.stubGlobal('localStorage', fakeStorage())
     const server = new FakeCollabServer()
-    const createPostGate = gate()
     const appA = makeApp(server)
-    editableApps.push(prepareWorkflowApp(appA))
     const hold = { held: false, buffer: [] as (() => void)[] }
     const appB = new AppState({
       collabTransport: {
@@ -1514,10 +1297,7 @@ describe('lifecycle races', () => {
           const conn = server.transport.connect(config)
           return {
             sessionId: conn.sessionId,
-            postOp: async (op: CollabClientOp) => {
-              if (hold.held) await createPostGate.promise
-              return conn.postOp(op)
-            },
+            postOp: (op: CollabClientOp) => conn.postOp(op),
             fetchSnapshot: () => conn.fetchSnapshot(),
             fetchOps: (after: number) => conn.fetchOps(after),
             putSnapshot: (revision: number, document: WorkflowDocument) => conn.putSnapshot(revision, document),
@@ -1532,7 +1312,6 @@ describe('lifecycle races', () => {
       },
     })
     appB.addBackend('http://collab', 'collab', false, 'dinkster')
-    editableApps.push(prepareWorkflowApp(appB))
     expect(await appA.shareActiveTab()).toBeUndefined()
     const tabA = activeTab(appA)
     expect(await appB.joinCollabSession(appA.collabFor(tabA.id)!.descriptor.sessionId)).toBeUndefined()
@@ -1544,12 +1323,11 @@ describe('lifecycle races', () => {
     expect(winnerNodeId).not.toBe(loserNodeId)
 
     hold.held = true
-    expect((await appA.createEmptySubgraph(tabA, root, { x: 10, y: 20 })).ok).toBe(true)
+    expect(appA.createEmptySubgraph(tabA, root, { x: 10, y: 20 }).ok).toBe(true)
     const fixedGraphId = tabA.graphStack.get().at(-1)!
     await sharedSession(appA, tabA.id).settle()
-    expect((await appB.createEmptySubgraph(tabB, root, { x: 30, y: 40 })).ok).toBe(true)
+    expect(appB.createEmptySubgraph(tabB, root, { x: 30, y: 40 }).ok).toBe(true)
     expect(tabB.graphStack.get()).toEqual([root, fixedGraphId])
-    createPostGate.open()
     await until(() => server.staleBases >= 1, "B's stale create refusal")
     hold.held = false
     for (const deliver of hold.buffer.splice(0)) deliver()
@@ -1613,29 +1391,6 @@ describe('reload rejoin', () => {
   const storedSessions = (): unknown[] =>
     (JSON.parse(g.localStorage!.getItem(COLLAB_SESSIONS_KEY) ?? '{"sessions":[]}') as { sessions: unknown[] }).sessions
 
-  it('keeps the restored tab and pending membership when ownership is refused, then rejoins on retry', async () => {
-    const server = new FakeCollabServer()
-    const first = makeApp(server)
-    expect(await first.shareActiveTab()).toBeUndefined()
-    first.flushPersistTabs()
-    const second = makeApp(server)
-    const restored = activeTab(second)
-    const backend = second.collabBackend()!
-    const retain = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-      ({ ...owner, ...declaration, revision: 2 }))
-    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-    await second.rejoinCollabSessions()
-    expect(activeTab(second).store).toBe(restored.store)
-    expect(second.collabFor(restored.id)).toBeUndefined()
-    expect(storedSessions()).toHaveLength(1)
-    expect([...server.sessions.values()][0]!.connections.size).toBe(1)
-    retain.mockImplementation(async (owner, declaration) => ({ ...owner, ...declaration, revision: 1 }))
-    await second.rejoinCollabSessions()
-    expect(second.collabFor(restored.id)).toBeDefined()
-    expect(second.backendForTab(activeTab(second))).toBe(backend)
-    expect(storedSessions()).toHaveLength(1)
-  })
-
   it('sharing persists the membership; a fresh app rejoins it and converges', async () => {
     const server = new FakeCollabServer()
     const app1 = makeApp(server)
@@ -1657,7 +1412,7 @@ describe('reload rejoin', () => {
 
     // Genuine membership: an edit in the original app lands in the rejoined tab.
     const baseline = nodeCount(tab2!)
-    expect((await addNode(app1, tab1)).diagnostics).toEqual([])
+    expect(addNode(tab1).diagnostics).toEqual([])
     await sharedSession(app1, tab1.id).settle()
     await until(() => nodeCount(app2.tabs.get().find((t) => t.id === tab2!.id)!) === baseline + 1, 'rejoined convergence')
   })

@@ -33,7 +33,7 @@ import type {
 } from './contract.js'
 import { predictAllocatedId } from './alloc.js'
 import type { PatchOp } from './patch.js'
-import { DocumentStore, type DocumentCommitPolicy, type HistorySnapshot, type PreparedDocumentDispatch } from './store.js'
+import { DocumentStore, type HistorySnapshot } from './store.js'
 
 /**
  * One committed change, shaped to the collab envelope. Locally minted
@@ -103,8 +103,6 @@ export interface DocumentSession extends DocumentStoreContract {
    * successor's document is identical to this session's).
    */
   historySnapshot(): HistorySnapshot
-  /** Stage an exact candidate without publishing or submitting shared operations. */
-  prepareDispatch?(invocation: CommandInvocation): PreparedDocumentDispatch
 }
 
 /**
@@ -142,7 +140,6 @@ export interface LocalSessionOptions {
   /** Observer-failure sink (CO10); forwarded to DocumentStore. */
   readonly onListenerError?: (error: unknown, context: string) => void
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
-  readonly validateCommit?: DocumentCommitPolicy
 }
 
 class LocalDocumentSession implements DocumentSession {
@@ -169,7 +166,6 @@ class LocalDocumentSession implements DocumentSession {
       options?.maxUndo ?? 200,
       sink,
       () => ({ kind: 'initial', ...(options?.schemaResolverFor ? { schemaResolverFor: options.schemaResolverFor } : {}) }),
-      options?.validateCommit,
     )
     this.store.onTransaction((event) => {
       this.opCounter += 1
@@ -236,10 +232,6 @@ class LocalDocumentSession implements DocumentSession {
 
   dispatch(invocation: CommandInvocation): CommandOutcome {
     return this.store.dispatch(invocation)
-  }
-
-  prepareDispatch(invocation: CommandInvocation): PreparedDocumentDispatch {
-    return this.store.prepareDispatch(invocation)
   }
 
   undo(): boolean {

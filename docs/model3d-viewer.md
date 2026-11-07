@@ -12,9 +12,6 @@ of a converted GLB or PLY rendition. The preview reads the original source
 and named sidecars through the execution's own backend, including opaque
 local bindings. Missing owners or revoked grants make the preview unavailable;
 the active tab's backend is never a fallback. JSON null has no preview.
-Cancellation reaches pending original-model response bodies for both verified
-digests and local bindings, including reads through a removed backend's retained
-connection. It does not release owners or establish that other readers settled.
 Poster and orbit views share the manifest's original format and granted
 resource map. Declared camera and model-placement outputs come from the same
 runtime occurrence, negotiated through their JSON renditions with matching
@@ -65,11 +62,6 @@ dynamic import, triggered only when a 3D preview is actually requested.
 Splat rendering additionally imports `@sparkjsdev/spark` through its own
 cached dynamic import, so GLB-only sessions never pay for spark and
 workflows without 3D content pay for neither.
-
-Collection thumbnails cancel pending renderer entry on row replacement or
-unmount, including while the viewer module is loading. Already admitted
-shared poster renders and cached results remain available to other views;
-closing a thumbnail does not prove that those reads have settled.
 
 ## Splat rendering
 

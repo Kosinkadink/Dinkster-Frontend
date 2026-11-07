@@ -109,7 +109,6 @@ async function bootstrap(): Promise<void> {
   disposeBootTheme()
   bindTheme(app.settings)
   bindLocale(app.settings, document.documentElement, navigator.language, desktopLocale)
-  await app.confirmStartupOwnership()
   await app.enableWorkspaceAuthority()
   const desktopWindow = desktop
     ? { context: await desktop.windowContext(), layout: await desktop.windowLayout() }

@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import {
   asConnectionId,
   asPromptId,
@@ -21,7 +21,6 @@ import {
 } from '@dinkster/core'
 import { AppState, type Tab } from '../src/app-state.js'
 import { historicalRegistry, historicalSchemas } from './historical-schemas.js'
-import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -53,7 +52,7 @@ const run = (tab: Tab, queuedAt: number): ExecutionRef => {
 }
 
 beforeEach(() => {
-  app = createWorkflowApp(null)
+  app = new AppState()
   for (const name of ['basic', 'subgraph']) {
     app.openDocument(JSON.parse(readFileSync(join(root, `fixtures/workflows/seed-${name}.json`), 'utf8')), name)
   }
@@ -63,12 +62,6 @@ beforeEach(() => {
   basic = tabs.find((tab) => tab.id === 'lineage-seed-basic')!
   subgraph = tabs.find((tab) => tab.id === 'lineage-seed-subgraph')!
   expect(basic.store.doc.lineage).not.toBe(subgraph.store.doc.lineage)
-})
-
-afterEach(() => {
-  app.dispose()
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
 })
 
 describe('follow-latest default', () => {
@@ -134,9 +127,9 @@ describe('pinning', () => {
     expect(app.pinExecutionOverlay(basic.id, ghost)).toBe(false)
   })
 
-  it('rejects pinning on a frozen tab', async () => {
+  it('rejects pinning on a frozen tab', () => {
     const ref = run(basic, 100)
-    expect(await app.openExecutionView(ref)).toBe(true)
+    app.openExecutionView(ref)
     const frozen = app.activeTab()!
     expect(frozen.execution).toBeDefined()
     expect(app.pinExecutionOverlay(frozen.id, ref)).toBe(false)
@@ -153,19 +146,19 @@ describe('pinning', () => {
 })
 
 describe('frozen tabs', () => {
-  it('a frozen tab always resolves ITS execution, ignoring pins and newer runs', async () => {
+  it('a frozen tab always resolves ITS execution, ignoring pins and newer runs', () => {
     const ref = run(basic, 100)
-    expect(await app.openExecutionView(ref)).toBe(true)
+    app.openExecutionView(ref)
     const frozen = app.activeTab()!
     const newer = run(basic, 200)
     app.pinExecutionOverlay(basic.id, newer)
     expect(app.executionForTab(frozen)?.ref).toEqual(ref)
   })
 
-  it('lists only the frozen tab exact execution, not sibling runs of its lineage', async () => {
+  it('lists only the frozen tab exact execution, not sibling runs of its lineage', () => {
     const frozenRef = run(basic, 100)
     run(basic, 200)
-    expect(await app.openExecutionView(frozenRef)).toBe(true)
+    app.openExecutionView(frozenRef)
     expect(app.executionsForTab(app.activeTab()!).map((entry) => entry.ref)).toEqual([frozenRef])
   })
 })

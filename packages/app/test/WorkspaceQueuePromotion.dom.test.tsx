@@ -94,7 +94,6 @@ beforeEach(() => localStorage.clear())
 afterEach(() => {
   document.body.replaceChildren()
   localStorage.clear()
-  vi.restoreAllMocks()
 })
 
 const workspaceApp = async (): Promise<{
@@ -103,8 +102,6 @@ const workspaceApp = async (): Promise<{
   pausePromotions(): void
 }> => {
   const app = new AppState()
-  vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   const schemas = new Map([[outputSchema.type, outputSchema]])
   app.registry.set({
     connection: asConnectionId('local'),

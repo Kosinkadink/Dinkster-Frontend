@@ -10,17 +10,9 @@
  */
 
 import type { CollectionEntry, CollectionSource } from '@dinkster/core'
-import type { DinksterConnection } from '@dinkster/client'
 import type { AssetBrowserItem, AssetSourceAdapter } from './types.js'
 import { committableAssetRef, formatSize, isBrowserPreviewable, isCompatible } from './helpers.js'
 import { isModel3dMime } from '../model3d-mime.js'
-import { readAssetPreview } from '../workflow-asset-retention.js'
-import { activeProjectId } from '../projects.js'
-
-export interface AssetPreviewOwner {
-  readonly connection: DinksterConnection
-  readonly current: () => boolean
-}
 
 const EXTENSION_KINDS: Readonly<Record<string, string>> = {
   png: 'image', jpg: 'image', jpeg: 'image', webp: 'image', gif: 'image', bmp: 'image',
@@ -38,8 +30,7 @@ export function assetKindOf(item: Pick<AssetBrowserItem, 'kind' | 'name'>): stri
 }
 
 /** One asset row (or folder row) in the common display vocabulary. */
-export function assetEntryOf(item: AssetBrowserItem, assetUrl?: (digest: string) => string, previewOwner?: AssetPreviewOwner): CollectionEntry {
-  const project = activeProjectId()
+export function assetEntryOf(item: AssetBrowserItem, assetUrl?: (digest: string) => string): CollectionEntry {
   if (item.folder === true) {
     return {
       id: item.id,
@@ -53,38 +44,19 @@ export function assetEntryOf(item: AssetBrowserItem, assetUrl?: (digest: string)
   return {
     id: item.id,
     title: item.name,
-    badges: [...(item.size !== undefined ? [formatSize(item.size)] : []), ...(item.availability === 'missing' ? ['missing'] : [])],
-    ...(item.details !== undefined ? { details: item.details } : {}),
+    badges: item.size !== undefined ? [formatSize(item.size)] : [],
     // Conservative preview policy: digest bytes render as a thumbnail only
     // for browser-previewable media entries; everything else stays
     // text-first (initials), never a broken-image box. GLB and splat PLY
     // entries have no direct pixels, so they get a lazy poster render
     // instead of a URL.
     ...(assetUrl !== undefined && item.digest !== undefined && isBrowserPreviewable(item)
-      ? { thumbRender: async (signal?: AbortSignal) => {
-          if (previewOwner === undefined || signal === undefined) throw new Error('Asset preview ownership unavailable')
-          signal.throwIfAborted()
-          const blob = await readAssetPreview(previewOwner.connection, item.digest!, async () => {
-            const bytes = await previewOwner.connection.fetchAssetBytes(item.digest!, signal)
-            if (bytes === undefined) throw new Error('Asset preview is unavailable')
-            return new Blob([bytes], { type: item.mediaType! })
-          }, () => !signal.aborted && activeProjectId() === project && previewOwner.current())
-          signal.throwIfAborted()
-          const url = URL.createObjectURL(blob)
-          signal.addEventListener('abort', () => URL.revokeObjectURL(url), { once: true })
-          return url
-        } }
-      : assetUrl !== undefined && item.digest !== undefined && (item.availability === undefined || item.availability === 'available') && isModel3dMime(item.mediaType)
+      ? { thumbUrl: assetUrl(item.digest) }
+      : assetUrl !== undefined && item.digest !== undefined && isModel3dMime(item.mediaType)
         ? {
-            thumbRender: async (signal?: AbortSignal) => {
-              signal?.throwIfAborted()
-              if (previewOwner === undefined) throw new Error('Asset preview ownership unavailable')
+            thumbRender: () => {
               const url = assetUrl(item.digest!)
-              const viewer = await import('../model3d-viewer.js')
-              signal?.throwIfAborted()
-              return readAssetPreview(previewOwner.connection, item.digest!,
-                () => viewer.renderModel3dPosterUrl(url, item.mediaType!),
-                () => signal?.aborted !== true && activeProjectId() === project && previewOwner.current())
+              return import('../model3d-viewer.js').then((viewer) => viewer.renderModel3dPosterUrl(url, item.mediaType!))
             },
           }
         : {}),
@@ -130,7 +102,7 @@ export function assetEntryPickable(accept: readonly string[], kind?: string): (e
  */
 export function assetCollectionSource(
   adapter: AssetSourceAdapter,
-  opts: { readonly assetUrl?: (digest: string) => string; readonly fixedKind?: string; readonly previewOwner?: AssetPreviewOwner } = {},
+  opts: { readonly assetUrl?: (digest: string) => string; readonly fixedKind?: string } = {},
 ): CollectionSource {
   const seenKinds = new Set<string>()
   return {
@@ -171,8 +143,8 @@ export function assetCollectionSource(
       }
       return {
         items: [
-          ...(page.folders ?? nav.folders).map((f) => assetEntryOf(f, opts.assetUrl, opts.previewOwner)),
-          ...page.items.map((i) => assetEntryOf(i, opts.assetUrl, opts.previewOwner)),
+          ...(page.folders ?? nav.folders).map((f) => assetEntryOf(f, opts.assetUrl)),
+          ...page.items.map((i) => assetEntryOf(i, opts.assetUrl)),
         ],
         ...(page.cursor !== undefined ? { cursor: page.cursor } : {}),
         ...(page.total !== undefined ? { total: page.total } : {}),

@@ -11,7 +11,6 @@ import { buildDinksterRegistry } from '@dinkster/client'
 import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND } from '../src/editors.js'
 import { AppState } from '../src/app-state.js'
 import { historicalRegistry } from './historical-schemas.js'
-import { createWorkflowApp } from './fixtures/workflow-app.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 
 /** Minimal in-memory localStorage for the node test env. */
@@ -191,15 +190,11 @@ describe('EditorRegistry', () => {
 describe('Tab editorKind', () => {
   // AppState builds its WS url from the page origin; give the node env one.
   const g = globalThis as { location?: unknown; localStorage?: Storage }
-  const retainedApps: AppState[] = []
   beforeEach(() => {
     vi.useFakeTimers()
     g.location = { protocol: 'http:', host: 'test' }
   })
   afterEach(() => {
-    for (const app of retainedApps.splice(0)) app.dispose()
-    vi.restoreAllMocks()
-    vi.unstubAllGlobals()
     vi.useRealTimers()
     delete g.localStorage
   })
@@ -303,8 +298,8 @@ describe('Tab editorKind', () => {
     expect(app.tabs.get()).toBe(before) // signal never updated
   })
 
-  it('frozen execution tabs refuse editor-kind switches', async () => {
-    const app = createWorkflowApp(null)
+  it('frozen execution tabs refuse editor-kind switches', () => {
+    const app = new AppState()
     app.openDocument(seedBasic, 'Basic')
     const basic = app.activeTab()!
     app.registry.set(historicalRegistry(asConnectionId('local')))
@@ -312,7 +307,7 @@ describe('Tab editorKind', () => {
     if (!result?.ok) throw new Error('compile failed')
     const ref: ExecutionRef = { connection: asConnectionId('local'), prompt: asPromptId('p0') }
     app.registerRun(basic, ref, result.artifact)
-    expect(await app.openExecutionView(ref)).toBe(true)
+    expect(app.openExecutionView(ref)).toBe(true)
     const frozen = app.tabs.get().find((t) => t.execution)!
     app.setTabEditorKind(frozen.id, APP_EDITOR_KIND)
     expect(app.tabs.get().find((t) => t.execution)!.editorKind).toBe(GRAPH_EDITOR_KIND)
@@ -348,8 +343,8 @@ describe('Tab editorKind', () => {
     expect(app.tabs.get().find((t) => t.id === tab.id)!.appArrange).toBe(false)
   })
 
-  it('frozen execution tabs refuse arrange mode', async () => {
-    const app = createWorkflowApp(null)
+  it('frozen execution tabs refuse arrange mode', () => {
+    const app = new AppState()
     app.openDocument(seedBasic, 'Basic')
     const basic = app.activeTab()!
     app.registry.set(historicalRegistry(asConnectionId('local')))
@@ -357,23 +352,22 @@ describe('Tab editorKind', () => {
     if (!result?.ok) throw new Error('compile failed')
     const ref: ExecutionRef = { connection: asConnectionId('local'), prompt: asPromptId('p1') }
     app.registerRun(basic, ref, result.artifact)
-    expect(await app.openExecutionView(ref)).toBe(true)
+    expect(app.openExecutionView(ref)).toBe(true)
     const frozen = app.tabs.get().find((t) => t.execution)!
     app.setTabAppArrange(frozen.id, true)
     expect(app.tabs.get().find((t) => t.execution)!.appArrange).toBeUndefined()
   })
 
-  it('admits only an unchanged, undriven COMPOSITOR input into image-editor mode', async () => {
-    const app = createWorkflowApp(null)
-    retainedApps.push(app)
+  it('admits only an unchanged, undriven COMPOSITOR input into image-editor mode', () => {
+    const app = new AppState()
     const tab = app.tabs.get()[0]!
     app.registry.set(buildDinksterRegistry(asConnectionId('local'), compositorPayload()))
     const graphId = tab.store.doc.root
     const before = new Set(Object.keys(tab.store.doc.graphs[graphId]!.nodes))
-    expect((await app.dispatchTo(tab, {
+    expect(app.dispatchTo(tab, {
       command: 'node.add',
       params: { graphId, type: 'Compositor', position: { x: 40, y: 50 } },
-    })).ok).toBe(true)
+    }).ok).toBe(true)
     const nodeId = Object.keys(tab.store.doc.graphs[graphId]!.nodes).find((id) => !before.has(id))!
     const target = app.compositorTargetForInput(tab, graphId, nodeId, 'recipe')
     expect(target).toEqual({
@@ -384,9 +378,9 @@ describe('Tab editorKind', () => {
     expect(app.imageEditorTarget.get()).toEqual(target)
     expect(app.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(IMAGE_EDITOR_KIND)
 
-    expect((await app.dispatchTo(tab, {
+    expect(app.dispatchTo(tab, {
       command: 'node.move', params: { graphId, positions: { [nodeId]: { x: 45, y: 57 } } },
-    })).ok).toBe(true)
+    }).ok).toBe(true)
     expect(app.validateCompositorTarget(target!)).toEqual(target)
 
     const recipe = {
@@ -394,9 +388,9 @@ describe('Tab editorKind', () => {
       documentDigest: `blake3:${'a'.repeat(64)}`,
       commands: [{ op: 'layer', id: 'layer-0', changes: { visible: false } }],
     }
-    expect((await app.dispatchTo(tab, {
+    expect(app.dispatchTo(tab, {
       command: 'node.setValue', params: { graphId, nodeId, inputId: 'recipe', value: recipe },
-    })).ok).toBe(true)
+    }).ok).toBe(true)
     expect(app.validateCompositorTarget(target!)).toBeUndefined()
     const current = app.compositorTargetForInput(tab, graphId, nodeId, 'recipe')
     expect(current?.openedStoredValue).toEqual(recipe)
@@ -446,9 +440,8 @@ describe('Tab editorKind', () => {
     app.dispose()
   })
 
-  it('captures loader mask topology and redirects the associated paint source', async () => {
-    const app = createWorkflowApp(null)
-    retainedApps.push(app)
+  it('captures loader mask topology and redirects the associated paint source', () => {
+    const app = new AppState()
     app.registry.set(buildDinksterRegistry(asConnectionId('local'), maskPaintPayload()))
     expect(app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'mask-paint-target', root: 'g0',
@@ -463,35 +456,21 @@ describe('Tab editorKind', () => {
     expect(target?.maskPaint).toEqual({ expectedMaskLinkIds: ['mask'], expectedMaskNetIds: [], paintNodeId: null, expectedPaintOperations: null })
 
     const source = target!.sourceRef
-    expect(app.openImageEditor(target!)).toBe(true)
-    const opened = app.imageEditorTarget.get()!
-    let accept!: () => void
-    const acknowledgment = new Promise<void>((resolve) => { accept = resolve })
-    const retain = vi.mocked(app.connection.retainAssets)
-    retain.mockImplementationOnce(async (owner, declaration) => {
-      await acknowledgment
-      return { ...owner, ...declaration, revision: declaration.revision + 1 }
-    })
-    const admission = app.retainEditorAssets(opened, app.backendForTab(tab), source)
-    const refused = expect(admission).rejects.toThrow('Editor source changed')
-    app.closeImageEditor(opened)
-    accept()
-    await refused
     const operations = `{"version":1,"sourceDigest":"${source.digest}","width":2,"height":1,"commands":[]}`
-    expect((await app.dispatchTo(tab, { command: 'image.applyMaskPaint', params: {
+    expect(app.dispatchTo(tab, { command: 'image.applyMaskPaint', params: {
       graphId: 'g0', loaderNodeId: 'loader', inputId: 'image', expectedSource: source,
       operations, paintNodeId: null, expectedPaintOperations: null,
       expectedMaskLinkIds: ['mask'], expectedMaskNetIds: [],
-    } })).ok).toBe(true)
+    } }).ok).toBe(true)
     const paint = Object.values(tab.store.doc.graphs.g0!.nodes).find((node) => node.type === 'dinkster.mask.paint')!
-    expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+    expect(app.dispatchTo(tab, { command: 'node.setValue', params: {
       graphId: 'g0', nodeId: paint.id, inputId: 'operations',
       value: `{"version":1,"version":1,"sourceDigest":"${source.digest}","width":2,"height":1,"commands":[]}`,
-    } })).ok).toBe(true)
+    } }).ok).toBe(true)
     expect(app.imageTargetForInput(tab, 'g0', 'loader', 'image')).toBeUndefined()
-    expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+    expect(app.dispatchTo(tab, { command: 'node.setValue', params: {
       graphId: 'g0', nodeId: paint.id, inputId: 'operations', value: `${operations}${' '.repeat(4_194_305)}`,
-    } })).ok).toBe(true)
+    } }).ok).toBe(true)
     expect(app.imageTargetForInput(tab, 'g0', 'loader', 'image')).toBeUndefined()
     for (const value of [
       operations.replace('"version":1', '"version":1.0'),
@@ -499,9 +478,9 @@ describe('Tab editorKind', () => {
       operations.replace('"width":2', '"width":2.0'),
       operations.replace('"height":1', '"height":1e0'),
     ]) {
-      expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+      expect(app.dispatchTo(tab, { command: 'node.setValue', params: {
         graphId: 'g0', nodeId: paint.id, inputId: 'operations', value,
-      } })).ok).toBe(true)
+      } }).ok).toBe(true)
       expect(app.imageTargetForInput(tab, 'g0', 'loader', 'image')).toBeUndefined()
     }
     app.dispose()
@@ -553,17 +532,16 @@ describe('Tab editorKind', () => {
     app.dispose()
   })
 
-  it('opens an unchanged GLSL source by editor role as a session editor', async () => {
-    const app = createWorkflowApp(null)
-    retainedApps.push(app)
+  it('opens an unchanged GLSL source by editor role as a session editor', () => {
+    const app = new AppState()
     const tab = app.tabs.get()[0]!
     app.registry.set(buildDinksterRegistry(asConnectionId('local'), glslPayload()))
     const graphId = tab.store.doc.root
     const before = new Set(Object.keys(tab.store.doc.graphs[graphId]!.nodes))
-    expect((await app.dispatchTo(tab, {
+    expect(app.dispatchTo(tab, {
       command: 'node.add',
       params: { graphId, type: 'synthetic.shader', position: { x: 20, y: 30 } },
-    })).ok).toBe(true)
+    }).ok).toBe(true)
     const nodeId = Object.keys(tab.store.doc.graphs[graphId]!.nodes).find((id) => !before.has(id))!
     const target = app.glslTargetForInput(tab, graphId, nodeId, 'fragment_shader')
     expect(target).toEqual({
@@ -582,10 +560,10 @@ describe('Tab editorKind', () => {
     expect(opened).toEqual(target)
     expect(app.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(GLSL_EDITOR_KIND)
 
-    expect((await app.dispatchTo(tab, {
+    expect(app.dispatchTo(tab, {
       command: 'node.setValue',
       params: { graphId, nodeId, inputId: 'fragment_shader', value: 'changed' },
-    })).ok).toBe(true)
+    }).ok).toBe(true)
     expect(app.validateGlslTarget(target!)).toBeUndefined()
     app.closeGlslEditor(opened)
     expect(app.glslEditorTarget.get()).toBeUndefined()
