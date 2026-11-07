@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { asNodeId } from '@dinkster/core'
+import { asNodeId, resolveImportedNodePacks } from '@dinkster/core'
 import type { DinksterNodesPayload } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { historicalRegistry } from './historical-schemas.js'
@@ -70,6 +70,34 @@ const imageWorkflow = {
 }
 
 describe('authored workflows on a native backend', () => {
+  it('opens with missing packs and resolves a later registry without changing edits', () => {
+    loadNativeSchemas()
+    const backend = app.backends.get()[0]!
+    const registry = historicalRegistry(backend.id)
+    const source = registry.resolve('SaveImage')!
+    const type = 'dinkster.image.save_image'
+    backend.comfyTranslations.set([{
+      pack: 'dinkster-image', version: '0.0.1', schema: { ...source, type },
+      rule: { from: 'SaveImage', cases: [{ to: type,
+        inputs: { images: { kind: 'copy', input: 'images' }, filename_prefix: { kind: 'copy', input: 'filename_prefix' } },
+        outputs: {},
+      }] },
+    }])
+    expect(app.openDocument({ nodes: [{ id: 1, type: 'SaveImage', widgets_values: ['specific/prefix'] }], links: [] }, 'Offline')).toEqual([])
+    const tab = app.activeTab()!
+    expect(tab.store.doc.graphs.g0!.nodes.n1!.type).toBe(type)
+    expect(tab.store.doc.graphs.g0!.nodes.n1!.values.filename_prefix).toBe('specific/prefix')
+    expect(resolveImportedNodePacks(tab.store.doc, backend.registry.get()!.resolve)[0]!.status).toBe('installable')
+    expect(tab.store.dispatch({ command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n1', inputId: 'filename_prefix', value: 'edited/prefix',
+    } }).ok).toBe(true)
+    const edited = structuredClone(tab.store.doc)
+    backend.registry.set({ ...registry, resolve: (id) => id === type ? { ...source, type } : undefined })
+    expect(resolveImportedNodePacks(tab.store.doc, backend.registry.get()!.resolve)[0]!.status).toBe('installed')
+    expect(tab.store.doc).toEqual(edited)
+    expect(tab.store.canUndo).toBe(true)
+  })
+
   it('resolves promoted instance assets without replacing sibling overrides or definition defaults', async () => {
     const backend = app.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, {
@@ -145,7 +173,15 @@ describe('authored workflows on a native backend', () => {
     }
   })
 
-  it('refuses LiteGraph import before schemas without changing the active document', () => {
+  it.each([false, true])('refuses LiteGraph import before schemas with translations available=%s without changing the active document', (available) => {
+    if (available) {
+      const backend = app.backends.get()[0]!
+      const schema = historicalRegistry(backend.id).resolve('EmptyImage')!
+      backend.comfyTranslations.set([{
+        pack: 'dinkster-image', version: '0.0.1', schema,
+        rule: { from: 'EmptyImage', cases: [{ to: 'EmptyImage', inputs: {}, outputs: {} }] },
+      }])
+    }
     const tab = app.activeTab()!
     const authored = structuredClone(tab.store.doc)
     expect(app.openDocument(imageWorkflow, 'Image chain')).toContainEqual(expect.objectContaining({ code: 'import.registryMissing' }))

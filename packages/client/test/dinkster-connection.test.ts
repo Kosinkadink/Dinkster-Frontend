@@ -15,6 +15,8 @@ import {
   asPortId,
   asPromptId,
   compile,
+  importLitegraph,
+  resolveImportedNodePacks,
   loadDocument,
   type CompileArtifact,
   type Diagnostic,
@@ -30,6 +32,7 @@ import {
   ExecutionStore,
   IMAGE_DOCUMENT_MEDIA_TYPE,
   hydrateDinksterCompletedExecution,
+  PackInstallError,
   parseAssetsMissingRejection,
   promptToDinksterGraph,
   reconcileDinksterExecutions,
@@ -63,6 +66,131 @@ const ref = (jobId: string): ExecutionRef => ({ connection: C0, prompt: asPrompt
 
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+
+it('decodes and revalidates backend-local import metadata without installing schemas', async () => {
+  const row = { pack: 'dinkster-text', version: '0.0.1',
+    rule: { from: 'StringLength', cases: [{ to: 'dinkster.text.string_length',
+      inputs: { string: { kind: 'copy', input: 'string' } }, outputs: { length: 'length' } }] },
+    schema: { schemaVersion: 1, nodeType: 'dinkster.text.string_length', interface: [
+      { role: 'input', id: 'string', type: { kind: 'concrete', types: ['STRING'] } },
+      { role: 'output', id: 'length', type: { kind: 'concrete', types: ['INT'] } },
+    ] } }
+  let payload: unknown = { schemaVersion: 1, items: [row] }
+  let status = 200
+  let etag = '"first"'
+  const calls: { url: string; etag: string | null }[] = []
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'importer',
+    fetchFn: async (url, init) => {
+      calls.push({ url, etag: new Headers(init?.headers).get('If-None-Match') })
+      return new Response(status === 304 ? null : JSON.stringify(payload), { status, headers: { ETag: etag } })
+    }, webSocketFactory: () => ({}) as WebSocketLike })
+  const first = await connection.fetchComfyTranslations()
+  const imported = importLitegraph({ nodes: [{ id: 1, type: 'StringLength', widgets_values: ['asymmetric value'] }], links: [] },
+    () => undefined, undefined, first)
+  expect(imported.document!.graphs.g0!.nodes.n1).toMatchObject({ type: 'dinkster.text.string_length', values: { string: 'asymmetric value' } })
+  expect(resolveImportedNodePacks(imported.document!, () => undefined)).toEqual([
+    expect.objectContaining({ status: 'installable', pack: 'dinkster-text', version: '0.0.1' }),
+  ])
+  status = 304
+  expect(await connection.fetchComfyTranslations()).toBe(first)
+  status = 200
+  etag = '"second"'
+  payload = { schemaVersion: 1, items: [{ ...row, version: '0.0.2' }] }
+  expect((await connection.fetchComfyTranslations())[0]!.version).toBe('0.0.2')
+  payload = { schemaVersion: 1, items: [row, row] }
+  await expect(connection.fetchComfyTranslations()).rejects.toThrow('Ambiguous')
+  status = 304
+  expect((await connection.fetchComfyTranslations())[0]!.version).toBe('0.0.2')
+  expect(calls.map((call) => call.etag)).toEqual([null, '"first"', '"first"', '"second"', '"second"'])
+  expect(calls.every((call) => call.url === '/selected/api/comfy-translations')).toBe(true)
+})
+
+it('retains the newer import catalog when an older refresh completes last', async () => {
+  const snapshot = (version: string) => ({ schemaVersion: 1, items: [{
+    pack: 'dinkster-text', version,
+    rule: { from: 'StringLength', cases: [{ to: 'dinkster.text.string_length', inputs: {}, outputs: {} }] },
+    schema: { schemaVersion: 1, nodeType: 'dinkster.text.string_length', interface: [] },
+  }] })
+  let releaseOlder!: (response: Response) => void
+  const etags: (string | null)[] = []
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'importer',
+    fetchFn: async (_url, init) => {
+      etags.push(new Headers(init?.headers).get('If-None-Match'))
+      if (etags.length === 1) return new Promise<Response>((resolve) => { releaseOlder = resolve })
+      if (etags.length === 2) return new Response(JSON.stringify(snapshot('0.0.2')), { headers: { ETag: '"newer"' } })
+      return new Response(null, { status: 304 })
+    }, webSocketFactory: () => ({}) as WebSocketLike })
+  const older = connection.fetchComfyTranslations()
+  const newer = await connection.fetchComfyTranslations()
+  expect(newer[0]!.version).toBe('0.0.2')
+  releaseOlder(new Response(JSON.stringify(snapshot('0.0.1')), { headers: { ETag: '"older"' } }))
+  expect((await older)[0]!.version).toBe('0.0.1')
+  expect((await connection.fetchComfyTranslations())[0]!.version).toBe('0.0.2')
+  expect(etags).toEqual([null, null, '"newer"'])
+})
+
+it.each([
+  { format: 'dinkster.plan/1', base: null },
+  { format: 'desktop.project-software/1', retained: { engine: 'sealed', constraints: ['cpu'] } },
+])('plans exact pack selections with an opaque host plan and applies only confirmation', async (hostPlan) => {
+  const plan = { confirmation: 'opaque-review-token', plan: hostPlan,
+    review: 'Install sampling 2.1 and image 3.2', expiresInSeconds: 900 }
+  const activation = { generation: 3, epoch: 7, added: ['sampling', 'image'], removed: [],
+    reloaded: ['models'], unchanged: ['base'], failed: {}, diagnostics: [], rolledBack: false }
+  const calls: { url: string; body: unknown }[] = []
+  const fetchFn: FetchLike = async (url, init) => {
+    calls.push({ url, body: JSON.parse(init!.body as string) })
+    return jsonResponse(200, url.endsWith('/plan') ? plan : { generation: 3, activation })
+  }
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer', fetchFn,
+    webSocketFactory: () => ({}) as WebSocketLike })
+  const reviewed = await connection.planPackInstall([
+    { pack: 'sampling', version: '2.1' }, { pack: 'image', version: '3.2' },
+  ])
+  expect(reviewed).toEqual(plan)
+  expect(calls).toEqual([{ url: '/selected/api/packs/install/plan', body: { packs: [
+    { pack: 'sampling', version: '2.1' }, { pack: 'image', version: '3.2' },
+  ] } }])
+  expect(await connection.applyPackInstall(reviewed.confirmation)).toEqual({ generation: 3,
+    activation: { epoch: 7, added: ['sampling', 'image'], removed: [], reloaded: ['models'], unchanged: ['base'] } })
+  expect(calls[1]).toEqual({ url: '/selected/api/packs/install/apply', body: { confirmation: 'opaque-review-token' } })
+})
+
+it.each([404, 409, 422])('preserves structured installation failures without retries: HTTP %s', async (status) => {
+  let requests = 0
+  const body = { error: 'activation-failed', detail: 'Old live surface retained', generation: 4,
+    activation: { failed: { image: 'worker failed' } } }
+  const fetchFn: FetchLike = async () => { requests++; return jsonResponse(status, body) }
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer', fetchFn,
+    webSocketFactory: () => ({}) as WebSocketLike })
+  for (const request of [() => connection.planPackInstall([{ pack: 'image', version: '1' }]),
+    () => connection.applyPackInstall('token')]) {
+    await expect(request()).rejects.toMatchObject({ status, body, message: body.detail })
+  }
+  expect(requests).toBe(2)
+  await expect(connection.applyPackInstall('token')).rejects.toBeInstanceOf(PackInstallError)
+})
+
+it('rejects malformed installation success and activation rollback instead of reporting installed', async () => {
+  let response: unknown
+  const fetchFn: FetchLike = async () => jsonResponse(200, response)
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer', fetchFn,
+    webSocketFactory: () => ({}) as WebSocketLike })
+  const plan = { confirmation: 'token', plan: { format: 'dinkster.plan/1' }, review: 'Review', expiresInSeconds: 900 }
+  for (const invalid of [null, [], { ...plan, confirmation: '' }, { ...plan, plan: [] },
+    { ...plan, plan: null }, { ...plan, review: 4 }, { ...plan, expiresInSeconds: 0 }]) {
+    response = invalid
+    await expect(connection.planPackInstall([{ pack: 'image', version: '1' }])).rejects.toThrow('Malformed')
+  }
+  const activation = { generation: 2, epoch: 3, added: ['image'], removed: [], reloaded: [], unchanged: [],
+    failed: {}, rolledBack: false }
+  for (const invalid of [null, { ...activation, epoch: -1 }, { ...activation, generation: 3 },
+    { ...activation, added: [4] }, { ...activation, failed: { image: 'failure' } },
+    { ...activation, failed: [] }, { ...activation, rolledBack: true }]) {
+    response = { generation: 2, activation: invalid }
+    await expect(connection.applyPackInstall('token')).rejects.toThrow('Malformed')
+  }
+})
 
 it('reads live source selections from the editing connection and rejects malformed options', async () => {
   let payload: unknown = { kind: 'model/vae', options: [
