@@ -364,6 +364,22 @@ describe('dropped image insertion', () => {
     expect(p.onInserted).toHaveBeenCalledWith('n1')
   })
 
+  it.each([false, true])('waits for image admission result %s before selecting or completing', async (accepted) => {
+    let settle!: (accepted: boolean) => void
+    const result = new Promise<boolean>((resolve) => { settle = resolve })
+    let started!: () => void
+    const dispatched = new Promise<void>((resolve) => { started = resolve })
+    const p = { ...base(), dispatch: () => { started(); return result } }
+    let finished = false
+    const pending = insertDroppedImage(p).then((outcome) => { finished = true; return outcome })
+    await dispatched
+    expect(finished).toBe(false)
+    expect(p.onInserted).not.toHaveBeenCalled()
+    settle(accepted)
+    expect(await pending).toBe(accepted ? 'inserted' : 'rejected')
+    expect(p.onInserted.mock.calls).toEqual(accepted ? [['n1']] : [])
+  })
+
   it.each([
     { ...asset, digest: 'not-a-digest' },
     { ...asset, name: '' },
@@ -454,6 +470,22 @@ describe('dropped latent insertion', () => {
     expect(p.dispatch.mock.calls[0]![0]).toMatchObject({ command: 'batch', params: { invocations: [{
       command: 'node.add', params: { graphId: 'g0', type: 'dinkster.load_latent', position: { x: 40, y: 60 }, values: { latent: asset } },
     }] } })
+  })
+
+  it.each([false, true])('waits for latent admission result %s before selecting or completing', async (accepted) => {
+    let settle!: (accepted: boolean) => void
+    const result = new Promise<boolean>((resolve) => { settle = resolve })
+    let started!: () => void
+    const dispatched = new Promise<void>((resolve) => { started = resolve })
+    const p = { ...base(), dispatch: () => { started(); return result } }
+    let finished = false
+    const pending = insertDroppedLatent(p).then((outcome) => { finished = true; return outcome })
+    await dispatched
+    expect(finished).toBe(false)
+    expect(p.onInserted).not.toHaveBeenCalled()
+    settle(accepted)
+    expect(await pending).toBe(accepted ? 'inserted' : 'rejected')
+    expect(p.onInserted.mock.calls).toEqual(accepted ? [['n2']] : [])
   })
 
   it('does not insert after cancellation, failed upload, or a malformed canonical response', async () => {

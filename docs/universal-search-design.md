@@ -35,6 +35,15 @@ Show more is an option in the same arrow-key and Enter sequence as results.
 Closing restores focus to the element that opened the dialog. The results
 region scrolls independently and keeps the active row reachable.
 
+Document-command results await final dispatch acceptance before closing the
+dialog or recording recency. While a command is pending, the combobox reports
+busy and repeated activations do not dispatch again. Refusal leaves search
+open for another attempt. A completion after a query/tab change, close/reopen,
+or unmount cannot dismiss or update recency for the replacement search.
+Synchronous host actions keep their existing behavior; modal-opening commands
+close search first so native dialog focus restoration remains correct.
+Document commands still use ordinary dispatch, not retained admission.
+
 ## Session and provider contract
 
 The framework-free `createSearchSession` in `@dinkster/core` is the only query

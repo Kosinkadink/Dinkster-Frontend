@@ -6,6 +6,75 @@ const digest = (character: string): string => `blake3:${character.repeat(64)}`
 const ZETA_DIGEST = `blake3:${'0123456789abcdef'.repeat(4)}`
 const AMBER_DIGEST = digest('b')
 
+test('recorded local assets keep exact identity and provenance without reading missing bytes', async ({ page }, testInfo) => {
+  const held = { digest: digest('1'), name: 'uploaded.png', size: 17, mediaType: 'image/png', virtualPath: 'mounts/imports/uploaded.png' }
+  const missing = { ...held, digest: digest('2'), name: 'missing.png' }
+  let offline = false
+  const writes: string[] = []
+  const missingReads: string[] = []
+  page.on('request', (request) => {
+    if (request.method() !== 'GET' && request.url().includes('/api/assets')) writes.push(request.url())
+    if (decodeURIComponent(request.url()).includes(`/api/assets/${missing.digest}`)) missingReads.push(request.url())
+  })
+  await page.route('/supervisor/status', (route) => void route.fulfill({ status: 502 }))
+  await page.route('/api/nodes*', (route) => void route.fulfill({ json: { schemaVersion: 1, epoch: 1,
+    dinkster: { version: 'local-assets-test', schemaWire: 1 }, nodes: {},
+  } }))
+  await page.route('**/api/mounts', (route) => void route.fulfill({ status: 503, body: 'Mount discovery offline' }))
+  await page.route('**/api/assets/catalog?*', (route) => {
+    if (offline) return void route.fulfill({ status: 503 })
+    const query = new URL(route.request().url()).searchParams
+    expect(query.get('scope')).toBe('local')
+    expect(query.get('project')).toBe('default')
+    return void route.fulfill({ json: { assets: [held, missing].filter((asset) =>
+      asset.name.includes(query.get('q') ?? '')).map((asset) => ({ asset, aliases: ['original.png', asset.name], observations: [{
+        id: asset.digest, asset, originalName: 'original.png', kind: 'media/image', project: 'default', created: 1793250000,
+        origin: { kind: 'produced', job: 'job-example', node: 'save-image' },
+      }] })) } })
+  })
+  await page.route('**/api/assets/availability?*', (route) => {
+    const query = new URL(route.request().url()).searchParams
+    expect(query.has('project')).toBe(false)
+    return void route.fulfill({ json: { assets: query.getAll('digest').map((value) => ({
+      digest: value, status: value === held.digest ? 'available' : 'missing',
+    })) } })
+  })
+  await page.route(`**/api/assets/${encodeURIComponent(held.digest)}`, (route) => void route.fulfill({
+    contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==', 'base64'),
+  }))
+  await page.goto('/')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.protocol)).toBe('dinkster')
+  await page.getByTestId('assets-toggle').click()
+  const panel = page.getByTestId('assets-overlay')
+  await expect(panel.getByRole('option', { name: /uploaded\.png/ })).toBeVisible()
+  await panel.getByTestId('asset-source-health').locator('summary').click()
+  await expect(panel.getByTestId('asset-source-health')).toContainText('GET /api/mounts failed: 503')
+  await expect(panel.getByTestId('assets-retry')).toBeVisible()
+  const missingRow = panel.getByRole('option', { name: /missing\.png/ })
+  await expect(missingRow).toContainText('missing')
+  await panel.getByRole('option', { name: /uploaded\.png/ }).click()
+  await panel.getByTestId('asset-rail-details').locator('summary').click()
+  await expect(panel.getByTestId('asset-selection-summary')).toContainText('job-example')
+  await page.screenshot({ path: testInfo.outputPath('local-assets-normal.png'), fullPage: true })
+  const provenance = panel.getByTestId('asset-selection-summary').getByText('job-example', { exact: true })
+  await provenance.scrollIntoViewIfNeeded()
+  await expect(provenance).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('local-assets-provenance.png'), fullPage: true })
+  await missingRow.click()
+  await panel.getByTestId('asset-rail-details').locator('summary').click()
+  await expect(panel.getByTestId('asset-selection-summary').locator('img')).toHaveCount(0)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.evaluate(() => window.__dinksterTest!.app.dock.setOpen('right', false))
+  await expect(missingRow).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('local-assets-missing-narrow.png'), fullPage: true })
+  offline = true
+  await panel.getByTestId('collection-search').fill('missing')
+  await expect(panel.locator('[data-collection-state="error"]')).toContainText('503')
+  await page.screenshot({ path: testInfo.outputPath('local-assets-offline-narrow.png'), fullPage: true })
+  expect(writes).toEqual([])
+  expect(missingReads).toEqual([])
+})
+
 const mounted = {
   alpha: [
     { virtualPath: 'models/zeta.safetensors', name: 'zeta.safetensors', digest: ZETA_DIGEST, size: 20, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' },

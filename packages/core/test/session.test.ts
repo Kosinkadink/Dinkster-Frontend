@@ -5,6 +5,7 @@
  * value absent on remove, no oldValue).
  */
 import { describe, expect, it } from 'vitest'
+import { diag } from '../src/diagnostics.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import type { PatchOp } from '../src/commands/patch.js'
 import { createLocalSession, toWirePatch, type SessionOp } from '../src/commands/session.js'
@@ -59,6 +60,37 @@ function makeSession(actorId?: string) {
 const addNode = { command: 'node.add', params: { graphId: 'g0', type: 'X', position: { x: 0, y: 0 } } }
 
 describe('local DocumentSession', () => {
+  it.each(['dispatch', 'prepared', 'undo', 'redo'] as const)('refuses %s before publication without losing history', (route) => {
+    let blocked = false
+    const session = createLocalSession(doc({ g0: graph({ id: 'g0' }) }), coreCommandRegistry(), {
+      validateCommit: () => blocked ? [diag('error', 'command', 'test.refused', 'Publication refused')] : [],
+    })
+    if (route === 'undo' || route === 'redo') session.dispatch(addNode)
+    if (route === 'redo') session.undo()
+    const candidate = route === 'prepared' ? session.prepareDispatch!(addNode) : undefined
+    const original = session.doc
+    const history = session.historySnapshot()
+    const published: WorkflowDocument[] = []
+    const operations: SessionOp[] = []
+    session.document.subscribe((document) => published.push(document))
+    session.onOp((operation) => operations.push(operation))
+    blocked = true
+    const outcome = route === 'dispatch' ? session.dispatch(addNode)
+      : route === 'prepared' ? candidate!.ok ? candidate!.commit() : candidate!
+        : route === 'undo' ? session.undo() : session.redo()
+    if (typeof outcome === 'boolean') expect(outcome).toBe(false)
+    else expect(outcome).toMatchObject({ ok: false, diagnostics: [{ code: 'test.refused' }] })
+    expect(session.doc).toBe(original)
+    expect(session.historySnapshot()).toEqual(history)
+    expect(published).toEqual([])
+    expect(operations).toEqual([])
+    blocked = false
+    if (route === 'undo') expect(session.undo()).toBe(true)
+    else if (route === 'redo') expect(session.redo()).toBe(true)
+    else expect(session.dispatch(addNode).ok).toBe(true)
+    expect(operations).toHaveLength(1)
+  })
+
   it('predicts the same solo node id that node.add mints, and reports a missing graph', () => {
     const { session } = makeSession()
     expect(session.predictedNodeId('missing')).toBeUndefined()

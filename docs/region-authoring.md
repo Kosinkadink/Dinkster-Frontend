@@ -21,6 +21,11 @@ definition, adds and selects one occurrence as one undoable operation. Double
 click the selected occurrence to drill into its body through the ordinary
 subgraph path. Frozen execution views disable these actions.
 
+Selection waits for final creation acceptance; refusal does not select a
+predicted occurrence. A delayed result does not replace selection after tab
+or graph navigation changes, or after the originating canvas unmounts.
+Creation still uses ordinary document dispatch, not retained admission.
+
 The starter body is valid immediately:
 
 - Map has one element input and one gathered output.

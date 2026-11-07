@@ -25,6 +25,7 @@ const info: DesktopInfo = {
 
 function mount(connection?: DesktopMountConnection, overrides: Partial<DinksterDesktopBridge> = {}, backendUrl = 'http://managed.test') {
   const [currentConnection, setConnection] = createSignal(connection)
+  const [connectionRevision, setConnectionRevision] = createSignal(0)
   const selectEngine = vi.fn(async () => undefined)
   const exportSupportReport = vi.fn(async () => 'C:\\reports\\dinkster.json')
   const saveRemoteWorker = vi.fn(async () => undefined)
@@ -73,8 +74,8 @@ function mount(connection?: DesktopMountConnection, overrides: Partial<DinksterD
   window.dinksterDesktop = bridge
   const root = document.createElement('div')
   document.body.append(root)
-  const unmount = render(() => <DesktopManagementDialog connection={currentConnection()} backendUrl={backendUrl} />, root)
-  return { root, selectEngine, exportSupportReport, saveRemoteWorker, removeRemoteWorker, bridge, unmount, setConnection }
+  const unmount = render(() => <DesktopManagementDialog connection={(connectionRevision(), currentConnection())} backendUrl={(connectionRevision(), backendUrl)} />, root)
+  return { root, selectEngine, exportSupportReport, saveRemoteWorker, removeRemoteWorker, bridge, unmount, setConnection, refreshConnection: () => setConnectionRevision((value) => value + 1) }
 }
 
 function enter(control: HTMLInputElement | HTMLTextAreaElement, value: string): void {
@@ -96,6 +97,67 @@ afterEach(() => {
 })
 
 describe('DesktopManagementDialog', () => {
+  it.each(['resolve', 'reject'] as const)('keeps folders usable before desktop info settles and after it %ss', async (settlement) => {
+    let resolveInfo!: (value: DesktopInfo) => void
+    let rejectInfo!: (reason: Error) => void
+    const pendingInfo = new Promise<DesktopInfo>((resolve, reject) => { resolveInfo = resolve; rejectInfo = reject })
+    const connection = {
+      addMount: vi.fn(),
+      fetchMountSettings: async () => ({ mounts: [{ id: 'imports', mode: 'readwrite' as const, state: 'ready' }], mountChangesAllowed: true }),
+    }
+    const { root, unmount } = mount(connection, { info: () => pendingInfo, chooseDirectory: async () => '/models/selected folder' })
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain('Choose folder'))
+      expect(root.textContent).toContain('Loading desktop information')
+      expect(root.textContent).toContain('imports - ready - readwrite')
+      ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Choose folder')!.click()
+      await vi.waitFor(() => expect(root.querySelector<HTMLInputElement>('#desktop-mount-id')?.value).toBe('selected-folder'))
+      const input = root.querySelector('#desktop-mount-id')
+      if (settlement === 'resolve') resolveInfo(info)
+      else rejectInfo(new Error('Storage scan unavailable'))
+      await vi.waitFor(() => expect(root.textContent).toContain(settlement === 'resolve' ? '0.2.0' : 'Storage scan unavailable'))
+      expect(root.querySelector('#desktop-mount-id')).toBe(input)
+      expect(root.querySelector<HTMLInputElement>('#desktop-mount-id')?.value).toBe('selected-folder')
+      expect(root.querySelector('.desktop-mount-form code')?.textContent).toBe('/models/selected folder')
+      expect(root.textContent).toContain('imports - ready - readwrite')
+    } finally { unmount() }
+  })
+
+  it.each(['disabled', 'unavailable'] as const)('preserves %s folder authorization while desktop info is pending', async (policy) => {
+    const connection = policy === 'unavailable' ? undefined : {
+      addMount: vi.fn(),
+      fetchMountSettings: async () => ({ mounts: [{ id: 'imports', mode: 'readwrite' as const, state: 'ready' }], mountChangesAllowed: false }),
+    }
+    const { root, unmount } = mount(connection, { info: () => new Promise(() => undefined) })
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain(policy === 'disabled' ? 'imports - ready - readwrite' : 'Connect to the local Dinkster backend'))
+      expect(root.textContent).not.toContain('Choose folder')
+      expect(root.querySelector('.desktop-mount-form')).toBeNull()
+    } finally { unmount() }
+  })
+
+  it('preserves a selected folder when the parent reevaluates the same connection', async () => {
+    const connection = { addMount: vi.fn(), fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: true }) }
+    const { root, bridge, unmount, refreshConnection, setConnection } = mount(connection, { chooseDirectory: vi.fn(async () => '/models/selected folder') })
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain('Choose folder'))
+      const choose = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Choose folder')!
+      choose.click()
+      await vi.waitFor(() => expect(root.querySelector<HTMLInputElement>('#desktop-mount-id')?.value).toBe('selected-folder'))
+      refreshConnection()
+      await vi.waitFor(() => expect(root.textContent).toContain('Choose folder'))
+      expect(root.querySelector<HTMLInputElement>('#desktop-mount-id')?.value).toBe('selected-folder')
+      vi.mocked(bridge.chooseDirectory).mockResolvedValueOnce(undefined)
+      choose.click()
+      await vi.waitFor(() => expect(choose.disabled).toBe(false))
+      expect(root.querySelector<HTMLInputElement>('#desktop-mount-id')?.value).toBe('selected-folder')
+      expect(root.querySelector('.desktop-mount-form code')?.textContent).toBe('/models/selected folder')
+      setConnection({ ...connection })
+      await vi.waitFor(() => expect(root.textContent).toContain('Choose folder'))
+      expect(root.querySelector('#desktop-mount-id')).toBeNull()
+    } finally { unmount() }
+  })
+
   it('displays the latest mount snapshot when its initial read finishes after another refresh', async () => {
     let finish!: (response: Response) => void
     const fetchFn = vi.fn<FetchLike>()
