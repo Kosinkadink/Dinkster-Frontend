@@ -125,6 +125,30 @@ it('rejects malformed installation success and activation rollback instead of re
   }
 })
 
+it('bounds install planning and forwards cancellation without retrying apply', async () => {
+  vi.useFakeTimers()
+  try {
+    const signals: AbortSignal[] = []
+    const fetchFn: FetchLike = async (_url, init) => {
+      const signal = init!.signal as AbortSignal
+      signals.push(signal)
+      return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('cancelled')), { once: true }))
+    }
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer', fetchFn,
+      webSocketFactory: () => ({}) as WebSocketLike })
+    const planning = expect(connection.planPackInstall([{ pack: 'image', version: '1' }])).rejects.toThrow('timed out')
+    await vi.advanceTimersByTimeAsync(30_000)
+    await planning
+    expect(signals[0]!.aborted).toBe(true)
+    const controller = new AbortController()
+    const applying = expect(connection.applyPackInstall('token', controller.signal)).rejects.toThrow('cancelled')
+    controller.abort()
+    await applying
+    expect(signals[1]!.aborted).toBe(true)
+    expect(signals).toHaveLength(2)
+  } finally { vi.useRealTimers() }
+})
+
 it('reads live source selections from the editing connection and rejects malformed options', async () => {
   let payload: unknown = { kind: 'model/vae', options: [
     { name: 'vendor/vae.safetensors', shape: 'file' },

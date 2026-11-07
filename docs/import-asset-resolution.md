@@ -5,6 +5,9 @@ Dinkster translates legacy ComfyUI LiteGraph workflows when `AppState.openDocume
 The shared `DinksterConnection` client exposes `planPackInstall` for exact
 pack/version selections and `applyPackInstall` for the server-held confirmation
 token. Planning returns the manager's review text and does not install.
+Both methods accept an optional AbortSignal. Planning has the ordinary
+30-second metadata deadline. Cancelling an apply stops the caller's wait,
+not the backend mutation; its outcome requires installed-catalog reconciliation.
 Applying never retries automatically: a transport failure may have happened
 after the host changed its installation. HTTP failures retain their status and
 structured body as `PackInstallError`; absent opt-in routes remain unavailable.

@@ -2437,6 +2437,8 @@ export class AppState {
   readonly searchOpen = createSignal(false)
   readonly searchCatalog = createSignal<readonly CatalogNode[]>([])
   readonly nodeInstallRequest = createSignal<(CatalogNode & { readonly backendId: string }) | undefined>(undefined)
+  /** Unacknowledged mutations survive closing the prompt until the installed node is observed. */
+  readonly nodeInstallUncertain = new Map<string, string>()
   readonly templateGalleryOpen = createSignal(false)
   /** Node docs page requested by the canvas, palette, or F1 command. */
   readonly nodeHelpRequest = createSignal<NodeHelpRequest | undefined>(undefined)

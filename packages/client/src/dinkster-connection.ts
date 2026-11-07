@@ -2715,9 +2715,10 @@ export class DinksterConnection {
     return matches
   }
 
-  private async packInstallRequest(action: 'plan' | 'apply', body: unknown): Promise<Record<string, unknown>> {
+  private async packInstallRequest(action: 'plan' | 'apply', body: unknown, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const response = await this.fetchFn(`${this.baseUrl}/api/packs/install/${action}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      ...(signal === undefined ? {} : { signal }),
     })
     const payload = await responsePayload(response)
     if (!response.ok) throw new PackInstallError(response.status, payload)
@@ -2726,8 +2727,10 @@ export class DinksterConnection {
   }
 
   /** Request a review only; the server retains the executable plan. */
-  async planPackInstall(packs: readonly { readonly pack: string; readonly version: string }[]): Promise<PackInstallPlan> {
-    const body = await this.packInstallRequest('plan', { packs: packs.map(({ pack, version }) => ({ pack, version })) })
+  async planPackInstall(packs: readonly { readonly pack: string; readonly version: string }[], signal?: AbortSignal): Promise<PackInstallPlan> {
+    const body = await requestWithDeadline((deadline) => this.packInstallRequest('plan',
+      { packs: packs.map(({ pack, version }) => ({ pack, version })) },
+      signal === undefined ? deadline : AbortSignal.any([deadline, signal])))
     const plan = body['plan']
     if (typeof body['confirmation'] !== 'string' || body['confirmation'].length === 0 ||
       typeof body['review'] !== 'string' ||
@@ -2741,8 +2744,8 @@ export class DinksterConnection {
   }
 
   /** Apply only a human-confirmed token, without retrying a possibly completed mutation. */
-  async applyPackInstall(confirmation: string): Promise<PackInstallResult> {
-    const body = await this.packInstallRequest('apply', { confirmation })
+  async applyPackInstall(confirmation: string, signal?: AbortSignal): Promise<PackInstallResult> {
+    const body = await this.packInstallRequest('apply', { confirmation }, signal)
     const raw = body['activation']
     const invalid = () => new Error('Malformed pack installation activation response')
     if (!Number.isSafeInteger(body['generation']) || (body['generation'] as number) < 1 ||
