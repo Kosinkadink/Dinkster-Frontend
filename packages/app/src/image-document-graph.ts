@@ -217,6 +217,7 @@ export async function exportImageDocumentSnapshot(
   store: ImageDocumentLocalStore,
   document: ImageDocument,
   name: string,
+  stillWanted: () => boolean = () => true,
 ): Promise<void> {
   const tab = app.activeTab()
   if (tab === undefined || tab.execution !== undefined) throw new Error('Select an editable workflow for export')
@@ -230,15 +231,21 @@ export async function exportImageDocumentSnapshot(
     throw new Error('The destination does not advertise layer load and flatten nodes')
   }
   const expectedGraphFingerprint = sha256Hex(canonicalJson(graph))
-  const adopted = await adoptImageDocumentForRender(backend.connection, store, document, 'local')
-  if (app.activeTab() !== tab || app.backendForTab(tab) !== backend || currentGraphId(tab) !== graphId) {
-    throw new Error('The destination workflow or backend changed during export')
+  const connection = backend.connection
+  const session = tab.store
+  const current = (): boolean => stillWanted() && app.activeTab() === tab && tab.store === session &&
+    app.backendForTab(tab) === backend && backend.connection === connection && currentGraphId(tab) === graphId
+  const assertCurrent = (): void => {
+    if (!current()) throw new Error('The destination workflow or backend changed during export')
   }
+  assertCurrent()
+  const adopted = await adoptImageDocumentForRender(connection, store, document, 'local', undefined, assertCurrent)
+  assertCurrent()
   const outcome = await app.dispatchRetainedTo(tab, { command: 'image.documentExport', params: {
     graphId, expectedGraphFingerprint, position: { x: 80, y: 80 },
     asset: { digest: adopted.digest, name: `${name}.dinkster-image`,
       size: new TextEncoder().encode(serializeImageDocument(adopted.document)).byteLength,
       mediaType: IMAGE_DOCUMENT_MEDIA_TYPE, virtualPath: '' },
-  } }, () => app.activeTab() === tab && currentGraphId(tab) === graphId)
+  } }, current)
   if (!outcome.ok) throw new Error(outcome.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
 }

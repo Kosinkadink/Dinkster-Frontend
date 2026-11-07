@@ -35,6 +35,12 @@ or errors. Pending renders hold busy state and store close through actual
 settlement, including retained-read cleanup. Submitted work may finish without
 rollback; edits still mark a completed render stale when its source differs.
 
+Snapshot export captures its source session and destination workflow, graph,
+backend, and connection before waiting for persistence. Stale continuations
+cannot start adoption, commit retained graph edits, or publish status/errors.
+Pending exports hold busy state and store close through settlement. Already
+submitted work may finish without rollback.
+
 Startup recovery stays with its original project and workspace. Saved shared
 membership is rejoined only while its captured backend and connection remain
 current. Stale lookups do not clear membership, and stale snapshot/resource

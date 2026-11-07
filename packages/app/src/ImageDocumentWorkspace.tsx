@@ -27,7 +27,7 @@ import {
   type DinksterConnection,
   type LibraryRecord,
 } from '@dinkster/client'
-import type { AppState } from './app-state.js'
+import { currentGraphId, type AppState } from './app-state.js'
 import { COLLAB_SCOPE } from './collab.js'
 import {
   ImageDocumentLocalStore,
@@ -750,6 +750,7 @@ export function ImageDocumentWorkspace(props: {
   const pendingDraftSaves = new Set<Promise<void>>()
   const pendingPublications = new Set<Promise<void>>()
   const pendingAuthoritativeRenders = new Set<Promise<VerifiedImageDocumentRender | undefined>>()
+  const pendingSnapshotExports = new Set<Promise<void>>()
   let openingLibrary: Promise<unknown> | undefined
   let recovering: Promise<void> | undefined
   let collaborationListIntent = 0
@@ -786,7 +787,7 @@ export function ImageDocumentWorkspace(props: {
     const pending = value || pendingImports.size > 0 || pendingGraphOpens.size > 0 ||
       pendingCollaborationLists.size > 0 || pendingCollaborationJoins.size > 0 || pendingCollaborationShares.size > 0 ||
       pendingCollaborationLeaves.size > 0 || pendingCollaborationEnds.size > 0 || pendingLibraryLists.size > 0 ||
-      pendingDraftSaves.size > 0 || pendingPublications.size > 0 || pendingAuthoritativeRenders.size > 0
+      pendingDraftSaves.size > 0 || pendingPublications.size > 0 || pendingAuthoritativeRenders.size > 0 || pendingSnapshotExports.size > 0
     setBusySignal(pending)
     props.onBusyChange(pending)
   }
@@ -1258,7 +1259,7 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...[...pendingAuthoritativeRenders].map((task) => task.catch(() => undefined)), ...pendingPublications, ...pendingDraftSaves, ...pendingLibraryLists, ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
+    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingSnapshotExports, ...[...pendingAuthoritativeRenders].map((task) => task.catch(() => undefined)), ...pendingPublications, ...pendingDraftSaves, ...pendingLibraryLists, ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
       entry.hydrate.catch(() => undefined),
     ])]).finally(() => store.close())
@@ -1424,17 +1425,34 @@ export function ImageDocumentWorkspace(props: {
     return task
   }
   const exportSnapshot = async (entry: OpenImageDocument): Promise<void> => {
+    const session = entry.session
+    const snapshot = session.doc
+    const name = entry.name
+    const tab = props.app.activeTab()
+    const backend = tab === undefined ? undefined : props.app.backendForTab(tab)
+    const connection = backend?.connection
+    const graphId = tab === undefined ? undefined : currentGraphId(tab)
+    const destination = tab?.store
+    const graph = graphId === undefined ? undefined : destination?.doc.graphs[graphId]
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      documents().includes(entry) && entry.session === session && props.app.activeTab() === tab &&
+      (tab === undefined || (tab.store === destination && props.app.backendForTab(tab) === backend &&
+        backend?.connection === connection && currentGraphId(tab) === graphId))
     setBusy(true)
     setError(undefined)
-    try {
-      await entry.persist
-      await exportImageDocumentSnapshot(props.app, store, entry.session.doc, entry.name)
-      if (live) props.app.showTransientStatus(message('imageDocument.workspace.status.exportedSnapshot', { name: entry.name }))
-    } catch (cause) {
-      if (live) setLocalizedError('imageDocument.workspace.error.graphExportFailed', { reason: messageOf(cause) })
-    } finally {
+    const task: Promise<void> = entry.persist.then(async () => {
+      if (!current()) return
+      if (graphId !== undefined && destination?.doc.graphs[graphId] !== graph) return
+      await exportImageDocumentSnapshot(props.app, store, snapshot, name, current)
+      if (current()) props.app.showTransientStatus(message('imageDocument.workspace.status.exportedSnapshot', { name }))
+    }).catch((cause) => {
+      if (current()) setLocalizedError('imageDocument.workspace.error.graphExportFailed', { reason: messageOf(cause) })
+    }).finally(() => {
+      pendingSnapshotExports.delete(task)
       if (live) setBusy(false)
-    }
+    })
+    pendingSnapshotExports.add(task)
+    await task
   }
   const exportRecipe = async (entry: OpenImageDocument): Promise<void> => {
     if (entry.origin === undefined) return
