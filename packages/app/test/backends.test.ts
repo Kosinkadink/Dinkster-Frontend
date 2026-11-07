@@ -11,7 +11,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   asConnectionId,
   asPromptId,
+  resolveImportedNodePacks,
   setLocale,
+  type ComfyTranslation,
   type DinksterNodesPayload,
   type ExecutionRef,
   type NodeSchema,
@@ -251,6 +253,22 @@ describe('addBackend / removeBackend', () => {
     vi.spyOn(backend.connection, 'fetchSchemas')
       .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
       .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve }))
+    const translations = (version: string): readonly ComfyTranslation[] => [{
+      pack: 'dinkster-image', version, schema: choiceSchema([]),
+      rule: { from: 'LegacyChoice', cases: [{ to: 'Choice', inputs: {}, outputs: {} }] },
+    }]
+    const olderTranslations = translations('0.0.1')
+    const newestTranslations = translations('0.0.2')
+    vi.spyOn(backend.connection, 'fetchComfyTranslations')
+      .mockResolvedValueOnce(olderTranslations)
+      .mockResolvedValueOnce(newestTranslations)
+    const importedVersions: (string | undefined)[] = []
+    backend.registry.subscribe(() => {
+      app.openDocument({ nodes: [{ id: 1, type: 'LegacyChoice' }], links: [] }, 'First open', backend)
+      const tab = app.activeTab()!
+      expect(tab.store.doc.graphs.g0!.nodes.n1!.type).toBe('Choice')
+      importedVersions.push(resolveImportedNodePacks(tab.store.doc, backend.registry.get()!.resolve)[0]?.version)
+    })
 
     const first = app.refreshBackendSchemas(backend)
     const second = app.refreshBackendSchemas(backend)
@@ -262,6 +280,8 @@ describe('addBackend / removeBackend', () => {
 
     expect(backend.registry.get()).toBe(newest)
     expect(backend.schemaState.get()).toEqual({ status: 'ready' })
+    expect(backend.comfyTranslations.get()).toBe(newestTranslations)
+    expect(importedVersions).toEqual(['0.0.2'])
   })
 
   // ComfyUI_frontend 2dde8ae00c36b43e0ec84bc6f3a60caad5119303:
