@@ -5,7 +5,7 @@
  * synthetic schema through the SAME public extension API (registerSchemas)
  * and open a matching workflow document.
  */
-import { expect, appViewTest as test, type Page } from './fixtures.js'
+import { expect, appViewTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 
@@ -62,13 +62,14 @@ const openSubmenu = async (page: Page, id: string) => {
 
 test.beforeEach(async ({ page }, testInfo) => {
   if (testInfo.annotations.some((annotation) => annotation.type === 'mock-name-dispatch')) {
-    await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: {} }))
+    await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
       schemaVersion: 1, epoch: 1, dinkster: { version: 'name-fixture', schemaWire: 1 }, nodes: {},
     } }))
     await page.routeWebSocket('**/api/events?*', () => {})
     await page.goto('/')
     await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
+    await waitForStartupOwnership(page)
     return
   }
   if (testInfo.annotations.some((annotation) => annotation.type === 'mock-legacy-discovery')) {
@@ -83,6 +84,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
     return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
   })).toBe(true)
+  await waitForStartupOwnership(page)
   await identityViewport(page)
 })
 

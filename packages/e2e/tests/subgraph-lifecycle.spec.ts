@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, openRailPanel, test, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 async function ready(page: Page, mockLegacyDiscovery = false): Promise<void> {
   if (mockLegacyDiscovery) {
@@ -14,10 +14,11 @@ async function ready(page: Page, mockLegacyDiscovery = false): Promise<void> {
 
 test('canvas deletion awaits acceptance and preserves newer selection', async ({ page }) => {
   const catalog = JSON.parse(readFileSync(new URL('../../core/fixtures/dinkster-nodes.json', import.meta.url), 'utf8'))
-  await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: {} }))
+  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 503, json: {} }))
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: catalog }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await ready(page)
+  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     app.openDocument({
