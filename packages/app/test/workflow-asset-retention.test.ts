@@ -1234,6 +1234,34 @@ describe('workflow candidate admission', () => {
     expect(local.doc.graphs.g0!.nodes.n0!.title).toBe('Opaque node')
   })
 
+  it('clears an asset widget while retaining its undoable asset', async () => {
+    const assetSchema: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'files', optional: false,
+      type: { kind: 'concrete', name: 'ASSET' }, widget: { widgetType: 'ASSET', options: {}, default: null },
+    }] }
+    const document = session().doc
+    const local = createLocalSession({ ...document, graphs: { g0: { ...document.graphs.g0!, nodes: {
+      n0: { ...document.graphs.g0!.nodes.n0!, values: { files: asset('a') } },
+    } } } }, coreCommandRegistry([], () => assetSchema))
+    const before = local.doc
+    const prepared = local.prepareDispatch!({ command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n0', inputId: 'files', value: null,
+    } })
+    if (!prepared.ok) throw new Error('candidate rejected')
+    const connection = {
+      id: 'backend', assetUrl: () => 'http://assets.test/',
+      retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
+        expect(local.doc).toBe(before)
+        expect(declaration).toEqual({ revision: 0, complete: true, digests: [asset('a').digest] })
+        return { ...owner, ...declaration, revision: 1 }
+      },
+    } as unknown as DinksterConnection
+    expect((await admitWorkflowDispatch(connection, prepared, () => assetSchema, () => true,
+      { setItem: () => {} })).ok).toBe(true)
+    expect(local.doc.graphs.g0!.nodes.n0!.values.files).toBeNull()
+    expect(local.undo()).toBe(true)
+    expect(local.doc).toEqual(before)
+  })
+
   it.each(['widget', 'unmarked', 'typed', 'malformed-widget'] as const)('keeps only unresolved widget names admissible as incomplete: %s', async (scenario) => {
     const assetSchema: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'files', optional: false,
       type: { kind: 'concrete', name: 'ASSET' },

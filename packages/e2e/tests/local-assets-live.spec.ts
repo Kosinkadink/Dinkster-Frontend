@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { expect, test, type Page } from '@playwright/test'
-import { openRailPanel } from './fixtures.js'
+import { expect, nativeTest as test, openRailPanel, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const nativeFrontend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
 if (!nativeFrontend) throw new Error('Native frontend is required')
@@ -35,6 +34,7 @@ test('reopened workflow checks exact asset presence without acquiring or rewriti
   })
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
+  await waitForStartupOwnership(page)
   await page.evaluate(({ available, missing }) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
@@ -110,6 +110,7 @@ for (const state of ['retired', 'inactive', 'linked'] as const) {
     await page.goto('/')
     await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
     await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.schemaState.get().status)).toBe('ready')
+    await waitForStartupOwnership(page)
     await page.evaluate((state) => {
       const app = window.__dinksterTest!.app
       const assetType = { kind: 'concrete', name: 'ASSET' } as const
@@ -194,6 +195,7 @@ for (const fixture of [
       ? await readFile(new URL(`../fixtures/media-overlay/${fixture.path}`, import.meta.url))
       : Buffer.concat([length, header, Buffer.alloc(4)])
     await page.goto('/')
+    await waitForStartupOwnership(page)
     if (fixture.kind === 'media/video') {
       bytes = Buffer.from(await page.evaluate(async () => {
         const canvas = document.createElement('canvas')

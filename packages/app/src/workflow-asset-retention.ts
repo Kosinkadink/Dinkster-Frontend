@@ -89,6 +89,8 @@ export function workflowAssetRoots(
     return type.kind === 'concrete' && (type.name === 'ASSET' || primitiveNames.has(type.name))
   }
   const valueRoots = (value: Json, type: TypeExpr, namedAsset = false): void => {
+    // A cleared asset widget holds no identity; history still contributes its previous value.
+    if (namedAsset && value === null) return
     // Asset widgets can hold unresolved imported names, never a certified digest set.
     if (namedAsset && typeof value === 'string') { complete = false; return }
     const typed = parseTypedLiteralWire(value)

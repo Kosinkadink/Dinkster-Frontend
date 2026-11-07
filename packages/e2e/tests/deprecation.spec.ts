@@ -75,6 +75,7 @@ async function migrationCatalog(page: Page): Promise<void> {
   } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas', { timeout: 30_000 })
+  await waitForStartupOwnership(page)
 }
 
 async function openMigration(page: Page, lineage: string): Promise<void> {
