@@ -64,7 +64,7 @@ async function exposeViaMenu(page: Page, inputId: string): Promise<void> {
 test.beforeEach(async ({ page }, testInfo) => {
   const mockRename = testInfo.annotations.some((annotation) => annotation.type === 'mock-rename-dispatch')
   if (mockRename) {
-    await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: {} }))
+    await page.route(/\/api\/(?!library\/retentions\/).*/, (route) => route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
       schemaVersion: 1, epoch: 1, dinkster: { version: 'rename-fixture', schemaWire: 1 }, nodes: {},
     } }))
