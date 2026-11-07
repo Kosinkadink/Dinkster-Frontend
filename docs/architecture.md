@@ -250,6 +250,9 @@ a digest. Unmarked asset filename strings and malformed AssetRef objects still r
 This conservative document owner blocks collection; it does not certify byte
 availability or global retention completeness. Malformed identities, invalid
 dynamic identities and stale history replay still refuse publication.
+History array additions insert before occupied entries without overwriting them;
+object additions still require an absent key, and replacements and removals
+still require their recorded value.
 Execution alone permits the dormant census diagnostic `elab.dormant.unsupported`
 when active elaboration is valid. Known active roots are retained with
 `complete: false`; the durable intent preserves the node-qualified diagnostic

@@ -711,8 +711,9 @@ export function jsonSameValue(a: Json | undefined, b: Json | undefined): boolean
  *
  * With `requireRecordedValues`, every verbatim-replayed op must still find
  * the document value it recorded (remove/replace: current deep-equals its
- * oldValue; add: target absent) or replay stops with `stale` set to the
- * offending op. Cursor-clamped ops are exempt - they are rewritten against
+ * oldValue; object add: target absent; array add: insertion index in bounds)
+ * or replay stops with `stale` set to the offending op.
+ * Cursor-clamped ops are exempt - they are rewritten against
  * the current document, never replayed. The shared session sets this so a
  * history record can never force-apply over a foreign actor's edit; the
  * local store keeps classical replay semantics (single writer - values can
@@ -858,11 +859,17 @@ export function replayHistoryOps(
     } else if (options?.requireRecordedValues) {
       // Semantic precondition (shared mode): the op replays verbatim, so
       // the document must still hold the value the record captured -
-      // otherwise this replay would overwrite another actor's edit.
+      // otherwise this replay would overwrite another actor's edit. Array
+      // additions insert before the current element; they do not overwrite it.
       const current = getAtPath(cur, op.path)
+      const index = op.path.at(-1)
+      const parent = op.op === 'add' && typeof index === 'number'
+        ? getAtPath(cur, op.path.slice(0, -1)) : undefined
       const holds =
         op.op === 'add'
-          ? current === undefined
+          ? typeof index === 'number'
+            ? Array.isArray(parent) && Number.isSafeInteger(index) && index >= 0 && index <= parent.length
+            : current === undefined
           : current !== undefined && jsonSameValue(current, op.oldValue)
       if (!holds) return { doc: cur as unknown as WorkflowDocument, applied: Object.freeze(applied), stale: op }
     }

@@ -1212,6 +1212,18 @@ describe('workflow candidate admission', () => {
       .toEqual({ complete: true, digests: [asset('b').digest] })
   })
 
+  it.each(['undo', 'redo'] as const)('retains assets inserted before occupied array entries by %s history', (direction) => {
+    const local = session([asset('b'), asset('c')])
+    const path = ['graphs', 'g0', 'nodes', 'n0', 'values', 'files', 1]
+    const insert = { op: 'add' as const, path, value: asset('a') }
+    const remove = { op: 'remove' as const, path, oldValue: asset('a') }
+    const record = direction === 'undo' ? { forward: [remove], inverse: [insert] }
+      : { forward: [insert], inverse: [remove] }
+    expect(workflowAssetRoots(local.doc, { revision: 1, undo: [], redo: [], [direction]: [record] }, resolve))
+      .toEqual({ complete: true, digests: ['a', 'b', 'c'].map((letter) => asset(letter).digest) })
+    expect(local.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b'), asset('c')])
+  })
+
   it('rechecks shared dynamic nodes when historical connectivity activates slot defaults', () => {
     const local = session()
     const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
