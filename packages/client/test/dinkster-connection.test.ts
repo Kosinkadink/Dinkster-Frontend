@@ -105,6 +105,30 @@ it('decodes and revalidates backend-local import metadata without installing sch
   expect(calls.every((call) => call.url === '/selected/api/comfy-translations')).toBe(true)
 })
 
+it('retains the newer import catalog when an older refresh completes last', async () => {
+  const snapshot = (version: string) => ({ schemaVersion: 1, items: [{
+    pack: 'dinkster-text', version,
+    rule: { from: 'StringLength', cases: [{ to: 'dinkster.text.string_length', inputs: {}, outputs: {} }] },
+    schema: { schemaVersion: 1, nodeType: 'dinkster.text.string_length', interface: [] },
+  }] })
+  let releaseOlder!: (response: Response) => void
+  const etags: (string | null)[] = []
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'importer',
+    fetchFn: async (_url, init) => {
+      etags.push(new Headers(init?.headers).get('If-None-Match'))
+      if (etags.length === 1) return new Promise<Response>((resolve) => { releaseOlder = resolve })
+      if (etags.length === 2) return new Response(JSON.stringify(snapshot('0.0.2')), { headers: { ETag: '"newer"' } })
+      return new Response(null, { status: 304 })
+    }, webSocketFactory: () => ({}) as WebSocketLike })
+  const older = connection.fetchComfyTranslations()
+  const newer = await connection.fetchComfyTranslations()
+  expect(newer[0]!.version).toBe('0.0.2')
+  releaseOlder(new Response(JSON.stringify(snapshot('0.0.1')), { headers: { ETag: '"older"' } }))
+  expect((await older)[0]!.version).toBe('0.0.1')
+  expect((await connection.fetchComfyTranslations())[0]!.version).toBe('0.0.2')
+  expect(etags).toEqual([null, null, '"newer"'])
+})
+
 it.each([
   { format: 'dinkster.plan/1', base: null },
   { format: 'desktop.project-software/1', retained: { engine: 'sealed', constraints: ['cpu'] } },
