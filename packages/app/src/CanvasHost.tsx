@@ -1741,6 +1741,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   })
 
   const [editor, setEditor] = createSolidSignal<WidgetEditorState | undefined>(undefined)
+  const editorRestoresCanvasFocus = (state: WidgetEditorState): boolean => state.spec?.widgetType !== 'ASSET'
   let editorDocumentRevision: number | undefined
   let editorExtensionsGeneration: number | undefined
   // Reduce the open widget editor to app-level focus facts for the Context
@@ -4320,7 +4321,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ed!.tab = tab
         editorDocumentRevision = tab.store.revision
         editorExtensionsGeneration = extensionsGeneration
-      } else setEditor(undefined)
+      } else {
+        // A successful commit can invalidate its own draft before dispatch
+        // returns. Restore focus here without reviving the disposed editor.
+        const restoreFocus = ed !== undefined && ed.tab.id === tab.id && ed.graphId === graphId &&
+          untrack(hostFocused) && editorRestoresCanvasFocus(ed) && (document.activeElement === document.body ||
+            Boolean(canvasEl.parentElement?.querySelector('.widget-popover-layer')?.contains(document.activeElement)))
+        setEditor(undefined)
+        if (restoreFocus) queueMicrotask(() => {
+          if (untrack(editor) === undefined && document.activeElement === document.body) canvasEl.focus()
+        })
+      }
       const openMenu = untrack(menu)
       // Menu items are a semantic snapshot: they also go stale when the
       // drilled occurrence, an extension gate, or a diagnostic focus plan
@@ -7047,7 +7058,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             onAssetBackdropPointerDown={(event) => openAssetWidgetAt(event.clientX, event.clientY)}
             onClose={() => {
               setEditor(undefined)
-              if (ed.spec?.widgetType !== 'ASSET') queueMicrotask(() => canvasEl.focus())
+              if (editorRestoresCanvasFocus(ed)) queueMicrotask(() => canvasEl.focus())
             }}
           />
         )}

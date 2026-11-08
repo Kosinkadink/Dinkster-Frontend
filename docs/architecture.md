@@ -972,6 +972,7 @@ and route semantics remain outside the frontend contract.
 
 - `drawCompact` renders within the widget's row and truncates *honestly* (ellipsis/fade affordance signals hidden content) - it never dictates how much content the user can see.
 - Activating a widget (click/Enter) opens its `editorUi` tree in a **core-owned overlay anchored to the widget but sized independently of the node**. The view declares sizing preferences; core owns placement, focus, dismissal, rendering, and command invocation.
+- Scene-driven dismissal of a focused non-ASSET editor restores canvas focus in the same graph, including when an accepted commit invalidates its own draft. It does not take focus from another control or a replacement editor.
 - The same path works **read-only**: on frozen views and locked documents, activation opens the editor in inspect mode (select/copy enabled, commit disabled). Reading a long prompt on a frozen snapshot requires zero layout changes.
 - Expansion is transient UI state - not view state, not semantic state. Nothing serializes; the node's layout is untouched. Manual node resizing remains available as a *layout* preference (how much space you want a node to occupy in the composition), but is never the price of legibility.
 
