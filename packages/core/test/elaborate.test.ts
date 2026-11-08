@@ -235,6 +235,28 @@ describe('autogrow', () => {
     })
   })
 
+  it('discovers dynamic-only wire15 members inside a native combo branch', () => {
+    const family: InputSpec = {
+      ...autogrowFamily('items', { min: 0, max: 4 }),
+      dynamic: { kind: 'autogrow', materialization: 'wire15',
+        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
+        template: [{ ...comboConstruct('choice', []), dynamic: {
+          kind: 'dynamicCombo', materialization: 'wire15', options: [
+            { key: 'first', inputs: [] }, { key: 'second', inputs: [] },
+          ],
+        } }],
+      },
+    }
+    const schema = schemaOf([comboConstruct('mode', [{ key: 'active', inputs: [family] }])])
+    const node = { values: {}, dynamic: {
+      mode: { selected: 'active' }, 'mode.[active].items.m7.choice': { selected: 'second' },
+    } }
+    const result = elaborateInterface(schema, node)
+    expect(result.diagnostics).toEqual([])
+    expect(elabInputsOf(result).find((input) => input.address.port === 'mode.[active].items.m7.choice'))
+      .toMatchObject({ apiName: 'mode.items.item0.choice', derivedValue: 'second', origin: { kind: 'selector' } })
+  })
+
   it('keeps structural wire-15 interface order independent of source mode', () => {
     const family: InputSpec = {
       ...autogrowFamily('items', { min: 0, max: 4 }),

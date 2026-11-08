@@ -450,6 +450,8 @@ export interface ElabContext {
   readonly storedValues: Readonly<Record<string, Json>>
   /** Root state reader. Nested constructs must use memberScope(...).stateOf. */
   readonly stateOf: ElabScope['stateOf']
+  /** Root construct names are discovery evidence, not verified state reads. */
+  readonly dynamicStateKeys: readonly string[]
   readonly inputEvidence: readonly string[]
   readonly memberBudget: number
   /** See ElaborateOptions.promoteGhosts (view affordance; compiler: false). */
@@ -633,7 +635,7 @@ function elaborateWire15Family(
     storedMembers,
     Object.keys(ctx.storedValues),
     ctx.connectivity.inputPorts?.() ?? [],
-    ctx.inputEvidence,
+    ctx.dynamicStateKeys,
     spec.optionalAfterMinimum === true,
   )
   for (const member of evidenceMembers) {
@@ -1622,6 +1624,7 @@ function elaborateWithStateReads(
     nodeType: schema.type,
     storedValues: node.values,
     stateOf: stateReader(node.dynamic),
+    dynamicStateKeys: Object.keys(node.dynamic ?? {}),
     inputEvidence,
     memberBudget: budget.maxMembers,
     connectivity,
