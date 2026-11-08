@@ -72,6 +72,7 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
     return owner !== undefined && props.app.canUndoMigrationNotice(owner)
   }
   const disclosure = props.disclosure ?? createProblemsDisclosure()
+  const expandedProblems = new Set<string>()
   const packDiagnostics = createMemo(() => [
     ...props.compatSkips().map((skip) => diag('info', 'schema', 'pack.compatSkipped', `${skip.packId}: ${skip.nodeId} - ${skip.reason}`)),
     ...(props.packInferenceUnavailable?.() ?? []).map((pack) => diag(
@@ -148,6 +149,12 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                   <For each={group().diagnostics}>
                     {(diagnostic) => (
                       <details class="problem" data-severity={diagnostic.severity}
+                        open={expandedProblems.has(JSON.stringify([key, diagnostic]))}
+                        onToggle={(event) => {
+                          const problemKey = JSON.stringify([key, diagnostic])
+                          if (event.currentTarget.open) expandedProblems.add(problemKey)
+                          else expandedProblems.delete(problemKey)
+                        }}
                         data-activatable={diagnostic.anchor !== undefined ? true : undefined}>
                         <summary title={diagnostic.message} onClick={() => activateProblem(props.app, diagnostic)}>
                           <span class="problem-severity" aria-label={diagnostic.severity}>

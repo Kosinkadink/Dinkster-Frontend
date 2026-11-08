@@ -34,6 +34,8 @@ Clicking an anchored Problems row also navigates to its owner. Section
 disclosure remains independent of row disclosure. Adding or removing other
 diagnostics, including in the same section, preserves unchanged rows'
 disclosure and text selection so expanded repair actions remain available.
+Identical diagnostic snapshots also retain row disclosure when a workflow's
+shared-session promotion briefly removes and rechecks its asset diagnostics.
 
 When a queue attempt is refused, a Product error toast repeats the Problems
 indicator summary and lists counts by severity. Show Problems opens the
