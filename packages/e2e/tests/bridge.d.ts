@@ -356,7 +356,7 @@ interface DinksterTestBridge {
       activate(zone: 'left' | 'right' | 'bottom', panelId: string): void
       setOpen(zone: 'left' | 'right' | 'bottom', open: boolean): void
     }
-    problems: { get(): ReadonlyArray<{ severity: string; code: string; message: string }> }
+    problems: { get(): ReadonlyArray<{ severity: string; code: string; message: string; data?: Readonly<Record<string, unknown>> }> }
     /** Append diagnostic objects under one tab owner (badge lifecycle specs). */
     reportProblems(owner: string, diagnostics: readonly unknown[]): void
     /** Drop every diagnostic held by one owner (badge lifecycle specs). */
