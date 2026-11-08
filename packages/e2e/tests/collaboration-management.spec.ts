@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from '@playwright/test'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page, type Route } from './fixtures.js'
 
 const evidenceDir = process.env['DINKSTER_COLLAB_EVIDENCE_DIR'] ?? '/tmp/dinkster-42-evidence'
 const longSessionId = `session-${'s'.repeat(90)}`
@@ -16,6 +16,7 @@ const session = (sessionId = 'session-one', documentId = 'document-one') => ({
 async function appReady(page: Page): Promise<void> {
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
+  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     if (!app.backends.get().some((backend) => backend.protocol === 'dinkster')) {
@@ -90,14 +91,6 @@ async function installCurrentSession(page: Page, initialStatus: 'live' | 'catchi
 }
 
 async function installProductionCollabTransport(page: Page): Promise<void> {
-  await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
-    expect(route.request().method()).toBe('PUT')
-    const declaration = route.request().postDataJSON()
-    expect(declaration.revision).toBe(0)
-    expect(typeof declaration.complete).toBe('boolean')
-    return route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
-      ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: 1 } })
-  })
   await page.evaluate(() => {
     type FixtureEvent =
       | { readonly kind: 'connected'; readonly descriptor: FixtureDescriptor }
@@ -250,11 +243,14 @@ test('sharing waits for ownership and keeps the local workflow after refusal', a
 test('sharing keeps a local edit undoable with Ctrl+Z', async ({ page }) => {
   await appReady(page)
   await installProductionCollabTransport(page)
-  const baseline = await page.evaluate(() => {
-    const tab = window.__dinksterTest!.app.activeTab()!
+  const baseline = await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{ type: 'ShareUndoProof', displayName: 'Share undo proof', category: 'test',
+      source: 'v3', isOutputNode: false, items: [] }])
+    const tab = app.activeTab()!
     const graphId = tab.store.doc.root
     const count = Object.keys(tab.store.doc.graphs[graphId]!.nodes).length
-    const result = tab.store.dispatch({
+    const result = await app.dispatchTo(tab, {
       command: 'node.add',
       params: { graphId, type: 'ShareUndoProof', position: { x: 10, y: 20 } },
     })
