@@ -255,6 +255,16 @@ describe('autogrow', () => {
     expect(result.diagnostics).toEqual([])
     expect(elabInputsOf(result).find((input) => input.address.port === 'mode.[active].items.m7.choice'))
       .toMatchObject({ apiName: 'mode.items.item0.choice', derivedValue: 'second', origin: { kind: 'selector' } })
+    const atLimit = { ...node, dynamic: { ...node.dynamic,
+      ...Object.fromEntries(Array.from({ length: 6 }, (_, index) => [`unread${index}`, { selected: 'unused' }])),
+    } }
+    expect(elaborateInterface(schema, atLimit, EMPTY_CONNECTIVITY, { budget: { maxItems: 8 } }).diagnostics).toEqual([])
+    const overLimit = { ...atLimit, dynamic: { ...atLimit.dynamic, overflow: { selected: 'unused' } } }
+    for (const includeDormant of [false, true]) {
+      const over = elaborateInterface(schema, overLimit, EMPTY_CONNECTIVITY, { includeDormant, budget: { maxItems: 8 } })
+      expect(over.items).toEqual([])
+      expect(over.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['elab.budget.items'])
+    }
   })
 
   it('keeps structural wire-15 interface order independent of source mode', () => {

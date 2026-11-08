@@ -1590,12 +1590,13 @@ function elaborateWithStateReads(
   const wire15Construct = schema.items.find((item): item is InputSpec =>
     item.kind === 'input' && item.dynamic?.materialization === 'wire15')
   const hasWire15 = wire15Construct !== undefined
+  const dynamicStateKeys = Object.keys(node.dynamic ?? {})
   const inputEvidence = hasWire15 ? [
     ...Object.keys(node.values),
     ...(connectivity.inputPorts?.() ?? []),
-    ...Object.keys(node.dynamic ?? {}),
+    ...dynamicStateKeys,
   ] : []
-  if (hasWire15 && inputEvidence.length > budget.maxItems) {
+  if (inputEvidence.length > budget.maxItems || dynamicStateKeys.length > budget.maxItems) {
     diagnostics.push(diag('error', 'schema', 'elab.budget.items', `elaboration input evidence exceeds the ${budget.maxItems}-item budget`))
     halted = true
   }
@@ -1624,7 +1625,7 @@ function elaborateWithStateReads(
     nodeType: schema.type,
     storedValues: node.values,
     stateOf: stateReader(node.dynamic),
-    dynamicStateKeys: Object.keys(node.dynamic ?? {}),
+    dynamicStateKeys,
     inputEvidence,
     memberBudget: budget.maxMembers,
     connectivity,
@@ -1979,7 +1980,7 @@ function elaborateWithStateReads(
     if (item.kind === 'input') elaborateInput(item, topScope)
     else elaborateOutput(item, topScope)
   }
-  if (options.includeDormant) {
+  if (options.includeDormant && !halted) {
     const checkStateKeys = (states: Readonly<Record<string, DynamicPortState>> | undefined, depth: number): void => {
       if (states === undefined) return
       if (depth > budget.maxDepth) {
