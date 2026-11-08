@@ -56,7 +56,8 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
   }
   const load = (refresh = false): void => {
     const sourceSpec = spec.remote
-    if (!sourceSpec) return
+    if (!sourceSpec || props.commitPending()) return
+    const store = ed.tab.store
     const token = ++requestToken
     requestAbort?.abort()
     const abort = new AbortController()
@@ -78,7 +79,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
     if (!refresh || (previous?.state !== 'ready' && previous?.state !== 'stale')) setRemoteState({ state: 'loading', source })
     client.remoteChoices(sourceSpec.route, { refresh, signal: abort.signal, ...(sourceSpec.timeoutMs === undefined ? {} : { timeoutMs: sourceSpec.timeoutMs }), ...(sourceSpec.maxRetries === undefined ? {} : { maxRetries: sourceSpec.maxRetries }), ...(sourceSpec.refreshMs === undefined ? {} : { refreshMs: sourceSpec.refreshMs }) })
       .then((result) => {
-        if (!live || token !== requestToken || client.remoteChoiceAuthority() !== source.authority) return
+        if (!live || ed.tab.store !== store || token !== requestToken || client.remoteChoiceAuthority() !== source.authority) return
         const options = result.map((value) => ({ value, label: value }))
         setRemoteState({ state: 'ready', source, options })
         if (control !== undefined && target && result.length > 0) {
@@ -86,10 +87,9 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
           const currentGeneration = props.editor.app.widgetValueMutationGeneration(ed.tab, target.graphId, target.nodeId, target.inputId)
           if (current === expected && currentGeneration === generation && (expectedDraft === undefined || expectedDraft === draftGeneration)) {
             const selected = control === 'first' ? result[0]! : result[result.length - 1]!
-            props.editor.app.dispatchTo(ed.tab, withMaterializeFrames(target.graphId, target.nodeId, ed.target.kind === 'input' ? ed.target.materialize : undefined, { command: 'node.setValue', params: { ...target, value: multi ? [selected] : selected } }))
-            if (multi) props.close()
+            props.commitCommand(withMaterializeFrames(target.graphId, target.nodeId, ed.target.kind === 'input' ? ed.target.materialize : undefined, { command: 'node.setValue', params: { ...target, value: multi ? [selected] : selected } }), multi)
           }
-        } else if (refresh) props.editor.app.completeComboRefresh(plan, result)
+        } else if (refresh) return props.editor.app.completeComboRefresh(plan, result)
       })
       .catch((error: unknown) => {
         if (!live || token !== requestToken) return
@@ -150,8 +150,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
   const labelsChanged = createMemo(() => editableFamily.some((option) => labels()[option.value]?.trim() !== option.label))
   const commitLabels = () => {
     if (ed.target.kind !== 'input' || !spec.optionSource || labelError()) return
-    props.close()
-    props.editor.app.dispatchTo(ed.tab, { command: 'dynamic.labelMembers', params: { graphId: ed.target.inputFamilyOwner?.graphId ?? ed.graphId, nodeId: ed.target.inputFamilyOwner?.nodeId ?? ed.target.nodeId, construct: ed.target.inputFamilyOwner?.construct ?? spec.optionSource.inputFamily, labels: Object.fromEntries(editableFamily.map((option) => [memberId(option.value), labels()[option.value]?.trim() ?? option.label])) } } as unknown as CommandInvocation)
+    props.commitCommand({ command: 'dynamic.labelMembers', params: { graphId: ed.target.inputFamilyOwner?.graphId ?? ed.graphId, nodeId: ed.target.inputFamilyOwner?.nodeId ?? ed.target.nodeId, construct: ed.target.inputFamilyOwner?.construct ?? spec.optionSource.inputFamily, labels: Object.fromEntries(editableFamily.map((option) => [memberId(option.value), labels()[option.value]?.trim() ?? option.label])) } } as unknown as CommandInvocation)
   }
   const clickAway = () => multi ? props.commitValue(values()) : props.close()
   props.editor.bindClickAway?.(clickAway)
@@ -177,10 +176,9 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
     if (!editable || options === undefined || ed.target.kind !== 'input' || !ed.target.optionsTarget) return
     const target = ed.target.optionsTarget
     const owner = target.owner ?? { graphId: ed.graphId, nodeId: ed.target.nodeId, construct: target.construct, ancestors: target.ancestors }
-    props.editor.app.dispatchTo(ed.tab, withMaterializeFrames(owner.graphId, owner.nodeId, target.materialize ?? ed.target.materialize, {
+    props.commitCommand(withMaterializeFrames(owner.graphId, owner.nodeId, target.materialize ?? ed.target.materialize, {
       command: 'dynamic.setOptions', params: { ...owner, options },
     } as CommandInvocation))
-    props.close()
   }
 
   return <div ref={(el) => { root = el; props.bindPopover(el) }} class="widget-editor floating-surface widget-editor-popover combo-dropdown" classList={{ 'multi-combo-dropdown': multi, 'input-family-combo': !multi && spec.optionSource !== undefined, 'editable-combo-dropdown': editable }} data-testid={multi ? 'multi-combo-dropdown' : 'combo-dropdown'} data-remote={remote()?.state ?? 'static'} data-chip={multi ? spec.options['chip'] === true ? 'true' : spec.options['chip'] === false ? 'false' : 'absent' : undefined} data-editor-surface="popover" role="dialog" aria-label={`Edit ${ed.label} ${multi ? 'MULTI_COMBO' : 'COMBO'}`} style={props.popoverStyle}>

@@ -18,7 +18,7 @@
  * - every message is anchored as <nodeId>.<valueKey> so a report names the
  *   exact node and input
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const problems = (page: Page) => page.getByTestId('problems-panel')
 
@@ -105,8 +105,12 @@ test.beforeEach(async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'widget-diagnostics-fixture', schemaWire: 1 }, nodes: {},
   } }))
+  await page.route('**/api/workflows/plan', (route) => route.fulfill({ json: {
+    packs: [], assets: [], errors: [],
+  } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
 })
 
 test('out-of-range stored INT reports anchored in Problems and clears when fixed in the editor', async ({ page }) => {

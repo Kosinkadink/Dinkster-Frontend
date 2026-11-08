@@ -11,7 +11,7 @@
  * from n4).
  */
 import selectorFixture from '../../core/fixtures/workflows/selector.json' with { type: 'json' }
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const fixture = structuredClone(selectorFixture)
 fixture.graphs.g0.links.l12.from.port = 'IMAGE'
@@ -101,6 +101,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
   const failures = await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Selectors'), fixture)
   expect(failures).toEqual([])
   await page.waitForFunction(() => {

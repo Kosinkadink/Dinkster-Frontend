@@ -1,4 +1,4 @@
-import { createMemo, For, Show } from 'solid-js'
+import { createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { planSubgraphDefinitionCleanup, type SubgraphDefinitionCleanupEntry } from '@dinkster/core'
 import type { AppState } from './app-state.js'
 import { ProductActionFooter } from './ProductForm.js'
@@ -43,22 +43,31 @@ export function SubgraphDefinitionsDialog(props: { readonly app: AppState }) {
   const plan = createMemo(() => document === undefined ? undefined : planSubgraphDefinitionCleanup(document()))
   const removableNodeCount = () => plan()?.removable.reduce((total, entry) => total + entry.nodeCount, 0) ?? 0
   const removableRelatedItemCount = () => plan()?.removable.reduce((total, entry) => total + entry.relatedItemCount, 0) ?? 0
-  const removeUnused = (): void => {
+  const [applying, setApplying] = createSignal(false)
+  let live = true
+  onCleanup(() => { live = false })
+  const removeUnused = async (): Promise<void> => {
+    if (applying()) return
     const current = plan()
     const activeTab = props.app.activeTab()
-    if (activeTab === undefined || current === undefined || current.removable.length === 0) return
-    const outcome = props.app.dispatchTo(activeTab, {
-      command: 'subgraph.removeUnusedDefinitions',
-      params: {
-        definitionIds: current.removable.map((entry) => entry.id),
-        fingerprint: current.fingerprint,
-      },
-    })
-    if (!outcome.ok) return
-    props.app.modalPanel.set('')
-    props.app.showTransientStatus(
-      `Removed ${current.removable.length} unused subgraph definition${current.removable.length === 1 ? '' : 's'}`,
-    )
+    if (activeTab === undefined || activeTab !== tab || current === undefined || current.removable.length === 0) return
+    setApplying(true)
+    try {
+      const outcome = await props.app.dispatchTo(activeTab, {
+        command: 'subgraph.removeUnusedDefinitions',
+        params: {
+          definitionIds: current.removable.map((entry) => entry.id),
+          fingerprint: current.fingerprint,
+        },
+      })
+      if (!outcome.ok || !live || props.app.activeTab() !== activeTab || props.app.modalPanel.get() !== 'subgraph-definitions') return
+      props.app.modalPanel.set('')
+      props.app.showTransientStatus(
+        `Removed ${current.removable.length} unused subgraph definition${current.removable.length === 1 ? '' : 's'}`,
+      )
+    } finally {
+      if (live) setApplying(false)
+    }
   }
 
   return (
@@ -102,7 +111,7 @@ export function SubgraphDefinitionsDialog(props: { readonly app: AppState }) {
               <ProductActionFooter status={<span>
                 {current().removable.length} definition{current().removable.length === 1 ? '' : 's'}, {removableNodeCount()} body node{removableNodeCount() === 1 ? '' : 's'}, and {removableRelatedItemCount()} related saved item{removableRelatedItemCount() === 1 ? '' : 's'} will be removed.
               </span>}>
-                <button type="button" class="danger" data-testid="confirm-subgraph-cleanup" onClick={removeUnused}>
+                <button type="button" class="danger" data-testid="confirm-subgraph-cleanup" disabled={applying()} onClick={removeUnused}>
                   Remove {current().removable.length} unused definition{current().removable.length === 1 ? '' : 's'}
                 </button>
               </ProductActionFooter>

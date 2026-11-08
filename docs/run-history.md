@@ -52,6 +52,60 @@ workflow's local executions by backend, retaining a warning group when an
 owner was removed or disconnected. Its Pin and Follow latest actions only
 change the existing live-tab overlay binding.
 
+Cached-output reads publish only while their original backend is still live
+and its connection lifecycle has not changed. Removing or replacing that
+backend, reconnecting, or closing the application discards a late response;
+a subsequent execution update can retry against the live owner. Results
+already displayed remain available when their backend is removed.
+
+Queueing journals and confirms ownership of a newly uploaded source-document
+stamp before caching or submitting its digest. An unchanged document reuses
+that stamp only on the same backend connection. A refused declaration or
+unresolved write response leaves the stamp uncached and the submission
+unstamped; the next queue can retry. A lost response can be confirmed by exact
+readback without replaying the write. These owners remain incomplete and are
+not released when a tab closes, so this does not enable collection.
+
+Cached-output hydration journals an independent shown-result owner and waits
+for its exact acknowledgment before installing the fetched descriptors.
+Known source-document, snapshot, saved-artifact, preview-file and descriptor
+digests remain retained even when the durable run record is cleared. Opaque
+or truncated runtime values keep this declaration incomplete; it does not
+enable collection. A refusal or stale acknowledgment leaves cached outputs
+unpublished and allows a later execution update to retry. The journal is
+checked read-only on reconnect, without replaying writes or releasing owners.
+
+Startup restoration uses the same independent ownership acknowledgment after
+validating history, job, source document, compile proof and output descriptors.
+Pending or refused ownership does not publish a restored execution. Backend,
+connection or registry changes and application disposal discard late startup
+results without deleting their saved retry records.
+
+Fetched completion and reconnect records also confirm independent ownership
+before publishing output descriptors, saved artifacts or replayed node states.
+A refused declaration leaves the existing view unchanged for a later retry.
+The read captures its backend, connection lifetime, registry and execution
+identity; an acknowledgment for a retired owner cannot publish fetched data.
+
+Live previews and cross-window output events also confirm known digest roots
+before publication. Later events for the same execution wait behind the
+declaration so completion cannot overtake a pending preview; unrelated runs
+continue independently. Refused events remain unpublished, while later events
+can proceed. Backend, connection, registry or execution identity changes
+discard queued events from the previous owner. Binary previews with no external
+identities keep their immediate path when no earlier event is pending.
+Nested preview documents, saved stills and frame rings contribute known roots,
+but opaque payloads remain incomplete. This does not certify every read holder
+or enable collection.
+
+Cross-window run registrations retain known snapshot and source-document roots
+before publishing the reconstructed workflow. Opaque snapshots require an
+incomplete declaration even without known digests. Later events wait for that
+registration; refusal or a changed backend, connection, registry or registration
+withholds the snapshot. Certified asset-free snapshots without a source-document
+root keep their immediate path. These declarations do not release earlier owners
+or enable collection.
+
 ## Interrupted runs
 
 When the backend restarts, jobs that were queued or running when the process

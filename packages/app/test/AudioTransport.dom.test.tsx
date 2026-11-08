@@ -9,6 +9,79 @@ import { CurveEditor } from '../src/CurveEditor.js'
 import { NodeMediaOverlay } from '../src/CanvasHost.js'
 import { AppPreviewSurface } from '../src/AppPreviewSurface.js'
 import type { PreviewLoader } from '../src/node-previews.js'
+import { RetainedAssetReader } from '../src/workflow-asset-retention.js'
+import type { DinksterConnection } from '@dinkster/client'
+
+describe('document-owned input audio', () => {
+  it.each([false, true].flatMap((appView) => (['pending', 'refused', 'mounted', 'replacement'] as const).map((scenario) => ({ appView, scenario }))))(
+    'admits native playback and waits for actual resource reset (App: $appView): $scenario', async ({ appView, scenario }) => {
+      const root = document.createElement('div')
+      document.body.append(root)
+      const retained = { scope: 'local', ownerKind: 'document', ownerId: 'audio', revision: 1,
+        complete: false, digests: [] } as const
+      const original = new RetainedAssetReader({} as DinksterConnection, retained, () => true)
+      const replacement = new RetainedAssetReader({} as DinksterConnection, { ...retained, ownerId: 'next' }, () => true)
+      let admit!: () => void
+      const admission = new Promise<void>((resolve) => { admit = resolve })
+      let entered = false
+      const owner = { key: 'original', current: () => true, read: async <T,>(consume: () => Promise<T>): Promise<T> => {
+        entered = true
+        await admission
+        if (scenario === 'refused') throw new Error('Ownership refused')
+        return original.read(consume)
+      } }
+      const [reader, setReader] = createSolidSignal(owner)
+      const media = { kind: 'audio' as const, src: '/same.wav' }
+      const dispose = render(() => appView
+        ? <AppPreviewSurface surface={{ preview: media, source: { key: reader().key, assetReader: reader(), load: async () => media } }}
+          loader={{} as PreviewLoader} ariaLabelledBy="audio-title" />
+        : <NodeMediaOverlay media={media}
+          assetReader={reader()} rect={{ x: 10, y: 20, width: 500, height: 200 }} scale={1}
+          canvas={document.createElement('canvas')} />, root)
+      const audio = root.querySelector('audio')!
+      const reset = vi.spyOn(audio, 'load').mockImplementation(() => {})
+      const pause = vi.spyOn(audio, 'pause').mockImplementation(() => {})
+      try {
+        expect(entered).toBe(true)
+        expect(audio.getAttribute('src')).toBeNull()
+        if (scenario === 'pending') dispose()
+        admit()
+        if (scenario === 'pending' || scenario === 'refused') {
+          if (scenario === 'refused') await vi.waitFor(() => expect(root.textContent).toContain('Ownership refused'))
+          else await admission
+          await new Promise<void>((resolve) => queueMicrotask(resolve))
+          expect(audio.getAttribute('src')).toBeNull()
+          expect(reset).not.toHaveBeenCalled()
+          return
+        }
+        await vi.waitFor(() => expect(audio.getAttribute('src')).toBe('/same.wav'))
+        Object.defineProperty(audio, 'networkState', { configurable: true, value: HTMLMediaElement.NETWORK_LOADING })
+        let settled = false
+        const closed = original.close().then(() => { settled = true })
+        if (scenario === 'replacement') setReader({ key: 'next', current: () => true, read: replacement.read.bind(replacement) })
+        else dispose()
+        await Promise.resolve()
+        expect(audio.getAttribute('src')).toBeNull()
+        expect(pause).toHaveBeenCalled()
+        expect(reset).toHaveBeenCalledOnce()
+        expect(settled).toBe(false)
+        audio.dispatchEvent(new Event('emptied'))
+        await closed
+        if (scenario === 'replacement') {
+          await vi.waitFor(() => expect(audio.getAttribute('src')).toBe('/same.wav'))
+          let liveSettled = false
+          const live = replacement.close().then(() => { liveSettled = true })
+          await Promise.resolve()
+          expect(liveSettled).toBe(false)
+          dispose()
+          expect(audio.getAttribute('src')).toBeNull()
+          audio.dispatchEvent(new Event('emptied'))
+          await live
+        }
+      } finally { dispose(); root.remove(); vi.restoreAllMocks() }
+    },
+  )
+})
 
 describe('shared audio transport lifecycle', () => {
   let root: HTMLDivElement
@@ -203,6 +276,40 @@ describe('shared audio transport lifecycle', () => {
       } },
     })
     expect(request.openedValue.points).toEqual([{ position: 0, value: 0 }, { position: 1, value: 1 }])
+    closeCurve()
+  })
+  it.each([
+    { accepted: false, replace: false },
+    { accepted: true, replace: false },
+    { accepted: false, replace: true },
+  ])('waits for curve apply and isolates replacement targets: %j', async ({ accepted, replace }) => {
+    const request = { tabId: 'tab', graphId: 'g', nodeId: 'envelope', inputId: 'curve', instancePath: [], openedValue: { points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] } }
+    const target = createSignal<typeof request | undefined>(request)
+    const tab = { id: 'tab', store: { document: createSignal({}) } }
+    let settle!: () => void
+    const dispatch = vi.fn(() => new Promise((resolve) => {
+      settle = () => resolve({ ok: accepted, diagnostics: [] })
+    }))
+    const app = {
+      curveEditorTarget: target, tabs: createSignal([tab]), activeTabId: createSignal('tab'), store: { executions: createSignal(new Map()) },
+      curveTargetForInput: () => target.get(), executionForTab: () => undefined, dispatchTo: dispatch,
+      closeCurveEditor: () => target.set(undefined),
+    } as unknown as AppState
+    const curve = document.createElement('div'); root.append(curve)
+    const closeCurve = render(() => <CurveEditor app={app} />, curve)
+    const apply = Array.from(curve.querySelectorAll('button')).find((button) => button.textContent === 'Apply')!
+    apply.click()
+    expect(apply.disabled).toBe(true)
+    expect(target.get()).toBe(request)
+    apply.click()
+    expect(dispatch).toHaveBeenCalledOnce()
+    const replacement = { ...request }
+    if (replace) target.set(replacement)
+    settle()
+    await next()
+    expect(target.get()).toBe(replace ? replacement : accepted ? undefined : request)
+    if (!accepted && !replace) expect(curve.textContent).toContain('Curve update was refused')
+    if (replace) expect(curve.textContent).not.toContain('Curve update was refused')
     closeCurve()
   })
   it('loads the executed envelope curve and follows only its exact audio source', async () => {

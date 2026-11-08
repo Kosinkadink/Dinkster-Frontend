@@ -19,7 +19,7 @@
  * Skips loudly when no backend answers OR the dev node is absent, so the
  * suite stays runnable against ComfyUI alone or a non-dev native server.
  */
-import { expect, nativeTest, productOption, selectProductOption, test, type Page } from './fixtures.js'
+import { expect, nativeTest, productOption, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -37,6 +37,7 @@ async function addNativeBackend(page: Page): Promise<void> {
  * resolve through the ACTIVE tab's target).
  */
 async function openGradientDoc(page: Page): Promise<void> {
+  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'run-history-e2e', root: 'g0',
@@ -49,6 +50,10 @@ async function openGradientDoc(page: Page): Promise<void> {
     } as never, 'Run History')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
+  await expect.poll(() => page.evaluate(() => {
+    const tab = window.__dinksterTest!.app.activeTab()
+    return tab !== undefined && 'status' in tab.store && tab.store.doc.lineage === 'run-history-e2e'
+  })).toBe(true)
   await selectProductOption(page, page.getByTestId('tab-target'), NATIVE_BACKEND)
   await expect.poll(() => page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()

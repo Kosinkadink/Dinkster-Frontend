@@ -1,7 +1,11 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 import { mkdir } from 'node:fs/promises'
 
 const PROOF = 'test-results/latent-assets'
+
+const uploadPreferences = (page: Page) => page.evaluate(() => Object.fromEntries(
+  Object.entries(localStorage).filter(([key]) => key.startsWith('dinkster.uploadDestination.')),
+))
 
 const emptyWorkflow = (lineage: string) => ({
   format: 'dinkster-workflow', formatVersion: 1, lineage, root: 'g0',
@@ -199,6 +203,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: STARTUP_CATALOG }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('2 node schemas', { timeout: 15_000 })
+  await waitForStartupOwnership(page)
   await expect.poll(() => page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const registry = (app as unknown as {
@@ -288,7 +293,7 @@ test('native image resolution preserves mounted identity without upload and only
       },
     }
   }, digest)
-  const preferences = await page.evaluate(() => JSON.stringify(localStorage))
+  const preferences = await uploadPreferences(page)
   await dropBytes(page, pngBytes(), 'native.png', 'image/png')
   const surface = page.getByTestId('canvas-file-drop-surface')
   await expect(surface).toContainText('Using existing file; no copy made.')
@@ -299,7 +304,7 @@ test('native image resolution preserves mounted identity without upload and only
     return Object.values(doc.graphs[doc.root]!.nodes)[0]!.values['image']
   })).toEqual({ digest, name: 'native.png', size: 23, mediaType: 'image/png', virtualPath: 'mounts/plates/nested/native.png' })
   expect(await page.evaluate(() => (window as unknown as { __imageDropUploads: unknown[] }).__imageDropUploads)).toEqual([])
-  expect(await page.evaluate(() => JSON.stringify(localStorage))).toBe(preferences)
+  expect(await uploadPreferences(page)).toEqual(preferences)
   await page.screenshot({ path: testInfo.outputPath('native-drop-no-copy.png') })
   await closeRightRail(page)
   await page.setViewportSize({ width: 390, height: 844 })
@@ -348,7 +353,7 @@ test('native image and latent references bypass browser byte reads and ignore la
     const backend = (app as unknown as { backendForTab(tab: unknown): { connection: { fetchAssetLocations: () => Promise<readonly string[]> } } }).backendForTab(app.activeTab()!)
     backend.connection.fetchAssetLocations = async () => ['/studio/plates/nested/verified.latent']
   })
-  const preferences = await page.evaluate(() => JSON.stringify(localStorage))
+  const preferences = await uploadPreferences(page)
   for (const mediaType of ['image/png', 'application/x-comfy-latent']) {
     await page.getByTestId('graph-canvas').evaluate((canvas, mediaType) => {
       const file = new File([new Uint8Array([1, 2, 3])], 'untrusted.bin', { type: 'text/html' })
@@ -384,7 +389,7 @@ test('native image and latent references bypass browser byte reads and ignore la
     { type: 'dinkster.load_image', values: { image: { digest: `blake3:${'3'.repeat(64)}`, name: 'verified.png', size: 123, mediaType: 'image/png', virtualPath: 'mounts/plates/nested/verified.png' } } },
     { type: 'dinkster.load_latent', values: { latent: { digest: `blake3:${'2'.repeat(64)}`, name: 'verified.latent', size: 456, mediaType: 'application/x-comfy-latent', virtualPath: 'mounts/plates/nested/verified.latent' } } },
   ])
-  expect(await page.evaluate(() => JSON.stringify(localStorage))).toBe(preferences)
+  expect(await uploadPreferences(page)).toEqual(preferences)
   await page.screenshot({ path: testInfo.outputPath('native-latent-no-copy.png') })
   await closeRightRail(page)
   await page.setViewportSize({ width: 390, height: 844 })

@@ -10,6 +10,95 @@ tabs to durable images. **New from image** creates a document from PNG, JPEG, or
 WebP. The workspace restores every valid draft in the current project and keeps
 workflow tabs unchanged when you switch back.
 
+Local image imports stay with their original project and workspace. A decode
+that settles after project change or disposal cannot start another resource or
+draft write or publish a tab/error. Disposal waits for pending imports before
+closing the store; concurrent imports remain busy until they all settle.
+Already submitted transactions may finish, without rollback.
+
+Queued draft saves keep their original project, workspace, and document session.
+Stale work cannot submit another local write or publish saved status or errors;
+the store rechecks before its put. Explicit Save draft remains busy and holds
+store close through settlement. Already submitted writes may finish without
+rollback. Backend selection does not invalidate local-only saves.
+
+Library publication keeps its original project, workspace, document session,
+backend, and connection. Stale work cannot start another upload, adoption,
+record mutation, or local link write, or publish status/errors. Pending
+publication holds busy state and store close until settlement. Submitted writes
+may finish without rollback; edits during a current publication remain queued
+behind its confirmed link.
+
+Authoritative renders keep their original workspace, project, session, backend,
+and connection. Stale adoption/render/fetch continuations cannot publish output
+or errors. Pending renders hold busy state and store close through actual
+settlement, including retained-read cleanup. Submitted work may finish without
+rollback; edits still mark a completed render stale when its source differs.
+
+Snapshot export captures its source session and destination workflow, graph,
+backend, and connection before waiting for persistence. Stale continuations
+cannot start adoption, commit retained graph edits, or publish status/errors.
+Pending exports hold busy state and store close through settlement. Already
+submitted work may finish without rollback.
+
+Editable recipe export also retains its original workspace, project, source
+session, origin, and destination workflow/store/backend/connection. Stale
+preflight or retained-admission continuations cannot commit graph edits or
+publish status/errors. Pending recipes hold busy state and store close through
+settlement; submitted work may finish without rollback.
+
+Startup recovery stays with its original project and workspace. Saved shared
+membership is rejoined only while its captured backend and connection remain
+current. Stale lookups do not clear membership, and stale snapshot/resource
+reads cannot start another local write or publish a shared tab/error. Disposal
+keeps the store open until recovery and rejoin settle; writes already
+submitted may finish without rollback. Membership changes recheck their captured
+context after opening the database and reading the draft, before submitting the
+write. A stale read aborts that transaction without changing membership.
+
+Shared image lists stay with the workspace, project, backend connection, and
+request that opened them. Closing the dialog invalidates a pending refresh;
+stale results and errors do not reopen it. A list from an obsolete owner cannot
+start a join. Pending list requests keep the workspace busy and settle before
+disposal closes its store.
+
+An explicit join keeps the list request's original owner through snapshot,
+resource hydration, and local membership updates. Closing that dialog or changing
+its project/backend connection invalidates the pending join; stale continuations
+cannot publish membership, shared tabs, or errors. Disposal waits for the join
+to settle and close its rejected session before closing the local store.
+Already submitted local writes may finish without rollback.
+
+Sharing captures the local document session, revision, project, and backend
+connection before waiting for persistence. A stale resource read cannot start
+an upload; later stale upload/create/snapshot results cannot begin adoption or
+publish membership, tabs, or errors. Busy state and disposal wait for the share
+to settle, including ending a newly created session rejected by its owner.
+Already submitted uploads and local writes may finish without rollback.
+
+Leaving a shared image, including fallback after the remote session ends,
+keeps its original document, project, backend, and connection. Pending leaves
+keep the workspace busy and its store open through actual settlement. Stale
+reads cannot start another draft or membership write, or publish a local tab
+or error. Draft and membership transactions recheck before submitting writes;
+already submitted writes may finish without rollback.
+
+Ending a shared session captures the document, membership, project, backend,
+and connection before sending the request. A stale reply cannot start local
+leave or publish an error. Busy state and disposal wait for the end request and
+its local fallback to settle, even if a remote-ended notification replaces the
+tab first. Already submitted server requests may finish without rollback.
+
+Closing the library dialog (including Escape), changing its backend connection,
+or leaving its project invalidates a pending library open. A settled stale read
+does not open a tab or start another resource/draft write. An already submitted
+local transaction is allowed to settle. Disposing the workspace keeps its store
+open until the pending library read and its retention cleanup have settled.
+
+Library listings capture their backend object and connection before requesting
+records. A stale reply cannot open the list or publish an error. Pending lists
+remain busy and keep the local store open until the request settles.
+
 The workspace uses shared Product buttons and text fields, including primary
 publish/render actions and danger actions for removal and ending a shared
 session. Hidden Product file inputs retain native image selection for documents,
@@ -61,6 +150,15 @@ document or for a failed adoption or render. Missing capabilities, dependency
 grants, unsupported format versions, changed values, failed renders, and
 conflicting local edits produce visible errors.
 
+The admitted value reader covers canonical decode, adoption, reference rendering,
+resource hydration and draft creation, not only the rendition response body.
+Closing that reader waits for actual consumer settlement and refuses its return.
+The workspace also checks its captured graph request, backend connection and
+project before continuing reads, hydration, draft writes or tab/error publication.
+A replacement request does not let an older open publish or clear its busy state.
+Workspace disposal waits for all pending graph opens before closing the store.
+Already submitted local transactions may settle; they are not rolled back.
+
 **Export snapshot to graph** explicitly adopts the current document and its
 resources on the destination backend, then adds `dinkster.layers.load` wired to
 `dinkster.layers.flatten`. These nodes hold a document AssetRef and composite selector, not pixels,
@@ -96,6 +194,28 @@ against their BLAKE3 digest. They travel inside the document and are excluded
 from external dependency manifests and uploads; external resources still require
 scoped access, including resource records not currently referenced by a layer
 or mask. Document retrieval alone grants no access to external raster bytes.
+
+External raster hydration first journals a fresh scoped read owner in IndexedDB
+and obtains an exact retained-asset acknowledgment before fetching bytes. The
+owner protects missing external resources through digest verification and local
+durable staging; inline and already-staged resources need no server read owner.
+Release happens only after those reads settle. Lost registration or release
+responses reconcile by the exact owner and revision without replaying writes.
+Unconfirmed owners remain journaled across restart; closing an editor or local
+store does not release them. This read lifetime does not certify workflow,
+execution-result, editor-history or durable document retention completeness.
+
+Library source-document JSON uses the same scoped journal and acknowledgment
+before fetching its complete text body. That read ends only when the text
+settles; validation and resource hydration then consume the self-contained local
+text. Refused or unconfirmed admission cannot fall back to an unprotected read.
+
+Authoritative rendered PNG reads use the same scoped journal and acknowledgment
+before fetching and verifying the declared output identity. Display and download
+use the verified local Blob, not a second unprotected server read. The keyed
+render view revokes its object URL on replacement or disposal; locale changes
+keep the existing URL. The server read owner is released only after the verified
+Blob exists, and unresolved release responses remain journaled.
 
 Transform components are a closed record of x/y, width/height, rotation in
 radians, boolean flipHorizontal/flipVertical, and sourceWidth/sourceHeight.

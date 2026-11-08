@@ -10,6 +10,18 @@ submits that tab through the existing `AppState.queue` path. The adjacent
 disclosure shows only jobs whose compile artifact snapshot has the same
 workflow lineage as the tab. A frozen execution tab shows only its exact job.
 
+Before submitting, queueing confirms retained
+ownership of known asset digests and incomplete roots in the captured workflow,
+including effective catalog defaults that arrived after startup. An opaque
+census requires acknowledgement even when it contains no known digest and the
+optional source upload fails. Refusal prevents submission and appears in
+Problems. These incomplete declarations do not enable vault cleanup; failure
+of the optional source stamp still allows an otherwise admitted unstamped submission.
+Repeated queues reuse the acknowledged owner only while the captured document,
+backend connection, catalog and known digest set remain unchanged. The durable
+journal records the acknowledged revision; connection transitions require fresh
+admission. Reuse does not release old generations or certify complete ownership.
+
 The control does not create an optimistic row while a submission is in
 flight. A row appears only after the backend accepts the job and the
 execution store registers its real execution reference. Queued, running, and

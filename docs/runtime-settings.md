@@ -15,6 +15,27 @@ resetting an in-flight action. Backend labels and URLs, schema errors,
 supervisor details, composition phases, protocol identifiers, process IDs, and
 progress values remain server or runtime facts and are displayed verbatim.
 
+## Produced asset storage
+
+Open **Settings -> Storage** for accounting and the persisted produced-asset
+size policy of the active tab's backend. This policy is global to that server,
+not a project-local setting. Temporary storage, canonical vault blobs,
+verified produced assets and eligible bytes are separate observations. An
+unavailable measurement displays **Unknown**, not zero. Unavailable policy is
+not interpreted as unlimited and disables editing. Operator authorization is
+enforced by the backend; permission failures remain visible.
+
+Apply a positive integer byte limit or explicitly choose unlimited. The UI
+requires an exact acknowledgment and refreshes the saved policy; failed or
+lost responses are not automatically replayed. Switching backend discards the
+old form and ignores its outstanding callbacks. Refresh reads status without
+enabling deletion. Clear remains disabled while complete frontend retention
+is unsupported and unverified; saving a limit cannot enable automatic cleanup.
+The displayed server blocked-reason identifiers are diagnostic facts, not
+evidence that all client holders are registered.
+
+## Runtime controls
+
 Native Dinkster backends expose their effective memory and process controls in
 the same card. Expand **Runtime settings** under a native backend. Settings
 belong to that server; each backend has an independent section. The section

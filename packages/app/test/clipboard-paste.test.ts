@@ -246,4 +246,24 @@ describe('pasteClipboardIntoTab (review AP8)', () => {
     expect(outcome).toBe('rejected')
     expect(onPasted).not.toHaveBeenCalled()
   })
+
+  it.each([false, true])('waits for final dispatch result %s before announcing pasted ids', async (accepted) => {
+    let settle!: (accepted: boolean) => void
+    const result = new Promise<boolean>((resolve) => { settle = resolve })
+    let started!: () => void
+    const dispatched = new Promise<void>((resolve) => { started = resolve })
+    const onPasted = vi.fn()
+    let finished = false
+    const pending = pasteClipboardIntoTab({
+      readText: async () => envelopeText(), graphId: 'g0', anchor: { x: 20, y: 30 },
+      tabStillOpen: () => true, frozen: () => false, currentGraphId: () => 'g0', graphStillOwned: () => true,
+      doc: document, dispatch: () => { started(); return result }, onPasted,
+    }).then((outcome) => { finished = true; return outcome })
+    await dispatched
+    expect(finished).toBe(false)
+    expect(onPasted).not.toHaveBeenCalled()
+    settle(accepted)
+    expect(await pending).toBe(accepted ? 'pasted' : 'rejected')
+    expect(onPasted.mock.calls).toEqual(accepted ? [[['n10'], []]] : [])
+  })
 })

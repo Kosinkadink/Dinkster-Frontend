@@ -17,6 +17,47 @@ afterEach(() => {
 })
 
 describe('ProductSelect', () => {
+  it('waits for async acceptance, retains refused selection and isolates dismissed completions', async () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const [selected, setSelected] = createSignal('alpha')
+    const requests: { value: string; current: () => boolean; settle: (accepted: boolean) => void }[] = []
+    const dispose = render(() => <ProductSelect
+      options={['alpha', 'beta', 'gamma'].map((value) => ({ id: value, label: value, value }))}
+      selectedId={selected()}
+      onSelectAsync={(option, current) => new Promise<boolean>((settle) => requests.push({ value: option.value, current, settle }))}
+    />, root)
+    const trigger = root.querySelector<HTMLButtonElement>('[role="combobox"]')!
+    key(trigger, 'ArrowDown')
+    key(trigger, 'Enter')
+    expect(requests[0]!.value).toBe('beta')
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    expect(trigger.getAttribute('aria-busy')).toBe('true')
+    expect(trigger.getAttribute('data-selected-id')).toBe('alpha')
+    key(trigger, 'End')
+    key(trigger, 'Enter')
+    expect(requests).toHaveLength(1)
+    requests[0]!.settle(false)
+    await vi.waitFor(() => expect(trigger.getAttribute('aria-busy')).toBe('false'))
+    key(trigger, 'Enter')
+    expect(requests[1]!.value).toBe('beta')
+    key(trigger, 'Escape')
+    expect(requests[1]!.current()).toBe(false)
+    key(trigger, 'End')
+    key(trigger, 'Enter')
+    expect(requests[2]!.value).toBe('gamma')
+    requests[1]!.settle(true)
+    await Promise.resolve()
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    expect(trigger.getAttribute('aria-busy')).toBe('true')
+    setSelected('gamma')
+    requests[2]!.settle(true)
+    await vi.waitFor(() => expect(trigger.getAttribute('aria-expanded')).toBe('false'))
+    expect(trigger.getAttribute('data-selected-id')).toBe('gamma')
+    dispose()
+    expect(requests[2]!.current()).toBe(false)
+  })
+
   it('exposes combobox state and commits only an explicit keyboard selection', () => {
     const commits = vi.fn()
     const root = document.createElement('div')

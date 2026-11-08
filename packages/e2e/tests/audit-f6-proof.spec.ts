@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures.js'
+import { expect, test, waitForStartupOwnership } from './fixtures.js'
 
 test('proves both product type disclosures and mutation-free interaction', async ({ page }) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
@@ -15,6 +15,7 @@ test('proves both product type disclosures and mutation-free interaction', async
   // The test bridge appears asynchronously during boot; evaluating before it
   // exists races and fails with "Cannot read properties of undefined".
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as any
     app.registerSchemas([{
