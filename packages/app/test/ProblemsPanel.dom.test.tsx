@@ -245,14 +245,17 @@ describe('ProblemsPanel browser interactions', () => {
     unmount()
   })
 
-  it('keeps an expanded missing-asset repair available when another execution problem arrives', () => {
+  it('keeps an expanded missing-asset repair available through diagnostic refreshes', async () => {
     const missing = diag('warning', 'validation', 'asset.availability.missing', 'Missing exact file', {
       anchor: { occurrence: { instancePath: [], node: asNodeId('n2') } },
       data: { input: 'image', digest: 'blake3:' + 'a'.repeat(64) },
     })
     const [entries, setEntries] = createSolidSignal<readonly Diagnostic[]>([missing])
     const { root, diagnosticFocus, unmount } = mountPanel(undefined, entries)
+    const toggled = new Promise<void>((resolve) => root.querySelector('details.problem')!
+      .addEventListener('toggle', () => resolve(), { once: true }))
     root.querySelector('details.problem summary')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await toggled
     expect(root.querySelector<HTMLDetailsElement>('details.problem')!.open).toBe(true)
     setEntries([missing, diag('error', 'validation', 'workflow.plan.failed', 'Planning failed')])
     expect(root.querySelector('.problems-group')!.getAttribute('data-severity')).toBe('error')
@@ -263,6 +266,20 @@ describe('ProblemsPanel browser interactions', () => {
     setEntries([missing])
     expect(root.querySelector<HTMLDetailsElement>('details.problem')!.open).toBe(true)
     expect(root.querySelector('.problems-group')!.getAttribute('data-severity')).toBe('warning')
+    setEntries([])
+    setEntries([structuredClone(missing)])
+    expect(root.querySelector<HTMLDetailsElement>('details.problem')!.open).toBe(true)
+    const closed = new Promise<void>((resolve) => root.querySelector('details.problem')!
+      .addEventListener('toggle', () => resolve(), { once: true }))
+    root.querySelector('details.problem summary')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await closed
+    setEntries([structuredClone(missing)])
+    expect(root.querySelector<HTMLDetailsElement>('details.problem')!.open).toBe(false)
+    setEntries([diag('warning', 'validation', 'asset.availability.missing', 'Another exact file', {
+      anchor: { occurrence: { instancePath: [], node: asNodeId('n1') } },
+      data: { input: 'other', digest: 'blake3:' + 'b'.repeat(64) },
+    })])
+    expect(root.querySelector<HTMLDetailsElement>('details.problem')!.open).toBe(false)
     unmount()
   })
 
