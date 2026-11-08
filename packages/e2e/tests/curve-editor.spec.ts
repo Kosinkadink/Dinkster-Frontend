@@ -187,15 +187,12 @@ test('renders finite curve geometry across extreme float values', async ({ page 
       { position: 1, value: Number.MAX_VALUE },
     ],
   } as const
-  expect(await page.evaluate((value) => {
-    const app = window.__dinksterTest!.app as unknown as {
-      activeTab(): unknown
-      dispatchTo(tab: unknown, action: unknown): { readonly ok: boolean }
-    }
-    return app.dispatchTo(app.activeTab()!, {
+  expect(await page.evaluate(async (value) => {
+    const app = window.__dinksterTest!.app
+    return (await app.dispatchTo(app.activeTab()!, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'editor', inputId: 'curve', value },
-    }).ok
+    })).ok
   }, extremeCurve)).toBe(true)
 
   const curveRow = await nodeRowPoint(page, 'editor', 'curve')
@@ -238,15 +235,12 @@ test('edits, executes, reloads, previews a histogram, and refuses a linked curve
   })
 
   const malformed = { points: [{ position: 1, value: 0 }, { position: 1, value: 2 }] }
-  expect(await page.evaluate((value) => {
-    const app = window.__dinksterTest!.app as unknown as {
-      activeTab(): unknown
-      dispatchTo(tab: unknown, action: unknown): { readonly ok: boolean }
-    }
-    return app.dispatchTo(app.activeTab()!, {
+  expect(await page.evaluate(async (value) => {
+    const app = window.__dinksterTest!.app
+    return (await app.dispatchTo(app.activeTab()!, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'editor', inputId: 'curve', value },
-    }).ok
+    })).ok
   }, malformed)).toBe(true)
   await page.getByRole('button', { name: 'Apply' }).click()
   await expect(page.getByRole('alert')).toHaveText('The curve input changed or became linked while editing')

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/audit-noodle-proof'
 
@@ -105,6 +105,7 @@ test.beforeEach(async ({ context, page }) => {
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
   await openFixture(page)
   // Wait for workspace promotion: a paste gesture in flight while the tab is
   // being replaced by its shared-session twin is dropped by the ownership

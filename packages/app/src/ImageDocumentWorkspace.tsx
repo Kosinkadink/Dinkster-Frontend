@@ -27,7 +27,7 @@ import {
   type DinksterConnection,
   type LibraryRecord,
 } from '@dinkster/client'
-import type { AppState } from './app-state.js'
+import { currentGraphId, type AppState } from './app-state.js'
 import { COLLAB_SCOPE } from './collab.js'
 import {
   ImageDocumentLocalStore,
@@ -128,7 +128,7 @@ function ImageDocumentEditor(props: {
   readonly onRender: (
     document: ImageDocument,
     selector: string,
-  ) => Promise<VerifiedImageDocumentRender>
+  ) => Promise<VerifiedImageDocumentRender | undefined>
   readonly onResourceReady: (resource: PreparedImageRaster) => Promise<void>
   readonly resourceTick: () => number
 }) {
@@ -203,11 +203,12 @@ function ImageDocumentEditor(props: {
     setAuthoritativeBusy(true)
     setAuthoritativeError(undefined)
     try {
-      setAuthoritativeResult(await props.onRender(snapshot, selector))
+      const result = await props.onRender(snapshot, selector)
+      if (rendererLive && result !== undefined) setAuthoritativeResult(result)
     } catch (error) {
-      setAuthoritativeError(messageOf(error))
+      if (rendererLive) setAuthoritativeError(messageOf(error))
     } finally {
-      setAuthoritativeBusy(false)
+      if (rendererLive) setAuthoritativeBusy(false)
     }
   }
   const dispatch = (invocation: ImageDocumentCommandInvocation): boolean => {
@@ -494,21 +495,25 @@ function ImageDocumentEditor(props: {
             </header>
             <Show when={authoritativeResult()} keyed fallback={
               <p>{message('imageDocument.editor.description.authoritative')}</p>
-            }>{(result) => <div class="image-document-render-result" data-testid="authoritative-image-document-render">
-              <a href={result.assetUrl} download={`${entryName()}.png`}>
-                <img src={result.assetUrl} alt={message('imageDocument.editor.region.authoritativeOutput')} />
-              </a>
-              <dl>
-                <div><dt>{message('imageDocument.editor.provenance.output')}</dt><dd>{result.response.provenance.output.width} x {result.response.provenance.output.height}, {formatNumber(result.response.provenance.output.byteSize)} bytes</dd></div>
-                <div><dt>{message('imageDocument.editor.provenance.target')}</dt><dd>{result.response.provenance.selector}</dd></div>
-                <div><dt>{message('imageDocument.editor.provenance.profile')}</dt><dd>{result.response.provenance.profile}</dd></div>
-                <div><dt>{message('imageDocument.editor.provenance.renderer')}</dt><dd>{result.response.provenance.rendererContract}</dd></div>
-                <div><dt>{message('imageDocument.editor.provenance.source')}</dt><dd><code>{result.response.provenance.documentDigest}</code></dd></div>
-                <div><dt>{message('imageDocument.editor.provenance.outputDigest')}</dt><dd><code>{result.response.asset.digest}</code></dd></div>
-                <div><dt>{message('imageDocument.editor.provenance.cacheKey')}</dt><dd><code>{result.response.cacheKey}</code></dd></div>
-              </dl>
-              <a class="image-document-download" href={result.assetUrl} download={`${entryName()}.png`}>{message('imageDocument.editor.action.downloadPng')}</a>
-            </div>}</Show>
+            }>{(result) => {
+              const assetUrl = URL.createObjectURL(result.image)
+              onCleanup(() => URL.revokeObjectURL(assetUrl))
+              return <div class="image-document-render-result" data-testid="authoritative-image-document-render">
+                <a href={assetUrl} download={`${entryName()}.png`}>
+                  <img src={assetUrl} alt={message('imageDocument.editor.region.authoritativeOutput')} />
+                </a>
+                <dl>
+                  <div><dt>{message('imageDocument.editor.provenance.output')}</dt><dd>{result.response.provenance.output.width} x {result.response.provenance.output.height}, {formatNumber(result.response.provenance.output.byteSize)} bytes</dd></div>
+                  <div><dt>{message('imageDocument.editor.provenance.target')}</dt><dd>{result.response.provenance.selector}</dd></div>
+                  <div><dt>{message('imageDocument.editor.provenance.profile')}</dt><dd>{result.response.provenance.profile}</dd></div>
+                  <div><dt>{message('imageDocument.editor.provenance.renderer')}</dt><dd>{result.response.provenance.rendererContract}</dd></div>
+                  <div><dt>{message('imageDocument.editor.provenance.source')}</dt><dd><code>{result.response.provenance.documentDigest}</code></dd></div>
+                  <div><dt>{message('imageDocument.editor.provenance.outputDigest')}</dt><dd><code>{result.response.asset.digest}</code></dd></div>
+                  <div><dt>{message('imageDocument.editor.provenance.cacheKey')}</dt><dd><code>{result.response.cacheKey}</code></dd></div>
+                </dl>
+                <a class="image-document-download" href={assetUrl} download={`${entryName()}.png`}>{message('imageDocument.editor.action.downloadPng')}</a>
+              </div>
+            }}</Show>
             <Show when={authoritativeError()}>{(value) =>
               <div class="image-document-render-error" role="alert">{message('imageDocument.editor.error.authoritativeFailed', { reason: value() })}</div>
             }</Show>
@@ -738,7 +743,27 @@ export function ImageDocumentWorkspace(props: {
   let collaborationDialog!: HTMLDivElement
   let endConfirmButton: HTMLButtonElement | undefined
   let live = true
+  let libraryIntent = 0
+  let libraryOwner: ReturnType<AppState['libraryBackend']>
+  let libraryConnection: DinksterConnection | undefined
+  const pendingLibraryLists = new Set<Promise<void>>()
+  const pendingDraftSaves = new Set<Promise<void>>()
+  const pendingPublications = new Set<Promise<void>>()
+  const pendingAuthoritativeRenders = new Set<Promise<VerifiedImageDocumentRender | undefined>>()
+  const pendingSnapshotExports = new Set<Promise<void>>()
+  const pendingRecipeExports = new Set<Promise<void>>()
+  let openingLibrary: Promise<unknown> | undefined
+  let recovering: Promise<void> | undefined
+  let collaborationListIntent = 0
+  let collaborationListCurrent = (): boolean => false
+  const pendingCollaborationLists = new Set<Promise<void>>()
+  const pendingCollaborationJoins = new Set<Promise<void>>()
+  const pendingCollaborationShares = new Set<Promise<void>>()
+  const pendingGraphOpens = new Set<Promise<void>>()
+  const pendingImports = new Set<Promise<void>>()
   const leaving = new Set<OpenImageDocument>()
+  const pendingCollaborationLeaves = new Set<Promise<void>>()
+  const pendingCollaborationEnds = new Set<Promise<void>>()
 
   const setError = (value: string | undefined): void => { setErrorValue(value) }
   const setLocalizedError = (key: string, params?: MessageParams): void => {
@@ -760,8 +785,12 @@ export function ImageDocumentWorkspace(props: {
   }
 
   const setBusy = (value: boolean): void => {
-    setBusySignal(value)
-    props.onBusyChange(value)
+    const pending = value || pendingImports.size > 0 || pendingGraphOpens.size > 0 ||
+      pendingCollaborationLists.size > 0 || pendingCollaborationJoins.size > 0 || pendingCollaborationShares.size > 0 ||
+      pendingCollaborationLeaves.size > 0 || pendingCollaborationEnds.size > 0 || pendingLibraryLists.size > 0 ||
+      pendingDraftSaves.size > 0 || pendingPublications.size > 0 || pendingAuthoritativeRenders.size > 0 || pendingSnapshotExports.size > 0 || pendingRecipeExports.size > 0
+    setBusySignal(pending)
+    props.onBusyChange(pending)
   }
 
   const refresh = (): void => {
@@ -769,12 +798,20 @@ export function ImageDocumentWorkspace(props: {
     setMetadataTick((tick) => tick + 1)
   }
   const queuePersist = (entry: OpenImageDocument, snapshot = entry.session.doc, name = entry.name): void => {
+    const session = entry.session
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      documents().includes(entry) && entry.session === session
+    const assertCurrent = (): void => {
+      if (!current()) throw new Error('Image draft save is no longer current')
+    }
     entry.persist = entry.persist.catch(() => undefined).then(async () => {
-      const saved = await store.saveDraft(snapshot, name, undefined, entry.draft.updatedAt)
+      assertCurrent()
+      const saved = await store.saveDraft(snapshot, name, undefined, entry.draft.updatedAt, assertCurrent)
+      if (!current()) return
       entry.draft = saved
-      if (live) refresh()
+      refresh()
     }).catch((cause) => {
-      if (live) setError(`Draft recovery save failed: ${messageOf(cause)}`)
+      if (current()) setError(`Draft recovery save failed: ${messageOf(cause)}`)
     })
   }
   const scheduleHydrate = (entry: OpenImageDocument): void => {
@@ -782,7 +819,7 @@ export function ImageDocumentWorkspace(props: {
     const backend = shared === undefined ? undefined : backendForCollaboration(shared.baseUrl)
     if (backend?.protocol !== 'dinkster') return
     entry.hydrate = entry.hydrate.catch(() => undefined).then(() =>
-      hydrateImageDocumentResources(backend.connection, store, entry.session.doc),
+      hydrateImageDocumentResources(backend.connection, store, entry.session.doc, shared!.descriptor.scope),
     ).then(() => {
       if (live) setResourceTick((tick) => tick + 1)
     }).catch((cause) => {
@@ -859,7 +896,12 @@ export function ImageDocumentWorkspace(props: {
     descriptor: CollabSessionDescriptor,
     baseUrl: string,
     previous?: OpenImageDocument,
+    isCurrent: () => boolean = () => true,
   ): Promise<OpenImageDocument> => {
+    const assertCurrent = (): void => {
+      if (!isCurrent()) throw new Error('Shared image recovery is no longer current')
+    }
+    assertCurrent()
     if (descriptor.documentKind !== 'image') throw new Error('collaboration session is not an ImageDocument')
     const backend = backendForCollaboration(baseUrl)
     if (backend?.protocol !== 'dinkster') throw new Error(message('imageDocument.workspace.error.collaborationBackendDisconnected'))
@@ -868,39 +910,46 @@ export function ImageDocumentWorkspace(props: {
       sessionId: descriptor.sessionId,
       actorId: props.app.collabActorId,
     })
-    let session: SharedImageDocumentSession
+    let session: SharedImageDocumentSession | undefined
     try {
       session = await connectSharedImageDocumentSession(connection, descriptor, {
         actorId: props.app.collabActorId,
         onConflict: (conflict) => {
-          if (live) setLocalizedError('imageDocument.workspace.error.conflict', { reason: conflict.message })
+          if (live && isCurrent()) setLocalizedError('imageDocument.workspace.error.conflict', { reason: conflict.message })
         },
         onError: (reason) => {
-          if (live) setLocalizedError('imageDocument.workspace.error.sessionFailed', { reason })
+          if (live && isCurrent()) setLocalizedError('imageDocument.workspace.error.sessionFailed', { reason })
         },
       })
+      assertCurrent()
       if (session.doc.lineage !== descriptor.documentId) {
         throw new Error('shared ImageDocument lineage does not match the session')
       }
       await previous?.persist
+      assertCurrent()
       await session.settle()
+      assertCurrent()
       const sharedDocument = session.doc
-      await hydrateImageDocumentResources(backend.connection, store, sharedDocument)
+      await hydrateImageDocumentResources(backend.connection, store, sharedDocument, descriptor.scope, assertCurrent)
+      assertCurrent()
       if (previous !== undefined &&
         serializeImageDocument(previous.session.doc) !== serializeImageDocument(sharedDocument)) {
         throw new Error('the local image differs from the shared session; publish or discard it before joining')
       }
       const existing = await store.recoverDraft(session.doc.lineage)
+      assertCurrent()
       const saved = await store.saveDraft(
         sharedDocument,
         previous?.name ?? existing?.name ?? descriptor.documentId,
         undefined,
         existing?.updatedAt ?? null,
       )
+      assertCurrent()
       const linked = await store.setCollaboration(session.doc.lineage, {
         sessionId: descriptor.sessionId,
         baseUrl,
-      })
+      }, assertCurrent)
+      assertCurrent()
       const next = attach({ ...linked, document: sharedDocument, name: saved.name }, {
         descriptor,
         baseUrl,
@@ -912,18 +961,22 @@ export function ImageDocumentWorkspace(props: {
       setResourceTick((tick) => tick + 1)
       return next
     } catch (cause) {
-      connection.close()
+      if (session === undefined) connection.close()
+      else session.close()
       throw cause
     }
   }
   const uploadSharedSnapshotResources = async (
     connection: DinksterConnection,
     documentSnapshot: ImageDocument,
+    assertCurrent: () => void,
   ): Promise<void> => {
     const uploaded = new Set<string>()
     for (const resource of Object.values(documentSnapshot.resources)) {
       if (uploaded.has(resource.digest)) continue
-      await uploadImageDocumentResource(connection, store, resource, COLLAB_SCOPE)
+      assertCurrent()
+      await uploadImageDocumentResource(connection, store, resource, COLLAB_SCOPE, undefined, assertCurrent)
+      assertCurrent()
       uploaded.add(resource.digest)
     }
   }
@@ -931,113 +984,175 @@ export function ImageDocumentWorkspace(props: {
     const entry = active()
     const backend = backendForCollaboration()
     if (entry === undefined || entry.collaboration !== undefined || backend?.protocol !== 'dinkster') return
+    const connection = backend.connection
+    const expectedSession = entry.session
+    const expectedRevision = entry.session.revision
+    const documentSnapshot = entry.session.doc
+    let shared = false
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      backendForCollaboration() === backend && backend.connection === connection &&
+      (shared || (active() === entry && entry.session === expectedSession && entry.session.revision === expectedRevision))
+    const assertCurrent = (): void => {
+      if (!current()) throw new Error(message('imageDocument.workspace.error.imageChangedDuringShare'))
+    }
     setCollaborationTransition(true)
     setBusy(true)
     setError(undefined)
-    let created: CollabSessionDescriptor | undefined
-    try {
-      await entry.persist
-      const expectedSession = entry.session
-      const expectedRevision = entry.session.revision
-      const documentSnapshot = entry.session.doc
-      await uploadSharedSnapshotResources(backend.connection, documentSnapshot)
-      created = await props.app.collabTransport.create(backend.baseUrl, {
-        scope: COLLAB_SCOPE,
-        documentId: entry.session.doc.lineage,
-        documentKind: 'image',
-        snapshot: documentSnapshot,
-      })
-      if (active() !== entry || entry.session !== expectedSession || entry.session.revision !== expectedRevision) {
-        throw new Error(message('imageDocument.workspace.error.imageChangedDuringShare'))
+    const task: Promise<void> = (async () => {
+      let created: CollabSessionDescriptor | undefined
+      try {
+        await entry.persist
+        assertCurrent()
+        await uploadSharedSnapshotResources(connection, documentSnapshot, assertCurrent)
+        assertCurrent()
+        created = await props.app.collabTransport.create(backend.baseUrl, {
+          scope: COLLAB_SCOPE,
+          documentId: documentSnapshot.lineage,
+          documentKind: 'image',
+          snapshot: documentSnapshot,
+        })
+        assertCurrent()
+        await adoptShared(created, backend.baseUrl, entry, current)
+        shared = true
+        setConfirmingEnd(false)
+        setCollaborationOpen(false)
+        props.app.showTransientStatus(message('imageDocument.workspace.status.sharing', { name: entry.name }))
+      } catch (cause) {
+        if (created !== undefined) {
+          await props.app.collabTransport.end(backend.baseUrl, created.sessionId).catch(() => undefined)
+        }
+        if (current()) setLocalizedError('imageDocument.workspace.error.shareFailed', { reason: messageOf(cause) })
       }
-      await adoptShared(created, backend.baseUrl, entry)
-      setConfirmingEnd(false)
-      setCollaborationOpen(false)
-      props.app.showTransientStatus(message('imageDocument.workspace.status.sharing', { name: entry.name }))
-    } catch (cause) {
-      if (created !== undefined) {
-        void props.app.collabTransport.end(backend.baseUrl, created.sessionId).catch(() => undefined)
-      }
-      if (live) setLocalizedError('imageDocument.workspace.error.shareFailed', { reason: messageOf(cause) })
-    } finally {
-      if (live) setCollaborationTransition(false)
+    })().finally(() => {
+      pendingCollaborationShares.delete(task)
+      if (live && pendingCollaborationShares.size === 0) setCollaborationTransition(false)
       if (live) setBusy(false)
-    }
+    })
+    pendingCollaborationShares.add(task)
+    await task
   }
   async function leaveShared(entry: OpenImageDocument, remote = false): Promise<void> {
     if (entry.collaboration === undefined || !documents().includes(entry) || leaving.has(entry)) return
-    leaving.add(entry)
-    setCollaborationTransition(true)
-    if (!remote) setBusy(true)
-    setError(undefined)
-    try {
-      entry.stop()
-      await entry.persist
-      const documentSnapshot = entry.session.doc
-      entry.collaboration.session.close()
-      const current = await store.recoverDraft(documentSnapshot.lineage)
-      await store.saveDraft(documentSnapshot, entry.name, undefined, current?.updatedAt ?? null)
-      const unlinked = await store.setCollaboration(documentSnapshot.lineage, undefined)
-      if (!documents().includes(entry)) return
-      const local = attach({ ...unlinked, document: documentSnapshot, name: entry.name })
-      replaceEntry(entry, local)
-      setConfirmingEnd(false)
-      props.app.showTransientStatus(message(remote
-        ? 'imageDocument.workspace.status.sharedEnded'
-        : 'imageDocument.workspace.status.leftShared', { name: entry.name }))
-    } catch (cause) {
-      if (live) setLocalizedError('imageDocument.workspace.error.leaveFailed', { reason: messageOf(cause) })
-    } finally {
-      leaving.delete(entry)
-      if (live) setCollaborationTransition(false)
-      if (!remote && live) setBusy(false)
+    const shared = entry.collaboration
+    const session = entry.session
+    const backend = backendForCollaboration()
+    const connection = backend?.protocol === 'dinkster' ? backend.connection : undefined
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      documents().includes(entry) && entry.session === session && entry.collaboration === shared &&
+      backendForCollaboration() === backend && (backend?.protocol !== 'dinkster' || backend.connection === connection)
+    const assertCurrent = (): void => {
+      if (!current()) throw new Error('Shared image leave is no longer current')
     }
-  }
-  const endShared = async (entry: OpenImageDocument): Promise<void> => {
-    if (entry.collaboration === undefined) return
+    leaving.add(entry)
     setCollaborationTransition(true)
     setBusy(true)
     setError(undefined)
-    try {
-      await props.app.collabTransport.end(
-        entry.collaboration.baseUrl,
-        entry.collaboration.descriptor.sessionId,
-      )
-      if (documents().includes(entry)) await leaveShared(entry)
-    } catch (cause) {
-      if (live) setLocalizedError('imageDocument.workspace.error.endFailed', { reason: messageOf(cause) })
-    } finally {
-      if (live) setCollaborationTransition(false)
+    const task: Promise<void> = (async () => {
+      try {
+        entry.stop()
+        await entry.persist
+        assertCurrent()
+        const documentSnapshot = session.doc
+        shared.session.close()
+        const saved = await store.recoverDraft(documentSnapshot.lineage)
+        assertCurrent()
+        await store.saveDraft(documentSnapshot, entry.name, undefined, saved?.updatedAt ?? null, assertCurrent)
+        assertCurrent()
+        const unlinked = await store.setCollaboration(documentSnapshot.lineage, undefined, assertCurrent)
+        assertCurrent()
+        const local = attach({ ...unlinked, document: documentSnapshot, name: entry.name })
+        replaceEntry(entry, local)
+        setConfirmingEnd(false)
+        props.app.showTransientStatus(message(remote
+          ? 'imageDocument.workspace.status.sharedEnded'
+          : 'imageDocument.workspace.status.leftShared', { name: entry.name }))
+      } catch (cause) {
+        if (current()) setLocalizedError('imageDocument.workspace.error.leaveFailed', { reason: messageOf(cause) })
+      }
+    })().finally(() => {
+      leaving.delete(entry)
+      pendingCollaborationLeaves.delete(task)
+      if (live && pendingCollaborationLeaves.size === 0) setCollaborationTransition(false)
       if (live) setBusy(false)
-    }
+    })
+    pendingCollaborationLeaves.add(task)
+    await task
+  }
+  const endShared = async (entry: OpenImageDocument): Promise<void> => {
+    if (entry.collaboration === undefined) return
+    const shared = entry.collaboration
+    const session = entry.session
+    const backend = backendForCollaboration()
+    const connection = backend?.protocol === 'dinkster' ? backend.connection : undefined
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      documents().includes(entry) && entry.session === session && entry.collaboration === shared &&
+      backendForCollaboration() === backend && (backend?.protocol !== 'dinkster' || backend.connection === connection)
+    if (!current()) return
+    setCollaborationTransition(true)
+    setBusy(true)
+    setError(undefined)
+    const task: Promise<void> = (async () => {
+      await props.app.collabTransport.end(shared.baseUrl, shared.descriptor.sessionId)
+      if (current()) await leaveShared(entry)
+    })().catch((cause) => {
+      if (current()) setLocalizedError('imageDocument.workspace.error.endFailed', { reason: messageOf(cause) })
+    }).finally(() => {
+      pendingCollaborationEnds.delete(task)
+      if (live && pendingCollaborationEnds.size === 0) setCollaborationTransition(false)
+      if (live) setBusy(false)
+    })
+    pendingCollaborationEnds.add(task)
+    await task
   }
   const askToEndShared = (): void => {
     setConfirmingEnd(true)
     queueMicrotask(() => endConfirmButton?.focus())
   }
+  const closeCollaboration = (): void => {
+    collaborationListIntent += 1
+    setCollaborationOpen(false)
+  }
   const refreshCollaboration = async (): Promise<void> => {
+    const intent = ++collaborationListIntent
     const backend = backendForCollaboration()
     if (backend?.protocol !== 'dinkster') {
       setCollaborationSessions([])
       setLocalizedError('imageDocument.workspace.error.sharingRequiresBackend')
       return
     }
+    const connection = backend.connection
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      collaborationListIntent === intent && backendForCollaboration() === backend && backend.connection === connection
     setBusy(true)
     setError(undefined)
-    try {
+    const task: Promise<void> = (async () => {
       const sessions = await props.app.collabTransport.list(backend.baseUrl, COLLAB_SCOPE)
+      if (!current()) return
+      collaborationListCurrent = current
       setCollaborationSessions(sessions.filter((descriptor) => descriptor.documentKind === 'image'))
       setCollaborationOpen(true)
-      queueMicrotask(() => collaborationDialog?.focus())
-    } catch (cause) {
-      if (live) setLocalizedError('imageDocument.workspace.error.sharedListFailed', { reason: messageOf(cause) })
-    } finally {
+      queueMicrotask(() => { if (current()) collaborationDialog?.focus() })
+    })().catch((cause) => {
+      if (current()) setLocalizedError('imageDocument.workspace.error.sharedListFailed', { reason: messageOf(cause) })
+    }).finally(() => {
+      pendingCollaborationLists.delete(task)
       if (live) setBusy(false)
-    }
+    })
+    pendingCollaborationLists.add(task)
+    await task
   }
   const joinShared = async (descriptor: CollabSessionDescriptor): Promise<void> => {
+    const listCurrent = collaborationListCurrent
+    if (!listCurrent()) {
+      closeCollaboration()
+      return
+    }
     const backend = backendForCollaboration()
     if (backend?.protocol !== 'dinkster') return
+    const connection = backend.connection
+    let joined = false
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      backendForCollaboration() === backend && backend.connection === connection && (joined || listCurrent())
     const duplicate = documents().find((entry) =>
       entry.collaboration?.descriptor.sessionId === descriptor.sessionId &&
       entry.collaboration.baseUrl === backend.baseUrl,
@@ -1050,16 +1165,21 @@ export function ImageDocumentWorkspace(props: {
     setCollaborationTransition(true)
     setBusy(true)
     setError(undefined)
-    try {
-      const previous = documents().find((entry) => entry.draft.document.lineage === descriptor.documentId)
-      await adoptShared(descriptor, backend.baseUrl, previous)
-      setCollaborationOpen(false)
-    } catch (cause) {
-      if (live) setLocalizedError('imageDocument.workspace.error.joinFailed', { reason: messageOf(cause) })
-    } finally {
-      if (live) setCollaborationTransition(false)
+    const previous = documents().find((entry) => entry.draft.document.lineage === descriptor.documentId)
+    const task: Promise<void> = adoptShared(descriptor, backend.baseUrl, previous, current).then(() => {
+      if (current()) {
+        joined = true
+        setCollaborationOpen(false)
+      }
+    }).catch((cause) => {
+      if (current()) setLocalizedError('imageDocument.workspace.error.joinFailed', { reason: messageOf(cause) })
+    }).finally(() => {
+      pendingCollaborationJoins.delete(task)
+      if (live && pendingCollaborationJoins.size === 0) setCollaborationTransition(false)
       if (live) setBusy(false)
-    }
+    })
+    pendingCollaborationJoins.add(task)
+    await task
   }
   const tabName = (entry: OpenImageDocument): string => { metadataTick(); return entry.name }
   const tabId = (lineage: ImageDocument['lineage']): string => `image-document-tab-${encodeURIComponent(lineage)}`
@@ -1083,8 +1203,9 @@ export function ImageDocumentWorkspace(props: {
   }
 
   onMount(() => {
-    void store.recoverDrafts().then(async (recovery) => {
-      if (!live) return
+    const current = (): boolean => live && activeProjectId() === store.projectId
+    recovering = store.recoverDrafts().then(async (recovery) => {
+      if (!current()) return
       const recovered = recovery.drafts.map((draft) => attach(draft))
       setDocuments(recovered)
       setActiveLineage(recovered.at(-1)?.draft.document.lineage ?? '')
@@ -1092,33 +1213,43 @@ export function ImageDocumentWorkspace(props: {
         setLocalizedError('imageDocument.workspace.error.invalidDrafts', { count: recovery.rejectedLineages.length })
       }
       for (const draft of recovery.drafts) {
-        if (!live || draft.collaboration === undefined) continue
+        if (!current() || draft.collaboration === undefined) continue
         const previous = documents().find((entry) => entry.draft.document.lineage === draft.document.lineage)
-        const backend = backendForCollaboration(draft.collaboration.baseUrl)
+        const baseUrl = draft.collaboration.baseUrl
+        const backend = backendForCollaboration(baseUrl)
         if (previous === undefined || backend?.protocol !== 'dinkster') continue
+        const connection = backend.connection
+        const rejoinCurrent = (): boolean => current() &&
+          backendForCollaboration(baseUrl) === backend && backend.connection === connection
+        const assertRejoinCurrent = (): void => {
+          if (!rejoinCurrent()) throw new Error('Shared image recovery is no longer current')
+        }
         setCollaborationTransition(true)
         try {
           const descriptor = await props.app.collabTransport.get(
             draft.collaboration.baseUrl,
             draft.collaboration.sessionId,
           )
+          if (!rejoinCurrent()) continue
           if (descriptor === undefined || descriptor.documentKind !== 'image' ||
             descriptor.documentId !== draft.document.lineage) {
-            previous.draft = await store.setCollaboration(draft.document.lineage, undefined)
+            const unlinked = await store.setCollaboration(draft.document.lineage, undefined, assertRejoinCurrent)
+            if (!rejoinCurrent()) continue
+            previous.draft = unlinked
             refresh()
             continue
           }
-          await adoptShared(descriptor, draft.collaboration.baseUrl, previous)
+          await adoptShared(descriptor, baseUrl, previous, rejoinCurrent)
         } catch (cause) {
-          if (live) setLocalizedError('imageDocument.workspace.error.rejoinFailed', { reason: messageOf(cause) })
+          if (rejoinCurrent()) setLocalizedError('imageDocument.workspace.error.rejoinFailed', { reason: messageOf(cause) })
         } finally {
-          if (live) setCollaborationTransition(false)
+          if (current()) setCollaborationTransition(false)
         }
       }
     }).catch((cause) => {
-      if (live) setLocalizedError('imageDocument.workspace.error.recoveryFailed', { reason: messageOf(cause) })
+      if (current()) setLocalizedError('imageDocument.workspace.error.recoveryFailed', { reason: messageOf(cause) })
     }).finally(() => {
-      if (live) setLoading(false)
+      if (current()) setLoading(false)
     })
   })
   onCleanup(() => {
@@ -1129,38 +1260,54 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all(current.flatMap((entry) => [
+    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingRecipeExports, ...pendingSnapshotExports, ...[...pendingAuthoritativeRenders].map((task) => task.catch(() => undefined)), ...pendingPublications, ...pendingDraftSaves, ...pendingLibraryLists, ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
       entry.hydrate.catch(() => undefined),
-    ])).finally(() => store.close())
+    ])]).finally(() => store.close())
   })
 
   const importDocument = async (file: File): Promise<void> => {
+    const current = (): boolean => live && activeProjectId() === store.projectId
+    const assertCurrent = (): void => {
+      if (!current()) throw new Error('Image import is no longer current')
+    }
     setBusy(true)
     setError(undefined)
-    try {
-      openDraft(await importSingleRaster(file, store))
-    } catch (cause) {
-      setLocalizedError('imageDocument.workspace.error.imageImportFailed', { reason: messageOf(cause) })
-    } finally {
-      importInput.value = ''
-      setBusy(false)
-      setLoading(false)
-    }
+    const task: Promise<void> = importSingleRaster(file, store, { assertCurrent }).then((draft) => {
+      if (current()) openDraft(draft)
+    }).catch((cause) => {
+      if (current()) setLocalizedError('imageDocument.workspace.error.imageImportFailed', { reason: messageOf(cause) })
+    }).finally(() => {
+      pendingImports.delete(task)
+      if (live) {
+        importInput.value = ''
+        setBusy(false)
+      }
+    })
+    pendingImports.add(task)
+    await task
   }
   let openingGraph: GraphImageDocumentRequest | undefined
   createEffect(() => {
     const request = props.graphRequest
     if (loading() || request === undefined || openingGraph === request) return
     openingGraph = request
+    const backend = props.app.backendFor(request.connectionId)
+    const connection = backend?.protocol === 'dinkster' ? backend.connection : undefined
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      props.graphRequest === request && props.app.backendFor(request.connectionId) === backend &&
+      (backend?.protocol !== 'dinkster' || backend.connection === connection)
+    const assertCurrent = (): void => {
+      if (!current()) throw new Error('Graph image open is no longer current')
+    }
     setBusy(true)
     setError(undefined)
-    void (async () => {
-      const backend = props.app.backendFor(request.connectionId)
+    const task: Promise<void> = (async () => {
       if (backend?.protocol !== 'dinkster') throw new Error(message('imageDocument.workspace.error.selectedOwnerUnavailable'))
       await Promise.all(documents().map((entry) => entry.persist))
-      const opened = await openGraphImageDocument(backend.connection, store, request.query)
-      if (live && props.graphRequest === request) openDraft(opened.draft, opened.render, {
+      assertCurrent()
+      const opened = await openGraphImageDocument(backend.connection, store, request.query, assertCurrent)
+      if (current()) openDraft(opened.draft, opened.render, {
         connectionId: request.connectionId,
         sourceTabId: request.sourceTabId,
         graphId: request.graphId,
@@ -1170,21 +1317,31 @@ export function ImageDocumentWorkspace(props: {
         document: opened.document,
       })
     })().catch((cause) => {
-      if (live && props.graphRequest === request) setLocalizedError('imageDocument.workspace.error.graphOpenFailed', { reason: messageOf(cause) })
+      if (current()) setLocalizedError('imageDocument.workspace.error.graphOpenFailed', { reason: messageOf(cause) })
     }).finally(() => {
+      pendingGraphOpens.delete(task)
       if (live && props.graphRequest === request) {
         props.onGraphRequestHandled?.()
-        setBusy(false)
       }
+      if (live && pendingGraphOpens.size === 0) setBusy(false)
     })
+    pendingGraphOpens.add(task)
   })
   const saveDraft = async (entry: OpenImageDocument): Promise<void> => {
+    const session = entry.session
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      documents().includes(entry) && entry.session === session
     setBusy(true)
     setError(undefined)
     queuePersist(entry)
-    await entry.persist
-    if (live && error() === undefined) props.app.showTransientStatus(message('imageDocument.workspace.status.saved', { name: entry.name }))
-    if (live) setBusy(false)
+    const task: Promise<void> = entry.persist.then(() => {
+      if (current() && error() === undefined) props.app.showTransientStatus(message('imageDocument.workspace.status.saved', { name: entry.name }))
+    }).finally(() => {
+      pendingDraftSaves.delete(task)
+      if (live) setBusy(false)
+    })
+    pendingDraftSaves.add(task)
+    await task
   }
   const publish = async (entry: OpenImageDocument): Promise<void> => {
     const backend = props.app.libraryBackend()
@@ -1192,74 +1349,152 @@ export function ImageDocumentWorkspace(props: {
       setLocalizedError('imageDocument.workspace.error.publishingRequiresBackend')
       return
     }
+    const connection = backend.connection
+    const session = entry.session
+    const snapshot = session.doc
+    const name = entry.name
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      documents().includes(entry) && entry.session === session &&
+      props.app.libraryBackend() === backend && backend.connection === connection
+    const assertCurrent = (): void => {
+      if (!current()) throw new Error('Image publication is no longer current')
+    }
     setBusy(true)
     setError(undefined)
     const task = entry.persist.catch(() => undefined).then(async () => {
-      const saved = await saveImageDocumentToLibrary(backend.connection, store, entry.session.doc, {
+      assertCurrent()
+      const saved = await saveImageDocumentToLibrary(connection, store, snapshot, {
         scope: LIBRARY_SCOPE,
         connectionId: backend.id,
-        name: entry.name,
+        name,
+        assertCurrent,
         ...(entry.draft.library !== undefined ? { link: entry.draft.library } : {}),
       })
+      if (!current()) return
       entry.draft = saved.draft
-      if (live) refresh()
+      refresh()
     })
     entry.persist = task.catch(() => undefined)
-    try {
-      await task
-      if (live) props.app.showTransientStatus(message('imageDocument.workspace.status.published', { name: entry.name }))
-    } catch (cause) {
-      if (live) setLocalizedError('imageDocument.workspace.error.publishFailed', { reason: messageOf(cause) })
-    } finally {
+    const pending: Promise<void> = task.then(() => {
+      if (current()) props.app.showTransientStatus(message('imageDocument.workspace.status.published', { name }))
+    }).catch((cause) => {
+      if (current()) setLocalizedError('imageDocument.workspace.error.publishFailed', { reason: messageOf(cause) })
+    }).finally(() => {
+      pendingPublications.delete(pending)
       if (live) setBusy(false)
-    }
+    })
+    pendingPublications.add(pending)
+    await pending
   }
   const renderAuthoritative = async (
+    entry: OpenImageDocument,
     documentSnapshot: ImageDocument,
     selector: string,
-  ): Promise<VerifiedImageDocumentRender> => {
+  ): Promise<VerifiedImageDocumentRender | undefined> => {
     const backend = props.app.libraryBackend()
     if (backend === undefined) throw new Error(message('imageDocument.workspace.error.renderRequiresBackend'))
-    const adopted = await adoptImageDocumentForRender(
-      backend.connection,
-      store,
-      documentSnapshot,
-      LIBRARY_SCOPE,
-    )
-    return renderAdoptedImageDocument(
-      backend.connection,
-      adopted.digest,
-      serializeImageDocument(adopted.document),
-      LIBRARY_SCOPE,
-      selector,
-    )
+    const connection = backend.connection
+    const session = entry.session
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      documents().includes(entry) && entry.session === session &&
+      props.app.libraryBackend() === backend && backend.connection === connection
+    const assertCurrent = (): void => {
+      if (!current()) throw new Error('Image render is no longer current')
+    }
+    setBusy(true)
+    const task = (async () => {
+      try {
+        assertCurrent()
+        const adopted = await adoptImageDocumentForRender(
+          connection, store, documentSnapshot, LIBRARY_SCOPE, undefined, assertCurrent,
+        )
+        assertCurrent()
+        const result = await renderAdoptedImageDocument(
+          connection, store, adopted.digest, serializeImageDocument(adopted.document),
+          LIBRARY_SCOPE, selector, undefined, assertCurrent,
+        )
+        if (current()) return result
+      } catch (cause) {
+        if (current()) throw cause
+      }
+      return undefined
+    })().finally(() => {
+      pendingAuthoritativeRenders.delete(task)
+      if (live) setBusy(false)
+    })
+    pendingAuthoritativeRenders.add(task)
+    return task
   }
   const exportSnapshot = async (entry: OpenImageDocument): Promise<void> => {
+    const session = entry.session
+    const snapshot = session.doc
+    const name = entry.name
+    const tab = props.app.activeTab()
+    const backend = tab === undefined ? undefined : props.app.backendForTab(tab)
+    const connection = backend?.connection
+    const graphId = tab === undefined ? undefined : currentGraphId(tab)
+    const destination = tab?.store
+    const graph = graphId === undefined ? undefined : destination?.doc.graphs[graphId]
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      documents().includes(entry) && entry.session === session && props.app.activeTab() === tab &&
+      (tab === undefined || (tab.store === destination && props.app.backendForTab(tab) === backend &&
+        backend?.connection === connection && currentGraphId(tab) === graphId))
     setBusy(true)
     setError(undefined)
-    try {
-      await entry.persist
-      await exportImageDocumentSnapshot(props.app, store, entry.session.doc, entry.name)
-      if (live) props.app.showTransientStatus(message('imageDocument.workspace.status.exportedSnapshot', { name: entry.name }))
-    } catch (cause) {
-      if (live) setLocalizedError('imageDocument.workspace.error.graphExportFailed', { reason: messageOf(cause) })
-    } finally {
+    const task: Promise<void> = entry.persist.then(async () => {
+      if (!current()) return
+      if (graphId !== undefined && destination?.doc.graphs[graphId] !== graph) return
+      await exportImageDocumentSnapshot(props.app, store, snapshot, name, current)
+      if (current()) props.app.showTransientStatus(message('imageDocument.workspace.status.exportedSnapshot', { name }))
+    }).catch((cause) => {
+      if (current()) setLocalizedError('imageDocument.workspace.error.graphExportFailed', { reason: messageOf(cause) })
+    }).finally(() => {
+      pendingSnapshotExports.delete(task)
       if (live) setBusy(false)
-    }
+    })
+    pendingSnapshotExports.add(task)
+    await task
   }
   const exportRecipe = async (entry: OpenImageDocument): Promise<void> => {
-    if (entry.origin === undefined) return
+    const origin = entry.origin
+    if (origin === undefined) return
+    const session = entry.session
+    const snapshot = session.doc
+    const name = entry.name
+    const tab = props.app.activeTab()
+    const backend = tab === undefined ? undefined : props.app.backendForTab(tab)
+    const connection = backend?.connection
+    const destination = tab?.store
+    const graphId = tab === undefined ? undefined : currentGraphId(tab)
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      documents().includes(entry) && entry.session === session && entry.origin === origin &&
+      props.app.activeTab() === tab && (tab === undefined || (tab.store === destination &&
+        props.app.backendForTab(tab) === backend && backend?.connection === connection && currentGraphId(tab) === graphId))
     setBusy(true)
     setError(undefined)
-    try {
-      await entry.persist
-      await exportImageDocumentRecipe(props.app, entry.origin, entry.session.doc)
-      if (live) props.app.showTransientStatus(message('imageDocument.workspace.status.exportedRecipe', { name: entry.name }))
-    } catch (cause) {
-      if (live) setLocalizedError('imageDocument.workspace.error.recipeExportFailed', { reason: messageOf(cause) })
-    } finally {
+    const task: Promise<void> = entry.persist.then(async () => {
+      if (!current()) return
+      await exportImageDocumentRecipe(props.app, origin, snapshot, current)
+      if (current()) props.app.showTransientStatus(message('imageDocument.workspace.status.exportedRecipe', { name }))
+    }).catch((cause) => {
+      if (current()) setLocalizedError('imageDocument.workspace.error.recipeExportFailed', { reason: messageOf(cause) })
+    }).finally(() => {
+      pendingRecipeExports.delete(task)
       if (live) setBusy(false)
-    }
+    })
+    pendingRecipeExports.add(task)
+    await task
+  }
+  const currentLibraryIntent = (intent: number, backend: NonNullable<typeof libraryOwner>): boolean => {
+    const current = props.app.libraryBackend()
+    return live && activeProjectId() === store.projectId && libraryIntent === intent &&
+      current === backend && current.connection === libraryConnection
+  }
+  const closeLibrary = (): void => {
+    libraryIntent += 1
+    libraryOwner = undefined
+    libraryConnection = undefined
+    setLibraryOpen(false)
   }
   const browseLibrary = async (): Promise<void> => {
     const backend = props.app.libraryBackend()
@@ -1267,36 +1502,51 @@ export function ImageDocumentWorkspace(props: {
       setLocalizedError('imageDocument.workspace.error.openLibraryRequiresBackend')
       return
     }
+    const intent = ++libraryIntent
+    libraryOwner = backend
+    const connection = backend.connection
+    libraryConnection = connection
     setBusy(true)
     setError(undefined)
-    try {
-      const page = await backend.connection.listLibrary({
+    const task: Promise<void> = (async () => {
+      const page = await connection.listLibrary({
         scope: LIBRARY_SCOPE,
         label: 'image-document',
         limit: 100,
       })
+      if (!currentLibraryIntent(intent, backend)) return
       setLibraryRecords(page.records.filter((record) => record.mediaType.split(';', 1)[0] === IMAGE_DOCUMENT_MEDIA_TYPE))
       setLibraryOpen(true)
-      queueMicrotask(() => libraryDialog?.focus())
-    } catch (cause) {
-      setLocalizedError('imageDocument.workspace.error.libraryOpenFailed', { reason: messageOf(cause) })
-    } finally {
+      queueMicrotask(() => { if (currentLibraryIntent(intent, backend)) libraryDialog?.focus() })
+    })().catch((cause) => {
+      if (currentLibraryIntent(intent, backend)) setLocalizedError('imageDocument.workspace.error.libraryOpenFailed', { reason: messageOf(cause) })
+    }).finally(() => {
+      pendingLibraryLists.delete(task)
       if (live) setBusy(false)
-    }
+    })
+    pendingLibraryLists.add(task)
+    await task
   }
   const openLibraryRecord = async (record: LibraryRecord): Promise<void> => {
-    const backend = props.app.libraryBackend()
-    if (backend === undefined) return
+    const backend = libraryOwner
+    const intent = libraryIntent
+    if (backend === undefined || !currentLibraryIntent(intent, backend)) return
     setBusy(true)
     setError(undefined)
+    const task = openImageDocumentFromLibrary(backend.connection, store, record.id, LIBRARY_SCOPE, backend.id, () => {
+      if (!currentLibraryIntent(intent, backend)) throw new Error('Image library open is no longer current')
+    })
+    openingLibrary = task
     try {
-      const draft = await openImageDocumentFromLibrary(backend.connection, store, record.id, LIBRARY_SCOPE, backend.id)
+      const draft = await task
+      if (!currentLibraryIntent(intent, backend)) return
       if (draft === undefined) throw new Error(message('imageDocument.workspace.error.libraryRecordMissing'))
       openDraft(draft)
-      setLibraryOpen(false)
+      closeLibrary()
     } catch (cause) {
-      setLocalizedError('imageDocument.workspace.error.openImageFailed', { reason: messageOf(cause) })
+      if (currentLibraryIntent(intent, backend)) setLocalizedError('imageDocument.workspace.error.openImageFailed', { reason: messageOf(cause) })
     } finally {
+      openingLibrary = undefined
       if (live) setBusy(false)
     }
   }
@@ -1391,7 +1641,7 @@ export function ImageDocumentWorkspace(props: {
               onPublish={() => publish(entry)}
               onExport={() => exportSnapshot(entry)}
               {...(entry.origin === undefined ? {} : { onExportRecipe: () => exportRecipe(entry) })}
-              onRender={renderAuthoritative}
+              onRender={(snapshot, selector) => renderAuthoritative(entry, snapshot, selector)}
               onResourceReady={(resource) => uploadPreparedResource(entry, resource)}
               resourceTick={resourceTick}
             />
@@ -1411,11 +1661,11 @@ export function ImageDocumentWorkspace(props: {
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
               event.preventDefault()
-              setLibraryOpen(false)
+              closeLibrary()
             }
           }}
         >
-          <header><strong>{message('imageDocument.workspace.dialog.library.title')}</strong><ProductButton type="button" onClick={() => setLibraryOpen(false)}>{message('imageDocument.workspace.action.close')}</ProductButton></header>
+          <header><strong>{message('imageDocument.workspace.dialog.library.title')}</strong><ProductButton type="button" onClick={closeLibrary}>{message('imageDocument.workspace.action.close')}</ProductButton></header>
           <Show when={libraryRecords().length > 0} fallback={<p>{message('imageDocument.workspace.dialog.library.empty')}</p>}>
             <For each={libraryRecords()}>{(record) => <ProductButton type="button" disabled={busy()} onClick={() => void openLibraryRecord(record)}><strong>{record.name}</strong><small>{message('imageDocument.workspace.dialog.library.revision', { revision: record.revision })}</small></ProductButton>}</For>
           </Show>
@@ -1431,11 +1681,11 @@ export function ImageDocumentWorkspace(props: {
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
               event.preventDefault()
-              setCollaborationOpen(false)
+              closeCollaboration()
             }
           }}
         >
-          <header><strong>{message('imageDocument.workspace.dialog.shared.title')}</strong><ProductButton type="button" onClick={() => setCollaborationOpen(false)}>{message('imageDocument.workspace.action.close')}</ProductButton></header>
+          <header><strong>{message('imageDocument.workspace.dialog.shared.title')}</strong><ProductButton type="button" onClick={closeCollaboration}>{message('imageDocument.workspace.action.close')}</ProductButton></header>
           <Show when={collaborationSessions().length > 0} fallback={<p>{message('imageDocument.workspace.dialog.shared.empty')}</p>}>
             <For each={collaborationSessions()}>{(descriptor) =>
               <ProductButton

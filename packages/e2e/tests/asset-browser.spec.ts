@@ -103,7 +103,9 @@ async function installMockBackend(page: Page, requests: Request[]): Promise<void
     const request = route.request()
     requests.push(request)
     const url = new URL(request.url())
-    if (url.pathname.endsWith('/metadata')) {
+    if (url.pathname === '/api/assets/catalog') {
+      await route.fulfill({ json: { assets: [] } })
+    } else if (url.pathname.endsWith('/metadata')) {
       await route.fulfill({ json: { format: 'safetensors', tensorCount: 17, parameterCount: 123456, dtypes: { F16: 16, F32: 1 } } })
     } else if (url.pathname.endsWith(encodeURIComponent(BROKEN_DIGEST)) || url.pathname.endsWith(BROKEN_DIGEST)) {
       await route.fulfill({ status: 404 })
@@ -117,11 +119,11 @@ async function installMockBackend(page: Page, requests: Request[]): Promise<void
   })
 }
 
-async function openAsset(page: Page, enterFolder = true): Promise<void> {
+async function openAsset(page: Page, enterFolder = true, nodeId = 'asset'): Promise<void> {
   await ensureDockClosed(page)
-  const point = await page.evaluate(() => {
+  const point = await page.evaluate((id) => {
     const renderer = window.__dinksterTest!.renderer!
-    const node = renderer.getScene().nodes.find((item) => item.id === 'asset')!
+    const node = renderer.getScene().nodes.find((item) => item.id === id)!
     const row = node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'image')!
     const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     const viewport = renderer.getViewport()
@@ -129,9 +131,10 @@ async function openAsset(page: Page, enterFolder = true): Promise<void> {
       x: rect.left + viewport.x + (node.x + node.layout.width / 2) * viewport.scale,
       y: rect.top + viewport.y + (node.y + row.y + row.height / 2) * viewport.scale,
     }
-  })
+  }, nodeId)
   await page.mouse.click(point.x, point.y)
   await expect(page.getByTestId('collection-panel')).toBeVisible()
+  await selectProductOption(page, page.getByTestId('collection-source-select'), 'mount:input')
   if (enterFolder) {
     await page.getByRole('option', { name: /^photos/ }).click()
     await expect(page.getByRole('button', { name: 'photos' })).toBeVisible()
@@ -188,7 +191,7 @@ test.beforeEach(async ({ page }) => {
 test('lists ready and scanning sources and filters incompatible MIME types', async ({ page }) => {
   await openAsset(page)
   await page.getByTestId('collection-source-select').click()
-  await expect(page.getByRole('listbox', { name: 'Source' }).getByRole('option')).toHaveText(['input', 'shared', 'indexing'])
+  await expect(page.getByRole('listbox', { name: 'Source' }).getByRole('option')).toHaveText(['Local assets', 'input', 'shared', 'indexing'])
   await page.keyboard.press('Escape')
   await expect(page.getByRole('option', { name: /sunset\.png/ })).toBeVisible()
   await expect(page.getByRole('option', { name: /style\.safetensors/ })).toBeVisible()
@@ -349,16 +352,18 @@ test('native picker references stage exact identity and never copy on errors or 
 test('selected image assets preview immediately inside the node and follow import, change, clear, reload, and failure', async ({ page }) => {
   const pageErrors: Error[] = []
   page.on('pageerror', (error) => pageErrors.push(error))
-  const previewState = () => page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'asset')!
+  let previewNodeId = 'imported'
+  const previewState = () => page.evaluate((id) => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === id)!
     return {
-      preview: window.__dinksterTest!.renderer!.getNodePreviews().asset,
+      preview: window.__dinksterTest!.renderer!.getNodePreviews()[id],
       region: node.layout.preview,
       node: { width: node.layout.width, height: node.layout.height },
     }
-  })
+  }, previewNodeId)
   const expectGeometry = async (scale: number, width: number, height: number, count: number) => {
-    await page.evaluate((nextScale) => window.__dinksterTest!.renderer!.setViewport({ x: -80, y: -55, scale: nextScale }), scale)
+    await page.evaluate(({ nextScale, y }) => window.__dinksterTest!.renderer!.setViewport({ x: -80, y, scale: nextScale }),
+      { nextScale: scale, y: previewNodeId === 'asset' ? -455 : -55 })
     const state = await previewState()
     expect(state.preview).toMatchObject({ width, height, count })
     expect(state.region).toBeDefined()
@@ -374,25 +379,31 @@ test('selected image assets preview immediately inside the node and follow impor
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'asset-browser-import', root: 'g0',
       graphs: {
         g0: { id: 'g0', name: 'root', nodes: {
-          asset: { id: 'asset', type: 'AssetBrowserTest', values: { image: images } },
+          imported: { id: 'imported', type: 'AssetBrowserListTest', values: { image: images } },
+          asset: { id: 'asset', type: 'AssetBrowserTest', values: { image: null } },
           empty: { id: 'empty', type: '#g1', values: {} },
-        }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 3 },
+        }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 4 },
         g1: { id: 'g1', name: 'empty', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 },
       },
       view: { graphs: { g0: { nodes: {
-        asset: { position: { x: 100, y: 100 } },
+        imported: { position: { x: 100, y: 100 } },
+        asset: { position: { x: 100, y: 500 } },
         empty: { position: { x: 600, y: 100 } },
       } }, g1: { nodes: {} } } },
     }, 'Imported Asset Browser')
   }, imported)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
+    type: 'AssetBrowserListTest', displayName: 'Asset Browser', category: 'test', source: 'v3', isOutputNode: false,
+    items: [{ kind: 'input', id: 'image', type: { kind: 'list', element: { kind: 'concrete', name: 'ASSET' } }, optional: false,
+      widget: { widgetType: 'ASSET', options: { accept: ['image/png', 'application/x-safetensors'] }, default: [] } }],
+  }, {
     type: 'AssetBrowserTest', displayName: 'Asset Browser', category: 'test', source: 'v3', isOutputNode: false,
     items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
       widget: { widgetType: 'ASSET', options: { accept: ['image/png', 'application/x-safetensors'] }, default: null } }],
   }]))
   await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
   await expect.poll(async () => (await previewState()).preview?.width).toBe(320)
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.asset!.values.image)).toEqual(imported)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.imported!.values.image)).toEqual(imported)
   const accessiblePreview = page.getByTestId('canvas-preview-a11y')
   await expect(accessiblePreview).toHaveRole('img')
   await expect(accessiblePreview).toHaveAccessibleName('Asset Browser, selected input sunset.png, 2 selected images: 320 by 180 pixels')
@@ -433,21 +444,34 @@ test('selected image assets preview immediately inside the node and follow impor
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
+    type: 'AssetBrowserListTest', displayName: 'Asset Browser', category: 'test', source: 'v3', isOutputNode: false,
+    items: [{ kind: 'input', id: 'image', type: { kind: 'list', element: { kind: 'concrete', name: 'ASSET' } }, optional: false,
+      widget: { widgetType: 'ASSET', options: { accept: ['image/png', 'application/x-safetensors'] }, default: [] } }],
+  }, {
     type: 'AssetBrowserTest', displayName: 'Asset Browser', category: 'test', source: 'v3', isOutputNode: false,
     items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
       widget: { widgetType: 'ASSET', options: { accept: ['image/png', 'application/x-safetensors'] }, default: null } }],
   }]))
   await expect.poll(async () => (await previewState()).preview?.width).toBe(320)
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.asset!.values.image)).toEqual(imported)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.imported!.values.image)).toEqual(imported)
   await expect(accessiblePreview).toHaveAccessibleName('Asset Browser, selected input sunset.png, 2 selected images: 320 by 180 pixels')
 
-  await openAsset(page)
+  await expect.poll(() => page.evaluate(() => {
+    const store = window.__dinksterTest!.app.activeTab()!.store
+    return 'status' in store && (store.status as { get(): string }).get() === 'live'
+  })).toBe(true)
+  await openAsset(page, true, 'imported')
   await page.getByTestId('asset-editor').getByTestId('asset-selection-remove').click()
+  await expect(page.getByTestId('asset-apply')).toHaveText('Use 0 assets')
   await page.getByTestId('asset-apply').click()
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.imported!.values.image)).toEqual([])
   await expect.poll(async () => (await previewState()).region).toBeUndefined()
   await expect(accessiblePreview).toHaveCount(0)
   await captureProof(page, 'cleared')
 
+  previewNodeId = 'asset'
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: -80, y: -455, scale: 1 }))
   await openAsset(page, false)
   await captureProof(page, 'empty-picker')
   await page.getByRole('option', { name: /^photos/ }).click({ trial: true })

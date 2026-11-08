@@ -46,20 +46,25 @@ export function GlslEditor(props: {
   const [images, setImages] = createSignal<Readonly<Record<string, HTMLImageElement>>>({})
   const [result, setResult] = createSignal<GlslShaderResult>()
   const [applyError, setApplyError] = createSignal<string>()
+  const [applying, setApplying] = createSignal(false)
   const runner = (props.createRunner ?? createGlslShaderRunner)()
   let initializedTarget: GlslEditorTarget | undefined
+  let session = 0
   let decodeGeneration = 0
   let canvas: HTMLCanvasElement | undefined
-  onCleanup(() => runner.dispose())
+  let live = true
+  onCleanup(() => { live = false; runner.dispose() })
 
   createEffect(() => {
     const request = activeTarget()
     const active = activeTabId()
     if (request === initializedTarget && request?.tabId === active) return
     initializedTarget = request?.tabId === active ? request : undefined
+    session++
     setDraft(initializedTarget?.openedValue ?? '')
     setOutput(0)
     setApplyError(undefined)
+    setApplying(false)
     setResult(undefined)
   })
 
@@ -165,7 +170,8 @@ export function GlslEditor(props: {
     canvas.getContext('2d')?.putImageData(preview.image, 0, 0)
   })
 
-  const apply = (): void => {
+  const apply = async (): Promise<void> => {
+    if (applying()) return
     const request = activeTarget()
     const current = request ? props.app.validateGlslTarget(request) : undefined
     const tab = current && tabs().find((candidate) => candidate.id === current.tabId)
@@ -173,21 +179,28 @@ export function GlslEditor(props: {
       setApplyError('The shader input changed or became linked while editing')
       return
     }
-    const outcome = props.app.dispatchTo(tab, {
-      command: 'node.setValue',
-      params: {
-        graphId: request.graphId,
-        nodeId: request.nodeId,
-        inputId: request.inputId,
-        value: draft(),
-      },
-    })
-    if (!outcome.ok) {
-      setApplyError(outcome.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
-        'Shader update was refused')
-      return
+    setApplying(true)
+    const editing = session
+    try {
+      const outcome = await props.app.dispatchTo(tab, {
+        command: 'node.setValue',
+        params: {
+          graphId: request.graphId,
+          nodeId: request.nodeId,
+          inputId: request.inputId,
+          value: draft(),
+        },
+      })
+      if (!live || session !== editing || activeTarget() !== request || activeTabId() !== request.tabId) return
+      if (!outcome.ok) {
+        setApplyError(outcome.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
+          'Shader update was refused')
+        return
+      }
+      props.app.closeGlslEditor(request)
+    } finally {
+      if (live && session === editing) setApplying(false)
     }
-    props.app.closeGlslEditor(request)
   }
 
   const state = createMemo(() => runtime()?.state)
@@ -203,7 +216,7 @@ export function GlslEditor(props: {
           <div><strong>GLSL Shader</strong><small>{request().nodeId} / {request().inputId}</small></div>
           <div>
             <button onClick={() => props.app.closeGlslEditor(request())}>Cancel</button>
-            <button class="primary" disabled={currentTarget() === undefined} onClick={apply}>Apply</button>
+            <button class="primary" disabled={applying() || currentTarget() === undefined} onClick={apply}>Apply</button>
           </div>
         </header>
         <div class="glsl-editor-body">
@@ -214,7 +227,7 @@ export function GlslEditor(props: {
               aria-label="Fragment shader source"
               value={draft()}
               spellcheck={false}
-              disabled={currentTarget() === undefined}
+              disabled={applying() || currentTarget() === undefined}
               onInput={(event) => {
                 setDraft(event.currentTarget.value)
                 setApplyError(undefined)

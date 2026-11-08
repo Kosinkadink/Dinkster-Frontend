@@ -457,7 +457,7 @@ describe('text editor views and invalid drafts', () => {
       command: 'text.splice',
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'text', offset: 0, deleteCount: 0, insert: 'a +' },
     })
-    expect(document.querySelector('[data-testid="widget-editor"]')).toBeNull()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="widget-editor"]')).toBeNull())
     mounted.unmount()
   })
 })

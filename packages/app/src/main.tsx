@@ -1,6 +1,6 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
-import { syntheticWorkflow } from '@dinkster/core'
+import { diag, syntheticWorkflow } from '@dinkster/core'
 import { assetDtoV1Contract } from '@dinkster/client'
 import { App } from './App.js'
 import { AppState } from './app-state.js'
@@ -109,12 +109,11 @@ async function bootstrap(): Promise<void> {
   disposeBootTheme()
   bindTheme(app.settings)
   bindLocale(app.settings, document.documentElement, navigator.language, desktopLocale)
-  await app.enableWorkspaceAuthority()
   const desktopWindow = desktop
     ? { context: await desktop.windowContext(), layout: await desktop.windowLayout() }
     : undefined
   for (const line of desktopLogs.slice(-500)) app.recordHostLog('info', 'Local engine', line)
-  void app.start()
+  const started = app.start()
 
   window.__dinksterTest = { app, semanticDerivations: 0, syntheticWorkflow }
   const catalogPath = import.meta.env['VITE_DINKSTER_FEDERATED_CATALOG_PATH']
@@ -127,6 +126,26 @@ async function bootstrap(): Promise<void> {
     {...(federatedAssets ? { federatedAssets } : {})}
     {...(desktopWindow ? { desktopWindow } : {})}
   />, root)
+  // Ownership and shared promotion keep their admission checks, but an older
+  // or unavailable retention service must not prevent registry loading/render.
+  const state = app
+  const ownershipProblemsOwner = Symbol('startup-ownership')
+  state.replaceProblems(ownershipProblemsOwner, [diag(
+    'warning', 'validation', 'workflow.startup.ownershipUnconfirmed',
+    'Workflow ownership unconfirmed.',
+    { data: { reason: 'Waiting for the backend.', effect: 'Asset publication still requires confirmation.' } },
+  )])
+  void started.then(() => state.confirmStartupOwnership()).then(async () => {
+    await state.enableWorkspaceAuthority()
+    state.clearProblems(ownershipProblemsOwner)
+  }).catch((error: unknown) => {
+    state.replaceProblems(ownershipProblemsOwner, [diag(
+      'warning', 'validation', 'workflow.startup.ownershipUnconfirmed',
+      'Workflow ownership unconfirmed.',
+      { data: { reason: error instanceof Error ? error.message : String(error),
+        effect: 'Asset publication still requires confirmation.' } },
+    )])
+  })
 }
 
 // Do not hide startup failures: a rejected bootstrap remains an observable

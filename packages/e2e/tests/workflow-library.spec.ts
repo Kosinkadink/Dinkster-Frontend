@@ -68,7 +68,7 @@ async function openWorkflows(page: Page): Promise<void> {
 }
 
 function workflowRow(page: Page, title: string) {
-  return page.getByTestId('collection-entry').filter({ hasText: title })
+  return page.getByTestId('library-overlay').getByTestId('collection-entry').filter({ hasText: title })
 }
 
 async function targetNativeBackend(page: Page): Promise<void> {

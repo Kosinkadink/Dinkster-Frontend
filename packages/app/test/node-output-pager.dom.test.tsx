@@ -2,6 +2,11 @@ import { createMemo, createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NodeMediaOverlay, NodeModel3dOverlay, NodeOutputPager, visibleOutputPagerRect } from '../src/CanvasHost.js'
+import { RetainedAssetReader } from '../src/workflow-asset-retention.js'
+import type { DinksterConnection } from '@dinkster/client'
+
+const orbit = vi.hoisted(() => ({ mount: vi.fn() }))
+vi.mock('../src/model3d-viewer.js', () => ({ mountModel3dViewer: orbit.mount }))
 
 afterEach(() => document.body.replaceChildren())
 
@@ -225,6 +230,60 @@ describe('NodeMediaOverlay', () => {
 })
 
 describe('NodeModel3dOverlay', () => {
+  it.each(['pending', 'mounted', 'owner'] as const)(
+    'keeps the captured reader pending until actual orbit disposal: %s', async (scenario) => {
+      const connection = {} as DinksterConnection
+      const retained = { scope: 'local', ownerKind: 'document', ownerId: 'orbit', revision: 1,
+        complete: false, digests: [] } as const
+      const original = new RetainedAssetReader(connection, retained, () => true)
+      const replacement = new RetainedAssetReader(connection, { ...retained, ownerId: 'replacement' }, () => true)
+      const owner = { key: 'original', current: () => true, read: original.read.bind(original) }
+      const [reader, setReader] = createSignal(owner)
+      let finish!: (handle: { dispose(): void }) => void
+      const pending = new Promise<{ dispose(): void }>((resolve) => { finish = resolve })
+      const disposed = vi.fn()
+      orbit.mount.mockReset().mockReturnValueOnce(pending).mockResolvedValue({ dispose: vi.fn() })
+      const root = document.createElement('div')
+      document.body.append(root)
+      const dispose = render(() => <NodeModel3dOverlay
+        media={{ kind: 'model3d', src: '/same.glb', mime: 'model/gltf-binary' }}
+        assetReader={reader()} rect={{ x: 10, y: 20, width: 300, height: 180 }}
+        scale={1} canvas={document.createElement('canvas')} />, root)
+      try {
+        root.querySelector<HTMLButtonElement>('[aria-label="Open 3D orbit view"]')!.click()
+        await vi.waitFor(() => expect(orbit.mount).toHaveBeenCalledOnce())
+        if (scenario !== 'pending') {
+          finish({ dispose: disposed })
+          await pending
+          await Promise.resolve()
+        }
+        let settled = false
+        const closed = original.close().then(() => { settled = true })
+        await Promise.resolve()
+        expect(settled).toBe(false)
+        if (scenario === 'owner') setReader({ key: 'replacement', current: () => true, read: replacement.read.bind(replacement) })
+        else root.querySelector<HTMLButtonElement>('[aria-label="Close 3D orbit view"]')!.click()
+        if (scenario === 'pending') {
+          await Promise.resolve()
+          expect(settled).toBe(false)
+          finish({ dispose: disposed })
+        }
+        await closed
+        expect(disposed).toHaveBeenCalledOnce()
+        expect(root.querySelector('[aria-label="Open 3D orbit view"]')).not.toBeNull()
+        setReader({ key: 'replacement', current: () => true, read: replacement.read.bind(replacement) })
+        root.querySelector<HTMLButtonElement>('[aria-label="Open 3D orbit view"]')!.click()
+        await vi.waitFor(() => expect(orbit.mount).toHaveBeenCalledTimes(2))
+        let liveSettled = false
+        const live = replacement.close().then(() => { liveSettled = true })
+        await Promise.resolve()
+        expect(liveSettled).toBe(false)
+        dispose()
+        await live
+      } finally { dispose() }
+    },
+  )
+
   it('keeps a failed poster output downloadable', () => {
     const root = document.createElement('div')
     document.body.append(root)

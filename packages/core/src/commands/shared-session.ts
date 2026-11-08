@@ -71,7 +71,7 @@ import type {
 import { predictAllocatedId } from './alloc.js'
 import { isValidActorId } from '../ids.js'
 import { applyOps, type PatchOp } from './patch.js'
-import { DocumentStore, jsonSameValue, replayHistoryOps, type HistorySnapshot, type ListenerErrorSink } from './store.js'
+import { DocumentStore, jsonSameValue, replayHistoryOps, type DocumentCommitPolicy, type HistorySnapshot, type ListenerErrorSink, type PreparedDocumentDispatch } from './store.js'
 import { toWirePatch, type DocumentSession, type SessionOp, type WirePatchOp } from './session.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
@@ -153,6 +153,16 @@ export interface SharedSessionOptions {
   readonly onConflict?: (conflict: SessionConflict) => void
   readonly onError?: (message: string) => void
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
+  /** Synchronous local command, history and rebased intention policy. */
+  readonly validateCommit?: DocumentCommitPolicy
+  /** Confirm ownership before adopting incoming confirmed ground, not after notifying observers. */
+  readonly beforeRemoteDocument?: (
+    document: WorkflowDocument,
+    revision: number,
+    currentDocument: WorkflowDocument,
+    history: HistorySnapshot,
+    retainedDocuments: readonly WorkflowDocument[],
+  ) => Promise<void>
 }
 
 /** One POST attempt of a pending intention: what was actually sent to the server. */
@@ -200,6 +210,20 @@ const defaultActorId = (): string =>
     ? crypto.randomUUID()
     : `a${Date.now().toString(36)}${Math.floor(Math.random() * 0xffffffff).toString(36)}`
 
+function sharedRetainedDocuments(
+  current: WorkflowDocument,
+  confirmed: WorkflowDocument,
+  pendingPatches: readonly (readonly WirePatchOp[])[],
+): readonly WorkflowDocument[] {
+  const documents = [current, confirmed]
+  let pendingDocument = confirmed
+  for (const patch of pendingPatches) {
+    pendingDocument = applyOps(pendingDocument as unknown as Json, patch) as unknown as WorkflowDocument
+    documents.push(pendingDocument)
+  }
+  return Object.freeze(documents)
+}
+
 class SharedDocumentSession implements DocumentSession {
   readonly actorId: string
   /** Shared dispatch stamps actorId; ids come from actorCursors[actorId]. */
@@ -217,6 +241,8 @@ class SharedDocumentSession implements DocumentSession {
   private readonly onErrorCb: ((message: string) => void) | undefined
   private readonly maxUndo: number
   private readonly schemaResolverFor: ((doc: WorkflowDocument) => SchemaResolver) | undefined
+  private readonly validateCommit: SharedSessionOptions['validateCommit']
+  private readonly beforeRemoteDocument: SharedSessionOptions['beforeRemoteDocument']
   private rebasing = false
   private readonly snapshotPolicy: SnapshotPublicationPolicy
 
@@ -250,6 +276,7 @@ class SharedDocumentSession implements DocumentSession {
   private pumpPromise: Promise<void> | undefined
   /** True while the sync loop (catch-up / resync) is running. */
   private syncing = false
+  private syncPromise: Promise<void> | undefined
   /**
    * Monotonic server head this session must reach before the sync loop may
    * rest. Raised synchronously by WS gaps, reconnect descriptors, and 409
@@ -290,6 +317,8 @@ class SharedDocumentSession implements DocumentSession {
     this.onErrorCb = options?.onError
     this.maxUndo = options?.maxUndo ?? 200
     this.schemaResolverFor = options?.schemaResolverFor
+    this.validateCommit = options?.validateCommit
+    this.beforeRemoteDocument = options?.beforeRemoteDocument
     this.snapshotPolicy = new SnapshotPublicationPolicy(
       snapshotRevision,
       this.clock(),
@@ -355,6 +384,11 @@ class SharedDocumentSession implements DocumentSession {
   }
 
   dispatch(invocation: CommandInvocation): CommandOutcome {
+    const prepared = this.prepareDispatch(invocation)
+    return prepared.ok ? prepared.commit() : prepared
+  }
+
+  prepareDispatch(invocation: CommandInvocation): PreparedDocumentDispatch {
     if (invocation.command === sessionPatchCommand.id) {
       return {
         ok: false,
@@ -363,18 +397,7 @@ class SharedDocumentSession implements DocumentSession {
         ],
       }
     }
-    const outcome = this.run(invocation)
-    if (outcome.ok && outcome.forward.length > 0) {
-      const record: HistoryRecord = { forward: outcome.forward, inverse: outcome.inverse }
-      // run() just pushed this intention's pending entry (synchronous,
-      // deferred pump - nothing can interleave): tie the record to it so
-      // rebases keep history and pending coherent.
-      this.pending[this.pending.length - 1]!.record = record
-      this.undoStack.push(record)
-      if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
-      this.redoStack.length = 0
-    }
-    return outcome
+    return this.prepareRun(invocation, undefined, true)
   }
 
   undo(): boolean {
@@ -445,7 +468,9 @@ class SharedDocumentSession implements DocumentSession {
   /** Resolves when submission is quiescent; rejects a definitive refusal. */
   async settle(): Promise<void> {
     this.throwIfDenied()
-    while (this.pumpPromise) await this.pumpPromise
+    while (this.pumpPromise || (this.beforeRemoteDocument !== undefined && this.syncPromise)) {
+      await (this.pumpPromise ?? this.syncPromise)
+    }
     this.throwIfDenied()
   }
 
@@ -477,6 +502,11 @@ class SharedDocumentSession implements DocumentSession {
    * that is what routes id allocation to this actor's disjoint cursors.
    */
   private run(invocation: CommandInvocation, origin?: string): CommandOutcome {
+    const prepared = this.prepareRun(invocation, origin)
+    return prepared.ok ? prepared.commit() : prepared
+  }
+
+  private prepareRun(invocation: CommandInvocation, origin?: string, recordHistory = false): PreparedDocumentDispatch {
     const status = this.statusSignal.get()
     if (status === 'closed' || status === 'error') {
       return {
@@ -530,23 +560,81 @@ class SharedDocumentSession implements DocumentSession {
         stamped = Object.freeze({ ...stamped, params: ownedPrepared.value })
       }
     }
-    const outcome = this.store.dispatch(stamped)
-    if (outcome.ok && outcome.forward.length > 0) {
-      this.pending.push({
-        opId: this.mintOpId(),
-        invocation: stamped,
-        origin: origin ?? stamped.command,
-        predicted: toWirePatch(outcome.forward),
-        attempts: [],
-      })
-      this.docSignal.set(this.store.doc)
-      this.pump()
+    const store = this.store
+    const prepared = store.prepareDispatch(stamped)
+    if (!prepared.ok) return prepared
+    const confirmedRevision = this.confirmedRevision
+    const confirmed = this.confirmed
+    const freezeHistory = (history: HistorySnapshot): HistorySnapshot => Object.freeze({
+      revision: history.revision,
+      undo: Object.freeze(history.undo.map((record) => Object.freeze(record))),
+      redo: Object.freeze(history.redo.map((record) => Object.freeze(record))),
+    })
+    const currentHistory = freezeHistory(this.historySnapshot())
+    const undo = [...currentHistory.undo]
+    const changes = prepared.forward.length > 0
+    if (recordHistory && changes) {
+      undo.push({ forward: prepared.forward, inverse: prepared.inverse })
+      if (undo.length > this.maxUndo) undo.shift()
     }
-    return outcome
+    const history = freezeHistory({
+      revision: currentHistory.revision + (changes ? 1 : 0),
+      undo,
+      redo: recordHistory && changes ? [] : currentHistory.redo,
+    })
+    const currentDocument = store.doc
+    const pendingPatches = this.pending.map((entry) => entry.predicted)
+    let retainedDocuments: readonly WorkflowDocument[] | undefined
+    let consumed = false
+    return Object.freeze({
+      ...prepared,
+      currentHistory,
+      history,
+      get retainedDocuments(): readonly WorkflowDocument[] {
+        if (retainedDocuments === undefined) {
+          retainedDocuments = sharedRetainedDocuments(currentDocument, confirmed, pendingPatches)
+        }
+        return retainedDocuments
+      },
+      commit: (): CommandOutcome => {
+        if (consumed || this.store !== store || this.confirmedRevision !== confirmedRevision ||
+          this.confirmed !== confirmed || this.statusSignal.get() !== status ||
+          this.revision !== currentHistory.revision ||
+          this.undoStack.length !== currentHistory.undo.length || this.redoStack.length !== currentHistory.redo.length) {
+          return { ok: false, diagnostics: [diag('error', 'command', 'command.candidate.stale', 'Prepared shared command is stale or already consumed')] }
+        }
+        consumed = true
+        if (recordHistory) {
+          const diagnostics = this.validateCommit?.(currentDocument, prepared.document, currentHistory) ?? []
+          if (hasErrors(diagnostics)) return { ok: false, diagnostics }
+        }
+        const outcome = prepared.commit()
+        if (outcome.ok && outcome.forward.length > 0) {
+          const record: HistoryRecord | undefined = recordHistory
+            ? { forward: outcome.forward, inverse: outcome.inverse } : undefined
+          this.pending.push({
+            opId: this.mintOpId(),
+            invocation: stamped,
+            origin: origin ?? stamped.command,
+            predicted: toWirePatch(outcome.forward),
+            attempts: [],
+            ...(record !== undefined ? { record } : {}),
+          })
+          if (record !== undefined) {
+            this.undoStack.push(record)
+            if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
+            this.redoStack.length = 0
+          }
+          this.docSignal.set(this.store.doc)
+          this.pump()
+        }
+        return outcome
+      },
+    })
   }
 
   private replayHistory(from: HistoryRecord[], to: HistoryRecord[], during: 'undo' | 'redo'): boolean {
-    const record = from.pop()
+    const record = from.at(-1)
     if (!record) return false
     const patch = during === 'undo' ? record.inverse : record.forward
     // CO3: clamp cursor rewinds exactly like DocumentStore history replay -
@@ -558,9 +646,11 @@ class SharedDocumentSession implements DocumentSession {
     // throws when the record's paths no longer fit the (possibly rebased)
     // document; both failure shapes drop the record as a conflict.
     let applied: readonly PatchOp[]
+    let document: WorkflowDocument
     try {
       const replay = replayHistoryOps(this.store.doc, patch, { requireRecordedValues: true })
       if (replay.stale) {
+        from.pop()
         this.notifyConflict({
           invocation: { command: sessionPatchCommand.id, params: null, actor: this.actorId },
           diagnostics: [
@@ -576,7 +666,9 @@ class SharedDocumentSession implements DocumentSession {
         return false
       }
       applied = replay.applied
+      document = replay.doc
     } catch (e) {
+      from.pop()
       const message = e instanceof Error ? e.message : String(e)
       this.notifyConflict({
         invocation: { command: sessionPatchCommand.id, params: null, actor: this.actorId },
@@ -585,6 +677,16 @@ class SharedDocumentSession implements DocumentSession {
       })
       return false
     }
+    const diagnostics = this.validateCommit?.(this.store.doc, document, this.historySnapshot()) ?? []
+    if (hasErrors(diagnostics)) {
+      this.notifyConflict({
+        invocation: { command: sessionPatchCommand.id, params: null, actor: this.actorId },
+        diagnostics,
+        during,
+      })
+      return false
+    }
+    from.pop()
     if (applied.length === 0) {
       // Everything clamped away (pure cursor record): nothing to commit,
       // but the record still moves so redo/undo stays symmetric.
@@ -789,6 +891,11 @@ class SharedDocumentSession implements DocumentSession {
 
   private handleServerOp(op: CollabServerOp): void {
     if (op.revision <= this.confirmedRevision) return // duplicate/echo
+    if (this.beforeRemoteDocument !== undefined) {
+      // Guarded ingress has one async owner: the ordered catch-up loop.
+      this.requestCatchUp(op.revision)
+      return
+    }
     if (op.revision > this.confirmedRevision + 1) {
       // Gap (reconnect window / mid-sync append): repair via HTTP. The op's
       // revision announces a server head the sync loop must reach - raising
@@ -951,6 +1058,8 @@ class SharedDocumentSession implements DocumentSession {
    * a fully consistent session.
    */
   private rebase(oldGround: WorkflowDocument, skipped: ReadonlySet<PendingEntry> = new Set()): void {
+    const retainedDocuments = this.validateCommit === undefined ? undefined
+      : sharedRetainedDocuments(this.store.doc, oldGround, this.pending.map((entry) => entry.predicted))
     const entries = this.pending.splice(0)
     const survivors: PendingEntry[] = []
     const conflicts: SessionConflict[] = []
@@ -970,7 +1079,16 @@ class SharedDocumentSession implements DocumentSession {
             )
             if (params !== undefined) entry.invocation = { ...entry.invocation, params }
           }
-          const outcome = this.store.dispatch(entry.invocation)
+          const prepared = this.store.prepareDispatch(entry.invocation)
+          // Old history is not rooted at this rebuilt prefix. Its pending intentions
+          // are already represented by the retained old optimistic documents.
+          const diagnostics = prepared.ok
+            ? this.validateCommit?.(this.store.doc, prepared.document,
+              { revision: this.revision, undo: [], redo: [] }, retainedDocuments) ?? []
+            : prepared.diagnostics
+          const outcome = prepared.ok && !hasErrors(diagnostics)
+            ? prepared.commit()
+            : { ok: false as const, diagnostics }
           if (outcome.ok && outcome.forward.length > 0) {
             if (entry.record) {
               // The intention re-executed against new ground: its recorded
@@ -1039,6 +1157,22 @@ class SharedDocumentSession implements DocumentSession {
 
   // -- Sync loop (catch-up / resync) --------------------------------------------
 
+  private async admitRemoteDocument(document: WorkflowDocument, revision: number): Promise<boolean> {
+    while (this.statusSignal.get() === 'catching-up') {
+      const current = this.store.doc
+      const history = this.historySnapshot()
+      const retainedDocuments = sharedRetainedDocuments(current, this.confirmed, this.pending.map((entry) => entry.predicted))
+      await this.beforeRemoteDocument!(document, revision, current, history, retainedDocuments)
+      if (this.statusSignal.get() !== 'catching-up') return false
+      if (this.store.doc === current && this.revision === history.revision &&
+        ([['undo', this.undoStack], ['redo', this.redoStack]] as const).every(([key, records]) =>
+          records.length === history[key].length && records.every((record, index) =>
+            record.forward === history[key][index]!.forward && record.inverse === history[key][index]!.inverse))) return true
+      // Local editing stays synchronous; confirm its new holders before releasing remote ground.
+    }
+    return false
+  }
+
   /**
    * Raise the sync target to a server-announced head and ensure the sync
    * loop is running. Safe to call at ANY time, including mid-pass: the
@@ -1066,11 +1200,12 @@ class SharedDocumentSession implements DocumentSession {
     if (this.syncing) return
     this.syncing = true
     this.statusSignal.set('catching-up')
-    void this.syncLoop()
+    this.syncPromise = this.syncLoop()
       .catch((e) => {
         this.fail(`sync failed: ${e instanceof Error ? e.message : String(e)}`)
       })
       .finally(() => {
+        this.syncPromise = undefined
         this.syncing = false
         if (this.statusSignal.get() === 'catching-up') this.statusSignal.set('live')
         // Lost-wakeup guard: a request that raced the loop's exit check saw
@@ -1111,6 +1246,8 @@ class SharedDocumentSession implements DocumentSession {
           this.fail('resync snapshot failed to load')
           return
         }
+        if (this.beforeRemoteDocument !== undefined &&
+          !await this.admitRemoteDocument(loaded.document, snap.revision)) return
         // A checkpoint snapshot may sit BEHIND state this client already
         // confirmed (ordered commits never raise syncTarget). Preserve the
         // high-water mark BEFORE adopting, or the loop would rest below a
@@ -1174,6 +1311,23 @@ class SharedDocumentSession implements DocumentSession {
           break
         }
         if (op.revision <= this.confirmedRevision) continue // WS applied it first
+        if (this.beforeRemoteDocument !== undefined) {
+          if (op.revision !== this.confirmedRevision + 1) {
+            this.resyncRequested = true
+            break
+          }
+          let candidate: WorkflowDocument
+          try {
+            candidate = applyOps(this.confirmed as unknown as Json, op.patch) as unknown as WorkflowDocument
+            const diagnostics = checkDocument(candidate)
+            if (hasErrors(diagnostics)) throw new Error('Incoming workflow violates document invariants')
+          } catch (error) {
+            this.safeSink(error, 'resync')
+            this.resyncRequested = true
+            break
+          }
+          if (!await this.admitRemoteDocument(candidate, op.revision)) return
+        }
         const failure = this.ingestOrdered(op)
         if (failure !== null) {
           if (op.revision > this.syncTarget) this.syncTarget = op.revision

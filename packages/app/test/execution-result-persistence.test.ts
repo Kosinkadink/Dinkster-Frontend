@@ -1,6 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { asConnectionId, asPromptId, type CompileArtifact } from '@dinkster/core'
-import type { ExecutionState } from '@dinkster/client'
+import { readFileSync } from 'node:fs'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { asConnectionId, asNodeId, asPromptId, compile, loadDocument, type CompileArtifact, type DinksterNodesPayload } from '@dinkster/core'
+import { buildDinksterRegistry, type ExecutionState, type RetainedAssets, type RetainedAssetOwner } from '@dinkster/client'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
+import { scopedStorageKey } from '../src/projects.js'
 import {
   EXECUTION_RESULTS_STORAGE_KEY,
   MAX_PERSISTED_EXECUTION_BYTES,
@@ -99,6 +102,112 @@ beforeEach(() => {
 
 afterEach(() => {
   delete (globalThis as { localStorage?: Storage }).localStorage
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
+
+describe('startup result source admission', () => {
+  function setup() {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })))
+    const app = createWorkflowApp(null)
+    const backend = app.backends.get()[0]!
+    if (backend.protocol !== 'dinkster') throw new Error('Expected native backend')
+    const payload = JSON.parse(readFileSync(new URL('../../core/fixtures/dinkster-nodes.json', import.meta.url), 'utf8')) as DinksterNodesPayload
+    const registry = { ...buildDinksterRegistry(backend.id, payload), server: { version: 'reload-test', schemaWire: 1 } }
+    const loaded = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'restore-source', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Root', nodes: {
+        n0: { id: 'n0', type: 'std.math.add_ints', values: { a: 3, b: 4 } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } }, view: { graphs: {} } })
+    if (loaded.document === undefined) throw new Error('Invalid source fixture')
+    const compiled = compile({ document: loaded.document, revision: 0, resolve: registry.resolve,
+      scope: { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('n0') }] },
+      connection: backend.id, schemaHash: registry.hash, pickCandidate: () => 0 })
+    if (!compiled.ok) throw new Error('Source fixture did not compile')
+    const nodeId = Object.keys(compiled.artifact.prompt)[0]!
+    const ref = { connection: backend.id, prompt: asPromptId('restored-job') }
+    const saved = { ...completed('restored-job'), ref, artifact: compiled.artifact,
+      jobRef: 'run-restored-job', sourceDocument: `blake3:${'b'.repeat(64)}`,
+      submittedBy: { principalId: 'user-1', kind: 'human' as const },
+      nodes: { [nodeId]: { state: 'done' as const, outputs: { sum: { typeId: 'INT', value: 7 } } } },
+      outputs: { [nodeId]: { sum: { typeId: 'INT', fingerprint: 'sum-seven', value: 7 } } } }
+    const backendIdentity = { connection: backend.id, baseUrl: backend.baseUrl,
+      clientId: `${globalThis.localStorage.getItem(scopedStorageKey('dinkster.workspaceClientId'))}:${backend.id}`,
+      serverVersion: 'reload-test', schemaWire: 1 }
+    saveExecutionResult(saved, backendIdentity)
+    vi.spyOn(backend.connection, 'connect').mockImplementation(() => undefined)
+    vi.spyOn(backend.connection, 'fetchSchemas').mockResolvedValue(registry)
+    vi.spyOn(backend, 'refreshDiagnostics').mockImplementation(() => undefined)
+    vi.spyOn(backend.connection, 'getHistoryRun').mockResolvedValue({ runId: saved.jobRef!, scope: 'local',
+      clientId: backendIdentity.clientId, jobId: ref.prompt, state: 'completed', priority: 0,
+      submittedAt: 1, finishedAt: 10, executed: 1, cached: 0, skipped: 0,
+      sourceDocument: saved.sourceDocument, principalId: 'user-1', principalKind: 'human' })
+    vi.spyOn(backend.connection, 'fetchJob').mockResolvedValue({ state: 'completed', jobRef: saved.jobRef,
+      sourceDocument: saved.sourceDocument, submittedBy: saved.submittedBy,
+      nodeStates: { [nodeId]: 'completed' }, outputs: saved.outputs })
+    const fetchSource = vi.spyOn(backend.connection, 'fetchAssetText').mockResolvedValue(JSON.stringify(loaded.document))
+    vi.spyOn(backend.connection.values(), 'peek').mockResolvedValue({ available: true, renditions: [],
+      descriptor: { typeId: 'INT', fingerprint: 'sum-seven', value: 7 } })
+    return { app, backend, registry, ref, nodeId, saved, backendIdentity, fetchSource, source: JSON.stringify(loaded.document) }
+  }
+
+  it.each(['accepted', 'refused', 'mismatched', 'malformed', 'absent', 'failed-body'] as const)('restores only an admitted persisted source: %s', async (mode) => {
+    const test = setup()
+    try {
+      if (mode === 'malformed') test.fetchSource.mockResolvedValue('{')
+      if (mode === 'absent') test.fetchSource.mockResolvedValue(undefined)
+      if (mode === 'failed-body') test.fetchSource.mockRejectedValue(new Error('Body failed'))
+      vi.mocked(test.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        if (owner.ownerKind === 'preview' && mode === 'refused') throw new Error('Admission refused')
+        return { ...owner, ...declaration, revision: declaration.revision + 1,
+          ...(owner.ownerKind === 'preview' && mode === 'mismatched' ? { digests: [`blake3:${'e'.repeat(64)}`] } : {}) }
+      })
+      await test.app.start()
+      if (mode === 'accepted') {
+        expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toEqual({ typeId: 'INT', fingerprint: 'sum-seven', value: 7 })
+      } else {
+        if (mode === 'refused' || mode === 'mismatched') expect(test.fetchSource).not.toHaveBeenCalled()
+        expect(test.app.store.get(test.ref)).toBeUndefined()
+      }
+      expect(loadExecutionResults(test.backendIdentity)).toHaveLength(mode === 'malformed' || mode === 'absent' ? 0 : 1)
+    } finally { test.app.dispose() }
+  })
+
+  it.each(['admission', 'body'] as const)('refuses a source whose backend registry changes during %s', async (phase) => {
+    const test = setup()
+    try {
+      let begin!: () => void
+      const entered = new Promise<void>((resolve) => { begin = resolve })
+      let admit!: (receipt: RetainedAssets) => void
+      const admission = new Promise<RetainedAssets>((resolve) => { admit = resolve })
+      let deliver!: (text: string) => void
+      const body = new Promise<string>((resolve) => { deliver = resolve })
+      let owner!: RetainedAssetOwner
+      vi.mocked(test.backend.connection.retainAssets).mockImplementation(async (requested, declaration) => {
+        if (requested.ownerKind === 'preview') {
+          owner = requested
+          if (phase === 'admission') { begin(); return admission }
+        }
+        return { ...requested, ...declaration, revision: declaration.revision + 1 }
+      })
+      test.fetchSource.mockImplementation(async () => { begin(); return body })
+      let settled = false
+      const starting = test.app.start().then(() => { settled = true })
+      await entered
+      test.backend.registry.set({ ...test.registry })
+      if (phase === 'admission') {
+        expect(test.fetchSource).not.toHaveBeenCalled()
+        admit({ ...owner, revision: 1, complete: false, digests: [test.saved.sourceDocument!] })
+      } else {
+        expect(settled).toBe(false)
+        deliver(test.source)
+      }
+      await starting
+      expect(test.app.store.get(test.ref)).toBeUndefined()
+      if (phase === 'admission') expect(test.fetchSource).not.toHaveBeenCalled()
+      expect(loadExecutionResults(test.backendIdentity)).toHaveLength(1)
+    } finally { test.app.dispose() }
+  })
 })
 
 describe('execution result persistence', () => {
