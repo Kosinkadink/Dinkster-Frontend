@@ -480,13 +480,11 @@ describe('retained app dispatch', () => {
     const roots = workflowAssetRoots(document, history, () => dynamic, [], 'admission')
     expect(roots.complete).toBe(false)
     expect(roots.digests).toEqual([asset('a').digest])
-    expect(roots.refusal).toBe(variant === 'invalid' || variant === 'unknown' ? 'Workflow dynamic identities are invalid' : undefined)
-    if (variant === 'active' || variant === 'dormant') {
-      expect(roots.incompleteDiagnostics).toEqual(expect.arrayContaining([
-        expect.objectContaining({ code: 'elab.dormant.unsupported', severity: 'error' }),
-        expect.objectContaining({ code: 'elab.dynamic.unknownState', severity: 'error',
-          data: { dormantBranch: 'format' }, message: expect.stringContaining('format.codec') }),
-      ]))
+    expect(roots.refusal).toBe(variant === 'active' ? undefined : 'Workflow dynamic identities are invalid')
+    if (variant === 'active') {
+      const stored = elaborateInterface(dynamic, document.graphs.g0!.nodes.n0!, EMPTY_CONNECTIVITY, { includeDormant: true })
+      expect(stored.diagnostics).toEqual([expect.objectContaining({ code: 'elab.dormant.unsupported', severity: 'error' })])
+      expect(roots.incompleteDiagnostics).toEqual([expect.objectContaining({ code: 'elab.dormant.unsupported', severity: 'error' })])
     }
     expect(workflowAssetRoots(document, history, () => dynamic).refusal).toBe('Workflow dynamic identities are invalid')
   })
