@@ -6,7 +6,7 @@
  * identical document write a canvas widget edit would produce - then the
  * stale/remove recovery path and the round trip back to the graph editor.
  */
-import { expect, openRailPanel, appViewTest as test, type Page } from './fixtures.js'
+import { expect, openRailPanel, appViewTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const REMOTE_ROUTE = '/api/choices/dinkster-test-app-view-options'
 
@@ -80,6 +80,7 @@ test.beforeEach(async ({ page }, testInfo) => {
       return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
     })).toBe(true)
   }
+  await waitForStartupOwnership(page)
   await page.evaluate((remoteRoute) => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
