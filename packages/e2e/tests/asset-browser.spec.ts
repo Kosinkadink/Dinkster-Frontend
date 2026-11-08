@@ -362,7 +362,8 @@ test('selected image assets preview immediately inside the node and follow impor
     }
   }, previewNodeId)
   const expectGeometry = async (scale: number, width: number, height: number, count: number) => {
-    await page.evaluate((nextScale) => window.__dinksterTest!.renderer!.setViewport({ x: -80, y: -55, scale: nextScale }), scale)
+    await page.evaluate(({ nextScale, y }) => window.__dinksterTest!.renderer!.setViewport({ x: -80, y, scale: nextScale }),
+      { nextScale: scale, y: previewNodeId === 'asset' ? -455 : -55 })
     const state = await previewState()
     expect(state.preview).toMatchObject({ width, height, count })
     expect(state.region).toBeDefined()
@@ -455,10 +456,16 @@ test('selected image assets preview immediately inside the node and follow impor
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.imported!.values.image)).toEqual(imported)
   await expect(accessiblePreview).toHaveAccessibleName('Asset Browser, selected input sunset.png, 2 selected images: 320 by 180 pixels')
 
+  await expect.poll(() => page.evaluate(() => {
+    const store = window.__dinksterTest!.app.activeTab()!.store
+    return 'status' in store && (store.status as { get(): string }).get() === 'live'
+  })).toBe(true)
   await openAsset(page, true, 'imported')
   await page.getByTestId('asset-editor').getByTestId('asset-selection-remove').click()
   await expect(page.getByTestId('asset-apply')).toHaveText('Use 0 assets')
   await page.getByTestId('asset-apply').click()
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.imported!.values.image)).toEqual([])
   await expect.poll(async () => (await previewState()).region).toBeUndefined()
   await expect(accessiblePreview).toHaveCount(0)
   await captureProof(page, 'cleared')

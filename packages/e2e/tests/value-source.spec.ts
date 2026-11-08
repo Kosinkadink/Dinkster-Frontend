@@ -235,6 +235,7 @@ test('badge popover reports the derived spec; pin declares it, unpin re-derives 
   await expect(page.getByTestId('value-source-spec-state')).toContainText('drives 2 inputs')
 
   await page.getByTestId('value-source-pin-spec').click()
+  await expect.poll(async () => (await rootGraph(page)).valueSources!['v2']!.spec?.widgetType).toBe('INT')
   const pinned = await rootGraph(page)
   expect(pinned.valueSources!['v2']!.spec?.widgetType).toBe('INT')
   expect(pinned.valueSources!['v2']!.value).toBe(128) // pinning NEVER resets the value
@@ -243,6 +244,7 @@ test('badge popover reports the derived spec; pin declares it, unpin re-derives 
   await page.mouse.click(badge.x, badge.y)
   await expect(page.getByTestId('value-source-spec-state')).toHaveAttribute('data-state', 'declared')
   await page.getByTestId('value-source-unpin-spec').click()
+  await expect.poll(async () => (await rootGraph(page)).valueSources!['v2']!.spec).toBeUndefined()
   const unpinned = await rootGraph(page)
   expect(unpinned.valueSources!['v2']!.spec).toBeUndefined()
   expect(unpinned.valueSources!['v2']!.value).toBe(128)
@@ -274,6 +276,7 @@ test('canvas menu adds a raw null source; its editor is the JSON fallback and re
   await expect(menuItem(page, 'core.canvas.addValueSource')).toBeVisible()
   await menuItem(page, 'core.canvas.addValueSource').click()
 
+  await expect.poll(async () => Object.values((await rootGraph(page)).valueSources ?? {}).some((v) => v.id !== 'v2')).toBe(true)
   const g = await rootGraph(page)
   const added = Object.values(g.valueSources ?? {}).find((v) => v.id !== 'v2')
   expect(added).toBeDefined()
@@ -302,6 +305,7 @@ test('canvas menu adds a raw null source; its editor is the JSON fallback and re
   // Valid JSON commits through valueSource.setValue.
   await area.fill('{"a": [1, 2]}')
   await page.keyboard.press('Control+Enter')
+  await expect(editor).not.toBeVisible()
   expect(Object.values((await rootGraph(page)).valueSources!).find((v) => v.id === added!.id)!.value).toEqual({
     a: [1, 2],
   })
