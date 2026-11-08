@@ -32,6 +32,13 @@ This report is advisory: the document remains editable, unknown classes keep
 their own diagnostics, and registry changes recompute the report without
 replacing the document or its undo history.
 
+Installed node schemas supply their ordinary replacement rules directly at
+import time, even when no registry metadata is available. These rules take
+precedence over fetched records for the same source class. Installed local
+packs do not need a release version; absent pack/version provenance stays
+absent rather than becoming a fabricated installation pin. Historical
+Dinkster-document migrations remain separate from ComfyUI conversion.
+
 Backend startup, schema changes and reconnects read `GET /api/comfy-translations`
 into the import-only catalog using the ordinary schema and replacement-rule decoders. Conditional
 reads revalidate the connection-local ETag; invalid or duplicate-source data

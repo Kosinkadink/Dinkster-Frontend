@@ -173,8 +173,8 @@ export interface ImportLitegraphResult {
 
 /** Import-only interfaces never join the installed schema registry. */
 export interface ComfyTranslation {
-  readonly pack: string
-  readonly version: string
+  readonly pack?: string
+  readonly version?: string
   readonly rule: ReplacementRule
   readonly schema: NodeSchema
 }
@@ -775,7 +775,10 @@ export function importLitegraph(
       const translatedNode = translated.graphs[graphId]!.nodes[node.id]!
       tx.set(['graphs', graphId, 'nodes', node.id, 'ext'], {
         ...translatedNode.ext,
-        'importer.comfyTranslation': { sourceClass, pack: record.pack, version: record.version },
+        'importer.comfyTranslation': { sourceClass,
+          ...(record.pack !== undefined ? { pack: record.pack } : {}),
+          ...(record.version !== undefined ? { version: record.version } : {}),
+        },
       })
       document = tx.result().doc
       const ancestry = [...sources, node.type]

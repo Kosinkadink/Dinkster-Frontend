@@ -6892,7 +6892,15 @@ export class AppState {
         ],
       }
     }
-    return importLitegraph(json as JsonObject, registry.resolve, undefined, translations)
+    const installed = [...registry.schemas.values()].flatMap((schema): ComfyTranslation[] => {
+      const version = schema.pack === undefined ? undefined : registry.packs?.get(schema.pack)?.version
+      return (schema.replacements ?? []).filter((rule) => rule.migration === undefined).map((rule) => ({
+        schema, rule,
+        ...(schema.pack !== undefined ? { pack: schema.pack } : {}),
+        ...(version !== undefined ? { version } : {}),
+      }))
+    })
+    return importLitegraph(json as JsonObject, registry.resolve, undefined, [...translations, ...installed])
   }
 
   /**

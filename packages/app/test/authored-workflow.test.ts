@@ -70,6 +70,43 @@ const imageWorkflow = {
 }
 
 describe('authored workflows on a native backend', () => {
+  it.each([false, true])('imports installed replacement rules without a release pin or registry metadata: %s', (staleMetadata) => {
+    const backend = app.backends.get()[0]!
+    const type = 'dinkster.text.string_length'
+    backend.registry.set(buildDinksterRegistry(backend.id, {
+      schemaVersion: 1,
+      nodes: { [type]: {
+        schemaVersion: 1, nodeType: type, displayName: 'Text Length',
+        interface: [
+          { role: 'input', id: 'string', required: true, type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'STRING', multiline: false } },
+          { role: 'output', id: 'length', type: { kind: 'concrete', types: ['INT'] } },
+        ],
+        replacements: [{ from: 'StringLength', cases: [{ to: type,
+          inputs: { string: { kind: 'copy', input: 'string' } }, outputs: { length: 'length' },
+        }] }],
+      } },
+    }))
+    if (staleMetadata) backend.comfyTranslations.set([{
+      pack: 'dinkster-text', version: '0.0.1', schema: { ...backend.registry.get()!.resolve(type)!, type: 'older.target' },
+      rule: { from: 'StringLength', cases: [{ to: 'older.target', inputs: {}, outputs: {} }] },
+    }])
+    const diagnostics = app.openDocument({ nodes: [
+      { id: 1, type: 'StringLength', widgets_values: ['Specific preserved text'], outputs: [{ name: 'length' }] },
+      { id: 2, type: 'NotInstalled', widgets_values: [17, 'retain raw'], inputs: [{ name: 'value', link: 41 }] },
+    ], links: [[41, 1, 0, 2, 0, 'INT']] }, 'Installed rules')
+    expect(diagnostics.filter((entry) => entry.severity === 'error')).toEqual([])
+    const tab = app.activeTab()!
+    const graph = tab.store.doc.graphs.g0!
+    expect(graph.nodes.n1).toMatchObject({ type, values: { string: 'Specific preserved text' } })
+    expect(graph.nodes.n1!.ext!['importer.comfyTranslation']).toEqual({ sourceClass: 'StringLength' })
+    expect(graph.nodes.n2!.ext!['importer.rawWidgetValues']).toEqual([17, 'retain raw'])
+    expect(Object.values(graph.links).map(({ from, to }) => [from, to])).toEqual([
+      [{ node: 'n1', port: 'length' }, { node: 'n2', port: 'value' }],
+    ])
+    expect(resolveImportedNodePacks(tab.store.doc, backend.registry.get()!.resolve).map(({ status }) => status)).toEqual(['installed', 'unknown'])
+    expect(tab.store.dispatch({ command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n2', title: 'Still editable' } }).ok).toBe(true)
+  })
+
   it('opens with missing packs and resolves a later registry without changing edits', () => {
     loadNativeSchemas()
     const backend = app.backends.get()[0]!
