@@ -47,6 +47,7 @@ async function openNamedCopy(page: Page, title: string): Promise<void> {
     return diagnostics
   }, title)
   expect(failures).toEqual([])
+  await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
 }
 
 async function waitForDocumentToSettle(page: Page): Promise<void> {

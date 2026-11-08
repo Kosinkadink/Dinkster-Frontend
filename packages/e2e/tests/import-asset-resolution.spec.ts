@@ -60,6 +60,7 @@ const modelOnlyWorkflow = (model = RAW_MODEL) => ({
 })
 
 async function setup(page: Page, guesses: Guesses): Promise<void> {
+  await page.routeWebSocket('ws://asset-guesses.test/api/events?*', () => {})
   await page.route(`${MOCK}/api/nodes*`, (route) => void route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 1 },
     nodes: {
@@ -78,6 +79,8 @@ async function setup(page: Page, guesses: Guesses): Promise<void> {
   await page.getByTestId('backend-add').click()
   await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
   await expect.poll(() => page.evaluate((url) => window.__dinksterTest!.app.backends.get().find((b) => b.baseUrl === url)?.registry.get()?.schemas.size, MOCK)).toBe(2)
+  await expect.poll(() => page.evaluate((url) => window.__dinksterTest!.app.backends.get()
+    .find((backend) => backend.baseUrl === url)?.connection.status.get(), MOCK)).toBe('connected')
 }
 
 async function openImportedDocument(page: Page, json: unknown, title: string) {

@@ -314,6 +314,10 @@ test('execute-between toolbox hover previews and submits the selected sinks', as
 test('queue-selection menu action submits a real partial prompt', async ({ page }) => {
   // Target the OUTPUT node (the server only counts OUTPUT_NODE classes as
   // partial targets); the submitted prompt is its upstream closure.
+  await page.waitForFunction(() => {
+    const app = window.__dinksterTest!.app
+    return app.backendForTab(app.activeTab()!).workerCatalog.get().status !== 'loading'
+  })
   await identityViewport(page)
   await page.mouse.click(...xy(await pointOn(page, 'n1', { kind: 'header' })), { button: 'right' })
   const item = page

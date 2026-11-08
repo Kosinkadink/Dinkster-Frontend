@@ -6,6 +6,7 @@ const gridProofDir = '/tmp/app-view-layout-grid'
 const mobileProofDir = '/tmp/app-view-layout-mobile'
 
 async function registerSchema(page: Page): Promise<void> {
+  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'AppLayoutTest',
