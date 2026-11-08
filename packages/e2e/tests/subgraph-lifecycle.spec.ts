@@ -164,6 +164,7 @@ test('creates an empty subgraph from universal search and drills into it', async
 
 test('previews and removes root-unreachable subgraph definitions', async ({ page }, testInfo) => {
   await ready(page, true)
+  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'subgraph-cleanup-e2e', root: 'root',
@@ -213,6 +214,7 @@ test('previews and removes root-unreachable subgraph definitions', async ({ page
     app.dock.setOpen('right', false)
     app.shell.statusBarVisible.set(false)
   })
+  await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
 
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('> Manage subgraph definitions')

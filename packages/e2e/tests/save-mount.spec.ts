@@ -27,7 +27,7 @@ test('native SaveImage and SaveVideo keep imported prefixes beside independent m
   expect(catalog.nodes).not.toHaveProperty('Set Save Target Prefix')
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
-  await expect.poll(() => page.evaluate(() => !!window.__dinksterTest?.app.activeTab())).toBe(true)
+  await waitForStartupOwnership(page)
   const imported = await page.evaluate(async () => {
     const workflow = { version: 0.4, nodes: [
       { id: 1, type: 'SaveImage', pos: [60, 60], size: [350, 180], inputs: [{ name: 'images', type: 'IMAGE', link: null }], outputs: [], widgets_values: ['images/first'], properties: { ver: '0.3.68' } },
