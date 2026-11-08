@@ -82,6 +82,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   }
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
+  await waitForStartupOwnership(page)
   if (mockLegacyDiscovery) return
   await page.evaluate(() => {
     const test = window.__dinksterTest! as any
