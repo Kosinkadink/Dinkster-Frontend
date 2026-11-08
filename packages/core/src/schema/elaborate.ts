@@ -385,7 +385,7 @@ export interface ElabScope {
   /** Presentation inherited from a hidden input construct; submission is unchanged. */
   readonly hidden?: boolean
   /** Scope-local dynamic state cursor, keyed by construct value key (hazard N4). */
-  readonly stateOf: (construct: string) => DynamicPortState | undefined
+  readonly stateOf: (construct: string) => Omit<DynamicPortState, 'memberState'> | undefined
   /** Display-name prefix composed across members ('items0'); presentation only. */
   readonly displayPrefix?: string
   /**
@@ -448,8 +448,8 @@ export interface ElabContext {
   readonly nodeType: string
   readonly connectivity: Connectivity
   readonly storedValues: Readonly<Record<string, Json>>
-  readonly dynamicState: Readonly<Record<string, DynamicPortState>>
-  readonly stateOf: (construct: string) => DynamicPortState | undefined
+  /** Root state reader. Nested constructs must use memberScope(...).stateOf. */
+  readonly stateOf: ElabScope['stateOf']
   readonly inputEvidence: readonly string[]
   readonly memberBudget: number
   /** See ElaborateOptions.promoteGhosts (view affordance; compiler: false). */
@@ -633,7 +633,7 @@ function elaborateWire15Family(
     storedMembers,
     Object.keys(ctx.storedValues),
     ctx.connectivity.inputPorts?.() ?? [],
-    Object.keys(ctx.dynamicState),
+    ctx.inputEvidence,
     spec.optionalAfterMinimum === true,
   )
   for (const member of evidenceMembers) {
@@ -1611,12 +1611,17 @@ function elaborateWithStateReads(
     }
     return states?.[construct]
   }
+  const stateTables = new WeakMap<ElabScope['stateOf'], Readonly<Record<string, DynamicPortState>>>()
+  const stateReader = (states: Readonly<Record<string, DynamicPortState>> | undefined): ElabScope['stateOf'] => {
+    const reader: ElabScope['stateOf'] = (construct) => readState(states, construct)
+    if (states !== undefined) stateTables.set(reader, states)
+    return reader
+  }
 
   const ctx: ElabContext = {
     nodeType: schema.type,
     storedValues: node.values,
-    dynamicState: node.dynamic ?? {},
-    stateOf: (construct) => readState(node.dynamic, construct),
+    stateOf: stateReader(node.dynamic),
     inputEvidence,
     memberBudget: budget.maxMembers,
     connectivity,
@@ -1740,7 +1745,7 @@ function elaborateWithStateReads(
       // Ghost members expose NO nested state: nothing beneath a ghost is
       // persisted (hazard N3) - a stray memberState entry under a ghost id
       // is unreachable by construction rather than half-honored.
-      const nested = entry.ghost ? undefined : parent.stateOf(entry.construct)?.memberState?.[entry.member]
+      const nested = entry.ghost ? undefined : readState(stateTables.get(parent.stateOf), entry.construct)?.memberState?.[entry.member]
       return {
         valuePrefix: frame.valuePrefix,
         apiPrefix: frame.apiPrefix,
@@ -1749,7 +1754,7 @@ function elaborateWithStateReads(
         ancestry: [...parent.ancestry, entry],
         ghost: parent.ghost || entry.ghost === true,
         ...(parent.hidden ? { hidden: true } : {}),
-        stateOf: (construct) => readState(nested, construct),
+        stateOf: stateReader(nested),
         ...(frame.displayPrefix !== undefined ? { displayPrefix: frame.displayPrefix } : {}),
         ...(frame.frames !== undefined ? { frames: frame.frames } : {}),
       }

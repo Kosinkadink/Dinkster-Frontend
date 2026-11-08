@@ -268,6 +268,9 @@ A key read from its exact state table is verified even when the dormant walk
 stops before it. Keys read by neither walk remain unknown-state errors; dormant
 diagnostics still make ownership incomplete. Active elaboration errors still
 refuse admission, and no dormant branch identities are resolved or guessed.
+Custom dynamic handlers read root constructs through `ctx.stateOf` and nested
+constructs through `ctx.memberScope(...).stateOf`; raw state-table access is not
+part of the handler context. Enumerating input evidence does not verify a key.
 An incomplete document is never evidence of cleanup eligibility for anything it
 references: a collector must retain those assets or defer collection until the
 roots are complete. No collector runs on the strength of this record.

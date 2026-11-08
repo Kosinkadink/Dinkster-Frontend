@@ -5,7 +5,7 @@
  * local combo values, non-destructive slot hiding, and input/output symmetry.
  * Elaboration never sees solved types - nothing here constructs any.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 import type { GraphDef } from '../src/format/document.js'
 import { asDynamicMemberId, asNodeId } from '../src/ids.js'
 import {
@@ -1588,6 +1588,47 @@ describe('unknown dynamic kinds', () => {
     })
     expect(e.diagnostics).toEqual([])
     expect(elabInputsOf(e)[0]!.spec.type).toEqual({ kind: 'concrete', name: 'HOLO' })
+  })
+
+  it('verifies custom handler reads without verifying an unread sibling state table', () => {
+    const custom: DynamicKindHandler = {
+      kind: 'holographic',
+      elaborateInput(ctx, item, _dyn, scope) {
+        expectTypeOf(ctx).not.toHaveProperty('dynamicState')
+        if (ctx.includeDormant) {
+          ctx.report('error', 'elab.dormant.unsupported', 'Dormant custom inputs are unsupported', item.id)
+          return
+        }
+        const root = ctx.stateOf(item.id)
+        expectTypeOf<NonNullable<typeof root>>().not.toHaveProperty('memberState')
+        if (root?.selected !== 'on') return
+        const member = ctx.memberScope(scope, {
+          construct: item.id, member: asDynamicMemberId('m0'), ordinal: 0,
+        }, { valuePrefix: item.id, apiPrefix: item.id })
+        const mode = member.stateOf('future.mode')
+        if (typeof mode?.selected !== 'string') return
+        ctx.emit({ kind: 'input', address: { port: item.id }, apiName: item.id,
+          spec: { kind: 'input', id: item.id, type: { kind: 'concrete', name: mode.selected }, optional: true },
+          origin: { kind: 'static' } }, scope)
+      },
+    }
+    const schema = schemaOf([{
+      kind: 'input', id: 'future', type: { kind: 'wildcard' }, optional: false,
+      dynamic: { kind: 'holographic' } as never,
+    }])
+    const node = { values: {}, dynamic: { future: { selected: 'on', memberState: {
+      m0: { 'future.mode': { selected: 'IMAGE' } },
+    } } } }
+    const handlers = { ...defaultDynamicHandlers, holographic: custom }
+    expect(elabInputsOf(elaborateInterface(schema, node, EMPTY_CONNECTIVITY, { handlers }))[0]!.spec.type)
+      .toEqual({ kind: 'concrete', name: 'IMAGE' })
+    expect(elaborateInterface(schema, node, EMPTY_CONNECTIVITY, { handlers, includeDormant: true }).diagnostics
+      .map((diagnostic) => diagnostic.code)).toEqual(['elab.dormant.unsupported'])
+    const unreadSibling = { ...node, dynamic: { future: { ...node.dynamic.future, memberState: {
+      ...node.dynamic.future.memberState, m1: { 'future.mode': { selected: 'MASK' } },
+    } } } }
+    expect(elaborateInterface(schema, unreadSibling, EMPTY_CONNECTIVITY, { handlers, includeDormant: true }).diagnostics
+      .map((diagnostic) => diagnostic.code)).toEqual(['elab.dormant.unsupported', 'elab.dynamic.unknownState'])
   })
 })
 
