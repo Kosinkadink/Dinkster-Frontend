@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { TestInfo } from '@playwright/test'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_CANVAS_SEMANTIC_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -18,7 +18,6 @@ test.beforeEach(async ({ page }) => {
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
 })
 
 test('semantic scene navigation stays virtual until focused and pans only on activation', async ({ page }, testInfo) => {

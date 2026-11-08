@@ -8,7 +8,6 @@
  * native client fetch, without a stock ComfyUI discovery fallback.
  */
 import { expect, test } from '@playwright/test'
-import { openRailPanel } from './fixtures.js'
 
 const nativeFrontend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
 if (!nativeFrontend) throw new Error('DINKSTER_E2E_NATIVE_FRONTEND must identify the native-only frontend')
@@ -29,63 +28,6 @@ const NATIVE_TABLE = {
   nodes: {
     'demo.node': { schemaVersion: 1, displayName: 'Demo Node', pack: 'demo', signature: 's', interface: [] },
   },
-}
-
-for (const unavailable of [404, 503, 'pending'] as const) {
-  test(`retention ${unavailable} does not block the local workspace or registry`, async ({ page }, info) => {
-    const errors: string[] = []
-    page.on('pageerror', (error) => errors.push(error.message))
-    let requested = false
-    let release!: () => void
-    const gate = new Promise<void>((resolve) => { release = resolve })
-    await page.routeWebSocket('**/api/events?*', () => {})
-    await page.route('**/api/**', (route) => route.fulfill({ status: 404 }))
-    await page.route('**/api/nodes*', (route) => route.fulfill({ json: NATIVE_TABLE }))
-    await page.route('**/api/library/retentions/**', async (route) => {
-      requested = true
-      if (unavailable === 'pending') await gate
-      await route.fulfill({ status: unavailable === 'pending' ? 503 : unavailable })
-    })
-    try {
-      await page.goto('/')
-      await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
-      await expect(page.getByTestId('graph-canvas')).toBeVisible()
-      await expect.poll(() => requested).toBe(true)
-      await openRailPanel(page, 'Problems')
-      await expect(page.getByTestId('problems-panel')).toContainText('Workflow ownership unconfirmed')
-      if (unavailable !== 'pending') {
-        await expect(page.getByTestId('problems-panel')).toContainText(`PUT retained assets failed: ${unavailable}`)
-      }
-      await page.getByTestId('problems-panel').locator('details.problem')
-        .filter({ hasText: 'Workflow ownership unconfirmed' }).locator('summary').click()
-      await page.screenshot({ path: info.outputPath(`ownership-${unavailable}.png`) })
-      release()
-      // A usable local shell is not authority to publish new asset roots.
-      const result = await page.evaluate(async () => {
-        const app = window.__dinksterTest!.app
-        app.registerSchemas([{
-          type: 'Loader', displayName: 'Loader', category: 'test', source: 'v3', isOutputNode: false,
-          items: [{ kind: 'input', id: 'file', optional: false, type: { kind: 'concrete', name: 'ASSET' } }],
-        }])
-        app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'startup-retention', root: 'g0',
-          graphs: { g0: { id: 'g0', name: 'Root', nodes: { n0: { id: 'n0', type: 'Loader', values: {} } },
-            links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } }, view: { graphs: {} },
-        } as never, 'Local workflow')
-        const tab = app.activeTab()!
-        const outcome = await app.dispatchTo(tab, { command: 'node.setValue', params: {
-          graphId: 'g0', nodeId: 'n0', inputId: 'file', value: {
-            digest: `blake3:${'a'.repeat(64)}`, name: 'new.bin', size: 7,
-            mediaType: 'application/octet-stream', virtualPath: '',
-          },
-        } })
-        return { ok: outcome.ok, values: tab.store.doc.graphs['g0']!.nodes['n0']!.values, undo: tab.store.canUndo }
-      })
-      expect(result).toEqual({ ok: false, values: {}, undo: false })
-      expect(errors).toEqual([])
-    } finally {
-      release()
-    }
-  })
 }
 
 const RICH_NATIVE_TABLE = {

@@ -18,20 +18,17 @@ const compareObserved = (left: ObservedAsset, right: ObservedAsset): number => {
   return left.item.source.id < right.item.source.id ? -1 : left.item.source.id > right.item.source.id ? 1 : 0
 }
 
-async function scanSource(source: AssetSourceAdapter, kind: string, signal?: AbortSignal): Promise<readonly AssetBrowserItem[]> {
+async function scanSource(source: AssetSourceAdapter, kind: string): Promise<readonly AssetBrowserItem[]> {
   const items: AssetBrowserItem[] = []
   let cursor: string | undefined
   do {
-    signal?.throwIfAborted()
     const page = await source.page({
       query: '',
       kind,
       recursive: true,
       limit: 200,
       ...(cursor !== undefined ? { cursor } : {}),
-      ...(signal !== undefined ? { signal } : {}),
     })
-    signal?.throwIfAborted()
     items.push(...page.items)
     cursor = page.cursor
   } while (cursor !== undefined)
@@ -43,19 +40,8 @@ export async function localMountScanAdapter(
   sources: readonly AssetSourceAdapter[],
   kind: string,
   accept: readonly string[] = [],
-  options: { signal?: AbortSignal; onSourceError?: (message: string) => void } = {},
 ): Promise<LogicalModelAdapter> {
-  const scanned = await Promise.all(sources.map(async (source) => {
-    try {
-      return await scanSource(source, kind, options.signal)
-    } catch (error) {
-      options.signal?.throwIfAborted()
-      const message = `${source.label}: ${error instanceof Error ? error.message : String(error)}`
-      if (options.onSourceError === undefined) throw error
-      options.onSourceError(message)
-      return []
-    }
-  }))
+  const scanned = await Promise.all(sources.map((source) => scanSource(source, kind)))
   const byDigest = new Map<string, ObservedAsset[]>()
   for (const item of scanned.flat()) {
     if (!isCompatible(item, accept, kind)) continue

@@ -38,10 +38,9 @@ export interface CollectionEntry {
    * displayable (a GLB needs a 3D render before it has pixels). Resolves
    * to a displayable URL (typically a cached object URL); a rejection
    * falls back to the text-first presentation. thumbUrl wins when both
-   * are present. The signal closes pending renderer admission when the
-   * entry is replaced or unmounted; already shared renders may finish.
+   * are present.
    */
-  readonly thumbRender?: (signal?: AbortSignal) => Promise<string>
+  readonly thumbRender?: () => Promise<string>
   /** Label/text pairs for the details rail; order is display order. */
   readonly details?: readonly { readonly label: string; readonly text: string }[]
   /**

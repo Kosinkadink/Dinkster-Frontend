@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, type Page } from '@playwright/test'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -181,7 +181,6 @@ test.beforeEach(async ({ page, request }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText('connected')
-  await waitForStartupOwnership(page)
 })
 
 test('every live wire-15 family node persists minimums and reloads with a growth target', async ({ page }) => {
@@ -314,7 +313,6 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
     const app = window.__dinksterTest!.app
     app.openDocument(structuredClone(app.activeTab()!.store.doc), 'Reloaded Math family')
   })
-  await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
   const reloaded = await page.evaluate((mathId) => {
     const doc = window.__dinksterTest!.app.activeTab()!.store.doc
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === mathId)!
@@ -344,17 +342,16 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
     { input: 'values.c', output: 'boolean' },
   ])
 
-  const preserved = await page.evaluate(async (mathId) => {
-    const app = window.__dinksterTest!.app
-    const tab = app.activeTab()!
+  const preserved = await page.evaluate((mathId) => {
+    const tab = window.__dinksterTest!.app.activeTab()!
     const graph = tab.store.doc.graphs.g0!
     const aLink = Object.entries(graph.links).find(([, link]) => 'node' in link.to && link.to.port === 'values.a')!
     const bLink = Object.entries(graph.links).find(([, link]) => 'node' in link.to && link.to.port === 'values.b')!
-    const value = await app.dispatchTo(tab, {
+    const value = tab.store.dispatch({
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: mathId, inputId: 'values.b', value: 2.5 },
     })
-    const disconnect = await app.dispatchTo(tab, {
+    const disconnect = tab.store.dispatch({
       command: 'link.disconnect', params: { graphId: 'g0', linkId: aLink[0] },
     })
     if (!value.ok || !disconnect.ok) throw new Error('Math Expression compaction setup failed')

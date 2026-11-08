@@ -56,7 +56,7 @@ test.beforeAll(() => {
 })
 
 test.beforeEach(async ({ page }) => {
-  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 503, body: 'Frontend contract fixture' }))
+  await page.route('/api/**', (route) => route.fulfill({ status: 503, body: 'Frontend contract fixture' }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'import-contract-fixture', schemaWire: 1 },

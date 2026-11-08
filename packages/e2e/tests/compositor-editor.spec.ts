@@ -1,7 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
-import { waitForStartupOwnership } from './fixtures.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -122,7 +121,6 @@ test.beforeEach(async ({ page }) => {
     return schemas?.has('dinkster.image.generate') === true &&
       schemas.has('dinkster.layers.add') && schemas.has('dinkster.image.create_layered')
   }), { timeout: 15_000 }).toBe(true)
-  await waitForStartupOwnership(page)
 
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument({
@@ -375,12 +373,15 @@ test('edits, executes, persists, and falls back safely when compositor sources c
   expect(pixels.overlap[2]).toBeGreaterThan(245)
   expect(pixels.overlap[3]).toBe(255)
 
-  expect(await page.evaluate(async () => {
-    const app = window.__dinksterTest!.app
-    return (await app.dispatchTo(app.activeTab()!, {
+  expect(await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as {
+      activeTab(): unknown
+      dispatchTo(tab: unknown, action: unknown): { readonly ok: boolean }
+    }
+    return app.dispatchTo(app.activeTab()!, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'blue', inputId: 'color_source.color_a', value: '#00ff00' },
-    })).ok
+    }).ok
   })).toBe(true)
   await queueAndComplete(page)
   const staleRow = await nodeRowPoint(page, 'create', 'compositor')
@@ -392,19 +393,8 @@ test('edits, executes, persists, and falls back safely when compositor sources c
   expect(await storedRecipe(page)).toEqual(recipe)
   await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
 
-  const problems = await page.evaluate(() => window.__dinksterTest!.app.problems.get()
-    .map(({ severity, code, message, data }) => ({ severity, code, message, data })))
-  expect(problems).toEqual([{
-    severity: 'warning', code: 'workflow.execution.ownershipUnconfirmed', message: 'Workflow ownership unconfirmed.',
-    data: {
-      reason: expect.any(String),
-      effect: 'Execution retains known active assets. Publication and sharing remain unavailable.',
-    },
-  }])
-  expect([...new Set((problems[0]!.data!['reason'] as string).split('; '))].sort()).toEqual([
-    'dinkster.image.generate (blue): Dormant wire15 inputs require branch-specific identity resolution',
-    'dinkster.image.generate (red): Dormant wire15 inputs require branch-specific identity resolution',
-  ])
+  expect(await page.evaluate(() => window.__dinksterTest!.app.problems.get()
+    .map((problem) => `${problem.severity} ${problem.code}: ${problem.message}`))).toEqual([])
   const errors = browserErrors.get(page)
   if (errors === undefined) throw new Error('browser error collector was not installed')
   expect(errors).toEqual({ page: [], console: [], responses: [] })

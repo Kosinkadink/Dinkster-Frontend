@@ -17,7 +17,7 @@ function wav(): Buffer {
   return out
 }
 test.beforeEach(async ({ page }) => {
-  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 404, json: { error: 'Not part of this isolated fixture' } }))
+  await page.route('/api/**', (route) => route.fulfill({ status: 404, json: { error: 'Not part of this isolated fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated test' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'audio-test', schemaWire: 1 }, nodes: {} } }))
@@ -212,6 +212,7 @@ for (const denied of [true, false]) test(`recording asset flow, permission denie
     expect(uploadedContentType).toBe('audio/webm')
     await page.getByTestId('asset-editor').screenshot({ path: info.outputPath('audio-record-save.png') })
     await page.getByTestId('asset-apply').click()
-    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes['audio']!.values['clip'])).toEqual(asset)
+    const value = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes['audio']!.values['clip'])
+    expect(value).toEqual(asset)
   }
 })

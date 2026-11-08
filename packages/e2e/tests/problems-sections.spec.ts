@@ -1,4 +1,4 @@
-import { expect, openRailPanel, test, waitForStartupOwnership } from './fixtures.js'
+import { expect, openRailPanel, test } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 test('Problems presents five ordered sections with one-line rows and debug-only codes', async ({ page }) => {
@@ -6,7 +6,6 @@ test('Problems presents five ordered sections with one-line rows and debug-only 
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{

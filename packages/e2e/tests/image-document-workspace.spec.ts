@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { expect, test, type Page } from './fixtures.js'
 import { evidenceGroupDir } from './evidence-output.js'
 
@@ -260,11 +260,10 @@ test('renders the current ImageDocument and changes mounted editor chrome locale
   await expect(workspace).toContainText('Fresh render')
   await expect(result).toContainText('dinkster-image-document-v2-cpu-reference')
   await expect(result).toContainText(outputDigest)
-  const [download] = await Promise.all([
-    page.waitForEvent('download'),
-    result.getByRole('link', { name: 'Download PNG' }).click(),
-  ])
-  expect(readFileSync((await download.path())!)).toEqual(outputBytes)
+  await expect(result.getByRole('link', { name: 'Download PNG' })).toHaveAttribute(
+    'href',
+    `/api/assets/${encodeURIComponent(outputDigest)}`,
+  )
   await expect(result.getByRole('img', { name: 'Authoritative ImageDocument output' }))
     .toHaveJSProperty('naturalWidth', 900)
   await page.screenshot({ path: `${localeProofDir()}/image-document-editor-i18n-en.png`, fullPage: true })

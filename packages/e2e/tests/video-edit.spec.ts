@@ -40,15 +40,6 @@ const imported = { vendor: { future: [1, 'keep'] }, trim: { start_time: 1.25, du
 
 test.beforeEach(async ({ page }) => {
   await page.route('/api/**', (route) => route.fulfill({ status: 404, json: { error: 'Isolated fixture' } }))
-  await page.route('**/api/library/retentions/*/*?scope=local', (route) => {
-    if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
-    const parts = new URL(route.request().url()).pathname.split('/')
-    const ownerKind = parts.at(-2)!
-    const declaration = route.request().postDataJSON()
-    if (ownerKind === 'shown-result') expect(declaration).toEqual({ revision: 0, complete: false, digests: [] })
-    return route.fulfill({ json: { ...declaration, scope: 'local', ownerKind,
-      ownerId: decodeURIComponent(parts.at(-1)!), revision: declaration.revision + 1 } })
-  })
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: catalog }))
@@ -58,10 +49,6 @@ test.beforeEach(async ({ page }) => {
 async function openDocument(page: Page, kind: 'trim' | 'crop' | 'both', values: Record<string, unknown> = { video_edit: imported, strict_duration: false }, linked: string[] = []) {
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(Object.keys(catalog.nodes).length)
-  await expect.poll(() => page.evaluate(() => {
-    const tab = window.__dinksterTest!.app.activeTab()
-    return tab !== undefined && 'status' in tab.store
-  })).toBe(true)
   await page.evaluate(({ kind, values, linked }) => {
     const app = window.__dinksterTest!.app
     app.openDocument({
@@ -150,22 +137,7 @@ async function retainRoundTrip(
   expect(JSON.parse(savedText)).toEqual(afterApply.workflow)
   expect(await page.evaluate((text) => window.__dinksterTest!.app.openDocument(JSON.parse(text), 'Saved video reopened', undefined, true), savedText)).toEqual([])
   const afterSaveReload = await persistedState(page)
-  const retainedImportOwners: string[] = []
-  await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
-    expect(route.request().method()).toBe('PUT')
-    // VIDEO_EDIT and output-target values are opaque, not a certified empty asset set.
-    expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
-    const ownerId = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!)
-    retainedImportOwners.push(ownerId)
-    return route.fulfill({ json: {
-      scope: 'local', ownerKind: 'document',
-      ownerId,
-      revision: 1, complete: false, digests: [],
-    } })
-  })
   expect(await page.evaluate((text) => window.__dinksterTest!.app.importWorkflowFile(new File([text], 'imported-video.json', { type: 'application/json' })), savedText)).toBe(true)
-  expect(retainedImportOwners.length).toBeGreaterThan(0)
-  expect(new Set(retainedImportOwners).size).toBe(retainedImportOwners.length)
   const afterImport = await persistedState(page)
   for (const state of [afterSaveReload, afterImport]) {
     expect(state.values).toEqual(expected)
@@ -219,48 +191,6 @@ test('video trim and crop controls at desktop and compact widths', async ({ page
       await expect(page.getByTestId('video-edit-editor')).toBeHidden()
     }
   }
-})
-
-test('video batch Apply retains refused trim and strict-duration drafts until accepted', async ({ page }, info) => {
-  await openDocument(page, 'trim')
-  await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as any
-    const dispatch = app.dispatchTo.bind(app)
-    ;(window as any).__videoPending = []
-    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
-      ;(window as any).__videoPending.push((accepted: boolean) => resolve(accepted ? dispatch(tab, invocation) : {
-        ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Video edit refused for test' }],
-      }))
-    })
-  })
-  const settle = (index: number, accepted: boolean) => page.evaluate(({ index, accepted }) => (window as any).__videoPending[index](accepted), { index, accepted })
-  await openEditor(page)
-  await page.getByTestId('video-edit-apply').scrollIntoViewIfNeeded()
-  await page.screenshot({ path: info.outputPath('video-batch-default.png') })
-  await page.getByTestId('video-trim-start-seconds').fill('2.75')
-  await page.getByTestId('video-trim-start-seconds').press('Tab')
-  await page.getByTestId('video-trim-strict').check()
-  await page.getByTestId('video-edit-apply').click()
-  await expect(page.locator('.widget-commit-content')).toHaveAttribute('inert', '')
-  await page.evaluate(() => document.querySelector<HTMLButtonElement>('[data-testid=video-edit-apply]')!.click())
-  expect(await page.evaluate(() => (window as any).__videoPending.length)).toBe(1)
-  expect(await valuesOf(page)).toEqual({ video_edit: imported, strict_duration: false })
-  await page.screenshot({ path: info.outputPath('video-batch-pending.png') })
-  await settle(0, false)
-  await expect(page.getByTestId('widget-commit-error')).toHaveText('Video edit refused for test')
-  await expect(page.getByTestId('video-trim-start-seconds')).toHaveValue('2.75')
-  await expect(page.getByTestId('video-trim-strict')).toBeChecked()
-  await page.getByTestId('video-edit-apply').scrollIntoViewIfNeeded()
-  await page.screenshot({ path: info.outputPath('video-batch-refused.png') })
-  await page.setViewportSize({ width: 760, height: 900 })
-  await page.getByTestId('video-edit-apply').scrollIntoViewIfNeeded()
-  await page.screenshot({ path: info.outputPath('video-batch-narrow.png') })
-  await page.getByTestId('video-edit-apply').click()
-  await settle(1, true)
-  await expect(page.getByTestId('widget-modal-surface')).toHaveCount(0)
-  expect(await valuesOf(page)).toEqual({ video_edit: { ...imported, trim: { ...imported.trim, start_time: 2.75 } }, strict_duration: true })
-  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
-  expect(await valuesOf(page)).toEqual({ video_edit: imported, strict_duration: false })
 })
 
 test('native trim derives its widget, requests lazy source selectors, preserves JSON and undoes the sibling atomically', async ({ page }, info) => {
@@ -395,80 +325,33 @@ test('linked scalar overrides refuse Apply and linked strict duration stays read
 
 test('changed source refuses stale preview and a concurrent edit cannot be overwritten', async ({ page }) => {
   await openDocument(page, 'trim')
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'source_version', value: 1 } })
+    app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'source_version', value: 1 } })
   })
   await openEditor(page)
   await expect(page.getByTestId('video-edit-editor')).toContainText('source changed since execution')
   await page.getByTestId('video-trim-duration-seconds').fill('2')
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'edit', inputId: 'strict_duration', value: true } })
+    app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'edit', inputId: 'strict_duration', value: true } })
   })
   // Canvas ownership can close on mutation; a retained editor must also refuse its stale commit.
   if (await page.getByTestId('video-edit-apply').count()) await page.getByTestId('video-edit-apply').click()
   expect(await valuesOf(page)).toEqual({ video_edit: imported, strict_duration: true })
 })
 
-test('execution snapshot ownership keeps the live view pending and refused before opening read-only', async ({ page }, info) => {
-  await openDocument(page, 'trim')
-  const replies: ((revision: number) => Promise<void>)[] = []
-  await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
-    if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
-    expect(route.request().method()).toBe('PUT')
-    expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
-    await new Promise<void>((done) => {
-      replies.push(async (revision) => {
-        await route.fulfill({ json: { scope: 'local', ownerKind: 'document',
-          ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!),
-          revision, complete: false, digests: [] } })
-        done()
-      })
-    })
-  })
-  const begin = () => page.evaluate(() => {
-    const app = window.__dinksterTest!.app
-    const execution = [...app.store.executions.get().values()].find((item) => item.ref.prompt === 'video-editor-run')!
-    ;(window as unknown as { frozenOpening: Promise<boolean> }).frozenOpening = app.openExecutionView(execution.ref)
-  })
-  const result = () => page.evaluate(() => (window as unknown as { frozenOpening: Promise<boolean> }).frozenOpening)
-  await page.screenshot({ path: info.outputPath('frozen-default.png') })
-  await begin()
-  await expect.poll(() => replies.length).toBe(1)
-  await expect(page.getByTestId('frozen-banner')).toHaveCount(0)
-  await page.screenshot({ path: info.outputPath('frozen-pending.png') })
-  await replies[0]!(2)
-  expect(await result()).toBe(false)
-  await expect(page.getByTestId('frozen-banner')).toHaveCount(0)
-  await page.screenshot({ path: info.outputPath('frozen-refused.png') })
-  await begin()
-  await expect.poll(() => replies.length).toBe(2)
-  await replies[1]!(1)
-  expect(await result()).toBe(true)
-  await expect(page.getByTestId('frozen-banner')).toBeVisible()
-  await expect(page.getByTestId('views-switcher')).toBeDisabled()
-  await page.screenshot({ path: info.outputPath('frozen-accepted.png') })
-})
-
 test('execution snapshots refuse VIDEO_EDIT writes and changing editor views', async ({ page }) => {
   await openDocument(page, 'trim')
-  await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
-    expect(route.request().method()).toBe('PUT')
-    expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
-    return route.fulfill({ json: { scope: 'local', ownerKind: 'document',
-      ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!),
-      revision: 1, complete: false, digests: [] } })
-  })
   expect(await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const execution = [...app.store.executions.get().values()].find((item) => item.ref.prompt === 'video-editor-run')!
     return app.openExecutionView(execution.ref)
   })).toBe(true)
   await expect(page.getByTestId('views-switcher')).toBeDisabled()
-  expect(await page.evaluate(async () => {
+  expect(await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    return (await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'edit', inputId: 'video_edit', value: {} } })).ok
+    return app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'edit', inputId: 'video_edit', value: {} } }).ok
   })).toBe(false)
   await expect(page.getByRole('button', { name: 'Edit Video edit video' })).toHaveCount(0)
   await expect(page.getByTestId('video-edit-editor')).toHaveCount(0)

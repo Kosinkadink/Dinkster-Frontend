@@ -1,5 +1,4 @@
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
-import { elaborateInterface, loadDocument, parseDinksterSchema, type DinksterWireSchema } from '@dinkster/core'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
 
 async function mountPoint(page: Page, inputId = 'destination', nodeId = 'save') {
   return page.evaluate(({ inputId, nodeId }) => {
@@ -59,48 +58,6 @@ test('native SaveImage and SaveVideo keep imported prefixes beside independent m
   }
   expect(await page.evaluate(() => structuredClone(window.__dinksterTest!.app.activeTab()!.store.doc))).toEqual(before)
   expect(pageErrors).toEqual([])
-})
-
-test('imported SaveVideo keeps active codec state verified while dormant ownership stays incomplete', async ({ page }) => {
-  const response = await page.request.get('/api/nodes')
-  expect(response.ok()).toBe(true)
-  const catalog = await response.json() as { nodes: Record<string, DinksterWireSchema> }
-  const schema = parseDinksterSchema('SaveVideo', catalog.nodes.SaveVideo!).schema!
-  expect(schema).toBeDefined()
-  await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
-  await waitForStartupOwnership(page)
-  const result = await page.evaluate(async () => {
-    const workflow = { version: 0.4, nodes: [
-      { id: 1, type: 'SaveImage', pos: [60, 60], size: [350, 180], inputs: [{ name: 'images', type: 'IMAGE', link: null }], outputs: [], widgets_values: ['images/first'], properties: { ver: '0.3.68' } },
-      { id: 2, type: 'SaveVideo', pos: [520, 60], size: [350, 240], inputs: [{ name: 'video', type: 'VIDEO', link: null }], outputs: [], widgets_values: ['video/second', 'auto', 'auto'], properties: { ver: '0.3.68' } },
-    ], links: [] }
-    const app = window.__dinksterTest!.app
-    const imported = await app.importWorkflowFile({ name: 'native-save-mounts.json', text: async () => JSON.stringify(workflow) })
-    const tab = app.activeTab()!
-    const document = structuredClone(tab.store.doc)
-    const shared = await app.shareActiveTab()
-    const saved = await app.saveWorkflow(tab.id)
-    const records = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
-      .filter((key) => key.includes('dinkster.workflow-retentions.'))
-      .map((key) => JSON.parse(localStorage.getItem(key)!))
-    return { imported, document, shared, saved, records, warnings: app.problems.get()
-      .filter((problem) => problem.code === 'workflow.execution.ownershipUnconfirmed') }
-  })
-  expect(result.imported).toBe(true)
-  const loaded = loadDocument(result.document)
-  expect(loaded.document).toBeDefined()
-  const node = loaded.document!.graphs.g0!.nodes.n2!
-  expect(node.dynamic).toEqual({ format: { selected: 'auto' }, 'format.codec': { selected: 'auto' }, codec: { selected: 'auto' } })
-  expect(elaborateInterface(schema, node).diagnostics).toEqual([])
-  const stored = elaborateInterface(schema, node, undefined, { includeDormant: true })
-  expect(stored.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['elab.dormant.unsupported', 'elab.dormant.unsupported'])
-  expect(result.shared).toBe('Workflow dynamic identities are invalid. Publication and sharing remain unavailable.')
-  expect(result.saved).toBe(false)
-  expect(result.warnings.length).toBeGreaterThan(0)
-  expect(result.records).toContainEqual(expect.objectContaining({ complete: false,
-    incompleteDiagnostics: [expect.objectContaining({ code: 'elab.dormant.unsupported', severity: 'error' }),
-      expect.objectContaining({ code: 'elab.dormant.unsupported', severity: 'error' })] }))
 })
 
 test('SaveImage and SaveVideo contract fixtures render mount beside filename_prefix without helper nodes', async ({ page }, testInfo) => {

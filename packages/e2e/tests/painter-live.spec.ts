@@ -1,4 +1,5 @@
-import { expect, nativeTest as test, selectProductOption, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, type Page } from '@playwright/test'
+import { selectProductOption } from './fixtures.js'
 
 async function openPainter(page: Page, nodeId = 'paint'): Promise<void> {
   const point = await page.evaluate((nodeId) => {
@@ -16,7 +17,6 @@ for (const connected of [false, true]) test(`Painter ${connected ? 'connected fi
   test.skip(!process.env['DINKSTER_NATIVE_BACKEND'], 'requires an isolated native backend')
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
-  await waitForStartupOwnership(page)
   await page.evaluate((connected) => {
     window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'painter-live', root: 'g0',

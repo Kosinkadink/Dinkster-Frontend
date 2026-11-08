@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForStartupOwnership } from './fixtures.js'
+import { expect, test } from '@playwright/test'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -20,7 +20,6 @@ test.beforeEach(async ({ page }) => {
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('ResizeImageMaskNode') ?? false,
   ), { timeout: 15_000 }).toBe(true)
-  await waitForStartupOwnership(page)
 })
 
 test('ResizeImageMask DynamicCombo choice is accepted and completes on Dinkster', async ({ page, request }) => {

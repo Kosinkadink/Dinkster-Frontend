@@ -4,7 +4,7 @@
  * membership capture, one-undo-step bulk applies, broken-binding display,
  * and the invariant that surface chrome never touches semantic state.
  */
-import { expect, openRailPanel, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, selectProductOption, test, type Page } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
@@ -63,7 +63,6 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'features.controlSurfaces.enabled': true } })))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
   await identityViewport(page)
 })
 

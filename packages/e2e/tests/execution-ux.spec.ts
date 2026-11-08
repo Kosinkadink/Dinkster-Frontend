@@ -137,7 +137,6 @@ test('execution row opens a frozen view pinned to that execution', async ({ page
 test('frozen snapshot survives live edits and both sides report divergence', async ({ page }) => {
   await queueAndComplete(page)
   await page.getByTestId('execution-row').first().locator('.execution-open').click()
-  await expect(page.getByTestId('tab-bar').locator('.tab.frozen.active')).toHaveCount(1)
   const frozenTabId = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.id)
 
   // Back to live; the sync chip matches the execution before any edit.
@@ -177,7 +176,7 @@ test('a frozen view without its compile-time schemas warns instead of borrowing 
   // recorded schema hash matches no registry this session ever held: the
   // frozen view must show the visible warning, never silently resolve with
   // the backend's current schemas (AP5).
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     const result = app.compileTab(tab)
@@ -185,20 +184,20 @@ test('a frozen view without its compile-time schemas warns instead of borrowing 
     const artifact = { ...result.artifact, schemaHash: 'hash-never-held-this-session' }
     const ref = { connection: artifact.connection, prompt: 'synthetic-frozen-registry' }
     app.store.register(ref, artifact, Date.now())
-    if (!await app.openExecutionView(ref)) throw new Error('frozen view did not open')
+    if (!app.openExecutionView(ref)) throw new Error('frozen view did not open')
   })
   await expect(page.getByTestId('frozen-banner')).toBeVisible()
   await expect(page.getByTestId('frozen-schema-missing')).toBeVisible()
 
   // The REAL run's frozen view resolves its retained compile-time registry:
   // banner present, no warning.
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const real = [...app.store.executions.get().values()].find(
       (e) => String(e.ref.prompt) !== 'synthetic-frozen-registry',
     )
     if (!real) throw new Error('no real execution')
-    if (!await app.openExecutionView(real.ref)) throw new Error('frozen view did not open')
+    if (!app.openExecutionView(real.ref)) throw new Error('frozen view did not open')
   })
   await expect(page.getByTestId('frozen-banner')).toBeVisible()
   await expect(page.getByTestId('frozen-schema-missing')).not.toBeVisible()

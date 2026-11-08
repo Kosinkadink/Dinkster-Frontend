@@ -19,7 +19,6 @@ const mountEntries = {
 } as const
 
 async function installRoutes(page: Page): Promise<void> {
-  await page.route('**/api/assets/catalog?*', (route) => route.fulfill({ status: 503, body: 'Catalog offline' }))
   await page.route('**/api/nodes*', (route) => void route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
@@ -101,7 +100,6 @@ test('uses one collection shell for grouped models and media', async ({ page }) 
   await openWidget(page, 'model', 'model')
   const modelEditor = page.getByTestId('asset-editor')
   await expect(modelEditor.getByTestId('collection-panel')).toBeVisible()
-  await expect(modelEditor.getByRole('alert')).toContainText('Local assets: GET /api/assets/catalog failed: 503')
   await expect(modelEditor.getByTestId('collection-items')).toHaveAttribute('data-mode', 'list')
   await expect(modelEditor.getByTestId('collection-entry')).toHaveCount(3)
   await expect(modelEditor.getByTestId('collection-group')).toHaveCount(1)
@@ -136,7 +134,6 @@ test('uses one collection shell for grouped models and media', async ({ page }) 
   await expect(providers).toHaveAttribute('aria-label', 'Providers')
   await expect(providers).toContainText('left')
   await expect(providers).toContainText('right')
-  await page.screenshot({ path: test.info().outputPath('model-source-offline.png') })
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.model!.values.model)).toBeNull()
 

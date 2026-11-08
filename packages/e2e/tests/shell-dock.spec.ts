@@ -768,12 +768,12 @@ test('right-zone tab strip shrinks tabs with ellipsis instead of a native scroll
   expect(await tabs.count()).toBeGreaterThanOrEqual(3)
   for (const tab of await tabs.all()) {
     const label = tab.locator('.tab-title')
-    await expect(label).toHaveAttribute('data-tooltip-label', (await label.locator('.tab-title-text').textContent())!)
+    await expect(label).toHaveAttribute('data-tooltip-label', (await label.textContent())!)
   }
   await expectWholeTabs(tablist, tabs)
   const hiddenTitles: string[] = []
   for (const tab of await tabs.all()) {
-    if (!await tab.isVisible()) hiddenTitles.push((await tab.locator('.tab-title-text').textContent())!)
+    if (!await tab.isVisible()) hiddenTitles.push((await tab.textContent())!)
   }
   expect(hiddenTitles.length).toBeGreaterThan(0)
   await expect(zone.getByTestId('dock-zone-close')).toBeVisible()
@@ -789,10 +789,10 @@ test('right-zone tab strip shrinks tabs with ellipsis instead of a native scroll
 
   // Activating a hidden tab closes the menu and makes that tab wholly visible.
   const title = hiddenTitles.at(-1)!
-  await menu.getByRole('menuitemradio').filter({ has: page.getByText(title, { exact: true }) }).click()
+  await menu.getByRole('menuitemradio', { name: title, exact: true }).click()
   await expect(menu).not.toBeVisible()
   const activeTab = zone.locator('[role="tab"][aria-selected="true"]')
-  await expect(activeTab.locator('.tab-title-text')).toHaveText(title)
+  await expect(activeTab).toHaveText(title)
   await expect(activeTab).toBeVisible()
   await expectWholeTabs(tablist, tabs)
 
@@ -801,7 +801,7 @@ test('right-zone tab strip shrinks tabs with ellipsis instead of a native scroll
   const overflowButton = zone.getByTestId('dock-zone-overflow-button')
   await overflowButton.click()
   const checked = menu.locator('[role="menuitemradio"][aria-checked="true"]')
-  await expect(checked.locator('strong')).toHaveText(title)
+  await expect(checked).toHaveText(title)
   const background = (element: Element) => getComputedStyle(element).backgroundColor
   expect(await checked.evaluate(background))
     .not.toBe(await menu.locator('[role="menuitemradio"][aria-checked="false"]').first().evaluate(background))

@@ -44,9 +44,6 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
   const [computedStatus, setComputedStatus] = createSignal('')
   const [selected, setSelected] = createSignal<number>()
   const [error, setError] = createSignal<string>()
-  const [applying, setApplying] = createSignal(false)
-  let live = true
-  onCleanup(() => { live = false })
   let drag: { readonly pointerId: number; readonly pointIndex: number } | undefined
   let session: { readonly request: ReturnType<typeof target>; readonly activeTabId: string } | undefined
 
@@ -58,7 +55,6 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
     drag = undefined
     setSelected(undefined)
     setError(undefined)
-    setApplying(false)
     setComputed(undefined)
     setComputedStatus('')
     setDraft(request && request.tabId === active && request.follow === undefined ? copyCurve(request.openedValue) : undefined)
@@ -131,7 +127,7 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
   const displayedCurve = createMemo(() => currentTarget()?.follow === undefined ? draft() : computed())
   const positionExtent = () => Math.max(1, matchingAudioPlayhead()?.duration ?? 0, displayedCurve()?.points.at(-1)?.position ?? 0)
   const curveX = (position: number) => pointX(position / positionExtent())
-  const readonly = createMemo(() => applying() || currentTarget() === undefined || currentTarget()?.follow !== undefined)
+  const readonly = createMemo(() => currentTarget() === undefined || currentTarget()?.follow !== undefined)
   const selectedPoint = createMemo(() => {
     const index = selected()
     return index === undefined ? undefined : displayedCurve()?.points[index]
@@ -161,7 +157,7 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
           : `${peek.status} ${peek.reason}: ${peek.error}`)
         return
       }
-      const rendition = await context.values.rendition(context.curveQuery, info.kind, { signal: controller.signal, descriptor: peek.descriptor })
+      const rendition = await context.values.rendition(context.curveQuery, info.kind, { signal: controller.signal })
       if (controller.signal.aborted) return
       if (!rendition.available) {
         setComputedStatus(`${rendition.status} ${rendition.reason}: ${rendition.error}`)
@@ -294,8 +290,7 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
     }
   }
 
-  const apply = async (): Promise<void> => {
-    if (applying()) return
+  const apply = (): void => {
     const request = target()
     const value = draft()
     const tab = request && tabs().find((candidate) => candidate.id === request.tabId)
@@ -315,27 +310,20 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
       setError('The curve input changed or became linked while editing')
       return
     }
-    setApplying(true)
-    const editing = session
-    try {
-      const outcome = await props.app.dispatchTo(tab, {
-        command: 'node.setValue',
-        params: {
-          graphId: request.graphId,
-          nodeId: request.nodeId,
-          inputId: request.inputId,
-          value: copyCurve(value) as unknown as Json,
-        },
-      })
-      if (!live || session !== editing || target() !== request || activeTabId() !== request.tabId) return
-      if (!outcome.ok) {
-        setError(outcome.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? 'Curve update was refused')
-        return
-      }
-      props.app.closeCurveEditor(request)
-    } finally {
-      if (live && session === editing) setApplying(false)
+    const outcome = props.app.dispatchTo(tab, {
+      command: 'node.setValue',
+      params: {
+        graphId: request.graphId,
+        nodeId: request.nodeId,
+        inputId: request.inputId,
+        value: copyCurve(value) as unknown as Json,
+      },
+    })
+    if (!outcome.ok) {
+      setError(outcome.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? 'Curve update was refused')
+      return
     }
+    props.app.closeCurveEditor(request)
   }
 
   return <section class="curve-editor" data-testid="curve-editor">

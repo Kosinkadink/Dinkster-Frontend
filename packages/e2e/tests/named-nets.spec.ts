@@ -385,9 +385,6 @@ test('Get/Set views move atomically and advisory geometry survives export/reopen
   await page.mouse.down()
   await page.mouse.move(before.x - 120, before.y + 90, { steps: 8 })
   await page.mouse.up()
-  await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest!.renderer!.getScene().netStubs.find((stub) => stub.nodeId === 'c1')?.authored,
-  )).toBe(true)
   const moved = await page.evaluate(() => {
     const stub = window.__dinksterTest!.renderer!.getScene().netStubs.find((candidate) => candidate.nodeId === 'c1')!
     return { x: stub.x, y: stub.y, authored: stub.authored }
@@ -438,9 +435,6 @@ test('a manually placed tag follows its node and keeps the chosen offset', async
   await page.mouse.down()
   await page.mouse.move(tag.x - 140, tag.y + 60, { steps: 8 })
   await page.mouse.up()
-  await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest!.renderer!.getScene().netStubs.find((stub) => stub.nodeId === 'c1')?.authored,
-  )).toBe(true)
   const placed = await tagAndNode(page, 'c1')
   const offset = { x: placed.stub.x - placed.node.x, y: placed.stub.y - placed.node.y }
   await fitForShot(page)
@@ -500,9 +494,6 @@ test('Reset Tag Position returns an authored tag to its default spawn spot', asy
   await page.mouse.down()
   await page.mouse.move(tag.x - 140, tag.y + 60, { steps: 8 })
   await page.mouse.up()
-  await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest!.renderer!.getScene().netStubs.find((stub) => stub.nodeId === 'c1')?.authored,
-  )).toBe(true)
   const moved = await page.evaluate(() => {
     const stub = window.__dinksterTest!.renderer!.getScene().netStubs.find((candidate) => candidate.nodeId === 'c1')!
     return { x: stub.x, y: stub.y, authored: stub.authored }

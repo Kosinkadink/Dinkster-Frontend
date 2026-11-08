@@ -9,7 +9,7 @@
  * catching architectural regressions - per-frame relayout, O(n^2) paint,
  * culling breakage - not micro-optimizing.
  */
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, type Page } from './fixtures.js'
 
 const CHAINS = 60
 const CHAIN_LENGTH = 20
@@ -89,7 +89,6 @@ test(`opens a ${NODES}-node document and repaints after a command within budget`
   await page.goto('/')
   await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
 
   const timings = await page.evaluate(
     async ({ chains, chainLength }) => {

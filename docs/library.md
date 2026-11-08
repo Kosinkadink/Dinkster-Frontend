@@ -6,8 +6,6 @@ that owns the current tab and shows its exact protocol and connection state.
 Search, filters, paging, grid/list preference, and row keyboard navigation use
 the shared `CollectionPanel` contract; each source remains responsible for
 server-side ranking and cursor semantics.
-In shared grid views, selected metadata and actions stay below the preview
-inside their tile rather than wrapping into a second column.
 
 Packs, Templates, and Workflows use the Library content language. Rows expose
 readable names and badges without hiding exact identifiers or provenance.

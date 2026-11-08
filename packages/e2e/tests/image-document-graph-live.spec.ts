@@ -150,12 +150,9 @@ test('opens exact graph document bytes and matches the live flatten image and tr
   const flattened = await request.get(`${NATIVE_BACKEND}/api/values?${query}`)
   expect(flattened.ok()).toBe(true)
   const flattenedBytes = await flattened.body()
-  const rendered = await renderedImage.evaluate(async (image: HTMLImageElement) => {
-    const response = await fetch(image.src)
-    return { ok: response.ok, bytes: [...new Uint8Array(await response.arrayBuffer())] }
-  })
-  expect(rendered.ok).toBe(true)
-  expect(Buffer.from(rendered.bytes)).toEqual(flattenedBytes)
+  const rendered = await request.get((await renderedImage.getAttribute('src'))!)
+  expect(rendered.ok()).toBe(true)
+  expect(await rendered.body()).toEqual(flattenedBytes)
 
   query.set('outputId', 'transparency_mask')
   const mask = await request.get(`${NATIVE_BACKEND}/api/values?${query}`)

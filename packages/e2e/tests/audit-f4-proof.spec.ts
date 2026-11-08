@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, type Page } from '@playwright/test'
 
 const digest = (character: string): string => `blake3:${character.repeat(64)}`
 
@@ -11,7 +11,6 @@ const catalog = {
 }
 
 async function installAssetDocument(page: Page, multi: boolean): Promise<void> {
-  await waitForStartupOwnership(page)
   await page.evaluate(({ multi }) => {
     const app = window.__dinksterTest!.app
     const type = multi
@@ -47,7 +46,7 @@ async function openAsset(page: Page): Promise<void> {
 }
 
 test('proves product upload control and hidden workflow picker lifecycle', async ({ page }) => {
-  await page.route(/\/api\/(?!library\/retentions\/).*/, (route) => { throw new Error(`unexpected unmocked API request: ${route.request().url()}`) })
+  await page.route('/api/**', (route) => { throw new Error(`unexpected unmocked API request: ${route.request().url()}`) })
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.route('/api/settings', (route) => route.fulfill({ json: { categories: { granted: [], available: [] }, settings: {} } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))

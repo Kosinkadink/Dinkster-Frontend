@@ -14,7 +14,7 @@
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_BOUNDARY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -93,7 +93,6 @@ async function drillIntoOccurrence(page: Page): Promise<void> {
  * optional x/y).
  */
 async function openBoundaryWorkflow(page: Page): Promise<void> {
-  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const socket = (id: string, optional: boolean) => ({
@@ -233,72 +232,10 @@ async function blurControls(page: Page): Promise<void> {
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
 }
 
-test.beforeEach(async ({ page }, testInfo) => {
-  if (testInfo.annotations.some((annotation) => annotation.type === 'mock-boundary-dispatch')) {
-    await page.route(/\/api\/(?!library\/retentions\/).*/, (route) => route.fulfill({ status: 503, json: {} }))
-    await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'boundary-fixture', schemaWire: 1 }, nodes: {},
-    } }))
-    await page.routeWebSocket('**/api/events?*', () => {})
-  }
+test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await openBoundaryWorkflow(page)
-})
-
-test('boundary edits await acceptance and preserve refused drafts for retry', {
-  annotation: { type: 'mock-boundary-dispatch' },
-}, async ({ page }, testInfo) => {
-  await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as any
-    const dispatch = app.dispatchTo.bind(app)
-    ;(window as any).__boundaryPending = []
-    app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
-      ;(window as any).__boundaryPending.push((accepted: boolean) => resolve(accepted
-        ? dispatch(tab, invocation)
-        : { ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Boundary edit refused for test' }] }))
-    })
-  })
-  const panel = page.getByTestId('boundary-panel')
-  const item = page.locator('[data-testid=boundary-item][data-boundary-id=fwd]')
-  const input = item.getByTestId('boundary-name-input')
-  const pin = item.getByTestId('boundary-pin')
-  const settle = (index: number, accepted: boolean) => page.evaluate(({ index, accepted }) => {
-    ;(window as any).__boundaryPending[index](accepted)
-  }, { index, accepted })
-  await page.screenshot({ path: testInfo.outputPath('boundary-default.png') })
-  await input.fill('  Batch Masks  ')
-  await input.press('Tab')
-  await expect(panel).toHaveAttribute('aria-busy', 'true')
-  await expect(input).toBeDisabled()
-  await expect(input).toHaveValue('  Batch Masks  ')
-  await expect(pin).toBeDisabled()
-  expect((await activeDoc(page)).graphs.sub!.boundary!.inputs[0]).not.toHaveProperty('displayName')
-  await input.dispatchEvent('change')
-  expect(await page.evaluate(() => (window as any).__boundaryPending.length)).toBe(1)
-  await page.screenshot({ path: testInfo.outputPath('boundary-pending.png') })
-  await settle(0, false)
-  await expect(input).toBeEnabled()
-  await expect(input).toHaveValue('  Batch Masks  ')
-  await expect(item.getByTestId('boundary-notice')).toHaveText('Boundary edit refused for test')
-  await page.screenshot({ path: testInfo.outputPath('boundary-refused.png') })
-  await input.focus()
-  await input.press('Tab')
-  await settle(1, true)
-  await expect(input).toBeEnabled()
-  await expect(input).toHaveValue('Batch Masks')
-  await expect(item.getByTestId('boundary-notice')).toHaveCount(0)
-  expect((await activeDoc(page)).graphs.sub!.boundary!.inputs[0]).toMatchObject({ displayName: 'Batch Masks' })
-  await page.screenshot({ path: testInfo.outputPath('boundary-accepted.png') })
-  await pin.click()
-  expect(await fwdSlots(page)).toBeUndefined()
-  await settle(2, true)
-  await expect(item).toContainText('Pinned')
-  expect(await fwdSlots(page)).toEqual(['req', 'sub', 'tag'])
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
-  expect(await fwdSlots(page)).toBeUndefined()
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
-  await expect(input).toHaveValue('')
 })
 
 test('root prompt reopens definitions; family item pins to an explicit full selection', async ({ page }) => {
@@ -391,7 +328,6 @@ test('emptying the selection is refused; hiding a required socket-only slot warn
 
   // Hiding req commits (commands are schema-blind) but derivation flags it.
   await slotToggle(page, 'req').click()
-  await expect(page.getByTestId('boundary-panel')).toHaveAttribute('aria-busy', 'false')
   expect(await fwdSlots(page)).toEqual(['sub', 'tag'])
   await expect(page.locator('[data-testid=boundary-diag][data-code="boundary.slotStarved"]')).toBeVisible()
 
@@ -506,13 +442,10 @@ test('dense and long-path content stays contained and its scroll tail remains re
 
 test('invalid selection and unavailable schema states remain explicit', async ({ page }) => {
   const panel = page.getByTestId('boundary-panel')
-  expect(await page.evaluate(async () => {
-    const app = window.__dinksterTest!.app
-    return (await app.dispatchTo(app.activeTab()!, {
-      command: 'boundary.setSlots',
-      params: { graphId: 'sub', side: 'inputs', itemId: 'fwd', slots: ['unknown'] },
-    })).ok
-  })).toBe(true)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
+    command: 'boundary.setSlots',
+    params: { graphId: 'sub', side: 'inputs', itemId: 'fwd', slots: ['unknown'] },
+  }).ok)).toBe(true)
   const item = panel.locator('[data-testid=boundary-item][data-boundary-id=fwd]')
   await expect(item.locator('[data-code="boundary.slotUnknown"]')).toHaveAttribute('role', 'alert')
   await item.evaluate((element) => element.scrollIntoView({ block: 'center' }))
@@ -532,7 +465,7 @@ test('invalid selection and unavailable schema states remain explicit', async ({
 
 test('empty and frozen states preserve inspection semantics', async ({ page }) => {
   const panel = page.getByTestId('boundary-panel')
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     ;(app as unknown as { disableWorkspaceAuthority(keepLocalTabs: boolean): void })
       .disableWorkspaceAuthority(true)
@@ -541,7 +474,7 @@ test('empty and frozen states preserve inspection semantics', async ({ page }) =
     if (!result?.ok) throw new Error('boundary fixture compile failed')
     const ref = { connection: result.artifact.connection, prompt: 'boundary-frozen-proof' }
     app.store.register(ref, result.artifact, Date.now())
-    if (!await app.openExecutionView(ref)) throw new Error('boundary frozen view did not open')
+    if (!app.openExecutionView(ref)) throw new Error('boundary frozen view did not open')
     const frozen = app.activeTab()!
     frozen.graphStack.set(['g0', 'sub'])
     frozen.instancePath.set(['i0'])

@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, selectProductOption, test, type Page } from './fixtures.js'
 
 const PROOF = '/tmp/dinkster-31-form-language'
 const RUNTIME = 'http://runtime-form.test'
@@ -15,7 +15,6 @@ async function installStartup(page: Page): Promise<void> {
 }
 
 async function openNumericWidget(page: Page): Promise<void> {
-  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'FormLanguageWidget', displayName: 'Form language', category: 'test', source: 'v3', isOutputNode: false,

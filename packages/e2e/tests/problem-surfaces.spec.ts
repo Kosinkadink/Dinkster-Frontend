@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import type { Locator, Page } from '@playwright/test'
-import { expect, test, waitForStartupOwnership } from './fixtures.js'
+import { expect, test } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 interface ContextAppInternals {
@@ -64,7 +64,6 @@ test.beforeEach(async ({ page }) => {
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([
       {
