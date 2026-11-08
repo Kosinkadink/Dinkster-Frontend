@@ -24,7 +24,8 @@ subgraph path. Frozen execution views disable these actions.
 Selection waits for final creation acceptance; refusal does not select a
 predicted occurrence. A delayed result does not replace selection after tab
 or graph navigation changes, or after the originating canvas unmounts.
-Creation still uses ordinary document dispatch, not retained admission.
+Creation uses ordinary application dispatch, which selects retained admission
+when its candidate requires it.
 
 The starter body is valid immediately:
 

@@ -42,7 +42,8 @@ open for another attempt. A completion after a query/tab change, close/reopen,
 or unmount cannot dismiss or update recency for the replacement search.
 Synchronous host actions keep their existing behavior; modal-opening commands
 close search first so native dialog focus restoration remains correct.
-Document commands still use ordinary dispatch, not retained admission.
+Document commands use ordinary application dispatch, which selects retained
+admission when its candidate requires it.
 
 ## Session and provider contract
 

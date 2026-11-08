@@ -14,7 +14,8 @@ Drill-in waits for the final creation result. Refusal leaves navigation
 unchanged. A delayed success does not move a tab that was closed, reopened,
 retargeted to another session, or navigated elsewhere while creation was
 pending. Switching tabs and returning also preserves the user's navigation.
-Creation still uses ordinary document dispatch, not retained admission.
+Creation uses ordinary application dispatch, which selects retained admission
+when its candidate requires it.
 
 ## Extract a selection
 

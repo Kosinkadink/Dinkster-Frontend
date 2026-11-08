@@ -857,11 +857,12 @@ and the product name. Startup constructs a native Dinkster connection directly;
 backend metadata loads after construction rather than blocking the shell on
 a protocol-choice probe. URL-based backend addition recognizes only a native
 engine or supervisor and reports a named problem for stock ComfyUI servers.
-Before publishing restored tabs to the shared workspace or rendering an
-editable shell, startup journals and confirms native document ownership,
-including incomplete asset inventories when schemas are not yet available.
-Refusal or changes during confirmation stop startup without deleting the
-saved documents. This does not certify later foreign document updates.
+The editable shell renders while startup journals and confirms native document
+ownership, including incomplete asset inventories. Shared-workspace promotion
+waits for that confirmation, but registry loading and the first local frame do
+not. Refusal or changes during confirmation leave an ownership-unconfirmed
+warning and prevent promotion without deleting saved documents. Asset
+publication still requires its own acknowledgment.
 
 Timing contract (`packages/app/src/boot-indicator.ts`):
 

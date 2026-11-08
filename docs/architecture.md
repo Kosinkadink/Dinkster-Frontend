@@ -220,8 +220,9 @@ typed asset completeness or register a frontend holder.
 
 The app-level `AppState.dispatchTo()` contract permits either a final outcome
 or a promise of one. Callers that inspect the outcome or depend on publication
-must await it. Its ordinary implementation still dispatches synchronously;
-the declared result does not enable retained admission.
+must await it. Asset-neutral commands can finish synchronously; native
+candidates that introduce known asset identities or lose census completeness
+await retained admission before publication.
 
 Shared sessions stage the actor-stamped, shared-replay-prepared invocation once.
 Their candidates include the participant's undo/redo history and confirmed and
@@ -344,9 +345,10 @@ in Problems and prevent shared promotion without discarding saved documents.
 Asset publication still requires its exact acknowledgment; an unavailable
 retention route never implies an empty complete set. Restoration
 and crash-safe local writes remain synchronous; newly created durable holders and
-the synchronous `openDocument` API are not certified by this startup check. Common
-dispatch admission and collection remain disabled. The legacy bridge keeps its
-existing non-retained opening behavior.
+the synchronous `openDocument` API are not certified by this startup check.
+Ordinary native dispatch selects admission from its candidate; complete
+frontend retention and collection remain disabled. The legacy bridge keeps
+its existing non-retained opening behavior.
 Unsupported schemas, opaque dynamic state and unrecognized extension
 records are incomplete, not empty root sets. Core session dispatch remains synchronous.
 Schema defaults contribute roots only when the node has no stored override.
