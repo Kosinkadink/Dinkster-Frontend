@@ -1,4 +1,4 @@
-import { expect, appViewTest as test, type Page } from './fixtures.js'
+import { expect, appViewTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 async function selectAppView(page: Page): Promise<void> {
   await page.getByTestId('views-switcher').click()
@@ -47,6 +47,7 @@ async function injectPreview(page: Page, color = '#2563eb'): Promise<void> {
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     const widget = (id: string, widgetType: string, defaultValue: unknown) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,

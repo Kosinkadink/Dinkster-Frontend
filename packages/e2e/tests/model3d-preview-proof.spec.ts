@@ -5,7 +5,7 @@
  * Every backend route is mocked, so the spec runs against any dev server.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const proofDir = process.env.DINKSTER_MODEL3D_PROOF_DIR ?? '/tmp/dinkster-model3d-proof'
 const savedModelDigest = `blake3:${'c'.repeat(64)}`
@@ -122,6 +122,7 @@ interface ProofArtifact {
 }
 
 async function installGraph(page: Page, artifact: ProofArtifact): Promise<void> {
+  await waitForStartupOwnership(page)
   await page.evaluate(({ digest, typeName, name, mediaType }) => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'ProofSavedModel',
