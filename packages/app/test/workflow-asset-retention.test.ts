@@ -769,6 +769,41 @@ describe('retained app dispatch', () => {
     expect(await app.shareActiveTab()).toContain('Publication and sharing remain unavailable.')
   })
 
+  it('saves a complete snapshot without certifying unknown undo history or allowing sharing', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    app = createWorkflowApp([schema])
+    const document = session().doc
+    app.openDocument({ ...document, graphs: { g0: { ...document.graphs.g0!, nodes: {
+      ...document.graphs.g0!.nodes,
+      old: { id: asNodeId('old'), type: 'Previous', values: {} },
+    } } } }, 'Migrated snapshot')
+    const tab = app.activeTab()!
+    expect((await app.dispatchRetainedTo(tab, { command: 'node.remove', params: {
+      graphId: 'g0', nodeIds: ['old'],
+    } })).ok).toBe(true)
+    expect(workflowAssetRoots(tab.store.doc, { revision: tab.store.revision, undo: [], redo: [] }, resolve))
+      .toEqual({ complete: true, digests: [asset('a').digest] })
+    expect(workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(), resolve))
+      .toEqual({ complete: false, digests: [asset('a').digest] })
+    const records = () => Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+      .filter((key) => key.includes('dinkster.workflow-retentions.'))
+      .map((key) => JSON.parse(localStorage.getItem(key)!))
+    const before = records()
+    expect(before).toContainEqual(expect.objectContaining({ complete: false, digests: [asset('a').digest] }))
+    const history = tab.store.historySnapshot()
+    const upload = vi.spyOn(app.connection, 'uploadAsset').mockResolvedValue(asset('c').digest)
+    vi.spyOn(app.connection, 'createLibraryRecord').mockResolvedValue({
+      id: 'saved', scope: 'local', name: 'Migrated snapshot', digest: asset('c').digest,
+      mediaType: 'application/json', labels: [], created: 1, modified: 1, revision: 1,
+    })
+    expect(await app.saveWorkflow(tab.id)).toBe(true)
+    expect(JSON.parse(upload.mock.calls[0]![0] as string).graphs).toEqual(tab.store.doc.graphs)
+    expect(records()).toEqual(before)
+    expect(await app.shareActiveTab()).toBe('Workflow ownership unconfirmed. Publication and sharing remain unavailable.')
+    expect(records()).toEqual(before)
+    expect(tab.store.historySnapshot()).toEqual(history)
+  })
+
   it.each((['accepted', 'projection-before', 'projection-during', 'replaced', 'edited', 'registry', 'target', 'closed', 'unwanted', 'refused', 'disconnected', 'disposed'] as const)
     .flatMap((scenario) => (['explicit', 'ordinary'] as const).map((route) => ({ scenario, route }))))(
     'publishes only a current acknowledged candidate: $route $scenario', async ({ scenario, route }) => {

@@ -7434,7 +7434,12 @@ export class AppState {
     const revision = tab.store.revision
     const link = this.libraryLinks.get(tab.id)
     try {
-      this.requireCompleteWorkflow(tab)
+      const registry = this.registryForTab(tab)
+      const roots = workflowAssetRoots(tab.store.doc, { revision, undo: [], redo: [] },
+        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
+      if (roots.refusal !== undefined || !roots.complete) {
+        throw new Error(`${roots.refusal ?? 'Workflow ownership unconfirmed'}. Publication and sharing remain unavailable.`)
+      }
       const payload = JSON.stringify(await this.documentWithAssetLocations(tab))
       const digest = await backend.connection.uploadAsset(payload)
       let record: LibraryRecord | undefined

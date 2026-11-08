@@ -259,8 +259,12 @@ promoting, editing (including fresh palette nodes) and reading retain known acti
 `complete: false`; the durable intent preserves the node-qualified diagnostic
 and its severity in `incompleteDiagnostics`. Problems keeps an ownership-unconfirmed
 warning naming the node and reason, and the workspace tab may be shared.
-Publication remains the strict default: collaboration sharing and library save
-refuse that document. Local download is not publication: admitted documents export
+Publication remains the strict default: library save requires a complete census
+of the current snapshot it uploads; collaboration sharing requires a complete
+census of the whole session, including undo and redo history. Saving a complete
+snapshot does not certify opaque history, change its retention declaration,
+clear its ownership warning or make the session cleanup-eligible. An incomplete
+snapshot still refuses library save. Local download is not publication: admitted documents export
 losslessly with opaque data and ownership warnings preserved, without posting a
 retention declaration. Malformed or invalid identities still refuse export.
 The stored-state census also records actual state reads from active elaboration.
