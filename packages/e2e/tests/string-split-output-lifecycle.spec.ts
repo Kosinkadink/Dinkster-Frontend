@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { waitForStartupOwnership } from './fixtures.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -113,6 +114,7 @@ test.beforeEach(async ({ page }) => {
       return schemas?.has('std.string.split') === true && schemas.has('std.string.concat')
     })
   }, { timeout: 15_000 }).toBe(true)
+  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'string-split-output-lifecycle', root: 'g0',
@@ -144,6 +146,7 @@ test.beforeEach(async ({ page }) => {
     } as never, 'String split output lifecycle')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
+  await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
 })
 
 test('grows, executes, reloads, shrinks, and restores string split outputs', async ({ page }) => {
@@ -210,6 +213,7 @@ test('grows, executes, reloads, shrinks, and restores string split outputs', asy
     app.openDocument(JSON.parse(JSON.stringify(exported)), 'String split reopened')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
+  await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
   await expect.poll(() => splitState(page)).toEqual({
     members: ['m0', 'm1'], seq: 2, links: [firstLink, secondLink],
   })
