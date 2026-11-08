@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
+import { waitForStartupOwnership } from './fixtures.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const histogramShape = Array.from({ length: 256 }, (_value, index) =>
@@ -128,6 +129,7 @@ test.beforeEach(async ({ page }) => {
     const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas
     return schemas?.has('dinkster.curve.editor') === true && schemas.has('dinkster.curve.evaluate')
   }), { timeout: 15_000 }).toBe(true)
+  await waitForStartupOwnership(page)
 
   await page.evaluate(({ histogram }) => {
     window.__dinksterTest!.app.openDocument({
