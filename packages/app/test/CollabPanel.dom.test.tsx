@@ -7,7 +7,6 @@ import {
   type CollabSessionDescriptor,
   type SharedSessionStatus,
 } from '@dinkster/core'
-import { DinksterConnection } from '@dinkster/client'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppState, type CollabTabState, type Tab } from '../src/app-state.js'
@@ -105,18 +104,7 @@ function mount(options: {
   return { root, app, tabs, activeTabId, collabTabs, list, join, leave, end, requestClose, unmount }
 }
 
-const productionApps: AppState[] = []
-
 function mountProductionRace() {
-  const storage = new Map<string, string>()
-  vi.stubGlobal('localStorage', {
-    getItem: (key: string) => storage.get(key) ?? null,
-    setItem: (key: string, value: string) => { storage.set(key, value) },
-    removeItem: (key: string) => { storage.delete(key) },
-  })
-  vi.stubGlobal('sessionStorage', undefined)
-  vi.spyOn(DinksterConnection.prototype, 'retainAssets').mockImplementation(async (owner, declaration) =>
-    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   let snapshot: unknown
   let snapshotCount = 0
   let currentDescriptor: CollabSessionDescriptor | undefined
@@ -171,7 +159,6 @@ function mountProductionRace() {
     connect,
   }
   const app = new AppState({ collabTransport: transport })
-  productionApps.push(app)
   app.addBackend('http://collab.test', 'Collaboration test', false, 'dinkster')
   const root = document.createElement('div')
   document.body.append(root)
@@ -196,10 +183,8 @@ function mountProductionRace() {
 }
 
 afterEach(() => {
-  for (const app of productionApps.splice(0)) app.dispose()
   document.body.replaceChildren()
   vi.restoreAllMocks()
-  vi.unstubAllGlobals()
 })
 
 describe('CollabPanel', () => {

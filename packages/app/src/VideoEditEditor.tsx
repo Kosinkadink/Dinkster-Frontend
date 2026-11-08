@@ -110,7 +110,7 @@ export function VideoEditEditor(props: VideoEditEditorProps) {
       const abort = new AbortController()
       let url: string | undefined
       const timer = setTimeout(() => {
-        void source.values.rendition(source.query, selected.kind, { ...selected.options, signal: abort.signal, descriptor: result.descriptor }).then((media) => {
+        void source.values.rendition(source.query, selected.kind, { ...selected.options, signal: abort.signal }).then((media) => {
           if (abort.signal.aborted) return
           if (!media.available) { setState({ error: `${media.status} ${media.reason}: ${media.error}` }); return }
           if (!(selected.kind === 'preview' ? media.mime === 'video/mp4' : media.mime === 'image/png')) {

@@ -620,11 +620,6 @@
   overflow: hidden;
 }
 
-.collection-items.grid .collection-details,
-.collection-items.grid .collection-actions {
-  flex-basis: auto;
-}
-
 .collection-thumb,
 .collection-initials {
   flex: none;

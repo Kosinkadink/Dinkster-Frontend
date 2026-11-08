@@ -47,7 +47,7 @@ export interface ImportAssetReference {
 export interface ImportAssetResolutionRequest {
   readonly matches: readonly AssetGuessMatch[]
   readonly reasons: Readonly<Record<string, ImportAssetPromptReason>>
-  readonly accept: (choices: ReadonlyMap<string, AssetGuessCandidate>) => void | Promise<void>
+  readonly accept: (choices: ReadonlyMap<string, AssetGuessCandidate>) => void
   readonly cancel: () => void
 }
 
@@ -196,9 +196,8 @@ export function installImportAssetResolution(p: {
   readonly reasons: Readonly<Record<string, ImportAssetPromptReason>>
   readonly slot: RequestSlot<ImportAssetResolutionRequest>
   readonly tabStillOpen: () => boolean
-  readonly dispatch: (invocation: CommandInvocation) => boolean | Promise<boolean>
+  readonly dispatch: (invocation: CommandInvocation) => void
 }): void {
-  let pending = false
   const clearIfOwned = (): void => {
     if (p.slot.get() === request) p.slot.set(undefined)
   }
@@ -206,8 +205,8 @@ export function installImportAssetResolution(p: {
     matches: p.matches,
     reasons: p.reasons,
     cancel: clearIfOwned,
-    accept: async (choices) => {
-      if (p.slot.get() !== request || pending) return
+    accept: (choices) => {
+      if (p.slot.get() !== request) return
       if (p.tabStillOpen()) {
         const invocations: CommandInvocation[] = []
         for (const ref of p.refs) {
@@ -219,15 +218,7 @@ export function installImportAssetResolution(p: {
             ...value,
           } } })
         }
-        if (invocations.length > 0) {
-          pending = true
-          try {
-            const accepted = await p.dispatch({ command: 'batch', params: { invocations } as unknown as Json })
-            if (!accepted && p.tabStillOpen()) return
-          } finally {
-            pending = false
-          }
-        }
+        if (invocations.length > 0) p.dispatch({ command: 'batch', params: { invocations } as unknown as Json })
       }
       clearIfOwned()
     },

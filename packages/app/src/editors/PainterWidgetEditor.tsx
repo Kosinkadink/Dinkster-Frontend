@@ -120,25 +120,19 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
         const rendition = defaultRenditionOf(peek.renditions.filter((entry) => entry.mime === 'image/png'))
         if (!rendition) throw unavailable()
         // The native IMAGE PNG renderer defaults to the first frame, as does Painter.
-        await values.read(query, peek.descriptor, async () => {
+        const result = await values.rendition(query, rendition.kind, { signal: abort.signal,
+          ...(rendition.parameters?.includes('batch') ? { batch: 0 } : {}),
+          ...(rendition.version === undefined ? {} : { rendererVersion: rendition.version }) })
+        requireCurrent()
+        if (!result?.available || result.mime !== 'image/png' || result.bytes.byteLength > 64 * 1024 * 1024) throw unavailable()
+        const bitmap = await createImageBitmap(new Blob([result.bytes], { type: result.mime }))
+        try {
           requireCurrent()
-          const result = await values.rendition(query, rendition.kind, { signal: abort.signal, descriptor: peek.descriptor,
-            ...(rendition.parameters?.includes('batch') ? { batch: 0 } : {}),
-            ...(rendition.version === undefined ? {} : { rendererVersion: rendition.version }) })
-          requireCurrent()
-          if (!result?.available || result.mime !== 'image/png' || result.bytes.byteLength > 64 * 1024 * 1024) throw unavailable()
-          const bitmap = await createImageBitmap(new Blob([result.bytes], { type: result.mime }))
-          try {
-            // Native decode may outlive the connection; re-enter admission before drawing.
-            await values.read(query, peek.descriptor, async () => {
-              requireCurrent()
-              if (bitmap.width < 1 || bitmap.height < 1 || bitmap.width > 4096 || bitmap.height > 4096) throw unavailable()
-              width = bitmap.width; height = bitmap.height
-              base.width = canvas.width = width; base.height = canvas.height = height
-              base.getContext('2d')!.drawImage(bitmap, 0, 0)
-            })
-          } finally { bitmap.close() }
-        })
+          if (bitmap.width < 1 || bitmap.height < 1 || bitmap.width > 4096 || bitmap.height > 4096) throw unavailable()
+          width = bitmap.width; height = bitmap.height
+          base.width = canvas.width = width; base.height = canvas.height = height
+          base.getContext('2d')!.drawImage(bitmap, 0, 0)
+        } finally { bitmap.close() }
         }
       }
       if (imageSource === undefined) {
@@ -154,23 +148,12 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
           && typeof ref.name === 'string' && typeof ref.mediaType === 'string' && typeof ref.virtualPath === 'string'
           && typeof ref.size === 'number' && Number.isSafeInteger(ref.size) && ref.size >= 0
         if (!ref || !(local || isAssetRefValue(initial))) throw new Error(message('painterWidget.unavailable'))
-        const load = async () => {
-          requireCurrent()
-          const bytes = local
-            ? await backend.connection.fetchLocalAssetBytes(ref.localBinding as string, abort.signal)
-            : await backend.connection.fetchAssetBytes(ref.digest as string, abort.signal)
-          requireCurrent()
-          if (!bytes) throw new Error(message('painterWidget.unavailable'))
-          await drawImage(new Blob([bytes], { type: ref.mediaType as string }))
-        }
-        if (local) await load()
-        else {
-          const reader = props.editor.app.workflowAssetReader(ed.tab, ref.digest as string)
-          if (!reader) throw new Error(message('painterWidget.unavailable'))
-          const connectedCurrent = sourceCurrent
-          sourceCurrent = () => connectedCurrent() && reader.current()
-          await reader.read(load)
-        }
+        const bytes = local
+          ? await backend.connection.fetchLocalAssetBytes(ref.localBinding as string, abort.signal)
+          : await backend.connection.fetchAssetBytes(ref.digest as string)
+        requireCurrent()
+        if (!bytes) throw new Error(message('painterWidget.unavailable'))
+        await drawImage(new Blob([bytes], { type: ref.mediaType as string }))
       }
       ready = true
     })().catch((reason: unknown) => { if (live) setError(reason instanceof Error ? reason.message : String(reason)) })

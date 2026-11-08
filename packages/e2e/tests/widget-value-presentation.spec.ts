@@ -1,6 +1,8 @@
-// Native discovery loads the live CheckpointLoaderSimple schema without
-// seeded editing documents; ownership acknowledgments use the shared fixture.
-import { expect, nativeTest as test, skipWithoutNativeCatalog, waitForStartupOwnership, type Page } from './fixtures.js'
+// Raw @playwright/test, not the shared fixture: this spec needs same-origin
+// native discovery to reach the real /api/nodes proxy so the app loads the
+// live CheckpointLoaderSimple schema without seeded editing documents.
+import { expect, test, type Page } from '@playwright/test'
+import { skipWithoutNativeCatalog } from './fixtures.js'
 
 async function paintNode(page: Page, width?: number): Promise<{
   calls: string[]
@@ -48,7 +50,6 @@ test.beforeEach(async ({ page, request }, testInfo) => {
   await skipWithoutNativeCatalog(request, testInfo)
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 15_000 })
-  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'widget-value-presentation', root: 'g0',
@@ -85,10 +86,9 @@ test('ASSET values preserve the placeholder before the label and ellipsize long 
   })
 
   const longName = 'this-is-a-very-long-checkpoint-name-that-must-ellipsize.safetensors'
-  expect(await page.evaluate(async (name) => {
-    const app = window.__dinksterTest!.app
-    const tab = app.activeTab()!
-    return (await app.dispatchTo(tab, {
+  await page.evaluate((name) => {
+    const tab = window.__dinksterTest!.app.activeTab()!
+    tab.store.dispatch({
       command: 'node.setValue',
       params: {
         graphId: tab.store.doc.root,
@@ -102,8 +102,8 @@ test('ASSET values preserve the placeholder before the label and ellipsize long 
           virtualPath: `checkpoints/${name}`,
         },
       },
-    })).ok
-  }, longName)).toBe(true)
+    })
+  }, longName)
   const populated = await paintNode(page, 140)
   expect(populated.nodeWidth).toBe(140)
   expect(populated.calls).not.toContain(longName)

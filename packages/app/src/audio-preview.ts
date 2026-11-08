@@ -54,7 +54,7 @@ export function audioPreview(values: PeekValues, query: ValueQuery, descriptor: 
           return undefined
         }
         const result = await values.rendition(query, kind, {
-          signal, descriptor, rendererVersion: info.version!,
+          signal, rendererVersion: info.version!,
           ...(batchSupported ? { batch } : {}),
           ...(kind === 'waveform' ? { waveform: { width: waveform!.width, height: waveform!.height } } : { window: { start, duration } }),
         })

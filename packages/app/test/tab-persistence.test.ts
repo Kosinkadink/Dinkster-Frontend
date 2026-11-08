@@ -7,7 +7,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_SCALE, MIN_SCALE } from '@dinkster/canvas'
 import { AppState } from '../src/app-state.js'
-import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 
@@ -31,13 +30,6 @@ function fakeStorage(): Storage {
 
 const TABS_KEY = 'dinkster.openTabs'
 const g = globalThis as { localStorage?: Storage }
-const editableApps: AppState[] = []
-
-const createEditableApp = (): AppState => {
-  const app = prepareWorkflowApp(new AppState())
-  editableApps.push(app)
-  return app
-}
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -50,8 +42,6 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  for (const app of editableApps.splice(0)) app.dispose()
-  vi.restoreAllMocks()
   vi.useRealTimers()
   delete g.localStorage
   Reflect.deleteProperty(globalThis.navigator, 'locks')
@@ -61,111 +51,6 @@ afterEach(() => {
 const flush = (): void => void vi.advanceTimersByTime(500)
 
 describe('open-tab persistence', () => {
-  it.each(['accepted', 'refused', 'targeted', 'targeted-registry', 'operation-accepted', 'operation-refused'] as const)(
-    'confirms losing durable recovery documents before startup continues: %s', async (scenario) => {
-      const document = (digit: string, lineage = seedBasic.lineage) => ({ ...seedBasic, lineage,
-        ext: { held: { digest: `blake3:${digit.repeat(64)}`, name: `${digit}.bin`, size: 7,
-          mediaType: 'application/octet-stream', virtualPath: '' } } })
-      const older = document('a')
-      const workspace = document('b')
-      const newest = document('c')
-      const closed = document('d', seedSubgraph.lineage)
-      localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: older.lineage,
-        tabs: [{ title: 'Older', doc: older }] }))
-      localStorage.setItem('dinkster.openTabsCandidate.peer', JSON.stringify({ v: 1,
-        workspaceRevision: 2, active: newest.lineage, tabs: [{ title: 'Newer', doc: workspace }] }))
-      localStorage.setItem(`dinkster.openTabsDocumentCandidate.${encodeURIComponent(newest.lineage)}`,
-        JSON.stringify({ v: 1, stageId: 'latest', tab: { title: 'Latest', doc: newest } }))
-      localStorage.setItem(`dinkster.openTabsDocumentCandidate.${encodeURIComponent(closed.lineage)}`,
-        JSON.stringify({ v: 1, stageId: 'closed', tab: { title: 'Closed', doc: closed } }))
-      localStorage.setItem('dinkster.workspaceOperation.peer#0', JSON.stringify({
-        opId: 'peer#0', actorId: 'peer', sequence: 0, baseRevision: 0,
-        additions: [{ id: 'journal-only', title: 'Journal only', document: document('e', 'journal-only') }],
-        removals: [], updates: [], order: ['journal-only'], active: 'journal-only',
-      }))
-      const app = createEditableApp()
-      expect(app.tabs.get()).toHaveLength(1)
-      expect(app.activeTab()!.store.doc).toEqual(newest)
-      // Compaction may retire workspace candidates before the network responds.
-      flush()
-      expect(localStorage.getItem('dinkster.openTabsCandidate.peer')).toBeNull()
-      if (scenario.startsWith('targeted')) {
-        const backend = app.addBackend('http://other.test', 'Other', false, 'dinkster')!
-        vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-          ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
-        app.setTabTarget(app.activeTab()!.id, backend.id)
-      }
-      const observed = new Set<string>()
-      let acknowledge!: () => void
-      const gate = new Promise<void>((resolve) => { acknowledge = resolve })
-      vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-        expect(declaration.complete).toBe(false)
-        declaration.digests.forEach((digest) => observed.add(digest))
-        const losing = declaration.digests.includes(`blake3:${(scenario.startsWith('operation-') ? 'e' : 'a').repeat(64)}`)
-        if (losing) await gate
-        return { ...owner, ...declaration, revision: losing && scenario.endsWith('refused') ? 2 : 1 }
-      })
-      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-      let settled = false
-      const startup = app.confirmStartupOwnership().then(() => true, () => false)
-        .finally(() => { settled = true })
-      await vi.advanceTimersByTimeAsync(0)
-      expect(settled).toBe(false)
-      expect([...observed].sort()).toEqual(['a', 'b', 'c', 'd', 'e'].map((digit) => `blake3:${digit.repeat(64)}`))
-      if (scenario === 'targeted-registry') app.registry.set({ connection: app.connection.id,
-        schemas: new Map(), diagnostics: [], hash: 'changed', resolve: () => undefined })
-      acknowledge()
-      expect(await startup).toBe(scenario.endsWith('accepted') || scenario === 'targeted')
-      expect(app.activeTab()!.store.doc).toEqual(newest)
-    },
-  )
-
-  it.each(['accepted', 'refused', 'edited', 'closed', 'retargeted', 'registry', 'disconnected', 'disposed'] as const)(
-    'confirms restored native ownership before startup continues: %s', async (scenario) => {
-      const digest = `blake3:${'c'.repeat(64)}`
-      const saved = { ...seedBasic, ext: { held: { digest, name: 'restored.bin', size: 7,
-        mediaType: 'application/octet-stream', virtualPath: '' } } }
-      localStorage.setItem(TABS_KEY, JSON.stringify({ v: 1, active: saved.lineage,
-        tabs: [{ title: 'Restored', doc: saved }] }))
-      const app = createEditableApp()
-      const tab = app.activeTab()!
-      let acknowledge!: () => void
-      let requested!: () => void
-      const request = new Promise<void>((resolve) => { requested = resolve })
-      vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-        expect(declaration).toEqual({ revision: 0, complete: false, digests: [digest] })
-        expect(localStorage.getItem(`dinkster.workflow-retentions.${owner.ownerId}`)).not.toBeNull()
-        requested()
-        return new Promise((resolve) => { acknowledge = () => resolve({ ...owner, ...declaration,
-          revision: scenario === 'refused' ? 2 : 1 }) })
-      })
-      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-      let settled = false
-      const startup = app.confirmStartupOwnership().then(() => true, () => false)
-        .finally(() => { settled = true })
-      await request
-      expect(settled).toBe(false)
-      expect(app.activeTab()).toBe(tab)
-      expect(tab.store.doc).toEqual(saved)
-      if (scenario === 'edited') tab.store.dispatch({ command: 'node.setTitle', params: {
-        graphId: 'g0', nodeId: Object.keys(tab.store.doc.graphs.g0!.nodes)[0]!, title: 'Local change',
-      } })
-      if (scenario === 'closed') app.closeTab(tab.id)
-      if (scenario === 'retargeted') app.setTabTarget(tab.id, app.addBackend('http://other.test', 'Other', false, 'dinkster')!.id)
-      if (scenario === 'registry') app.registry.set({ connection: app.connection.id, schemas: new Map(),
-        diagnostics: [], hash: 'changed', resolve: () => undefined })
-      if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
-      if (scenario === 'disposed') app.dispose()
-      acknowledge()
-      expect(await startup).toBe(scenario === 'accepted')
-      if (scenario === 'accepted' || scenario === 'refused') {
-        expect(app.activeTab()).toBe(tab)
-        expect(tab.store.doc).toEqual(saved)
-        expect(JSON.parse(localStorage.getItem(TABS_KEY)!).tabs[0].doc).toEqual(saved)
-      }
-    },
-  )
-
   it('rechecks workspace revision inside the cross-window commit lock', async () => {
     const seed = new AppState()
     flush()
@@ -215,11 +100,11 @@ describe('open-tab persistence', () => {
     expect(app.problems.get().map((problem) => problem.code)).not.toContain('schema.unresolvedType')
   })
 
-  it('keeps a new edited tab dirty through close cancellation and discards it without persistence', async () => {
-    const app = createEditableApp()
+  it('keeps a new edited tab dirty through close cancellation and discards it without persistence', () => {
+    const app = new AppState()
     const tab = app.createWorkflow()
     expect(app.isTabDirty(tab.id)).toBe(true)
-    const outcome = await app.dispatchTo(tab, {
+    const outcome = app.dispatchTo(tab, {
       command: 'node.add',
       params: { graphId: tab.store.doc.root, type: 'TestNode', position: { x: 10, y: 20 } },
     })
@@ -269,11 +154,11 @@ describe('open-tab persistence', () => {
     expect(app.isTabDirty(tab.id)).toBe(true)
   })
 
-  it('round-trips unsaved document mutations and tab set across a restart', async () => {
-    const first = createEditableApp()
+  it('round-trips unsaved document mutations and tab set across a restart', () => {
+    const first = new AppState()
     expect(first.tabs.get().length).toBe(2) // fixture seed (Basic, Subgraph)
     const basic = first.tabs.get()[0]!
-    const out = await first.dispatchTo(basic, {
+    const out = first.dispatchTo(basic, {
       command: 'node.setTitle',
       params: { graphId: basic.store.doc.root, nodeId: 'n0', title: 'renamed by test' },
     })
@@ -479,8 +364,8 @@ describe('open-tab persistence', () => {
     expect(second.tabs.get().map((t) => t.title)).toEqual(['Subgraph'])
   })
 
-  it('AP3: edits to a same-lineage replacement tab still persist (watcher rebinds)', async () => {
-    const first = createEditableApp()
+  it('AP3: edits to a same-lineage replacement tab still persist (watcher rebinds)', () => {
+    const first = new AppState()
     const basic = first.tabs.get()[0]!
     const doc = JSON.parse(JSON.stringify(basic.store.doc)) as { lineage: string }
     // Replace the Basic tab: same lineage, same id, NEW session.
@@ -491,7 +376,7 @@ describe('open-tab persistence', () => {
 
     // An edit to the REPLACEMENT session must reach storage; a watcher
     // still bound to the old session would drop it silently.
-    const out = await first.dispatchTo(replacement, {
+    const out = first.dispatchTo(replacement, {
       command: 'node.setTitle',
       params: { graphId: replacement.store.doc.root, nodeId: 'n0', title: 'edited after replace' },
     })
@@ -526,7 +411,7 @@ describe('open-tab persistence', () => {
     first.dispose()
   })
 
-  it('AP3: an edit made inside the debounce window survives pagehide', async () => {
+  it('AP3: an edit made inside the debounce window survives pagehide', () => {
     // Give the constructor a window to hang its pagehide listener on.
     const w = globalThis as { window?: EventTarget }
     w.window = new EventTarget()
@@ -537,11 +422,11 @@ describe('open-tab persistence', () => {
     })
     let basicId = ''
     try {
-      const first = createEditableApp()
+      const first = new AppState()
       const basic = first.tabs.get()[0]!
       basicId = basic.id
       flush() // settle startup writes
-      const out = await first.dispatchTo(basic, {
+      const out = first.dispatchTo(basic, {
         command: 'node.setTitle',
         params: { graphId: basic.store.doc.root, nodeId: 'n0', title: 'last-second edit' },
       })
@@ -560,14 +445,14 @@ describe('open-tab persistence', () => {
     )
   })
 
-  it('keeps the newest document at an equal workspace membership revision', async () => {
-    const fresh = createEditableApp()
+  it('keeps the newest document at an equal workspace membership revision', () => {
+    const fresh = new AppState()
     flush()
     const stale = new AppState()
     const freshTab = fresh.tabs.get()[0]!
     const staleTab = stale.tabs.get().find((tab) => tab.id === freshTab.id)!
 
-    const out = await fresh.dispatchTo(freshTab, {
+    const out = fresh.dispatchTo(freshTab, {
       command: 'node.setTitle',
       params: { graphId: freshTab.store.doc.root, nodeId: 'n0', title: 'newer document' },
     })

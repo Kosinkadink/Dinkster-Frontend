@@ -8,7 +8,7 @@
  * Skips loudly if the shared backend is absent.
  */
 import { deflateSync } from 'node:zlib'
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, selectProductOption, test, type Page } from './fixtures.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -54,32 +54,23 @@ async function addNativeBackend(page: Page): Promise<void> {
 }
 
 async function openMidgraphDoc(page: Page, asset: { digest: string; size: number }): Promise<void> {
-  await expect.poll(() => page.evaluate((url) =>
-    window.__dinksterTest!.app.backends.get().find((backend) => backend.baseUrl === url)?.registry.get()?.schemas.has('dinkster.load_image'),
-  NATIVE_BACKEND)).toBe(true)
-  const opened = await page.evaluate(async ({ digest, size, url }) => {
-    const app = window.__dinksterTest!.app
-    const backend = app.backends.get().find((candidate) => candidate.baseUrl === url)!
-    const retained = app as unknown as {
-      openRetainedDocument(document: unknown, title: string, backend: unknown, stillWanted: () => boolean): Promise<unknown>
-    }
-    const tab = await retained.openRetainedDocument({
+  await page.evaluate(({ digest, size }) => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'midgraph-preview-live', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
         nodes: {
-          li: { id: 'li', type: 'dinkster.load_image', values: { image: { digest, name: 'e2e.png', size, mediaType: 'image/png', virtualPath: '' } } },
+          li: { id: 'li', type: 'dinkster.load_image', values: { image: { digest, name: 'e2e.png', size, mediaType: 'image/png' } } },
           pi: { id: 'pi', type: 'dinkster.save_image', values: {} },
         },
         links: { l1: { id: 'l1', from: { node: 'li', port: 'image' }, to: { node: 'pi', port: 'images' } } },
         nets: {}, reroutes: {}, nextOrdinal: 3,
       } },
       view: { graphs: { g0: { nodes: { li: { position: { x: 80, y: 120 } }, pi: { position: { x: 420, y: 120 } } } } } },
-    }, 'Mid-graph Tensor Preview', backend, () => true)
+    } as never, 'Mid-graph Tensor Preview')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-    return tab !== undefined
-  }, { ...asset, url: NATIVE_BACKEND })
-  expect(opened).toBe(true)
+  }, asset)
+  await selectProductOption(page, page.getByTestId('tab-target'), NATIVE_BACKEND)
 }
 
 test.beforeEach(async ({ page }) => {
@@ -101,7 +92,6 @@ test.beforeEach(async ({ page }) => {
 
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
   await addNativeBackend(page)
 })
 

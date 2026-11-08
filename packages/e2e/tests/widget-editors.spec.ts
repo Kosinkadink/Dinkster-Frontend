@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, type Page } from './fixtures.js'
 
 test('mixed scalar COMBO keeps typed native choices through dropdown edits', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
@@ -165,7 +165,6 @@ test.beforeEach(async ({ page }) => {
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
@@ -299,7 +298,6 @@ test('AUDIO_RECORD captures only on request and stages canonical uploads with re
   await page.setViewportSize({ width: 900, height: 700 })
   await page.screenshot({ path: testInfo.outputPath('audio-record-ready-compact.png'), animations: 'disabled' })
   await editor.getByRole('button', { name: 'Use asset', exact: true }).click()
-  await expect(editor).toHaveCount(0)
   expect(await value()).toEqual(canonical)
   await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
   expect(await value()).toBeUndefined()
@@ -997,20 +995,6 @@ test('numeric compact stepping stays primary while the optional popover supports
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count).toBe(45)
   await page.keyboard.press('Control+z')
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count).toBeUndefined()
-
-  await openEditor(page, 'count')
-  const railToggle = page.getByRole('button', { name: /^Toggle right rail/ })
-  await railToggle.focus()
-  const outcome = await page.evaluate(() => {
-    const app = window.__dinksterTest!.app
-    return app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: {
-      graphId: 'g0', nodeId: 'widgets', inputId: 'count', value: 70,
-    } })
-  })
-  expect(outcome.ok).toBe(true)
-  await expect(editor).toHaveCount(0)
-  await expect(railToggle).toBeFocused()
-  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count).toBe(70)
 })
 
 test('numeric editors select all while native arrows collapse the selection', async ({ page }) => {

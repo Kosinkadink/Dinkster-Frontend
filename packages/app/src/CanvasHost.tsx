@@ -87,7 +87,6 @@ import {
   canonicalTypeIdOf,
   nodeSearchFields,
   searchVisibilityOf,
-  isAssetWidgetInput,
   isPortEndpoint,
   planOccurrenceLinkMutation,
   samePortRef,
@@ -124,7 +123,7 @@ import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type P
 import { liveExactnessFor } from './companion-display.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
 import { createMirrorImageEstimator } from './mirror-image-previews.js'
-import { createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
+import { createPreviewLoader, validateBrowserMediaRendition } from './node-previews.js'
 import { tabDocumentUnchanged, widgetEditorAnchorAlive } from './widget-editor-anchor.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
 import { applyNodeDecorations, deriveSceneOverlays, retainProvenExecution, type SelectedInputPreview } from './scene-overlays.js'
@@ -159,7 +158,7 @@ import { resolveDroppedAsset } from './desktop-bridge.js'
 import { activeProjectId } from './projects.js'
 import { readUploadDestination, saveUploadDestination, type UploadDestinationChoice } from './upload-destination.js'
 import { palettePreviewLayout, placementSchemaKey } from './palette-node-preview.js'
-import { ProductActionFooter, ProductNotice } from './ProductForm.js'
+import { ProductActionFooter } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import {
@@ -580,57 +579,14 @@ export function CanvasViewControls(props: {
   readonly onToggleLensMenu: () => void
   readonly onSelectView: (kind: string) => void
   readonly onSelectLens: (id: string) => void
-  readonly commandScope?: unknown
-  readonly onSetAllNetsDisplay: (mode: 'noodle' | 'tags' | 'guide') => CommandOutcome | Promise<CommandOutcome | undefined> | undefined
+  readonly onSetAllNetsDisplay: (mode: 'noodle' | 'tags' | 'guide') => void
 }) {
   const message = useAppMessage()
-  const [pending, setPending] = createSolidSignal(false)
-  const [refusal, setRefusal] = createSolidSignal<string>()
-  let generation = 0
-  let scopeGeneration = 0
-  let live = true
-  let viewTrigger: HTMLButtonElement | undefined
-  onCleanup(() => { live = false; generation++ })
-  createEffect(() => {
-    props.commandScope
-    props.disabled
-    scopeGeneration++
-    generation++
-    setPending(false)
-    setRefusal(undefined)
-  })
-  createEffect(() => {
-    props.viewMenuOpen
-    generation++
-    setRefusal(undefined)
-  })
-  const setAllNetsDisplay = async (mode: 'noodle' | 'tags' | 'guide'): Promise<void> => {
-    if (pending() || props.disabled || !props.viewMenuOpen) return
-    const owner = generation
-    const scope = scopeGeneration
-    setPending(true)
-    setRefusal(undefined)
-    try {
-      const outcome = await props.onSetAllNetsDisplay(mode)
-      if (!live || owner !== generation) return
-      if (outcome?.ok) {
-        props.onToggleViewMenu()
-        viewTrigger?.focus()
-      } else if (outcome !== undefined) {
-        setRefusal(outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))
-      }
-    } catch (error) {
-      if (live && owner === generation) setRefusal(error instanceof Error ? error.message : String(error))
-    } finally {
-      if (live && scope === scopeGeneration) setPending(false)
-    }
-  }
   const viewLabel = () => message(`canvas.viewControls.active.${props.activeView === APP_EDITOR_KIND ? 'app' : 'graph'}`)
   return (
     <div class="canvas-view-controls" classList={{ drilled: props.drilled }}>
       <div class="canvas-view-control">
         <ProductButton size="compact"
-          ref={viewTrigger}
           type="button"
           data-testid="views-switcher"
           data-tooltip-label={props.viewMenuOpen ? undefined : message('canvas.viewControls.view.tooltip')}
@@ -640,8 +596,7 @@ export function CanvasViewControls(props: {
           onClick={props.onToggleViewMenu}
         ><Icon icon={AppWindow} /> {viewLabel()} <Icon icon={ChevronDown} /></ProductButton>
         <Show when={props.viewMenuOpen}>
-          <div class="lens-menu view-menu" role="menu" aria-busy={pending()}>
-            <Show when={refusal()}>{(text) => <ProductNotice tone="error" testId="net-display-error">{text()}</ProductNotice>}</Show>
+          <div class="lens-menu view-menu" role="menu">
             <div class="lens-menu-heading">{message('canvas.viewControls.heading.views')}</div>
             <ProductButton variant="ghost" size="compact" role="menuitemradio" aria-checked={props.activeView === GRAPH_EDITOR_KIND} onClick={() => props.onSelectView(GRAPH_EDITOR_KIND)}><strong>{message('canvas.viewControls.active.graph')}</strong></ProductButton>
             <Show when={props.appViewEnabled}>
@@ -651,20 +606,17 @@ export function CanvasViewControls(props: {
             <ProductButton variant="ghost" size="compact"
               role="menuitem"
               data-testid="net-display-all-noodle"
-              disabled={pending()}
-              onClick={() => { void setAllNetsDisplay('noodle') }}
+              onClick={() => props.onSetAllNetsDisplay('noodle')}
             ><strong>{message('canvas.viewControls.namedNets.noodles.label')}</strong><small>{message('canvas.viewControls.namedNets.noodles.description')}</small></ProductButton>
             <ProductButton variant="ghost" size="compact"
               role="menuitem"
               data-testid="net-display-all-tags"
-              disabled={pending()}
-              onClick={() => { void setAllNetsDisplay('tags') }}
+              onClick={() => props.onSetAllNetsDisplay('tags')}
             ><strong>{message('canvas.viewControls.namedNets.tags.label')}</strong><small>{message('canvas.viewControls.namedNets.tags.description')}</small></ProductButton>
             <ProductButton variant="ghost" size="compact"
               role="menuitem"
               data-testid="net-display-all-guide"
-              disabled={pending()}
-              onClick={() => { void setAllNetsDisplay('guide') }}
+              onClick={() => props.onSetAllNetsDisplay('guide')}
             ><strong>{message('canvas.viewControls.namedNets.guides.label')}</strong><small>{message('canvas.viewControls.namedNets.guides.description')}</small></ProductButton>
           </div>
         </Show>
@@ -759,7 +711,7 @@ export function extractSubgraphInvocationThroughBridge(args: {
   return undefined
 }
 
-export async function flattenSubgraphThroughBridge(args: {
+export function flattenSubgraphThroughBridge(args: {
   readonly document: WorkflowDocument
   readonly graphId: string
   readonly instancePath: readonly string[]
@@ -770,9 +722,9 @@ export async function flattenSubgraphThroughBridge(args: {
   readonly measure: TextMeasurer
   readonly widgetMeasure: WidgetMeasure
   readonly report: (diagnostic: Diagnostic) => void
-  readonly dispatch: (invocation: CommandInvocation) => CommandOutcome | Promise<CommandOutcome>
+  readonly dispatch: (invocation: CommandInvocation) => CommandOutcome
   readonly selectNodes: (nodeIds: readonly string[]) => void
-}): Promise<boolean> {
+}): boolean {
   const report = (message: string): false => {
     args.report(lifecyclePlanFailure('flatten', message, args.graphId, args.nodeId, args.instancePath))
     return false
@@ -819,7 +771,7 @@ export async function flattenSubgraphThroughBridge(args: {
   const before = new Set(Object.keys(args.document.graphs[args.graphId]?.nodes ?? {}))
   let outcome: CommandOutcome
   try {
-    outcome = await args.dispatch(invocation)
+    outcome = args.dispatch(invocation)
   } catch (error) {
     return report(`dispatch failed: ${error instanceof Error ? error.message : String(error)}`)
   }
@@ -1062,7 +1014,6 @@ function overlayClipStyle(rect: EditorWorldRect, canvasEl: HTMLCanvasElement): R
 export function NodeMediaOverlay(props: {
   readonly ownerId?: string
   readonly media: NodePreview & { readonly kind: 'video' | 'audio'; readonly src: string }
-  readonly assetReader?: PreviewSource['assetReader']
   readonly rect: EditorWorldRect
   readonly scale: number
   readonly canvas: HTMLCanvasElement
@@ -1093,7 +1044,7 @@ export function NodeMediaOverlay(props: {
         {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
       </Show>
       <Show when={props.media.kind === 'video'} fallback={
-        <AudioTransport media={props.media} assetReader={props.assetReader} interactive={interactive()} onActiveChange={(active) => props.onActiveChange?.(active)}
+        <AudioTransport media={props.media} interactive={interactive()} onActiveChange={(active) => props.onActiveChange?.(active)}
           onMediaError={() => props.onMediaError?.()} />
       }>
         <VideoPreview media={props.media} preferences={props.videoPreferences} onPreferences={props.onVideoPreferences}
@@ -1111,7 +1062,6 @@ export function NodeMediaOverlay(props: {
 export function NodeModel3dOverlay(props: {
   readonly ownerId?: string
   readonly media: NodePreview & { readonly kind: 'model3d'; readonly src: string }
-  readonly assetReader?: PreviewSource['assetReader']
   readonly rect: EditorWorldRect
   readonly scale: number
   readonly canvas: HTMLCanvasElement
@@ -1121,15 +1071,12 @@ export function NodeModel3dOverlay(props: {
   const [failed, setFailed] = createSolidSignal(false)
   let container: HTMLDivElement | undefined
   let viewer: { dispose(): void } | undefined
-  let settleViewer: (() => void) | undefined
   let mountToken = 0
   const interactive = () => props.scale >= defaultTokens.mediaControlMinScale
   const close = (): void => {
     mountToken += 1
     viewer?.dispose()
     viewer = undefined
-    settleViewer?.()
-    settleViewer = undefined
     setActive(false)
     props.onActiveChange?.(false)
   }
@@ -1140,34 +1087,26 @@ export function NodeModel3dOverlay(props: {
     props.onActiveChange?.(true)
     const token = ++mountToken
     const src = props.media.src
-    const reader = props.assetReader
     try {
-      const mount = async (): Promise<void> => {
-        const { mountModel3dViewer } = await import('./model3d-viewer.js')
-        if (token !== mountToken || container === undefined || reader?.current() === false) return
-        const handle = await mountModel3dViewer(container, src, props.media.mime, props.media.model3d)
-        if (token !== mountToken || reader?.current() === false) {
-          handle.dispose()
-          return
-        }
-        viewer = handle
-        await new Promise<void>((resolve) => { settleViewer = resolve })
+      const { mountModel3dViewer } = await import('./model3d-viewer.js')
+      if (token !== mountToken || container === undefined) return
+      const handle = await mountModel3dViewer(container, src, props.media.mime, props.media.model3d)
+      if (token !== mountToken) {
+        handle.dispose()
+        return
       }
-      if (reader === undefined) await mount()
-      else await reader.read(mount)
+      viewer = handle
     } catch {
       if (token === mountToken) setFailed(true)
     }
   }
   // A page change or new execution swaps the source without remounting the
   // overlay; an open viewer would keep showing the old model.
-  createEffect(on(() => [props.media.src, props.assetReader] as const, () => close(), { defer: true }))
+  createEffect(on(() => props.media.src, () => close(), { defer: true }))
   onCleanup(() => {
     mountToken += 1
     viewer?.dispose()
     viewer = undefined
-    settleViewer?.()
-    settleViewer = undefined
     queueMicrotask(() => props.onActiveChange?.(false))
   })
   return (
@@ -1348,18 +1287,18 @@ export function visibleOutputPagerRect(
   return { x: left, y: top, width: right - left, height: bottom - top }
 }
 
-export async function commitRegionCreation(
+export function commitRegionCreation(
   app: AppState,
   tab: Tab,
   graphId: string,
   position: { x: number; y: number },
   kind: RegionKind,
   selectOccurrence: (nodeId: string) => void,
-): Promise<CommandOutcome> {
+): CommandOutcome {
   if (tab.execution) return { ok: false, diagnostics: [] }
   const occurrenceNodeId = tab.store.predictedNodeId(graphId)
   if (occurrenceNodeId === undefined) return { ok: false, diagnostics: [] }
-  const outcome = await app.createRegion(tab, graphId, position, kind)
+  const outcome = app.createRegion(tab, graphId, position, kind)
   if (outcome.ok) selectOccurrence(occurrenceNodeId)
   return outcome
 }
@@ -1435,14 +1374,14 @@ function occurrenceMutationInvocation(args: {
   } as CommandInvocation
 }
 
-export async function dispatchOccurrenceIntention(args: {
+export function dispatchOccurrenceIntention(args: {
   readonly document: WorkflowDocument
   readonly resolver: Parameters<OccurrenceMutationPlanner['planOccurrenceLinkMutation']>[1]
   readonly intention: OccurrenceLinkIntention
   readonly planner: OccurrenceMutationPlanner | undefined
-  readonly dispatch: (invocation: CommandInvocation) => CommandOutcome | Promise<CommandOutcome>
+  readonly dispatch: (invocation: CommandInvocation) => CommandOutcome
   readonly report: (diagnostics: readonly Diagnostic[]) => void
-}): Promise<CommandOutcome> {
+}): CommandOutcome {
   if (args.planner === undefined) {
     const diagnostics = [diag(
       'error',
@@ -1547,6 +1486,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     showGestureRefusal(diagnostics)
   }
 
+  const dispatchGesture = (tab: Tab, invocation: CommandInvocation): CommandOutcome => {
+    const outcome = props.app.dispatchTo(tab, invocation)
+    if (!outcome.ok) showGestureRefusal(outcome.diagnostics)
+    return outcome
+  }
+
   const presentFileDropResult = (surface: CanvasFileDropSurface | undefined): void => {
     setFileDropSurface(surface)
   }
@@ -1617,7 +1562,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly node: EditorWorldRect
     readonly preview: EditorWorldRect
     readonly media: NodePreview & { readonly kind: 'video' | 'audio' | 'model3d'; readonly src: string }
-    readonly assetReader?: PreviewSource['assetReader']
     readonly onMediaError?: () => void
   }[]>([])
   const [activeCanvasMedia, setActiveCanvasMedia] = createSolidSignal<ReadonlySet<string>>(new Set())
@@ -1741,7 +1685,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   })
 
   const [editor, setEditor] = createSolidSignal<WidgetEditorState | undefined>(undefined)
-  const editorRestoresCanvasFocus = (state: WidgetEditorState): boolean => state.spec?.widgetType !== 'ASSET'
   let editorDocumentRevision: number | undefined
   let editorExtensionsGeneration: number | undefined
   // Reduce the open widget editor to app-level focus facts for the Context
@@ -1781,12 +1724,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly inputId: string
     readonly mode: ControllerMode
     readonly trigger: 'after_generate' | 'after_refresh'
-    readonly lifetime: object
-    readonly refusal: Diagnostic | undefined
   }
   const [controllerMenu, setControllerMenu] = createSolidSignal<ControllerMenuState | undefined>(undefined)
-  const [pendingController, setPendingController] = createSolidSignal<object | undefined>(undefined)
-  onCleanup(() => setControllerMenu(undefined))
   let controllerMenuEl!: HTMLDivElement
   createEffect(() => {
     const menu = controllerMenu()
@@ -1822,34 +1761,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
     })
   })
-  const commitControllerMode = async (
-    controller: ControllerMenuState,
+  const commitControllerMode = (
+    controller: Pick<ControllerMenuState, 'tab' | 'graphId' | 'nodeId' | 'inputId'>,
     mode: ControllerMode,
-  ): Promise<void> => {
+  ): boolean => {
     // The compact canvas-row menu is the sole controller surface. Refuse
     // when the tab object that opened it is gone.
-    if (!props.app.tabs.get().includes(controller.tab) || pendingController() === controller.lifetime) return
-    const store = controller.tab.store
-    const stack = controller.tab.graphStack.get()
-    const path = controller.tab.instancePath.get()
-    const isCurrent = () => controllerMenu()?.lifetime === controller.lifetime &&
-      activeTab() === controller.tab && controller.tab.store === store &&
-      controller.tab.graphStack.get() === stack && controller.tab.instancePath.get() === path
-    setPendingController(controller.lifetime)
-    setControllerMenu((current) => current?.lifetime === controller.lifetime ? { ...current, refusal: undefined } : current)
-    try {
-      const outcome = await props.app.dispatchTo(controller.tab, { command: 'node.setController', params: {
-        graphId: controller.graphId,
-        nodeId: controller.nodeId,
-        inputId: controller.inputId,
-        mode,
-      } })
-      if (!isCurrent()) return
-      if (outcome.ok) setControllerMenu(undefined)
-      else setControllerMenu((current) => current === undefined ? current : { ...current, refusal: outcome.diagnostics[0] })
-    } finally {
-      if (pendingController() === controller.lifetime) setPendingController(undefined)
-    }
+    if (!props.app.tabs.get().includes(controller.tab)) return false
+    const outcome = props.app.dispatchTo(controller.tab, { command: 'node.setController', params: {
+      graphId: controller.graphId,
+      nodeId: controller.nodeId,
+      inputId: controller.inputId,
+      mode,
+    } })
+    return outcome.ok
   }
   const [selectionSize, setSelectionSize] = createSolidSignal(0)
   const [linkSelectionSize, setLinkSelectionSize] = createSolidSignal(0)
@@ -1941,9 +1866,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // Opened by clicking a node header badge (error chip, subgraph marker).
   // Anchored in canvas-pane CSS px; content resolves lazily at render.
   const [badgePopover, setBadgePopover] = createSolidSignal<
-    (BadgeAnchor & { readonly owner: string; readonly lifetime: object }) | undefined
+    (BadgeAnchor & { readonly owner: string }) | undefined
   >(undefined)
-  let pendingReplacement: object | undefined
 
   /** Current graph's document problem content, keyed independently of runtime errors. */
   let nodeProblems: NodeProblemMap = {}
@@ -2043,15 +1967,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }
   const [netPrompt, setNetPrompt] = createSolidSignal<NetPromptState | undefined>(undefined)
 
-  const netPromptCommit = (name: string): CommandOutcome | Promise<CommandOutcome> | undefined => {
+  const netPromptCommit = (name: string): void => {
     const p = netPrompt()
+    setNetPrompt(undefined)
     const tab = activeTab()
     if (!p || !tab || tab.execution) return
     const trimmed = name.trim()
     if (trimmed.length === 0) return
     const graphId = currentGraphId(tab)
     if (p.mode === 'create' && p.source) {
-      return props.app.dispatchTo(tab, {
+      props.app.dispatchTo(tab, {
         command: 'net.create',
         params: {
           graphId,
@@ -2064,7 +1989,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         },
       })
     } else if (p.mode === 'rename' && p.netId !== undefined) {
-      return props.app.dispatchTo(tab, { command: 'net.rename', params: { graphId, netId: p.netId, name: trimmed } })
+      props.app.dispatchTo(tab, { command: 'net.rename', params: { graphId, netId: p.netId, name: trimmed } })
     }
   }
 
@@ -2078,13 +2003,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }
   const [groupPrompt, setGroupPrompt] = createSolidSignal<GroupPromptState | undefined>(undefined)
 
-  const groupPromptCommit = (title: string): CommandOutcome | Promise<CommandOutcome> | undefined => {
+  const groupPromptCommit = (title: string): void => {
     const p = groupPrompt()
+    setGroupPrompt(undefined)
     const tab = activeTab()
     if (!p || !tab || tab.execution) return
     const trimmed = title.trim()
     if (trimmed.length === 0) return
-    return props.app.dispatchTo(tab, {
+    props.app.dispatchTo(tab, {
       command: 'view.setGroupTitle',
       params: { graphId: currentGraphId(tab), groupId: p.groupId, title: trimmed },
     })
@@ -2103,11 +2029,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }
   const [nodePrompt, setNodePrompt] = createSolidSignal<NodePromptState | undefined>(undefined)
 
-  const nodePromptCommit = (title: string): CommandOutcome | Promise<CommandOutcome> | undefined => {
+  const nodePromptCommit = (title: string): void => {
     const p = nodePrompt()
+    setNodePrompt(undefined)
     if (!p || activeTab() !== p.tab || p.tab.execution || currentGraphId(p.tab) !== p.graphId) return
     const invocation = nodeTitleInvocation(p.graphId, p.nodeId, title, p.originalTitle)
-    if (invocation) return props.app.dispatchTo(p.tab, invocation)
+    if (invocation) props.app.dispatchTo(p.tab, invocation)
   }
 
   // -- selector rename prompt -------------------------------------------------
@@ -2120,13 +2047,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }
   const [selectorPrompt, setSelectorPrompt] = createSolidSignal<SelectorPromptState | undefined>(undefined)
 
-  const selectorPromptCommit = (title: string): CommandOutcome | Promise<CommandOutcome> | undefined => {
+  const selectorPromptCommit = (title: string): void => {
     const p = selectorPrompt()
+    setSelectorPrompt(undefined)
     const tab = activeTab()
     if (!p || !tab || tab.execution) return
     const trimmed = title.trim()
     if (trimmed.length === 0) return
-    return props.app.dispatchTo(tab, {
+    props.app.dispatchTo(tab, {
       command: 'selector.setTitle',
       params: { graphId: currentGraphId(tab), selectorId: p.selectorId, title: trimmed },
     })
@@ -2145,11 +2073,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [boundaryPrompt, setBoundaryPrompt] = createSolidSignal<BoundaryPromptState | undefined>(undefined)
   let lifecycleSelectNodes: ((ids: readonly string[]) => void) | undefined
 
-  const boundaryPromptCommit = (name: string): CommandOutcome | Promise<CommandOutcome> | undefined => {
+  const boundaryPromptCommit = (name: string): void => {
     const p = boundaryPrompt()
+    setBoundaryPrompt(undefined)
     const tab = activeTab()
     if (!p || !tab || tab.execution) return
-    return props.app.dispatchTo(tab, {
+    props.app.dispatchTo(tab, {
       command: 'boundary.renameItem',
       params: { graphId: currentGraphId(tab), side: p.side, itemId: p.itemId, displayName: name.trim() },
     })
@@ -2158,7 +2087,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // Tab or graph navigation dismisses any pending name editors: the prompts
   // are anchored to a menu position that no longer means anything.
   createEffect(() => {
-    activeTab()
+    activeTabId()
     stack()
     setNetPrompt(undefined)
     setGroupPrompt(undefined)
@@ -2234,17 +2163,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [previewTick, setPreviewTick] = createSolidSignal(0)
   const previewLoader = createPreviewLoader({
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
-    executionAssetReader: (execution, digests) => props.app.executionAssetReader(execution, digests),
     readFile3dAsset: (ref, asset, signal) => props.app.readFile3dAssetForExecution(ref, asset, signal),
     assetUrlForInput: (digest) => {
       const tab = activeTab()
       if (tab === undefined) return undefined
       const backend = props.app.backendForTab(tab)
       return backend.protocol === 'dinkster' ? backend.connection.assetUrl(digest) : undefined
-    },
-    inputAssetReader: (digest) => {
-      const tab = activeTab()
-      return tab === undefined ? undefined : props.app.workflowAssetReader(tab, digest)
     },
     onDecoded: () => setPreviewTick((v) => v + 1),
     validateMediaRendition: validateBrowserMediaRendition,
@@ -2747,41 +2671,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const tab = activeTab()
       return tab !== undefined && isFlattenSelection(tab.store.doc, currentGraphId(tab), [...controller.getSelection()], lifecycleOtherSelectionCount(controller))
     }
-    const captureLifecycleTarget = (tab: Tab, graphId: string) => {
-      const store = tab.store
-      const stack = tab.graphStack.get()
-      const path = tab.instancePath.get()
-      const select = lifecycleSelectNodes
-      let changedTab = false
-      const unsubscribe = props.app.activeTabId.subscribe(() => { changedTab = true })
-      const isCurrent = () => !changedTab && select !== undefined && lifecycleSelectNodes === select && activeTab() === tab && tab.store === store &&
-        tab.graphStack.get() === stack && tab.instancePath.get() === path && currentGraphId(tab) === graphId
-      return {
-        isCurrent,
-        selectNodes: (nodeIds: readonly string[]) => { if (isCurrent()) select!(nodeIds) },
-        dispose: unsubscribe,
-      }
+    const createRegionAt = (tab: Tab, graphId: string, position: { x: number; y: number }, kind: RegionKind): boolean => {
+      return commitRegionCreation(props.app, tab, graphId, position, kind, (occurrenceNodeId) => {
+        if (activeTab() === tab && currentGraphId(tab) === graphId) controller.setSelection([occurrenceNodeId])
+      }).ok
     }
-    const dispatchGesture = async (tab: Tab, invocation: CommandInvocation): Promise<CommandOutcome> => {
-      const target = captureLifecycleTarget(tab, currentGraphId(tab))
-      try {
-        const outcome = await props.app.dispatchTo(tab, invocation)
-        if (!outcome.ok && target.isCurrent()) showGestureRefusal(outcome.diagnostics)
-        return outcome
-      } finally {
-        target.dispose()
-      }
-    }
-    const createRegionAt = async (tab: Tab, graphId: string, position: { x: number; y: number }, kind: RegionKind): Promise<boolean> => {
-      const target = captureLifecycleTarget(tab, graphId)
-      try {
-        const outcome = await commitRegionCreation(props.app, tab, graphId, position, kind, (occurrenceNodeId) => target.selectNodes([occurrenceNodeId]))
-        return outcome.ok
-      } finally {
-        target.dispose()
-      }
-    }
-    const beginExtractSubgraph = async (): Promise<boolean> => {
+    const beginExtractSubgraph = (): boolean => {
       const tab = activeTab()
       const reg = tab ? props.app.registryForTab(tab) : undefined
       if (!tab || tab.execution || !reg || !canExtractSubgraph()) return false
@@ -2795,52 +2690,38 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         report: (diagnostic) => reportGestureRefusal(tab.id, [diagnostic]),
       })
       if (invocation === undefined) return false
-      const target = captureLifecycleTarget(tab, graphId)
-      try {
-        const result = await commitExtract({
-          invocation,
-          beforeNodeIds: new Set(Object.keys(tab.store.doc.graphs[graphId]?.nodes ?? {})),
-          graphId,
-          dispatch: async (command) => {
-            const outcome = await props.app.dispatchTo(tab, command)
-            if (!outcome.ok && target.isCurrent()) showGestureRefusal(outcome.diagnostics)
-            return outcome
-          },
-        })
-        if (result.status === 'committed') target.selectNodes(result.selectedNodeIds)
-        return result.status === 'committed'
-      } finally {
-        target.dispose()
-      }
+      const result = commitExtract({
+        invocation,
+        beforeNodeIds: new Set(Object.keys(tab.store.doc.graphs[graphId]?.nodes ?? {})),
+        graphId,
+        dispatch: (command) => dispatchGesture(tab, command),
+      })
+      if (result.status === 'committed') lifecycleSelectNodes?.(result.selectedNodeIds)
+      return true
     }
-    const flattenSelectedSubgraph = async (): Promise<boolean> => {
+    const flattenSelectedSubgraph = (): boolean => {
       const tab = activeTab()
       const reg = tab ? props.app.registryForTab(tab) : undefined
       const graphId = tab ? currentGraphId(tab) : ''
       const nodeId = [...controller.getSelection()][0]
       if (!tab || tab.execution || !reg || !nodeId || !canFlattenSubgraph()) return false
       const occurrenceNode = scene.nodes.find((node) => node.id === nodeId)
-      const target = captureLifecycleTarget(tab, graphId)
-      try {
-        return await flattenSubgraphThroughBridge({
-          document: tab.store.doc,
-          graphId,
-          instancePath: viewInstancePath(tab) ?? [],
-          nodeId,
-          occurrence: occurrenceNode === undefined
-            ? undefined
-            : { id: nodeId, kind: 'node', x: occurrenceNode.x, y: occurrenceNode.y, width: occurrenceNode.layout.width, height: occurrenceNode.layout.height },
-          resolveSchema: reg.resolve,
-          seedControllerEnabled: props.app.settings.get<boolean>('features.seedController.enabled'),
-          measure,
-          widgetMeasure,
-          report: (diagnostic) => { if (target.isCurrent()) reportGestureRefusal(tab.id, [diagnostic]) },
-          dispatch: (invocation) => props.app.dispatchTo(tab, invocation),
-          selectNodes: target.selectNodes,
-        })
-      } finally {
-        target.dispose()
-      }
+      return flattenSubgraphThroughBridge({
+        document: tab.store.doc,
+        graphId,
+        instancePath: viewInstancePath(tab) ?? [],
+        nodeId,
+        occurrence: occurrenceNode === undefined
+          ? undefined
+          : { id: nodeId, kind: 'node', x: occurrenceNode.x, y: occurrenceNode.y, width: occurrenceNode.layout.width, height: occurrenceNode.layout.height },
+        resolveSchema: reg.resolve,
+        seedControllerEnabled: props.app.settings.get<boolean>('features.seedController.enabled'),
+        measure,
+        widgetMeasure,
+        report: (diagnostic) => reportGestureRefusal(tab.id, [diagnostic]),
+        dispatch: (invocation) => tab.store.dispatch(invocation),
+        selectNodes: (nodeIds) => controller.setSelection(nodeIds),
+      })
     }
     const widgetExposureItem = (
       tab: Tab,
@@ -3116,8 +2997,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const rect = canvasEl.getBoundingClientRect()
         props.tooltips?.hide()
         setControllerMenu({
-          lifetime: {},
-          refusal: undefined,
           x: screenX - rect.left,
           y: screenY - rect.top + 8,
           tab,
@@ -3136,7 +3015,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setMenu(undefined)
         const vp = renderer.getViewport()
         setBadgePopover({
-          lifetime: {},
           owner: JSON.stringify([tab.id, tab.store.doc.lineage, currentGraphId(tab), viewInstancePath(tab)]),
           x: rect.x * vp.scale + vp.x,
           y: (rect.y + rect.height) * vp.scale + vp.y + 6,
@@ -3650,7 +3528,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
 
     /** Delete the current selection; net noodles delete as SINK removals. */
-    async function deleteSelection(): Promise<void> {
+    function deleteSelection(): void {
       const tab = activeTab()
       if (!tab) return
       const selectedItems = [...controller.getSelection()]
@@ -3704,24 +3582,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           )])
           return
         }
-        const target = captureLifecycleTarget(tab, currentGraphId(tab))
-        const selectionVersion = selVersion()
-        try {
-          const outcome = await dispatchOccurrenceIntention({
-            document: tab.store.doc,
-            resolver: documentResolver(tab.store.doc, props.app.registryForTab(tab)!.resolve),
-            intention: {
-              kind: 'disconnect', owner: scene.occurrence.owner,
-              bodyGraph: scene.occurrence.bodyGraph, link: decision.identity,
-            },
-            planner: occurrencePlanner(),
-            dispatch: (invocation) => dispatchGesture(tab, invocation),
-            report: (diagnostics) => reportGestureRefusal(tab.id, diagnostics),
-          })
-          if (outcome.ok && selVersion() === selectionVersion) target.selectNodes(preservedBoundarySelection)
-        } finally {
-          target.dispose()
-        }
+        const outcome = dispatchOccurrenceIntention({
+          document: tab.store.doc,
+          resolver: documentResolver(tab.store.doc, props.app.registryForTab(tab)!.resolve),
+          intention: {
+            kind: 'disconnect', owner: scene.occurrence.owner,
+            bodyGraph: scene.occurrence.bodyGraph, link: decision.identity,
+          },
+          planner: occurrencePlanner(),
+          dispatch: (invocation) => dispatchGesture(tab, invocation),
+          report: (diagnostics) => reportGestureRefusal(tab.id, diagnostics),
+        })
+        if (outcome.ok) controller.setSelection(preservedBoundarySelection)
         return
       }
       const invocation = selectionDeleteInvocation({
@@ -3730,14 +3602,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         rerouteIds, valueSourceIds, selectorIds, groupIds, selectedNetViews,
       })
       if (invocation === undefined) return
-      const target = captureLifecycleTarget(tab, currentGraphId(tab))
-      const selectionVersion = selVersion()
-      try {
-        const outcome = await dispatchGesture(tab, invocation)
-        if (outcome.ok && selVersion() === selectionVersion) target.selectNodes(preservedBoundarySelection)
-      } finally {
-        target.dispose()
-      }
+      props.app.dispatchTo(tab, invocation)
+      controller.setSelection(preservedBoundarySelection)
     }
 
     function toggleSelectedNodes(tab: Tab, selectedIds: readonly string[]): void {
@@ -4006,7 +3872,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           resolveType: () => ownerRegistry?.resolve,
           connect: (nodeId, schema) =>
             p.linkDrop !== undefined ? linkDropInvocations(p.linkDrop, graphId, nodeId, schema) : [],
-          dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
+          dispatch: (invocation) => props.app.dispatchTo(tab, invocation).ok,
           onInserted: (nodeId) => {
             if (activeTab() === tab) controller.setSelection([nodeId])
           },
@@ -4022,11 +3888,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     clearPaletteGhost = () => controller.setPaletteGhost(undefined)
 
-    const commitPaletteEntry = async (
+    const commitPaletteEntry = (
       entry: PaletteEntry,
       p: PaletteAnchor,
       owner?: { readonly tab: Tab; readonly graphId: string },
-    ): Promise<void> => {
+    ): void => {
       const tab = owner?.tab ?? activeTab()
       if (!tab) return
       const graphId = owner?.graphId ?? currentGraphId(tab)
@@ -4076,23 +3942,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const connect = p.splice !== undefined && schema !== undefined
         ? linkSpliceInvocations(graphId, expectedId, schema, p.splice)
         : p.linkDrop !== undefined ? linkDropInvocations(p.linkDrop, graphId, expectedId, schema) : []
-      const target = captureLifecycleTarget(tab, graphId)
-      const selectionVersion = selVersion()
-      try {
-        const outcome = await props.app.dispatchTo(
-          tab,
-          connect.length === 0
-            ? addInvocation
-            : { command: 'batch', params: { invocations: [addInvocation, ...connect] } as unknown as Json },
-        )
-        if (outcome.ok && selVersion() === selectionVersion && tab.store.doc.graphs[graphId]?.nodes[expectedId] !== undefined) {
-          target.selectNodes([expectedId])
-        } else if (!outcome.ok && target.isCurrent()) {
-          showGestureRefusal(outcome.diagnostics)
-        }
-      } finally {
-        target.dispose()
-      }
+      const outcome = props.app.dispatchTo(
+        tab,
+        connect.length === 0
+          ? addInvocation
+          : { command: 'batch', params: { invocations: [addInvocation, ...connect] } as unknown as Json },
+      )
+      if (outcome.ok) controller.setSelection([expectedId])
     }
 
     paletteCommit = (entry: PaletteEntry, placement?: PaletteAnchor): void => {
@@ -4121,7 +3977,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         armPaletteEntry(entry)
         return
       }
-      void commitPaletteEntry(entry, p)
+      commitPaletteEntry(entry, p)
     }
 
     // Test bridge: perf/interaction specs drive the focused pane directly.
@@ -4321,17 +4177,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ed!.tab = tab
         editorDocumentRevision = tab.store.revision
         editorExtensionsGeneration = extensionsGeneration
-      } else {
-        // A successful commit can invalidate its own draft before dispatch
-        // returns. Restore focus here without reviving the disposed editor.
-        const restoreFocus = ed !== undefined && ed.tab.id === tab.id && ed.graphId === graphId &&
-          untrack(hostFocused) && editorRestoresCanvasFocus(ed) && (document.activeElement === document.body ||
-            Boolean(canvasEl.parentElement?.querySelector('.widget-popover-layer')?.contains(document.activeElement)))
-        setEditor(undefined)
-        if (restoreFocus) queueMicrotask(() => {
-          if (untrack(editor) === undefined && document.activeElement === document.body) canvasEl.focus()
-        })
-      }
+      } else setEditor(undefined)
       const openMenu = untrack(menu)
       // Menu items are a semantic snapshot: they also go stale when the
       // drilled occurrence, an extension gate, or a diagnostic focus plan
@@ -4375,26 +4221,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const link = scene.links.find((candidate) => candidate.id === focusPlan.linkId)
         if (node) {
           controller.setSelection([node.id])
-          const input = focusRequest?.openAssetInput
-          const row = input === undefined ? undefined : node.layout.rows.find((candidate) =>
-            candidate.kind === 'widget' && candidate.valueKey === input)
-          if (input !== undefined && hostFocused()) {
-            const snapshot = tab.store.doc
-            queueMicrotask(() => {
-              if (!canvasEl.isConnected || activeTab() !== tab || tab.store.doc !== snapshot || currentGraphId(tab) !== graphId ||
-                  props.app.diagnosticFocus.get() !== undefined) return
-              if (row?.kind !== 'widget' || !isAssetWidgetInput({ widget: row.spec }) || tab.execution ||
-                  (row.selector === undefined && companionInputs.get(node.id)?.has(row.address.port))) {
-                reportGestureRefusal(tab.id, [diag('warning', 'validation', 'asset.replacement.unavailable',
-                  message('problems.assetReplacementUnavailable'))])
-                return
-              }
-              openWidgetEditor({
-                kind: 'widget', node, row, x: node.x + row.inset, y: node.y + row.y,
-                width: node.layout.width - row.inset * 2, height: row.height, localX: 0, localY: 0,
-              }, focusRequest?.missingAssetDigest)
-            })
-          }
           camera.animateTo(viewportCenteredOnNode(
             renderer.getViewport(),
             { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
@@ -4573,7 +4399,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ? new Set(props.app.scanTabReplacements(tab).filter((item) => item.graphId === gid).map((item) => item.nodeId))
           : undefined,
         retainedRuntimeIds: retained?.retainedRuntimeIds,
-        executionOwners: retained?.executionOwners,
         nodeProblems,
         ...(() => {
           const dismissed = exec === undefined ? undefined : dismissedErrorNodes().get(exec.key)
@@ -4766,7 +4591,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               node: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
               preview: mediaRect,
               media: media as NodePreview & { readonly kind: 'video' | 'audio' | 'model3d'; readonly src: string },
-              ...(source?.assetReader === undefined ? {} : { assetReader: source.assetReader }),
               ...(source === undefined ? {} : { onMediaError: () => previewLoader.markUnavailable?.(source) }),
             }]
           : []
@@ -4947,7 +4771,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     // -- widget editor overlay ----------------------------------------------
 
-    function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>, missingAssetDigest?: string): void {
+    function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>): void {
       const tab = activeTab()
       if (!tab || tab.execution) return // frozen views are read-only
       const graphId = currentGraphId(tab)
@@ -4966,7 +4790,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // stored value underneath. The exact envelope -> curve editor relation
       // instead opens a read-only view of the executed curve. Selector rows
       // keep their own value channel and are never driven.
-      if (hit.row.selector === undefined && companionInputs.get(nodeId)?.has(hit.row.address.port) && curveTarget?.follow === undefined) return
+      if (hit.row.selector === undefined && companionInputs.get(nodeId)?.has(hit.row.valueKey) && curveTarget?.follow === undefined) return
       const editorRole = (registry()?.resolve(hit.node.node.type) as { readonly editorRole?: string } | undefined)?.editorRole
       const valueType = canonicalTypeIdOf(hit.row.type)
       if (props.app.openEditorForBinding(tab.id, {
@@ -5100,7 +4924,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           height: hit.height,
         },
         initial: widgetKind === undefined ? JSON.stringify(value, null, 2) : value,
-        ...(missingAssetDigest === undefined ? {} : { missingAssetDigest }),
         ...(descriptors !== undefined ? { outputDescriptors: {
           spec: descriptors,
           asset: outputDescriptorAssetOf(descriptors, descriptorValues),
@@ -5516,7 +5339,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           upload: (body) => existing ? Promise.resolve(existing) : backend.protocol === 'dinkster'
             ? backend.connection.uploadLatentAsset(body, { scope: 'local', name: 'dropped-latent.latent', signal: abort.signal })
             : Promise.reject(new Error('latent upload requires a Dinkster backend')),
-          dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
+          dispatch: (invocation) => props.app.dispatchTo(tab, invocation).ok,
           onInserted: (nodeId) => { if (activeTab() === tab) controller.setSelection([nodeId]) },
         })
         const reportable = ownerLive()
@@ -5590,7 +5413,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             )
             return uploaded
           },
-          dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
+          dispatch: (invocation) => props.app.dispatchTo(tab, invocation).ok,
           onInserted: (nodeId) => { if (activeTab() === tab) controller.setSelection([nodeId]) },
         })
         const reportable = ownerLive()
@@ -5805,14 +5628,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       })
       const text = JSON.stringify(envelope)
       clipboardFallback = text
-      const ownership = props.app.retainClipboardAssets(tab, text)
-      void ownership.then((accepted) => {
-        if (!accepted && clipboardFallback === text) {
-          clipboardFallback = undefined
-          clipboardScopes.delete(scopeToken)
-        }
-      })
-      await writeClipboardText((value) => navigator.clipboard.writeText(value), text, ownership)
+      await writeClipboardText((value) => navigator.clipboard.writeText(value), text)
     }
 
     const pasteSelection = async (
@@ -5869,7 +5685,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           currentGraphId: () => currentGraphId(tab),
           graphStillOwned: () => !graphRetired,
           doc: () => tab.store.doc,
-          dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
+          dispatch: (invocation) => props.app.dispatchTo(tab, invocation).ok,
           onPasted: (nodeIds, rerouteIds) => {
             if (activeTab() === tab) controller.setSelection([...nodeIds], [], [...rerouteIds])
           },
@@ -6082,7 +5898,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (armed) queueMicrotask(() => canvasEl.focus())
         return armed
       },
-      createEmptySubgraph: async (position) => {
+      createEmptySubgraph: (position) => {
         const tab = activeTab()
         if (!tab || frozen()) return false
         const vp = renderer.getViewport()
@@ -6090,7 +5906,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           x: (canvasEl.clientWidth / 2 - vp.x) / vp.scale,
           y: (canvasEl.clientHeight / 2 - vp.y) / vp.scale,
         }
-        return (await props.app.createEmptySubgraph(tab, currentGraphId(tab), center)).ok
+        return props.app.createEmptySubgraph(tab, currentGraphId(tab), center).ok
       },
       createRegion: (kind, position) => {
         const tab = activeTab()
@@ -6142,7 +5958,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
       const topLeft = titleCenteredPlacement(pointer, placement.geometry)
       clearArmedPlacement()
-      void commitPaletteEntry(placement.entry, {
+      commitPaletteEntry(placement.entry, {
         x: event.clientX - rect.left,
         y: event.clientY - rect.top,
         worldX: topLeft.x,
@@ -6411,7 +6227,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               <NodeMediaOverlay
                 ownerId={id}
                 media={currentItem().media as NodePreview & { readonly kind: 'video' | 'audio'; readonly src: string }}
-                assetReader={currentItem().assetReader}
                 rect={projected()!}
                 scale={editorViewport().scale}
                 canvas={canvasEl}
@@ -6431,7 +6246,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               <NodeModel3dOverlay
                 ownerId={id}
                 media={currentItem().media as NodePreview & { readonly kind: 'model3d'; readonly src: string }}
-                assetReader={currentItem().assetReader}
                 rect={projected()!}
                 scale={editorViewport().scale}
                 canvas={canvasEl}
@@ -6588,7 +6402,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               data-testid="seed-controller-menu"
               style={{ left: `${menu().x}px`, top: `${menu().y}px` }}
               role="menu"
-              aria-busy={pendingController() === menu().lifetime}
             >
               <div class="seed-controller-title">After {menu().trigger === 'after_refresh' ? 'refresh' : 'generate'}</div>
               <For each={[
@@ -6609,10 +6422,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                     type="button"
                     role="menuitemradio"
                     aria-checked={menu().mode === option.mode}
-                    class={`seed-controller-option${menu().mode === option.mode ? ' selected' : ''}`}
+                    classList={{ 'seed-controller-option': true, selected: menu().mode === option.mode }}
                     data-testid={`seed-controller-${option.mode}`}
-                    disabled={pendingController() === menu().lifetime}
-                    onClick={() => { void commitControllerMode(menu(), option.mode) }}
+                    onClick={() => {
+                      commitControllerMode(menu(), option.mode)
+                      setControllerMenu(undefined)
+                    }}
                   >
                     <Icon icon={option.icon} />
                     <span><strong>{option.label}</strong><small>{option.description}</small></span>
@@ -6620,11 +6435,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   </ProductButton>
                 )}
               </For>
-              <Show when={menu().refusal} keyed>
-                {(refusal) => <ProductNotice tone="error" testId="controller-refusal">
-                  <strong>{refusal.code}</strong>: {refusal.message}
-                </ProductNotice>}
-              </Show>
             </div>
           </div>
         )}
@@ -6727,7 +6537,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             <ProductButton size="compact"
               class="banner-button"
               data-testid="sync-chip-open"
-              onClick={() => { void props.app.openExecutionView(s().ref) }}
+              onClick={() => props.app.openExecutionView(s().ref)}
             >
               View Frozen
             </ProductButton>
@@ -6825,21 +6635,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             problems={problemMessages}
             subgraphInfo={subgraphInfoFor}
             deprecationInfo={deprecationInfoFor}
-            onApplyReplacement={async (nodeId) => {
+            onApplyReplacement={(nodeId) => {
               const tab = activeTab()
-              const anchor = badgePopover()
-              if (!tab || !anchor || !reviewReplacements() || pendingReplacement === anchor.lifetime) return
-              const item = props.app.scanTabReplacements(tab).find((item) => item.graphId === currentGraphId(tab) && item.nodeId === nodeId)
-              if (!item) return
-              const store = tab.store
-              pendingReplacement = anchor.lifetime
-              try {
-                if (await props.app.applyReplacements(tab, [item]) && activeTab() === tab && tab.store === store && badgePopover()?.lifetime === anchor.lifetime) {
-                  setBadgePopover(undefined)
-                }
-              } finally {
-                if (pendingReplacement === anchor.lifetime) pendingReplacement = undefined
+              if (tab && reviewReplacements()) {
+                const item = props.app.scanTabReplacements(tab).find((item) => item.graphId === currentGraphId(tab) && item.nodeId === nodeId)
+                if (item) props.app.applyReplacements(tab, [item])
               }
+              setBadgePopover(undefined)
             }}
             onOpenSubgraph={openSubgraphFromPopover}
             onClose={() => setBadgePopover(undefined)}
@@ -6976,70 +6778,70 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         )}
       </Show>
 
-      <Show when={netPrompt()} keyed>
+      <Show when={netPrompt()}>
         {(p) => (
           <NamePrompt
-            x={p.x}
-            y={p.y}
+            x={p().x}
+            y={p().y}
             testid="net-prompt"
-            placeholder={p.mode === 'create' ? 'Net name...' : 'New net name...'}
-            initial={p.initial}
+            placeholder={p().mode === 'create' ? 'Net name...' : 'New net name...'}
+            initial={p().initial}
             onCommit={netPromptCommit}
             onCancel={() => setNetPrompt(undefined)}
           />
         )}
       </Show>
 
-      <Show when={groupPrompt()} keyed>
+      <Show when={groupPrompt()}>
         {(p) => (
           <NamePrompt
-            x={p.x}
-            y={p.y}
+            x={p().x}
+            y={p().y}
             testid="group-prompt"
             placeholder="Group title..."
-            initial={p.initial}
+            initial={p().initial}
             onCommit={groupPromptCommit}
             onCancel={() => setGroupPrompt(undefined)}
           />
         )}
       </Show>
 
-      <Show when={nodePrompt()} keyed>
+      <Show when={nodePrompt()}>
         {(p) => (
           <NamePrompt
-            x={p.x}
-            y={p.y}
+            x={p().x}
+            y={p().y}
             testid="node-prompt"
             placeholder="Node title..."
-            initial={p.initial}
+            initial={p().initial}
             onCommit={nodePromptCommit}
             onCancel={() => setNodePrompt(undefined)}
           />
         )}
       </Show>
 
-      <Show when={selectorPrompt()} keyed>
+      <Show when={selectorPrompt()}>
         {(p) => (
           <NamePrompt
-            x={p.x}
-            y={p.y}
+            x={p().x}
+            y={p().y}
             testid="selector-prompt"
             placeholder="Selector title..."
-            initial={p.initial}
+            initial={p().initial}
             onCommit={selectorPromptCommit}
             onCancel={() => setSelectorPrompt(undefined)}
           />
         )}
       </Show>
 
-      <Show when={boundaryPrompt()} keyed>
+      <Show when={boundaryPrompt()}>
         {(p) => (
           <NamePrompt
-            x={p.x}
-            y={p.y}
+            x={p().x}
+            y={p().y}
             testid="boundary-prompt"
-            placeholder={`${p.itemId} (empty resets)`}
-            initial={p.initial}
+            placeholder={`${p().itemId} (empty resets)`}
+            initial={p().initial}
             onCommit={boundaryPromptCommit}
             onCancel={() => setBoundaryPrompt(undefined)}
           />
@@ -7058,7 +6860,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             onAssetBackdropPointerDown={(event) => openAssetWidgetAt(event.clientX, event.clientY)}
             onClose={() => {
               setEditor(undefined)
-              if (editorRestoresCanvasFocus(ed)) queueMicrotask(() => canvasEl.focus())
+              if (ed.spec?.widgetType !== 'ASSET') queueMicrotask(() => canvasEl.focus())
             }}
           />
         )}

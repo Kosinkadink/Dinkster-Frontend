@@ -1,14 +1,12 @@
 // @vitest-environment happy-dom
 
 import { render } from 'solid-js/web'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { asConnectionId, asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, EMPTY_COMPOSITOR_RECIPE, registerCatalog, setLocale, type DinksterNodesPayload, type Json } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { CompositorEditor } from '../src/CompositorEditor.js'
-import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 
-const apps: AppState[] = []
 const assetDigest = `blake3:${'a'.repeat(64)}`
 const transform = (x: number, y: number, width: number, height: number) => ({
   a: 1_000_000, b: 0, c: 0, d: 1_000_000, tx: x * 1_000_000, ty: y * 1_000_000,
@@ -53,29 +51,27 @@ const payload = {
   },
 } as unknown as DinksterNodesPayload
 
-async function mount(options: {
+function mount(options: {
   readonly storedValue?: Json
   readonly previewState?: typeof state
-  readonly holdOwnership?: boolean
 } = {}) {
-  const app = prepareWorkflowApp(new AppState())
-  apps.push(app)
+  const app = new AppState()
   const tab = app.tabs.get()[0]!
   app.registry.set(buildDinksterRegistry(asConnectionId('local'), payload))
   const graphId = tab.store.doc.root
   const seedNodeIds = Object.keys(tab.store.doc.graphs[graphId]!.nodes)
-  if (seedNodeIds.length > 0 && !(await app.dispatchTo(tab, {
+  if (seedNodeIds.length > 0 && !app.dispatchTo(tab, {
     command: 'node.remove', params: { graphId, nodeIds: seedNodeIds },
-  })).ok) throw new Error('failed to clear compositor fixture graph')
+  }).ok) throw new Error('failed to clear compositor fixture graph')
   const before = new Set(Object.keys(tab.store.doc.graphs[graphId]!.nodes))
-  if (!(await app.dispatchTo(tab, {
+  if (!app.dispatchTo(tab, {
     command: 'node.add', params: { graphId, type: 'Compositor', position: { x: 20, y: 30 } },
-  })).ok) throw new Error('failed to add compositor fixture node')
+  }).ok) throw new Error('failed to add compositor fixture node')
   const nodeId = Object.keys(tab.store.doc.graphs[graphId]!.nodes).find((id) => !before.has(id))!
-  if (options.storedValue !== undefined && !(await app.dispatchTo(tab, {
+  if (options.storedValue !== undefined && !app.dispatchTo(tab, {
     command: 'node.setValue',
     params: { graphId, nodeId, inputId: 'recipe', value: options.storedValue },
-  })).ok) throw new Error('failed to store compositor fixture recipe')
+  }).ok) throw new Error('failed to store compositor fixture recipe')
   const target = app.compositorTargetForInput(tab, graphId, nodeId, 'recipe')!
   const compiled = app.compileTab(tab)
   if (!compiled?.ok) throw new Error(`failed to compile compositor fixture: ${JSON.stringify(compiled?.diagnostics)}`)
@@ -88,59 +84,21 @@ async function mount(options: {
     payload: options.previewState ?? state,
   })
   if (!app.openCompositorEditor(target)) throw new Error('failed to open compositor fixture')
-  let accept!: () => void
-  let refuse!: () => void
-  const acknowledgment = new Promise<void>((resolve, reject) => {
-    accept = resolve
-    refuse = () => reject(new Error('Editor ownership refused'))
-  })
-  if (options.holdOwnership) {
-    vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-      await acknowledgment
-      return { ...owner, ...declaration, revision: declaration.revision + 1 }
-    })
-    vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-  }
   const root = document.createElement('div')
   document.body.append(root)
   const dispose = render(() => <CompositorEditor app={app} />, root)
-  if (!options.holdOwnership) await vi.waitFor(() => expect(root.querySelectorAll('.compositor-layer-row')).toHaveLength(2))
-  return { app, tab, graphId, nodeId, root, dispose, accept, refuse }
+  return { app, tab, graphId, nodeId, root, dispose }
 }
 
 afterEach(() => {
-  for (const app of apps.splice(0)) app.dispose()
-  vi.restoreAllMocks()
   setLocale('en')
   document.body.replaceChildren()
   localStorage.clear()
 })
 
 describe('CompositorEditor', () => {
-  it.each(['accepted', 'refused'] as const)('waits for independent editor ownership: %s', async (mode) => {
-    const resourceDigest = `blake3:${'b'.repeat(64)}`
-    const mounted = await mount({ holdOwnership: true, previewState: { ...state, document: {
-      ...imageDocument, resources: { ...imageDocument.resources,
-        r3: { ...imageDocument.resources.r3, digest: resourceDigest } },
-    } } })
-    try {
-      await vi.waitFor(() => expect(mounted.app.connection.retainAssets).toHaveBeenCalledOnce())
-      expect(vi.mocked(mounted.app.connection.retainAssets).mock.calls[0]![1])
-        .toMatchObject({ complete: false, digests: [assetDigest, resourceDigest] })
-      expect(mounted.root.querySelectorAll('.compositor-layer-row')).toHaveLength(0)
-      if (mode === 'refused') mounted.refuse()
-      else mounted.accept()
-      if (mode === 'accepted') {
-        await vi.waitFor(() => expect(mounted.root.querySelectorAll('.compositor-layer-row')).toHaveLength(2))
-      } else {
-        await vi.waitFor(() => expect(mounted.root.textContent).toContain('Editor ownership refused'))
-        expect(mounted.root.querySelectorAll('.compositor-layer-row')).toHaveLength(0)
-      }
-    } finally { mounted.dispose() }
-  })
-
-  it('edits layer order and properties, then commits one exact atomic recipe', async () => {
-    const mounted = await mount()
+  it('edits layer order and properties, then commits one exact atomic recipe', () => {
+    const mounted = mount()
     expect(mounted.root.querySelectorAll('.compositor-layer-row')).toHaveLength(2)
     expect([...mounted.root.querySelectorAll<HTMLInputElement>('input')].some((input) => input.value === '320')).toBe(true)
     expect(mounted.root.textContent).toContain('Overlay')
@@ -166,7 +124,7 @@ describe('CompositorEditor', () => {
       .find((button) => button.textContent === 'Apply')!
     apply.click()
 
-    await vi.waitFor(() => expect(mounted.tab.store.revision).toBe(revision + 1))
+    expect(mounted.tab.store.revision).toBe(revision + 1)
     const value = mounted.tab.store.doc.graphs[mounted.graphId]!.nodes[mounted.nodeId]!.values['recipe'] as {
       version: number; documentDigest: string; commands: Json[]
     }
@@ -181,62 +139,18 @@ describe('CompositorEditor', () => {
       flipHorizontal: false, flipVertical: false, sourceWidth: 80, sourceHeight: 60,
     } })
     expect(value.commands.at(-1)).toEqual({ op: 'reorder', ids: ['l2', 'l0'] })
-    await vi.waitFor(() => expect(mounted.app.imageEditorTarget.get()).toBeUndefined())
+    expect(mounted.app.imageEditorTarget.get()).toBeUndefined()
     mounted.dispose()
     mounted.app.dispose()
   })
 
-  it.each([false, true])('waits for compositor result %s before closing and prevents duplicate apply', async (accepted) => {
-    const mounted = await mount()
-    const request = mounted.app.imageEditorTarget.get()
-    const dispatch = mounted.app.dispatchTo.bind(mounted.app)
-    let settle!: () => void
-    const pending = vi.spyOn(mounted.app, 'dispatchTo').mockImplementation((tab, invocation) =>
-      new Promise((resolve) => { settle = () => resolve(accepted ? dispatch(tab, invocation) : { ok: false, diagnostics: [] }) }) as never)
-    const apply = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Apply')!
-    apply.click()
-    expect(apply.disabled).toBe(true)
-    expect(mounted.app.imageEditorTarget.get()).toBe(request)
-    apply.click()
-    expect(pending).toHaveBeenCalledOnce()
-    settle()
-    await vi.waitFor(() => accepted
-      ? expect(mounted.app.imageEditorTarget.get()).toBeUndefined()
-      : expect(mounted.root.querySelector('[role="alert"]')).not.toBeNull())
-    if (!accepted) {
-      expect(mounted.app.imageEditorTarget.get()).toBe(request)
-      expect(apply.disabled).toBe(false)
-    }
-    mounted.dispose()
-    mounted.app.dispose()
-  })
-
-  it('keeps a replacement compositor free of an old apply refusal', async () => {
-    const mounted = await mount()
-    let settle!: () => void
-    vi.spyOn(mounted.app, 'dispatchTo').mockImplementation(() => new Promise((resolve) => {
-      settle = () => resolve({ ok: false, diagnostics: [] })
-    }) as never)
-    const apply = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Apply')!
-    apply.click()
-    const replacement = { ...mounted.app.imageEditorTarget.get()! }
-    mounted.app.imageEditorTarget.set(replacement)
-    settle()
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(mounted.app.imageEditorTarget.get()).toBe(replacement)
-    expect(mounted.root.querySelector('[role="alert"]')).toBeNull()
-    mounted.dispose()
-    mounted.app.dispose()
-  })
-
-  it('refuses an apply after the stored recipe changes concurrently', async () => {
-    const mounted = await mount()
+  it('refuses an apply after the stored recipe changes concurrently', () => {
+    const mounted = mount()
     const recipe = { version: 2, documentDigest: assetDigest, commands: [{ op: 'layer', id: 'l0', changes: { visible: false } }] }
-    expect((await mounted.app.dispatchTo(mounted.tab, {
+    expect(mounted.app.dispatchTo(mounted.tab, {
       command: 'node.setValue',
       params: { graphId: mounted.graphId, nodeId: mounted.nodeId, inputId: 'recipe', value: recipe },
-    })).ok).toBe(true)
+    }).ok).toBe(true)
     const apply = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')]
       .find((button) => button.textContent === 'Apply')!
     apply.click()
@@ -247,17 +161,17 @@ describe('CompositorEditor', () => {
     mounted.app.dispose()
   })
 
-  it('uses the runtime document when the stored delta is stale', async () => {
+  it('uses the runtime document when the stored delta is stale', () => {
     const saved = { version: 2, documentDigest: `blake3:${'b'.repeat(64)}`, commands: [] }
-    const mounted = await mount({ storedValue: saved, previewState: { ...state, stale: true } })
+    const mounted = mount({ storedValue: saved, previewState: { ...state, stale: true } })
     expect(mounted.root.textContent).toContain('Overlay')
     mounted.dispose()
     mounted.app.dispose()
   })
 
-  it('updates mounted host text when the locale changes and preserves catalog fallback', async () => {
+  it('updates mounted host text when the locale changes and preserves catalog fallback', () => {
     registerCatalog('de-DE', { 'compositor.layers.title': 'Ebenen' })
-    const mounted = await mount()
+    const mounted = mount()
     expect(mounted.root.textContent).toContain('Layers')
     expect(mounted.root.textContent).toContain('Apply')
 

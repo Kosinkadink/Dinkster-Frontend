@@ -39,7 +39,6 @@ import {
   hasPreviewSurface,
   inputsOf,
   isCanonicalUnsafeInteger,
-  type CommandOutcome,
   type ExposedParameter,
   type ExposedPreview,
   type Json,
@@ -101,63 +100,23 @@ function AppViewStringInput(props: {
   readonly value: string
   readonly multiline: boolean
   readonly ariaLabelledBy: string
-  readonly onCommit: (value: string, stillWanted: () => boolean) => Promise<boolean>
-  readonly onRevert: () => void
-  readonly onDraftActive: (active: boolean) => void
+  readonly onCommit: (value: string) => void
 }) {
   const [draft, setDraft] = createSolidSignal(props.value)
-  const [pending, setPending] = createSolidSignal(false)
   let dirty = false
-  let live = true
-  let generation = 0
-  let submitted: string | undefined
-  const setDirty = (value: boolean): void => {
-    if (dirty === value) return
-    dirty = value
-    props.onDraftActive(value)
-  }
-  onCleanup(() => { live = false; setDirty(false) })
   createEffect(() => {
     const value = props.value
     if (!dirty) setDraft(value)
   })
   const input = (value: string): void => {
-    setDirty(true)
-    submitted = undefined
+    dirty = true
     setDraft(value)
   }
-  const commit = async (value: string, explicit = false): Promise<void> => {
-    if (!live || pending()) return
+  const commit = (value: string): void => {
     if (value !== draft()) input(value)
     if (!dirty) return
-    if (!explicit && submitted === value) return
-    if (value === props.value) {
-      setDirty(false)
-      return
-    }
-    const current = ++generation
-    submitted = value
-    setPending(true)
-    try {
-      const accepted = await props.onCommit(value, () => live && current === generation)
-      if (live && current === generation && accepted) setDirty(false)
-    } finally {
-      if (live && current === generation) setPending(false)
-    }
-  }
-  const keydown = (event: KeyboardEvent): void => {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      event.stopPropagation()
-      generation++
-      setDirty(false)
-      setPending(false)
-      setDraft(props.value)
-      props.onRevert()
-    } else if (event.key === 'Enter' && (!props.multiline || event.ctrlKey || event.metaKey)) {
-      event.preventDefault()
-      void commit(draft(), true)
-    }
+    dirty = false
+    if (value !== props.value) props.onCommit(value)
   }
   return props.multiline
     ? <ProductTextArea
@@ -165,12 +124,9 @@ function AppViewStringInput(props: {
         data-testid="app-view-text"
         aria-labelledby={props.ariaLabelledBy}
         value={draft()}
-        readOnly={pending()}
-        aria-busy={pending()}
         onInput={(event) => input(event.currentTarget.value)}
-        onChange={(event) => void commit(event.currentTarget.value)}
-        onBlur={(event) => void commit(event.currentTarget.value)}
-        onKeyDown={keydown}
+        onChange={(event) => commit(event.currentTarget.value)}
+        onBlur={(event) => commit(event.currentTarget.value)}
       />
     : <ProductTextInput
         class="app-view-control"
@@ -178,12 +134,9 @@ function AppViewStringInput(props: {
         type="text"
         aria-labelledby={props.ariaLabelledBy}
         value={draft()}
-        readOnly={pending()}
-        aria-busy={pending()}
         onInput={(event) => input(event.currentTarget.value)}
-        onChange={(event) => void commit(event.currentTarget.value)}
-        onBlur={(event) => void commit(event.currentTarget.value)}
-        onKeyDown={keydown}
+        onChange={(event) => commit(event.currentTarget.value)}
+        onBlur={(event) => commit(event.currentTarget.value)}
       />
 }
 
@@ -191,7 +144,7 @@ function AppViewColorPicker(props: {
   readonly value: string
   readonly draftScopeId: string
   readonly label: string
-  readonly onCommit: (value: string, stillWanted: () => boolean) => Promise<boolean>
+  readonly onCommit: (value: string) => void
 }) {
   const message = useAppMessage()
   const popupId = `app-view-color-popup-${createUniqueId()}`
@@ -199,34 +152,10 @@ function AppViewColorPicker(props: {
   const [open, setOpen] = createSolidSignal(false)
   const [draft, setDraft] = createSolidSignal(props.value)
   const [position, setPosition] = createSolidSignal({ left: 0, top: 0 })
-  const [pending, setPending] = createSolidSignal(false)
-  const [refusal, setRefusal] = createSolidSignal<string>()
-  let live = true
-  let generation = 0
-  onCleanup(() => { live = false })
   let trigger: HTMLButtonElement | undefined
   let field: HTMLInputElement | undefined
-  let popup: HTMLDivElement | undefined
-  createEffect(() => {
-    if (!open()) return
-    refusal()
-    const place = (): void => {
-      if (!trigger || !popup) return
-      const anchor = trigger.getBoundingClientRect()
-      const bounds = popup.getBoundingClientRect()
-      setPosition({
-        left: Math.max(8, Math.min(anchor.left, window.innerWidth - bounds.width - 8)),
-        top: Math.max(8, Math.min(anchor.bottom + 4, window.innerHeight - bounds.height - 8)),
-      })
-    }
-    place()
-    window.addEventListener('resize', place)
-    onCleanup(() => window.removeEventListener('resize', place))
-  })
   const presets = ['#ffffff', '#000000', '#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#3498db', '#9b59b6']
   const close = (): void => {
-    generation++
-    setPending(false)
     setOpen(false)
     queueMicrotask(() => trigger?.focus())
   }
@@ -234,27 +163,14 @@ function AppViewColorPicker(props: {
     if (!trigger) return
     const rect = trigger.getBoundingClientRect()
     setDraft(props.value)
-    setRefusal(undefined)
     setPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 230)), top: rect.bottom + 4 })
     setOpen(true)
     queueMicrotask(() => field?.focus())
   }
-  const commit = async (value: string): Promise<void> => {
-    if (!live || pending() || !/^#[0-9a-f]{6}$/i.test(value)) return
-    const current = ++generation
-    setDraft(value)
-    setPending(true)
-    setRefusal(undefined)
-    try {
-      const accepted = await props.onCommit(value, () => live && current === generation)
-      if (!live || current !== generation) return
-      if (accepted) close()
-      else setRefusal(message('widgetEditor.commitRefused'))
-    } catch (error) {
-      if (live && current === generation) setRefusal(error instanceof Error ? error.message : String(error))
-    } finally {
-      if (live && current === generation) setPending(false)
-    }
+  const commit = (value: string): void => {
+    if (!/^#[0-9a-f]{6}$/i.test(value)) return
+    props.onCommit(value)
+    close()
   }
   const escape = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape') return
@@ -282,23 +198,20 @@ function AppViewColorPicker(props: {
       <Show when={open()}>
         <Portal mount={trigger?.closest('dialog') ?? document.body}>
           <div
-            ref={popup}
             id={popupId}
             class="product-color-popover"
             data-app-view-draft-scope={props.draftScopeId}
             role="dialog"
             aria-label={message('appView.color.choose')}
-            aria-busy={pending()}
             style={{ left: `${position().left}px`, top: `${position().top}px` }}
             onPointerDown={(event) => event.stopPropagation()}
             onKeyDown={escape}
           >
-            <label>{message('appView.color.hex')}<ProductTextInput ref={field} aria-label={message('appView.color.hex')} value={draft()} readOnly={pending()} onInput={(event) => setDraft(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') void commit(draft()) }} /></label>
+            <label>{message('appView.color.hex')}<ProductTextInput ref={field} aria-label={message('appView.color.hex')} value={draft()} onInput={(event) => setDraft(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') commit(draft()) }} /></label>
             <div class="product-color-grid" aria-label={message('appView.color.presets')}>
-              <For each={presets}>{(color) => <ProductButton type="button" disabled={pending()} aria-label={message('appView.color.select', { color })} style={{ background: color }} onClick={() => void commit(color)} />}</For>
+              <For each={presets}>{(color) => <ProductButton type="button" aria-label={message('appView.color.select', { color })} style={{ background: color }} onClick={() => commit(color)} />}</For>
             </div>
-            <ProductButton type="button" variant="primary" disabled={pending() || !/^#[0-9a-f]{6}$/i.test(draft())} onClick={() => void commit(draft())}>{message('appView.color.apply')}</ProductButton>
-            <Show when={refusal()}>{(text) => <ProductNotice tone="error">{text()}</ProductNotice>}</Show>
+            <ProductButton type="button" variant="primary" disabled={!/^#[0-9a-f]{6}$/i.test(draft())} onClick={() => commit(draft())}>{message('appView.color.apply')}</ProductButton>
           </div>
         </Portal>
       </Show>
@@ -314,8 +227,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   // When hosted inside a split group, this view shows the group's active
   // tab, which may differ from the app-global active tab.
   const activeTabId = (): string => props.host?.tabId() ?? globalActiveTabId()
-  let commitOwner = 0
-  createEffect(() => { activeTabId(); commitOwner++ })
   const backendsTick = useSignal(props.app.backendsTick)
   const tabTargets = useSignal(props.app.tabTargets)
   const extensionsTick = useSignal(props.app.extensions.changed)
@@ -348,16 +259,11 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   createEffect(() => { activeTabId(); setOutputPages(new Map()) })
   const previewLoader = createPreviewLoader({
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
-    executionAssetReader: (execution, digests) => props.app.executionAssetReader(execution, digests),
     assetUrlForInput: (digest) => {
       const tab = activeTab()
       if (tab === undefined) return undefined
       const backend = props.app.backendForTab(tab)
       return backend.protocol === 'dinkster' ? backend.connection.assetUrl(digest) : undefined
-    },
-    inputAssetReader: (digest) => {
-      const tab = activeTab()
-      return tab === undefined ? undefined : props.app.workflowAssetReader(tab, digest)
     },
     onDecoded: () => setPreviewTick((value) => value + 1),
     validateMediaRendition: validateBrowserMediaRendition,
@@ -377,8 +283,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   const [arrangeBreakpoint, setArrangeBreakpoint] = createSolidSignal<'desktop' | 'mobile'>('desktop')
   const [pendingArrangeBreakpoint, setPendingArrangeBreakpoint] = createSolidSignal<'desktop' | 'mobile'>()
   const [responsivePresentationMobile, setResponsivePresentationMobile] = createSolidSignal(false)
-  const [activeInlineDrafts, setActiveInlineDrafts] = createSolidSignal(0)
-  const inlineDraftActive = (active: boolean): void => { setActiveInlineDrafts((count) => count + (active ? 1 : -1)) }
   let appViewElement!: HTMLDivElement
   let syncMobilePresentationOrder: (() => void) | undefined
   let presentationFocusTimer: ReturnType<typeof setTimeout> | undefined
@@ -426,7 +330,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     if (presentationFocusTimer !== undefined) clearTimeout(presentationFocusTimer)
     presentationFocusTimer = setTimeout(() => {
       presentationFocusTimer = undefined
-      if (focusedDraftScope() !== undefined || activeInlineDrafts() > 0) return
+      if (focusedDraftScope() !== undefined) return
       const pending = pendingArrangeBreakpoint()
       if (arrange() && pending !== undefined) setArrangeBreakpoint(pending)
       setPendingArrangeBreakpoint(undefined)
@@ -436,7 +340,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   }
   createEffect(() => {
     const desired = responsiveMobile()
-    if (!arrange() && desired !== responsivePresentationMobile() && focusedDraftScope() === undefined && activeInlineDrafts() === 0) {
+    if (!arrange() && desired !== responsivePresentationMobile() && focusedDraftScope() === undefined) {
       setResponsivePresentationMobile(desired)
     }
   })
@@ -538,8 +442,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         running: runtimeIds.some((runtimeId) => exec?.nodes[runtimeId]?.state === 'running'),
         frozen: tab.execution !== undefined,
         exactProducer,
-        ...(retained === undefined ? {} : { retainedRuntimeIds: retained.retainedRuntimeIds,
-          ...(retained.executionOwners === undefined ? {} : { executionOwners: retained.executionOwners }) }),
+        ...(retained === undefined ? {} : { retainedRuntimeIds: retained.retainedRuntimeIds }),
         companionSources: companionSourcesOf(def, undefined, (nodeId, inputId) => {
           const node = def.nodes[nodeId]
           const schema = node === undefined ? undefined : resolveSchema?.(node.type)
@@ -744,70 +647,58 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   }
 
   /** All controls converge on the same undoable document command. */
-  const commit = async (row: Extract<ParamRow, { kind: 'live' }>, value: Json, stillWanted: () => boolean = () => true): Promise<boolean> => {
+  const commit = (row: Extract<ParamRow, { kind: 'live' }>, value: Json): void => {
     const tab = activeTab()
-    if (!tab || frozen()) return false
+    if (!tab || frozen()) return
     if (row.spec !== undefined) {
       const error = widgetCommitError(widgetRegistry().kind(row.spec.widgetType), value, row.spec)
       if (error !== undefined) {
         setError(row.entry, error)
-        return false
+        return
       }
     }
     setError(row.entry, undefined)
-    const store = tab.store
-    const owner = commitOwner
-    try {
-      const outcome = await props.app.dispatchTo(tab, {
-        command: 'node.setValue',
-        params: {
-          graphId: row.entry.graphId,
-          nodeId: row.entry.nodeId,
-          inputId: row.valueKey,
-          value,
-        },
-      })
-      if (!live || !stillWanted() || owner !== commitOwner || activeTab() !== tab || tab.store !== store) return false
-      if (!outcome.ok) setError(row.entry, outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))
-      return outcome.ok
-    } catch (error) {
-      if (live && stillWanted() && owner === commitOwner && activeTab() === tab && tab.store === store) {
-        setError(row.entry, error instanceof Error ? error.message : String(error))
-      }
-      return false
-    }
+    props.app.dispatchTo(tab, {
+      command: 'node.setValue',
+      params: {
+        graphId: row.entry.graphId,
+        nodeId: row.entry.nodeId,
+        inputId: row.valueKey,
+        value,
+      },
+    })
   }
 
-  const commitNumeric = async (row: Extract<ParamRow, { kind: 'live' }>, raw: string, widgetType: 'INT' | 'FLOAT', stillWanted: () => boolean): Promise<boolean> => {
+  const commitNumeric = (row: Extract<ParamRow, { kind: 'live' }>, raw: string, widgetType: 'INT' | 'FLOAT'): void => {
     const parsed = parseNumericCommit(raw, widgetType, row.spec?.options['round'], row.spec?.options['precision'])
     if (!parsed.ok) {
       setError(row.entry, parsed.error)
-      return false
+      return
     }
-    return commit(row, parsed.value, stillWanted)
+    commit(row, parsed.value)
   }
 
-  const dispatchEntry = (command: string, entry: ExposedParameter, extra: Record<string, Json> = {}): CommandOutcome | Promise<CommandOutcome> | undefined => {
+  const dispatchEntry = (command: string, entry: ExposedParameter, extra: Record<string, Json> = {}): void => {
     const tab = activeTab()
     if (!tab) return
-    return props.app.dispatchTo(tab, {
+    props.app.dispatchTo(tab, {
       command,
       params: { graphId: entry.graphId, nodeId: entry.nodeId, inputId: entry.inputId, ...extra },
     })
   }
 
-  const dispatchPreviewEntry = (command: string, entry: ExposedPreview, extra: Record<string, Json> = {}): CommandOutcome | Promise<CommandOutcome> | undefined => {
+  const dispatchPreviewEntry = (command: string, entry: ExposedPreview, extra: Record<string, Json> = {}): void => {
     const tab = activeTab()
     if (!tab) return
-    return props.app.dispatchTo(tab, {
+    props.app.dispatchTo(tab, {
       command,
       params: { graphId: entry.graphId, nodeId: entry.nodeId, ...extra },
     })
   }
 
-  const dispatchLayout = (command: string, params: Json): CommandOutcome | Promise<CommandOutcome> | undefined => {
+  const dispatchLayout = (command: string, params: Json): void => {
     const tab = activeTab()
-    if (tab) return props.app.dispatchTo(tab, { command, params })
+    if (tab) props.app.dispatchTo(tab, { command, params })
   }
 
   const freshLayoutId = (kind: string): string =>
@@ -821,8 +712,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     parentId: string | undefined,
     index: number,
     grid?: AppLayoutGrid,
-    stillWanted: () => boolean = () => true,
-  ) => {
+  ): void => {
     const id = freshLayoutId(item.kind)
     const preview = item.kind === 'preview'
       ? previewCandidates().find((row) => exposedPreviewKey(row.entry) === item.previewKey)
@@ -830,22 +720,24 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     const placement: Json = item.kind === 'control'
       ? { id, kind: 'control', ref: { ...item.row.entry }, ...(grid ?? {}) }
       : { id, kind: 'preview', ref: { graphId: preview!.entry.graphId, nodeId: preview!.entry.nodeId }, ...(grid ?? {}) }
-    return gestureEdit.commit('app.layout.add', {
+    dispatchLayout('app.layout.add', {
       item: placement,
       parentId: parentId ?? null,
       index,
-    }, stillWanted)
+    })
   }
 
-  const moveFlowItem = (item: FlowItem, parentId: string | undefined, index: number, stillWanted: () => boolean = () => true) => {
+  const moveFlowItem = (item: FlowItem, parentId: string | undefined, index: number): void => {
     if (item.kind === 'group') {
-      return gestureEdit.commit('app.layout.move', { id: item.item.id, parentId: null, index }, stillWanted)
+      dispatchLayout('app.layout.move', { id: item.item.id, parentId: null, index })
+      return
     }
     if (item.kind === 'text' || item.kind === 'queue' || item.kind === 'missing') {
-      return gestureEdit.commit('app.layout.move', { id: item.item.id, parentId: parentId ?? null, index }, stillWanted)
+      dispatchLayout('app.layout.move', { id: item.item.id, parentId: parentId ?? null, index })
+      return
     }
-    if (item.layoutId === undefined) return addAutomaticPlacement(item, parentId, index, undefined, stillWanted)
-    return gestureEdit.commit('app.layout.move', { id: item.layoutId, parentId: parentId ?? null, index }, stillWanted)
+    if (item.layoutId === undefined) addAutomaticPlacement(item, parentId, index)
+    else dispatchLayout('app.layout.move', { id: item.layoutId, parentId: parentId ?? null, index })
   }
 
   const flowLabel = (item: FlowItem): string => {
@@ -915,9 +807,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     })
   }
 
-  const commitGridGesture = async (gesture: GridGesture): Promise<void> => {
+  const commitGridGesture = (gesture: GridGesture): void => {
     if (!sameGrid(gesture.start, gesture.pending)) {
-      if (!await gestureEdit.commit('app.layout.setGrid', { id: gesture.id, grid: { ...gesture.pending } })) return
+      dispatchLayout('app.layout.setGrid', { id: gesture.id, grid: { ...gesture.pending } })
     }
     focusGridTarget(gesture.id, gesture.keyboardTarget)
   }
@@ -927,7 +819,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     item: GridFlowItem,
     mode: GridPointerMode,
   ): void => {
-    if (event.button !== 0 || !arrange() || gestureEdit.pending()) return
+    if (event.button !== 0 || !arrange()) return
     const surface = event.currentTarget.closest<HTMLElement>('[data-testid="app-layout-grid"]')
     if (surface === null) return
     event.preventDefault()
@@ -1021,7 +913,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       (target === 'right' && !horizontalKey) ||
       (target === 'bottom' && !verticalKey)) return
     event.preventDefault()
-    if (gestureEdit.pending()) return
     const existing = gridGesture()
     const continuing = existing?.source === 'keyboard' && existing.id === id && existing.keyboardTarget === target
     const start = continuing ? existing.start : item.grid
@@ -1061,57 +952,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
 
   const [renaming, setRenaming] = createSolidSignal<string | undefined>(undefined)
   const [previewRenaming, setPreviewRenaming] = createSolidSignal<string | undefined>(undefined)
-
-  const RenameLabel = (renameProps: {
-    readonly initial: string
-    readonly label: string
-    readonly testId: string
-    readonly commit: (label: string | null) => CommandOutcome | Promise<CommandOutcome> | undefined
-    readonly close: () => void
-  }) => {
-    const tab = activeTab()
-    const initial = renameProps.initial
-    let current = true
-    onCleanup(() => { current = false })
-    const [pending, setPending] = createSolidSignal(false)
-    const [refusal, setRefusal] = createSolidSignal<string>()
-    const noticeId = createUniqueId()
-    const submit = async (raw: string): Promise<void> => {
-      if (!current || pending() || activeTab() !== tab) return
-      setPending(true)
-      setRefusal(undefined)
-      try {
-        const label = raw.trim()
-        const outcome = await renameProps.commit(label.length > 0 ? label : null)
-        if (!current || activeTab() !== tab) return
-        if (outcome?.ok) renameProps.close()
-        else if (outcome !== undefined) setRefusal(outcome.diagnostics[0]?.message)
-      } finally {
-        if (current) setPending(false)
-      }
-    }
-    return <div class="app-view-rename-field" aria-busy={pending()}>
-      <ProductTextInput
-        class="app-view-rename"
-        data-testid={renameProps.testId}
-        aria-label={renameProps.label}
-        aria-invalid={refusal() !== undefined}
-        aria-describedby={refusal() === undefined ? undefined : noticeId}
-        value={initial}
-        readOnly={pending()}
-        ref={(element) => queueMicrotask(() => { if (current) { element.focus(); element.select() } })}
-        onKeyDown={(event) => {
-          if (event.isComposing) return
-          if (event.key === 'Enter') {
-            event.preventDefault()
-            void submit(event.currentTarget.value)
-          } else if (event.key === 'Escape') renameProps.close()
-        }}
-        onBlur={renameProps.close}
-      />
-      <Show when={refusal()}>{(text) => <div id={noticeId}><ProductNotice tone="error">{text()}</ProductNotice></div>}</Show>
-    </div>
-  }
 
   interface RemoteSource {
     readonly client: RefreshableScopedClient
@@ -1216,11 +1056,11 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       }}
       onFocus={() => loadRemoteOptions(controlProps.row)}
       onPointerDown={() => loadRemoteOptions(controlProps.row)}
-      onSelectAsync={async (option, stillWanted) => {
+      onSelect={(option) => {
         // Committing rebuilds the row list, remounting this trigger; restore
         // focus onto the replacement element once the rebuild has flushed.
         const key = rowKey(controlProps.row.entry)
-        if (!await commit(controlProps.row, option.value, stillWanted)) return false
+        commit(controlProps.row, option.value)
         queueMicrotask(() => {
           // Compare attribute values in JS rather than via a CSS selector:
           // CSS.escape cannot round-trip U+0000, which a valid lineage-derived
@@ -1232,7 +1072,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             }
           }
         })
-        return true
       }}
     />
   }
@@ -1315,10 +1154,8 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   // authoring interaction state whenever either changes. The memo's value
   // equality keeps unrelated tabs-array churn from clearing a live rename.
   const interactionScope = createMemo((): string => `${activeTabId()}:${arrange()}:${arrangeBreakpoint()}`)
-  const interactionStore = createMemo(() => activeTab()?.store)
   createEffect(() => {
     interactionScope()
-    interactionStore()
     disposeGridPointer?.()
     setGridGesture(undefined)
     setRenaming(undefined)
@@ -1363,13 +1200,13 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             ...groups().map((group) => ({ id: group.id, label: group.title, value: group.id })),
           ]}
           selectedId={parentId() ?? ''}
-          onSelectAsync={async (option, stillWanted) => {
+          onSelect={(option) => {
             const target = option.value || undefined
-            if (target === parentId()) return true
+            if (target === parentId()) return
             const index = target === undefined
               ? topLevelLayoutCount()
               : layoutGroups().find((group) => group.id === target)?.children.length ?? 0
-            return moveFlowItem(selectProps.item, target, index, stillWanted)
+            moveFlowItem(selectProps.item, target, index)
           }}
         />
       </Show>
@@ -1382,67 +1219,12 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     return tab === undefined ? [] : appViewQueueTargetOptions(tab.store.doc)
   })
 
-  const createLayoutEdit = () => {
-    const [pending, setPending] = createSolidSignal(false)
-    const [refusal, setRefusal] = createSolidSignal<string>()
-    const noticeId = createUniqueId()
-    let generation = 0
-    let current = true
-    onCleanup(() => { current = false; generation++ })
-    createEffect(() => {
-      interactionScope()
-      interactionStore()
-      generation++
-      setPending(false)
-      setRefusal(undefined)
-      onCleanup(() => { generation++ })
-    })
-    const commit = async (command: string, params: Json, stillWanted: () => boolean = () => true) => {
-      const tab = activeTab()
-      if (!current || !stillWanted() || !tab || !arrange() || frozen() || pending()) return false
-      const owner = generation
-      const store = tab.store
-      setPending(true)
-      setRefusal(undefined)
-      try {
-        const outcome = await dispatchLayout(command, params)
-        if (!stillWanted() || owner !== generation || activeTab()?.store !== store) return false
-        if (outcome !== undefined && !outcome.ok) setRefusal(outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))
-        return outcome?.ok === true
-      } catch (error) {
-        if (stillWanted() && owner === generation && activeTab()?.store === store) {
-          setRefusal(error instanceof Error ? error.message : String(error))
-        }
-        return false
-      } finally {
-        if (owner === generation) setPending(false)
-      }
-    }
-    return { pending, refusal, commit, noticeId }
-  }
-
-  const gestureEdit = createLayoutEdit()
-
   const QueuePlacement = (queueProps: {
     readonly flow: Extract<FlowItem, { kind: 'queue' }>
     readonly index: number
     readonly count: number
     readonly inGrid: boolean
   }) => {
-    const edit = createLayoutEdit()
-    const [labelDraft, setLabelDraft] = createSolidSignal(queueProps.flow.item.label)
-    let labelBaseline = queueProps.flow.item.label
-    createEffect(() => {
-      const label = queueProps.flow.item.label
-      if (untrack(labelDraft) === labelBaseline) setLabelDraft(label)
-      labelBaseline = label
-    })
-    const commitLabel = async (): Promise<void> => {
-      const label = labelDraft().trim()
-      if (label.length > 0 && label !== queueProps.flow.item.label) {
-        if (await edit.commit('app.layout.setQueue', { id: queueProps.flow.item.id, label })) setLabelDraft(label)
-      }
-    }
     const stateId = `${draftScopeId}-queue-state-${createUniqueId()}`
     const queueKey = (): string => `${activeTabId()}:${queueProps.flow.item.id}`
     const resolved = createMemo(() => {
@@ -1495,26 +1277,27 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       const targets = selected
         ? [...queueProps.flow.item.targets, { graphId, nodeId }]
         : queueProps.flow.item.targets.filter((target) => target.graphId !== graphId || target.nodeId !== nodeId)
-      void edit.commit('app.layout.setQueue', {
+      dispatchLayout('app.layout.setQueue', {
         id: queueProps.flow.item.id,
         targets: targets.map((target) => ({ graphId: target.graphId, nodeId: target.nodeId })),
       })
     }
     return (
-      <div class="app-layout-queue" data-testid="app-layout-queue" aria-busy={edit.pending()}>
+      <div class="app-layout-queue" data-testid="app-layout-queue">
         <Show when={arrange()}>
           <div class="app-layout-item-toolbar">
             <ProductTextInput
               class="app-layout-queue-label"
               data-testid="app-layout-queue-label"
               aria-label={message('appView.queue.label')}
-              value={labelDraft()}
-              readOnly={edit.pending()}
-              aria-invalid={edit.refusal() !== undefined}
-              aria-describedby={edit.refusal() === undefined ? undefined : edit.noticeId}
-              onInput={(event) => setLabelDraft(event.currentTarget.value)}
+              value={queueProps.flow.item.label}
               onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
-              onBlur={commitLabel}
+              onBlur={(event) => {
+                const label = event.currentTarget.value.trim()
+                if (label.length > 0 && label !== queueProps.flow.item.label) {
+                  dispatchLayout('app.layout.setQueue', { id: queueProps.flow.item.id, label })
+                }
+              }}
             />
             <ParentSelect item={queueProps.flow} />
             <Show when={!queueProps.inGrid && !mobileEditing()}>
@@ -1523,8 +1306,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             </Show>
             <ProductButton variant="ghost" size="compact" class="app-view-tool" data-testid="app-layout-remove" aria-label={message('appView.queue.remove', { label: queueProps.flow.item.label })} onClick={() => dispatchLayout('app.layout.remove', { id: queueProps.flow.item.id })}><Icon icon={X} /></ProductButton>
           </div>
-          <Show when={edit.refusal()}>{(text) => <div id={edit.noticeId}><ProductNotice tone="error">{text()}</ProductNotice></div>}</Show>
-          <fieldset class="app-layout-queue-targets" data-testid="app-layout-queue-targets" disabled={edit.pending()}>
+          <fieldset class="app-layout-queue-targets" data-testid="app-layout-queue-targets">
             <legend>{message('appView.queue.targets')}</legend>
             <For each={queueTargetOptions()}>{(option) => {
               const selected = () => queueProps.flow.item.targets.some((target) =>
@@ -1533,7 +1315,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
                 <ProductCheckbox
                   ariaLabel={option.label}
                   checked={selected()}
-                  disabled={edit.pending() || (selected() && queueProps.flow.item.targets.length === 1)}
+                  disabled={selected() && queueProps.flow.item.targets.length === 1}
                   onChange={(checked) => setTargets(option.graphId, option.nodeId, checked)}
                 />
                 <span>{option.label}</span>
@@ -1595,30 +1377,21 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     readonly count: number
     readonly inGrid: boolean
   }) => {
-    const edit = createLayoutEdit()
-    const [stylePending, setStylePending] = createSolidSignal(false)
-    let styleGeneration = 0
-    createEffect(() => {
-      interactionScope()
-      interactionStore()
-      styleGeneration++
-      setStylePending(false)
-    })
     const [draft, setDraft] = createSolidSignal(textProps.flow.item.text)
     let editor: HTMLTextAreaElement | undefined
     const commitDraft = (): void => {
       if (draft() !== textProps.flow.item.text) {
-        void edit.commit('app.layout.setText', { id: textProps.flow.item.id, text: draft() })
+        dispatchLayout('app.layout.setText', { id: textProps.flow.item.id, text: draft() })
       }
     }
     const wrap = (before: string, after: string, placeholder: string): void => {
-      if (editor === undefined || edit.pending()) return
+      if (editor === undefined) return
       const start = editor.selectionStart
       const end = editor.selectionEnd
       const selected = draft().slice(start, end) || placeholder
       const next = `${draft().slice(0, start)}${before}${selected}${after}${draft().slice(end)}`
       setDraft(next)
-      void edit.commit('app.layout.setText', { id: textProps.flow.item.id, text: next })
+      dispatchLayout('app.layout.setText', { id: textProps.flow.item.id, text: next })
       queueMicrotask(() => {
         editor?.focus()
         editor?.setSelectionRange(start + before.length, start + before.length + selected.length)
@@ -1626,35 +1399,22 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     }
     return (
       <Show when={arrange()} fallback={<TextContent item={textProps.flow.item} />}>
-        <div class="app-layout-text-editor" data-testid="app-layout-text-editor" aria-busy={edit.pending()}>
-          <Show when={edit.refusal()}>{(text) => <div id={edit.noticeId}><ProductNotice tone="error">{text()}</ProductNotice></div>}</Show>
+        <div class="app-layout-text-editor" data-testid="app-layout-text-editor">
           <div class="app-layout-item-toolbar">
             <ProductSelect
               class="app-layout-role"
               testId="app-layout-text-role"
               ariaLabel={message('appView.text.style')}
-              ariaInvalid={edit.refusal() !== undefined}
-              ariaDescribedBy={edit.refusal() === undefined ? undefined : edit.noticeId}
               selectedId={textProps.flow.item.role}
-              disabled={edit.pending() && !stylePending()}
               options={[
                 { id: 'heading', label: message('appView.text.heading'), value: 'heading' },
                 { id: 'body', label: message('appView.text.body'), value: 'body' },
                 { id: 'caption', label: message('appView.text.caption'), value: 'caption' },
               ]}
-              onSelectAsync={async (option, stillWanted) => {
-                if (edit.pending()) return false
-                const owner = styleGeneration
-                setStylePending(true)
-                try {
-                  return await edit.commit('app.layout.setText', {
-                    id: textProps.flow.item.id,
-                    role: option.value,
-                  }, stillWanted)
-                } finally {
-                  if (owner === styleGeneration) setStylePending(false)
-                }
-              }}
+              onSelect={(option) => dispatchLayout('app.layout.setText', {
+                id: textProps.flow.item.id,
+                role: option.value,
+              })}
             />
             <ParentSelect item={textProps.flow} />
             <Show when={!textProps.inGrid && !mobileEditing()}>
@@ -1681,9 +1441,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             ><Icon icon={X} /></ProductButton>
           </div>
           <div class="app-layout-format-toolbar" aria-label={message('appView.text.formatting')}>
-            <ProductButton size="compact" type="button" disabled={edit.pending()} aria-label={message('appView.text.bold')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('**', '**', message('appView.text.boldPlaceholder'))}>B</ProductButton>
-            <ProductButton size="compact" type="button" disabled={edit.pending()} aria-label={message('appView.text.italic')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('*', '*', message('appView.text.italicPlaceholder'))}><em>I</em></ProductButton>
-            <ProductButton size="compact" type="button" disabled={edit.pending()} aria-label={message('appView.text.link')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('[', '](https://)', message('appView.text.linkPlaceholder'))}>{message('appView.text.link')}</ProductButton>
+            <ProductButton size="compact" type="button" aria-label={message('appView.text.bold')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('**', '**', message('appView.text.boldPlaceholder'))}>B</ProductButton>
+            <ProductButton size="compact" type="button" aria-label={message('appView.text.italic')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('*', '*', message('appView.text.italicPlaceholder'))}><em>I</em></ProductButton>
+            <ProductButton size="compact" type="button" aria-label={message('appView.text.link')} onPointerDown={(event) => event.preventDefault()} onClick={() => wrap('[', '](https://)', message('appView.text.linkPlaceholder'))}>{message('appView.text.link')}</ProductButton>
             <span>{message('appView.text.formattingHint')}</span>
           </div>
           <ProductTextArea
@@ -1692,9 +1452,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             data-testid="app-layout-text-input"
             aria-label={message('appView.text.content')}
             value={draft()}
-            readOnly={edit.pending()}
-            aria-invalid={edit.refusal() !== undefined}
-            aria-describedby={edit.refusal() === undefined ? undefined : edit.noticeId}
             onInput={(event) => setDraft(event.currentTarget.value)}
             onBlur={commitDraft}
             onKeyDown={(event) => {
@@ -1717,7 +1474,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   }) => {
     const row = () => controlProps.flow.row
     const liveRow = (): Extract<ParamRow, { kind: 'live' }> => row() as Extract<ParamRow, { kind: 'live' }>
-    const comboControl = (): boolean => liveRow().spec?.widgetType === 'COMBO'
     const accessibleLabelId = `app-view-control-${createUniqueId()}`
     const label = (): string => {
       const current = row()
@@ -1734,18 +1490,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     }
     const InlineControl = () => {
       const spec = () => liveRow().spec!
-      const [booleanPending, setBooleanPending] = createSolidSignal(false)
-      let booleanLive = true
-      onCleanup(() => { booleanLive = false })
-      const commitBoolean = async (checked: boolean): Promise<void> => {
-        if (booleanPending()) return
-        setBooleanPending(true)
-        try {
-          await commit(liveRow(), checked, () => booleanLive)
-        } finally {
-          if (booleanLive) setBooleanPending(false)
-        }
-      }
       const stringValue = (): string => {
         const value = liveRow().value
         return typeof value === 'string' ? value : ''
@@ -1760,9 +1504,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             value={stringValue()}
             multiline={spec().options['multiline'] === true}
             ariaLabelledBy={accessibleLabelId}
-            onCommit={(value, stillWanted) => commit(liveRow(), value, stillWanted)}
-            onRevert={() => setError(liveRow().entry, undefined)}
-            onDraftActive={inlineDraftActive}
+            onCommit={(value) => commit(liveRow(), value)}
           />}
         >
           <Match when={spec().widgetType === 'LIST'}>
@@ -1770,14 +1512,11 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               value={JSON.stringify(liveRow().value ?? [])}
               multiline={true}
               ariaLabelledBy={accessibleLabelId}
-              onCommit={async (raw, stillWanted) => {
+              onCommit={(raw) => {
                 const parsed = parsePrimitiveListCommit(raw, spec())
-                if (parsed.ok) return commit(liveRow(), parsed.value, stillWanted)
-                setError(liveRow().entry, parsed.error)
-                return false
+                if (parsed.ok) commit(liveRow(), parsed.value)
+                else setError(liveRow().entry, parsed.error)
               }}
-              onRevert={() => setError(liveRow().entry, undefined)}
-              onDraftActive={inlineDraftActive}
             />
           </Match>
           <Match when={spec().widgetType === 'INT' || spec().widgetType === 'FLOAT'}>
@@ -1791,9 +1530,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               min={numberAttr(spec(), 'min')}
               max={numberAttr(spec(), 'max')}
               step={numberAttr(spec(), 'step') ?? (spec().widgetType === 'INT' ? 1 : 'any')}
-              onCommitAsync={(raw, stillWanted) => commitNumeric(liveRow(), raw, spec().widgetType as 'INT' | 'FLOAT', stillWanted)}
-              onDraftActive={inlineDraftActive}
-              onRevert={() => setError(liveRow().entry, undefined)}
+              onCommit={(raw) => commitNumeric(liveRow(), raw, spec().widgetType as 'INT' | 'FLOAT')}
             />
           </Match>
           <Match when={spec().widgetType === 'BOOLEAN'}>
@@ -1802,8 +1539,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               testId="app-view-boolean"
               ariaLabel={message('appView.control.toggle', { label: liveRow().label })}
               checked={liveRow().value === true}
-              disabled={booleanPending()}
-              onChange={(checked) => void commitBoolean(checked)}
+              onChange={(checked) => commit(liveRow(), checked)}
             />
           </Match>
           <Match when={spec().widgetType === 'COLOR'}>
@@ -1811,10 +1547,10 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               value={stringValue()}
               draftScopeId={draftScopeId}
               label={liveRow().label}
-              onCommit={(value, stillWanted) => commit(liveRow(), value, stillWanted)}
+              onCommit={(value) => commit(liveRow(), value)}
             />
           </Match>
-          <Match when={comboControl()}>
+          <Match when={spec().widgetType === 'COMBO'}>
             <ComboControl row={liveRow()} />
           </Match>
           <Match when={spec().widgetType === 'VIDEO_EDIT'}>
@@ -1876,12 +1612,21 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               </span>
             }
           >
-            <RenameLabel
-              testId="app-view-rename"
-              label={message('appView.action.rename', { label: label() })}
-              initial={row().entry.label ?? label()}
-              commit={(label) => dispatchEntry('params.setLabel', row().entry, { label })}
-              close={() => setRenaming(undefined)}
+            <ProductTextInput
+              class="app-view-rename"
+              data-testid="app-view-rename"
+              aria-label={message('appView.action.rename', { label: label() })}
+              value={row().entry.label ?? label()}
+              ref={(element) => queueMicrotask(() => { element.focus(); element.select() })}
+              onKeyDown={(event) => {
+                if (event.isComposing) return
+                if (event.key === 'Enter') {
+                  const trimmed = event.currentTarget.value.trim()
+                  dispatchEntry('params.setLabel', row().entry, { label: trimmed.length > 0 ? trimmed : null })
+                  setRenaming(undefined)
+                } else if (event.key === 'Escape') setRenaming(undefined)
+              }}
+              onBlur={() => setRenaming(undefined)}
             />
           </Show>
           <Show when={arrange()}>
@@ -1934,9 +1679,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         >
           <>
             <AppWidgetPreview row={liveRow()} registry={widgetRegistry()} />
-            <Show when={comboControl() && errors().get(rowKey(row().entry))}>
-              {(text) => <ProductNotice tone="error" testId="app-view-error">{text()}</ProductNotice>}
-            </Show>
             <Show
               when={editable(liveRow())}
               fallback={
@@ -1948,7 +1690,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             >
               <InlineControl />
             </Show>
-            <Show when={!comboControl() && errors().get(rowKey(row().entry))}>
+            <Show when={errors().get(rowKey(row().entry))}>
               {(message) => <ProductNotice tone="error" testId="app-view-error">{message()}</ProductNotice>}
             </Show>
             <Show when={(() => {
@@ -2059,12 +1801,21 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               </span>
             }
           >
-            <RenameLabel
-              testId="app-preview-rename"
-              label={message('appView.action.rename', { label: label() })}
-              initial={row().entry.label ?? label()}
-              commit={(label) => dispatchPreviewEntry('previews.setLabel', row().entry, { label })}
-              close={() => setPreviewRenaming(undefined)}
+            <ProductTextInput
+              class="app-view-rename"
+              data-testid="app-preview-rename"
+              aria-label={message('appView.action.rename', { label: label() })}
+              value={row().entry.label ?? label()}
+              ref={(element) => queueMicrotask(() => { element.focus(); element.select() })}
+              onKeyDown={(event) => {
+                if (event.isComposing) return
+                if (event.key === 'Enter') {
+                  const trimmed = event.currentTarget.value.trim()
+                  dispatchPreviewEntry('previews.setLabel', row().entry, { label: trimmed.length > 0 ? trimmed : null })
+                  setPreviewRenaming(undefined)
+                } else if (event.key === 'Escape') setPreviewRenaming(undefined)
+              }}
+              onBlur={() => setPreviewRenaming(undefined)}
             />
           </Show>
           <Show when={arrange()}>
@@ -2152,20 +1903,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     readonly count: number
     readonly inGrid: boolean
   }) => {
-    const edit = createLayoutEdit()
-    const [titleDraft, setTitleDraft] = createSolidSignal(groupProps.flow.item.title)
-    let titleBaseline = groupProps.flow.item.title
-    createEffect(() => {
-      const title = groupProps.flow.item.title
-      if (untrack(titleDraft) === titleBaseline) setTitleDraft(title)
-      titleBaseline = title
-    })
-    const commitTitle = async (): Promise<void> => {
-      const title = titleDraft().trim()
-      if (title.length > 0 && title !== groupProps.flow.item.title) {
-        if (await edit.commit('app.layout.setGroupTitle', { id: groupProps.flow.item.id, title })) setTitleDraft(title)
-      }
-    }
     const childrenByKey = createMemo((): ReadonlyMap<string, FlowItem> =>
       new Map(groupProps.flow.children.map((child) => [flowItemKey(child), child])))
     const childKeys = createMemo((): readonly string[] => groupProps.flow.children.map(flowItemKey))
@@ -2173,7 +1910,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       <section
         class="app-layout-group"
         data-testid="app-layout-group"
-        aria-busy={edit.pending()}
         aria-label={message('appView.group.ariaLabel', { title: groupProps.flow.item.title })}
       >
         <div class="app-layout-group-header">
@@ -2185,15 +1921,16 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               class="app-layout-group-title"
               data-testid="app-layout-group-title"
               aria-label={message('appView.group.title')}
-              value={titleDraft()}
-              readOnly={edit.pending()}
-              aria-invalid={edit.refusal() !== undefined}
-              aria-describedby={edit.refusal() === undefined ? undefined : edit.noticeId}
-              onInput={(event) => setTitleDraft(event.currentTarget.value)}
+              value={groupProps.flow.item.title}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') event.currentTarget.blur()
               }}
-              onBlur={commitTitle}
+              onBlur={(event) => {
+                const title = event.currentTarget.value.trim()
+                if (title.length > 0 && title !== groupProps.flow.item.title) {
+                  dispatchLayout('app.layout.setGroupTitle', { id: groupProps.flow.item.id, title })
+                }
+              }}
             />
             <div class="app-layout-item-toolbar">
               <Show when={!groupProps.inGrid && !mobileEditing()}>
@@ -2204,7 +1941,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             </div>
           </Show>
         </div>
-        <Show when={arrange() && edit.refusal()}>{(text) => <div id={edit.noticeId}><ProductNotice tone="error">{text()}</ProductNotice></div>}</Show>
         <div class="app-layout-group-children" role="list">
           <For each={childKeys()}>
             {(key, index) => {
@@ -2271,7 +2007,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         data-grid-y={gridProps.item.grid.y}
         data-grid-w={gridProps.item.grid.w}
         data-grid-h={gridProps.item.grid.h}
-        aria-busy={gestureEdit.pending()}
         style={gridStyle(gridProps.item.grid)}
         tabindex={arrange() ? 0 : undefined}
         aria-label={message('appView.grid.placement', { label: flowLabel(gridProps.item) })}
@@ -2323,9 +2058,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   }
 
   const [mobileDragged, setMobileDragged] = createSolidSignal<{ readonly id: string; readonly index: number }>()
-  const moveMobile = (id: string, index: number) =>
-    gestureEdit.commit('app.layout.moveMobile', { id, index })
-
+  const moveMobile = (id: string, index: number): void => {
+    dispatchLayout('app.layout.moveMobile', { id, index })
+  }
   const focusMobilePlacement = (id: string): void => {
     queueMicrotask(() => {
       for (const element of document.querySelectorAll<HTMLElement>('[data-mobile-id]')) {
@@ -2349,7 +2084,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         data-testid="app-layout-mobile-placement"
         role="listitem"
         data-mobile-id={id()}
-        aria-busy={gestureEdit.pending()}
         tabindex={movable() ? 0 : undefined}
         aria-label={movable() ? message('appView.mobile.placement', { label: flowLabel(mobileProps.item) }) : undefined}
         aria-description={movable() ? message('appView.mobile.instructions') : undefined}
@@ -2367,7 +2101,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
           }
           if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
           event.preventDefault()
-          if (gestureEdit.pending()) return
           const existing = mobileKeyboardGesture()
           const start = existing?.id === placementId
             ? existing.start
@@ -2379,7 +2112,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             setMobileKeyboardGesture({ id: placementId, start, pending })
           }
         }}
-        onKeyUp={async (event) => {
+        onKeyUp={(event) => {
           if (event.target !== event.currentTarget || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
           const placementId = id()
           const completed = mobileKeyboardGesture()
@@ -2387,7 +2120,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
           event.preventDefault()
           setMobileKeyboardGesture(undefined)
           if (completed.pending !== completed.start) {
-            if (!await moveMobile(placementId, completed.pending)) return
+            moveMobile(placementId, completed.pending)
           }
           focusMobilePlacement(placementId)
         }}
@@ -2412,10 +2145,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               aria-hidden="true"
               draggable={true}
               onDragStart={(event) => {
-                if (gestureEdit.pending()) {
-                  event.preventDefault()
-                  return
-                }
                 const placementId = id()!
                 setMobileKeyboardGesture(undefined)
                 setMobileDragged({ id: placementId, index: mobileProps.index })
@@ -2430,7 +2159,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               class="app-view-tool"
               data-testid="app-layout-mobile-up"
               aria-label={message('appView.mobile.moveUp', { label: flowLabel(mobileProps.item) })}
-              disabled={gestureEdit.pending() || mobileProps.index === 0}
+              disabled={mobileProps.index === 0}
               onClick={() => moveMobile(id()!, mobileProps.index - 1)}
             ><Icon icon={ArrowUp} /></ProductButton>
             <ProductButton variant="ghost" size="compact"
@@ -2438,7 +2167,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               class="app-view-tool"
               data-testid="app-layout-mobile-down"
               aria-label={message('appView.mobile.moveDown', { label: flowLabel(mobileProps.item) })}
-              disabled={gestureEdit.pending() || mobileProps.index === mobileItems().length - 1}
+              disabled={mobileProps.index === mobileItems().length - 1}
               onClick={() => moveMobile(id()!, mobileProps.index + 1)}
             ><Icon icon={ArrowDown} /></ProductButton>
           </div>
@@ -2505,9 +2234,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
           </ProductButton>
         </Show>
       </header>
-      <Show when={arrange() && gestureEdit.refusal()}>
-        {(text) => <ProductNotice tone="error" testId="app-layout-gesture-error">{text()}</ProductNotice>}
-      </Show>
       <Show when={arrange()}>
         <div class="app-layout-arrange-controls" data-testid="app-layout-arrange-controls">
           <div class="app-layout-breakpoint-toggle" role="group" aria-label={message('appView.breakpoint.label')}>

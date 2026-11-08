@@ -1,9 +1,9 @@
-import { expect, nativeTest as test, waitForStartupOwnership } from './fixtures.js'
+import { expect, test } from '@playwright/test'
 
 const mime = 'application/vnd.dinkster.image-document+json'
 
 test.beforeEach(async ({ page }) => {
-  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 404, json: { error: 'isolated fixture' } }))
+  await page.route('/api/**', (route) => route.fulfill({ status: 404, json: { error: 'isolated fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
@@ -12,7 +12,6 @@ test.beforeEach(async ({ page }) => {
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
-  await waitForStartupOwnership(page)
 })
 
 test('opens graph layers, recovers edits and explicitly exports an asset-backed snapshot', async ({ page }, testInfo) => {

@@ -8,7 +8,7 @@
  * still grow the family through a ghost pin, switch the forwarded branch,
  * and edit a promoted widget, all with a clean Problems state.
  */
-import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, type Page } from './fixtures.js'
 
 const activeDoc = (page: Page) =>
   page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
@@ -203,7 +203,6 @@ async function openCoexistenceWorkflow(page: Page): Promise<void> {
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
   await openCoexistenceWorkflow(page)
   await page.waitForFunction(() => {
     const tab = window.__dinksterTest!.app.activeTab()

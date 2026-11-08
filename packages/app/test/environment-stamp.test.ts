@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   asPromptId,
   DINKSTER_SCHEMA_WIRE_VERSION,
@@ -19,7 +19,6 @@ import {
 import { buildDinksterRegistry } from '@dinkster/client'
 import { historicalSchemas } from './historical-schemas.js'
 import { AppState, type Tab } from '../src/app-state.js'
-import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -52,13 +51,7 @@ const nodesPayload: DinksterNodesPayload = {
 let app: AppState
 
 beforeEach(() => {
-  app = createWorkflowApp(null)
-})
-
-afterEach(() => {
-  app.dispose()
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
+  app = new AppState()
 })
 
 const loadUnstampedSchemas = (): void => {
@@ -154,7 +147,7 @@ describe('exportDocument', () => {
     expect(app.exportDocument('no-such-tab')).toBeUndefined()
   })
 
-  it('frozen execution tabs export their snapshot verbatim - history is never restamped', async () => {
+  it('frozen execution tabs export their snapshot verbatim - history is never restamped', () => {
     const backend = app.backends.get()[0]!
     loadUnstampedSchemas()
     const tab = open(docJson('lin-frozen', ['KSampler']))
@@ -162,7 +155,7 @@ describe('exportDocument', () => {
     if (!result?.ok) throw new Error('fixture compile failed')
     const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('p1') }
     app.store.register(ref, result.artifact, 1)
-    expect(await app.openExecutionView(ref)).toBe(true)
+    expect(app.openExecutionView(ref)).toBe(true)
     const frozen = app.tabs.get().find((t) => t.execution)!
     expect(app.exportDocument(frozen.id)).toBe(frozen.store.doc)
   })

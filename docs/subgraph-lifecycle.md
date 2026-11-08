@@ -10,20 +10,13 @@ Use **Create empty subgraph** from the canvas context menu or universal
 search. Dinkster creates an empty definition and occurrence as one undoable
 operation, then opens the new definition.
 
-Drill-in waits for the final creation result. Refusal leaves navigation
-unchanged. A delayed success does not move a tab that was closed, reopened,
-retargeted to another session, or navigated elsewhere while creation was
-pending. Switching tabs and returning also preserves the user's navigation.
-Creation uses ordinary application dispatch, which selects retained admission
-when its candidate requires it.
-
 ## Extract a selection
 
 Use **Extract as Subgraph** in the selection toolbox or a node, group,
 reroute, value-source, or selector context menu, find **Extract selection as
 subgraph** in universal search, or press **Ctrl+Shift+E**. Element-row menus
 such as widgets, pins, sections, nets, and links stay scoped to that element.
-Extraction submits without a naming prompt. The definition uses
+Extraction commits immediately without a naming prompt. The definition uses
 the shared collision-safe default (`New Subgraph`, then `New Subgraph 2`, and
 so on). The created occurrence remains renameable later through the normal
 node **Rename** action.
@@ -33,10 +26,7 @@ and groups. A selected group includes every supported item spatially inside
 the group at gesture time. Selecting the contents without selecting the
 group does not move the group.
 
-Selection waits for the final extraction result. After success, the new
-occurrence is selected only if the original canvas, tab, session and
-navigation are still current. Switching tabs and returning invalidates that
-selection update. Refusal leaves the selection unchanged.
+After success, the new occurrence is the active selection.
 
 An input boundary attached to a reroute moves with that junction and its
 complete selected fanout. Extraction remaps the boundary attachment while
@@ -66,10 +56,8 @@ menu, find **Flatten selected subgraph one level** in universal search, or
 press **Ctrl+Shift+F**. Element-row menus such as widgets, pins, sections,
 nets, and links stay scoped to that element. Dinkster removes that occurrence
 and splices one copy of its body into the parent as one undoable operation.
-Nested occurrences remain nested. Selection waits for final acceptance;
-after success, the newly spliced body nodes are selected only in the
-original current canvas, tab, session and navigation, using the same
-ownership checks as extraction. Refusal leaves the selection unchanged.
+Nested occurrences remain nested. After success, the newly spliced body
+nodes are selected.
 
 A promoted literal input transfers this occurrence's stored
 value and controller mode to the fresh source, preserving explicit null.

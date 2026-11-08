@@ -29,18 +29,6 @@ rewrites or bolted-on views.
   media by asset-digest reference, and agent actions through the same
   commands and proposal conventions humans use.
 
-## Editor asset ownership
-
-Opening an image or compositor editor still selects its target synchronously.
-Decoded image sessions and compositor drafts wait for independent journaled
-ownership of their known source and resource digests before becoming editable.
-Declarations use the existing document-owner protocol with incomplete roots;
-they do not certify opaque resources or enable collection. Refusal keeps the
-session or draft unavailable and uses the existing editor error surface.
-Closing or replacing the target, changing its source/backend/registry or
-connection lifetime, or disposing the app prevents late admission. Component
-unmount and superseded runtime frames also prevent draft publication.
-
 ## EditorRegistry
 
 `packages/app/src/editors.ts`, exposed as `app.editors`. A descriptor is:
@@ -106,11 +94,6 @@ session's brush recipe in a source-bound `dinkster.mask.paint` node and rewires
 only those consumers. **Bake to asset** remains the explicit replacement path
 for other eligible image inputs. The graph command validates the source asset,
 paint node, and mask topology before making one undoable change.
-
-Mask source loading requires acknowledged workflow asset ownership before
-fetching. The read remains owned through the response body and PNG decode;
-closing, replacing the target, or changing its owner prevents late pixels from
-entering the edit session. Refused ownership leaves the source unavailable.
 
 ## Switching kinds (the app view)
 
@@ -201,14 +184,6 @@ Right-click a node and choose **Rename...** to edit its displayed title in the
 same anchored text prompt used by group rename. The commit dispatches the
 serializable `node.setTitle` command, so undo, persistence, and collaboration
 all use the document operation path.
-
-Canvas name prompts wait for final command acceptance before closing. Enter
-cannot submit twice while pending; the draft stays read only until the result.
-Refusal keeps the exact draft and an inline notice for retry. Escape or blur
-dismisses the prompt without cancelling a submitted command. A dismissed or
-replaced prompt cannot close a newer prompt when its command completes.
-This applies to node, group, selector and boundary names, and named-net
-creation and rename; their existing empty-name rules are unchanged.
 
 A title override that differs from the schema display name is italic. Hovering
 that header shows `Original: <display name>` immediately, without the normal

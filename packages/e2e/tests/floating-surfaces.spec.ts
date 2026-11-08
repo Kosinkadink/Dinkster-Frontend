@@ -1,7 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import type { TestInfo } from '@playwright/test'
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, type Page, type TestInfo } from '@playwright/test'
 
 const proofDir = process.env['DINKSTER_FLOATING_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -72,7 +71,6 @@ test.beforeEach(async ({ page }) => {
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     const longOptions = Array.from({ length: 14 }, (_, index) =>
       `Option ${index + 1} with a deliberately long label that must remain inside its floating surface`)

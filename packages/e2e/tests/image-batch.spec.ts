@@ -3,7 +3,7 @@ import { expect, nativeAppViewTest as test } from './fixtures.js'
 for (const nested of [false, true]) for (const batchSupported of [false, true]) test(`IMAGE batch in Canvas and App View (nested list: ${nested}, batch capability: ${batchSupported})`, async ({ page }, testInfo) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
-  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 404, json: { error: 'Isolated fixture' } }))
+  await page.route('/api/**', (route) => route.fulfill({ status: 404, json: { error: 'Isolated fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'image-test', schemaWire: 1 }, nodes: {} } }))

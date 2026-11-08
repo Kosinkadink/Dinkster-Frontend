@@ -57,72 +57,57 @@ export async function openGraphImageDocument(
   connection: DinksterConnection,
   store: ImageDocumentLocalStore,
   query: ValueQuery,
-  assertCurrent: () => void = () => undefined,
 ): Promise<OpenedGraphImageDocument> {
-  assertCurrent()
   const values = connection.values()
   const peek = await values.peek(query)
-  assertCurrent()
   if (!peek.available) throw new Error(`Layer value unavailable: ${peek.error}`)
   if (!isLayerDocumentType(peek.descriptor.typeId)) throw new Error('The graph output is not a layer document')
   const native = peek.renditions.find((rendition) =>
     rendition.kind === 'document' && rendition.mime.split(';', 1)[0] === IMAGE_DOCUMENT_MEDIA_TYPE)
   if (native === undefined) throw new Error('This value owner does not advertise a native ImageDocument rendition')
-  return values.read(query, peek.descriptor, async () => {
-    assertCurrent()
-    const result = await values.rendition(query, 'document', { descriptor: peek.descriptor })
-    assertCurrent()
-    if (!result.available) throw new Error(`Layer document unavailable: ${result.error}`)
-    if (result.fingerprint !== peek.descriptor.fingerprint ||
-      result.typeId !== peek.descriptor.typeId || result.reportedKind !== 'document' ||
-      result.mime !== native.mime || result.mime !== IMAGE_DOCUMENT_MEDIA_TYPE) {
-      throw new Error('Layer document rendition does not match the selected graph value')
-    }
-    if (result.bytes.byteLength > MAX_IMAGE_DOCUMENT_BYTES) throw new Error('Layer document exceeds the document size limit')
-    const bytes = new Uint8Array(result.bytes)
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-    const parsed: unknown = JSON.parse(text)
-    if (canonicalJson(parsed) !== text) throw new Error('Layer document rendition is not canonical')
-    const loaded = loadImageDocument(parsed)
-    if (loaded.document === undefined) {
-      throw new Error(loaded.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
-    }
-    if (serializeImageDocument(loaded.document) !== text) {
-      throw new Error('Layer document rendition cannot be opened without changing its canonical bytes')
-    }
-    const current = await store.recoverDraft(loaded.document.lineage)
-    assertCurrent()
-    if (current !== undefined && serializeImageDocument(current.document) !== serializeImageDocument(loaded.document)) {
-      throw new Error('This layer document has unsaved local edits; use the recovered draft instead')
-    }
-    const adopted = await adoptExactImageDocumentBytes(
-      connection,
-      loaded.document,
-      bytes,
-      GRAPH_IMAGE_DOCUMENT_SCOPE,
-    )
-    assertCurrent()
-    const render = await renderAdoptedImageDocument(
-      connection,
-      store,
-      adopted.digest,
-      text,
-      GRAPH_IMAGE_DOCUMENT_SCOPE,
-      'composite',
-      undefined,
-      assertCurrent,
-    )
-    assertCurrent()
-    await hydrateImageDocumentResources(connection, store, loaded.document, GRAPH_IMAGE_DOCUMENT_SCOPE, assertCurrent)
-    assertCurrent()
-    const draft = current ?? await store.saveDraft(
-      loaded.document,
-      `${query.nodeId} / ${query.outputId}`,
-      undefined,
-      null,
-    )
-    return { draft, render, document: loaded.document }
-  })
+  const result = await values.rendition(query, 'document')
+  if (!result.available) throw new Error(`Layer document unavailable: ${result.error}`)
+  if (result.fingerprint !== peek.descriptor.fingerprint ||
+    result.typeId !== peek.descriptor.typeId || result.reportedKind !== 'document' ||
+    result.mime !== native.mime || result.mime !== IMAGE_DOCUMENT_MEDIA_TYPE) {
+    throw new Error('Layer document rendition does not match the selected graph value')
+  }
+  if (result.bytes.byteLength > MAX_IMAGE_DOCUMENT_BYTES) throw new Error('Layer document exceeds the document size limit')
+  const bytes = new Uint8Array(result.bytes)
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  const parsed: unknown = JSON.parse(text)
+  if (canonicalJson(parsed) !== text) throw new Error('Layer document rendition is not canonical')
+  const loaded = loadImageDocument(parsed)
+  if (loaded.document === undefined) {
+    throw new Error(loaded.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+  }
+  if (serializeImageDocument(loaded.document) !== text) {
+    throw new Error('Layer document rendition cannot be opened without changing its canonical bytes')
+  }
+  const current = await store.recoverDraft(loaded.document.lineage)
+  if (current !== undefined && serializeImageDocument(current.document) !== serializeImageDocument(loaded.document)) {
+    throw new Error('This layer document has unsaved local edits; use the recovered draft instead')
+  }
+  const adopted = await adoptExactImageDocumentBytes(
+    connection,
+    loaded.document,
+    bytes,
+    GRAPH_IMAGE_DOCUMENT_SCOPE,
+  )
+  const render = await renderAdoptedImageDocument(
+    connection,
+    adopted.digest,
+    text,
+    GRAPH_IMAGE_DOCUMENT_SCOPE,
+  )
+  await hydrateImageDocumentResources(connection, store, loaded.document)
+  const draft = current ?? await store.saveDraft(
+    loaded.document,
+    `${query.nodeId} / ${query.outputId}`,
+    undefined,
+    null,
+  )
+  return { draft, render, document: loaded.document }
 }
 
 const same = (left: unknown, right: unknown): boolean => left === undefined || right === undefined
@@ -187,7 +172,6 @@ export async function exportImageDocumentRecipe(
   app: AppState,
   origin: ImageDocumentGraphOrigin,
   document: ImageDocument,
-  stillWanted: () => boolean = () => true,
 ): Promise<void> {
   const tab = app.activeTab()
   if (tab === undefined || tab.execution !== undefined) throw new Error('Select the editable source workflow for recipe export')
@@ -199,14 +183,9 @@ export async function exportImageDocumentRecipe(
   }
   const backend = app.backendForTab(tab)
   if (backend.id !== origin.connectionId) throw new Error('The source backend changed since this image document was opened')
-  const connection = backend.connection
-  const session = tab.store
-  const current = (): boolean => stillWanted() && app.activeTab() === tab && tab.store === session &&
-    app.backendForTab(tab) === backend && backend.connection === connection && currentGraphId(tab) === origin.graphId
-  if (!current()) throw new Error('The source workflow or backend changed during recipe export')
   const policy = imageOutputPolicyOf(document)
   const commands = canonicalJson(imageDocumentRecipeCommands(origin.document, document))
-  const outcome = await app.dispatchRetainedTo(tab, { command: 'image.documentRecipeExport', params: {
+  const outcome = app.dispatchTo(tab, { command: 'image.documentRecipeExport', params: {
     graphId: origin.graphId,
     expectedGraphFingerprint: origin.expectedGraphFingerprint,
     sourceNodeId: origin.sourceNodeId,
@@ -214,7 +193,7 @@ export async function exportImageDocumentRecipe(
     commands,
     format: policy.format,
     quality: policy.quality,
-  } }, current)
+  } })
   if (!outcome.ok) throw new Error(outcome.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
 }
 
@@ -223,7 +202,6 @@ export async function exportImageDocumentSnapshot(
   store: ImageDocumentLocalStore,
   document: ImageDocument,
   name: string,
-  stillWanted: () => boolean = () => true,
 ): Promise<void> {
   const tab = app.activeTab()
   if (tab === undefined || tab.execution !== undefined) throw new Error('Select an editable workflow for export')
@@ -237,21 +215,15 @@ export async function exportImageDocumentSnapshot(
     throw new Error('The destination does not advertise layer load and flatten nodes')
   }
   const expectedGraphFingerprint = sha256Hex(canonicalJson(graph))
-  const connection = backend.connection
-  const session = tab.store
-  const current = (): boolean => stillWanted() && app.activeTab() === tab && tab.store === session &&
-    app.backendForTab(tab) === backend && backend.connection === connection && currentGraphId(tab) === graphId
-  const assertCurrent = (): void => {
-    if (!current()) throw new Error('The destination workflow or backend changed during export')
+  const adopted = await adoptImageDocumentForRender(backend.connection, store, document, 'local')
+  if (app.activeTab() !== tab || app.backendForTab(tab) !== backend || currentGraphId(tab) !== graphId) {
+    throw new Error('The destination workflow or backend changed during export')
   }
-  assertCurrent()
-  const adopted = await adoptImageDocumentForRender(connection, store, document, 'local', undefined, assertCurrent)
-  assertCurrent()
-  const outcome = await app.dispatchRetainedTo(tab, { command: 'image.documentExport', params: {
+  const outcome = app.dispatchTo(tab, { command: 'image.documentExport', params: {
     graphId, expectedGraphFingerprint, position: { x: 80, y: 80 },
     asset: { digest: adopted.digest, name: `${name}.dinkster-image`,
       size: new TextEncoder().encode(serializeImageDocument(adopted.document)).byteLength,
       mediaType: IMAGE_DOCUMENT_MEDIA_TYPE, virtualPath: '' },
-  } }, current)
+  } })
   if (!outcome.ok) throw new Error(outcome.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
 }

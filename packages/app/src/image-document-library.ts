@@ -4,7 +4,6 @@ import {
   type ImageDocumentDependency,
   type LibraryRecord,
   type RenderedImageDocument,
-  type RetainedAssets,
 } from '@dinkster/client'
 import {
   MAX_IMAGE_DOCUMENT_BYTES,
@@ -87,11 +86,8 @@ export async function uploadImageDocumentResource(
   resource: ImageRasterResource,
   scope: string,
   signal?: AbortSignal,
-  assertCurrent: () => void = () => undefined,
 ): Promise<void> {
-  assertCurrent()
   const staged = await store.getResource(resource.digest)
-  assertCurrent()
   if (staged === undefined) throw new Error(`ImageDocument resource is not staged: ${resource.id}`)
   if (!stagedMatches(resource, staged)) {
     throw new Error(`staged ImageDocument resource does not match its descriptor: ${resource.id}`)
@@ -110,94 +106,31 @@ export async function uploadImageDocumentResource(
   }
 }
 
-async function withImageResourceRead<T>(
-  connection: DinksterConnection,
-  store: ImageDocumentLocalStore,
-  scope: string,
-  digests: readonly string[],
-  consume: () => Promise<T>,
-): Promise<T> {
-  if (digests.length > 4096) throw new Error('Image resource read exceeds the retained identity limit')
-  const read = digests.length === 0 ? undefined : await store.beginResourceRead(
-    connection.id, connection.assetUrl(''), scope, digests,
-  )
-  const matches = (actual: RetainedAssets | undefined, revision: number, expected: readonly string[]): boolean =>
-    actual !== undefined && read !== undefined && actual.scope === read.owner.scope &&
-    actual.ownerKind === read.owner.ownerKind && actual.ownerId === read.owner.ownerId &&
-    actual.revision === revision && actual.complete === true &&
-    actual.digests.length === expected.length && actual.digests.every((digest, index) => digest === expected[index])
-  if (read !== undefined) {
-    try {
-      const acknowledged = await connection.retainAssets(read.owner, { revision: 0, complete: true, digests })
-      if (!matches(acknowledged, 1, digests)) throw new Error('Image resource retention acknowledgment differs')
-    } catch (error) {
-      // A lost write response is not permission to replay or read unheld bytes.
-      let current: RetainedAssets | undefined
-      try { current = await connection.fetchRetainedAssets(read.owner) } catch { /* Durable intent remains unresolved. */ }
-      if (!matches(current, 1, digests)) throw error
-    }
-  }
-  try {
-    return await consume()
-  } finally {
-    if (read !== undefined) {
-      try {
-        const released = await connection.releaseRetainedAssets(read.owner, 1)
-        if (!matches(released, 2, [])) throw new Error('Image resource release acknowledgment differs')
-      } catch (error) {
-        let current: RetainedAssets | undefined
-        try { current = await connection.fetchRetainedAssets(read.owner) } catch { /* Durable intent remains unresolved. */ }
-        if (!matches(current, 2, [])) throw error
-      }
-      await store.finishResourceRead(read)
-    }
-  }
-}
-
 export async function hydrateImageDocumentResources(
   connection: DinksterConnection,
   store: ImageDocumentLocalStore,
   document: ImageDocument,
-  scope: string,
-  assertCurrent: () => void = () => undefined,
 ): Promise<void> {
-  const loaded = loadImageDocument(document)
-  if (loaded.document === undefined) throw new Error('cannot hydrate an invalid ImageDocument')
-  const resources = Object.values(loaded.document.resources)
-  const missing = new Set<string>()
-  for (const resource of resources) {
+  for (const resource of Object.values(document.resources)) {
     const local = await store.getResource(resource.digest)
-    assertCurrent()
-    if (local !== undefined && !stagedMatches(resource, local)) {
-      throw new Error(`local ImageDocument resource does not match its descriptor: ${resource.id}`)
-    }
-    if (local === undefined && resource.inline === undefined) missing.add(resource.digest)
-  }
-  await withImageResourceRead(connection, store, scope, [...missing].sort(), async () => {
-    assertCurrent()
-    for (const resource of resources) {
-      const local = await store.getResource(resource.digest)
-      assertCurrent()
-      if (local !== undefined) {
-        if (!stagedMatches(resource, local)) {
-          throw new Error(`local ImageDocument resource does not match its descriptor: ${resource.id}`)
-        }
-      } else {
-        const fetched = resource.inline === undefined
-          ? await connection.fetchAssetBytes(resource.digest)
-          : Uint8Array.from(atob(resource.inline), (character) => character.charCodeAt(0))
-        assertCurrent()
-        if (fetched === undefined) {
-          throw new Error(`ImageDocument resource is not held by the server: ${resource.id}`)
-        }
-        await store.stageResource(
-          resource,
-          new Uint8Array(fetched),
-          `${resource.id}.${resource.mediaType.slice('image/'.length)}`,
-        )
+    if (local !== undefined) {
+      if (!stagedMatches(resource, local)) {
+        throw new Error(`local ImageDocument resource does not match its descriptor: ${resource.id}`)
       }
+    } else {
+      const fetched = resource.inline === undefined
+        ? await connection.fetchAssetBytes(resource.digest)
+        : Uint8Array.from(atob(resource.inline), (character) => character.charCodeAt(0))
+      if (fetched === undefined) {
+        throw new Error(`ImageDocument resource is not held by the server: ${resource.id}`)
+      }
+      await store.stageResource(
+        resource,
+        new Uint8Array(fetched),
+        `${resource.id}.${resource.mediaType.slice('image/'.length)}`,
+      )
     }
-  })
+  }
 }
 
 function linkedRecord(record: LibraryRecord, link: ImageLibraryLink, scope: string): LibraryRecord {
@@ -239,9 +172,7 @@ async function publishLibraryRecord(
     readonly folder?: string
     readonly link?: ImageLibraryLink
   },
-  assertCurrent: () => void = () => undefined,
 ): Promise<LibraryRecord> {
-  assertCurrent()
   const link = options.link
   if (link?.connectionId === options.connectionId && link.scope === options.scope) {
     const patch = {
@@ -257,7 +188,6 @@ async function publishLibraryRecord(
     try {
       first = await connection.patchLibraryRecord(link.recordId, patch)
     } catch (error) {
-      assertCurrent()
       try {
         const fresh = await connection.getLibraryRecord(link.recordId, options.scope)
         if (fresh !== undefined && linkedRecord(fresh, link, options.scope).digest === options.digest) {
@@ -269,9 +199,7 @@ async function publishLibraryRecord(
       throw error
     }
     if (first.ok) return linkedRecord(first.record, link, options.scope)
-    assertCurrent()
     const fresh = await connection.getLibraryRecord(link.recordId, options.scope)
-    assertCurrent()
     if (fresh === undefined) throw new Error('linked image library record no longer exists')
     linkedRecord(fresh, link, options.scope)
     if (fresh.digest === options.digest) return fresh
@@ -309,7 +237,7 @@ export interface AdoptedImageDocumentForRender {
 
 export interface VerifiedImageDocumentRender {
   readonly response: RenderedImageDocument
-  readonly image: Blob
+  readonly assetUrl: string
   readonly sourceCanonical: string
 }
 
@@ -336,36 +264,28 @@ export async function adoptExactImageDocumentBytes(
 
 export async function renderAdoptedImageDocument(
   connection: DinksterConnection,
-  store: ImageDocumentLocalStore,
   digest: string,
   sourceCanonical: string,
   scope: string,
   selector = 'composite',
   signal?: AbortSignal,
-  assertCurrent: () => void = () => undefined,
 ): Promise<VerifiedImageDocumentRender> {
-  assertCurrent()
   const response = await connection.renderImageDocument(digest, {
     scope,
     selector,
     ...(signal !== undefined ? { signal } : {}),
   })
-  assertCurrent()
-  return withImageResourceRead(connection, store, scope, [response.asset.digest], async () => {
-    assertCurrent()
-    const fetched = await connection.fetchAssetBytes(response.asset.digest)
-    assertCurrent()
-    if (fetched === undefined) throw new Error('Rendered ImageDocument PNG is not held by the server')
-    const bytes = new Uint8Array(fetched)
-    if (bytes.byteLength !== response.asset.size || imageDocumentDigest(bytes) !== response.asset.digest) {
-      throw new Error('Rendered ImageDocument PNG does not match its asset identity')
-    }
-    return {
-      response,
-      image: new Blob([bytes], { type: 'image/png' }),
-      sourceCanonical,
-    }
-  })
+  const fetched = await connection.fetchAssetBytes(response.asset.digest)
+  if (fetched === undefined) throw new Error('Rendered ImageDocument PNG is not held by the server')
+  const bytes = new Uint8Array(fetched)
+  if (bytes.byteLength !== response.asset.size || imageDocumentDigest(bytes) !== response.asset.digest) {
+    throw new Error('Rendered ImageDocument PNG does not match its asset identity')
+  }
+  return {
+    response,
+    assetUrl: connection.assetUrl(response.asset.digest),
+    sourceCanonical,
+  }
 }
 
 async function adoptOwnedImageDocument(
@@ -374,9 +294,7 @@ async function adoptOwnedImageDocument(
   document: ImageDocument,
   scope: string,
   signal?: AbortSignal,
-  assertCurrent: () => void = () => undefined,
 ): Promise<AdoptedImageDocumentForRender> {
-  assertCurrent()
   const dependencies = expectedDependencies(document)
   const canonical = serializeImageDocument(document)
   const bytes = new TextEncoder().encode(canonical)
@@ -384,11 +302,9 @@ async function adoptOwnedImageDocument(
   const uploaded = new Set<string>()
   for (const resource of Object.values(document.resources)) {
     if (resource.inline !== undefined || uploaded.has(resource.digest)) continue
-    await uploadImageDocumentResource(connection, store, resource, scope, signal, assertCurrent)
-    assertCurrent()
+    await uploadImageDocumentResource(connection, store, resource, scope, signal)
     uploaded.add(resource.digest)
   }
-  assertCurrent()
   const adopted = await connection.adoptImageDocument(bytes, {
     scope,
     expectedDigest: digest,
@@ -407,11 +323,10 @@ export async function adoptImageDocumentForRender(
   document: ImageDocument,
   scope: string,
   signal?: AbortSignal,
-  assertCurrent: () => void = () => undefined,
 ): Promise<AdoptedImageDocumentForRender> {
   const loaded = loadImageDocument(document)
   if (loaded.document === undefined) throw new Error('cannot render an invalid ImageDocument')
-  return adoptOwnedImageDocument(connection, store, loaded.document, scope, signal, assertCurrent)
+  return adoptOwnedImageDocument(connection, store, loaded.document, scope, signal)
 }
 
 export async function saveImageDocumentToLibrary(
@@ -426,21 +341,16 @@ export async function saveImageDocumentToLibrary(
     readonly folder?: string
     readonly link?: ImageLibraryLink
     readonly signal?: AbortSignal
-    readonly assertCurrent?: () => void
   },
 ): Promise<SavedImageDocument> {
-  const assertCurrent = options.assertCurrent ?? (() => undefined)
-  assertCurrent()
   const loaded = loadImageDocument(document)
   if (loaded.document === undefined) throw new Error('cannot save an invalid ImageDocument')
   const owned = loaded.document
   const existingDraft = await store.recoverDraft(owned.lineage)
-  assertCurrent()
   let expectedDraftUpdatedAt = existingDraft?.updatedAt ?? null
   let link = existingDraft?.library ?? options.link
   if (link?.connectionId === options.connectionId && link.scope === options.scope) {
     link = await reconcilePendingLink(connection, link)
-    assertCurrent()
   }
   const canonical = serializeImageDocument(owned)
   const bytes = new TextEncoder().encode(canonical)
@@ -449,15 +359,13 @@ export async function saveImageDocumentToLibrary(
     const pendingDraft = await store.linkDraft(owned, options.name, {
       ...link,
       pendingDigest: digest,
-    }, expectedDraftUpdatedAt, assertCurrent)
-    assertCurrent()
+    }, expectedDraftUpdatedAt)
     if (serializeImageDocument(pendingDraft.document) !== canonical || pendingDraft.name !== options.name) {
       throw new Error('ImageDocument draft changed concurrently')
     }
     expectedDraftUpdatedAt = pendingDraft.updatedAt
   }
-  await adoptOwnedImageDocument(connection, store, owned, options.scope, options.signal, assertCurrent)
-  assertCurrent()
+  await adoptOwnedImageDocument(connection, store, owned, options.scope, options.signal)
   const record = await publishLibraryRecord(connection, {
     scope: options.scope,
     connectionId: options.connectionId,
@@ -466,8 +374,7 @@ export async function saveImageDocumentToLibrary(
     ...(options.labels !== undefined ? { labels: options.labels } : {}),
     ...(options.folder !== undefined ? { folder: options.folder } : {}),
     ...(link !== undefined ? { link } : {}),
-  }, assertCurrent)
-  assertCurrent()
+  })
   if (record.scope !== options.scope || record.digest !== digest ||
     mediaTypeBase(record.mediaType) !== IMAGE_DOCUMENT_MEDIA_TYPE) {
     throw new Error('server returned a mismatched ImageDocument library record')
@@ -478,7 +385,7 @@ export async function saveImageDocumentToLibrary(
     digest,
     scope: options.scope,
     connectionId: options.connectionId,
-  }, expectedDraftUpdatedAt, assertCurrent)
+  }, expectedDraftUpdatedAt)
   return { document: owned, digest, record, draft }
 }
 
@@ -488,20 +395,13 @@ export async function openImageDocumentFromLibrary(
   recordId: string,
   scope: string,
   connectionId: string,
-  assertCurrent: () => void = () => undefined,
 ): Promise<ImageDocumentDraft | undefined> {
-  assertCurrent()
   const record = await connection.getLibraryRecord(recordId, scope)
-  assertCurrent()
   if (record === undefined) return undefined
   if (record.scope !== scope || mediaTypeBase(record.mediaType) !== IMAGE_DOCUMENT_MEDIA_TYPE) {
     throw new Error('library record is not an ImageDocument')
   }
-  const text = await withImageResourceRead(connection, store, scope, [record.digest], () => {
-    assertCurrent()
-    return connection.fetchAssetText(record.digest)
-  })
-  assertCurrent()
+  const text = await connection.fetchAssetText(record.digest)
   if (text === undefined) throw new Error('ImageDocument bytes are not held by the server')
   const bytes = new TextEncoder().encode(text)
   if (bytes.byteLength > MAX_IMAGE_DOCUMENT_BYTES) {
@@ -521,13 +421,11 @@ export async function openImageDocumentFromLibrary(
     throw new Error('library ImageDocument is invalid or non-canonical')
   }
   const dependencies = await connection.fetchImageDocumentDependencies(record.digest)
-  assertCurrent()
   const expected = expectedDependencies(loaded.document)
   if (dependencies === undefined || !manifestMatches(dependencies, expected)) {
     throw new Error('ImageDocument dependency manifest does not match its document')
   }
   const existingDraft = await store.recoverDraft(loaded.document.lineage)
-  assertCurrent()
   if (existingDraft !== undefined) {
     if (serializeImageDocument(existingDraft.document) !== serializeImageDocument(loaded.document)) {
       throw new Error('local ImageDocument draft has unsaved changes')
@@ -538,8 +436,7 @@ export async function openImageDocumentFromLibrary(
       throw new Error('local ImageDocument draft belongs to another library record')
     }
   }
-  await hydrateImageDocumentResources(connection, store, loaded.document, scope, assertCurrent)
-  assertCurrent()
+  await hydrateImageDocumentResources(connection, store, loaded.document)
   return store.saveDraft(loaded.document, record.name, {
     recordId: record.id,
     revision: record.revision,

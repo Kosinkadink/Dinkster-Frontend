@@ -50,26 +50,26 @@ describe('occurrence mutation planner seam', () => {
     to: { kind: 'boundary' as const, occurrence: { instancePath: [], node: 'instance' as any }, address: { port: 'items.value' as any, members: ['m0' as any] }, route: [] },
   }
 
-  it('dispatches the planner invocation unchanged', async () => {
+  it('dispatches the planner invocation unchanged', () => {
     const opaque = { command: 'occurrence.link.connect', params: { opaque: 'trusted-plan' } } as any
     const dispatch = vi.fn(() => ({ ok: true, doc: {} as any, forward: [], inverse: [], diagnostics: [] } as const))
     const plan = vi.fn((_document: any, _resolver: any, _intention: any) => ({ ok: true as const, invocation: opaque }))
     const planner = { planOccurrenceLinkMutation: plan }
     const report = vi.fn()
 
-    expect((await dispatchOccurrenceIntention({
+    expect(dispatchOccurrenceIntention({
       document: {} as any, resolver: () => undefined, intention, planner, dispatch, report,
-    })).ok).toBe(true)
+    }).ok).toBe(true)
     expect(plan.mock.calls[0]![2]).toBe(intention)
     expect(dispatch).toHaveBeenCalledWith(opaque)
     expect(report).not.toHaveBeenCalled()
   })
 
-  it('surfaces planner diagnostics and does not dispatch', async () => {
+  it('surfaces planner diagnostics and does not dispatch', () => {
     const diagnostic = { severity: 'error', source: 'command', code: 'occurrence.link.stalePlan', message: 'stale route' } as any
     const dispatch = vi.fn()
     const report = vi.fn()
-    const outcome = await dispatchOccurrenceIntention({
+    const outcome = dispatchOccurrenceIntention({
       document: {} as any,
       resolver: () => undefined,
       intention,
@@ -82,10 +82,10 @@ describe('occurrence mutation planner seam', () => {
     expect(dispatch).not.toHaveBeenCalled()
   })
 
-  it('uses a named refusal when the planner is unavailable', async () => {
+  it('uses a named refusal when the planner is unavailable', () => {
     const report = vi.fn()
     const dispatch = vi.fn()
-    const outcome = await dispatchOccurrenceIntention({
+    const outcome = dispatchOccurrenceIntention({
       document: {} as any, resolver: () => undefined, intention, planner: undefined, dispatch, report,
     })
     expect(outcome.ok).toBe(false)

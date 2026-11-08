@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
+import { expect, test, type Page } from '@playwright/test'
 import { DINKSTER_SCHEMA_WIRE_VERSION } from '@dinkster/core'
-import { expect, nativeTest as test, skipWithoutNativeCatalog, waitForStartupOwnership, type Page } from './fixtures.js'
+import { skipWithoutNativeCatalog } from './fixtures.js'
 
 const PROOF = '/tmp/audit-rowj-proof'
 const RANGE_FILL = 'rgba(90, 176, 255, 0.14)'
@@ -93,7 +94,6 @@ test('live current-wire row J acceptance proof', async ({ page, request }, testI
   // production catalog from a partial or fallback catalog.
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size ?? 0), { timeout: 20_000 }).toBeGreaterThan(400)
   expect(wires).toContain(DINKSTER_SCHEMA_WIRE_VERSION)
-  await waitForStartupOwnership(page)
 
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument({
@@ -167,11 +167,9 @@ test('live current-wire row J acceptance proof', async ({ page, request }, testI
   await screenshot(page, '07-hover-geometry.png')
 
   const image = { digest: SOURCE, name: 'source.png', mediaType: 'image/png' }
-  await page.evaluate(async ({ image, size }) => {
-    const app = window.__dinksterTest!.app
-    const tab = app.activeTab()!
-    const outcome = await app.dispatchTo(tab, { command: 'node.add', params: { graphId: 'g0', type: 'LoadImage', values: { image: { ...image, size, virtualPath: '' } }, position: { x: 180, y: 430 } } })
-    if (!outcome.ok) throw new Error(`Image fixture admission failed: ${JSON.stringify(outcome.diagnostics)}`)
+  await page.evaluate(({ image, size }) => {
+    const tab = window.__dinksterTest!.app.activeTab()!
+    tab.store.dispatch({ command: 'node.add', params: { graphId: 'g0', type: 'LoadImage', values: { image: { ...image, size, virtualPath: '' } }, position: { x: 180, y: 430 } } })
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   }, { image, size: PNG.length })
   const loadId = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.find((node) => !['sampler'].includes(node.id) && node.layout.rows.some((row) => row.inputId === 'image'))!.id)
@@ -206,11 +204,9 @@ test('live current-wire row J acceptance proof', async ({ page, request }, testI
   expect(afterImageEdit.value).not.toEqual(beforeImageEdit.value)
   await screenshot(page, '10-image-edit-apply-mocked.png')
 
-  await page.evaluate(async () => {
-    const app = window.__dinksterTest!.app
-    const tab = app.activeTab()!
-    const outcome = await app.dispatchTo(tab, { command: 'node.add', params: { graphId: 'g0', type: 'dinkster.mask.make', values: { width: 512, height: 512, batch_size: 1, invert: false, 'operation.foreground': 1 }, dynamic: { operation: { selected: 'solid' } }, position: { x: 920, y: 430 } } })
-    if (!outcome.ok) throw new Error(`Mask fixture admission failed: ${JSON.stringify(outcome.diagnostics)}`)
+  await page.evaluate(() => {
+    const tab = window.__dinksterTest!.app.activeTab()!
+    tab.store.dispatch({ command: 'node.add', params: { graphId: 'g0', type: 'dinkster.mask.make', values: { width: 512, height: 512, batch_size: 1, invert: false, 'operation.foreground': 1 }, dynamic: { operation: { selected: 'solid' } }, position: { x: 920, y: 430 } } })
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.layout.rows.some((row) => row.inputId === 'width')))).toBe(true)

@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, on, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal, on, onCleanup, Show } from 'solid-js'
 import type { MountDescriptor, MountGrantOptions } from '@dinkster/client'
 import { useAppMessage } from './locale.js'
 import { desktopFileBridge } from './desktop-bridge.js'
@@ -24,8 +24,6 @@ export function MountFolderForm(props: {
   readonly onGranted?: () => void
 }) {
   const message = useAppMessage()
-  const connection = createMemo(() => props.connection)
-  const backendUrl = createMemo(() => props.backendUrl)
   const [mountPath, setMountPath] = createSignal('')
   const [mountId, setMountId] = createSignal('')
   const [mode, setMode] = createSignal<'read' | 'readwrite'>('read')
@@ -35,7 +33,7 @@ export function MountFolderForm(props: {
   const [status, setStatus] = createSignal<StatusMessage>()
   const [nativeChoice, setNativeChoice] = createSignal(false)
   let generation = 0
-  createEffect(on(() => [backendUrl(), connection()] as const, ([url]) => {
+  createEffect(on(() => [props.backendUrl, props.connection] as const, ([url]) => {
     const bridge = desktopFileBridge()
     let active = true
     setNativeChoice(false)

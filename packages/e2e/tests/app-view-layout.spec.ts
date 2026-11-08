@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, appViewTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, appViewTest as test, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/app-view-layout-flow'
 const gridProofDir = '/tmp/app-view-layout-grid'
@@ -58,7 +58,6 @@ test.beforeEach(async ({ page }) => {
   mkdirSync(mobileProofDir, { recursive: true })
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
   await registerSchema(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument({

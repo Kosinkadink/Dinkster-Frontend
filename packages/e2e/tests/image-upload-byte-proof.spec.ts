@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto'
 import { deflateSync } from 'node:zlib'
-import type { Request } from '@playwright/test'
-import type { WorkflowDocument } from '@dinkster/core'
-import { expect, nativeTest as test, selectProductOption, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, type Page, type Request } from '@playwright/test'
+import { selectProductOption } from './fixtures.js'
 
 interface AssetRef {
   digest: string
@@ -124,10 +123,6 @@ async function openDocument(page: Page, lineage: string, includeOutput: boolean,
     } as never, 'Image byte proof')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   }, { lineage, includeOutput, includeLoad })
-  await page.waitForFunction((lineage) => {
-    const tab = window.__dinksterTest!.app.activeTab()
-    return tab?.store.doc.lineage === lineage && 'status' in tab.store
-  }, lineage)
 }
 
 async function openLoadImageAssetEditor(page: Page): Promise<void> {
@@ -160,11 +155,6 @@ async function assetRef(page: Page): Promise<AssetRef> {
 
 async function assertExportReopen(page: Page): Promise<void> {
   const before = await assetRef(page)
-  await expect.poll(() => page.evaluate(() => {
-    const app = window.__dinksterTest!.app
-    const exported = app.exportDocument(app.activeTab()!.id) as WorkflowDocument | undefined
-    return exported?.meta?.ext?.['dinkster.assetLocations'] !== undefined
-  })).toBe(true)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const exported = app.exportDocument(app.activeTab()!.id)
@@ -201,7 +191,6 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
-  await waitForStartupOwnership(page)
   const required = await page.evaluate(() => {
     const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas
     return schemas?.has('dinkster.load_image') === true && schemas.has('dinkster.save_image')

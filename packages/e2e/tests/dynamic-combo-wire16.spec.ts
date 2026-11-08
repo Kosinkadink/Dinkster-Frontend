@@ -6,7 +6,7 @@
  * registerSchemas.
  */
 import { readFileSync } from 'node:fs'
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, type Page } from '@playwright/test'
 
 const resizeWireFixture = JSON.parse(readFileSync(
   new URL('../../core/fixtures/dinkster-resize-image-mask-wire16.json', import.meta.url),
@@ -133,7 +133,6 @@ test('fresh ResizeImageMaskNode selects, round-trips, and submits effective wire
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('comfy.ResizeImageMaskNode') ?? false,
   )).toBe(true)
-  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',
@@ -168,9 +167,6 @@ test('fresh ResizeImageMaskNode selects, round-trips, and submits effective wire
   await page.getByTestId('palette-search').fill('Resize Image/Mask')
   await page.locator('[data-node-type="comfy.ResizeImageMaskNode"]').click()
   await page.mouse.click(700, 500)
-  await expect.poll(() => page.evaluate(() => Object.values(
-    window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes,
-  ).some((candidate) => candidate.type === 'comfy.ResizeImageMaskNode'))).toBe(true)
   const resizeId = await page.evaluate(() => Object.values(
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes,
   ).find((candidate) => candidate.type === 'comfy.ResizeImageMaskNode')!.id)

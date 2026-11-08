@@ -91,8 +91,7 @@ export async function videoInspectionFor(
           return Promise.resolve({ available: false, status: 406, reason: 'unadvertised-rendition', error: `${kind} selector is not advertised` })
         }
         return values.rendition(result.video.query, kind, {
-          ...options, descriptor: result.video.descriptor,
-          ...(info.version === undefined ? {} : { rendererVersion: info.version }),
+          ...options, ...(info.version === undefined ? {} : { rendererVersion: info.version }),
         })
       },
       select: async (selected, signal) => {

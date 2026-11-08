@@ -1,4 +1,4 @@
-import { expect, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, selectProductOption, test, type Page } from './fixtures.js'
 
 test.use({ hasTouch: true })
 
@@ -80,26 +80,19 @@ async function targetNativeBackend(page: Page): Promise<void> {
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
-  const opened = await page.evaluate(async () => {
-    const app = window.__dinksterTest!.app
-    app.registerSchemas([{
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.registerSchemas([{
       type: 'AssetWidgetTest', displayName: 'Asset Widget', category: 'test', source: 'v3', isOutputNode: false,
       items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
         widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } }],
     }])
-    const retained = app as unknown as {
-      openRetainedDocument(document: unknown, title: string, backend: unknown, stillWanted: () => boolean): Promise<unknown>
-    }
-    const tab = await retained.openRetainedDocument({
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'asset-widget', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { asset: { id: 'asset', type: 'AssetWidgetTest', values: { image: { digest: `blake3:${'b'.repeat(64)}`, name: 'old.png', size: 3, mediaType: 'image/png', virtualPath: '' } } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { asset: { position: { x: 100, y: 100 } } } } } },
-    }, 'Asset Widget', app.backends.get()[0]!, () => true)
+    }, 'Asset Widget')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-    return tab !== undefined
   })
-  expect(opened).toBe(true)
 })
 
 test('overlay opens and cancel preserves the old asset', async ({ page }) => {
@@ -269,7 +262,7 @@ test.describe('native asset uploads', () => {
   test('a failed upload stops a multi-file batch: later files never upload, the error stays', async ({ page }) => {
     await targetNativeBackend(page)
     // Multi-select declaration so the file input accepts a batch.
-    const seeded = await page.evaluate(async () => {
+    await page.evaluate(() => {
       window.__dinksterTest!.app.registerSchemas([{
         type: 'AssetWidgetTest', displayName: 'Asset Widget', category: 'test', source: 'v3', isOutputNode: false,
         items: [{ kind: 'input', id: 'image',
@@ -281,12 +274,13 @@ test.describe('native asset uploads', () => {
       // restore as staging; seed a complete AssetRef so the chip-count
       // assertions below distinguish "batch stopped" from "nothing staged".
       const tab = window.__dinksterTest!.app.activeTab()!
-      return (await window.__dinksterTest!.app.dispatchTo(tab, {
+      ;(tab.store as unknown as {
+        dispatch(invocation: { command: string; params: unknown }): { ok: boolean }
+      }).dispatch({
         command: 'node.setValue',
         params: { graphId: 'g0', nodeId: 'asset', inputId: 'image', value: { digest: `blake3:${'b'.repeat(64)}`, name: 'old.png', size: 3, mediaType: 'image/png', virtualPath: '' } },
-      })).ok
+      })
     })
-    expect(seeded).toBe(true)
     await openAsset(page)
     const editor = page.getByTestId('asset-editor')
     // The stored scalar restores as one staged chip.
@@ -460,8 +454,6 @@ test.describe('native asset uploads', () => {
         await route.fulfill({ json: { entries: [
           { virtualPath: 'photos/sunset.png', name: 'sunset.png', digest: `blake3:${'7'.repeat(64)}`, size: 2048, mediaType: 'image/png', kind: 'media/image' },
         ], total: 1 } })
-      } else if (url.pathname === '/api/mounts/locations' && url.searchParams.has('digest')) {
-        await route.fulfill({ json: { locations: [{ path: '/fixture/photos/sunset.png' }] } })
       } else {
         await route.fulfill({ status: 404 })
       }
@@ -526,10 +518,13 @@ test.describe('multi-select on list-of-asset declarations', () => {
       }])
     })
     await page.evaluate(([a, b]) => {
-      const app = window.__dinksterTest!.app
-      const document = structuredClone(app.activeTab()!.store.doc)
-      document.graphs.g0!.nodes.asset!.values.image = [a, b]
-      app.openDocument(document, 'Asset Widget')
+      const tab = window.__dinksterTest!.app.activeTab()!
+      ;(tab.store as unknown as {
+        dispatch(invocation: { command: string; params: unknown }): { ok: boolean }
+      }).dispatch({
+        command: 'node.setValue',
+        params: { graphId: 'g0', nodeId: 'asset', inputId: 'image', value: [a, b] },
+      })
     }, [ref(1), ref(2)] as const)
   })
 
@@ -598,7 +593,7 @@ test.describe('multi-select on list-of-asset declarations', () => {
   // ASSET widget to scalar plain T (backend binding policy, 72c0719).
   test.describe('scalar merge arm (mergeableTypes membership)', () => {
     test.beforeEach(async ({ page }) => {
-      const seeded = await page.evaluate(async ([a, b]) => {
+      await page.evaluate(([a, b]) => {
         // The tab targets the first backend; graft mergeableTypes onto its
         // live registry (the wire would deliver this on a real v12+ server).
         const backend = window.__dinksterTest!.app.backends.get()[0]! as unknown as {
@@ -613,12 +608,13 @@ test.describe('multi-select on list-of-asset declarations', () => {
             widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } }],
         }])
         const tab = window.__dinksterTest!.app.activeTab()!
-        return (await window.__dinksterTest!.app.dispatchTo(tab, {
+        ;(tab.store as unknown as {
+          dispatch(invocation: { command: string; params: unknown }): { ok: boolean }
+        }).dispatch({
           command: 'node.setValue',
           params: { graphId: 'g0', nodeId: 'asset', inputId: 'image', value: [a, b] },
-        })).ok
+        })
       }, [ref(1), ref(2)] as const)
-      expect(seeded).toBe(true)
     })
 
     test('a merger-member scalar T gets the multi-select UI and Apply commits the array', async ({ page }) => {
@@ -647,15 +643,18 @@ test.describe('multi-select on list-of-asset declarations', () => {
     // The default beforeEach schema (concrete ASSET) governs here: re-register
     // it and confirm the editor keeps the single-pick surface.
     await page.evaluate(() => {
-      const app = window.__dinksterTest!.app
-      app.registerSchemas([{
+      window.__dinksterTest!.app.registerSchemas([{
         type: 'AssetWidgetTest', displayName: 'Asset Widget', category: 'test', source: 'v3', isOutputNode: false,
         items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
           widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } }],
       }])
-      const document = structuredClone(app.activeTab()!.store.doc)
-      document.graphs.g0!.nodes.asset!.values.image = { digest: `blake3:${'b'.repeat(64)}`, name: 'old.png', size: 3, mediaType: 'image/png', virtualPath: '' }
-      app.openDocument(document, 'Asset Widget')
+      const tab = window.__dinksterTest!.app.activeTab()!
+      ;(tab.store as unknown as {
+        dispatch(invocation: { command: string; params: unknown }): { ok: boolean }
+      }).dispatch({
+        command: 'node.setValue',
+        params: { graphId: 'g0', nodeId: 'asset', inputId: 'image', value: { digest: `blake3:${'b'.repeat(64)}`, name: 'old.png', size: 3, mediaType: 'image/png', virtualPath: '' } },
+      })
     })
     await openAsset(page)
     const editor = page.getByTestId('asset-editor')

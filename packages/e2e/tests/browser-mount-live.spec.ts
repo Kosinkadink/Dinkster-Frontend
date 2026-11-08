@@ -1,12 +1,11 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { APIRequestContext } from "@playwright/test";
 import {
   expect,
-  nativeTest as test,
-  waitForStartupOwnership,
+  test,
+  type APIRequestContext,
   type Page,
-} from "./fixtures.js";
+} from "@playwright/test";
 import { evidencePath } from "./evidence-output.js";
 
 const backend = process.env["DINKSTER_NATIVE_BACKEND"];
@@ -133,7 +132,6 @@ test("the browser template gallery grants a read-only model mount and the asset 
       { timeout: 15_000 },
     );
     await expect(page.getByTestId("status-bar")).toContainText("connected");
-    await waitForStartupOwnership(page);
 
     await page
       .getByRole("button", { name: "Browse starter templates" })
@@ -319,7 +317,6 @@ test("a ComfyUI checkpoint filename binds through the real mount index on import
 
     await page.goto("/");
     await expect(page.getByTestId("status-bar")).toContainText("connected");
-    await waitForStartupOwnership(page);
     await expect
       .poll(() =>
         page.evaluate(() =>

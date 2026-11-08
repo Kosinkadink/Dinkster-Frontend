@@ -30,8 +30,6 @@ async function exposeInput(page: Page): Promise<void> {
   const point = await canvasPoint(page, 'count')
   await page.mouse.click(point.x, point.y, { button: 'right' })
   await page.locator('[data-item-id="core.widget.expose.toggle"]').click()
-  await expect.poll(async () => (await activeDoc(page)).ext?.['dinkster.exposed'])
-    .toEqual(expect.arrayContaining([expect.objectContaining({ graphId: 'g0', nodeId: 'widgets', inputId: 'count' })]))
 }
 
 async function exposePreview(page: Page, nodeId = 'widgets'): Promise<void> {
@@ -40,8 +38,6 @@ async function exposePreview(page: Page, nodeId = 'widgets'): Promise<void> {
   const item = page.locator('[data-item-id="core.node.preview.expose.toggle"]')
   await expect(item).toContainText('Promote to App View')
   await item.click()
-  await expect.poll(async () => (await activeDoc(page)).ext?.['dinkster.exposedPreviews'])
-    .toEqual(expect.arrayContaining([expect.objectContaining({ graphId: 'g0', nodeId })]))
 }
 
 async function injectLiveFrame(page: Page, width: number, height: number, label: string): Promise<void> {

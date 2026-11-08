@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, type Page } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const activeDoc = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
@@ -118,9 +118,7 @@ async function openProof(page: Page) {
 
 test.beforeEach(async ({ context, page }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-  await page.route('/api/**', (route) => new URL(route.request().url()).pathname.startsWith('/api/library/retentions/')
-    ? route.fallback()
-    : route.fulfill({ status: 503, body: 'Frontend contract fixture' }))
+  await page.route('/api/**', (route) => route.fulfill({ status: 503, body: 'Frontend contract fixture' }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'minimized-import-contract', schemaWire: 1 },
@@ -133,7 +131,6 @@ test.beforeEach(async ({ context, page }) => {
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas', { timeout: 15_000 })
-  await waitForStartupOwnership(page)
   if (await page.getByTestId('dock-zone-right').isVisible()) {
     await page.getByRole('button', { name: /^Toggle right rail/ }).click()
   }

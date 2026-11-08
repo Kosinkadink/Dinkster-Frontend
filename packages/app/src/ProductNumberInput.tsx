@@ -1,4 +1,4 @@
-import { createEffect, createSignal, on, onCleanup, type JSX } from 'solid-js'
+import { createEffect, createSignal, on, type JSX } from 'solid-js'
 import { MAX_INTEGER_WIDGET_VALUE, MIN_INTEGER_WIDGET_VALUE } from '@dinkster/core'
 
 type NumberValue = number | string | undefined
@@ -22,8 +22,6 @@ export function ProductNumberInput(props: {
   readonly commitUnchanged?: boolean
   readonly normalizeCommit?: (raw: string) => string
   readonly onCommit?: (raw: string) => void
-  readonly onCommitAsync?: (raw: string, stillWanted: () => boolean) => Promise<boolean>
-  readonly onDraftActive?: (active: boolean) => void
   readonly onInput?: (raw: string) => void
   readonly onRevert?: () => void
 }) {
@@ -52,23 +50,13 @@ export function ProductNumberInput(props: {
   }
   const [raw, setRaw] = createSignal(text(props.value))
   const [committed, setCommitted] = createSignal(text(props.value))
-  const [pending, setPending] = createSignal(false)
   let dirty = false
-  let live = true
-  let generation = 0
-  let submitted: string | undefined
-  const setDirty = (value: boolean): void => {
-    if (dirty === value) return
-    dirty = value
-    props.onDraftActive?.(value)
-  }
-  onCleanup(() => { live = false; setDirty(false) })
 
   createEffect(on(() => props.value, (value) => {
     const next = text(value)
     setCommitted(next)
-    if ((props.onCommit === undefined && props.onCommitAsync === undefined) || !dirty) {
-      setDirty(false)
+    if (props.onCommit === undefined || !dirty) {
+      dirty = false
       setRaw(next)
     }
   }))
@@ -76,30 +64,9 @@ export function ProductNumberInput(props: {
   const valid = (value: string): boolean => props.integer === true
     ? integer(value) !== undefined
     : value.trim() !== '' && Number.isFinite(Number(value))
-  const commitAsync = async (explicit: boolean): Promise<void> => {
-    if (!live || pending() || !dirty || props.onCommitAsync === undefined) return
-    const next = props.normalizeCommit?.(raw()) ?? raw()
-    if (!explicit && submitted === next) return
-    if (next === committed() && !props.commitUnchanged) { setRaw(next); setDirty(false); return }
-    const current = ++generation
-    submitted = next
-    setPending(true)
-    try {
-      const accepted = await props.onCommitAsync(next, () => live && current === generation)
-      if (live && current === generation && accepted) {
-        setRaw(text(props.value))
-        setDirty(false)
-      }
-    } catch {
-      // The caller presents the failure; the exact draft remains retryable.
-    } finally {
-      if (live && current === generation) setPending(false)
-    }
-  }
-  const commit = (explicit = false): void => {
-    if (props.onCommitAsync !== undefined) { void commitAsync(explicit); return }
+  const commit = (): void => {
     if (!dirty || props.onCommit === undefined) return
-    setDirty(false)
+    dirty = false
     const next = props.normalizeCommit?.(raw()) ?? raw()
     setRaw(next)
     if (next === committed() && !props.commitUnchanged) return
@@ -107,8 +74,7 @@ export function ProductNumberInput(props: {
   }
   const syncAndCommit = (value: string): void => {
     if (value !== raw()) {
-      setDirty(true)
-      submitted = undefined
+      dirty = true
       setRaw(value)
     }
     commit()
@@ -120,9 +86,8 @@ export function ProductNumberInput(props: {
     const value = String(Number(bounded.toFixed(12)))
     const changed = value !== committed()
     setRaw(value)
-    if (!changed) { setDirty(false); return }
-    if (props.onCommitAsync !== undefined) { setDirty(true); void commitAsync(true); return }
-    setDirty(false)
+    dirty = false
+    if (!changed) return
     setCommitted(value)
     if (props.onInput !== undefined) {
       props.onInput(value)
@@ -135,9 +100,8 @@ export function ProductNumberInput(props: {
     const value = String(bounded)
     const changed = value !== committed()
     setRaw(value)
-    if (!changed) { setDirty(false); return }
-    if (props.onCommitAsync !== undefined) { setDirty(true); void commitAsync(true); return }
-    setDirty(false)
+    dirty = false
+    if (!changed) return
     setCommitted(value)
     if (props.onInput !== undefined) {
       props.onInput(value)
@@ -152,7 +116,7 @@ export function ProductNumberInput(props: {
     return value > 0n && value % divisor !== 0n ? quotient + 1n : quotient
   }
   const stepInteger = (multiple: number): void => {
-    const current = integer(raw().trim()) ?? integer(props.min) ?? 0n
+    const current = integer(raw()) ?? integer(props.min) ?? 0n
     const declaredStep = integer(props.step)
     const amount = declaredStep !== undefined && declaredStep > 0n ? declaredStep : 1n
     const base = integer(props.min) ?? 0n
@@ -164,7 +128,7 @@ export function ProductNumberInput(props: {
     setIntegerStepped(base + index * amount)
   }
   const step = (multiple: number): void => {
-    if (props.disabled === true || pending()) return
+    if (props.disabled === true) return
     if (props.integer === true) {
       stepInteger(multiple)
       return
@@ -182,21 +146,15 @@ export function ProductNumberInput(props: {
   const keydown: JSX.EventHandlerUnion<HTMLInputElement, KeyboardEvent> = (event) => {
     if (event.key === 'Escape') {
       event.preventDefault()
-      generation++
-      setPending(false)
-      setDirty(false)
+      dirty = false
       setRaw(committed())
       props.onRevert?.()
       return
     }
     if (event.key === 'Enter') {
-      if (props.onCommit === undefined && props.onCommitAsync === undefined) return
+      if (props.onCommit === undefined) return
       event.preventDefault()
-      commit(true)
-      return
-    }
-    if (pending() && ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) {
-      event.preventDefault()
+      commit()
       return
     }
     const directions: Record<string, number | undefined> = {
@@ -243,17 +201,14 @@ export function ProductNumberInput(props: {
         aria-valuenow={parsed()}
         aria-valuetext={parsed() === undefined ? raw() : undefined}
         disabled={props.disabled}
-        readOnly={pending()}
-        aria-busy={pending()}
         value={raw()}
         onInput={(event) => {
           const value = event.currentTarget.value
-          setDirty(true)
-          submitted = undefined
+          dirty = true
           setRaw(value)
           if (props.onInput !== undefined && valid(value)) {
             setCommitted(value)
-            setDirty(false)
+            dirty = false
             props.onInput(value)
           }
         }}
@@ -262,8 +217,8 @@ export function ProductNumberInput(props: {
         onKeyDown={keydown}
       />
       <span class="product-number-steppers">
-        <button type="button" tabindex="-1" aria-label="Increase value" disabled={props.disabled || pending()} onPointerDown={(event) => event.preventDefault()} onClick={() => step(1)}>+</button>
-        <button type="button" tabindex="-1" aria-label="Decrease value" disabled={props.disabled || pending()} onPointerDown={(event) => event.preventDefault()} onClick={() => step(-1)}>-</button>
+        <button type="button" tabindex="-1" aria-label="Increase value" disabled={props.disabled} onPointerDown={(event) => event.preventDefault()} onClick={() => step(1)}>+</button>
+        <button type="button" tabindex="-1" aria-label="Decrease value" disabled={props.disabled} onPointerDown={(event) => event.preventDefault()} onClick={() => step(-1)}>-</button>
       </span>
     </span>
   )

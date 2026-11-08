@@ -30,24 +30,18 @@
  */
 
 import type { ExecutionRef } from '@dinkster/core'
-import { runJournalIdentity, type DinksterConnection, type DinksterJobRecord } from './dinkster-connection.js'
+import { runJournalIdentity, type DinksterConnection } from './dinkster-connection.js'
 import type { ExecutionStore } from './execution-store.js'
 import { supersedable } from './reconcile-track.js'
-
-/** Capture the read's owner before fetching; admit its result before any store write or replay. */
-export type PrepareExecutionHydration = (ref: ExecutionRef) => (job: DinksterJobRecord | undefined) => Promise<boolean>
 
 /** Fetch persisted outputs and artifacts after the queue's live completion event. */
 export async function hydrateDinksterCompletedExecution(
   connection: DinksterConnection,
   store: ExecutionStore,
   ref: ExecutionRef,
-  prepareHydration?: PrepareExecutionHydration,
 ): Promise<void> {
   if (ref.connection !== connection.id) return
-  const admit = prepareHydration?.(ref)
   const job = await connection.fetchJob(ref.prompt)
-  if (admit !== undefined && !await admit(job)) return
   if (job?.state === 'completed') {
     if (job.submittedBy !== undefined) store.hydrateSubmittedBy(ref, job.submittedBy)
     // run_finished precedes result persistence; an earlier output fetch may
@@ -67,17 +61,15 @@ export async function hydrateDinksterCompletedExecution(
 export const reconcileDinksterExecutions: (
   connection: DinksterConnection,
   store: ExecutionStore,
-  prepareHydration?: PrepareExecutionHydration,
 ) => Promise<void> = supersedable(
-  (connection: DinksterConnection, isCurrent: () => boolean, store: ExecutionStore, prepareHydration?: PrepareExecutionHydration) =>
-    reconcilePass(connection, store, isCurrent, prepareHydration),
+  (connection: DinksterConnection, isCurrent: () => boolean, store: ExecutionStore) =>
+    reconcilePass(connection, store, isCurrent),
 )
 
 async function reconcilePass(
   connection: DinksterConnection,
   store: ExecutionStore,
   isCurrent: () => boolean,
-  prepareHydration?: PrepareExecutionHydration,
 ): Promise<void> {
   // Only THIS connection's runs: the store is shared across backends, and
   // asking backend A about backend B's jobs would mark B's perfectly live
@@ -94,16 +86,12 @@ async function reconcilePass(
     // A newer reconnect supersedes this pass: its job reads are obsolete
     // (a 404 answered to the old request says nothing about the job now).
     if (!isCurrent()) return
-    const admit = prepareHydration?.(state.ref)
     let job
     try {
       job = await connection.fetchJob(state.ref.prompt)
-      if (!isCurrent()) return
-      if (admit !== undefined && !await admit(job)) continue
     } catch {
       continue
     }
-    if (!isCurrent()) return
     if (job === undefined) {
       if (isCurrent()) store.markLost(state.ref)
       continue
