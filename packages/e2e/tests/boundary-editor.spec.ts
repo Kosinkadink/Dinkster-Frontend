@@ -479,6 +479,10 @@ test('generated names and custom names round-trip through document persistence',
     const diagnostics = app.openDocument(doc, 'Boundary name round-trip')
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
   })
+  await page.waitForFunction(() => {
+    const tab = window.__dinksterTest!.app.activeTab()
+    return tab?.id === 'lineage-boundary-editor-name-roundtrip' && 'status' in tab.store
+  })
   await drillIntoOccurrence(page)
   await expect(itemName(firstMask)).toHaveText('Subject mask')
 
