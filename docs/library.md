@@ -28,6 +28,8 @@ leaves the record unresolved; it does not authorize release or a replayed
 write. Legacy records without owner metadata do not certify completeness.
 Restore admits an independent owner for the full saved roots, including roots
 omitted from display descriptors, rather than adopting another window's owner.
+Its pre-publication value reads require the validated job identity and the
+unchanged backend lifetime; ordinary reads still require a live result owner.
 Clearing history does not release results still present in the execution store
 or pinned by a frozen view. Once neither a live result nor a persisted record
 holds a locally admitted owner, the admitting application retires its captured

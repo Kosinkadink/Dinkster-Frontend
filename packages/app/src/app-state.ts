@@ -157,6 +157,7 @@ import {
   type SchemaRegistry,
   type SupervisorProgress,
   type SupervisorStatus,
+  type ValuePeekResult,
   type WorkerInfo,
 } from '@dinkster/client'
 import {
@@ -4381,11 +4382,17 @@ export class AppState {
       const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId(),
         admitValuePeek: async (query, descriptor, offer) => {
           const ref = { connection: id, prompt: asPromptId(query.jobId) }
+          const key = executionKey(ref)
+          const pending = this.pendingResultReads.get(key)
           const generation = this.assetConnectionGenerations.get(connection)
           const current = (): boolean => !this.disposed &&
             (this.backendFor(id) ?? this.retiredBackends.get(id)) === nativeBackend &&
             generation === this.assetConnectionGenerations.get(connection) &&
-            (offer === undefined || this.store.get(ref)?.jobRef === offer.jobRef)
+            (pending === undefined
+              ? offer === undefined || this.store.get(ref)?.jobRef === offer.jobRef
+              : pending.backend === nativeBackend && pending.jobRef === offer?.jobRef &&
+                pending.nodeId === query.nodeId && pending.outputId === query.outputId &&
+                this.pendingResultReads.get(key) === pending && pending.current())
           if (!current()) throw new Error('Value owner is no longer available')
           const roots = offer ?? executionAssetRoots({ outputs: { value: { descriptor } }, artifacts: [] }, () => undefined)
           const retained = await retainExecutionAssets(connection, ref, roots)
@@ -7284,6 +7291,13 @@ export class AppState {
   >()
   private readonly valueAssetReaders = new Map<RetainedAssetReader, number>()
   private readonly assetConnectionGenerations = new WeakMap<DinksterConnection, number>()
+  private readonly pendingResultReads = new Map<string, {
+    readonly backend: Backend
+    readonly jobRef: string
+    readonly nodeId: string
+    readonly outputId: string
+    readonly current: () => boolean
+  }>()
   private readonly resultAssetOwners = new Map<string, {
     readonly backend: Backend
     readonly retained: RetainedAssets
@@ -7902,6 +7916,7 @@ export class AppState {
     stillCurrent: () => boolean,
     document: WorkflowDocument,
   ): Promise<Parameters<ExecutionStore['restoreCompleted']>[0] | null | undefined> {
+    const project = activeProjectId()
     if (result.ref.connection !== backend.id || result.proof.connection !== backend.id ||
       result.proof.schemaHash !== registry.hash) return undefined
     const history = await backend.connection.getHistoryRun(result.jobRef, LIBRARY_SCOPE)
@@ -7963,13 +7978,19 @@ export class AppState {
       const progress = jobNodes[nodeId]
       if (progress?.state !== 'done' && progress?.state !== 'cached') continue
       for (const outputId of outputIds) {
-        if (!stillCurrent()) return null
-        const peek = await backend.connection.values().peek({
-          jobId: result.ref.prompt,
-          nodeId,
-          outputId,
-        })
-        if (!stillCurrent()) return null
+        // This proof-validated read precedes publication of the restored entry.
+        const pending = { backend, jobRef: result.jobRef, nodeId, outputId, current: () => stillCurrent() &&
+          activeProjectId() === project && this.store.get(result.ref) === undefined }
+        if (!pending.current()) return null
+        const key = executionKey(result.ref)
+        this.pendingResultReads.set(key, pending)
+        let peek: ValuePeekResult
+        try {
+          peek = await backend.connection.values().peek({ jobId: result.ref.prompt, nodeId, outputId })
+          if (this.pendingResultReads.get(key) !== pending || !pending.current()) return null
+        } finally {
+          if (this.pendingResultReads.get(key) === pending) this.pendingResultReads.delete(key)
+        }
         if (!peek.available) {
           if (peek.status === 0 || peek.status === 408 || peek.status === 429 ||
             peek.status >= 500 || peek.reason === 'malformed-response') return null

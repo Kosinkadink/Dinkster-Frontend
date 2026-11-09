@@ -151,6 +151,63 @@ describe('startup result source admission', () => {
     return { app, backend, registry, ref, nodeId, saved, backendIdentity, fetchSource, source: JSON.stringify(loaded.document) }
   }
 
+  it('restores two source-bound results through public value admission before publication', async () => {
+    const test = setup()
+    const second = { ...test.saved, ref: { ...test.ref, prompt: asPromptId('restored-second') }, jobRef: 'run-restored-second' }
+    saveExecutionResult(second, test.backendIdentity)
+    vi.mocked(test.backend.connection.values().peek).mockRestore()
+    const owners = new Map<string, RetainedAssets>()
+    const results = [test.saved, second]
+    vi.mocked(test.backend.connection.fetchJob).mockImplementation(async (prompt) => {
+      const saved = results.find((result) => result.ref.prompt === prompt)!
+      return { state: 'completed', jobRef: saved.jobRef, sourceDocument: saved.sourceDocument,
+        submittedBy: saved.submittedBy, nodeStates: { [test.nodeId]: 'completed' }, outputs: saved.outputs }
+    })
+    vi.mocked(test.backend.connection.getHistoryRun).mockImplementation(async (jobRef) => {
+      const saved = results.find((result) => result.jobRef === jobRef)!
+      return { runId: jobRef, scope: 'local', clientId: test.backendIdentity.clientId, jobId: saved.ref.prompt,
+        state: 'completed', priority: 0, submittedAt: 1, finishedAt: 10, executed: 1, cached: 0, skipped: 0,
+        sourceDocument: saved.sourceDocument, principalId: 'user-1', principalKind: 'human' }
+    })
+    vi.mocked(test.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: 1 }
+      owners.set(owner.ownerId, receipt)
+      return receipt
+    })
+    vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input, 'http://test')
+      if (url.pathname === '/api/values') {
+        const saved = results.find((result) => result.ref.prompt === url.searchParams.get('jobId'))
+        return Response.json({ available: true, descriptor: { typeId: 'INT', fingerprint: 'sum-seven', value: 7 },
+          renditions: [], resultOffer: { token: 'a'.repeat(32), scope: 'local', jobRef: saved?.jobRef ?? 'foreign-job',
+            attemptId: 1, nodeId: test.nodeId, outputId: 'sum', publication: 1,
+            digests: [test.saved.sourceDocument!], complete: false } })
+      }
+      if (init?.method === 'PUT' && url.pathname.includes('/retentions/shown-result/')) {
+        const ownerId = decodeURIComponent(url.pathname.split('/').at(-1)!)
+        const receipt: RetainedAssets = { scope: 'local', ownerKind: 'shown-result', ownerId, revision: 1,
+          digests: [test.saved.sourceDocument!], complete: false, sourceToken: 'a'.repeat(32) }
+        owners.set(ownerId, receipt)
+        return Response.json(receipt)
+      }
+      return new Response('', { status: 404 })
+    }))
+    try {
+      await test.app.start()
+      for (const saved of results) {
+        const restored = test.app.store.get(saved.ref)!
+        expect(restored?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+        expect(restored.assetRetentions).toHaveLength(1)
+        const receipt = restored.assetRetentions![0]!
+        expect(receipt.digests).toContain(test.saved.sourceDocument)
+        expect(owners.get(receipt.ownerId)).toEqual(receipt)
+      }
+      expect(loadExecutionResults(test.backendIdentity)).toHaveLength(2)
+      expect(await test.backend.connection.values().peek({ jobId: 'foreign-read', nodeId: test.nodeId, outputId: 'sum' }))
+        .toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
+    } finally { test.app.dispose() }
+  })
+
   it.each(['accepted', 'lost-release', 'refused', 'changed-registry', 'reused-execution'] as const)(
     'keeps restored source ownership through result admission and publication: %s', async (mode) => {
       const test = setup()
