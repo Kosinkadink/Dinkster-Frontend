@@ -73,10 +73,20 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
   let ownershipRequests = 0
   let refusedOwnership = 0
   let releaseOwnership: (() => void) | undefined
+  const offers = [
+    ['job-a', 'run-a', 'producer'], ['job-a', 'run-a', 'math'],
+    ['job-a', 'run-a', 'other'], ['job-b', 'run-b', 'other'],
+  ].map(([jobId, jobRef, nodeId], index) => ({
+    jobId, token: (index + 1).toString(16).padStart(32, '0'), scope: 'local',
+    jobRef, nodeId, outputId: 'value', attemptId: 1, publication: 1, complete: true, digests: [],
+  }))
+  const owners = new Map<string, unknown>()
   await page.addInitScript(() => localStorage.setItem('dinkster.workspaceClientId', 'issue-347-client'))
   await page.route('**/api/**', (route) => route.fulfill({ status: 404, json: { error: 'not used by persistence proof' } }))
   await page.route('**/api/library/retentions/*/*?scope=local', async (route) => {
-    if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+    const key = route.request().url()
+    if (route.request().method() === 'GET') return route.fulfill(owners.has(key)
+      ? { json: owners.get(key) } : { status: 404 })
     const parts = new URL(route.request().url()).pathname.split('/')
     const ownerKind = parts.at(-2)!
     const declaration = route.request().postDataJSON()
@@ -89,8 +99,13 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
       refusedOwnership += 1
       return
     }
-    return route.fulfill({ json: { ...declaration, scope: 'local', ownerKind,
-      ownerId: decodeURIComponent(parts.at(-1)!), revision: declaration.revision + 1 } })
+    const offer = offers.find((candidate) => candidate.token === declaration.sourceToken)
+    if (declaration.sourceToken !== undefined && offer === undefined) return route.fulfill({ status: 404 })
+    const acknowledged = { ...declaration, scope: 'local', ownerKind,
+      ...(offer === undefined ? {} : { complete: offer.complete, digests: offer.digests }),
+      ownerId: decodeURIComponent(parts.at(-1)!), revision: declaration.revision + 1 }
+    owners.set(key, acknowledged)
+    return route.fulfill({ json: acknowledged })
   })
   await page.route('/api/composition', (route) => route.fulfill({ json: { packs: {} } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
@@ -142,7 +157,10 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
       : nodeId === 'math'
         ? { typeId: 'FLOAT', fingerprint: 'scalar-15', value: 15 }
       : { typeId: 'INT', fingerprint: 'scalar-3', value: 3 }
-    return route.fulfill({ json: { available: true, descriptor, renditions: [] } })
+    const offer = offers.find((candidate) => candidate.jobId === url.searchParams.get('jobId') && candidate.nodeId === nodeId)
+    if (offer === undefined) return route.fulfill({ status: 404 })
+    const { jobId: _jobId, ...resultOffer } = offer
+    return route.fulfill({ json: { available: true, descriptor, renditions: [], resultOffer } })
   })
   await page.route(`/api/assets/${encodeURIComponent(SOURCE_DIGEST)}`, (route) => assetAvailable
     ? route.fulfill({ contentType: 'application/json', body: JSON.stringify(servedWorkflow) })

@@ -86,13 +86,14 @@ export async function openRailPanel(page: Page, title: string): Promise<void> {
 
 export const nativeTest = base.extend<{ appView: boolean; retentionApi: boolean }>({
   appView: [false, { option: true }],
-  // Live retention proofs opt out; ordinary browser fixtures model the API
-  // independently of the older backend pinned for catalog/execution coverage.
+  // Live retention proofs opt out; ordinary browser fixtures model document
+  // declarations while source-bound result claims use the live backend.
   retentionApi: [true, { option: true }],
   context: async ({ context, appView, retentionApi }, use) => {
     if (retentionApi) {
       const owners = new Map<string, { scope: string; ownerKind: string; ownerId: string;
         revision: number; complete: boolean; digests: string[] }>()
+      const sourceOwners = new Set<string>()
       await context.route('**/api/library/retentions/*/*?scope=*', async (route) => {
         const request = route.request()
         const url = new URL(request.url())
@@ -101,6 +102,12 @@ export const nativeTest = base.extend<{ appView: boolean; retentionApi: boolean 
         const ownerKind = parts.at(-2)!
         const ownerId = decodeURIComponent(parts.at(-1)!)
         const key = JSON.stringify([url.origin, scope, ownerKind, ownerId])
+        // Claims and later reads/releases share the server's sealed source roots.
+        if (sourceOwners.has(key) || (request.method() === 'PUT' &&
+          typeof request.postDataJSON()?.sourceToken === 'string')) {
+          sourceOwners.add(key)
+          return route.fallback()
+        }
         const previous = owners.get(key)
         if (request.method() === 'GET') {
           return route.fulfill(previous === undefined ? { status: 404 } : { json: previous })
