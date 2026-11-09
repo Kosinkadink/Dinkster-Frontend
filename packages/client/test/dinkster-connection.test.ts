@@ -87,9 +87,19 @@ it.each([
   expect(calls).toEqual([{ url: '/selected/api/packs/install/plan', body: { packs: [
     { pack: 'sampling', version: '2.1' }, { pack: 'image', version: '3.2' },
   ] } }])
+  if (reviewed.commands !== undefined) throw new Error('Expected a gateway confirmation')
   expect(await connection.applyPackInstall(reviewed.confirmation)).toEqual({ generation: 3,
     activation: { epoch: 7, added: ['sampling', 'image'], removed: [], reloaded: ['models'], unchanged: ['base'] } })
   expect(calls[1]).toEqual({ url: '/selected/api/packs/install/apply', body: { confirmation: 'opaque-review-token' } })
+})
+
+it('retains terminal-only installation commands without granting HTTP confirmation', async () => {
+  const plan = { plan: { format: 'dinkster.project-pack-plan/1' }, review: 'Install on the backend host',
+    commands: ['dinkster-env --root /project packs-plan image@3.2 --output /tmp/review',
+      'dinkster-env --root /project packs-apply --input /tmp/review --approval sha256:example'], expiresInSeconds: 900 }
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer',
+    fetchFn: async () => jsonResponse(200, plan), webSocketFactory: () => ({}) as WebSocketLike })
+  expect(await connection.planPackInstall([{ pack: 'image', version: '3.2' }])).toEqual(plan)
 })
 
 it.each([404, 409, 422])('preserves structured installation failures without retries: HTTP %s', async (status) => {
@@ -113,7 +123,10 @@ it('rejects malformed installation success and activation rollback instead of re
   const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer', fetchFn,
     webSocketFactory: () => ({}) as WebSocketLike })
   const plan = { confirmation: 'token', plan: { format: 'dinkster.plan/1' }, review: 'Review', expiresInSeconds: 900 }
+  const terminal = { ...plan, confirmation: undefined, commands: ['run command'] }
   for (const invalid of [null, [], { ...plan, confirmation: '' }, { ...plan, plan: [] },
+    { ...terminal, commands: [] }, { ...terminal, commands: [''] }, { ...terminal, commands: [4] },
+    { ...terminal, confirmation: 'mixed-authority' }, { ...terminal, commands: 'run command' },
     { ...plan, plan: null }, { ...plan, review: 4 }, { ...plan, expiresInSeconds: 0 }]) {
     response = invalid
     await expect(connection.planPackInstall([{ pack: 'image', version: '1' }])).rejects.toThrow('Malformed')

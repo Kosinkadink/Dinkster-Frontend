@@ -96,6 +96,95 @@ async function openInstallPrompt(page: Page) {
   return { state, open, prompt: page.locator('[data-modal="node-install"]') }
 }
 
+test('managed host commands copy exactly without HTTP apply and refresh permits installed placement', async ({ page }) => {
+  const { state, prompt } = await openInstallPrompt(page)
+  const commands = [
+    "dinkster-env --root '/srv/projects/image work' packs-plan image-tools@1.10.0 --output '/tmp/image review.json'",
+    "dinkster-env --root '/srv/projects/image work' packs-apply --input '/tmp/image review.json' --approval '<NEW_PLAN_DIGEST>'",
+  ]
+  let applies = 0
+  await page.route('**/api/packs/install/plan', (route) => {
+    expect(route.request().postDataJSON()).toEqual({ packs: [{ pack: 'image-tools', version: '1.10.0' }] })
+    return route.fulfill({ json: { commands, plan: { format: 'dinkster.project-pack-plan/1' },
+      review: 'Add image-tools 1.10.0; keep existing packs unchanged.', expiresInSeconds: 900 } })
+  })
+  await page.route('**/api/packs/install/apply', (route) => { applies++; return route.abort() })
+  await page.evaluate(() => {
+    let attempts = 0
+    Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: async (text: string) => {
+      if (attempts++ === 0) throw new Error('Clipboard denied')
+      ;(window as unknown as { copiedCommands: string }).copiedCommands = text
+    } })
+  })
+  await prompt.getByRole('button', { name: 'Review installation', exact: true }).click()
+  await expect(prompt.getByTestId('node-install-commands')).toHaveText(commands.join('\n'))
+  await expect(prompt).toContainText('Use the approval digest printed by the new plan')
+  await expect(prompt.getByRole('button', { name: 'Confirm installation', exact: true })).toHaveCount(0)
+  const proof = process.env['DINKSTER_SEARCH_PROOF_DIR']
+  if (proof) { mkdirSync(proof, { recursive: true }); await page.screenshot({ path: join(proof, 'terminal-review.png') }) }
+  await prompt.getByRole('button', { name: 'Copy commands', exact: true }).click()
+  await expect(prompt).toContainText('Clipboard unavailable')
+  await expect(prompt.getByTestId('node-install-commands')).toHaveText(commands.join('\n'))
+  if (proof) await page.screenshot({ path: join(proof, 'terminal-copy-failed.png') })
+  await prompt.getByRole('button', { name: 'Copy commands', exact: true }).click()
+  await expect(prompt.getByRole('button', { name: 'Commands copied', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => (window as unknown as { copiedCommands: string }).copiedCommands)).toBe(commands.join('\n'))
+  await expect(prompt).not.toContainText('Clipboard unavailable')
+  await page.setViewportSize({ width: 620, height: 820 })
+  await expect(prompt.getByTestId('node-install-commands')).toBeInViewport({ ratio: 1 })
+  await expect(prompt.getByRole('button', { name: 'Commands copied', exact: true })).toBeInViewport({ ratio: 1 })
+  await expect(prompt.getByRole('button', { name: 'Refresh installed catalog', exact: true })).toBeInViewport({ ratio: 1 })
+  expect(await prompt.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  if (proof) await page.screenshot({ path: join(proof, 'terminal-review-narrow.png') })
+  state.installed = true
+  await prompt.getByRole('button', { name: 'Refresh installed catalog', exact: true }).click()
+  await expect(prompt).toContainText('Installed. Close this prompt')
+  await expect(prompt.getByTestId('node-install-commands')).toHaveCount(0)
+  await expect(page.getByTestId('graph-canvas')).not.toHaveAttribute('data-placement-ghost', 'visible')
+  await prompt.getByRole('button', { name: 'Close', exact: true }).click()
+  await page.getByTestId('topbar-search').click()
+  await page.getByTestId('universal-search-input').fill('@ catalog-resample')
+  const row = page.locator('[data-provider="core.nodes"] [data-testid="search-result-row"]')
+  await expect(row).toHaveCount(1)
+  await expect(row).not.toContainText('Not installed')
+  await row.click()
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-placement-ghost', 'visible')
+  expect(applies).toBe(0)
+})
+
+for (const timing of ['before-copy', 'during-copy'] as const) {
+  test(`terminal review is retired when backend changes ${timing}`, async ({ page }) => {
+    const { prompt } = await openInstallPrompt(page)
+    await page.route('**/api/packs/install/plan', (route) => route.fulfill({ json: {
+      commands: ['dinkster-env --root /original packs-plan image-tools@1.10.0'],
+      plan: {}, review: 'Original backend review', expiresInSeconds: 900,
+    } }))
+    await prompt.getByRole('button', { name: 'Review installation', exact: true }).click()
+    await expect(prompt.getByTestId('node-install-commands')).toBeVisible()
+    await page.evaluate((when) => {
+      const app = window.__dinksterTest!.app
+      const other = app.addBackend('http://other-backend.test', 'Other backend', false)!
+      const change = () => app.setTabTarget(app.activeTab()!.id, other.id)
+      const state = window as unknown as { clipboardWrites: number }
+      state.clipboardWrites = 0
+      Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: async () => {
+        state.clipboardWrites++
+        await Promise.resolve()
+        change()
+      } })
+      if (when === 'before-copy') change()
+    }, timing)
+    await prompt.getByRole('button', { name: 'Copy commands', exact: true }).click()
+    await expect(prompt).toContainText('The selected backend changed')
+    await expect(prompt).not.toContainText('Clipboard unavailable')
+    await expect(prompt.getByTestId('node-install-commands')).toHaveCount(0)
+    await expect(prompt.getByRole('button', { name: 'Commands copied', exact: true })).toHaveCount(0)
+    expect(await page.evaluate(() => (window as unknown as { clipboardWrites: number }).clipboardWrites)).toBe(timing === 'before-copy' ? 0 : 1)
+    const proof = process.env['DINKSTER_SEARCH_PROOF_DIR']
+    if (proof) await page.screenshot({ path: join(proof, `terminal-${timing}.png`) })
+  })
+}
+
 const reviewPlan = { confirmation: 'review-token', plan: { format: 'dinkster.plan/1' }, review: 'Install Image Tools 1.10.0', expiresInSeconds: 900 }
 
 for (const outcome of ['lost-response', 'malformed-success', 'cancel-waiting'] as const) {

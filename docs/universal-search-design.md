@@ -131,14 +131,21 @@ never placement. The host rechecks the schema fingerprint and backend at
 selection, rejecting stale results. The prompt reports when installation is
 unavailable without altering the workflow. Review installation calls the
 same backend's `DinksterConnection.planPackInstall` with the exact pack and
-version. The server's review is shown as text before Confirm installation
-submits its single-use confirmation through `applyPackInstall`. Neither step
+version. Plans have an opaque payload, review and expiry, plus exactly one
+of terminal commands or a gateway confirmation. On managed hosts the prompt
+shows the exact copyable `dinkster-env packs-plan` / `packs-apply` commands,
+never an HTTP confirmation. Run them on the backend host using the approval
+digest from the newly generated plan, not the preview. Clipboard failure
+leaves the commands selectable and allows copying again. After activation,
+reconnect or refresh the installed catalog before selecting the node again.
+Desktop gateway plans show the review before Confirm installation submits
+the single-use confirmation through `applyPackInstall`. Neither path
 places a node or changes the document. Apply is never automatically retried.
 The prompt rejects a changed active backend, expires confirmations locally,
 refreshes the original backend's schemas after successful activation, and
 reports when the node has not appeared yet. Close and select the installed
 result again to use the ordinary placement path. Non-opted-in hosts report
-installation unavailable; managed hosts and Desktop use the same HTTP client.
+installation unavailable; managed hosts and Desktop use the same plan client.
 Planning has a 30-second deadline. Closing or Cancel waiting aborts the local
 request, not the backend mutation. Lost responses, malformed success responses
 and post-mutation failures leave the outcome unknown and disable further

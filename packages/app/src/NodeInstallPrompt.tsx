@@ -10,6 +10,7 @@ import { useAppMessage } from './locale.js'
 export function NodeInstallPrompt(props: { readonly app: AppState; readonly request: CatalogNode & { readonly backendId: string } }) {
   const message = useAppMessage()
   const [plan, setPlan] = createSignal<PackInstallPlan>()
+  const [commandsCopied, setCommandsCopied] = createSignal(false)
   const [busy, setBusy] = createSignal(false)
   const [status, setStatus] = createSignal(props.app.nodeInstallUncertain.has(props.request.backendId) ? message('search.installUnknown') : '')
   const [applied, setApplied] = createSignal(false)
@@ -45,6 +46,7 @@ export function NodeInstallPrompt(props: { readonly app: AppState; readonly requ
     if (busy() || applied() || uncertain()) return
     controller = new AbortController()
     clearTimeout(expiryTimer)
+    setCommandsCopied(false)
     setBusy(true); setPlan(undefined); setStatus('')
     try {
       const target = backend()
@@ -64,7 +66,7 @@ export function NodeInstallPrompt(props: { readonly app: AppState; readonly requ
   }
   const install = async () => {
     const confirmed = plan()
-    if (busy() || applied() || uncertain() || confirmed === undefined) return
+    if (busy() || applied() || uncertain() || confirmed?.confirmation === undefined) return
     if (Date.now() >= expiresAt) { expire(); return }
     clearTimeout(expiryTimer)
     controller = new AbortController()
@@ -92,6 +94,27 @@ export function NodeInstallPrompt(props: { readonly app: AppState; readonly requ
     }
     finally { if (!disposed) setBusy(false) }
   }
+  const copyCommands = async (reviewed: PackInstallPlan) => {
+    if (reviewed.commands === undefined || plan() !== reviewed) return
+    if (Date.now() >= expiresAt) { expire(); return }
+    setCommandsCopied(false); setStatus('')
+    try {
+      backend()
+      let copied = true
+      try { await navigator.clipboard.writeText(reviewed.commands.join('\n')) }
+      catch { copied = false }
+      backend()
+      if (!disposed && plan() === reviewed) {
+        if (copied) setCommandsCopied(true)
+        else setStatus(message('search.installCopyFailed'))
+      }
+    } catch (error) {
+      if (!disposed && plan() === reviewed) {
+        setPlan(undefined); clearTimeout(expiryTimer)
+        failure(error)
+      }
+    }
+  }
   const refresh = async () => {
     if (busy()) return
     setBusy(true)
@@ -99,11 +122,12 @@ export function NodeInstallPrompt(props: { readonly app: AppState; readonly requ
       const target = backend()
       await props.app.refreshBackendSchemas(target)
       backend()
-      const pendingType = props.app.nodeInstallUncertain.get(props.request.backendId)
-      if (!disposed && target.schemaState.get().status === 'ready' && pendingType !== undefined && target.registry.get()?.resolve(pendingType) !== undefined) {
+      const pendingType = props.app.nodeInstallUncertain.get(props.request.backendId) ?? props.request.schema.type
+      if (!disposed && target.schemaState.get().status === 'ready' && target.registry.get()?.resolve(pendingType) !== undefined) {
         setUncertain(false)
         const installed = target.registry.get()?.resolve(props.request.schema.type) !== undefined
         setApplied(installed); setStatus(installed ? message('search.installComplete') : '')
+        if (installed) { setPlan(undefined); clearTimeout(expiryTimer) }
       }
     } catch (error) { failure(error) }
     finally { if (!disposed) setBusy(false) }
@@ -118,10 +142,16 @@ export function NodeInstallPrompt(props: { readonly app: AppState; readonly requ
       <Show when={!applied() && !uncertain()}><p>{message('search.installRequired')}</p></Show>
       <Show when={plan()} keyed>{(value) => <>
         <pre class="node-install-review">{value.review}</pre>
-        <ProductButton variant="primary" disabled={busy()} onClick={() => { void install() }}>{message('search.installConfirm')}</ProductButton>
+        <Show when={value.commands} fallback={
+          <ProductButton variant="primary" disabled={busy()} onClick={() => { void install() }}>{message('search.installConfirm')}</ProductButton>
+        }>{(commands) => <>
+          <p>{message('search.installTerminalHint')}</p>
+          <pre class="node-install-review" data-testid="node-install-commands">{commands().join('\n')}</pre>
+          <ProductButton disabled={busy()} onClick={() => { void copyCommands(value) }}>{message(commandsCopied() ? 'search.installCopied' : 'search.installCopyCommands')}</ProductButton>
+        </>}</Show>
       </>}</Show>
       <Show when={!applied() && !uncertain()}><ProductButton disabled={busy()} onClick={() => { void review() }}>{message('search.installReview')}</ProductButton></Show>
-      <Show when={uncertain() && !busy()}><ProductButton onClick={() => { void refresh() }}>{message('search.installRefresh')}</ProductButton></Show>
+      <Show when={(uncertain() || plan()?.commands !== undefined) && !busy()}><ProductButton onClick={() => { void refresh() }}>{message('search.installRefresh')}</ProductButton></Show>
       <p role="status">{busy() ? message('search.installWorking') : status()}</p>
       <Show when={busy() && uncertain()}><p>{message('search.installCancelWarning')}</p></Show>
       <ProductButton onClick={close}>{message(busy() ? 'search.installCancelWaiting' : 'search.close')}</ProductButton>
