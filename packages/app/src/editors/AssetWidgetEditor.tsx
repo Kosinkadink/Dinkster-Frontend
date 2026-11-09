@@ -1,10 +1,12 @@
-import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type Component } from 'solid-js'
+import { createEffect, createMemo, createSignal as createSolidSignal, For, on, onCleanup, Show, type Component } from 'solid-js'
 import { assetMultiSelect, type CollectionEntry, type JsonObject } from '@dinkster/core'
 import { AssetDtoV1Client, type AssetGuessCandidate, type CandidateV1 } from '@dinkster/client'
 import { Check, RotateCw, Upload, X } from 'lucide-solid'
 import { assetCollectionSource, assetEntryPickable, assetItemOf } from '../asset-browser/collection-adapter.js'
 import { assetSourcesStatus, committableAssetRef, formatSize, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
 import { mountAssetSources } from '../asset-browser/mountAssetSource.js'
+import { localAssetSource } from '../asset-browser/localAssetSource.js'
+import { federatedCollectionSource } from '../asset-browser/federated-collection-source.js'
 import { localMountScanAdapter } from '../asset-browser/local-mount-logical-model.js'
 import { ingestLogicalModels } from '../asset-browser/logical-model-merge.js'
 import { candidateLogicalModelAdapter } from '../asset-browser/candidate-logical-model.js'
@@ -31,6 +33,7 @@ import { activeProjectId } from '../projects.js'
 import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
 import { AssetFileLocation } from '../AssetFileLocation.js'
 import { resolveDroppedAsset } from '../desktop-bridge.js'
+import type { PreviewSource } from '../node-previews.js'
 
 interface AssetRef extends JsonObject {
   readonly digest: string
@@ -45,6 +48,57 @@ interface AssetPreview {
   readonly src: string
   readonly name: string
   readonly mime?: string
+  readonly assetReader?: PreviewSource['assetReader']
+}
+
+function AssetVideoPreview(props: {
+  readonly preview: AssetPreview
+  readonly onError: (error?: unknown) => void
+  readonly onDimensions: (dimensions: { width: number; height: number }) => void
+}) {
+  let video!: HTMLVideoElement
+  let detached = Promise.resolve()
+  const [src, setSrc] = createSolidSignal<string>()
+  createEffect(on(createMemo(() => [props.preview.src, props.preview.assetReader] as const,
+    undefined, { equals: (a, b) => a[0] === b[0] && a[1] === b[1] }), ([url, reader]) => {
+    let current = true
+    let detach: (() => void) | undefined
+    onCleanup(() => { current = false; detach?.() })
+    const consume = async (): Promise<void> => {
+      await detached
+      if (!current || reader?.current() === false) return
+      if (reader === undefined) { setSrc(url); return }
+      await new Promise<void>((resolve) => {
+        detach = () => {
+          const empty = video.networkState === HTMLMediaElement.NETWORK_EMPTY
+          detached = new Promise<void>((done) => {
+            const reset = () => { video.removeEventListener('emptied', reset); done(); resolve() }
+            if (!empty) video.addEventListener('emptied', reset, { once: true })
+            // Removing the element alone does not settle native resource selection.
+            video.pause()
+            setSrc(undefined)
+            video.removeAttribute('src')
+            video.load()
+            if (empty) reset()
+          })
+        }
+        setSrc(url)
+      })
+    }
+    void (reader === undefined ? consume() : reader.read(consume)).catch((error: unknown) => {
+      if (current) props.onError(error)
+    })
+  }))
+  return <video ref={video} class="asset-preview" data-testid="asset-video-preview" src={src()}
+    controls playsinline preload="metadata"
+    onPlay={() => { if (props.preview.assetReader?.current() === false) video.pause() }}
+    onError={() => props.onError()}
+    onLoadedMetadata={() => {
+      if (props.preview.assetReader?.current() === false) return
+      if (video.videoWidth > 0 && video.videoHeight > 0) props.onDimensions({ width: video.videoWidth, height: video.videoHeight })
+    }}>
+    <a href={props.preview.src} download={props.preview.name}>Download video</a>
+  </video>
 }
 
 const GENERIC_UPLOAD_MAX_BYTES = 16 * 1024 * 1024
@@ -151,6 +205,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   // undefined = discovery not settled; [] = settled with nothing browsable.
   const [assetSources, setAssetSources] = createSolidSignal<readonly AssetSourceAdapter[] | undefined>(undefined)
   const [assetSourcesError, setAssetSourcesError] = createSolidSignal<string | undefined>(undefined)
+  const [mountDiscoveryError, setMountDiscoveryError] = createSolidSignal<string | undefined>(undefined)
   const [logicalModels, setLogicalModels] = createSolidSignal<readonly LogicalModel[] | undefined>(undefined)
   const [logicalModelsError, setLogicalModelsError] = createSolidSignal<string | undefined>(undefined)
   const [logicalModelsLoading, setLogicalModelsLoading] = createSolidSignal(false)
@@ -216,31 +271,64 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const [assetSelection, setAssetSelection] = createSolidSignal<readonly AssetRef[]>(
     isAssetRefArray(ed.initial) ? ed.initial : isAssetRef(ed.initial) ? [ed.initial] : [],
   )
+  let selectionReader: PreviewSource['assetReader']
+  const [selectionAdmitted, setSelectionAdmitted] = createSolidSignal(uploadBackend.protocol !== 'dinkster' || assetSelection().length === 0)
+  const [pendingSelections, setPendingSelections] = createSolidSignal(0)
+  let selectionQueue = Promise.resolve()
+  const stageAssetSelection = (
+    change: (current: readonly AssetRef[]) => readonly AssetRef[],
+    published: () => void = () => {},
+  ): Promise<boolean> => {
+    setPendingSelections((count) => count + 1)
+    const operation = selectionQueue.then(async () => {
+      if (!live || props.app.backendForTab(ed.tab) !== uploadBackend || activeProjectId() !== project) return false
+      if (selectionReader?.current() === false) throw new Error('Picker selection changed; reopen the asset picker')
+      const current = assetSelection()
+      const candidate = change(current)
+      let reader = selectionReader
+      if ((!selectionAdmitted() && candidate.length > 0) || candidate.some((ref) => !current.some((held) => held.digest === ref.digest))) {
+        reader = await props.app.retainPickerAssets(ed.tab, uploadBackend, candidate)
+      }
+      if (!live || props.app.backendForTab(ed.tab) !== uploadBackend || activeProjectId() !== project) return false
+      if (reader?.current() === false) throw new Error('Picker selection changed; reopen the asset picker')
+      selectionReader = reader
+      setAssetSelection(candidate)
+      setSelectionAdmitted(true)
+      setAssetError(undefined)
+      published()
+      return true
+    }).catch((error: unknown) => {
+      if (live) setAssetError(error instanceof Error ? error.message : String(error))
+      return false
+    }).finally(() => { if (live) setPendingSelections((count) => count - 1) })
+    selectionQueue = operation.then(() => {})
+    return operation
+  }
   const sameAssetRef = (a: AssetRef, b: AssetRef): boolean =>
     a.digest === b.digest && a.virtualPath === b.virtualPath
   /** Append in selection order; picking an already-selected asset removes it. */
-  const toggleAssetSelection = (ref: AssetRef): void => {
-    setAssetSelection((current) =>
+  const toggleAssetSelection = (ref: AssetRef, published?: () => void): Promise<boolean> =>
+    stageAssetSelection((current) =>
       current.some((r) => sameAssetRef(r, ref))
         ? current.filter((r) => !sameAssetRef(r, ref))
         : [...current, ref],
+      published,
     )
-  }
   const removeAssetSelection = (ref: AssetRef, index: number): void => {
     if (!sourceUpload) {
-      toggleAssetSelection(ref)
+      void toggleAssetSelection(ref)
       return
     }
-    setAssetSelection((current) => [...current.slice(0, index), ...current.slice(index + 1)])
+    void stageAssetSelection((current) => [...current.slice(0, index), ...current.slice(index + 1)])
   }
   /** Generic picks deduplicate; source lists preserve upload order and duplicates. */
-  const addAssetSelection = (ref: AssetRef): void => {
-    setAssetSelection((current) =>
+  const addAssetSelection = (ref: AssetRef): Promise<boolean> =>
+    stageAssetSelection((current) =>
       sourceUpload ? [...current, ref] : current.some((r) => sameAssetRef(r, ref)) ? current : [...current, ref],
     )
-  }
   let ownedAssetUrl: string | undefined
   let assetPreviewRequest = 0
+  let assetPreviewAbort: AbortController | undefined
   const replaceAssetPreview = (preview: AssetPreview, ownedUrl?: string): void => {
     if (ownedAssetUrl !== undefined && ownedAssetUrl !== ownedUrl) URL.revokeObjectURL(ownedAssetUrl)
     ownedAssetUrl = ownedUrl
@@ -252,6 +340,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
    * releases the owned object URL. */
   const clearAssetPreview = (): void => {
     assetPreviewRequest += 1
+    assetPreviewAbort?.abort()
     if (ownedAssetUrl !== undefined) URL.revokeObjectURL(ownedAssetUrl)
     ownedAssetUrl = undefined
     setAssetPreviewFailed(false)
@@ -267,6 +356,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         : model3dMime !== undefined ? 'model3d' : undefined
     if (kind === undefined) return
     assetPreviewRequest += 1
+    assetPreviewAbort?.abort()
     const url = URL.createObjectURL(file)
     replaceAssetPreview({ kind, src: url, name: file.name, ...(model3dMime === undefined ? {} : { mime: model3dMime }) }, url)
   }
@@ -287,18 +377,28 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       return
     }
     const request = ++assetPreviewRequest
+    assetPreviewAbort?.abort()
     if (kind === 'video' || kind === 'model3d') {
       replaceAssetPreview({
         kind,
         src: backend.connection.assetUrl(ref.digest),
         name: ref.name,
+        assetReader: selectionReader,
         ...(kind === 'model3d' ? { mime: ref.mediaType } : {}),
       })
       return
     }
+    const abort = new AbortController()
+    assetPreviewAbort = abort
+    const reader = selectionReader
     try {
-      const bytes = await backend.connection.fetchAssetBytes(ref.digest)
-      if (!live || request !== assetPreviewRequest || bytes === undefined) return
+      if (reader === undefined) throw new Error('Picker preview ownership is unavailable')
+      const bytes = await reader.read(async () => {
+        if (!live || request !== assetPreviewRequest || !reader.current()) return undefined
+        return backend.connection.fetchAssetBytes(ref.digest, abort.signal)
+      })
+      if (!live || request !== assetPreviewRequest || !reader.current() || bytes === undefined ||
+        props.app.backendForTab(ed.tab) !== backend || activeProjectId() !== project) return
       const url = URL.createObjectURL(new Blob([bytes], { type: ref.mediaType }))
       replaceAssetPreview({ kind, src: url, name: ref.name }, url)
     } catch (error) {
@@ -306,6 +406,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     }
   }
   onCleanup(() => {
+    assetPreviewAbort?.abort()
     if (ownedAssetUrl) URL.revokeObjectURL(ownedAssetUrl)
   })
 
@@ -323,7 +424,11 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     setLogicalModelsLoading(true)
     setLogicalModelsError(undefined)
     try {
-      const localAdapter = await localMountScanAdapter(sources, kind, assetAccept())
+      const sourceErrors: string[] = []
+      const localAdapter = await localMountScanAdapter(sources, kind, assetAccept(), {
+        signal: abort.signal,
+        onSourceError: (message) => sourceErrors.push(message),
+      })
       const candidateItems: CandidateV1[] = []
       let candidateError: string | undefined
       if (props.federatedAssets !== undefined && ed.target.kind === 'input') {
@@ -361,7 +466,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       ])
       if (!live || load !== logicalModelLoad) return
       setLogicalModels(result.models)
-      const errors = [...(candidateError !== undefined ? [candidateError] : []), ...result.diagnostics.map((entry) => entry.message)]
+      const errors = [...sourceErrors, ...(candidateError !== undefined ? [candidateError] : []), ...result.diagnostics.map((entry) => entry.message)]
       if (errors.length > 0) setLogicalModelsError(errors.join('; '))
     } catch (error) {
       if (live && load === logicalModelLoad) setLogicalModelsError(error instanceof Error ? error.message : String(error))
@@ -373,15 +478,26 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   if (ed.spec?.widgetType === 'ASSET') {
     const backend = props.app.backendForTab(ed.tab)
     const asset = isAssetRef(ed.initial) ? ed.initial : isAssetRefArray(ed.initial) ? ed.initial[0] : undefined
-    if (asset !== undefined) void publishAssetRefPreview(asset)
+    if (asset !== undefined && backend.protocol === 'dinkster') {
+      void stageAssetSelection((current) => current, () => {
+        if (asset.digest !== ed.missingAssetDigest) void publishAssetRefPreview(asset)
+      })
+    }
     if (backend.protocol !== 'dinkster') {
       setAssetSourcesError('Asset browsing requires a native Dinkster backend')
     } else {
+      const local = localAssetSource(backend.connection)
+      setAssetSources([local])
       void mountAssetSources(backend.connection, assetBrowseKind()).then((sources) => {
         if (!live) return
-        setAssetSources(sources)
-        void loadLogicalModels(sources)
-      }).catch((reason: unknown) => { if (live) setAssetSourcesError(reason instanceof Error ? reason.message : String(reason)) })
+        const combined = [local, ...sources]
+        setAssetSources(combined)
+        void loadLogicalModels(combined)
+      }).catch((reason: unknown) => {
+        if (!live) return
+        setMountDiscoveryError(reason instanceof Error ? reason.message : String(reason))
+        void loadLogicalModels([local])
+      })
     }
   }
 
@@ -460,10 +576,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       // Uploads stage into the selection like browsed picks; the footer
       // Apply button commits. The local file preview is already showing.
       if (assetMulti) {
-        addAssetSelection(ref)
+        if (!await addAssetSelection(ref)) return false
         void publishAssetRefPreview(ref)
       } else {
-        setAssetSelection([ref])
+        if (!await stageAssetSelection(() => [ref])) return false
       }
       setAssetSelectedItem(undefined)
       setAssetSelectedModel(undefined)
@@ -494,30 +610,29 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const pickAssetRef = (ref: AssetRef): void => {
     if (assetUploading()) return
     if (assetMulti) {
-      const adding = !assetSelection().some((selected) => sameAssetRef(selected, ref))
-      toggleAssetSelection(ref)
-      if (adding) void publishAssetRefPreview(ref)
+      void toggleAssetSelection(ref, () => {
+        if (assetSelection().some((selected) => sameAssetRef(selected, ref))) void publishAssetRefPreview(ref)
+      })
       return
     }
-    setAssetSelection([ref])
-    void publishAssetRefPreview(ref)
+    void stageAssetSelection(() => [ref], () => { void publishAssetRefPreview(ref) })
   }
 
   const pickLogicalModelRef = (ref: AssetRef, detail: LogicalModelPickDetail): void => {
     if (assetUploading()) return
     setAssetSelectedItem(undefined)
     if (!assetMulti) {
-      setAssetSelectedModel(detail)
-      setAssetSelection([ref])
-      void publishAssetRefPreview(ref)
+      void stageAssetSelection(() => [ref], () => {
+        setAssetSelectedModel(detail)
+        void publishAssetRefPreview(ref)
+      })
       return
     }
-    const removing = assetSelection().some((selected) => selected.digest === ref.digest)
-    setAssetSelectedModel(removing ? undefined : detail)
-    setAssetSelection((current) =>
-      removing
+    void stageAssetSelection((current) =>
+      current.some((selected) => selected.digest === ref.digest)
         ? current.filter((selected) => selected.digest !== ref.digest)
         : [...current, ref],
+      () => setAssetSelectedModel(assetSelection().some((selected) => selected.digest === ref.digest) ? detail : undefined),
     )
   }
 
@@ -531,7 +646,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     setAssetSelectedItem(undefined)
     setAssetSelectedModel(detail)
     if (!assetMulti) {
-      setAssetSelection([])
+      void stageAssetSelection(() => [])
       clearAssetPreview()
     }
   }
@@ -609,25 +724,43 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const assetPanelSources = createMemo(() => {
     const adapters = assetSources() ?? []
     const assetUrl = assetUrlOf()
+    const backend = props.app.backendForTab(ed.tab)
+    const ownership = backend.protocol === 'dinkster'
+      ? { previewOwner: { connection: backend.connection, current: () => live && props.app.backendForTab(ed.tab) === backend && activeProjectId() === project } }
+      : {}
     const fixedKind = assetBrowseKind()
     if (usesLogicalModelSource()) {
       return logicalModels() === undefined ? [] : [logicalModelCollectionSource(() => logicalModels() ?? [])]
     }
+    const federated = props.federatedAssets === undefined ? undefined : {
+      ...federatedCollectionSource(new AssetDtoV1Client('', props.federatedAssets), () => undefined, {
+        ...ownership,
+        ...(fixedKind !== undefined ? { fixedKind } : {}),
+        ...(assetUrl !== undefined ? { assetUrl } : {}),
+      }),
+      id: 'federated-assets', label: 'Federated catalog',
+    }
+    const additionalSources = federated ? [federated] : []
     if (fixedKind?.startsWith('media/') === true) {
       const imported = adapters.filter((adapter) => mountPresentationClass({ id: adapter.id.replace(/^mount:/, ''), kind: fixedKind }) === 'input')
       const generated = adapters.filter((adapter) => mountPresentationClass({ id: adapter.id.replace(/^mount:/, ''), kind: fixedKind }) === 'output')
       return [
-        allAssetsCollectionSource(adapters, [], assetUrl, { fixedKind, failWhenAllSourcesFail: true }),
-        ...(imported.length > 0 ? [allAssetsCollectionSource(imported, [], assetUrl, { id: 'imported-assets', label: 'Imported', fixedKind, failWhenAllSourcesFail: true })] : []),
-        ...(generated.length > 0 ? [allAssetsCollectionSource(generated, [], assetUrl, { id: 'generated-assets', label: 'Generated', fixedKind, failWhenAllSourcesFail: true })] : []),
+        allAssetsCollectionSource(adapters, [], assetUrl, { ...ownership, fixedKind, failWhenAllSourcesFail: true, additionalSources }),
+        ...(imported.length > 0 ? [allAssetsCollectionSource(imported, [], assetUrl, { ...ownership, id: 'imported-assets', label: 'Imported', fixedKind, failWhenAllSourcesFail: true })] : []),
+        ...(generated.length > 0 ? [allAssetsCollectionSource(generated, [], assetUrl, { ...ownership, id: 'generated-assets', label: 'Generated', fixedKind, failWhenAllSourcesFail: true })] : []),
       ]
     }
-    return adapters.map((adapter) =>
+    return [
+      ...(federated ? [allAssetsCollectionSource(adapters, [], assetUrl, { ...ownership, additionalSources, failWhenAllSourcesFail: true })] : []),
+      ...adapters.map((adapter) =>
       assetCollectionSource(adapter, {
+        ...ownership,
         ...(assetUrl !== undefined ? { assetUrl } : {}),
         ...(fixedKind !== undefined ? { fixedKind } : {}),
-      }),
-    )
+      }
+      )),
+      ...additionalSources,
+    ]
   })
   const pickAssetEntry = (entry: CollectionEntry): void => {
     if (usesLogicalModelSource()) {
@@ -750,6 +883,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 </Show>
               </header>
               <Show when={assetSourcesError()}>{(message) => <ProductNotice tone="error" class="asset-error">{message()}</ProductNotice>}</Show>
+              <Show when={mountDiscoveryError()}>{(message) => <ProductNotice tone="error" class="asset-error">{message()}</ProductNotice>}</Show>
               <Show when={assetSourcesStatus(assetSources(), assetSourcesError()) === 'loading'}>
                 <SearchState kind="loading" title={`Loading ${assetVocabulary().singular} sources`} detail="Discovering readable mounts on this backend." />
               </Show>
@@ -815,7 +949,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               <Show when={assetPreview()}>
                 {(preview) => (
                   <Show when={preview().kind !== 'model3d'} fallback={
-                    <Model3dPosterImage src={preview().src} name={preview().name} mime={preview().mime} />
+                    <Model3dPosterImage src={preview().src} name={preview().name} mime={preview().mime} assetReader={preview().assetReader} />
                   }>
                   <Show when={preview().kind === 'video'} fallback={
                     <Show when={!assetPreviewFailed()} fallback={
@@ -842,21 +976,14 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                         <a href={preview().src} download={preview().name}>Download video</a>
                       </div>
                     }>
-                      <video
-                        class="asset-preview"
-                        data-testid="asset-video-preview"
-                        src={preview().src}
-                        controls
-                        playsinline
-                        preload="metadata"
-                        onError={() => setAssetPreviewFailed(true)}
-                        onLoadedMetadata={(event) => {
-                          const { videoWidth, videoHeight } = event.currentTarget
-                          if (videoWidth > 0 && videoHeight > 0) setAssetPreviewDims({ width: videoWidth, height: videoHeight })
+                      <AssetVideoPreview
+                        preview={preview()}
+                        onError={(error) => {
+                          if (error !== undefined) setAssetError(error instanceof Error ? error.message : String(error))
+                          setAssetPreviewFailed(true)
                         }}
-                      >
-                        <a href={preview().src} download={preview().name}>Download video</a>
-                      </video>
+                        onDimensions={setAssetPreviewDims}
+                      />
                     </Show>
                   </Show>
                   </Show>
@@ -906,7 +1033,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                   class="asset-selection-remove"
                   data-testid="asset-selection-remove"
                   disabled={assetUploading()}
-                  onClick={() => { setAssetSelection([]); setAssetSelectedItem(undefined); setAssetSelectedModel(undefined); clearAssetPreview() }}
+                  onClick={() => { void stageAssetSelection(() => [], () => { setAssetSelectedItem(undefined); setAssetSelectedModel(undefined); clearAssetPreview() }) }}
                 >
                   <Icon icon={X} /> Remove
                 </button>
@@ -997,8 +1124,13 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 type="button"
                 class="primary"
                 data-testid="asset-apply"
-                disabled={assetUploading() || (!assetMulti && selectedUncommittableModel() !== undefined)}
+                disabled={!selectionAdmitted() || assetUploading() || pendingSelections() > 0 || (!assetMulti && selectedUncommittableModel() !== undefined)}
                 onClick={() => {
+                  if (!selectionAdmitted()) return
+                  if (selectionReader?.current() === false) {
+                    setAssetError('Picker selection changed; reopen the asset picker')
+                    return
+                  }
                   const selection = assetSelection()
                   if (!assetMulti) {
                     commitEditorValue(selection[0] ?? null)

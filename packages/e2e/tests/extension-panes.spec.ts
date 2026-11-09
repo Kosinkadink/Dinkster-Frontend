@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
-import { expect, appViewTest as test, type Page, type Locator } from './fixtures.js'
+import { expect, appViewTest as test, waitForStartupOwnership, type Page, type Locator } from './fixtures.js'
 
 const hash = (value: string) => `sha256:${createHash('sha256').update(value).digest('hex')}`
 const proofDir = process.env['DINKSTER_EXTENSION_EDITOR_PROOF_DIR']
@@ -43,6 +43,12 @@ async function backend(page: Page, base: string, initial: string) {
     } })
     if (path === `${base}/api/extensions/snapshot`) return route.fulfill({ body, contentType: 'application/json' })
     if (path === `${base}${moduleUrl}`) return route.fulfill({ body: source, contentType: 'text/javascript', headers: { 'Cache-Control': 'private, immutable' } })
+    if (path.startsWith(`${base}/api/library/retentions/document/`)) {
+      expect(route.request().method()).toBe('PUT')
+      expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
+      return route.fulfill({ json: { scope: 'local', ownerKind: 'document',
+        ownerId: decodeURIComponent(path.split('/').at(-1)!), revision: 1, complete: false, digests: [] } })
+    }
     return route.fulfill({ status: 404 })
   })
   await page.evaluate(async (base) => {
@@ -61,7 +67,7 @@ async function backend(page: Page, base: string, initial: string) {
 }
 
 async function open(page: Page, base: string, title: string) {
-  await page.evaluate(({ base, title }) => {
+  await page.evaluate((title) => {
     const app = window.__dinksterTest!.app
     app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: title, root: 'g0',
@@ -69,12 +75,12 @@ async function open(page: Page, base: string, title: string) {
       view: { graphs: { g0: { nodes: { preview: { position: { x: 40, y: 80 } } } } } },
       ext: { 'dinkster.exposed': [{ graphId: 'g0', nodeId: 'preview', inputId: 'value' }] },
     }, title)
-    app.setTabTarget(title, base)
-  }, { base, title })
+  }, title)
   await page.waitForFunction((title) => {
     const tab = window.__dinksterTest!.app.tabs.get().find((tab) => tab.id === title)
     return tab !== undefined && 'status' in tab.store
   }, title)
+  await page.evaluate(({ base, title }) => window.__dinksterTest!.app.setTabTarget(title, base), { base, title })
 }
 
 async function split(page: Page, title: string) {
@@ -120,6 +126,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
+  await waitForStartupOwnership(page)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
     type: 'PaneProof', displayName: 'Snapshot widget', category: 'test', source: 'v3', isOutputNode: true,
     items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
@@ -167,14 +174,14 @@ test('simultaneous split panes paint and edit their own connection worlds regard
 test('a frozen pane keeps snapshot A widgets while its live sibling advances to snapshot B', async ({ page }) => {
   const refresh = await backend(page, '/pane-a', 'A')
   await open(page, '/pane-a', 'Live pane')
-  const frozenTitle = await page.evaluate(() => {
+  const frozenTitle = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     const compiled = app.compileTab(tab)
     if (!compiled?.ok) throw new Error('fixture did not compile')
     const ref = { connection: '/pane-a', prompt: 'pinned' }
     app.registerRun(tab, ref, compiled.artifact)
-    if (!app.openExecutionView(ref)) throw new Error('missing frozen execution')
+    if (!await app.openExecutionView(ref)) throw new Error('missing frozen execution')
     return app.activeTab()!.title
   })
   await split(page, frozenTitle)

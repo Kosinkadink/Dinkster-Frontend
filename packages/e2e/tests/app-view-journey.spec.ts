@@ -1,9 +1,10 @@
 import { mkdirSync } from 'node:fs'
-import { expect, appViewTest as test, type Page } from './fixtures.js'
+import { expect, appViewTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 
 async function registerSchema(page: Page): Promise<void> {
+  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,
@@ -64,12 +65,16 @@ async function exposeInput(page: Page, inputId: 'prompt' | 'steps'): Promise<voi
   const point = await canvasPoint(page, inputId)
   await page.mouse.click(point.x, point.y, { button: 'right' })
   await page.locator('[data-item-id="core.widget.expose.toggle"]').click()
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.ext?.['dinkster.exposed']))
+    .toEqual(expect.arrayContaining([expect.objectContaining({ graphId: 'g0', nodeId: 'widgets', inputId })]))
 }
 
 async function exposePreview(page: Page): Promise<void> {
   const point = await canvasPoint(page, 'preview')
   await page.mouse.click(point.x, point.y, { button: 'right' })
   await page.locator('[data-item-id="core.node.preview.expose.toggle"]').click()
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.ext?.['dinkster.exposedPreviews']))
+    .toEqual(expect.arrayContaining([expect.objectContaining({ graphId: 'g0', nodeId: 'widgets' })]))
 }
 
 async function injectPreview(page: Page, label: string): Promise<void> {

@@ -1,4 +1,4 @@
-import { asPortId, buildRerouteIndex, companionSourcesOf, defaultValuesOf, occurrencesForView, parseAssetTypeId, portRefKey, type Json } from '@dinkster/core'
+import { asPortId, buildRerouteIndex, companionSourcesOf, defaultValuesOf, occurrencesForView, parseAssetTypeId, portRefKey, type ExecutionRef, type Json } from '@dinkster/core'
 import { createSignal, For, onCleanup, onMount, Show, type Component } from 'solid-js'
 import { viewInstancePath } from '../app-state.js'
 import { liveExactnessFor } from '../companion-display.js'
@@ -60,6 +60,12 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   let stopRecording: (() => void) | undefined
   let video: Blob | undefined
   const abort = new AbortController()
+  let viewerPending = false
+  let settleViewer: (() => void) | undefined
+  let viewerCurrent = (): boolean => true
+  const releaseUrls = () => { urls.splice(0).forEach((url) => URL.revokeObjectURL(url)) }
+  let pendingCapture: ReturnType<Model3dViewerHandle['capture']> | undefined
+  let pendingRecording = Promise.resolve()
   const backendCurrent = (): boolean => props.editor.app.backendForTab(ed.tab).connection === backend.connection
   let sourcesCurrent = (): boolean => ed.tab.store.revision === revision && backendCurrent()
   onCleanup(() => {
@@ -68,7 +74,9 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
     if (recorder?.state === 'recording') recorder.stop()
     stopRecording?.()
     viewer?.dispose()
-    urls.forEach((url) => URL.revokeObjectURL(url))
+    viewer = undefined
+    settleViewer?.()
+    if (!viewerPending) releaseUrls()
   })
   onMount(() => {
     void (async () => {
@@ -79,6 +87,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         return source?.kind === 'producer' ? [{ inputId, source }] : []
       })
       const unavailable = () => new Error(message('load3dWidget.unavailable'))
+      let producerExecution: ExecutionRef | undefined
       if (producers.length > 0) {
         if (producers.some(({ source }) => { return graph?.nodes[source.node] === undefined })) throw unavailable()
         const execution = props.editor.app.executionForTab(ed.tab)
@@ -91,6 +100,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         if (!execution || execution.status !== 'completed' || !ran || !current || !exact || !path || ownerDepth < 0
           || execution.ref.connection !== backend.id || ran.connection !== backend.id || current.connection !== backend.id
           || ran.snapshot.lineage !== ed.tab.store.doc.lineage || current.snapshot.lineage !== ed.tab.store.doc.lineage) throw unavailable()
+        producerExecution = execution.ref
         sourcesCurrent = () => {
           const navigation = viewInstancePath(ed.tab)
           const fresh = props.editor.app.compileTabCached(ed.tab)
@@ -146,10 +156,16 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
               'FILE_3D_OBJ', 'FILE_3D_STL', 'FILE_3D_USDZ', 'FILE_3D_PLY', 'FILE_3D_SPLAT', 'FILE_3D_SPZ',
               'FILE_3D_KSPLAT', 'FILE_3D_SPLAT_ANY', 'FILE_3D_POINT_CLOUD_ANY'].includes(first.peek.descriptor.typeId)
               : first.peek.descriptor.typeId !== (inputId === 'camera_info' ? 'LOAD3D_CAMERA' : 'LOAD3D_MODEL_INFO'))) throw unavailable()
-            const result = await values.rendition(first.query, kind, { signal: abort.signal,
-              ...(advertised.version === undefined ? {} : { rendererVersion: advertised.version }) })
-            if (!result.available || result.mime !== 'application/json' || result.fingerprint !== first.peek.descriptor.fingerprint) throw unavailable()
-            resolved.set(inputId, JSON.parse(new TextDecoder().decode(result.bytes)) as Json)
+            const value = await values.read(first.query, first.peek.descriptor, async () => {
+              if (!live || !sourcesCurrent()) throw unavailable()
+              const result = await values.rendition(first.query, kind, { signal: abort.signal, descriptor: first.peek.descriptor,
+                ...(advertised.version === undefined ? {} : { rendererVersion: advertised.version }) })
+              if (!live || !sourcesCurrent() || !result.available || result.mime !== 'application/json'
+                || result.fingerprint !== first.peek.descriptor.fingerprint) throw unavailable()
+              return JSON.parse(new TextDecoder().decode(result.bytes)) as Json
+            })
+            if (!live || !sourcesCurrent()) throw unavailable()
+            resolved.set(inputId, value)
           }
           if (!live || !sourcesCurrent()) throw unavailable()
         }
@@ -173,14 +189,25 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         })
       )) throw new Error(message('load3dWidget.unavailable'))
       const model = object(manifest === undefined ? inputValue('model_file') : file3d.source)
+      const modelExecution = sources?.get(manifest === undefined ? 'model_file' : 'model_3d')?.kind === 'producer'
+        ? producerExecution : undefined
       const assetUrl = async (ref: Record<string, Json>) => {
         if (ref.verification === 'unverified' && (typeof ref.localBinding !== 'string' || !ref.localBinding || 'digest' in ref)) {
           throw new Error(message('load3dWidget.unavailable'))
         }
         if (ref.verification !== 'unverified' && typeof ref.digest !== 'string') throw new Error(message('load3dWidget.chooseModel'))
-        const bytes = ref.verification === 'unverified'
-          ? await backend.connection.fetchLocalAssetBytes(ref.localBinding as string, abort.signal)
-          : await backend.connection.fetchAssetBytes(ref.digest as string)
+        if (!live || !sourcesCurrent()) throw unavailable()
+        const reader = modelExecution === undefined && ref.verification !== 'unverified'
+          ? props.editor.app.workflowAssetReader(ed.tab, ref.digest as string) : undefined
+        if (modelExecution === undefined && ref.verification !== 'unverified' && !reader) throw unavailable()
+        const bytes = modelExecution !== undefined
+          ? await props.editor.app.readFile3dAssetForExecution(modelExecution, ref, abort.signal)
+          : ref.verification === 'unverified'
+            ? await backend.connection.fetchLocalAssetBytes(ref.localBinding as string, abort.signal)
+            : await reader!.read(async () => {
+              if (!live || !sourcesCurrent()) throw unavailable()
+              return backend.connection.fetchAssetBytes(ref.digest as string, abort.signal)
+            })
         if (!live || !sourcesCurrent() || !bytes) throw new Error(message('load3dWidget.unavailable'))
         const url = URL.createObjectURL(new Blob([bytes], { type: String(ref.mediaType ?? 'application/octet-stream') }))
         urls.push(url)
@@ -210,17 +237,41 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         && /^property\s+float\s+scale_0\s*$/m.test(header)
         && /^property\s+float\s+rot_0\s*$/m.test(header)
       const mime = format === 'gltf' ? 'model/gltf+json' : unspecified ? gaussian ? 'model/ply' : 'application/octet-stream' : String(model.mediaType ?? 'model/gltf-binary')
-      const mounted = await mountModel3dViewer(viewport, primary.url, mime, { resources,
-        ...(format ? { format } : {}), pointCloud: node?.type === 'PreviewPointCloud' })
-      if (!live || !sourcesCurrent()) { mounted.dispose(); return }
-      viewer = mounted
-      const cameraInfo = inputValue('camera_info') ?? initial.camera_info
-      if (cameraInfo) viewer.setCameraState(cameraInfo as unknown as Model3dCameraState)
-      const models = inputValue('model_3d_info') ?? initial.model_3d_info
-      if (Array.isArray(models) && models[0]) viewer.setModelTransform(models[0] as unknown as Model3dTransform)
-      setCamera(viewer.cameraState())
-      setTransform(viewer.modelTransform())
-      setClips(viewer.animationClips())
+      const assets = [model, ...resourceRefs.map(([, ref]) => object(ref))].filter((ref) => ref.verification !== 'unverified')
+      const reader = !assets.length ? undefined : modelExecution !== undefined
+        ? props.editor.app.file3dAssetReaderForExecution(modelExecution, assets)
+        : props.editor.app.workflowAssetReader(ed.tab, assets[0]!.digest as string)
+      if (assets.length && !reader) throw unavailable()
+      const mount = async () => {
+        if (!live || !sourcesCurrent() || reader?.current() === false) throw unavailable()
+        const mounted = await mountModel3dViewer(viewport, primary.url, mime, { resources,
+          ...(format ? { format } : {}), pointCloud: node?.type === 'PreviewPointCloud' })
+        if (!live || !sourcesCurrent() || reader?.current() === false) { mounted.dispose(); return }
+        viewer = mounted
+        viewerCurrent = () => reader?.current() !== false
+        try {
+          const cameraInfo = inputValue('camera_info') ?? initial.camera_info
+          if (cameraInfo) viewer.setCameraState(cameraInfo as unknown as Model3dCameraState)
+          const models = inputValue('model_3d_info') ?? initial.model_3d_info
+          if (Array.isArray(models) && models[0]) viewer.setModelTransform(models[0] as unknown as Model3dTransform)
+          setCamera(viewer.cameraState())
+          setTransform(viewer.modelTransform())
+          setClips(viewer.animationClips())
+          await new Promise<void>((resolve) => { settleViewer = resolve })
+        } finally {
+          if (viewer === mounted) { viewer = undefined; mounted.dispose() }
+          await pendingCapture?.catch(() => {})
+          await pendingRecording
+        }
+      }
+      viewerPending = true
+      try {
+        if (reader === undefined) await mount()
+        else await reader.read(mount)
+      } finally {
+        viewerPending = false
+        if (!live) releaseUrls()
+      }
     })().catch((reason: unknown) => { if (live) setError(reason instanceof Error ? reason.message : String(reason)) })
   })
 
@@ -229,7 +280,9 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       if (recorder?.state === 'recording') recorder.stop()
       return
     }
+    let settle: (() => void) | undefined
     try {
+      if (!viewerCurrent() || !sourcesCurrent()) throw new Error(message('load3dWidget.unavailable'))
       const capture = viewer!.recordingStream(Number(inputValue('width') ?? 1024), Number(inputValue('height') ?? 1024))
       stopRecording = capture.stop
       const currentRecorder = new MediaRecorder(capture.stream)
@@ -237,24 +290,27 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       video = undefined
       let failed = false
       const chunks: Blob[] = []
+      pendingRecording = new Promise<void>((resolve) => { settle = resolve })
       currentRecorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data) }
       currentRecorder.onstop = () => {
         capture.stop()
         if (live && recorder === currentRecorder) {
-          if (!failed) video = new Blob(chunks, { type: currentRecorder.mimeType })
+          if (!failed && sourcesCurrent() && viewerCurrent()) video = new Blob(chunks, { type: currentRecorder.mimeType })
           setRecording(false)
         }
+        settle?.()
       }
       currentRecorder.onerror = () => {
         failed = true
         capture.stop()
         if (currentRecorder.state === 'recording') currentRecorder.stop()
-        if (live && recorder === currentRecorder) { setRecording(false); setError(message('load3dWidget.recordingFailed')) }
+        if (live && recorder === currentRecorder) setError(message('load3dWidget.recordingFailed'))
       }
       currentRecorder.start()
       setRecording(true)
     } catch (reason) {
       stopRecording?.()
+      settle?.()
       setError(reason instanceof Error ? reason.message : String(reason))
     }
   }
@@ -264,6 +320,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
     setBusy(true)
     setError(undefined)
     try {
+      if (!viewerCurrent()) throw new Error(message('load3dWidget.unavailable'))
       const cameraInfo = inputValue('camera_info') ?? initial.camera_info
       const models = inputValue('model_3d_info') ?? initial.model_3d_info
       const modelInfo = Array.isArray(models) ? models : []
@@ -273,26 +330,27 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         model_3d_info: [{ ...object(modelInfo[0]), ...JSON.parse(JSON.stringify(viewer.modelTransform())) }, ...modelInfo.slice(1)],
       }
       if (!metadataOnly) {
-        const capture = await viewer.capture(Number(inputValue('width') ?? 1024), Number(inputValue('height') ?? 1024))
+        pendingCapture = viewer.capture(Number(inputValue('width') ?? 1024), Number(inputValue('height') ?? 1024))
+        const capture = await pendingCapture
         for (const name of ['image', 'mask', 'normal'] as const) {
-          if (!live || !sourcesCurrent()) return
+          if (!live || !sourcesCurrent() || !viewerCurrent()) return
           const file = new File([capture[name]], `viewport-${name}.png`, { type: 'image/png' })
           const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/image', name: file.name, signal: abort.signal })
           next[name] = JSON.parse(JSON.stringify(ref)) as Json
         }
         if (video) {
-          if (!live || !sourcesCurrent()) return
+          if (!live || !sourcesCurrent() || !viewerCurrent()) return
           const file = new File([video], 'viewport-recording.webm', { type: video.type })
           const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/video', name: file.name, signal: abort.signal })
           next.recording = JSON.parse(JSON.stringify(ref)) as Json
         } else if (next.recording === undefined) next.recording = ''
       }
-      if (!live || abort.signal.aborted) return
+      if (!live || abort.signal.aborted || !viewerCurrent()) return
       if (ed.tab.execution || !sourcesCurrent()) { props.close(); return }
       props.commitValue(next)
     } catch (reason) {
       if (live) setError(reason instanceof Error ? reason.message : String(reason))
-    } finally { if (live) setBusy(false) }
+    } finally { pendingCapture = undefined; if (live) setBusy(false) }
   }
   const changeCamera = (update: Partial<Model3dCameraState>): void => {
     if (!viewer || busy()) return

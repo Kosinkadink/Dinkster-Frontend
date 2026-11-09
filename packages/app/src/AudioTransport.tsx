@@ -4,6 +4,7 @@ import { ProductSlider } from './ProductSlider.js'
 import { audioNumber } from './audio-preview.js'
 import { mediaMetadataOf } from './media-metadata.js'
 import { useAppMessage } from './locale.js'
+import type { PreviewSource } from './node-previews.js'
 import './audio-controls.css'
 
 export const [audioPlayhead, setAudioPlayhead] = createSignal<{ identity: string; time: number; duration: number }>()
@@ -11,6 +12,7 @@ export const [audioPlayhead, setAudioPlayhead] = createSignal<{ identity: string
 /** Shared Canvas/App transport. Its gain, loop and playhead are never graph values. */
 export function AudioTransport(props: {
   readonly media: NodePreview
+  readonly assetReader?: PreviewSource['assetReader']
   readonly interactive?: boolean
   readonly onActiveChange?: (active: boolean) => void
   readonly onMediaError?: () => void
@@ -23,6 +25,7 @@ export function AudioTransport(props: {
   let resume = false
   let focused = false
   let urls: string[] = []
+  let detached = Promise.resolve()
   const [src, setSrc] = createSignal<string>()
   const [waveform, setWaveform] = createSignal<string>()
   const [time, setTime] = createSignal(0)
@@ -86,17 +89,55 @@ export function AudioTransport(props: {
       if (!request.signal.aborted) setBusy(false)
     }
   }
-  createEffect(on(createMemo(() => props.media.audio?.identity ?? props.media.src), () => {
+  createEffect(on(createMemo(() => [props.media.audio?.identity ?? props.media.src, props.assetReader] as const,
+    undefined, { equals: (a, b) => a[0] === b[0] && a[1] === b[1] }), () => {
     const media = props.media
+    const reader = props.assetReader
+    let current = true
+    let detach: (() => void) | undefined
+    onCleanup(() => { current = false; detach?.() })
     abort?.abort()
     element?.pause()
     release()
     setBatch(media.audio?.initialBatch ?? 0); setTime(0); setNativeDuration(0); setWaveform(undefined); setPlaying(false)
     start = 0; span = 0; resume = false
-    if (media.audio) void load(0, batch(), false)
-    else { setSrc(media.src || undefined); setDiagnostic('Waveform and window playback require an executed AUDIO value.'); setBusy(false) }
+    if (media.audio) {
+      void detached.then(() => { if (current) void load(0, batch(), false) })
+    }
+    else {
+      setSrc(undefined)
+      setDiagnostic('Waveform and window playback require an executed AUDIO value.')
+      setBusy(reader !== undefined)
+      const consume = async (): Promise<void> => {
+        await detached
+        if (!current || reader?.current() === false) return
+        if (reader === undefined) { setSrc(media.src || undefined); return }
+        await new Promise<void>((resolve) => {
+          const audio = element!
+          detach = () => {
+            const empty = audio.networkState === HTMLMediaElement.NETWORK_EMPTY
+            detached = new Promise<void>((done) => {
+              const reset = () => { audio.removeEventListener('emptied', reset); done(); resolve() }
+              if (!empty) audio.addEventListener('emptied', reset, { once: true })
+              // Reset native resource selection before allowing a replacement to attach.
+              audio.pause()
+              setSrc(undefined)
+              audio.removeAttribute('src')
+              audio.load()
+              if (empty) reset()
+            })
+          }
+          setSrc(media.src || undefined)
+          setBusy(false)
+        })
+      }
+      void (reader === undefined ? consume() : reader.read(consume)).catch((error: unknown) => {
+        if (current) { setDiagnostic(error instanceof Error ? error.message : String(error)); setBusy(false) }
+      })
+    }
   }))
   const play = async () => {
+    if (props.assetReader?.current() === false) return
     try { await element?.play() }
     catch (error) { setDiagnostic(`Audio playback unavailable: ${error instanceof Error ? error.message : String(error)}`) }
   }

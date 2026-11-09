@@ -35,6 +35,26 @@ import { applyOwnedOps, getAtPath, type PatchOp } from './patch.js'
 const hasErrors = (diags: readonly Diagnostic[]): boolean =>
   diags.some((d) => d.severity === 'error')
 
+type PreparedCommand =
+  | Extract<CommandOutcome, { readonly ok: false }>
+  | (Extract<CommandOutcome, { readonly ok: true }> & { readonly invocation: CommandInvocation })
+
+export type PreparedDocumentDispatch =
+  | Extract<CommandOutcome, { readonly ok: false }>
+  | {
+      readonly ok: true
+      readonly currentDocument: WorkflowDocument
+      readonly currentHistory: HistorySnapshot
+      readonly document: WorkflowDocument
+      readonly history: HistorySnapshot
+      readonly forward: readonly PatchOp[]
+      readonly inverse: readonly PatchOp[]
+      /** Confirmed and pending shared documents that still hold identities. */
+      readonly retainedDocuments?: readonly WorkflowDocument[]
+      /** Publish once, only while the captured document revision is current. */
+      readonly commit: () => CommandOutcome
+    }
+
 /**
  * Observer failures must never corrupt a committed transaction (CO10): each
  * listener is isolated, the rest keep getting notified, and failures go to
@@ -42,6 +62,14 @@ const hasErrors = (diags: readonly Diagnostic[]): boolean =>
  * their bugs are diagnosable there).
  */
 export type ListenerErrorSink = (error: unknown, context: string) => void
+
+/** Synchronous publication policy; must not mutate the store it validates. */
+export type DocumentCommitPolicy = (
+  current: WorkflowDocument,
+  candidate: WorkflowDocument,
+  history: HistorySnapshot,
+  retainedDocuments?: readonly WorkflowDocument[],
+) => readonly Diagnostic[]
 
 const defaultSink: ListenerErrorSink = (error, context) => {
   // eslint-disable-next-line no-console
@@ -357,6 +385,7 @@ export class DocumentStore implements DocumentStoreContract {
     private readonly maxUndo = 200,
     private readonly onListenerError: ListenerErrorSink = defaultSink,
     private readonly executionContext: () => CommandExecutionContext = () => ({ kind: 'initial' }),
+    private readonly validateCommit?: DocumentCommitPolicy,
   ) {
     // Ownership boundary (CO1): the store never retains or exposes caller-
     // mutable data. The initial document is validated, deep-copied, and
@@ -441,7 +470,7 @@ export class DocumentStore implements DocumentStoreContract {
     }
   }
 
-  dispatch(invocation: CommandInvocation): CommandOutcome {
+  private evaluateDispatch(invocation: CommandInvocation): PreparedCommand {
     const def = this.commands.get(invocation.command)
     if (!def) {
       return {
@@ -502,7 +531,7 @@ export class DocumentStore implements DocumentStoreContract {
     const { doc, forward, inverse } = tx.result()
     if (forward.length === 0) {
       // No-op commands succeed without a transaction (nothing to undo).
-      return { ok: true, doc: this.doc, forward, inverse, diagnostics: commandDiags }
+      return { ok: true, doc: this.doc, forward, inverse, diagnostics: commandDiags, invocation: ownedInvocation }
     }
 
     const invariantDiags = checkDocument(doc)
@@ -510,6 +539,61 @@ export class DocumentStore implements DocumentStoreContract {
       return { ok: false, diagnostics: [...commandDiags, ...invariantDiags] }
     }
 
+    return { ok: true, doc, forward, inverse, diagnostics: [...commandDiags, ...invariantDiags], invocation: ownedInvocation }
+  }
+
+  prepareDispatch(invocation: CommandInvocation): PreparedDocumentDispatch {
+    const prepared = this.evaluateDispatch(invocation)
+    if (!prepared.ok) return prepared
+    const { invocation: ownedInvocation, ...outcome } = prepared
+    const revision = this.revision
+    const currentDocument = this.doc
+    const freezeHistory = (history: HistorySnapshot): HistorySnapshot => Object.freeze({
+      revision: history.revision,
+      undo: Object.freeze(history.undo.map((record) => Object.freeze(record))),
+      redo: Object.freeze(history.redo.map((record) => Object.freeze(record))),
+    })
+    const currentHistory = freezeHistory(this.historySnapshot())
+    const undo = [...currentHistory.undo]
+    if (outcome.forward.length > 0) {
+      undo.push({ forward: outcome.forward, inverse: outcome.inverse })
+      if (undo.length > this.maxUndo) undo.shift()
+    }
+    const history = freezeHistory({
+      revision: revision + (outcome.forward.length > 0 ? 1 : 0),
+      undo,
+      redo: outcome.forward.length > 0 ? [] : currentHistory.redo,
+    })
+    let consumed = false
+    return Object.freeze({
+      ok: true,
+      currentDocument,
+      currentHistory,
+      document: outcome.doc,
+      history,
+      forward: outcome.forward,
+      inverse: outcome.inverse,
+      commit: (): CommandOutcome => {
+        if (consumed || this.revision !== revision || this.doc !== currentDocument ||
+          this.undoStack.length !== currentHistory.undo.length || this.redoStack.length !== currentHistory.redo.length) {
+          return { ok: false, diagnostics: [diag('error', 'command', 'command.candidate.stale', 'Prepared command is stale or already consumed')] }
+        }
+        consumed = true
+        const diagnostics = this.validateCommit?.(currentDocument, outcome.doc, currentHistory) ?? []
+        if (hasErrors(diagnostics)) return { ok: false, diagnostics }
+        return this.publishDispatch(ownedInvocation, outcome)
+      },
+    })
+  }
+
+  dispatch(invocation: CommandInvocation): CommandOutcome {
+    const prepared = this.prepareDispatch(invocation)
+    return prepared.ok ? prepared.commit() : prepared
+  }
+
+  private publishDispatch(ownedInvocation: CommandInvocation, outcome: Extract<CommandOutcome, { readonly ok: true }>): CommandOutcome {
+    const { doc, forward, inverse } = outcome
+    if (forward.length === 0) return outcome
     this.revisionCounter += 1
     // FR2: capture the revision NOW - a reentrant dispatch from inside the
     // commit's notifications moves revisionCounter before this frame ends.
@@ -525,7 +609,7 @@ export class DocumentStore implements DocumentStoreContract {
     if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
     this.redoStack.length = 0
     this.commit(doc, Object.freeze({ kind: 'dispatch' as const, record, revision, patch: forward }))
-    return { ok: true, doc, forward, inverse, diagnostics: [...commandDiags, ...invariantDiags] }
+    return outcome
   }
 
   /**
@@ -539,9 +623,11 @@ export class DocumentStore implements DocumentStoreContract {
   }
 
   undo(): boolean {
-    const record = this.undoStack.pop()
+    const record = this.undoStack.at(-1)
     if (!record) return false
     const { doc, applied } = this.replay(record.inverse)
+    if (hasErrors(this.validateCommit?.(this.doc, doc, this.historySnapshot()) ?? [])) return false
+    this.undoStack.pop()
     this.redoStack.push(record)
     this.revisionCounter += 1
     const revision = this.revisionCounter
@@ -550,9 +636,11 @@ export class DocumentStore implements DocumentStoreContract {
   }
 
   redo(): boolean {
-    const record = this.redoStack.pop()
+    const record = this.redoStack.at(-1)
     if (!record) return false
     const { doc, applied } = this.replay(record.forward)
+    if (hasErrors(this.validateCommit?.(this.doc, doc, this.historySnapshot()) ?? [])) return false
+    this.redoStack.pop()
     this.undoStack.push(record)
     this.revisionCounter += 1
     const revision = this.revisionCounter
@@ -623,8 +711,9 @@ export function jsonSameValue(a: Json | undefined, b: Json | undefined): boolean
  *
  * With `requireRecordedValues`, every verbatim-replayed op must still find
  * the document value it recorded (remove/replace: current deep-equals its
- * oldValue; add: target absent) or replay stops with `stale` set to the
- * offending op. Cursor-clamped ops are exempt - they are rewritten against
+ * oldValue; object add: target absent; array add: insertion index in bounds)
+ * or replay stops with `stale` set to the offending op.
+ * Cursor-clamped ops are exempt - they are rewritten against
  * the current document, never replayed. The shared session sets this so a
  * history record can never force-apply over a foreign actor's edit; the
  * local store keeps classical replay semantics (single writer - values can
@@ -770,11 +859,17 @@ export function replayHistoryOps(
     } else if (options?.requireRecordedValues) {
       // Semantic precondition (shared mode): the op replays verbatim, so
       // the document must still hold the value the record captured -
-      // otherwise this replay would overwrite another actor's edit.
+      // otherwise this replay would overwrite another actor's edit. Array
+      // additions insert before the current element; they do not overwrite it.
       const current = getAtPath(cur, op.path)
+      const index = op.path.at(-1)
+      const parent = op.op === 'add' && typeof index === 'number'
+        ? getAtPath(cur, op.path.slice(0, -1)) : undefined
       const holds =
         op.op === 'add'
-          ? current === undefined
+          ? typeof index === 'number'
+            ? Array.isArray(parent) && Number.isSafeInteger(index) && index >= 0 && index <= parent.length
+            : current === undefined
           : current !== undefined && jsonSameValue(current, op.oldValue)
       if (!holds) return { doc: cur as unknown as WorkflowDocument, applied: Object.freeze(applied), stale: op }
     }

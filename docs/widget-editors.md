@@ -10,6 +10,54 @@ non-serialized widgets. Import retains their original proxy metadata but does
 not create executable boundary inputs or consume positional widget values for
 them. Real promoted widgets and after-generate controllers keep their order.
 
+## Command acceptance
+
+Shared value commits and scalar text splices keep the editor open until the
+document command is accepted. Pending content is inert and duplicate commits
+are ignored. A refusal keeps the exact draft and shows an inline error for
+retry. Escape, outside dismissal and modal close dismiss only the editor;
+they do not cancel a submitted command. A completed command cannot close a
+replacement editor. Combo menu and branch-label edits and video edit batches
+use the same acceptance path. Explicit refresh selection closes a multi-combo
+only after acceptance. Single refresh does not request closure, but a document
+change can still dismiss its stale canvas anchor.
+
+Refresh-controller completion forwards the document command outcome, including
+delayed acceptance or refusal. A transport rejection returns remote options to
+their prior stale state without closing the editor or replacing its draft.
+
+Output-descriptor Apply shows command refusals and transport errors above the
+draft, separately from descriptor validation and metadata-probe errors. The
+draft remains available for retry and closes only after command acceptance.
+
+Native asset pickers confirm an independent incomplete owner for stored selections
+on open and before publishing a newly selected reference or starting its server
+preview. Apply stays disabled during initial admission and after refusal until a
+selection is admitted; Cancel remains available. Picks are processed
+in invocation order; Apply is disabled while a pick is pending. Refusal preserves
+the previous selection and reports the failure inline. Cancel discards the local
+draft without releasing acknowledged owners. The staged selection keeps its
+acknowledged reader: a changed document, registry, connection, or closed session
+refuses further staging and Apply until the picker is reopened. Apply still confirms the document
+command separately. These conservative owners do not enable cleanup.
+
+The registered audio-recording editor uses the same independent ownership
+before replacing its draft or fetching playback bytes for a saved recording.
+While acknowledgement is pending, Use asset stays disabled and Cancel remains
+available. A refused recording keeps the previous draft and the local clip for
+retry; an acknowledged recording still needs Use asset to change the document.
+
+Selected-image and recorded-audio preview byte reads are cancelled when their
+preview is replaced, removed or closed. Late results are still ignored if a
+transport completes after cancellation. This does not retire asset owners or
+prove that queued model posters and other consumers have finished reading.
+Closing Painter or Load3d also cancels pending saved-source byte reads,
+including verified digests and granted local bindings. Load3d uses the same
+signal for its primary model and named sidecars; stale results remain refused.
+Model selection posters do not enter the renderer after a delayed viewer import
+if the selection was replaced or closed. Already admitted shared poster work
+continues independently; closing one selection does not cancel other borrowers.
+
 ## Descriptor fields
 
 The WEBCAM row opens a camera capture dialog. Capture frame requests browser
@@ -89,13 +137,20 @@ The native Painter node's mask row opens an RGBA canvas over its background
 color or a connected image's current first frame. A connected source must have
 a completed, unchanged native execution; stale, unavailable or ambiguous
 sources require another run before painting. Connected images set the canvas
-dimensions; otherwise it uses the authored width and height. Brush color and
+dimensions; otherwise it uses the authored width and height. Connected IMAGE
+decoding and drawing borrow the exact descriptor's admitted value reader;
+connection changes refuse drawing even after rendition bytes arrived. The bitmap
+closes before that read settles, without releasing its retained owner. Brush color and
 size, erasing, clearing and opening an image edit only the draft layer.
 The displayed base is never included in the uploaded paint layer. Transparent
 pixels preserve the node's background or connected image; the layer's alpha
 supplies the MASK output. Existing granted
 paint files reopen on the canvas, including local files addressed by an
-engine-issued binding rather than a portable digest. Apply uploads a PNG
+engine-issued binding rather than a portable digest. Saved digest-backed masks
+wait for the captured document's retained-asset acknowledgment before fetching
+bytes or decoding the bitmap. Closing, editing or an observed connection change
+refuses late mask publication; bitmap cleanup finishes without releasing the
+retained owner. Apply uploads a PNG
 through the tab's native media authority and stores the returned ASSET
 reference in one undoable edit.
 The shared upload destination picker selects a granted mount and subfolder;
@@ -338,7 +393,9 @@ open while scrubbing.
 
 AppView COLOR uses a product swatch trigger and an anchored popup mounted in
 the owning dialog when present. The popup accepts exact six-digit hex text and
-offers 32px preset swatches. Invalid text does not commit. Escape discards the
+offers 32px preset swatches. Apply and presets wait for final command acceptance;
+pending submissions cannot duplicate the write, and a refusal keeps the exact
+color draft open with a retry notice. Invalid text does not commit. Escape discards the
 draft, closes the popup, and restores trigger focus. A non-color stored value
 displays white without writing that fallback into the document.
 
@@ -484,7 +541,14 @@ Save recording uploads through the editing tab's native `media/audio` route
 and stages the returned descriptor. Use asset commits one undoable change;
 Cancel, Escape and close discard the draft and abort any pending upload.
 Failed uploads retain the clip for explicit retry. Existing audio can play
-through AudioTransport without changing the graph value. A native backend is
+through AudioTransport without changing the graph value. A stored recording's
+preview waits for its captured document's retained-asset acknowledgment before
+fetching bytes. Newly recorded drafts use their acknowledged picker reader for
+preview bytes and playback, bound to the document and connection that admitted
+the upload. The same reader admits native playback and stays pending until
+the transport resets its source on removal or close. Stale document or connection
+state refuses late bytes and new playback; closing does not release the retained
+owner. A native backend is
 required for upload. Browser codec, duration and byte limits are the same as
 the existing ASSET audio recorder.
 
@@ -652,7 +716,11 @@ duplicate or cycle controller state. The menu routes fixed, increment,
 decrement, randomize-after-run, and randomize-after-refresh choices through the
 owner-routed `node.setController` command. Selecting randomize does not change
 the current value immediately; it advances only after the named successful run
-or refresh event. The chip does not move as the value gains digits. Wide rows
+or refresh event. The menu closes only after its mode change is accepted.
+Pending choices are disabled; refusal preserves the menu and current mode for
+retry and shows an inline error. Escape or clicking outside dismisses the menu, not a submitted command;
+an older completion cannot close a newly opened menu.
+The chip does not move as the value gains digits. Wide rows
 reserve 128px for value text (enough for a full JavaScript safe integer), while
 narrow rows retain a 44px label floor and clip at one stable threshold. Hovering
 the value zone exposes the complete effective value in the widget tooltip, so a
@@ -1106,8 +1174,11 @@ Its target is session-only and is cleared on cancel, apply, editor switch, or
 tab close. Mask editing is a capability inside this editor, not a separate
 editor kind. The source bytes are fetched from `/api/assets/{digest}`. Red
 overlay intensity is the Load Image convention `1 - alpha`; source RGB remains
-visible under the overlay. Paint and erase support local brush size and
-hardness, clear, invert, pan, and zoom. Each pointer gesture records one
+visible under the overlay. Closing, replacing the target, switching away from
+its tab or tearing down the editor aborts pending source reads. Cancellation
+does not retire retained asset owners or establish that other readers settled.
+Paint and erase support local brush size and hardness, clear, invert, pan, and
+zoom. Each pointer gesture records one
 serializable local mask operation; undo/redo moves through that operation
 history without dispatching commands or advancing the document revision.
 

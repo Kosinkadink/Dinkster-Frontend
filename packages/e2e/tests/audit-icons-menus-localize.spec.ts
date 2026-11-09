@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 async function nodePoint(page: Page, nodeId: string): Promise<{ x: number; y: number }> {
   return page.evaluate((id) => {
@@ -19,6 +19,7 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',

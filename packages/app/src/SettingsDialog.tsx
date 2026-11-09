@@ -10,7 +10,7 @@
  */
 import { createMemo, createSignal, For, onMount, Show } from 'solid-js'
 import { activeLocale, type MessageParams } from '@dinkster/core'
-import type { PackSettings } from '@dinkster/client'
+import type { DinksterConnection, PackSettings } from '@dinkster/client'
 import type { AppCommand, CommandRegistry, KeybindingRegistry, SettingDefinition, SettingsRegistry } from './settings.js'
 import { captureKeydown, initialSettingsCategory } from './settings.js'
 import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions, type SettingsSearchItem } from './settings-search.js'
@@ -21,6 +21,7 @@ import { ProductField, productFieldIds } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
+import { LibraryStorageSettings } from './LibraryStorageSettings.js'
 
 export interface PackSettingsClient {
   fetchPackSettings(packId: string): Promise<PackSettings>
@@ -199,6 +200,7 @@ export function SettingsDialog(props: {
   readonly keybindings: KeybindingRegistry
   readonly request?: { readonly category: string; readonly id: string } | undefined
   readonly onRequestConsumed?: () => void
+  readonly storageConnection?: Pick<DinksterConnection, 'fetchLibraryStorage' | 'updateLibraryStorageLimit'> | undefined
   readonly packSettings?: {
     readonly client: PackSettingsClient
     readonly packs: () => readonly { readonly id: string; readonly displayName: string }[]
@@ -215,6 +217,7 @@ export function SettingsDialog(props: {
   const categories = () => [
     ...new Set(definitions().map((d) => props.settings.categoryOf(d))),
     'keybindings',
+    ...(props.storageConnection === undefined ? [] : ['storage']),
     ...packCategories().keys(),
   ]
   // Derived categories are intentionally specific (for example canvas.grid), so select a real category rather than inventing a parent grouping.
@@ -356,6 +359,7 @@ export function SettingsDialog(props: {
           </nav>
           <main class="settings-content">
             <Show when={searching()} fallback={
+              <Show when={category() === 'storage'} fallback={
               <Show when={category().startsWith('pack:')} fallback={
                 <Show when={category() !== 'keybindings'} fallback={
                   <div class="keybinding-table">
@@ -368,6 +372,9 @@ export function SettingsDialog(props: {
                 <Show when={props.packSettings}>{(packSettings) =>
                   <PackSettingsPanel packId={category().slice(5)} client={packSettings().client} />
                 }</Show>
+              </Show>
+              }>
+                <Show when={props.storageConnection} keyed>{(connection) => <LibraryStorageSettings connection={connection} />}</Show>
               </Show>
             }>
               <div class="settings-results">

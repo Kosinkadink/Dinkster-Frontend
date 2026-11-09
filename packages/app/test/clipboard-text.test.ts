@@ -2,6 +2,49 @@ import { describe, expect, it, vi } from 'vitest'
 import { pendingClipboardText, writeClipboardText } from '../src/clipboard-text.js'
 
 describe('clipboard text writes', () => {
+  it.each([true, false])('keeps internal paste immediate but waits for ownership before system write: %s', async (accepted) => {
+    let acknowledge!: (accepted: boolean) => void
+    const ownership = new Promise<boolean>((resolve) => { acknowledge = resolve })
+    const written: string[] = []
+    const write = writeClipboardText(async (text) => { written.push(text) }, 'protected copy', ownership)
+    expect(pendingClipboardText()).toBe('protected copy')
+    await Promise.resolve()
+    expect(written).toEqual([])
+    acknowledge(accepted)
+    await write
+    expect(written).toEqual(accepted ? ['protected copy'] : [])
+    expect(pendingClipboardText()).toBeUndefined()
+  })
+
+  it('does not reorder copies when their ownership acknowledgments arrive in reverse order', async () => {
+    let acknowledge!: (accepted: boolean) => void
+    const firstOwner = new Promise<boolean>((resolve) => { acknowledge = resolve })
+    const written: string[] = []
+    const write = async (text: string) => { written.push(text) }
+    const first = writeClipboardText(write, 'first', firstOwner)
+    const second = writeClipboardText(write, 'second', Promise.resolve(true))
+    expect(pendingClipboardText()).toBe('second')
+    await Promise.resolve()
+    expect(written).toEqual([])
+    acknowledge(true)
+    await Promise.all([first, second])
+    expect(written).toEqual(['first', 'second'])
+  })
+
+  it('discards a refused latest internal copy while an older system write is still pending', async () => {
+    let acknowledge!: (accepted: boolean) => void
+    const earlierOwnership = new Promise<boolean>((resolve) => { acknowledge = resolve })
+    const written: string[] = []
+    const write = async (text: string) => { written.push(text) }
+    const first = writeClipboardText(write, 'earlier', earlierOwnership)
+    const refused = writeClipboardText(write, 'refused', Promise.resolve(false))
+    await vi.waitFor(() => expect(pendingClipboardText()).toBeUndefined())
+    expect(written).toEqual([])
+    acknowledge(true)
+    await Promise.all([first, refused])
+    expect(written).toEqual(['earlier'])
+  })
+
   it('exposes the latest internal copy without waiting for the system clipboard write', async () => {
     let releaseWrite: (() => void) | undefined
     const writeText = vi.fn(async (text: string) => {

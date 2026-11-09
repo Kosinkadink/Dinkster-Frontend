@@ -4,7 +4,7 @@
  * dev proxy. Uses the window.__dinksterTest bridge for state assertions instead
  * of scraping canvas pixels.
  */
-import { expect, openRailPanel, test } from './fixtures.js'
+import { expect, openRailPanel, test, waitForStartupOwnership } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
@@ -73,4 +73,46 @@ test('subgraph tab queues its flattened prompt and routes state by lineage', asy
   })
   expect(runtimeIds.prompt.sort()).toEqual(['n0.n0', 'n1'])
   expect(runtimeIds.states).toEqual(expect.arrayContaining(['n0.n0', 'n1']))
+})
+
+test('completion before submit acknowledgment retains and hydrates outputs', async ({ page }) => {
+  let releaseSubmit!: () => void
+  let releaseReads!: () => void
+  const submitGate = new Promise<void>((resolve) => { releaseSubmit = resolve })
+  const readGate = new Promise<void>((resolve) => { releaseReads = resolve })
+  let reading = false
+  await page.route((url) => url.pathname === '/api/jobs', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    const response = await route.fetch()
+    await submitGate
+    await route.fulfill({ response })
+  })
+  await page.route((url) => /^\/api\/jobs\/[^/]+\/[^/]+$/.test(url.pathname), async (route) => {
+    const response = await route.fetch()
+    reading = true
+    await readGate
+    await route.fulfill({ response })
+  })
+  await waitForStartupOwnership(page)
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.backends.get()[0]!.connection.onLiveCompletion(() => {
+      document.documentElement.dataset['completedJobObserved'] = 'true'
+    })
+  })
+  await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
+  await page.getByTestId('queue-button').click()
+  await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()]
+    .some((state) => state.status === 'completed' && state.artifact === undefined))).toBe(true)
+  await expect(page.locator('html')).toHaveAttribute('data-completed-job-observed', 'true')
+  await expect.poll(() => reading).toBe(true)
+  releaseSubmit()
+  await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()]
+    .some((state) => state.status === 'completed' && state.artifact !== undefined))).toBe(true)
+  releaseReads()
+  await openRailPanel(page, 'Outputs')
+  const images = page.getByTestId('outputs-panel').locator('.output-thumbnail img')
+  await expect(images).not.toHaveCount(0, { timeout: 10_000 })
+  await expect(images.first()).toHaveJSProperty('naturalWidth', 64)
+  await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()]
+    .some((state) => state.artifactsHydrated))).toBe(true)
 })
