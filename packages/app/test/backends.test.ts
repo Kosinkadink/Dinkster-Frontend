@@ -697,6 +697,41 @@ describe('backend protocols', () => {
     },
   )
 
+  it.each(['registered', 'replaced', 'disconnected'] as const)(
+    'readmits preview roots when submit registration overtakes admission: %s', async (scenario) => {
+      const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
+      registryFor(backend)
+      app.setTabTarget(basic.id, backend.id)
+      const compiled = app.compileTab(basic)
+      if (!compiled?.ok) throw new Error('compile failed')
+      const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('registering-preview') }
+      const digest = `blake3:${'a'.repeat(64)}`
+      const sourceDocument = `blake3:${'b'.repeat(64)}`
+      const requests: Array<{ acknowledge: () => void; digests: readonly string[] }> = []
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) =>
+        new Promise((resolve) => requests.push({ digests: declaration.digests,
+          acknowledge: () => resolve({ ...owner, ...declaration, revision: 1 }) })))
+      backend.connection.ingest({ type: 'run_started', jobId: ref.prompt })
+      const payload = { mime: 'application/json', documentDigest: digest }
+      backend.connection.ingest({ type: 'node_event', event: 'preview', jobId: ref.prompt, nodeId: 'image', data: payload })
+      backend.connection.ingest({ type: 'run_finished', jobId: ref.prompt })
+      await vi.waitFor(() => expect(requests.length).toBeGreaterThan(0))
+      expect(requests[0]!.digests).toEqual([digest])
+      app.store.register(ref, compiled.artifact, 1, { sourceDocument })
+      requests[0]!.acknowledge()
+      await vi.waitFor(() => expect(requests.length).toBeGreaterThan(1))
+      expect(requests[1]!.digests).toEqual([digest, sourceDocument])
+      expect(app.store.get(ref)?.previews).toEqual({})
+      expect(app.store.get(ref)?.status).toBe('running')
+      if (scenario === 'replaced') app.store.register(ref, { ...compiled.artifact }, 1, { sourceDocument })
+      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+      requests[1]!.acknowledge()
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(app.store.get(ref)?.previews.image?.['']?.payload).toEqual(scenario === 'registered' ? payload : undefined)
+      expect(app.store.get(ref)?.status).toBe(scenario === 'registered' ? 'completed' : 'running')
+    },
+  )
+
   it('hydrates saved artifacts after a normal live Dinkster completion', async () => {
     const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
     if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')
