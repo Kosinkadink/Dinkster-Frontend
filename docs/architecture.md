@@ -295,6 +295,13 @@ The previous complete receipt retires only after the new complete inventory is
 acknowledged and committed on the same backend connection generation. Unknown
 inventories, failed candidates and superseded sessions keep their protection;
 another session's receipt is independent even when it holds the same digests.
+Superseded receipts also protect roots still named by canonical tab snapshots,
+workspace candidates, document recovery slots and operation-journal additions.
+If the replacement no longer covers a root, retirement waits for a complete
+durable-source census that no longer names it. Persistence compaction retries
+that check; unreadable, corrupt or unknown sources keep protection. Crash-safe
+staging stays synchronous, and disconnect or session displacement never grants
+release authority over a pending receipt.
 The asset census recognizes the mask command's exact source-association marker
 on mask-paint nodes: a string node ID and the fixed mask output ID contain no
 asset identity. Extra marker fields, other metadata and unknown schemas remain

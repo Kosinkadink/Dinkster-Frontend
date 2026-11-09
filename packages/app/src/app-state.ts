@@ -1965,6 +1965,49 @@ function loadWorkspaceOperations(): readonly WorkspaceTabMutation[] {
   return orderWorkspaceOperations(operations)
 }
 
+/** Losing recovery sources remain holders until their actual storage slots retire. */
+function persistedWorkflowAssetRoots(resolve: SchemaResolver): ReadonlySet<string> | undefined {
+  try {
+    const storage = globalThis.localStorage
+    if (!storage) return undefined
+    const documents: unknown[] = []
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index)
+      if (key === null) return undefined
+      if (key !== tabsKey() && !key.startsWith(tabsCandidatePrefix()) &&
+        !key.startsWith(documentCandidatePrefix()) && !key.startsWith(workspaceOperationPrefix())) continue
+      const raw = storage.getItem(key)
+      if (key === tabsKey() || key.startsWith(tabsCandidatePrefix())) {
+        if (raw === null) return undefined
+        const state = parsePersistedTabs(raw)
+        if (!state || state.tabs.length !== JSON.parse(raw).tabs.length) return undefined
+        documents.push(...state.tabs.map((tab) => tab.doc))
+      } else if (key.startsWith(documentCandidatePrefix())) {
+        const candidate = parsePersistedDocumentCandidate(raw)
+        if (!candidate || key !== `${documentCandidatePrefix()}${encodeURIComponent(persistedTabId(candidate.tab)!)}`) return undefined
+        documents.push(candidate.tab.doc)
+      } else if (key.startsWith(workspaceOperationPrefix())) {
+        if (raw === null) return undefined
+        const operation = JSON.parse(raw) as Partial<WorkspaceTabMutation> | null
+        if (!operation || typeof operation.opId !== 'string' ||
+          key !== `${workspaceOperationPrefix()}${operation.opId}` || !Array.isArray(operation.additions)) return undefined
+        documents.push(...operation.additions.map((entry) => entry?.document))
+      }
+    }
+    const digests = new Set<string>()
+    for (const json of documents) {
+      const document = loadDocument(json).document
+      if (!document) return undefined
+      const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, resolve, [], 'admission')
+      if (!roots.complete || roots.refusal !== undefined) return undefined
+      for (const digest of roots.digests) digests.add(digest)
+    }
+    return digests
+  } catch {
+    return undefined
+  }
+}
+
 export function orderWorkspaceOperations(
   operations: readonly WorkspaceTabMutation[],
 ): readonly WorkspaceTabMutation[] {
@@ -4242,6 +4285,7 @@ export class AppState {
           this.workspaceAcknowledgedOperations.delete(opId)
         }
       }
+      this.retireSupersededWorkflowOwners()
     })
   }
 
@@ -7361,6 +7405,12 @@ export class AppState {
     readonly project: string
     readonly generation: number | undefined
   }>()
+  private readonly supersededWorkflowOwners = new Map<RetainedAssets, {
+    session: DocumentSession
+    readonly backend: Backend
+    readonly project: string
+    readonly generation: number | undefined
+  }>()
 
   private continueWorkflowAssetOwner(previous: DocumentSession, session: DocumentSession): void {
     const owner = this.workflowAssetOwners.get(previous)
@@ -7373,6 +7423,9 @@ export class AppState {
     // Only a later acknowledged complete replacement can release that receipt.
     this.workflowAssetOwners.set(session, owner)
     this.workflowAssetOwners.delete(previous)
+    for (const pending of this.supersededWorkflowOwners.values()) {
+      if (pending.session === previous) pending.session = session
+    }
   }
 
   private replaceWorkflowAssetOwner(
@@ -7390,11 +7443,37 @@ export class AppState {
     // Unknown inventories and disconnected lifetimes are not release authority.
     if (!previous || previous.backend !== backend || previous.project !== project || previous.generation !== generation ||
       !previous.retained.complete || !retained.complete) return
+    this.supersededWorkflowOwners.set(previous.retained, { session, backend, project, generation })
     queueMicrotask(() => {
       if (current() && this.workflowAssetOwners.get(session) === owner) {
-        void retireAssetOwner(backend.connection, previous.retained)
+        this.retireSupersededWorkflowOwners()
       }
     })
+  }
+
+  private retireSupersededWorkflowOwners(): void {
+    if (this.disposed) return
+    const durableRoots = new Map<Backend, ReadonlySet<string> | undefined>()
+    for (const [retained, pending] of this.supersededWorkflowOwners) {
+      const { session, backend, project, generation } = pending
+      const current = this.workflowAssetOwners.get(session)
+      if (!current?.retained.complete || current.backend !== backend || current.project !== project ||
+        current.generation !== generation || activeProjectId() !== project || !this.backends.get().includes(backend) ||
+        this.assetConnectionGenerations.get(backend.connection) !== generation ||
+        !this.tabs.get().some((tab) => !tab.execution && tab.store === session && this.backendForTab(tab) === backend)) continue
+      const covered = new Set(current.retained.digests)
+      const removed = retained.digests.filter((digest) => !covered.has(digest))
+      if (removed.length > 0) {
+        if (!durableRoots.has(backend)) durableRoots.set(backend, persistedWorkflowAssetRoots(
+          this.resolverWithVirtualNodes(backend.registry.get()?.resolve ?? (() => undefined))))
+        const persisted = durableRoots.get(backend)
+        if (persisted === undefined || removed.some((digest) => persisted.has(digest))) continue
+      }
+      // A complete replacement protects live consumers; durable sources must
+      // independently stop naming every root that replacement no longer holds.
+      this.supersededWorkflowOwners.delete(retained)
+      void retireAssetOwner(backend.connection, retained)
+    }
   }
 
   private readonly frozenAssetOwners = new WeakMap<Tab, {

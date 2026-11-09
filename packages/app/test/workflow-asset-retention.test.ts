@@ -1152,6 +1152,84 @@ describe('retained app dispatch', () => {
     },
   )
 
+  it.each(['canonical', 'workspace', 'document', 'operation', 'corrupt', 'filtered-tab', 'unknown', 'unreadable',
+    'lost-key', 'locked-commit', 'lost-release', 'disconnected', 'replaced'] as const)('keeps durable snapshot roots until their source retires: %s', async (scenario) => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([schema])
+      app.openDocument(session().doc, 'Workflow')
+      const tab = app.activeTab()!
+      const owners = new Map<string, RetainedAssets>()
+      vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const receipt = { ...owner, ...declaration, revision: 1 }
+        owners.set(owner.ownerId, receipt)
+        return receipt
+      })
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+      vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        const tombstone = { ...owners.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+        owners.set(owner.ownerId, tombstone)
+        if (scenario === 'lost-release') throw new Error('response lost')
+        return tombstone
+      })
+      expect((await app.dispatchRetainedTo(tab, replace('b'))).ok).toBe(true)
+      app.flushPersistTabs()
+      const snapshot = JSON.parse(localStorage.getItem(scopedStorageKey('dinkster.openTabs'))!)
+      const saved = snapshot.tabs.find((entry: { doc: { lineage: string } }) => entry.doc.lineage === tab.id)
+      expect(saved.doc.graphs.g0.nodes.n0.values.files).toEqual([asset('b')])
+      localStorage.removeItem(scopedStorageKey('dinkster.openTabs'))
+      localStorage.removeItem(scopedStorageKey(`dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`))
+      const sourceKey = scopedStorageKey(scenario === 'workspace' ? 'dinkster.openTabsCandidate.peer'
+        : scenario === 'document' ? `dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`
+          : scenario === 'operation' ? 'dinkster.workspaceOperation.peer#0' : 'dinkster.openTabs')
+      localStorage.setItem(sourceKey, scenario === 'corrupt' ? '{' : JSON.stringify(
+        scenario === 'document' ? { v: 1, stageId: 'older', tab: saved }
+          : scenario === 'operation' ? { opId: 'peer#0', additions: [{ id: tab.id, document: saved.doc }] }
+            : scenario === 'filtered-tab' ? { ...snapshot, tabs: [null] }
+              : scenario === 'unknown' ? { ...snapshot, tabs: [{ ...saved, doc: {
+                ...saved.doc, ext: { unresolved: {} },
+              } }] } : snapshot))
+      const keys = scenario === 'unreadable' || scenario === 'lost-key' ? vi.spyOn(localStorage, 'key').mockImplementation(() => {
+        if (scenario === 'lost-key') return null
+        throw new Error('storage unavailable')
+      }) : undefined
+      tab.store.clearHistory()
+      expect((await app.dispatchRetainedTo(tab, replace('c'))).ok).toBe(true)
+      const previous = [...owners.values()].at(-1)!
+      expect(previous.digests).toEqual([asset('b').digest, asset('c').digest])
+      tab.store.clearHistory()
+      expect((await app.dispatchRetainedTo(tab, replace('d'))).ok).toBe(true)
+      await vi.advanceTimersByTimeAsync(0)
+      const latest = [...owners.values()].at(-1)!
+      expect(latest.digests).toEqual([asset('c').digest, asset('d').digest])
+      expect(owners.get(previous.ownerId)).toEqual(previous)
+      keys?.mockRestore()
+      if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
+      if (scenario === 'replaced') app.openDocument(session([asset('f')]).doc, 'Replacement')
+      let commit: (() => void) | undefined
+      if (scenario === 'locked-commit') vi.stubGlobal('navigator', { locks: {
+        request: async (_name: string, _options: unknown, callback: () => void) => { commit = callback },
+      } })
+      else localStorage.removeItem(sourceKey)
+      app.flushPersistTabs()
+      if (scenario === 'locked-commit') {
+        expect(owners.get(previous.ownerId)).toEqual(previous)
+        expect(JSON.parse(localStorage.getItem(sourceKey)!).tabs).toEqual(snapshot.tabs)
+        expect(commit).toBeDefined()
+        commit!()
+      }
+      await vi.advanceTimersByTimeAsync(0)
+      if (scenario === 'disconnected' || scenario === 'replaced') expect(owners.get(previous.ownerId)).toEqual(previous)
+      else {
+        expect(owners.get(previous.ownerId)).toEqual({ ...previous, revision: 2, complete: true, digests: [] })
+        const intent = JSON.parse(localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${previous.ownerId}`))!)
+        expect(intent.acknowledgedRevision).toBe(2)
+      }
+      expect(owners.get(latest.ownerId)).toEqual(latest)
+    } finally { vi.useRealTimers() }
+  })
+
   it.each(['accepted', 'startup', 'imported', 'lost-ack', 'lost-release', 'reused-owner', 'refused', 'replaced', 'disconnected', 'incomplete'] as const)(
     'replaces only the acknowledged workflow session owner: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
