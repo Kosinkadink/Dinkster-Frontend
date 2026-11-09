@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { expect, test, type Page, type Route } from '@playwright/test'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page, type Route } from './fixtures.js'
 
 const proofDir = process.env.DINKSTER_MEDIA_PROOF_DIR ?? '/tmp/dinkster-media-proof'
 const fixtureDir = resolve(import.meta.dirname, '../fixtures/media-overlay')
@@ -238,6 +238,7 @@ test.beforeEach(async ({ page }) => {
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined,
   )).toBe(true)
+  await waitForStartupOwnership(page)
 })
 
 async function installMediaProof(page: Page): Promise<void> {

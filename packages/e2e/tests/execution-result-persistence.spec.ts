@@ -1,7 +1,6 @@
 import { mkdir } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 
-const PROOF_DIR = '/tmp/dinkster-frontend-347-proof'
 const SOURCE_DIGEST = `blake3:${'d'.repeat(64)}`
 const CLIENT_ID = 'issue-347-client:local'
 const PRINCIPAL = { principalId: 'issue-347-user', kind: 'human' }
@@ -60,16 +59,39 @@ const workflow = {
   } } } },
 }
 
-test('runtime scalar survives an unrelated branch and browser reload with cached provenance', async ({ page }) => {
+test('runtime scalar survives an unrelated branch and browser reload with cached provenance', async ({ page }, info) => {
   test.setTimeout(120_000)
+  const PROOF_DIR = info.outputPath('proof')
   await mkdir(PROOF_DIR, { recursive: true })
   let servedCatalog: unknown = catalog
   let servedWorkflow: unknown = workflow
   let servedPrincipalId = PRINCIPAL.principalId
   let assetAvailable = true
   let valuesMode: 'available' | 'unavailable' | 'evicted' = 'available'
+  let holdResultOwnership = false
+  let refuseResultOwnership = false
+  let ownershipRequests = 0
+  let refusedOwnership = 0
+  let releaseOwnership: (() => void) | undefined
   await page.addInitScript(() => localStorage.setItem('dinkster.workspaceClientId', 'issue-347-client'))
   await page.route('**/api/**', (route) => route.fulfill({ status: 404, json: { error: 'not used by persistence proof' } }))
+  await page.route('**/api/library/retentions/*/*?scope=local', async (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+    const parts = new URL(route.request().url()).pathname.split('/')
+    const ownerKind = parts.at(-2)!
+    const declaration = route.request().postDataJSON()
+    if (ownerKind === 'shown-result' && holdResultOwnership) {
+      ownershipRequests += 1
+      await new Promise<void>((resolve) => { releaseOwnership = resolve })
+    }
+    if (ownerKind === 'shown-result' && refuseResultOwnership) {
+      await route.fulfill({ status: 503 })
+      refusedOwnership += 1
+      return
+    }
+    return route.fulfill({ json: { ...declaration, scope: 'local', ownerKind,
+      ownerId: decodeURIComponent(parts.at(-1)!), revision: declaration.revision + 1 } })
+  })
   await page.route('/api/composition', (route) => route.fulfill({ json: { packs: {} } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
   await page.route('/memory/status', (route) => route.fulfill({ status: 404, json: { error: 'not used by persistence proof' } }))
@@ -173,12 +195,26 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
   await expect.poll(() => page.evaluate(() => localStorage.getItem('dinkster.openTabs'))).toContain('issue-347-persistence')
   await page.getByTestId('canvas-widget-a11y').filter({ hasText: 'Math Expression, x' }).focus()
   await expect(page.getByTestId('app-tooltip')).toContainText('Retained last-resolved value: 7.5')
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await page.mouse.move(0, 0)
+  await expect(page.getByTestId('app-tooltip')).not.toBeVisible()
   await page.screenshot({ path: `${PROOF_DIR}/01-unrelated-branch-retains-runtime-value.png`, animations: 'disabled' })
 
+  holdResultOwnership = true
+  const beforeReload = ownershipRequests
   await page.reload()
+  await expect.poll(() => ownershipRequests).toBeGreaterThan(beforeReload)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
+  expect(await page.evaluate(() => localStorage.getItem('dinkster.executionResults'))).toContain('run-a')
+  await page.screenshot({ path: `${PROOF_DIR}/02-reload-pending-ownership.png`, animations: 'disabled' })
+  holdResultOwnership = false
+  releaseOwnership!()
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.store.executions.get().size), { timeout: 15_000 }).toBe(2)
   await page.getByTestId('canvas-widget-a11y').filter({ hasText: 'Math Expression, x' }).focus()
   await expect(page.getByTestId('app-tooltip')).toContainText('Retained last-resolved value: 7.5')
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await page.mouse.move(0, 0)
+  await expect(page.getByTestId('app-tooltip')).not.toBeVisible()
   await page.screenshot({ path: `${PROOF_DIR}/02-reload-retains-runtime-value.png`, animations: 'disabled' })
 
   const persisted = await page.evaluate(() => localStorage.getItem('dinkster.executionResults'))
@@ -186,6 +222,38 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
   const restoreSavedEnvelope = () => page.evaluate((raw) => {
     localStorage.setItem('dinkster.executionResults', raw!)
   }, persisted)
+
+  for (const scenario of ['refused', 'disconnected', 'registry-changed', 'disposed'] as const) {
+    await restoreSavedEnvelope()
+    holdResultOwnership = true
+    const before = ownershipRequests
+    await page.reload()
+    await expect.poll(() => ownershipRequests).toBeGreaterThan(before)
+    expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
+    if (scenario === 'refused') refuseResultOwnership = true
+    else await page.evaluate((change) => {
+      const app = window.__dinksterTest!.app as unknown as {
+        dispose(): void
+        connection: { disconnect(): void }
+        registry: { get(): { hash: string }; set(value: { hash: string }): void }
+      }
+      if (change === 'disposed') app.dispose()
+      else if (change === 'disconnected') app.connection.disconnect()
+      else app.registry.set({ ...app.registry.get()!, hash: 'replacement-registry' })
+    }, scenario)
+    holdResultOwnership = false
+    const finished = page.waitForResponse((response) =>
+      response.request().method() !== 'GET' && response.url().includes('/retentions/shown-result/'))
+    releaseOwnership!()
+    await finished
+    if (scenario === 'refused') await expect.poll(() => refusedOwnership).toBe(2)
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
+    expect(await page.evaluate(() => localStorage.getItem('dinkster.executionResults'))).toContain('run-a')
+    if (scenario === 'refused') await page.screenshot({ path: `${PROOF_DIR}/03-reload-refused-ownership.png`, animations: 'disabled' })
+    refuseResultOwnership = false
+    await page.reload()
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.store.executions.get().size)).toBe(2)
+  }
 
   servedPrincipalId = 'different-user'
   await restoreSavedEnvelope()

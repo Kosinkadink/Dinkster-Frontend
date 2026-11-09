@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const proofDir = process.env['DINKSTER_ACTIVITY_PROOF_DIR']
@@ -31,6 +31,7 @@ async function installFixture(page: Page): Promise<void> {
 
 async function setEntries(page: Page, value: readonly ProofLogEntry[]): Promise<void> {
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(page)
   await page.evaluate((next) => {
     const app = window.__dinksterTest!.app as unknown as {
       connection: { disconnect(): void }

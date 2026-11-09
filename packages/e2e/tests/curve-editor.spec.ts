@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
+import { waitForStartupOwnership } from './fixtures.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const histogramShape = Array.from({ length: 256 }, (_value, index) =>
@@ -128,6 +129,7 @@ test.beforeEach(async ({ page }) => {
     const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas
     return schemas?.has('dinkster.curve.editor') === true && schemas.has('dinkster.curve.evaluate')
   }), { timeout: 15_000 }).toBe(true)
+  await waitForStartupOwnership(page)
 
   await page.evaluate(({ histogram }) => {
     window.__dinksterTest!.app.openDocument({
@@ -187,15 +189,12 @@ test('renders finite curve geometry across extreme float values', async ({ page 
       { position: 1, value: Number.MAX_VALUE },
     ],
   } as const
-  expect(await page.evaluate((value) => {
-    const app = window.__dinksterTest!.app as unknown as {
-      activeTab(): unknown
-      dispatchTo(tab: unknown, action: unknown): { readonly ok: boolean }
-    }
-    return app.dispatchTo(app.activeTab()!, {
+  expect(await page.evaluate(async (value) => {
+    const app = window.__dinksterTest!.app
+    return (await app.dispatchTo(app.activeTab()!, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'editor', inputId: 'curve', value },
-    }).ok
+    })).ok
   }, extremeCurve)).toBe(true)
 
   const curveRow = await nodeRowPoint(page, 'editor', 'curve')
@@ -238,15 +237,12 @@ test('edits, executes, reloads, previews a histogram, and refuses a linked curve
   })
 
   const malformed = { points: [{ position: 1, value: 0 }, { position: 1, value: 2 }] }
-  expect(await page.evaluate((value) => {
-    const app = window.__dinksterTest!.app as unknown as {
-      activeTab(): unknown
-      dispatchTo(tab: unknown, action: unknown): { readonly ok: boolean }
-    }
-    return app.dispatchTo(app.activeTab()!, {
+  expect(await page.evaluate(async (value) => {
+    const app = window.__dinksterTest!.app
+    return (await app.dispatchTo(app.activeTab()!, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'editor', inputId: 'curve', value },
-    }).ok
+    })).ok
   }, malformed)).toBe(true)
   await page.getByRole('button', { name: 'Apply' }).click()
   await expect(page.getByRole('alert')).toHaveText('The curve input changed or became linked while editing')

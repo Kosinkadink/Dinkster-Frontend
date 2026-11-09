@@ -9,10 +9,11 @@
  * WidgetEditorState remounts the component - opening IS the reset.
  */
 
-import { createMemo, onCleanup, Show, type Component, type JSX } from 'solid-js'
+import { createMemo, createSignal, onCleanup, Show, type Component, type JSX } from 'solid-js'
 import {
   canonicalTypeIdOf,
   semanticDesignTokens,
+  type CommandInvocation,
   type EditorSizing,
   type HostUiProviderV1,
   type Json,
@@ -26,6 +27,7 @@ import { defaultTokens, typeColor, type DynamicEditOwner } from '@dinkster/canva
 import type { AssetDtoV1WireContract } from '@dinkster/client'
 import type { AppState, Tab } from './app-state.js'
 import { ModalSurface } from './ModalSurface.js'
+import { ProductNotice } from './ProductForm.js'
 import { OutputDescriptorEditor } from './OutputDescriptorEditor.js'
 import { placeFloatingSurface } from './floating-surface.js'
 import { HostUiProviderHost } from './host-ui.js'
@@ -121,6 +123,8 @@ export interface WidgetEditorState {
   /** Editor anchor rect in canvas world coordinates. */
   readonly rect: { x: number; y: number; width: number; height: number }
   readonly initial: Json | undefined
+  /** A known-missing stored ref must not issue an initial preview byte read. */
+  readonly missingAssetDigest?: string
   readonly outputDescriptors?: {
     readonly spec: OutputDescriptorsSpec
     readonly asset: unknown
@@ -168,7 +172,10 @@ export interface WidgetEditorProps {
 export interface WidgetEditorImplementationProps {
   bindPopover: (el: HTMLDivElement) => void
   close: () => void
-  commitValue: (value: Json) => void
+  commitValue: (value: Json) => Promise<boolean>
+  commitCommand: (invocation: CommandInvocation, closeOnAccept?: boolean) => Promise<boolean>
+  commitPending: () => boolean
+  commitError: () => string | undefined
   editor: WidgetEditorProps
   header: Component<{ type: string }>
   popoverStyle: JSX.CSSProperties
@@ -221,7 +228,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
   let popoverResize: ResizeObserver | undefined
   const clampPopover = (): void => {
     const el = popoverEl
-    const layer = el?.parentElement
+    const layer = el?.closest('.widget-popover-layer')
     if (!el || !layer) return
     const margin = semanticDesignTokens.space[4]
     const layerRect = layer.getBoundingClientRect()
@@ -265,7 +272,8 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     }
     queueMicrotask(() => {
       clampPopover()
-      if (el.parentElement) popoverResize?.observe(el.parentElement)
+      const layer = el.closest('.widget-popover-layer')
+      if (layer) popoverResize?.observe(layer)
     })
   }
   onCleanup(() => {
@@ -273,29 +281,51 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     window.removeEventListener('resize', clampPopover)
   })
 
-  const close = (): void => props.onClose()
+  const close = (): void => { live = false; props.onClose() }
+  const [commitPending, setCommitPending] = createSignal(false)
+  const [commitError, setCommitError] = createSignal<string>()
+  const commitCommand = async (invocation: CommandInvocation, closeOnAccept = true): Promise<boolean> => {
+    if (!live || commitPending() || ed.tab.execution) return false
+    const store = ed.tab.store
+    setCommitPending(true)
+    setCommitError(undefined)
+    try {
+      const outcome = await props.app.dispatchTo(ed.tab, invocation)
+      if (!live || ed.tab.store !== store) return false
+      if (!outcome.ok) {
+        setCommitError(outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))
+        return false
+      }
+      if (closeOnAccept) close()
+      return true
+    } catch (reason) {
+      if (live && ed.tab.store === store) setCommitError(reason instanceof Error ? reason.message : String(reason))
+      return false
+    } finally {
+      if (live) {
+        setCommitPending(false)
+        if (commitError() && popoverEl) popoverEl.scrollTop = 0
+      }
+    }
+  }
 
   /** All expanded editors converge on the same undoable document command. */
-  const commitEditorValue = (value: Json): void => {
+  const commitEditorValue = (value: Json): Promise<boolean> => {
     // Chrome fires blur when a focused field is detached, so an Escape-close
     // (or any unmount) would otherwise re-enter here and commit the discarded
     // text. Closed editors never commit.
-    if (!live) return
-    close()
+    if (!live) return Promise.resolve(false)
     if (ed.target.kind !== 'input') {
-      props.app.dispatchTo(ed.tab, {
+      return commitCommand({
         command: 'valueSource.setValue',
         params: { graphId: ed.graphId, valueSourceId: ed.target.valueSourceId, value },
       })
-      return
     }
     const selectorCommand = dynamicSelectorCommitCommand(ed, value)
     if (selectorCommand !== undefined) {
-      props.app.dispatchTo(ed.tab, selectorCommand)
-      return
+      return commitCommand(selectorCommand)
     }
-    props.app.dispatchTo(
-      ed.tab,
+    return commitCommand(
       withMaterializeFrames(ed.target.familyOwner?.graphId ?? ed.graphId, ed.target.familyOwner?.nodeId ?? ed.target.nodeId, ed.target.materialize, {
         command: 'node.setValue',
         params: {
@@ -306,11 +336,6 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
         },
       }),
     )
-  }
-
-  const commitEditor = (value: Json): void => {
-    if (!live) return // blur-on-detach must not resurrect a closed editor
-    commitEditorValue(value)
   }
 
   const clickAway = (): void => {
@@ -333,12 +358,15 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
   const pillStyle = { color: contrastingTextColor(pillBackground), background: pillBackground }
   const EditorHeader = (headerProps: { type: string }) => {
     return (
+      <>
       <header class="widget-editor-header" data-testid="widget-editor-header">
         <span data-testid="widget-editor-label">{ed.label}</span>
         <span class="widget-editor-header-actions">
           <span class="widget-editor-type" data-testid="widget-editor-type" style={pillStyle}>{headerProps.type}</span>
         </span>
       </header>
+      <Show when={props.modal === undefined && videoDocumentCommand === undefined && commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
+      </>
     )
   }
   const modalType = props.modal?.type ?? (videoDocumentCommand !== undefined ? 'VIDEO_DOCUMENT' : ed.spec?.widgetType ?? 'JSON')
@@ -418,12 +446,16 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
       bindPopover={bindPopover}
       close={close}
       commitValue={commitEditorValue}
+      commitCommand={commitCommand}
+      commitPending={commitPending}
+      commitError={commitError}
       editor={props}
       header={EditorHeader}
       popoverStyle={popoverStyle}
     />
   ) : ed.outputDescriptors !== undefined ? (
     <div ref={bindPopover} class="widget-editor floating-surface widget-editor-popover output-descriptor-popover" data-testid="widget-editor" role="dialog" aria-label="Edit output descriptors" style={popoverStyle}>
+      <Show when={commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
       <OutputDescriptorEditor
         spec={ed.outputDescriptors.spec}
         initial={ed.initial}
@@ -450,7 +482,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
               class="palette-layer widget-popover-layer"
               data-testid="widget-popover-layer"
             >
-              <EditorContent />
+              <div class="widget-commit-content" inert={commitPending()} aria-busy={commitPending()}><EditorContent /></div>
             </div>
           }
         >
@@ -476,7 +508,8 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
                 <p id="widget-editor-description" class="widget-modal-help">
                   {props.modal?.help ?? message('videoDocument.help')}
                 </p>
-                <EditorContent />
+                <Show when={commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
+                <div class="widget-commit-content" inert={commitPending()} aria-busy={commitPending()}><EditorContent /></div>
           </ModalSurface>
         </Show>
       }

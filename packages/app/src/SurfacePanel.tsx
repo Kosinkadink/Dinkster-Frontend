@@ -15,7 +15,7 @@
  * like unknown binding kinds inside a mode panel.
  */
 
-import { createEffect, createSignal as createSolidSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show } from 'solid-js'
 import X from 'lucide-solid/icons/x'
 import {
   brokenBindingMessage,
@@ -23,6 +23,7 @@ import {
   encodeModePanelConfig,
   MODE_PANEL_TYPE,
   resolveModePanelBindings,
+  type CommandOutcome,
   type ControlSurfaceData,
   type GroupMembers,
   type ModePanelBinding,
@@ -33,6 +34,7 @@ import { currentGraphId, type AppState, type Tab } from './app-state.js'
 import { Icon } from './Icon.js'
 import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
+import { ProductNotice } from './ProductForm.js'
 import { ProductEmptyState, ProductListRow } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
 
@@ -51,6 +53,22 @@ export function SurfacePanel(props: { app: AppState }) {
 
   const activeTab = (): Tab | undefined => tabs().find((t) => t.id === activeTabId())
   const frozen = (): boolean => activeTab()?.execution !== undefined
+  const groupTab = createMemo(activeTab)
+  const [groupPending, setGroupPending] = createSolidSignal<string>()
+  const [groupRefusal, setGroupRefusal] = createSolidSignal<{ surface: string; message: string }>()
+  let groupGeneration = 0
+  let groupLive = true
+  const resetGroup = (): void => {
+    groupGeneration++
+    setGroupPending(undefined)
+    setGroupRefusal(undefined)
+  }
+  onCleanup(() => { groupLive = false; groupGeneration++ })
+  createEffect(() => {
+    const tab = groupTab()
+    resetGroup()
+    if (tab) onCleanup(tab.graphStack.subscribe(resetGroup))
+  })
 
   // Re-render on document changes of the active tab (same pattern as
   // BoundaryPanel: subscription rebinds on tab switch).
@@ -81,10 +99,10 @@ export function SurfacePanel(props: { app: AppState }) {
     return out
   }
 
-  const updateConfig = (surface: ControlSurfaceData, config: ModePanelConfig): void => {
+  const updateConfig = (surface: ControlSurfaceData, config: ModePanelConfig): CommandOutcome | Promise<CommandOutcome> | undefined => {
     const tab = activeTab()
     if (!tab) return
-    props.app.dispatchTo(tab, {
+    return props.app.dispatchTo(tab, {
       command: 'surface.update',
       params: { surfaceId: surface.id, config: encodeModePanelConfig(config) },
     })
@@ -136,14 +154,30 @@ export function SurfacePanel(props: { app: AppState }) {
     updateConfig(surface, { ...config, bindings: [...config.bindings, ...added] })
   }
 
-  const bindGroup = (surface: ControlSurfaceData, config: ModePanelConfig, groupId: string): void => {
+  const bindGroup = async (surface: ControlSurfaceData, config: ModePanelConfig, groupId: string, stillWanted: () => boolean): Promise<boolean> => {
     const tab = activeTab()
-    if (!tab || groupId === '') return
+    if (!tab || tab.execution || groupId === '' || groupPending()) return false
+    const generation = groupGeneration
+    const store = tab.store
     const graphId = currentGraphId(tab)
-    updateConfig(surface, {
-      ...config,
-      bindings: [...config.bindings, { kind: 'group', graphId, groupId }],
-    })
+    const isCurrent = () => groupLive && groupGeneration === generation && activeTab() === tab && tab.store === store
+    setGroupPending(surface.id)
+    setGroupRefusal(undefined)
+    try {
+      const outcome = await updateConfig(surface, {
+        ...config,
+        bindings: [...config.bindings, { kind: 'group', graphId, groupId }],
+      })
+      if (!isCurrent() || !stillWanted()) return false
+      if (outcome?.ok) return true
+      if (outcome !== undefined) setGroupRefusal({ surface: surface.id, message: outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused') })
+      return false
+    } catch (error) {
+      if (isCurrent() && stillWanted()) setGroupRefusal({ surface: surface.id, message: error instanceof Error ? error.message : String(error) })
+      return false
+    } finally {
+      if (isCurrent()) setGroupPending(undefined)
+    }
   }
 
   const removeBinding = (surface: ControlSurfaceData, config: ModePanelConfig, index: number): void => {
@@ -183,32 +217,35 @@ export function SurfacePanel(props: { app: AppState }) {
         <section class="rail-section" data-testid="surface-panel">
           <h2>{message('controlSurfaces.title')}</h2>
           <Show when={!frozen()}>
-            <button class="banner-button" data-testid="surface-add" onClick={addPanel}>
+            <button class="banner-button" data-testid="surface-add" disabled={groupPending() !== undefined} onClick={addPanel}>
               {message('controlSurfaces.action.addModePanel')}
             </button>
           </Show>
-          <For each={surfaces()} fallback={<ProductEmptyState title={message('controlSurfaces.empty')} />}>
-            {(surface) => {
+          <For each={surfaces().map((surface) => surface.id)} fallback={<ProductEmptyState title={message('controlSurfaces.empty')} />}>
+            {(surfaceId) => {
+              const initial = surfaces().find((surface) => surface.id === surfaceId)!
+              const surface = createMemo(() => surfaces().find((surface) => surface.id === surfaceId) ?? initial)
               const decoded = () => {
                 docTick()
-                return surface.type === MODE_PANEL_TYPE ? decodeModePanelConfig(surface.config) : undefined
+                return surface().type === MODE_PANEL_TYPE ? decodeModePanelConfig(surface().config) : undefined
               }
               return (
-                <div class="surface" data-testid={`surface-${surface.id}`}>
+                <div class="surface" data-testid={`surface-${surfaceId}`}>
                   <div class="surface-header">
                     <span class="surface-title">
                       {(() => {
                         const d = decoded()
-                        return d?.ok ? (d.config.title ?? surface.id) : `${surface.id} (${surface.type})`
+                        return d?.ok ? (d.config.title ?? surfaceId) : `${surfaceId} (${surface().type})`
                       })()}
                     </span>
                     <Show when={!frozen()}>
                       <button
                         class="surface-remove"
-                        data-testid={`surface-remove-${surface.id}`}
+                        data-testid={`surface-remove-${surfaceId}`}
                         data-tooltip-label={message('controlSurfaces.action.deleteSurface')}
                         aria-label={message('controlSurfaces.action.deleteSurface')}
-                        onClick={() => removeSurface(surface)}
+                        disabled={groupPending() !== undefined}
+                        onClick={() => removeSurface(surface())}
                       >
                         <Icon icon={X} />
                       </button>
@@ -218,10 +255,10 @@ export function SurfacePanel(props: { app: AppState }) {
                     when={decoded()?.ok ? decoded() : undefined}
                     fallback={
                       <ProductEmptyState
-                        tone={surface.type === MODE_PANEL_TYPE ? 'error' : 'empty'}
-                        title={surface.type === MODE_PANEL_TYPE
+                        tone={surface().type === MODE_PANEL_TYPE ? 'error' : 'empty'}
+                        title={surface().type === MODE_PANEL_TYPE
                           ? message('controlSurfaces.config.invalid')
-                          : message('controlSurfaces.config.unknownType', { type: surface.type })}
+                          : message('controlSurfaces.config.unknownType', { type: surface().type })}
                       />
                     }
                   >
@@ -246,7 +283,7 @@ export function SurfacePanel(props: { app: AppState }) {
                               {(r, i) => (
                                 <li>
                                   <ProductListRow
-                                    testId={`surface-binding-${surface.id}-${i()}`}
+                                    testId={`surface-binding-${surfaceId}-${i()}`}
                                     dataAttributes={{ 'data-status': r.status }}
                                     primary={<span classList={{ 'mode-binding-unresolved': r.status !== 'ok' }}>{bindingLabel(r.binding, tab())}</span>}
                                     leading={<Show when={brokenBindingMessage(r)}>
@@ -255,10 +292,11 @@ export function SurfacePanel(props: { app: AppState }) {
                                     actions={<Show when={!frozen()}>
                                       <button
                                         class="surface-remove"
-                                        data-testid={`surface-unbind-${surface.id}-${i()}`}
+                                        data-testid={`surface-unbind-${surfaceId}-${i()}`}
                                         data-tooltip-label={message('controlSurfaces.action.removeBinding')}
                                         aria-label={message('controlSurfaces.action.removeBinding')}
-                                        onClick={() => removeBinding(surface, config(), i())}
+                                        disabled={groupPending() !== undefined}
+                                        onClick={() => removeBinding(surface(), config(), i())}
                                       >
                                         <Icon icon={X} />
                                       </button>
@@ -269,25 +307,28 @@ export function SurfacePanel(props: { app: AppState }) {
                             </For>
                           </ul>
                           <Show when={!frozen()}>
+                            <Show when={groupRefusal()?.surface === surfaceId ? groupRefusal() : undefined}>
+                              {(refusal) => <ProductNotice tone="error" testId="surface-group-error">{refusal().message}</ProductNotice>}
+                            </Show>
                             <div class="surface-actions">
                               <button
                                 class="banner-button"
-                                data-testid={`surface-bind-selection-${surface.id}`}
-                                disabled={(selectionTick(), (bridge()?.selectedNodes().length ?? 0) === 0)}
-                                onClick={() => bindSelection(surface, config())}
+                                data-testid={`surface-bind-selection-${surfaceId}`}
+                                disabled={groupPending() !== undefined || (selectionTick(), (bridge()?.selectedNodes().length ?? 0) === 0)}
+                                onClick={() => bindSelection(surface(), config())}
                               >
                                 {message('controlSurfaces.action.bindSelection')}
                               </button>
                               <ProductSelect
                                 class="surface-group-select"
-                                testId={`surface-bind-group-${surface.id}`}
+                                testId={`surface-bind-group-${surfaceId}`}
                                 ariaLabel={message('controlSurfaces.action.bindGroup')}
                                 selectedId=""
                                 options={[
                                   { id: '', label: message('controlSurfaces.placeholder.bindGroup'), value: '', disabled: true },
-                                  ...bindableGroups(config()).map((group) => ({ id: group.id, label: group.title, value: group.id })),
+                                  ...bindableGroups(config()).map((group) => ({ id: group.id, label: group.title, value: group.id, disabled: groupPending() !== undefined })),
                                 ]}
-                                onSelect={(option) => bindGroup(surface, config(), option.value)}
+                                onSelectAsync={(option, stillWanted) => bindGroup(surface(), config(), option.value, stillWanted)}
                               />
                             </div>
                             <div class="surface-actions">
@@ -295,9 +336,9 @@ export function SurfacePanel(props: { app: AppState }) {
                                 {({ mode, messageKey }) => (
                                   <button
                                     class="banner-button"
-                                    data-testid={`surface-apply-${mode}-${surface.id}`}
-                                    disabled={config().bindings.length === 0}
-                                    onClick={() => applyMode(surface, config(), mode)}
+                                    data-testid={`surface-apply-${mode}-${surfaceId}`}
+                                    disabled={groupPending() !== undefined || config().bindings.length === 0}
+                                    onClick={() => applyMode(surface(), config(), mode)}
                                   >
                                     {message(messageKey)}
                                   </button>

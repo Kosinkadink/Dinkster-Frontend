@@ -180,6 +180,80 @@ function makeStore(d?: WorkflowDocument) {
 }
 
 describe('DocumentStore.dispatch', () => {
+  it('holds a prepared branch and both histories until one explicit commit', () => {
+    const store = makeStore()
+    store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'seed', value: 17 } })
+    store.undo()
+    const before = store.doc
+    const revision = store.revision
+    const documents: WorkflowDocument[] = []
+    store.document.subscribe((next) => documents.push(next))
+    const params = { graphId: 'g0', nodeId: 'n1', inputId: 'seed', value: 43 }
+    const prepared = store.prepareDispatch({ command: 'node.setValue', params })
+    expect(prepared.ok).toBe(true)
+    if (!prepared.ok) return
+    params.value = 999
+    expect(store.doc).toBe(before)
+    expect(store.revision).toBe(revision)
+    expect(store.canRedo).toBe(true)
+    expect(documents).toEqual([])
+    expect(prepared.document.graphs.g0!.nodes.n1!.values.seed).toBe(43)
+    expect(prepared.currentDocument).toBe(before)
+    expect(prepared.currentHistory.redo).toHaveLength(1)
+    expect(prepared.history.redo).toEqual([])
+    expect(prepared.history.undo).toHaveLength(1)
+    expect(() => (prepared.history.undo as unknown[]).push(null)).toThrow()
+    const committed = prepared.commit()
+    expect(committed.ok).toBe(true)
+    expect(store.doc).toBe(prepared.document)
+    expect(store.historySnapshot()).toEqual(prepared.history)
+    expect(store.canRedo).toBe(false)
+    expect(documents).toEqual([prepared.document])
+    expect(prepared.commit().ok).toBe(false)
+    expect(store.revision).toBe(revision + 1)
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.n1!.values.seed).toBeUndefined()
+  })
+
+  it('refuses a prepared candidate after edits were undone or history was cleared', () => {
+    const store = makeStore()
+    const invocation = { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'seed', value: 43 } }
+    const prepared = store.prepareDispatch(invocation)
+    store.dispatch({ command: 'node.setValue', params: { ...invocation.params, value: 17 } })
+    store.undo()
+    const before = store.doc
+    const history = store.historySnapshot()
+    expect(prepared.ok).toBe(true)
+    if (!prepared.ok) return
+    expect(prepared.commit().ok).toBe(false)
+    expect(store.doc).toBe(before)
+    expect(store.historySnapshot()).toEqual(history)
+    const afterUndo = store.prepareDispatch(invocation)
+    store.clearHistory()
+    expect(afterUndo.ok).toBe(true)
+    if (!afterUndo.ok) return
+    expect(afterUndo.commit().ok).toBe(false)
+    expect(store.doc).toBe(before)
+    expect(store.canUndo).toBe(false)
+    expect(store.canRedo).toBe(false)
+  })
+
+  it('describes bounded history without trimming the current undo record early', () => {
+    const store = new DocumentStore(makeStore().doc, coreCommandRegistry(), 1)
+    store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'seed', value: 17 } })
+    const prepared = store.prepareDispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'seed', value: 43 } })
+    expect(prepared.ok).toBe(true)
+    if (!prepared.ok) return
+    expect(prepared.currentHistory.undo).toHaveLength(1)
+    expect(prepared.history.undo).toHaveLength(1)
+    expect(store.doc.graphs.g0!.nodes.n1!.values.seed).toBe(17)
+    expect(prepared.commit().ok).toBe(true)
+    expect(store.historySnapshot()).toEqual(prepared.history)
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.n1!.values.seed).toBe(17)
+    expect(store.undo()).toBe(false)
+  })
+
   it('rejects unknown commands', () => {
     const store = makeStore()
     const before = store.doc

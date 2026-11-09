@@ -37,6 +37,13 @@ diagnostic focus route to select and center the destination node without
 changing the workflow. Long identities wrap, and the panel remains vertically
 scrollable at narrow viewport widths.
 
+Edits wait for final command acceptance. While an edit is pending, editing
+controls are disabled and the displayed choices still reflect the document.
+A refused name edit retains its draft for retry and shows an inline notice;
+acceptance clears the draft. Navigating away clears transient drafts and
+notices without cancelling a submitted command. Its later completion cannot
+clear a newer draft or report a refusal in another view.
+
 ## Nested slot exposure
 
 A forwarded family starts in **Tracks template** mode. New nested slots become

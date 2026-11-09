@@ -9,7 +9,7 @@
  */
 import { mkdirSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { expect, openRailPanel, test, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
@@ -202,6 +202,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
   await registerExtensionSchema(page)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app

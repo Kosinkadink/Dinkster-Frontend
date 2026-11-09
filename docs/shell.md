@@ -95,6 +95,14 @@ viewport, graph state, or backend requests. Lens names and descriptions remain
 registry-owned data and are displayed verbatim. Opening either menu suppresses
 its trigger tooltip so the tooltip cannot cover the menu heading.
 
+Graph-wide named-net display actions keep the Views menu open while their
+document command is pending. Further display selections are disabled until it
+finishes. Refusal leaves the stored presentation unchanged and shows a notice
+inside the menu; retry the action there. Acceptance closes the menu and returns
+focus to its trigger. Escape or an outside press dismisses without cancelling
+the submitted command; a dismissed or old pane/document/graph completion cannot
+close a newer menu, move focus, or show a stale notice.
+
 Three toggleable regions surround the canvas: the **left dock** and the
 **bottom panel** each host ONE exclusive panel; the **right zone** is a
 tabbed panel host with a single open/closed switch. The top-right controls
@@ -849,6 +857,12 @@ and the product name. Startup constructs a native Dinkster connection directly;
 backend metadata loads after construction rather than blocking the shell on
 a protocol-choice probe. URL-based backend addition recognizes only a native
 engine or supervisor and reports a named problem for stock ComfyUI servers.
+The editable shell renders while startup journals and confirms native document
+ownership, including incomplete asset inventories. Shared-workspace promotion
+waits for that confirmation, but registry loading and the first local frame do
+not. Refusal or changes during confirmation leave an ownership-unconfirmed
+warning and prevent promotion without deleting saved documents. Asset
+publication still requires its own acknowledgment.
 
 Timing contract (`packages/app/src/boot-indicator.ts`):
 

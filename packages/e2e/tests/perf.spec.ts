@@ -9,7 +9,7 @@
  * catching architectural regressions - per-frame relayout, O(n^2) paint,
  * culling breakage - not micro-optimizing.
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const CHAINS = 60
 const CHAIN_LENGTH = 20
@@ -19,6 +19,7 @@ async function measureFrameBudget(page: Page, label: string, reroutes: boolean):
   await page.goto('/')
   await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
 
   // Load the synthetic workload as a new tab (full loadDocument pipeline).
   const opened = await page.evaluate(
@@ -33,6 +34,7 @@ async function measureFrameBudget(page: Page, label: string, reroutes: boolean):
   expect(opened.diagnostics).toEqual([])
   expect(opened.tabs).toBe(3)
   await expect(page.getByTestId('tab-bar').locator('.tab', { hasText: 'Perf' })).toBeVisible()
+  await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
 
   if (reroutes) {
     // Prove the workload actually renders junctions, not just extra links.
@@ -89,6 +91,7 @@ test(`opens a ${NODES}-node document and repaints after a command within budget`
   await page.goto('/')
   await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
 
   const timings = await page.evaluate(
     async ({ chains, chainLength }) => {

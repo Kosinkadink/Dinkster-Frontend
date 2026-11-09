@@ -269,9 +269,12 @@ test('graph mask edits execute visibly and match an explicit baked asset', async
   const workspace = page.getByTestId('image-document-workspace')
   const rendered = workspace.getByRole('img', { name: 'Authoritative ImageDocument output' })
   await expect(rendered).toBeVisible()
-  const renderedResponse = await request.get((await rendered.getAttribute('src'))!)
-  expect(renderedResponse.ok()).toBe(true)
-  expect(await renderedResponse.body()).toEqual(flattened)
+  const renderedResponse = await rendered.evaluate(async (image: HTMLImageElement) => {
+    const response = await fetch(image.src)
+    return { ok: response.ok, bytes: [...new Uint8Array(await response.arrayBuffer())] }
+  })
+  expect(renderedResponse.ok).toBe(true)
+  expect(Buffer.from(renderedResponse.bytes)).toEqual(flattened)
   const workspaceScreenshot = await workspace.screenshot({ animations: 'disabled' })
   await testInfo.attach('graph-mask-authoritative-document', { body: workspaceScreenshot, contentType: 'image/png' })
   if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
