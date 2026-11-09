@@ -48,6 +48,41 @@ DELETE requires the acknowledged positive revision and returns a complete
 empty manifest at the next revision, preserving the durable tombstone.
 Restart, disconnection and view unmount do not authorize release.
 
+`claimResultAssets` claims a server-created source token for a fresh
+`shown-result` or `preview` owner with PUT `{revision: 0, sourceToken}`.
+Caller-supplied roots are not sent: the backend selects the offer's roots and
+completeness. The acknowledgment must name the same token and revision 1;
+GET preserves that binding for explicit lost-response reconciliation against
+the original offer. An unavailable source or reused owner is an error, never
+an empty complete manifest. Claims do not retry or release older owners.
+Ordinary manifest replacement and DELETE acknowledgments must clear the source
+binding. This transport contract alone does not certify holder completeness.
+
+`fetchResultAssetOffer` reads the immutable offer by scoped token without
+caching, validating its canonical full roots and exact source identity.
+Terminal artifact offers include the saved file and its optional preview;
+their roots must match both descriptors. Unknown or malformed offers are not
+substituted with an empty complete manifest.
+
+Terminal hydration reads the sealed `/api/library/terminal-results/{jobRef}`
+manifest without caching. Client, job, attempt, runtime output and artifact
+index identities must agree; duplicate tokens or contradictory completeness
+are refused. Reconnect, completion and cached-output hydration claim every
+sealed offer before publishing descriptors or artifacts. A changed backend,
+registry or stored execution closes publication even after acknowledgment.
+Missing sealed authority refuses terminal hydration. The offer keys must cover
+exactly the fetched output keys and every saved artifact by index and value;
+partial source authority cannot authorize unoffered results. These claims do
+not certify the execution's full holder set.
+
+Value discovery carries the parent output's offer even for a nested-element
+peek. Discovery is uncached and validates the runtime node and output before
+admission. The application binds the offer to the stored execution's jobRef,
+journals its source token and full roots, and claims those roots before returning
+the value descriptor or admitting rendition reads. Lost-response recovery checks
+the exact token, roots, completeness and revision. Discovery without an offer
+uses explicitly incomplete ownership; a malformed present offer is refused.
+
 Shared asset-browser model thumbnails acknowledge independent incomplete
 `preview` ownership before entering the poster queue/cache. The project,
 connection and browser/picker lifetime must still match before publication.
@@ -70,12 +105,21 @@ digest through independent preview ownership before fetching or parsing the
 payload. The captured backend and open intent must remain current through
 body settlement. Parsed local data then enters workflow-root admission;
 publishing the new tab is separate from the payload read it supersedes.
+Only a successfully admitted destination workflow authorizes retiring that
+source-read owner, at its captured revision. Failed or superseded opens keep
+the source owner. Release intent and acknowledgment remain journaled; lost
+responses reconcile the exact empty complete tombstone at the next revision,
+without repeating DELETE or adopting another generation's revision. A failed
+retirement does not roll back a workflow with independent acknowledged roots.
 
 Startup restoration of persisted results also admits source-workflow bytes
 before parsing or compiling their proof. The original backend, registry and
 connection lifetime must remain current. Refused or stale reads preserve the
 saved result for retry; malformed or absent source documents remain invalid.
-Shown-result ownership and publication follow separately after proof validation.
+The source owner survives proof validation, output discovery and reconciliation
+of every saved receipt. Only publication with independent acknowledged
+shown-result ownership permits its revision-bound retirement. A reused execution
+key, refused admission or changed registry keeps the source owner protected.
 
 Retained previews carry the original stored execution for each runtime
 occurrence, including when a partial run displays outputs from several runs.

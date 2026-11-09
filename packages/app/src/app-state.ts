@@ -158,6 +158,7 @@ import {
   type SchemaRegistry,
   type SupervisorProgress,
   type SupervisorStatus,
+  type ValuePeekResult,
   type WorkerInfo,
 } from '@dinkster/client'
 import {
@@ -203,7 +204,7 @@ import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegist
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
-import { admitWorkflowDispatch, executionAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainWorkflowAssets, workflowAssetRoots } from './workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -223,6 +224,7 @@ import {
   clearExecutionResults,
   loadExecutionResults,
   persistedCompileProof,
+  persistedResultOwnerIds,
   removeExecutionResult,
   saveExecutionResult,
   type ExecutionResultBackendIdentity,
@@ -2916,6 +2918,7 @@ export class AppState {
   }
   private readonly receiveStorage = (event: StorageEvent): void => {
     this.settings.refreshFromStorage(event.key)
+    this.retireUnusedResultOwners()
     if (event.key !== backendsKey()) return
     const incoming = decodePersistedBackends(event.newValue)
     if (!incoming) return
@@ -3214,6 +3217,7 @@ export class AppState {
         const identity = backend === undefined ? undefined : this.executionResultIdentity(backend)
         if (identity !== undefined) saveExecutionResult(execution, identity)
       }
+      this.retireUnusedResultOwners()
     })
     let previousProblems: readonly OwnedDiagnostic[] = []
     this.problems.subscribe((problems) => {
@@ -4379,14 +4383,22 @@ export class AppState {
     {
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
       const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId(),
-        admitValuePeek: async (query, descriptor) => {
+        admitValuePeek: async (query, descriptor, offer) => {
+          const ref = { connection: id, prompt: asPromptId(query.jobId) }
+          const key = executionKey(ref)
+          const pending = this.pendingResultReads.get(key)
           const generation = this.assetConnectionGenerations.get(connection)
           const current = (): boolean => !this.disposed &&
             (this.backendFor(id) ?? this.retiredBackends.get(id)) === nativeBackend &&
-            generation === this.assetConnectionGenerations.get(connection)
+            generation === this.assetConnectionGenerations.get(connection) &&
+            (pending === undefined
+              ? offer === undefined || this.store.get(ref)?.jobRef === offer.jobRef
+              : pending.backend === nativeBackend && pending.jobRef === offer?.jobRef &&
+                pending.nodeId === query.nodeId && pending.outputId === query.outputId &&
+                this.pendingResultReads.get(key) === pending && pending.current())
           if (!current()) throw new Error('Value owner is no longer available')
-          const roots = executionAssetRoots({ outputs: { value: { descriptor } }, artifacts: [] }, () => undefined)
-          const retained = await retainExecutionAssets(connection, { connection: id, prompt: asPromptId(query.jobId) }, roots)
+          const roots = offer ?? executionAssetRoots({ outputs: { value: { descriptor } }, artifacts: [] }, () => undefined)
+          const retained = await retainExecutionAssets(connection, ref, roots)
           if (!current()) throw new Error('Value owner changed during asset admission')
           const reader = new RetainedAssetReader(connection, retained, current)
           return { read: async <T>(consume: () => Promise<T>): Promise<T> => {
@@ -4576,31 +4588,7 @@ export class AppState {
           this.invalidateWorkerCatalog(nativeBackend)
         }
       }
-      const prepareHydration: PrepareExecutionHydration = (ref) => {
-        const generation = staleGen
-        const held = this.store.get(ref)
-        if (held === undefined) return async () => false
-        const backendRegistry = registry.get()
-        const executionRegistry = this.registryForExecution(ref)
-        const current = (): boolean => !this.disposed && generation === staleGen &&
-          this.backendFor(id) === nativeBackend && registry.get() === backendRegistry &&
-          this.registryForExecution(ref) === executionRegistry &&
-          this.store.get(ref) !== undefined && this.store.get(ref)?.artifact === held.artifact &&
-          this.store.get(ref)?.sourceDocument === held.sourceDocument
-        return async (job) => {
-          if (!current()) return false
-          if (job === undefined) return true
-          const outputs = workspaceRecord(job.outputs)
-            ? Object.fromEntries(Object.entries(job.outputs).filter(([, value]) => workspaceRecord(value))) as ExecutionState['outputs'] : {}
-          const resolve = this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined))
-          const existing = executionAssetRoots(held, resolve)
-          const fetched = executionAssetRoots({ ...held, outputs, artifacts: job.artifacts ?? [],
-            ...(job.sourceDocument === undefined ? {} : { sourceDocument: job.sourceDocument }) }, resolve)
-          await retainExecutionAssets(connection, ref, { complete: false,
-            digests: [...new Set([...existing.digests, ...fetched.digests])].sort() })
-          return current()
-        }
-      }
+      const prepareHydration: PrepareExecutionHydration = (ref) => this.prepareExecutionHydration(nativeBackend)(ref)
       const disposeConnection = wire(
         connection,
         () => reconcileDinksterExecutions(connection, this.store, prepareHydration),
@@ -7306,6 +7294,43 @@ export class AppState {
   >()
   private readonly valueAssetReaders = new Map<RetainedAssetReader, number>()
   private readonly assetConnectionGenerations = new WeakMap<DinksterConnection, number>()
+  private readonly pendingResultReads = new Map<string, {
+    readonly backend: Backend
+    readonly jobRef: string
+    readonly nodeId: string
+    readonly outputId: string
+    readonly current: () => boolean
+  }>()
+  private readonly resultAssetOwners = new Map<string, {
+    readonly backend: Backend
+    readonly retained: RetainedAssets
+    readonly project: string
+    readonly generation: number | undefined
+  }>()
+
+  private trackResultOwner(backend: Backend, retained: RetainedAssets): void {
+    this.resultAssetOwners.set(retained.ownerId, { backend, retained, project: activeProjectId(),
+      generation: this.assetConnectionGenerations.get(backend.connection) })
+  }
+
+  private retireUnusedResultOwners(): void {
+    if (this.disposed || this.resultAssetOwners.size === 0) return
+    const persisted = persistedResultOwnerIds()
+    if (persisted === undefined) return
+    const live = new Set([...this.store.executions.get().values()].flatMap((state) =>
+      (state.assetRetentions ?? []).map((receipt) => receipt.ownerId)))
+    for (const [id, owner] of this.resultAssetOwners) {
+      const { backend, retained } = owner
+      if (activeProjectId() !== owner.project || this.backendFor(backend.id) !== backend ||
+        this.assetConnectionGenerations.get(backend.connection) !== owner.generation) continue
+      if (live.has(id) || persisted.has(id)) continue
+      // Only locally admitted owners are candidates. Another window's receipt,
+      // a disconnected lifetime, or a pending read is never adopted for release.
+      this.resultAssetOwners.delete(id)
+      void retireAssetOwner(backend.connection, retained)
+    }
+  }
+
   private workflowAssetReaderSequence = 0
   private readonly workflowAssetReaders = new WeakMap<Tab, {
     readonly document: WorkflowDocument
@@ -7533,16 +7558,20 @@ export class AppState {
       // backend must still report ownerGone, not silently return.
       if (!this.ownerStillLive(backend)) return false
       if (!record) return false
-      const json = await readAssetPreview(backend.connection, record.digest, async () => {
+      let tab: Tab | undefined
+      await readAssetPreview(backend.connection, record.digest, async () => {
         const text = await backend.connection.fetchAssetText(record.digest)
         return text === undefined ? undefined : JSON.parse(text) as unknown
-      }, () => stillWanted() && this.backends.get().includes(backend))
+      }, () => stillWanted() && this.backends.get().includes(backend), async (json) => {
+        if (json === undefined || !this.ownerStillLive(backend)) return false
+        tab = await this.openRetainedDocument(json, record.name, backend, stillWanted)
+        if (!tab || !this.tabs.get().includes(tab)) return false
+        this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id })
+        this.markTabClean(tab.id)
+        return true
+      })
       if (!this.ownerStillLive(backend)) return false
-      if (json === undefined) return false
-      const tab = await this.openRetainedDocument(json, record.name, backend, stillWanted)
       if (!tab || !this.tabs.get().includes(tab)) return false
-      this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id })
-      this.markTabClean(tab.id)
       return true
     } catch (e) {
       // A rejection from a retired backend (removal disconnects/aborts) is
@@ -7636,15 +7665,18 @@ export class AppState {
         ])
         return false
       }
-      const json = await readAssetPreview(backend.connection, run.sourceDocument, async () => {
+      let tab: Tab | undefined
+      await readAssetPreview(backend.connection, run.sourceDocument, async () => {
         const text = await backend.connection.fetchAssetText(run.sourceDocument!)
         return text === undefined ? undefined : JSON.parse(text) as unknown
-      }, () => stillWanted() && this.backends.get().includes(backend))
+      }, () => stillWanted() && this.backends.get().includes(backend), async (json) => {
+        if (json === undefined || !this.ownerStillLive(backend)) return false
+        const meta = (json as { meta?: { title?: unknown } }).meta
+        const title = typeof meta?.title === 'string' ? meta.title : `Run ${run.jobId.slice(0, 8)}`
+        tab = await this.openRetainedDocument(json, title, backend, stillWanted)
+        return tab !== undefined && this.tabs.get().includes(tab)
+      })
       if (!this.ownerStillLive(backend)) return false
-      if (json === undefined) return false
-      const meta = (json as { meta?: { title?: unknown } }).meta
-      const title = typeof meta?.title === 'string' ? meta.title : `Run ${run.jobId.slice(0, 8)}`
-      const tab = await this.openRetainedDocument(json, title, backend, stillWanted)
       if (!tab || !this.tabs.get().includes(tab)) return false
       return true
     } catch (e) {
@@ -7686,6 +7718,7 @@ export class AppState {
       const deleted = await backend.connection.deleteHistoryRun(runId, LIBRARY_SCOPE)
       if (deleted) {
         clearExecutionResultJobRef(backend.id, runId)
+        this.retireUnusedResultOwners()
         this.backendsTick.update((v) => v + 1) // an open Runs collection re-pages
       }
       return deleted
@@ -7708,6 +7741,7 @@ export class AppState {
     try {
       const deleted = await backend.connection.clearHistory({ scope: LIBRARY_SCOPE })
       clearExecutionResults(backend.id)
+      this.retireUnusedResultOwners()
       if (deleted > 0) this.backendsTick.update((v) => v + 1)
       return deleted
     } catch (e) {
@@ -7883,7 +7917,9 @@ export class AppState {
     registry: SchemaRegistry,
     result: PersistedExecutionResult,
     stillCurrent: () => boolean,
+    document: WorkflowDocument,
   ): Promise<Parameters<ExecutionStore['restoreCompleted']>[0] | null | undefined> {
+    const project = activeProjectId()
     if (result.ref.connection !== backend.id || result.proof.connection !== backend.id ||
       result.proof.schemaHash !== registry.hash) return undefined
     const history = await backend.connection.getHistoryRun(result.jobRef, LIBRARY_SCOPE)
@@ -7893,21 +7929,13 @@ export class AppState {
       history.sourceDocument !== result.sourceDocument ||
       history.principalId !== result.submittedBy?.principalId ||
       history.principalKind !== result.submittedBy?.kind) return undefined
+    if (!stillCurrent()) return null
     const job = await backend.connection.fetchJob(result.ref.prompt)
     if (job === undefined || job.state !== 'completed' ||
       job.jobRef !== result.jobRef || job.sourceDocument !== result.sourceDocument ||
       job.submittedBy?.principalId !== result.submittedBy?.principalId ||
       job.submittedBy?.kind !== result.submittedBy?.kind) return undefined
-    const document = await readAssetPreview(backend.connection, result.sourceDocument, async () => {
-      const source = await backend.connection.fetchAssetText(result.sourceDocument)
-      if (source === undefined) return undefined
-      try {
-        return loadDocument(JSON.parse(source) as unknown).document
-      } catch {
-        return undefined
-      }
-    }, stillCurrent)
-    if (document === undefined) return undefined
+    if (!stillCurrent()) return null
     const choices = new Map((result.proof.choices ?? []).map((choice) => [
       JSON.stringify([choice.graph, choice.selector]),
       choice.candidate,
@@ -7953,11 +7981,19 @@ export class AppState {
       const progress = jobNodes[nodeId]
       if (progress?.state !== 'done' && progress?.state !== 'cached') continue
       for (const outputId of outputIds) {
-        const peek = await backend.connection.values().peek({
-          jobId: result.ref.prompt,
-          nodeId,
-          outputId,
-        })
+        // This proof-validated read precedes publication of the restored entry.
+        const pending = { backend, jobRef: result.jobRef, nodeId, outputId, current: () => stillCurrent() &&
+          activeProjectId() === project && this.store.get(result.ref) === undefined }
+        if (!pending.current()) return null
+        const key = executionKey(result.ref)
+        this.pendingResultReads.set(key, pending)
+        let peek: ValuePeekResult
+        try {
+          peek = await backend.connection.values().peek({ jobId: result.ref.prompt, nodeId, outputId })
+          if (this.pendingResultReads.get(key) !== pending || !pending.current()) return null
+        } finally {
+          if (this.pendingResultReads.get(key) === pending) this.pendingResultReads.delete(key)
+        }
         if (!peek.available) {
           if (peek.status === 0 || peek.status === 408 || peek.status === 429 ||
             peek.status >= 500 || peek.reason === 'malformed-response') return null
@@ -8011,16 +8047,34 @@ export class AppState {
       for (const result of loadExecutionResults(identity)) {
         if (!current()) return
         try {
-          const restored = await this.validatedExecutionResult(backend, registry, result, current)
+          const restored = await readAssetPreview(backend.connection, result.sourceDocument, async () => {
+            const source = await backend.connection.fetchAssetText(result.sourceDocument)
+            if (!current()) return null
+            if (source === undefined) return undefined
+            let document: WorkflowDocument | undefined
+            try { document = loadDocument(JSON.parse(source) as unknown).document } catch { return undefined }
+            return document === undefined ? undefined : this.validatedExecutionResult(backend, registry, result, current, document)
+          }, current, async (candidate) => {
+            if (candidate == null || !current()) return false
+            for (const receipt of result.assetRetentions ?? []) {
+              const observed = await backend.connection.fetchRetainedAssets(receipt)
+              if (!current()) return false
+              if (canonicalJson(observed) !== canonicalJson(receipt)) throw new Error('Persisted result retention differs')
+            }
+            const roots = executionAssetRoots(candidate, this.resolverWithVirtualNodes(registry.resolve))
+            const retained = await retainExecutionAssets(backend.connection, candidate.ref, { complete: false,
+              digests: [...new Set([...roots.digests, ...(result.assetRetentions ?? []).flatMap((receipt) => receipt.digests)])].sort() })
+            if (!current() || this.store.get(candidate.ref) !== undefined) return false
+            this.retainedRegistries.set(candidate.artifact, registry)
+            // Restore takes independent ownership of the full saved roots, not
+            // authority to retire the source window's shown-result generation.
+            this.trackResultOwner(backend, retained)
+            this.store.restoreCompleted({ ...candidate, assetRetentions: [retained] })
+            return this.store.get(candidate.ref)?.assetRetentions?.includes(retained) === true
+          })
           if (!current()) return
           if (restored === undefined) removeExecutionResult(result)
-          else if (restored !== null) {
-            const roots = executionAssetRoots(restored, this.resolverWithVirtualNodes(registry.resolve))
-            await retainExecutionAssets(backend.connection, restored.ref, roots)
-            if (!current()) return
-            this.retainedRegistries.set(restored.artifact, registry)
-            this.store.restoreCompleted(restored)
-          }
+          this.retireUnusedResultOwners()
         } catch {
           // A transport failure proves nothing; retry the retained record on a later reload.
         }
@@ -9336,6 +9390,65 @@ export class AppState {
   /** Keys already hydrated (or being hydrated) from /history. */
   private readonly hydrated = new Set<string>()
 
+  private prepareExecutionHydration(backend: Backend): PrepareExecutionHydration {
+    const connection = backend.connection
+    return (ref) => {
+      const generation = this.assetConnectionGenerations.get(connection)
+      const held = this.store.get(ref)
+      if (held === undefined) return async () => false
+      const backendRegistry = backend.registry.get()
+      const executionRegistry = this.registryForExecution(ref)
+      const current = (): boolean => !this.disposed && generation === this.assetConnectionGenerations.get(connection) &&
+        this.backendFor(backend.id) === backend && backend.registry.get() === backendRegistry &&
+        this.registryForExecution(ref) === executionRegistry &&
+        this.store.get(ref) !== undefined && this.store.get(ref)?.artifact === held.artifact &&
+        this.store.get(ref)?.jobRef === held.jobRef &&
+        this.store.get(ref)?.sourceDocument === held.sourceDocument
+      return async (job) => {
+        if (!current()) return false
+        if (job === undefined) return true
+        if (held.jobRef !== undefined && job.jobRef !== held.jobRef) return false
+        if (held.jobRef !== undefined && (job.state === 'completed' || job.state === 'failed' || job.state === 'cancelled')) {
+          const terminal = await connection.fetchTerminalResultAssets(held.jobRef, ref.prompt)
+          if (!current() || terminal === undefined) return false
+          if (terminal.state !== job.state || terminal.attemptId !== job.attemptId) return false
+          const outputs = job.outputs ?? {}
+          if (!workspaceRecord(outputs) || Object.values(outputs).some((node) => !workspaceRecord(node))) return false
+          const outputKeys = Object.entries(outputs).flatMap(([nodeId, node]) =>
+            Object.keys(node as Record<string, unknown>).map((outputId) => JSON.stringify([nodeId, outputId]))).sort()
+          const offeredKeys = terminal.offers.flatMap((offer) => offer.outputId === undefined ? [] :
+            [JSON.stringify([offer.nodeId, offer.outputId])]).sort()
+          if (canonicalJson(outputKeys) !== canonicalJson(offeredKeys) ||
+            terminal.offers.filter((offer) => offer.artifact !== undefined).length !== (job.artifacts?.length ?? 0)) return false
+          for (const offer of terminal.offers) {
+            if (offer.artifact !== undefined) {
+              const { index, ...artifact } = offer.artifact
+              if (canonicalJson(job.artifacts?.[index]) !== canonicalJson(artifact)) return false
+            }
+          }
+          for (const offer of terminal.offers) {
+            const retained = await retainExecutionAssets(connection, ref, offer)
+            if (!current()) return false
+            this.trackResultOwner(backend, retained)
+            this.store.recordAssetRetentions(ref, [retained])
+          }
+        }
+        const outputs = workspaceRecord(job.outputs)
+          ? Object.fromEntries(Object.entries(job.outputs).filter(([, value]) => workspaceRecord(value))) as ExecutionState['outputs'] : {}
+        const resolve = this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined))
+        const existing = executionAssetRoots(held, resolve)
+        const fetched = executionAssetRoots({ ...held, outputs, artifacts: job.artifacts ?? [],
+          ...(job.sourceDocument === undefined ? {} : { sourceDocument: job.sourceDocument }) }, resolve)
+        const retained = await retainExecutionAssets(connection, ref, { complete: false,
+          digests: [...new Set([...existing.digests, ...fetched.digests])].sort() })
+        if (!current()) return false
+        this.trackResultOwner(backend, retained)
+        this.store.recordAssetRetentions(ref, [retained])
+        return true
+      }
+    }
+  }
+
   /**
    * A fully cached execution completes without ever emitting `executed`
    * events, so its outputs exist only in server history. Hydrate them once
@@ -9352,31 +9465,11 @@ export class AppState {
       const backend = this.backendFor(state.ref.connection)
       if (!backend) continue
       this.hydrated.add(state.key)
-      const registry = this.registryForExecution(state.ref)
-      let connectionChanged = false
-      const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
-      const current = (): boolean => !this.disposed && !connectionChanged &&
-        this.backendFor(state.ref.connection) === backend &&
-        this.registryForExecution(state.ref) === registry &&
-        this.store.get(state.ref)?.sourceDocument === state.sourceDocument &&
-        this.store.get(state.ref)?.artifact === state.artifact && this.store.get(state.ref)?.status === 'completed'
-      const fetched = backend.connection.fetchJobOutputs(state.ref.prompt)
-      void fetched
-        .then(async (outputs) => {
-          if (!current()) {
-            this.hydrated.delete(state.key)
-            return
-          }
-          if (Object.keys(outputs).length > 0) {
-            const roots = executionAssetRoots({ ...state, outputs },
-              this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
-            await retainExecutionAssets(backend.connection, state.ref, roots)
-            if (!current()) { this.hydrated.delete(state.key); return }
-            this.store.hydrateOutputs(state.ref, outputs)
-          }
+      void hydrateDinksterCompletedExecution(backend.connection, this.store, state.ref, this.prepareExecutionHydration(backend))
+        .then(() => {
+          if (Object.keys(this.store.get(state.ref)?.outputs ?? {}).length === 0) this.hydrated.delete(state.key)
         })
         .catch(() => this.hydrated.delete(state.key))
-        .finally(unsubscribe)
     }
   }
 

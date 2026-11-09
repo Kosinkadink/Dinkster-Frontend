@@ -9,7 +9,7 @@ import { buildDinksterRegistry } from '@dinkster/client'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { GLSL_EDITOR_KIND } from '../src/editors.js'
-import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions, RetainedAssetReader, workflowAssetRoots } from '../src/workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, readAssetPreview, reconcileWorkflowRetentions, retainExecutionAssets, RetainedAssetReader, workflowAssetRoots } from '../src/workflow-asset-retention.js'
 import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { createPreviewLoader } from '../src/node-previews.js'
@@ -45,6 +45,113 @@ function deferred<T>() {
 }
 
 describe('workflow retention recovery', () => {
+  it.each(['acknowledged', 'lost-release', 'reused-owner', 'refused-handoff', 'disconnected'] as const)(
+    'holds independent source reads until successful handoff and reconciles retirement: %s', async (scenario) => {
+      const f = recoveryFixture()
+      f.entries.clear()
+      vi.stubGlobal('localStorage', f.storage)
+      const owners = new Map<string, RetainedAssets>()
+      const ack = deferred<void>()
+      const handoff = deferred<boolean>()
+      const entered = deferred<void>()
+      const statusListeners = new Set<() => void>()
+      const connection = {
+        id: asConnectionId('source-reads'), assetUrl: () => 'http://test/api/assets/',
+        status: { subscribe: (callback: () => void) => {
+          statusListeners.add(callback)
+          return () => { statusListeners.delete(callback) }
+        } },
+        retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
+          const retained = { ...owner, ...declaration, revision: 1 }
+          owners.set(owner.ownerId, retained)
+          await ack.promise
+          return retained
+        },
+        fetchRetainedAssets: async (owner: RetainedAssetOwner) => owners.get(owner.ownerId),
+        releaseRetainedAssets: async (owner: RetainedAssetOwner, revision: number) => {
+          const before = owners.get(owner.ownerId)!
+          expect(revision).toBe(1)
+          if (scenario === 'reused-owner') {
+            owners.set(owner.ownerId, { ...before, revision: 3, digests: [asset('f').digest] })
+            throw new Error('revision conflict')
+          }
+          const released = { ...before, revision: 2, digests: [], complete: true }
+          owners.set(owner.ownerId, released)
+          if (scenario === 'lost-release') throw new Error('lost response')
+          return released
+        },
+      } as unknown as DinksterConnection
+      let consumed = false
+      const operation = readAssetPreview(connection, asset('a').digest, async () => {
+        consumed = true
+        return { nested: asset('b') }
+      }, () => true, async (value) => {
+        expect(value).toEqual({ nested: asset('b') })
+        entered.resolve()
+        return handoff.promise
+      })
+      expect(consumed).toBe(false)
+      ack.resolve()
+      await entered.promise
+      const original = [...owners.values()][0]!
+      expect(original.digests).toEqual([asset('a').digest])
+      expect(original.revision).toBe(1)
+      // A second read of the same digest has its own durable generation.
+      await readAssetPreview(connection, asset('a').digest, async () => 'independent', () => true)
+      const independent = [...owners.values()][1]!
+      expect(independent.ownerId).not.toBe(original.ownerId)
+      if (scenario === 'disconnected') for (const listener of statusListeners) listener()
+      handoff.resolve(scenario !== 'refused-handoff')
+      expect(await operation).toEqual({ nested: asset('b') })
+      expect(owners.get(independent.ownerId)).toEqual(independent)
+      const released = scenario === 'acknowledged' || scenario === 'lost-release'
+      expect(owners.get(original.ownerId)?.revision).toBe(released ? 2 : scenario === 'reused-owner' ? 3 : 1)
+      const key = scopedStorageKey(`dinkster.workflow-retentions.${original.ownerId}`)
+      const intent = JSON.parse(f.storage.getItem(key)!)
+      expect(intent.acknowledgedRevision).toBe(released ? 2 : 1)
+      expect(intent.releaseRevision).toBe(scenario === 'refused-handoff' || scenario === 'disconnected' ? undefined : 1)
+      expect(await reconcileWorkflowRetentions(connection, new AbortController().signal, f.storage))
+        .toBe(scenario !== 'reused-owner')
+    })
+
+  it('journals exact source authority before claim and reconciles lost claims without replay or root substitution', async () => {
+    const offer = { token: '0123456789abcdef'.repeat(2), scope: 'local', jobRef: 'original-job', attemptId: 2,
+      nodeId: 'n0', outputId: 'images', publication: 3, digests: [asset('a').digest, asset('b').digest], complete: true }
+    const ref = { connection: asConnectionId('source-owner'), prompt: asPromptId('job') }
+    for (const response of ['acknowledged', 'lost', 'foreign-source', 'missing-root'] as const) {
+      const entries = new Map<string, string>()
+      const storage = {
+        get length() { return entries.size }, key: (index: number) => [...entries.keys()][index] ?? null,
+        getItem: (key: string) => entries.get(key) ?? null,
+        setItem: (key: string, value: string) => { entries.set(key, value) },
+      }
+      let saved!: RetainedAssets
+      const claimResultAssets = vi.fn(async (owner: RetainedAssetOwner, token: string) => {
+        const intent = JSON.parse([...entries.values()][0]!)
+        expect(intent.sourceToken).toBe(offer.token)
+        expect(intent.digests).toEqual([asset('a').digest, asset('b').digest])
+        saved = { ...owner, revision: 1, sourceToken: token, digests: [...offer.digests], complete: true }
+        if (response === 'foreign-source') saved = { ...saved, sourceToken: 'f'.repeat(32) }
+        if (response === 'missing-root') saved = { ...saved, digests: [asset('a').digest] }
+        if (response !== 'acknowledged') throw new Error('lost claim response')
+        return saved
+      })
+      const connection = { id: ref.connection, assetUrl: () => 'http://test/api/assets/',
+        claimResultAssets, fetchRetainedAssets: async () => saved } as unknown as DinksterConnection
+      const pending = retainExecutionAssets(connection, ref, offer, storage)
+      if (response === 'acknowledged' || response === 'lost') {
+        expect(await pending).toEqual(saved)
+        expect(JSON.parse([...entries.values()][0]!).acknowledgedRevision).toBe(1)
+        expect(await reconcileWorkflowRetentions(connection, new AbortController().signal, storage)).toBe(true)
+      } else {
+        await expect(pending).rejects.toThrow('lost claim response')
+        expect(JSON.parse([...entries.values()][0]!).acknowledgedRevision).toBeUndefined()
+        expect(await reconcileWorkflowRetentions(connection, new AbortController().signal, storage)).toBe(false)
+      }
+      expect(claimResultAssets).toHaveBeenCalledTimes(1)
+    }
+  })
+
   it('closes receipt-bound reader admission but waits for every admitted body without releasing protection', async () => {
     const receipt: RetainedAssets = { scope: 'local', ownerKind: 'shown-result', ownerId: 'result-reader',
       revision: 1, complete: false, digests: [asset('a').digest] }
@@ -282,6 +389,122 @@ describe('retained app dispatch', () => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
+
+  it.each(['acknowledged', 'lost', 'rejected', 'removed', 'missing-seal', 'unoffered-output',
+    'unoffered-artifact', 'foreign-artifact', 'extra-offer', 'foreign-attempt'] as const)(
+    'admits completed outputs and artifacts through sealed source claims: %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([{ ...schema, isOutputNode: true }])
+      app.openDocument(session().doc, 'Terminal source')
+      const tab = app.activeTab()!
+      const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
+      backend.registry.set(app.registry.get())
+      app.setTabTarget(tab.id, backend.id)
+      const compiled = app.compileTab(tab)
+      if (!compiled?.ok) throw new Error(JSON.stringify(compiled?.diagnostics))
+      const ref = { connection: backend.id, prompt: asPromptId('terminal-source') }
+      app.store.register(ref, compiled.artifact, 1, { jobRef: 'original-job' })
+      const artifact = { ...asset('b'), nodeId: 'n0' }
+      const outputs = { n0: { images: { typeId: 'ASSET', fingerprint: 'saved', meta: asset('b') } } }
+      vi.spyOn(backend.connection, 'fetchJob').mockResolvedValue({ state: 'completed', jobRef: 'original-job',
+        attemptId: 2, outputs: scenario === 'unoffered-output' ? { ...outputs, extra: { result: { meta: asset('c') } } } : outputs,
+        artifacts: scenario === 'unoffered-artifact' ? [artifact, { ...asset('c'), nodeId: 'extra' }] : [artifact] })
+      const offer = { token: 'a'.repeat(32), scope: 'local', jobRef: 'original-job', attemptId: 2,
+        nodeId: 'n0', outputId: 'images', publication: 7, digests: [asset('a').digest, asset('b').digest], complete: true }
+      const artifactOffer = { token: 'b'.repeat(32), scope: 'local', jobRef: 'original-job', attemptId: 2,
+        nodeId: 'n0', artifact: { ...artifact, ...(scenario === 'foreign-artifact' ? { digest: asset('c').digest } : {}), index: 0 },
+        publication: 1, digests: [asset('b').digest], complete: true }
+      vi.spyOn(backend.connection, 'fetchTerminalResultAssets').mockResolvedValue(scenario === 'missing-seal' ? undefined : {
+        scope: 'local', jobRef: 'original-job', attemptId: scenario === 'foreign-attempt' ? 3 : 2,
+        state: 'completed', complete: true, offers: [offer, artifactOffer,
+          ...(scenario === 'extra-offer' ? [{ ...offer, token: 'c'.repeat(32), outputId: 'extra' }] : [])] })
+      const admitted = deferred<void>()
+      const requested = deferred<void>()
+      const saved = new Map<string, RetainedAssets>()
+      vi.spyOn(backend.connection, 'claimResultAssets').mockImplementation(async (owner, sourceToken) => {
+        const source = sourceToken === artifactOffer.token ? artifactOffer : offer
+        const receipt = { ...owner, sourceToken, revision: 1, digests: [...source.digests], complete: true }
+        if (scenario !== 'rejected' || source === offer) saved.set(owner.ownerId, receipt)
+        if (source === offer) return receipt
+        requested.resolve()
+        await admitted.promise
+        if (scenario === 'lost' || scenario === 'rejected') throw new Error('claim response unavailable')
+        return receipt
+      })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => saved.get(owner.ownerId))
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => ({ ...owner, ...declaration, revision: 1 }))
+      backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
+      if (['missing-seal', 'unoffered-output', 'unoffered-artifact', 'foreign-artifact', 'extra-offer', 'foreign-attempt'].includes(scenario)) {
+        admitted.resolve()
+        await new Promise<void>((done) => setImmediate(done))
+        expect(app.store.get(ref)?.outputs).toEqual({})
+        expect(app.store.get(ref)?.artifacts).toEqual([])
+        return
+      }
+      await requested.promise
+      expect(app.store.get(ref)?.outputs).toEqual({})
+      expect(app.store.get(ref)?.artifacts).toEqual([])
+      if (scenario === 'removed') app.removeBackend(backend.id)
+      admitted.resolve()
+      if (scenario === 'acknowledged' || scenario === 'lost') {
+        await vi.waitFor(() => expect(app!.store.get(ref)?.outputs).toEqual(outputs))
+        expect(app.store.get(ref)?.artifacts).toEqual([artifact])
+        const receipts = app.store.get(ref)?.assetRetentions ?? []
+        for (const receipt of saved.values()) expect(receipts).toContainEqual(receipt)
+        expect(new Set([...saved.values()].map((receipt) => receipt.sourceToken))).toEqual(new Set([offer.token, artifactOffer.token]))
+        expect(new Set([...saved.values()].flatMap((receipt) => receipt.digests))).toEqual(new Set(offer.digests))
+      } else {
+        await new Promise<void>((done) => setImmediate(done))
+        expect(app.store.get(ref)?.outputs).toEqual({})
+        expect(app.store.get(ref)?.artifacts).toEqual([])
+      }
+    },
+  )
+
+  it.each(['acknowledged', 'lost', 'rejected', 'foreign-job'] as const)(
+    'admits a value through its original full parent source before publication: %s', async (scenario) => {
+      const offer = { token: '0123456789abcdef'.repeat(2), scope: 'local', jobRef: 'original-job', attemptId: 2,
+        nodeId: 'n0', outputId: 'images', publication: 3, digests: [asset('a').digest, asset('b').digest], complete: true }
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      vi.stubGlobal('fetch', async (url: string) => url.includes('/api/values?')
+        ? new Response(JSON.stringify({ available: true, descriptor: { typeId: 'INT', fingerprint: 'child', value: 9 },
+          renditions: [], resultOffer: offer }), { status: 200 })
+        : new Response('{}', { status: 503 }))
+      app = createWorkflowApp([{ ...schema, isOutputNode: true }])
+      app.openDocument(session().doc, 'Value source')
+      const tab = app.activeTab()!
+      const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
+      backend.registry.set(app.registry.get())
+      app.setTabTarget(tab.id, backend.id)
+      const compiled = app.compileTab(tab)
+      if (!compiled?.ok) throw new Error(JSON.stringify(compiled?.diagnostics))
+      const ref = { connection: backend.id, prompt: asPromptId('value-source') }
+      app.store.register(ref, compiled.artifact, 1, { jobRef: scenario === 'foreign-job' ? 'other-job' : offer.jobRef })
+      const response = deferred<RetainedAssets>()
+      const requested = deferred<RetainedAssets>()
+      let saved: RetainedAssets | undefined
+      vi.spyOn(backend.connection, 'claimResultAssets').mockImplementation(async (owner, sourceToken) => {
+        saved = { ...owner, sourceToken, revision: 1, digests: [asset('a').digest, asset('b').digest], complete: true }
+        requested.resolve(saved)
+        if (scenario === 'lost') throw new Error('lost response')
+        if (scenario === 'rejected') throw new Error('unavailable source')
+        return response.promise
+      })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async () => scenario === 'lost' ? saved : undefined)
+      let published = false
+      const pending = backend.connection.values().peek({ jobId: ref.prompt, nodeId: 'n0', outputId: 'images', element: [1] })
+        .then((result) => { published = result.available; return result })
+      if (scenario === 'acknowledged') {
+        const receipt = await requested.promise
+        expect(published).toBe(false)
+        response.resolve(receipt)
+      }
+      const result = await pending
+      expect(result.available).toBe(scenario === 'acknowledged' || scenario === 'lost')
+      if (result.available) expect(result.resultOffer?.digests).toEqual([asset('a').digest, asset('b').digest])
+      else expect(result.reason).toBe('ownership-unconfirmed')
+    },
+  )
 
   it.each([false, true])('certifies parsed App View layout only when every stored field round-trips, unknown=%s', async (unknown) => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })

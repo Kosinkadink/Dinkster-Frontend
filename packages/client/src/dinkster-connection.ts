@@ -84,6 +84,7 @@ import {
 } from './reconnecting-socket.js'
 import { DinksterValuesClient, type ValuePeekAdmission } from './values.js'
 import { expandDynamicPrompt } from './dynamic-prompts.js'
+import { parseResultAssetOffer, type ResultAssetOffer } from './result-asset-offer.js'
 
 /** Existing /api/nodes capability flag for the placement submission sidecar. */
 export const DINKSTER_GRAPH_FEATURE_PLACEMENT = 'placement'
@@ -858,10 +859,20 @@ const decodeWorkers = (value: unknown): readonly WorkerInfo[] | undefined => {
 /** One job's wire record plus the identity it is keyed by. */
 export interface DinksterJobRecord extends DinksterJobWire {
   readonly jobId?: unknown
+  readonly attemptId?: unknown
   readonly outputs?: unknown
   readonly artifacts?: readonly ExecutionArtifact[]
   readonly submittedBy?: ExecutionSubmitter
   readonly sourceDocument?: string
+}
+
+export interface TerminalResultAssets {
+  readonly scope: string
+  readonly jobRef: string
+  readonly attemptId: number
+  readonly state: 'completed' | 'failed' | 'cancelled'
+  readonly complete: boolean
+  readonly offers: readonly ResultAssetOffer[]
 }
 
 const decodeExecutionSubmitter = (value: unknown): ExecutionSubmitter | undefined => {
@@ -1191,6 +1202,7 @@ export interface RetainedAssets extends RetainedAssetOwner {
   readonly revision: number
   readonly digests: readonly string[]
   readonly complete: boolean
+  readonly sourceToken?: string
 }
 
 export type RetainedAssetDeclaration = Pick<RetainedAssets, 'revision' | 'digests' | 'complete'>
@@ -1225,17 +1237,22 @@ function retainedAssetRoute(owner: RetainedAssetOwner): string {
   return `/api/library/retentions/${owner.ownerKind}/${encodeURIComponent(owner.ownerId)}?scope=${encodeURIComponent(owner.scope)}`
 }
 
-function retainedAssetAcknowledgment(value: unknown, owner: RetainedAssetOwner): RetainedAssets {
+export function retainedAssetAcknowledgment(value: unknown, owner: RetainedAssetOwner): RetainedAssets {
   if (!record(value) || value['scope'] !== owner.scope || value['ownerKind'] !== owner.ownerKind ||
     value['ownerId'] !== owner.ownerId || typeof value['revision'] !== 'number' ||
     !Number.isSafeInteger(value['revision']) || value['revision'] < 1 ||
+    (value['sourceToken'] !== undefined &&
+      (typeof value['sourceToken'] !== 'string' || value['sourceToken'].length !== 32 || !/^[0-9a-f]{32}$/.test(value['sourceToken']))) ||
     typeof value['complete'] !== 'boolean' || !Array.isArray(value['digests']) ||
     value['digests'].length > 4096 || !value['digests'].every((digest: unknown, index: number, digests: unknown[]) =>
       typeof digest === 'string' && JOB_ARTIFACT_DIGEST.test(digest) &&
       (index === 0 || (digests[index - 1] as string) < digest))) {
     throw new Error('Retained asset acknowledgment is malformed or belongs to another owner')
   }
-  return { ...owner, revision: value['revision'], digests: value['digests'] as string[], complete: value['complete'] }
+  return {
+    ...owner, revision: value['revision'], digests: value['digests'] as string[], complete: value['complete'],
+    ...(value['sourceToken'] === undefined ? {} : { sourceToken: value['sourceToken'] as string }),
+  }
 }
 
 /**
@@ -2608,6 +2625,63 @@ export class DinksterConnection {
     }
   }
 
+  async fetchResultAssetOffer(scope: string, token: string, signal?: AbortSignal): Promise<ResultAssetOffer | undefined> {
+    if (token.length !== 32 || !/^[0-9a-f]{32}$/.test(token)) throw new Error('Invalid result offer token')
+    const res = await this.fetchFn(`${this.baseUrl}/api/library/result-offers/${token}?scope=${encodeURIComponent(scope)}`, {
+      method: 'GET', cache: 'no-store', ...(signal !== undefined ? { signal } : {}),
+    })
+    if (res.status === 404) return undefined
+    if (!res.ok) throw new Error(`GET result asset offer failed: ${res.status}`)
+    const offer = parseResultAssetOffer(await res.json())
+    if (offer === undefined || offer.scope !== scope || offer.token !== token) {
+      throw new Error('Result asset offer is malformed or belongs to another source')
+    }
+    return offer
+  }
+
+  /** Sealed publication authority is independent of queue history and cache eviction. */
+  async fetchTerminalResultAssets(jobRef: string, jobId: string, scope = 'local'): Promise<TerminalResultAssets | undefined> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/library/terminal-results/${encodeURIComponent(jobRef)}?scope=${encodeURIComponent(scope)}`, {
+      method: 'GET', cache: 'no-store',
+    })
+    if (res.status === 404) return undefined
+    if (!res.ok) throw new Error(`GET terminal result assets failed: ${res.status}`)
+    const value: unknown = await res.json()
+    const invalid = (): never => { throw new Error('Terminal result assets are malformed or belong to another source') }
+    if (!record(value) || value['scope'] !== scope || value['jobRef'] !== jobRef ||
+      !Number.isSafeInteger(value['attemptId']) || (value['attemptId'] as number) < 1 ||
+      !['completed', 'failed', 'cancelled'].includes(value['state'] as string) || typeof value['complete'] !== 'boolean' ||
+      !record(value['identity']) || value['identity']['clientId'] !== this.clientId || value['identity']['jobId'] !== jobId ||
+      !record(value['resultOffers']) || (value['artifacts'] !== null && !Array.isArray(value['artifacts']))) return invalid()
+    const offers: ResultAssetOffer[] = []
+    const tokens = new Set<string>()
+    const add = (raw: unknown): ResultAssetOffer => {
+      const offer = parseResultAssetOffer(raw)
+      if (offer === undefined || offer.scope !== scope || offer.jobRef !== jobRef || offer.attemptId !== value['attemptId'] ||
+        tokens.has(offer.token) || (value['complete'] && !offer.complete)) return invalid()
+      tokens.add(offer.token)
+      offers.push(offer)
+      return offer
+    }
+    for (const [nodeId, outputs] of Object.entries(value['resultOffers'])) {
+      if (!record(outputs)) return invalid()
+      for (const [outputId, raw] of Object.entries(outputs)) {
+        const offer = add(raw)
+        if (offer.nodeId !== nodeId || offer.outputId !== outputId) return invalid()
+      }
+    }
+    if (value['artifacts'] === null) {
+      if (value['complete']) return invalid()
+    } else {
+      for (const [index, raw] of value['artifacts'].entries()) {
+        if (add(raw).artifact?.index !== index) return invalid()
+      }
+    }
+    if (value['complete'] && value['state'] !== 'completed') return invalid()
+    return { scope, jobRef, attemptId: value['attemptId'] as number,
+      state: value['state'] as TerminalResultAssets['state'], complete: value['complete'], offers }
+  }
+
   async fetchRetainedAssets(owner: RetainedAssetOwner, signal?: AbortSignal): Promise<RetainedAssets | undefined> {
     const res = await this.fetchFn(`${this.baseUrl}${retainedAssetRoute(owner)}`, {
       method: 'GET', cache: 'no-store', ...(signal !== undefined ? { signal } : {}),
@@ -2619,6 +2693,25 @@ export class DinksterConnection {
 
   retainAssets(owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration, signal?: AbortSignal): Promise<RetainedAssets> {
     return this.mutateRetainedAssets(owner, 'PUT', declaration, signal)
+  }
+
+  async claimResultAssets(owner: RetainedAssetOwner, sourceToken: string, signal?: AbortSignal): Promise<RetainedAssets> {
+    if ((owner.ownerKind !== 'shown-result' && owner.ownerKind !== 'preview') || sourceToken.length !== 32 || !/^[0-9a-f]{32}$/.test(sourceToken)) {
+      throw new Error('Invalid result asset claim')
+    }
+    const res = await this.fetchFn(`${this.baseUrl}${retainedAssetRoute(owner)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision: 0, sourceToken }),
+      ...(signal !== undefined ? { signal } : {}),
+    })
+    // A source claim is never replayed: GET reconciles a lost response against
+    // the persisted offer before the owning caller exposes its value.
+    if (!res.ok) throw new Error(`PUT result asset claim failed: ${res.status}`)
+    const acknowledged = retainedAssetAcknowledgment(await res.json(), owner)
+    if (acknowledged.revision !== 1 || acknowledged.sourceToken !== sourceToken) {
+      throw new Error('Retained asset acknowledgment differs from the requested source')
+    }
+    return acknowledged
   }
 
   releaseRetainedAssets(owner: RetainedAssetOwner, revision: number, signal?: AbortSignal): Promise<RetainedAssets> {
@@ -2650,7 +2743,7 @@ export class DinksterConnection {
     // an owner decision; never replay a write or adopt a conflict's revision.
     if (!res.ok) throw new Error(`${method} retained assets failed: ${res.status}`)
     const acknowledged = retainedAssetAcknowledgment(await res.json(), owner)
-    if (acknowledged.revision !== revision + 1 || acknowledged.complete !== complete ||
+    if (acknowledged.sourceToken !== undefined || acknowledged.revision !== revision + 1 || acknowledged.complete !== complete ||
       acknowledged.digests.length !== digests.length || acknowledged.digests.some((digest, index) => digest !== digests[index])) {
       throw new Error('Retained asset acknowledgment differs from the requested declaration')
     }
