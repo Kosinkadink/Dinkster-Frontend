@@ -101,6 +101,54 @@ it('converts supplied first-party interfaces before resolving installed packs', 
   expect(checkDocument(document)).toEqual([])
 })
 
+it.each([false, true])('converts active choices and sparse input families before pack installation: keyed=%s', (keyed) => {
+  const schema = parseDinksterSchema('dinkster.conditioning.reference_multi_latent', {
+    schemaVersion: 1,
+    interface: [
+      { role: 'dynamicCombo', id: 'resolution', required: true, options: [
+        { key: 'keep resolution', inputs: [] },
+        { key: 'resize', inputs: [{ role: 'input', id: 'megapixels', required: true,
+          type: { kind: 'concrete', types: ['FLOAT'] }, default: 1, widget: { type: 'NUMBER', min: 0.01, max: 16 } }] },
+      ] },
+      { role: 'inputFamily', id: 'images', minMembers: 1, maxMembers: 100, memberPrefix: 'image',
+        required: false, optionalAfterMinimum: true,
+        template: [{ role: 'input', id: 'image', required: false, type: { kind: 'concrete', types: ['IMAGE'] } }] },
+    ],
+  }).schema!
+  const source = parseDinksterSchema('ImageProducer', { interface: [
+    { role: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+  ] }).schema!
+  const translations: ComfyTranslation[] = [{ schema, pack: 'dinkster-conditioning', version: '0.0.2',
+    rule: { from: 'ReferenceMultiLatent', cases: [{ to: schema.type,
+      slotVariants: { resolution: 'resize' },
+      inputs: { 'resolution.megapixels': { kind: 'copy', input: 'resolution.megapixels' } },
+      inputFamilies: { images: { kind: 'copy', sourceFamily: 'images',
+        inputs: { image: { kind: 'copy', input: 'image' } }, sourceTemplate: { inputs: ['image'] } } },
+    }] },
+  }]
+  const imported = importLitegraph({ nodes: [
+    { id: 1, type: source.type, outputs: [{ name: 'image', links: [1] }] },
+    { id: 2, type: source.type, outputs: [{ name: 'image', links: [2] }] },
+    { id: 3, type: 'ReferenceMultiLatent', widgets_values: keyed ? { resolution: 'resize', 'resolution.megapixels': 2.37 } : ['resize', 2.37],
+      inputs: [{ name: 'images.image2', link: 1 }, { name: 'images.image0', link: 2 }] },
+  ], links: [[1, 1, 0, 3, 0, 'IMAGE'], [2, 2, 0, 3, 1, 'IMAGE']] },
+  (type) => type === source.type ? source : undefined, undefined, translations)
+  expect(imported.diagnostics).toEqual([])
+  const document = imported.document!
+  const graph = document.graphs.g0!
+  expect(graph.nodes.n3).toMatchObject({ type: schema.type, values: { 'resolution.megapixels': 2.37 },
+    dynamic: { resolution: { selected: 'resize' }, images: { members: ['image2', 'image0'] } } })
+  expect(Object.values(graph.links).map((link) => [link.from, link.to])).toEqual([
+    [{ node: 'n1', port: 'image' }, { node: 'n3', port: 'images.image2' }],
+    [{ node: 'n2', port: 'image' }, { node: 'n3', port: 'images.image0' }],
+  ])
+  expect(resolveImportedNodePacks(document, () => undefined).find((node) => node.nodeId === 'n3')).toMatchObject({
+    sourceClass: 'ReferenceMultiLatent', status: 'installable', pack: 'dinkster-conditioning',
+  })
+  expect(checkDocument(document)).toEqual([])
+  expect(loadDocument(JSON.parse(JSON.stringify(document))).document).toEqual(document)
+})
+
 it.each([false, true])('converts declared dotted port ids, including internal links: %s', (internal) => {
   const schema: NodeSchema = {
     type: 'dinkster.models.merge', displayName: 'Merge', category: 'test', source: 'v3', isOutputNode: false,
