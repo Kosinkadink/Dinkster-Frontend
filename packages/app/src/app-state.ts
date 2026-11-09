@@ -9031,7 +9031,7 @@ export class AppState {
         } })
       }
       signal.throwIfAborted()
-      const outcome = this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })
+      const outcome = await this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })
       if (!outcome.ok) throw new Error('Could not save captured webcam frame.')
       return outcome.doc
     })()

@@ -6,6 +6,7 @@ import { createWidgetRegistry } from '@dinkster/widgets'
 import { AppState, type Tab } from '../src/app-state.js'
 import { captureWebcamFrame } from '../src/webcam.js'
 import { WidgetEditor } from '../src/WidgetEditor.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
@@ -106,7 +107,7 @@ it('stages capture, preserves the saved frame on cancel or device failure, and a
 })
 
 async function queueSetup(captureOnQueue = true) {
-  const app = new AppState()
+  const app = createWorkflowApp()
   const backend = app.backends.get()[0]!
   const type = 'dinkster.image.webcam_capture'
   backend.registry.set(buildDinksterRegistry(backend.id, { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: { [type]: { interface: [
