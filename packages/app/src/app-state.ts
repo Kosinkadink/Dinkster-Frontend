@@ -8868,6 +8868,11 @@ export class AppState {
     let held = this.store.get(event.execution)
     const registry = backend.registry.get()
     let executionRegistry = this.registryForExecution(event.execution)
+    let firstRegistration = held?.artifact === undefined ? undefined : held
+    const unsubscribeRegistration = this.store.executions.subscribe(() => {
+      const state = this.store.get(event.execution)
+      if (firstRegistration === undefined && state?.artifact !== undefined) firstRegistration = state
+    })
     let unchanged = true
     const unsubscribe = backend.connection.status.subscribe(() => { unchanged = false })
     const current = (): boolean => unchanged && !this.disposed &&
@@ -8886,20 +8891,34 @@ export class AppState {
         held = state
         executionRegistry = this.registryForExecution(event.execution)
       }
-      if (!current()) return
-      if (incoming !== undefined) {
-        const state = this.store.get(event.execution)
-        const roots = state === undefined ? incoming : executionAssetRoots(state,
-          this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined)))
-        await retainExecutionAssets(backend.connection, event.execution, { complete: false,
-          digests: [...new Set([...roots.digests, ...incoming.digests])].sort() })
+      for (;;) {
+        if (!current()) {
+          const state = this.store.get(event.execution)
+          // Submit registration may follow live events. Re-admit its roots;
+          // never reuse the acknowledgment captured before that promotion.
+          if (!unchanged || this.disposed || this.backendFor(backend.id) !== backend ||
+            backend.registry.get() !== registry || held?.artifact !== undefined || state?.artifact === undefined ||
+            state.artifact !== firstRegistration?.artifact || state.sourceDocument !== firstRegistration.sourceDocument) return
+          held = state
+          executionRegistry = this.registryForExecution(event.execution)
+        }
+        if (incoming !== undefined) {
+          const state = this.store.get(event.execution)
+          const roots = state === undefined ? incoming : executionAssetRoots(state,
+            this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined)))
+          await retainExecutionAssets(backend.connection, event.execution, { complete: false,
+            digests: [...new Set([...roots.digests, ...incoming.digests])].sort() })
+        }
+        if (!current()) continue
+        if (this.publishWorkspaceExecutionEvent(event)) onApplied?.()
+        return
       }
-      if (current() && this.publishWorkspaceExecutionEvent(event)) onApplied?.()
     }).catch((error: unknown) => {
       if (current()) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'runtime',
         'execution.eventRetentionFailed', `Could not retain execution event assets: ${error instanceof Error ? error.message : String(error)}`)])
     }).finally(() => {
       unsubscribe()
+      unsubscribeRegistration()
       if (this.pendingExecutionEvents.get(key) === pending) this.pendingExecutionEvents.delete(key)
     })
     this.pendingExecutionEvents.set(key, pending)
@@ -9484,10 +9503,12 @@ export class AppState {
           const outputs = job.outputs ?? {}
           if (!workspaceRecord(outputs) || Object.values(outputs).some((node) => !workspaceRecord(node))) return false
           const outputKeys = Object.entries(outputs).flatMap(([nodeId, node]) =>
-            Object.keys(node as Record<string, unknown>).map((outputId) => JSON.stringify([nodeId, outputId]))).sort()
-          const offeredKeys = terminal.offers.flatMap((offer) => offer.outputId === undefined ? [] :
-            [JSON.stringify([offer.nodeId, offer.outputId])]).sort()
-          if (canonicalJson(outputKeys) !== canonicalJson(offeredKeys) ||
+            Object.keys(node as Record<string, unknown>).map((outputId) => JSON.stringify([nodeId, outputId])))
+          const offeredKeys = new Set(terminal.offers.flatMap((offer) => offer.outputId === undefined ? [] :
+            [JSON.stringify([offer.nodeId, offer.outputId])]))
+          // The seal also retains intermediate outputs omitted from job.outputs.
+          // Every published output needs a source; all sealed sources are claimed.
+          if (outputKeys.some((key) => !offeredKeys.has(key)) ||
             terminal.offers.filter((offer) => offer.artifact !== undefined).length !== (job.artifacts?.length ?? 0)) return false
           for (const offer of terminal.offers) {
             if (offer.artifact !== undefined) {

@@ -391,7 +391,7 @@ describe('retained app dispatch', () => {
   })
 
   it.each(['acknowledged', 'lost', 'rejected', 'removed', 'missing-seal', 'unoffered-output',
-    'unoffered-artifact', 'foreign-artifact', 'extra-offer', 'foreign-attempt'] as const)(
+    'unoffered-artifact', 'foreign-artifact', 'intermediate-offer', 'foreign-attempt'] as const)(
     'admits completed outputs and artifacts through sealed source claims: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       app = createWorkflowApp([{ ...schema, isOutputNode: true }])
@@ -414,15 +414,17 @@ describe('retained app dispatch', () => {
       const artifactOffer = { token: 'b'.repeat(32), scope: 'local', jobRef: 'original-job', attemptId: 2,
         nodeId: 'n0', artifact: { ...artifact, ...(scenario === 'foreign-artifact' ? { digest: asset('c').digest } : {}), index: 0 },
         publication: 1, digests: [asset('b').digest], complete: true }
+      const intermediateOffer = { ...offer, token: 'c'.repeat(32), nodeId: 'region[0]/inner',
+        outputId: 'scratch', digests: [asset('c').digest] }
+      const sources = [offer, artifactOffer, ...(scenario === 'intermediate-offer' ? [intermediateOffer] : [])]
       vi.spyOn(backend.connection, 'fetchTerminalResultAssets').mockResolvedValue(scenario === 'missing-seal' ? undefined : {
         scope: 'local', jobRef: 'original-job', attemptId: scenario === 'foreign-attempt' ? 3 : 2,
-        state: 'completed', complete: true, offers: [offer, artifactOffer,
-          ...(scenario === 'extra-offer' ? [{ ...offer, token: 'c'.repeat(32), outputId: 'extra' }] : [])] })
+        state: 'completed', complete: true, offers: sources })
       const admitted = deferred<void>()
       const requested = deferred<void>()
       const saved = new Map<string, RetainedAssets>()
       vi.spyOn(backend.connection, 'claimResultAssets').mockImplementation(async (owner, sourceToken) => {
-        const source = sourceToken === artifactOffer.token ? artifactOffer : offer
+        const source = sources.find((candidate) => candidate.token === sourceToken)!
         const receipt = { ...owner, sourceToken, revision: 1, digests: [...source.digests], complete: true }
         if (scenario !== 'rejected' || source === offer) saved.set(owner.ownerId, receipt)
         if (source === offer) return receipt
@@ -434,7 +436,7 @@ describe('retained app dispatch', () => {
       vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => saved.get(owner.ownerId))
       vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => ({ ...owner, ...declaration, revision: 1 }))
       backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
-      if (['missing-seal', 'unoffered-output', 'unoffered-artifact', 'foreign-artifact', 'extra-offer', 'foreign-attempt'].includes(scenario)) {
+      if (['missing-seal', 'unoffered-output', 'unoffered-artifact', 'foreign-artifact', 'foreign-attempt'].includes(scenario)) {
         admitted.resolve()
         await new Promise<void>((done) => setImmediate(done))
         expect(app.store.get(ref)?.outputs).toEqual({})
@@ -446,13 +448,13 @@ describe('retained app dispatch', () => {
       expect(app.store.get(ref)?.artifacts).toEqual([])
       if (scenario === 'removed') app.removeBackend(backend.id)
       admitted.resolve()
-      if (scenario === 'acknowledged' || scenario === 'lost') {
+      if (scenario === 'acknowledged' || scenario === 'lost' || scenario === 'intermediate-offer') {
         await vi.waitFor(() => expect(app!.store.get(ref)?.outputs).toEqual(outputs))
         expect(app.store.get(ref)?.artifacts).toEqual([artifact])
         const receipts = app.store.get(ref)?.assetRetentions ?? []
         for (const receipt of saved.values()) expect(receipts).toContainEqual(receipt)
-        expect(new Set([...saved.values()].map((receipt) => receipt.sourceToken))).toEqual(new Set([offer.token, artifactOffer.token]))
-        expect(new Set([...saved.values()].flatMap((receipt) => receipt.digests))).toEqual(new Set(offer.digests))
+        expect(new Set([...saved.values()].map((receipt) => receipt.sourceToken))).toEqual(new Set(sources.map((source) => source.token)))
+        expect(new Set([...saved.values()].flatMap((receipt) => receipt.digests))).toEqual(new Set(sources.flatMap((source) => source.digests)))
       } else {
         await new Promise<void>((done) => setImmediate(done))
         expect(app.store.get(ref)?.outputs).toEqual({})

@@ -71,9 +71,11 @@ are refused. Reconnect, completion and cached-output hydration claim every
 sealed offer before publishing descriptors or artifacts. A changed backend,
 registry or stored execution closes publication even after acknowledgment.
 Missing sealed authority refuses terminal hydration. The offer keys must cover
-exactly the fetched output keys and every saved artifact by index and value;
-partial source authority cannot authorize unoffered results. These claims do
-not certify the execution's full holder set.
+every fetched output key and every saved artifact by index and value. Sealed
+intermediate outputs may be absent from the fetched display inventory; their
+sources are still claimed before publication. Partial source authority cannot
+authorize unoffered results. These claims do not certify the execution's full
+holder set.
 
 Value discovery carries the parent output's offer even for a nested-element
 peek. Discovery is uncached and validates the runtime node and output before
@@ -243,6 +245,9 @@ Live and mirrored structured outputs and preview records also await incomplete
 shown-result ownership, including records with no known digest. Later events
 for that execution wait for admission so completion cannot overtake the held
 payload. Refusal withholds that payload without blocking unrelated executions.
+If submit registration overtakes live-event admission, the event retains roots
+again under that first registered owner before publication. A replacement,
+disconnect or registry change still invalidates the pending event.
 Self-contained Blob and ArrayBuffer preview bytes need no additional ownership
 request, but still follow any pending event from the same execution.
 
