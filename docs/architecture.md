@@ -71,9 +71,11 @@ are refused. Reconnect, completion and cached-output hydration claim every
 sealed offer before publishing descriptors or artifacts. A changed backend,
 registry or stored execution closes publication even after acknowledgment.
 Missing sealed authority refuses terminal hydration. The offer keys must cover
-exactly the fetched output keys and every saved artifact by index and value;
-partial source authority cannot authorize unoffered results. These claims do
-not certify the execution's full holder set.
+every fetched output key and every saved artifact by index and value. Sealed
+intermediate outputs may be absent from the fetched display inventory; their
+sources are still claimed before publication. Partial source authority cannot
+authorize unoffered results. These claims do not certify the execution's full
+holder set.
 
 Value discovery carries the parent output's offer even for a nested-element
 peek. Discovery is uncached and validates the runtime node and output before

@@ -9415,10 +9415,12 @@ export class AppState {
           const outputs = job.outputs ?? {}
           if (!workspaceRecord(outputs) || Object.values(outputs).some((node) => !workspaceRecord(node))) return false
           const outputKeys = Object.entries(outputs).flatMap(([nodeId, node]) =>
-            Object.keys(node as Record<string, unknown>).map((outputId) => JSON.stringify([nodeId, outputId]))).sort()
-          const offeredKeys = terminal.offers.flatMap((offer) => offer.outputId === undefined ? [] :
-            [JSON.stringify([offer.nodeId, offer.outputId])]).sort()
-          if (canonicalJson(outputKeys) !== canonicalJson(offeredKeys) ||
+            Object.keys(node as Record<string, unknown>).map((outputId) => JSON.stringify([nodeId, outputId])))
+          const offeredKeys = new Set(terminal.offers.flatMap((offer) => offer.outputId === undefined ? [] :
+            [JSON.stringify([offer.nodeId, offer.outputId])]))
+          // The seal also retains intermediate outputs omitted from job.outputs.
+          // Every published output needs a source; all sealed sources are claimed.
+          if (outputKeys.some((key) => !offeredKeys.has(key)) ||
             terminal.offers.filter((offer) => offer.artifact !== undefined).length !== (job.artifacts?.length ?? 0)) return false
           for (const offer of terminal.offers) {
             if (offer.artifact !== undefined) {
