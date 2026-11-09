@@ -2250,6 +2250,7 @@ interface BackendBase {
   readonly baseUrl: string
   readonly registry: Signal<SchemaRegistry | undefined>
   readonly comfyTranslations: Signal<readonly ComfyTranslation[]>
+  readonly comfyTranslationsUnavailable: Signal<boolean>
   /** Execution locations advertised by the current native server life. */
   readonly workerCatalog: Signal<WorkerCatalogState>
   readonly templatesEnabled: Signal<boolean>
@@ -3137,6 +3138,7 @@ export class AppState {
     })
     register('search.open', 'command.search.open', 'Ctrl+K', () => this.searchOpen.set(true))
     this.settings.register({ id: 'search.recentActivations', get name() { return t('settings.search.recentActivations') }, category: 'search', type: 'string', defaultValue: '[]' })
+    this.settings.register({ id: 'search.registryUrl', get name() { return t('search.registryUrl.name') }, get description() { return t('search.registryUrl.description') }, category: 'search', type: 'string', defaultValue: 'https://registry.dinkster.org/static' })
     this.frontendDoors.canvasLayer('core.canvas.grid', canvasGridLayer(defaultTokens))
     this.frontendDoors.nodeDecoration('core.node.mode', {
       decorate: (node) => node.mode === 'muted'
@@ -4011,6 +4013,7 @@ export class AppState {
       baseUrl,
       registry,
       comfyTranslations: createSignal<readonly ComfyTranslation[]>([]),
+      comfyTranslationsUnavailable: createSignal(true),
       workerCatalog,
       templatesEnabled: createSignal(false),
       schemaState: createSignal<
@@ -4112,7 +4115,8 @@ export class AppState {
       return () => unsubs.forEach((u) => u())
     }
     {
-      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId() })
+      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId(),
+        registryStaticUrl: () => this.settings.get<string>('search.registryUrl') })
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
       // Epoch-gated registry refresh (schema_changed / composition_complete
       // pings are invalidations, never deltas). Coalesced: one fetch in
@@ -4174,7 +4178,11 @@ export class AppState {
             const [fresh, translations] = await Promise.all([
               connection.fetchSchemas(),
               connection.fetchComfyTranslations().catch((error: unknown) => {
-                if (gen === staleGen) this.log('warn', label, `ComfyUI translation index unavailable: ${String(error)}`)
+                if (gen === staleGen) {
+                  base.comfyTranslations.set([])
+                  base.comfyTranslationsUnavailable.set(true)
+                  this.log('warn', label, `ComfyUI translation index unavailable: ${String(error)}`)
+                }
                 return undefined
               }),
             ])
@@ -4189,7 +4197,8 @@ export class AppState {
               continue
             }
             const layered = this.layerExtraSchemas(fresh)
-            if (translations !== undefined) base.comfyTranslations.set(translations)
+            base.comfyTranslationsUnavailable.set(translations === undefined)
+            base.comfyTranslations.set(translations ?? [])
             registry.set(layered)
             base.invalidateRemoteChoices()
             this.refreshWorkerCatalog(nativeBackend, layered)
@@ -4287,6 +4296,17 @@ export class AppState {
         handleStatusChange,
       )
       const disposeMountHealth = connection.mountError.subscribe(() => this.backendsTick.update((v) => v + 1))
+      let catalogPrefix = this.settings.get<string>('search.registryUrl')
+      const disposeCatalogSetting = this.settings.changed.subscribe(() => {
+        const prefix = this.settings.get<string>('search.registryUrl')
+        if (prefix === catalogPrefix) return
+        catalogPrefix = prefix
+        staleGen += 1
+        base.comfyTranslations.set([])
+        base.comfyTranslationsUnavailable.set(true)
+        if (registry.get() !== undefined) startRefresh('registry static prefix changed')
+        else void this.loadBackendSchemas(nativeBackend)
+      })
       const disposeCompletionHydration = connection.onLiveCompletion((ref) => {
         hydrateDinksterCompletedExecution(connection, this.store, ref).catch((error: unknown) => {
           this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
@@ -4307,6 +4327,7 @@ export class AppState {
         dispose: () => {
           compositionRequest += 1
           this.clearProblems(packProblemsOwner)
+          disposeCatalogSetting()
           disposeCompletionHydration()
           disposeMountHealth()
           disposeConnection()
@@ -6112,7 +6133,7 @@ export class AppState {
       ? importVia ?? (active !== undefined ? this.backendForTab(active) : this.backends.get()[0])
       : undefined
     const importRegistry = importBackend?.registry.get()
-    const legacyLoaded = legacy ? this.importLegacy(json, importRegistry, importBackend?.comfyTranslations.get()) : undefined
+    const legacyLoaded = legacy ? this.importLegacy(json, importRegistry, importBackend?.comfyTranslations.get(), importBackend?.comfyTranslationsUnavailable.get()) : undefined
     const loaded = legacyLoaded ?? loadDocument(json)
     if (!loaded.document) {
       // No tab exists to own a failed load; the errors are app-scoped
@@ -6881,7 +6902,7 @@ export class AppState {
     this.reportProblems(tab.id, drift)
   }
 
-  private importLegacy(json: unknown, registry: SchemaRegistry | undefined, translations: readonly ComfyTranslation[] = []): {
+  private importLegacy(json: unknown, registry: SchemaRegistry | undefined, translations: readonly ComfyTranslation[] = [], unavailable = false): {
     readonly document?: WorkflowDocument
     readonly diagnostics: readonly Diagnostic[]
   } {
@@ -6900,7 +6921,14 @@ export class AppState {
         ...(version !== undefined ? { version } : {}),
       }))
     })
-    return importLitegraph(json as JsonObject, registry.resolve, undefined, [...translations, ...installed])
+    const installedSources = new Set(installed.map((record) => record.rule.from))
+    const result = importLitegraph(json as JsonObject, registry.resolve, undefined, [
+      ...translations.filter((record) => !installedSources.has(record.source ?? record.rule.from)), ...installed,
+    ])
+    if (!unavailable) return result
+    return { ...result, diagnostics: result.diagnostics.map((entry) => entry.code === 'import.schema.missing'
+      ? { ...entry, code: 'import.registry.unreachable', message: `registry could not be reached; ${entry.message}`, data: { detail: entry.message } }
+      : entry) }
   }
 
   /**
@@ -7188,16 +7216,22 @@ export class AppState {
    * (and retries on ready) instead of a scary fetch-failed problem. */
   private async loadBackendSchemas(backend: Backend): Promise<void> {
     const request = {}
+    const catalogPrefix = this.settings.get<string>('search.registryUrl')
     this.schemaRequests.set(backend, request)
     this.invalidateWorkerCatalog(backend)
     backend.schemaState.set({ status: 'loading' })
     const current = (): boolean =>
-      this.backends.get().includes(backend) && this.schemaRequests.get(backend) === request
+      this.backends.get().includes(backend) && this.schemaRequests.get(backend) === request &&
+      this.settings.get<string>('search.registryUrl') === catalogPrefix
     try {
       const [registry, translations] = await Promise.all([
         backend.connection.fetchSchemas(),
         backend.connection.fetchComfyTranslations().catch((error: unknown) => {
-          this.log('warn', backend.label, `ComfyUI translation index unavailable: ${String(error)}`)
+          if (current()) {
+            backend.comfyTranslations.set([])
+            backend.comfyTranslationsUnavailable.set(true)
+            this.log('warn', backend.label, `ComfyUI translation index unavailable: ${String(error)}`)
+          }
           return undefined
         }),
       ])
@@ -7205,7 +7239,8 @@ export class AppState {
       await this.prepareExtensionWorld(backend, registry)
       if (!current()) return
       const layered = this.layerExtraSchemas(registry)
-      if (translations !== undefined) backend.comfyTranslations.set(translations)
+      backend.comfyTranslationsUnavailable.set(translations === undefined)
+      backend.comfyTranslations.set(translations ?? [])
       backend.registry.set(layered)
       backend.schemaState.set({ status: 'ready' })
       backend.invalidateRemoteChoices()

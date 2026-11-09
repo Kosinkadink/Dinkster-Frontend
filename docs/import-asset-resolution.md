@@ -39,16 +39,25 @@ packs do not need a release version; absent pack/version provenance stays
 absent rather than becoming a fabricated installation pin. Historical
 Dinkster-document migrations remain separate from ComfyUI conversion.
 
-Backend startup, schema changes and reconnects read `GET /api/comfy-translations`
-into the import-only catalog using the ordinary schema and replacement-rule decoders. Conditional
-reads revalidate the connection-local ETag; invalid or duplicate-source data
-does not replace the cached index. Successful refreshes publish the import
-catalog before the executable registry; responses from an earlier server life
-and their failure warnings are discarded. Translation lookup failures retain available import metadata,
-are logged and do not prevent opening documents through the installed-schema path. The
-endpoint's wheel-owned snapshot is independent of installed packs; its
-development versions do not establish registry availability. Mirror selection
-is owned by the metadata-serving backend, not inferred from installed schemas.
+Backend startup, schema changes and reconnects read `replacements/index.json`
+under the Node catalog static prefix setting (`search.registryUrl`, default
+`https://registry.dinkster.org/static`). Per-pack
+`packs/<pack>/<version>/schemas.json` supplies import-only interfaces, including
+conditional targets and helpers. These public reads omit backend credentials.
+Conditional reads revalidate the connection-local index ETag and re-read pack
+interfaces; a failed read never falls back to a stale or shipped catalog.
+Duplicate-source index rows are invalid. Multiple candidates for one source
+remain ambiguous placeholders with a named Problems entry rather than choosing
+a pack silently. Alias discovery names use the unchanged canonical rule's
+conversion with the authored source identity.
+
+Successful refreshes publish the import catalog before the executable registry;
+responses from an earlier server life and their failure warnings are discarded.
+When the registry cannot be reached, missing-pack nodes keep their original
+values and editable placeholders, with `import.registry.unreachable` naming
+each class in Problems. Installed schema rules still convert normally. Clearing
+the static prefix disables remote lookup and uses the same installed-only path.
+There is no backend translation snapshot route or offline shipped copy.
 
 The shared `DinksterConnection` client exposes `planPackInstall` for exact
 pack/version selections and `applyPackInstall` for the server-held confirmation

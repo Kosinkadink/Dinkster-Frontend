@@ -173,10 +173,12 @@ export interface ImportLitegraphResult {
 
 /** Import-only interfaces never join the installed schema registry. */
 export interface ComfyTranslation {
+  readonly source?: string
   readonly pack?: string
   readonly version?: string
   readonly rule: ReplacementRule
   readonly schema: NodeSchema
+  readonly interfaces?: readonly NodeSchema[]
 }
 
 export interface ImportedNodePackResolution {
@@ -729,10 +731,17 @@ export function importLitegraph(
 ): ImportLitegraphResult {
   const ingress = ownJson(input)
   if (!ingress.ok) return { diagnostics: [imp('error', 'import.notJson', `workflow rejected: ${ingress.reason}`)] }
-  const bySource = new Map(translations.map((record) => [record.rule.from, record]))
-  const importSchemas = new Map(translations.flatMap((record) => [
-    [record.rule.from, { ...record.schema, type: record.rule.from }] as const,
-    [record.schema.type, record.schema] as const,
+  const ambiguous = new Set<string>()
+  const bySource = new Map<string, ComfyTranslation>()
+  for (const record of translations) {
+    const source = record.source ?? record.rule.from
+    if (bySource.has(source)) ambiguous.add(source)
+    bySource.set(source, record)
+  }
+  for (const source of ambiguous) bySource.delete(source)
+  const importSchemas = new Map([...bySource].flatMap(([source, record]) => [
+    [source, { ...record.schema, type: source }] as const,
+    ...(record.interfaces ?? [record.schema]).map((schema) => [schema.type, schema] as const),
   ]))
   const resolveForImport = (type: string): NodeSchema | undefined => {
     const installed = resolve(type)
@@ -746,6 +755,9 @@ export function importLitegraph(
   if (!result.document) return result
   let document = result.document
   const diagnostics = [...result.diagnostics]
+  for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+    if (ambiguous.has(node.type)) diagnostics.push(imp('warning', 'import.translation.ambiguous', `node ${node.id} ('${node.type}'): multiple registry replacements; original node kept for review`))
+  }
   for (const [graphId, graph] of Object.entries(document.graphs)) {
     const pending = Object.values(graph.nodes).map((node) => ({ nodeId: node.id as string, sources: [] as string[], sourceClass: node.type }))
     for (let index = 0; index < pending.length; index++) {
@@ -759,7 +771,7 @@ export function importLitegraph(
         diagnostics.push(imp('warning', 'import.translation.cycle', `translation cycle at '${node.type}' in ${graphId}/${nodeId}; node kept for review`))
         continue
       }
-      const rule = freshImportHelpers(record.rule, document.graphs[graphId]!, node.id)
+      const rule = freshImportHelpers({ ...record.rule, from: node.type }, document.graphs[graphId]!, node.id)
       const planned = planReplacement(document, graphId, node.id, rule, resolveForImport)
       // A failed translation is advisory: retain the editable imported node.
       diagnostics.push(...planned.diagnostics.map((entry) => ({ ...entry, severity: entry.severity === 'error' ? 'warning' as const : entry.severity })))

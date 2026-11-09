@@ -1,4 +1,6 @@
 {
+  "search.registryUrl.name": "Node catalog static prefix",
+  "search.registryUrl.description": "Registry or static mirror prefix for first-party node search and ComfyUI imports. Clear to use installed nodes only.",
   "canvasImport.title": "Import image",
   "canvasImport.description": "Choose where to import {name}. Nothing is uploaded until you confirm.",
   "canvasImport.confirm": "Import image",

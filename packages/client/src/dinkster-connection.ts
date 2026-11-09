@@ -770,6 +770,8 @@ export interface DinksterConnectionConfig extends CollabCredentials {
   readonly id: ConnectionId
   /** HTTP base, no trailing slash. '' = same origin (dev proxy). */
   readonly baseUrl: string
+  /** Public registry static prefix; backend credentials never accompany these reads. */
+  readonly registryStaticUrl?: () => string
   /** Stable per-session client id; jobs and WS routing are keyed by it. */
   readonly clientId: string
   /** Immutable window project; folder preferences never change global priorities. */
@@ -1669,6 +1671,8 @@ export class DinksterConnection {
   private readonly clientId: string
   private readonly project: string | undefined
   private readonly fetchFn: FetchLike
+  private readonly registryFetchFn: FetchLike
+  private readonly registryStaticUrl: () => string
   private readonly normalizer: DinksterNormalizer
   private readonly extensionSnapshots = new Map<string, EffectiveExtensionSnapshot>()
   private readonly listeners = new Set<(e: NormalizedEvent) => void>()
@@ -1714,6 +1718,8 @@ export class DinksterConnection {
     this.clientId = config.clientId
     this.project = config.project
     const fetchFn = config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
+    this.registryFetchFn = fetchFn
+    this.registryStaticUrl = config.registryStaticUrl ?? (() => '')
     this.fetchFn = config.token !== undefined || config.actorKind !== undefined
       ? credentialFetch(config, fetchFn)
       : fetchFn
@@ -2729,44 +2735,66 @@ export class DinksterConnection {
     return payload
   }
 
-  private comfyTranslationCache: { readonly etag: string | null; readonly records: readonly ComfyTranslation[] } | undefined
+  private comfyTranslationCache: { readonly url: string; readonly etag: string | null; readonly body: unknown } | undefined
   private comfyTranslationRequestGeneration = 0
 
   /** Import-only metadata; never adds schemas to the executable registry. */
   async fetchComfyTranslations(): Promise<readonly ComfyTranslation[]> {
     const generation = ++this.comfyTranslationRequestGeneration
-    const cached = this.comfyTranslationCache
+    const prefix = this.registryStaticUrl().trim().replace(/\/+$/, '')
+    if (!prefix) throw new Error('No registry static prefix configured')
+    const url = `${prefix}/replacements/index.json`
+    const cached = this.comfyTranslationCache?.url === url ? this.comfyTranslationCache : undefined
     return requestWithDeadline(async (signal) => {
-      const response = await this.fetchFn(`${this.baseUrl}/api/comfy-translations`, {
-        signal, ...(cached?.etag ? { headers: { 'If-None-Match': cached.etag } } : {}),
+      const response = await this.registryFetchFn(url, {
+        signal, credentials: 'omit', ...(cached?.etag ? { headers: { 'If-None-Match': cached.etag } } : {}),
       })
-      if (response.status === 304 && cached) return cached.records
-      if (!response.ok) throw new Error(`GET /api/comfy-translations failed: ${response.status}`)
-      const raw: unknown = await response.json()
+      if (response.status !== 304 && !response.ok) throw new Error(`Registry replacements request failed: ${response.status}`)
+      const raw: unknown = response.status === 304 && cached ? cached.body : await response.json()
       if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('Malformed ComfyUI translation index')
       const index = raw as Record<string, unknown>
       if (index['schemaVersion'] !== 1 || !Array.isArray(index['items'])) throw new Error('Malformed ComfyUI translation index')
       const sources = new Set<string>()
-      const records = index['items'].map((item: unknown): ComfyTranslation => {
+      const packs = new Map<string, Promise<readonly NodeSchema[]>>()
+      const interfaces = (pack: string, version: string): Promise<readonly NodeSchema[]> => {
+        const path = `${prefix}/packs/${encodeURIComponent(pack)}/${encodeURIComponent(version)}/schemas.json`
+        let pending = packs.get(path)
+        if (!pending) {
+          pending = (async () => {
+            const result = await this.registryFetchFn(path, { signal, credentials: 'omit' })
+            if (!result.ok) throw new Error(`Registry pack schemas request failed: ${result.status}`)
+            const envelope = await result.json() as Record<string, unknown>
+            if (envelope['packName'] !== pack || envelope['version'] !== version || !Array.isArray(envelope['schemas'])) throw new Error('Invalid registry schema envelope')
+            return envelope['schemas'].map((entry: Record<string, unknown>) => {
+              if (typeof entry['nodeType'] !== 'string' || entry['schemaWireVersion'] !== DINKSTER_SCHEMA_WIRE_VERSION ||
+                typeof entry['schema'] !== 'object' || entry['schema'] === null) throw new Error('Invalid registry schema entry')
+              const decoded = parseDinksterSchema(entry['nodeType'], { ...entry['schema'], pack } as DinksterWireSchema)
+              if (!decoded.schema) throw new Error(`Invalid ComfyUI import interface: ${entry['nodeType']}`)
+              return decoded.schema
+            })
+          })()
+          packs.set(path, pending)
+        }
+        return pending
+      }
+      const records = (await Promise.all(index['items'].map(async (item: unknown): Promise<ComfyTranslation[]> => {
         if (typeof item !== 'object' || item === null || Array.isArray(item)) throw new Error('Malformed ComfyUI translation record')
         const row = item as Record<string, unknown>
-        const schema = row['schema']
-        if (typeof row['pack'] !== 'string' || !row['pack'] || typeof row['version'] !== 'string' || !row['version'] ||
-          !isReplacementRule(row['rule']) || typeof schema !== 'object' || schema === null || Array.isArray(schema)) {
-          throw new Error('Malformed ComfyUI translation record')
-        }
-        const type = (schema as Record<string, unknown>)['nodeType']
-        const rule = row['rule']
-        if (typeof type !== 'string' || !type || sources.has(rule.from) || !rule.cases.every((branch) => branch.to === type)) {
-          throw new Error('Ambiguous ComfyUI translation identity')
-        }
-        sources.add(rule.from)
-        const decoded = parseDinksterSchema(type, schema as DinksterWireSchema)
-        if (!decoded.schema) throw new Error(`Invalid ComfyUI import interface: ${type}`)
-        return { pack: row['pack'], version: row['version'], rule, schema: decoded.schema }
-      })
+        if (typeof row['from'] !== 'string' || !row['from'] || sources.has(row['from']) || !Array.isArray(row['candidates'])) throw new Error('Ambiguous ComfyUI translation identity')
+        sources.add(row['from'])
+        const source = row['from']
+        return Promise.all(row['candidates'].map(async (candidate: Record<string, unknown>): Promise<ComfyTranslation> => {
+          if (typeof candidate['pack'] !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(candidate['pack']) ||
+            typeof candidate['version'] !== 'string' || !/^[0-9][a-zA-Z0-9.!+_-]*$/.test(candidate['version']) ||
+            typeof candidate['target'] !== 'string' || !isReplacementRule(candidate['rule'])) throw new Error('Malformed ComfyUI translation candidate')
+          const schemas = await interfaces(candidate['pack'], candidate['version'])
+          const schema = schemas.find((schema) => schema.type === candidate['target'])
+          if (!schema) throw new Error(`Missing ComfyUI import interface: ${candidate['target']}`)
+          return { source, pack: candidate['pack'], version: candidate['version'], rule: candidate['rule'], schema, interfaces: schemas }
+        }))
+      }))).flat()
       signal.throwIfAborted()
-      if (generation === this.comfyTranslationRequestGeneration) this.comfyTranslationCache = { etag: response.headers.get('ETag'), records }
+      if (generation === this.comfyTranslationRequestGeneration) this.comfyTranslationCache = { url, etag: response.status === 304 ? cached?.etag ?? null : response.headers.get('ETag'), body: raw }
       return records
     })
   }

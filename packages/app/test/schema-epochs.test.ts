@@ -70,12 +70,17 @@ describe('schema_changed epoch invalidation', () => {
     } else push(backend, { type: 'schema_changed', epoch: 2 })
     await vi.waitFor(() => expect(backend.registry.get()?.epoch).toBe(2))
 
-    app.openDocument({ nodes: [{ id: 1, type: 'StringLength' }], links: [] }, 'Refreshed import', backend)
+    app.openDocument({ nodes: [{ id: 1, type: 'StringLength', widgets_values: ['retained during outage'] }], links: [] }, 'Refreshed import', backend)
     const document = app.activeTab()!.store.doc
-    expect(document.graphs.g0!.nodes.n1!.type).toBe('dinkster.text.string_length')
+    expect(document.graphs.g0!.nodes.n1!.type).toBe(available ? 'dinkster.text.string_length' : 'StringLength')
     expect(resolveImportedNodePacks(document, backend.registry.get()!.resolve)).toEqual([
-      expect.objectContaining({ status: 'installable', pack: 'dinkster-text', version: available ? '0.0.2' : '0.0.1' }),
+      expect.objectContaining(available ? { status: 'installable', pack: 'dinkster-text', version: '0.0.2' } : { status: 'unknown' }),
     ])
+    if (!available) {
+      expect(document.graphs.g0!.nodes.n1!.ext!['importer.rawWidgetValues']).toEqual(['retained during outage'])
+      expect(app.problems.get()).toContainEqual(expect.objectContaining({ code: 'import.registry.unreachable', message: expect.stringContaining('StringLength') }))
+      expect(app.activeTab()!.store.dispatch({ command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: 'Still editable' } }).ok).toBe(true)
+    }
   })
 
   it('refetches once and replaces the registry when a newer epoch is pinged', async () => {

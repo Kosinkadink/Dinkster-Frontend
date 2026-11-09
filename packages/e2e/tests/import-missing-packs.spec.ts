@@ -2,6 +2,61 @@ import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect, nativeTest as test, openRailPanel } from './fixtures.js'
 
+test('keeps installed conversions and editable missing-pack placeholders during a registry outage', async ({ page }) => {
+  let reachable = false
+  const stringPort = { role: 'input', id: 'text', required: true,
+    type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'STRING', multiline: false } }
+  const installed = { schemaVersion: 1, displayName: 'Installed Text', interface: [stringPort],
+    replacements: [{ from: 'InstalledLegacy', cases: [{ to: 'dinkster.text.installed', inputs: { text: { kind: 'copy', input: 'text' } }, outputs: {} }] }] }
+  await page.route('/api/**', (route) => route.fulfill({ status: 503 }))
+  await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, nodes: { 'dinkster.text.installed': installed },
+  } }))
+  await page.route('https://registry.dinkster.org/static/replacements/index.json', (route) => reachable
+    ? route.fulfill({ json: { schemaVersion: 1, items: [{ from: 'MissingLegacy', candidates: [{ pack: 'dinkster-missing', version: '0.0.1', target: 'dinkster.missing.text',
+      rule: { from: 'MissingLegacy', cases: [{ to: 'dinkster.missing.text', inputs: { text: { kind: 'copy', input: 'text' } }, outputs: {} }] },
+    }] }] } }) : route.fulfill({ status: 503 }))
+  await page.route('https://registry.dinkster.org/static/packs/*/*/schemas.json', (route) => route.fulfill({ json: {
+    packName: 'dinkster-missing', version: '0.0.1', schemas: [{ nodeType: 'dinkster.missing.text', schemaWireVersion: 1,
+      schema: { schemaVersion: 1, displayName: 'Missing Pack Text', interface: [stringPort] } }],
+  } }))
+  await page.routeWebSocket('**/api/events?*', () => {})
+  await page.goto('/')
+  await page.waitForFunction(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)
+  const open = () => page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.openDocument({ nodes: [
+      { id: 1, type: 'InstalledLegacy', pos: [30, 60], widgets_values: ['Installed value retained'] },
+      { id: 2, type: 'MissingLegacy', pos: [360, 60], widgets_values: ['Missing value retained'] },
+    ], links: [] }, 'Registry availability')
+    const document = app.activeTab()!.store.doc as unknown as import('@dinkster/core').WorkflowDocument
+    return Object.values(document.graphs.g0!.nodes).map((node) => ({ type: node.type, values: node.values, ext: node.ext }))
+  })
+  const offline = await open()
+  expect(offline[0]).toMatchObject({ type: 'dinkster.text.installed', values: { text: 'Installed value retained' } })
+  expect(offline[1]).toMatchObject({ type: 'MissingLegacy', ext: { 'importer.rawWidgetValues': ['Missing value retained'] } })
+  await openRailPanel(page, 'Problems')
+  await expect(page.getByTestId('problems-panel')).toContainText('registry could not be reached')
+  await expect(page.getByTestId('problems-panel')).toContainText('MissingLegacy')
+  await page.getByTestId('problems-panel').locator('summary').filter({ hasText: 'registry could not be reached' }).click()
+  const evidence = process.env['DINKSTER_IMPORT_PACK_EVIDENCE']
+  if (evidence) {
+    mkdirSync(evidence, { recursive: true })
+    await page.screenshot({ path: resolve(evidence, 'registry-unreachable.png') })
+  }
+  reachable = true
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    await app.refreshBackendSchemas(app.backends.get()[0]!)
+  })
+  const online = await open()
+  expect(online[0]).toMatchObject({ type: 'dinkster.text.installed', values: { text: 'Installed value retained' } })
+  expect(online[1]).toMatchObject({ type: 'dinkster.missing.text', values: { text: 'Missing value retained' } })
+  await expect(page.getByTestId('imported-packs-report')).toContainText('dinkster-missing')
+  if (evidence) await page.screenshot({ path: resolve(evidence, 'registry-reachable.png') })
+})
+
 test('reports missing packs and preserves edits as the active registry gains their nodes', async ({ page }) => {
   let installed = false
   let applyCount = 0
@@ -15,15 +70,20 @@ test('reports missing packs and preserves edits as the active registry gains the
       'dinkster.image.save_image': { schemaVersion: 1, displayName: 'SaveImage', interface: [] },
     } : {},
   } }))
-  await page.route('/api/comfy-translations', (route) => route.fulfill({ json: {
+  await page.route('https://registry.dinkster.org/static/replacements/index.json', (route) => route.fulfill({ json: {
     schemaVersion: 1, items: [
       ['SaveImage', 'dinkster-image', 'dinkster.image.save_image'],
       ['KSampler', 'dinkster-sampling', 'dinkster.sampling.k_sampler'],
-    ].map(([from, pack, type]) => ({ pack, version: '0.0.1',
-      schema: { nodeType: type, schemaVersion: 1, displayName: from, interface: [] },
+    ].map(([from, pack, type]) => ({ from, candidates: [{ pack, version: '0.0.1', target: type,
       rule: { from, cases: [{ to: type, inputs: {}, outputs: {} }] },
-    })),
+    }] })),
   } }))
+  await page.route('https://registry.dinkster.org/static/packs/*/*/schemas.json', (route) => {
+    const pack = new URL(route.request().url()).pathname.split('/')[3]!
+    const type = pack === 'dinkster-image' ? 'dinkster.image.save_image' : 'dinkster.sampling.k_sampler'
+    return route.fulfill({ json: { packName: pack, version: '0.0.1', schemas: [{ nodeType: type, schemaWireVersion: 1,
+      schema: { schemaVersion: 1, displayName: type, interface: [] } }] } })
+  })
   await page.route('/api/packs/install/plan', (route) => {
     plans.push(route.request().postDataJSON())
     return refuse ? route.fulfill({ status: 404, json: { detail: 'Pack installation is not enabled on this host.' } })
