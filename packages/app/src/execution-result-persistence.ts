@@ -273,3 +273,23 @@ export function clearExecutionResults(connection?: ConnectionId): void {
   if (connection === undefined) writeResults([])
   else writeResults(readEnvelope().results.filter((result) => result.backend.connection !== connection))
 }
+
+/** Corrupt or unreadable persistence cannot authorize retiring an owner. */
+export function persistedResultOwnerIds(): ReadonlySet<string> | undefined {
+  try {
+    const raw = globalThis.localStorage.getItem(storageKey())
+    if (raw === null) return new Set()
+    if (bytesOf(raw) > MAX_PERSISTED_EXECUTION_BYTES) return undefined
+    const parsed: unknown = JSON.parse(raw)
+    if (!record(parsed) || parsed['v'] !== 1 || !Array.isArray(parsed['results'])) return undefined
+    const owners = new Set<string>()
+    for (const value of parsed['results']) {
+      const result = decodeResult(value)
+      if (result === undefined) return undefined
+      for (const receipt of result.assetRetentions ?? []) owners.add(receipt.ownerId)
+    }
+    return owners
+  } catch {
+    return undefined
+  }
+}

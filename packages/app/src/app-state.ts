@@ -201,7 +201,7 @@ import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegist
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
-import { admitWorkflowDispatch, executionAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainWorkflowAssets, workflowAssetRoots } from './workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -220,6 +220,7 @@ import {
   clearExecutionResults,
   loadExecutionResults,
   persistedCompileProof,
+  persistedResultOwnerIds,
   removeExecutionResult,
   saveExecutionResult,
   type ExecutionResultBackendIdentity,
@@ -2913,6 +2914,7 @@ export class AppState {
   }
   private readonly receiveStorage = (event: StorageEvent): void => {
     this.settings.refreshFromStorage(event.key)
+    this.retireUnusedResultOwners()
     if (event.key !== backendsKey()) return
     const incoming = decodePersistedBackends(event.newValue)
     if (!incoming) return
@@ -3211,6 +3213,7 @@ export class AppState {
         const identity = backend === undefined ? undefined : this.executionResultIdentity(backend)
         if (identity !== undefined) saveExecutionResult(execution, identity)
       }
+      this.retireUnusedResultOwners()
     })
     let previousProblems: readonly OwnedDiagnostic[] = []
     this.problems.subscribe((problems) => {
@@ -7281,6 +7284,36 @@ export class AppState {
   >()
   private readonly valueAssetReaders = new Map<RetainedAssetReader, number>()
   private readonly assetConnectionGenerations = new WeakMap<DinksterConnection, number>()
+  private readonly resultAssetOwners = new Map<string, {
+    readonly backend: Backend
+    readonly retained: RetainedAssets
+    readonly project: string
+    readonly generation: number | undefined
+  }>()
+
+  private trackResultOwner(backend: Backend, retained: RetainedAssets): void {
+    this.resultAssetOwners.set(retained.ownerId, { backend, retained, project: activeProjectId(),
+      generation: this.assetConnectionGenerations.get(backend.connection) })
+  }
+
+  private retireUnusedResultOwners(): void {
+    if (this.disposed || this.resultAssetOwners.size === 0) return
+    const persisted = persistedResultOwnerIds()
+    if (persisted === undefined) return
+    const live = new Set([...this.store.executions.get().values()].flatMap((state) =>
+      (state.assetRetentions ?? []).map((receipt) => receipt.ownerId)))
+    for (const [id, owner] of this.resultAssetOwners) {
+      const { backend, retained } = owner
+      if (activeProjectId() !== owner.project || this.backendFor(backend.id) !== backend ||
+        this.assetConnectionGenerations.get(backend.connection) !== owner.generation) continue
+      if (live.has(id) || persisted.has(id)) continue
+      // Only locally admitted owners are candidates. Another window's receipt,
+      // a disconnected lifetime, or a pending read is never adopted for release.
+      this.resultAssetOwners.delete(id)
+      void retireAssetOwner(backend.connection, retained)
+    }
+  }
+
   private workflowAssetReaderSequence = 0
   private readonly workflowAssetReaders = new WeakMap<Tab, {
     readonly document: WorkflowDocument
@@ -7668,6 +7701,7 @@ export class AppState {
       const deleted = await backend.connection.deleteHistoryRun(runId, LIBRARY_SCOPE)
       if (deleted) {
         clearExecutionResultJobRef(backend.id, runId)
+        this.retireUnusedResultOwners()
         this.backendsTick.update((v) => v + 1) // an open Runs collection re-pages
       }
       return deleted
@@ -7690,6 +7724,7 @@ export class AppState {
     try {
       const deleted = await backend.connection.clearHistory({ scope: LIBRARY_SCOPE })
       clearExecutionResults(backend.id)
+      this.retireUnusedResultOwners()
       if (deleted > 0) this.backendsTick.update((v) => v + 1)
       return deleted
     } catch (e) {
@@ -8003,14 +8038,19 @@ export class AppState {
               if (canonicalJson(observed) !== canonicalJson(receipt)) throw new Error('Persisted result retention differs')
             }
             const roots = executionAssetRoots(candidate, this.resolverWithVirtualNodes(registry.resolve))
-            const retained = await retainExecutionAssets(backend.connection, candidate.ref, roots)
+            const retained = await retainExecutionAssets(backend.connection, candidate.ref, { complete: false,
+              digests: [...new Set([...roots.digests, ...(result.assetRetentions ?? []).flatMap((receipt) => receipt.digests)])].sort() })
             if (!current() || this.store.get(candidate.ref) !== undefined) return false
             this.retainedRegistries.set(candidate.artifact, registry)
-            this.store.restoreCompleted({ ...candidate, assetRetentions: [...result.assetRetentions ?? [], retained] })
+            // Restore takes independent ownership of the full saved roots, not
+            // authority to retire the source window's shown-result generation.
+            this.trackResultOwner(backend, retained)
+            this.store.restoreCompleted({ ...candidate, assetRetentions: [retained] })
             return this.store.get(candidate.ref)?.assetRetentions?.includes(retained) === true
           })
           if (!current()) return
           if (restored === undefined) removeExecutionResult(result)
+          this.retireUnusedResultOwners()
         } catch {
           // A transport failure proves nothing; retry the retained record on a later reload.
         }
@@ -9264,6 +9304,7 @@ export class AppState {
           for (const offer of terminal.offers) {
             const retained = await retainExecutionAssets(connection, ref, offer)
             if (!current()) return false
+            this.trackResultOwner(backend, retained)
             this.store.recordAssetRetentions(ref, [retained])
           }
         }
@@ -9276,6 +9317,7 @@ export class AppState {
         const retained = await retainExecutionAssets(connection, ref, { complete: false,
           digests: [...new Set([...existing.digests, ...fetched.digests])].sort() })
         if (!current()) return false
+        this.trackResultOwner(backend, retained)
         this.store.recordAssetRetentions(ref, [retained])
         return true
       }

@@ -254,11 +254,80 @@ describe('startup result source admission', () => {
         await starting
         if (mode === 'accepted') {
           expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
-          expect(test.app.store.get(test.ref)?.assetRetentions).toContainEqual(receipt)
+          const [replacement] = test.app.store.get(test.ref)!.assetRetentions!
+          expect(replacement!.ownerId).not.toBe(receipt.ownerId)
+          expect(replacement!.digests).toContain(receipt.digests[0])
+          expect(replacement!.complete).toBe(false)
         } else {
           expect(test.app.store.get(test.ref)).toBeUndefined()
           expect(loadExecutionResults(test.backendIdentity)[0]?.assetRetentions).toEqual([receipt])
         }
+      } finally { test.app.dispose() }
+    },
+  )
+
+  it.each(['accepted', 'lost', 'conflict', 'disconnected', 'corrupt-storage'] as const)(
+    'retires only the final locally admitted result holder: %s', async (mode) => {
+      const test = setup()
+      const original: RetainedAssets = { scope: 'local', ownerKind: 'shown-result',
+        ownerId: 'execution-result:other-window', revision: 1, complete: true,
+        digests: [`blake3:${'c'.repeat(64)}`], sourceToken: 'a'.repeat(32) }
+      saveExecutionResult({ ...test.saved, assetRetentions: [original] }, test.backendIdentity)
+      const owners = new Map([[original.ownerId, original]])
+      vi.mocked(test.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const receipt = { ...owner, ...declaration, revision: 1 }
+        owners.set(owner.ownerId, receipt)
+        return receipt
+      })
+      vi.spyOn(test.backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+      vi.spyOn(test.backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        const held = owners.get(owner.ownerId)!
+        if (held.revision !== revision) throw new Error('Revision conflict')
+        if (owner.ownerKind === 'shown-result' && mode === 'conflict') {
+          owners.set(owner.ownerId, { ...held, revision: 3, digests: [`blake3:${'d'.repeat(64)}`] })
+          throw new Error('Owner reused')
+        }
+        const { sourceToken: _source, ...unbound } = held
+        const tombstone = { ...unbound, revision: revision + 1, digests: [], complete: true }
+        owners.set(owner.ownerId, tombstone)
+        if (owner.ownerKind === 'shown-result' && mode === 'lost') throw new Error('Lost response')
+        return tombstone
+      })
+      vi.spyOn(test.backend.connection, 'clearHistory').mockResolvedValue(1)
+      try {
+        await test.app.start()
+        const restored = test.app.store.get(test.ref)!
+        const local = restored.assetRetentions!.find((receipt) => receipt.ownerId !== original.ownerId)!
+        expect(local.digests).toContain(original.digests[0])
+        test.app.store.retain(test.ref)
+        expect(await test.app.clearRunHistory(test.backend.id)).toBe(1)
+        expect(loadExecutionResults(test.backendIdentity)).toHaveLength(0)
+        expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+        expect(owners.get(local.ownerId)).toEqual(local)
+        if (mode === 'disconnected') {
+          vi.mocked(test.backend.connection.connect).mockRestore()
+          test.backend.connection.connect()
+          test.backend.connection.disconnect()
+        }
+        if (mode === 'corrupt-storage') localStorage.setItem(scopedStorageKey(EXECUTION_RESULTS_STORAGE_KEY), '{')
+        for (let index = 0; index < 201; index++) {
+          const ref = { connection: test.backend.id, prompt: asPromptId(`other-${index}`) }
+          test.app.store.apply({ kind: 'started', execution: ref, timestamp: index + 100 })
+          test.app.store.apply({ kind: 'completed', execution: ref, timestamp: index + 101 })
+        }
+        expect(test.app.store.get(test.ref)).toBeDefined()
+        expect(owners.get(local.ownerId)).toEqual(local)
+        test.app.store.release(test.ref)
+        test.app.store.apply({ kind: 'started', execution: { connection: test.backend.id,
+          prompt: asPromptId('after-unpin') }, timestamp: 999 })
+        expect(test.app.store.get(test.ref)).toBeUndefined()
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        expect(owners.get(original.ownerId)).toEqual(original)
+        if (mode === 'accepted' || mode === 'lost') {
+          expect(owners.get(local.ownerId)).toMatchObject({ revision: 2, complete: true, digests: [] })
+        } else if (mode === 'conflict') {
+          expect(owners.get(local.ownerId)).toMatchObject({ revision: 3, digests: [`blake3:${'d'.repeat(64)}`] })
+        } else expect(owners.get(local.ownerId)).toEqual(local)
       } finally { test.app.dispose() }
     },
   )

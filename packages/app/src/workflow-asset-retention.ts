@@ -408,7 +408,7 @@ export async function reconcileWorkflowRetentions(
             /^execution-result:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
             typeof intent.executionKey === 'string' && intent.executionKey.length > 0
         const sourceToken = intent.sourceToken
-        const releasing = intent.releaseRevision === 1 && owner?.ownerKind === 'preview'
+        const releasing = intent.releaseRevision === 1 && (owner?.ownerKind === 'preview' || owner?.ownerKind === 'shown-result')
         if ((sourceToken !== undefined && (owner?.ownerKind !== 'shown-result' ||
             typeof sourceToken !== 'string' || !/^[0-9a-f]{32}$/.test(sourceToken))) ||
           (intent.releaseRevision !== undefined && !releasing) ||
@@ -426,7 +426,7 @@ export async function reconcileWorkflowRetentions(
         // A concurrent window may have changed the intent while the request was in flight.
         if (storage.getItem(key) !== bytes || !retentionMatches(observed, owner,
           releasing ? [] : intent.digests, releasing ? true : intent.complete,
-          sourceToken as string | undefined, releasing ? 2 : 1)) resolved = false
+          releasing ? undefined : sourceToken as string | undefined, releasing ? 2 : 1)) resolved = false
       } catch {
         resolved = false
       }
@@ -489,35 +489,7 @@ export async function readAssetPreview<T>(
     if (handoff !== undefined && await handoff(value)) {
       await reader.close()
       if (!connectionChanged && activeProjectId() === project) {
-        const key = scopedStorageKey(`dinkster.workflow-retentions.${retained.ownerId}`)
-        try {
-          const bytes = localStorage.getItem(key)
-          const intent = JSON.parse(bytes ?? 'null') as Record<string, unknown> | null
-          if (intent === null || intent.acknowledgedRevision !== retained.revision ||
-            intent.connectionId !== connection.id || intent.assetBaseUrl !== connection.assetUrl('') ||
-            canonicalJson(intent.owner) !== canonicalJson({ scope: retained.scope, ownerKind: retained.ownerKind, ownerId: retained.ownerId }) ||
-            canonicalJson(intent.digests) !== canonicalJson(retained.digests) || intent.complete !== retained.complete ||
-            intent.releaseRevision !== undefined) throw new Error('Asset read ownership changed before handoff')
-          const releasing = { ...intent, releaseRevision: retained.revision }
-          const pending = JSON.stringify(releasing)
-          localStorage.setItem(key, pending)
-          let released: RetainedAssets | undefined
-          try {
-            released = await connection.releaseRetainedAssets(retained, retained.revision)
-            if (!retentionMatches(released, retained, [], true, undefined, retained.revision + 1)) {
-              throw new Error('Asset read release acknowledgment differs')
-            }
-          } catch {
-            released = await connection.fetchRetainedAssets(retained)
-          }
-          if (localStorage.getItem(key) === pending &&
-            retentionMatches(released, retained, [], true, undefined, retained.revision + 1)) {
-            localStorage.setItem(key, JSON.stringify({ ...releasing, acknowledgedRevision: released!.revision }))
-          }
-        } catch {
-          // Publication already has independent ownership. Unconfirmed retirement
-          // stays journaled and never causes a write replay or a rollback.
-        }
+        await retireAssetOwner(connection, retained)
       }
     }
     return value
@@ -525,6 +497,38 @@ export async function readAssetPreview<T>(
     // Cancellation closes publication, not a shared renderer's pending work.
     await reader?.close()
     unsubscribe()
+  }
+}
+
+/** Only the lifetime that admitted an owner may retire its captured revision. */
+export async function retireAssetOwner(connection: DinksterConnection, retained: RetainedAssets): Promise<void> {
+  const key = scopedStorageKey(`dinkster.workflow-retentions.${retained.ownerId}`)
+  try {
+    const bytes = localStorage.getItem(key)
+    const intent = JSON.parse(bytes ?? 'null') as Record<string, unknown> | null
+    if (intent === null || intent.acknowledgedRevision !== retained.revision ||
+      intent.connectionId !== connection.id || intent.assetBaseUrl !== connection.assetUrl('') ||
+      canonicalJson(intent.owner) !== canonicalJson({ scope: retained.scope, ownerKind: retained.ownerKind, ownerId: retained.ownerId }) ||
+      canonicalJson(intent.digests) !== canonicalJson(retained.digests) || intent.complete !== retained.complete ||
+      intent.sourceToken !== retained.sourceToken || intent.releaseRevision !== undefined) return
+    const releasing = { ...intent, releaseRevision: retained.revision }
+    const pending = JSON.stringify(releasing)
+    localStorage.setItem(key, pending)
+    let released: RetainedAssets | undefined
+    try {
+      released = await connection.releaseRetainedAssets(retained, retained.revision)
+      if (!retentionMatches(released, retained, [], true, undefined, retained.revision + 1)) {
+        throw new Error('Asset release acknowledgment differs')
+      }
+    } catch {
+      released = await connection.fetchRetainedAssets(retained)
+    }
+    if (localStorage.getItem(key) === pending &&
+      retentionMatches(released, retained, [], true, undefined, retained.revision + 1)) {
+      localStorage.setItem(key, JSON.stringify({ ...releasing, acknowledgedRevision: released!.revision }))
+    }
+  } catch {
+    // Unconfirmed retirement stays journaled; recovery never replays DELETE.
   }
 }
 
