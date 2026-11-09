@@ -64,6 +64,15 @@ Terminal artifact offers include the saved file and its optional preview;
 their roots must match both descriptors. Unknown or malformed offers are not
 substituted with an empty complete manifest.
 
+Terminal hydration reads the sealed `/api/library/terminal-results/{jobRef}`
+manifest without caching. Client, job, attempt, runtime output and artifact
+index identities must agree; duplicate tokens or contradictory completeness
+are refused. Reconnect, completion and cached-output hydration claim every
+sealed offer before publishing descriptors or artifacts. A changed backend,
+registry or stored execution closes publication even after acknowledgment.
+Missing sealed authority retains the discovered roots as explicitly incomplete;
+it never certifies the execution's full holder set.
+
 Value discovery carries the parent output's offer even for a nested-element
 peek. Discovery is uncached and validates the runtime node and output before
 admission. The application binds the offer to the stored execution's jobRef,

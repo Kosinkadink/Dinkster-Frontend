@@ -321,6 +321,63 @@ describe('retained app dispatch', () => {
     vi.unstubAllGlobals()
   })
 
+  it.each(['acknowledged', 'lost', 'rejected', 'removed'] as const)(
+    'admits completed outputs and artifacts through sealed source claims: %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([{ ...schema, isOutputNode: true }])
+      app.openDocument(session().doc, 'Terminal source')
+      const tab = app.activeTab()!
+      const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
+      backend.registry.set(app.registry.get())
+      app.setTabTarget(tab.id, backend.id)
+      const compiled = app.compileTab(tab)
+      if (!compiled?.ok) throw new Error(JSON.stringify(compiled?.diagnostics))
+      const ref = { connection: backend.id, prompt: asPromptId('terminal-source') }
+      app.store.register(ref, compiled.artifact, 1, { jobRef: 'original-job' })
+      const artifact = { ...asset('b'), nodeId: 'n0' }
+      const outputs = { n0: { images: { typeId: 'ASSET', fingerprint: 'saved', meta: asset('b') } } }
+      vi.spyOn(backend.connection, 'fetchJob').mockResolvedValue({ state: 'completed', jobRef: 'original-job',
+        attemptId: 2, outputs, artifacts: [artifact] })
+      const offer = { token: 'a'.repeat(32), scope: 'local', jobRef: 'original-job', attemptId: 2,
+        nodeId: 'n0', outputId: 'images', publication: 7, digests: [asset('a').digest, asset('b').digest], complete: true }
+      const artifactOffer = { token: 'b'.repeat(32), scope: 'local', jobRef: 'original-job', attemptId: 2,
+        nodeId: 'n0', artifact: { ...artifact, index: 0 }, publication: 1, digests: [asset('b').digest], complete: true }
+      vi.spyOn(backend.connection, 'fetchTerminalResultAssets').mockResolvedValue({ scope: 'local', jobRef: 'original-job',
+        attemptId: 2, state: 'completed', complete: true, offers: [offer, artifactOffer] })
+      const admitted = deferred<void>()
+      const requested = deferred<void>()
+      const saved = new Map<string, RetainedAssets>()
+      vi.spyOn(backend.connection, 'claimResultAssets').mockImplementation(async (owner, sourceToken) => {
+        const source = sourceToken === artifactOffer.token ? artifactOffer : offer
+        const receipt = { ...owner, sourceToken, revision: 1, digests: [...source.digests], complete: true }
+        if (scenario !== 'rejected' || source === offer) saved.set(owner.ownerId, receipt)
+        if (source === offer) return receipt
+        requested.resolve()
+        await admitted.promise
+        if (scenario === 'lost' || scenario === 'rejected') throw new Error('claim response unavailable')
+        return receipt
+      })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => saved.get(owner.ownerId))
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => ({ ...owner, ...declaration, revision: 1 }))
+      backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
+      await requested.promise
+      expect(app.store.get(ref)?.outputs).toEqual({})
+      expect(app.store.get(ref)?.artifacts).toEqual([])
+      if (scenario === 'removed') app.removeBackend(backend.id)
+      admitted.resolve()
+      if (scenario === 'acknowledged' || scenario === 'lost') {
+        await vi.waitFor(() => expect(app!.store.get(ref)?.outputs).toEqual(outputs))
+        expect(app.store.get(ref)?.artifacts).toEqual([artifact])
+        expect(new Set([...saved.values()].map((receipt) => receipt.sourceToken))).toEqual(new Set([offer.token, artifactOffer.token]))
+        expect(new Set([...saved.values()].flatMap((receipt) => receipt.digests))).toEqual(new Set(offer.digests))
+      } else {
+        await new Promise<void>((done) => setImmediate(done))
+        expect(app.store.get(ref)?.outputs).toEqual({})
+        expect(app.store.get(ref)?.artifacts).toEqual([])
+      }
+    },
+  )
+
   it.each(['acknowledged', 'lost', 'rejected', 'foreign-job'] as const)(
     'admits a value through its original full parent source before publication: %s', async (scenario) => {
       const offer = { token: '0123456789abcdef'.repeat(2), scope: 'local', jobRef: 'original-job', attemptId: 2,

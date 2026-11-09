@@ -1619,6 +1619,41 @@ describe('retained asset ownership', () => {
   const owner = { scope: 'team/one', ownerKind: 'document' as const, ownerId: 'window/tab generation' }
   const manifest = { ...owner, revision: 8, digests: [a, b], complete: true }
 
+  it('reads sealed terminal authority with exact client, job, attempt and publication identities', async () => {
+    const output = { token: 'a'.repeat(32), scope: owner.scope, jobRef: 'job/ref', attemptId: 2,
+      nodeId: 'loop[3]', outputId: 'images', publication: 7, digests: [a, b], complete: true }
+    const artifact = { ...output, token: 'b'.repeat(32), outputId: undefined,
+      artifact: { nodeId: output.nodeId, index: 0, digest: b, name: 'saved.png',
+        size: 19, mediaType: 'image/png', virtualPath: 'outputs/saved.png' }, digests: [b] }
+    const wire = { scope: owner.scope, jobRef: output.jobRef, attemptId: 2, state: 'completed', complete: true,
+      identity: { clientId: 'cid', jobId: 'j1' }, resultOffers: { [output.nodeId]: { images: output } }, artifacts: [artifact] }
+    const { conn, requests } = submitHarness(() => jsonResponse(200, wire))
+    expect(await conn.fetchTerminalResultAssets(output.jobRef, 'j1', owner.scope)).toEqual({
+      scope: owner.scope, jobRef: output.jobRef, attemptId: 2, state: 'completed', complete: true,
+      offers: [output, { token: artifact.token, scope: owner.scope, jobRef: output.jobRef, attemptId: 2,
+        nodeId: output.nodeId, publication: 7, digests: [b], complete: true, artifact: artifact.artifact }],
+    })
+    expect(requests[0]!.url).toBe('http://test/api/library/terminal-results/job%2Fref?scope=team%2Fone')
+    expect(requests[0]!.init?.cache).toBe('no-store')
+    for (const mismatch of [
+      { scope: 'foreign' }, { jobRef: 'foreign' }, { attemptId: 3 }, { state: 'running' },
+      { identity: { clientId: 'other', jobId: 'j1' } }, { identity: { clientId: 'cid', jobId: 'other' } },
+      { resultOffers: { foreign: { images: output } } }, { resultOffers: { [output.nodeId]: { other: output } } },
+      { resultOffers: { [output.nodeId]: { images: { ...output, complete: false } } } },
+      { artifacts: [{ ...artifact, token: output.token }] }, { artifacts: [{ ...artifact, artifact: { ...artifact.artifact, index: 1 } }] },
+      { artifacts: null }, { artifacts: undefined }, { complete: undefined }, { state: 'failed' },
+    ]) {
+      const { conn: invalid } = submitHarness(() => jsonResponse(200, { ...wire, ...mismatch }))
+      await expect(invalid.fetchTerminalResultAssets(output.jobRef, 'j1', owner.scope)).rejects.toThrow('Terminal result assets')
+    }
+    const { conn: partial } = submitHarness(() => jsonResponse(200, { ...wire, complete: false, state: 'failed', artifacts: null }))
+    expect(await partial.fetchTerminalResultAssets(output.jobRef, 'j1', owner.scope)).toMatchObject({ complete: false, offers: [output] })
+    const { conn: missing } = submitHarness(() => jsonResponse(404, { available: false }))
+    expect(await missing.fetchTerminalResultAssets(output.jobRef, 'j1', owner.scope)).toBeUndefined()
+    const { conn: unavailable } = submitHarness(() => jsonResponse(503, {}))
+    await expect(unavailable.fetchTerminalResultAssets(output.jobRef, 'j1', owner.scope)).rejects.toThrow('failed: 503')
+  })
+
   it('reads exact immutable output and artifact offers without substituting missing or malformed roots', async () => {
     const token = '0123456789abcdef'.repeat(2)
     const base = { token, scope: owner.scope, jobRef: 'original-job', attemptId: 2, nodeId: 'loop[3]/saved',

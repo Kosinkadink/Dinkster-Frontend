@@ -534,7 +534,8 @@ describe('backend protocols', () => {
       const outputs = { image: { result: { typeId: 'asset<media/image>',
         meta: { digest: `blake3:${'e'.repeat(64)}`, mediaType: 'image/png' } } } }
       let finish!: (value: typeof outputs) => void
-      vi.spyOn(backend.connection, 'fetchJobOutputs').mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+      vi.spyOn(backend.connection, 'fetchJob').mockImplementation(async () => ({ state: 'completed',
+        outputs: await new Promise<typeof outputs>((resolve) => { finish = resolve }) }))
       app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
       app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
       expect(app.store.get(ref)?.outputs).toEqual({})
@@ -553,7 +554,7 @@ describe('backend protocols', () => {
         const fresh = { image: { result: { typeId: 'INT', value: 37 } } }
         vi.spyOn(live.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
           ({ ...owner, ...declaration, revision: 1 }))
-        vi.spyOn(live.connection, 'fetchJobOutputs').mockResolvedValue(fresh)
+        vi.spyOn(live.connection, 'fetchJob').mockResolvedValue({ state: 'completed', outputs: fresh })
         app.store.apply({ kind: 'started', execution: { ...ref, prompt: asPromptId('next-job') }, timestamp: 3 })
         await new Promise<void>((resolve) => setImmediate(resolve))
         expect(app.store.get(ref)?.outputs).toEqual(fresh)
@@ -570,7 +571,7 @@ describe('backend protocols', () => {
       const outputs = { image: { result: { typeId: 'list<ASSET>', elementsTruncated: true,
         elements: [{ typeId: 'ASSET', meta: { digest: digest('e') } },
           { typeId: 'ASSET', meta: { digest: digest('f') } }] } } }
-      vi.spyOn(ownerBackend.connection, 'fetchJobOutputs').mockResolvedValue(outputs)
+      vi.spyOn(ownerBackend.connection, 'fetchJob').mockResolvedValue({ state: 'completed', outputs })
       let acknowledge!: () => void
       let requested!: () => void
       const request = new Promise<void>((resolve) => { requested = resolve })

@@ -859,10 +859,20 @@ const decodeWorkers = (value: unknown): readonly WorkerInfo[] | undefined => {
 /** One job's wire record plus the identity it is keyed by. */
 export interface DinksterJobRecord extends DinksterJobWire {
   readonly jobId?: unknown
+  readonly attemptId?: unknown
   readonly outputs?: unknown
   readonly artifacts?: readonly ExecutionArtifact[]
   readonly submittedBy?: ExecutionSubmitter
   readonly sourceDocument?: string
+}
+
+export interface TerminalResultAssets {
+  readonly scope: string
+  readonly jobRef: string
+  readonly attemptId: number
+  readonly state: 'completed' | 'failed' | 'cancelled'
+  readonly complete: boolean
+  readonly offers: readonly ResultAssetOffer[]
 }
 
 const decodeExecutionSubmitter = (value: unknown): ExecutionSubmitter | undefined => {
@@ -2627,6 +2637,49 @@ export class DinksterConnection {
       throw new Error('Result asset offer is malformed or belongs to another source')
     }
     return offer
+  }
+
+  /** Sealed publication authority is independent of queue history and cache eviction. */
+  async fetchTerminalResultAssets(jobRef: string, jobId: string, scope = 'local'): Promise<TerminalResultAssets | undefined> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/library/terminal-results/${encodeURIComponent(jobRef)}?scope=${encodeURIComponent(scope)}`, {
+      method: 'GET', cache: 'no-store',
+    })
+    if (res.status === 404) return undefined
+    if (!res.ok) throw new Error(`GET terminal result assets failed: ${res.status}`)
+    const value: unknown = await res.json()
+    const invalid = (): never => { throw new Error('Terminal result assets are malformed or belong to another source') }
+    if (!record(value) || value['scope'] !== scope || value['jobRef'] !== jobRef ||
+      !Number.isSafeInteger(value['attemptId']) || (value['attemptId'] as number) < 1 ||
+      !['completed', 'failed', 'cancelled'].includes(value['state'] as string) || typeof value['complete'] !== 'boolean' ||
+      !record(value['identity']) || value['identity']['clientId'] !== this.clientId || value['identity']['jobId'] !== jobId ||
+      !record(value['resultOffers']) || (value['artifacts'] !== null && !Array.isArray(value['artifacts']))) return invalid()
+    const offers: ResultAssetOffer[] = []
+    const tokens = new Set<string>()
+    const add = (raw: unknown): ResultAssetOffer => {
+      const offer = parseResultAssetOffer(raw)
+      if (offer === undefined || offer.scope !== scope || offer.jobRef !== jobRef || offer.attemptId !== value['attemptId'] ||
+        tokens.has(offer.token) || (value['complete'] && !offer.complete)) return invalid()
+      tokens.add(offer.token)
+      offers.push(offer)
+      return offer
+    }
+    for (const [nodeId, outputs] of Object.entries(value['resultOffers'])) {
+      if (!record(outputs)) return invalid()
+      for (const [outputId, raw] of Object.entries(outputs)) {
+        const offer = add(raw)
+        if (offer.nodeId !== nodeId || offer.outputId !== outputId) return invalid()
+      }
+    }
+    if (value['artifacts'] === null) {
+      if (value['complete']) return invalid()
+    } else {
+      for (const [index, raw] of value['artifacts'].entries()) {
+        if (add(raw).artifact?.index !== index) return invalid()
+      }
+    }
+    if (value['complete'] && value['state'] !== 'completed') return invalid()
+    return { scope, jobRef, attemptId: value['attemptId'] as number,
+      state: value['state'] as TerminalResultAssets['state'], complete: value['complete'], offers }
   }
 
   async fetchRetainedAssets(owner: RetainedAssetOwner, signal?: AbortSignal): Promise<RetainedAssets | undefined> {

@@ -4571,31 +4571,7 @@ export class AppState {
           this.invalidateWorkerCatalog(nativeBackend)
         }
       }
-      const prepareHydration: PrepareExecutionHydration = (ref) => {
-        const generation = staleGen
-        const held = this.store.get(ref)
-        if (held === undefined) return async () => false
-        const backendRegistry = registry.get()
-        const executionRegistry = this.registryForExecution(ref)
-        const current = (): boolean => !this.disposed && generation === staleGen &&
-          this.backendFor(id) === nativeBackend && registry.get() === backendRegistry &&
-          this.registryForExecution(ref) === executionRegistry &&
-          this.store.get(ref) !== undefined && this.store.get(ref)?.artifact === held.artifact &&
-          this.store.get(ref)?.sourceDocument === held.sourceDocument
-        return async (job) => {
-          if (!current()) return false
-          if (job === undefined) return true
-          const outputs = workspaceRecord(job.outputs)
-            ? Object.fromEntries(Object.entries(job.outputs).filter(([, value]) => workspaceRecord(value))) as ExecutionState['outputs'] : {}
-          const resolve = this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined))
-          const existing = executionAssetRoots(held, resolve)
-          const fetched = executionAssetRoots({ ...held, outputs, artifacts: job.artifacts ?? [],
-            ...(job.sourceDocument === undefined ? {} : { sourceDocument: job.sourceDocument }) }, resolve)
-          await retainExecutionAssets(connection, ref, { complete: false,
-            digests: [...new Set([...existing.digests, ...fetched.digests])].sort() })
-          return current()
-        }
-      }
+      const prepareHydration: PrepareExecutionHydration = (ref) => this.prepareExecutionHydration(nativeBackend)(ref)
       const disposeConnection = wire(
         connection,
         () => reconcileDinksterExecutions(connection, this.store, prepareHydration),
@@ -9230,6 +9206,52 @@ export class AppState {
   /** Keys already hydrated (or being hydrated) from /history. */
   private readonly hydrated = new Set<string>()
 
+  private prepareExecutionHydration(backend: Backend): PrepareExecutionHydration {
+    const connection = backend.connection
+    return (ref) => {
+      const generation = this.assetConnectionGenerations.get(connection)
+      const held = this.store.get(ref)
+      if (held === undefined) return async () => false
+      const backendRegistry = backend.registry.get()
+      const executionRegistry = this.registryForExecution(ref)
+      const current = (): boolean => !this.disposed && generation === this.assetConnectionGenerations.get(connection) &&
+        this.backendFor(backend.id) === backend && backend.registry.get() === backendRegistry &&
+        this.registryForExecution(ref) === executionRegistry &&
+        this.store.get(ref) !== undefined && this.store.get(ref)?.artifact === held.artifact &&
+        this.store.get(ref)?.jobRef === held.jobRef &&
+        this.store.get(ref)?.sourceDocument === held.sourceDocument
+      return async (job) => {
+        if (!current()) return false
+        if (job === undefined) return true
+        if (held.jobRef !== undefined && job.jobRef !== held.jobRef) return false
+        if (held.jobRef !== undefined && (job.state === 'completed' || job.state === 'failed' || job.state === 'cancelled')) {
+          const terminal = await connection.fetchTerminalResultAssets(held.jobRef, ref.prompt)
+          if (!current()) return false
+          if (terminal !== undefined) {
+            if (terminal.state !== job.state || terminal.attemptId !== job.attemptId) return false
+            for (const offer of terminal.offers) {
+              if (offer.artifact !== undefined) {
+                const { index, ...artifact } = offer.artifact
+                if (canonicalJson(job.artifacts?.[index]) !== canonicalJson(artifact)) return false
+              }
+              await retainExecutionAssets(connection, ref, offer)
+              if (!current()) return false
+            }
+          }
+        }
+        const outputs = workspaceRecord(job.outputs)
+          ? Object.fromEntries(Object.entries(job.outputs).filter(([, value]) => workspaceRecord(value))) as ExecutionState['outputs'] : {}
+        const resolve = this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined))
+        const existing = executionAssetRoots(held, resolve)
+        const fetched = executionAssetRoots({ ...held, outputs, artifacts: job.artifacts ?? [],
+          ...(job.sourceDocument === undefined ? {} : { sourceDocument: job.sourceDocument }) }, resolve)
+        await retainExecutionAssets(connection, ref, { complete: false,
+          digests: [...new Set([...existing.digests, ...fetched.digests])].sort() })
+        return current()
+      }
+    }
+  }
+
   /**
    * A fully cached execution completes without ever emitting `executed`
    * events, so its outputs exist only in server history. Hydrate them once
@@ -9246,31 +9268,11 @@ export class AppState {
       const backend = this.backendFor(state.ref.connection)
       if (!backend) continue
       this.hydrated.add(state.key)
-      const registry = this.registryForExecution(state.ref)
-      let connectionChanged = false
-      const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
-      const current = (): boolean => !this.disposed && !connectionChanged &&
-        this.backendFor(state.ref.connection) === backend &&
-        this.registryForExecution(state.ref) === registry &&
-        this.store.get(state.ref)?.sourceDocument === state.sourceDocument &&
-        this.store.get(state.ref)?.artifact === state.artifact && this.store.get(state.ref)?.status === 'completed'
-      const fetched = backend.connection.fetchJobOutputs(state.ref.prompt)
-      void fetched
-        .then(async (outputs) => {
-          if (!current()) {
-            this.hydrated.delete(state.key)
-            return
-          }
-          if (Object.keys(outputs).length > 0) {
-            const roots = executionAssetRoots({ ...state, outputs },
-              this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
-            await retainExecutionAssets(backend.connection, state.ref, roots)
-            if (!current()) { this.hydrated.delete(state.key); return }
-            this.store.hydrateOutputs(state.ref, outputs)
-          }
+      void hydrateDinksterCompletedExecution(backend.connection, this.store, state.ref, this.prepareExecutionHydration(backend))
+        .then(() => {
+          if (Object.keys(this.store.get(state.ref)?.outputs ?? {}).length === 0) this.hydrated.delete(state.key)
         })
         .catch(() => this.hydrated.delete(state.key))
-        .finally(unsubscribe)
     }
   }
 
