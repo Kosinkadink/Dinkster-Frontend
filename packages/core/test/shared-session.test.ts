@@ -491,12 +491,18 @@ describe('shared DocumentSession', () => {
       const conn = new FakeConnection(baseDoc())
       const gate = deferred()
       const candidates: { document: WorkflowDocument; current: WorkflowDocument; undo: number }[] = []
+      const committed: number[] = []
       const session = await connectSharedSession(conn, coreCommandRegistry(), {
         actorId: 'actorA', retryDelay: tick, onListenerError: () => {},
         beforeRemoteDocument: async (document, _revision, current, history) => {
           candidates.push({ document, current, undo: history.undo.length })
+          const attempt = candidates.length
           await gate.promise
           if (scenario.endsWith('refused')) throw new Error('Ownership refused')
+          return () => {
+            expect(session.doc.graphs.g0!.nodes.n1!.title).toBe('Incoming')
+            committed.push(attempt)
+          }
         },
       })
       const original = session.doc
@@ -514,6 +520,7 @@ describe('shared DocumentSession', () => {
       await until(() => candidates.length > 0)
       expect(session.doc).toBe(original)
       expect(observed).toEqual([])
+      expect(committed).toEqual([])
       expect(candidates[0]!.document.graphs.g0!.nodes.n1!.title).toBe('Incoming')
       if (scenario === 'closed') session.close()
       if (scenario === 'edited') expect(session.dispatch(setTitle('n2', 'Kept locally')).ok).toBe(true)
@@ -522,16 +529,20 @@ describe('shared DocumentSession', () => {
         await until(() => session.status.get() === 'error')
         expect(session.doc).toBe(original)
         expect(observed).toEqual([])
+        expect(committed).toEqual([])
       } else if (scenario === 'closed') {
         await tick()
         expect(session.status.get()).toBe('closed')
         expect(session.doc).toBe(original)
+        expect(committed).toEqual([])
       } else {
         await until(() => session.doc.graphs.g0!.nodes.n1!.title === 'Incoming')
         if (scenario === 'edited') {
+          expect(committed[0]).toBe(2)
+          expect(committed).not.toContain(1)
           expect(candidates.some((candidate) => candidate.current.graphs.g0!.nodes.n2!.title === 'Kept locally' && candidate.undo === 1)).toBe(true)
           expect(session.doc.graphs.g0!.nodes.n2!.title).toBe('Kept locally')
-        }
+        } else expect(committed).toEqual([1])
       }
       session.close()
     },

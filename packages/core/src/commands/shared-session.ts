@@ -155,14 +155,14 @@ export interface SharedSessionOptions {
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
   /** Synchronous local command, history and rebased intention policy. */
   readonly validateCommit?: DocumentCommitPolicy
-  /** Confirm ownership before adopting incoming confirmed ground, not after notifying observers. */
+  /** Confirm ownership before adoption; an optional receipt callback runs only after commit. */
   readonly beforeRemoteDocument?: (
     document: WorkflowDocument,
     revision: number,
     currentDocument: WorkflowDocument,
     history: HistorySnapshot,
     retainedDocuments: readonly WorkflowDocument[],
-  ) => Promise<void>
+  ) => Promise<void | (() => void)>
 }
 
 /** One POST attempt of a pending intention: what was actually sent to the server. */
@@ -1157,17 +1157,17 @@ class SharedDocumentSession implements DocumentSession {
 
   // -- Sync loop (catch-up / resync) --------------------------------------------
 
-  private async admitRemoteDocument(document: WorkflowDocument, revision: number): Promise<boolean> {
+  private async admitRemoteDocument(document: WorkflowDocument, revision: number): Promise<false | (() => void)> {
     while (this.statusSignal.get() === 'catching-up') {
       const current = this.store.doc
       const history = this.historySnapshot()
       const retainedDocuments = sharedRetainedDocuments(current, this.confirmed, this.pending.map((entry) => entry.predicted))
-      await this.beforeRemoteDocument!(document, revision, current, history, retainedDocuments)
+      const committed = await this.beforeRemoteDocument!(document, revision, current, history, retainedDocuments)
       if (this.statusSignal.get() !== 'catching-up') return false
       if (this.store.doc === current && this.revision === history.revision &&
         ([['undo', this.undoStack], ['redo', this.redoStack]] as const).every(([key, records]) =>
           records.length === history[key].length && records.every((record, index) =>
-            record.forward === history[key][index]!.forward && record.inverse === history[key][index]!.inverse))) return true
+            record.forward === history[key][index]!.forward && record.inverse === history[key][index]!.inverse))) return committed ?? (() => {})
       // Local editing stays synchronous; confirm its new holders before releasing remote ground.
     }
     return false
@@ -1246,8 +1246,9 @@ class SharedDocumentSession implements DocumentSession {
           this.fail('resync snapshot failed to load')
           return
         }
-        if (this.beforeRemoteDocument !== undefined &&
-          !await this.admitRemoteDocument(loaded.document, snap.revision)) return
+        const committed = this.beforeRemoteDocument === undefined ? undefined
+          : await this.admitRemoteDocument(loaded.document, snap.revision)
+        if (committed === false) return
         // A checkpoint snapshot may sit BEHIND state this client already
         // confirmed (ordered commits never raise syncTarget). Preserve the
         // high-water mark BEFORE adopting, or the loop would rest below a
@@ -1277,6 +1278,7 @@ class SharedDocumentSession implements DocumentSession {
           }
         }
         this.rebase(oldGround, new Set(ambiguous))
+        committed?.()
         for (const entry of ambiguous) {
           this.notifyConflict({
             invocation: entry.invocation,
@@ -1311,6 +1313,7 @@ class SharedDocumentSession implements DocumentSession {
           break
         }
         if (op.revision <= this.confirmedRevision) continue // WS applied it first
+        let committed: (() => void) | undefined
         if (this.beforeRemoteDocument !== undefined) {
           if (op.revision !== this.confirmedRevision + 1) {
             this.resyncRequested = true
@@ -1326,7 +1329,9 @@ class SharedDocumentSession implements DocumentSession {
             this.resyncRequested = true
             break
           }
-          if (!await this.admitRemoteDocument(candidate, op.revision)) return
+          const admitted = await this.admitRemoteDocument(candidate, op.revision)
+          if (admitted === false) return
+          committed = admitted
         }
         const failure = this.ingestOrdered(op)
         if (failure !== null) {
@@ -1335,6 +1340,7 @@ class SharedDocumentSession implements DocumentSession {
           this.resyncRequested = true
           break
         }
+        committed?.()
         progressed = true
       }
       if (!progressed && !this.resyncRequested && this.confirmedRevision < this.syncTarget) {

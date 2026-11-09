@@ -289,6 +289,19 @@ session dispatch is not covered by this application-level selection.
 The retained path journals the exact backend, owner, root union and document
 lineage/revision before requesting ownership; workflow contents remain in their
 separate persistence path rather than being duplicated in each retention intent.
+Successful local command commits replace the editing session's acknowledged
+document/history receipt, including a receipt admitted during startup or import.
+The previous complete receipt retires only after the new complete inventory is
+acknowledged and committed on the same backend connection generation. Unknown
+inventories, failed candidates and superseded sessions keep their protection;
+another session's receipt is independent even when it holds the same digests.
+Superseded receipts also protect roots still named by canonical tab snapshots,
+workspace candidates, document recovery slots and operation-journal additions.
+If the replacement no longer covers a root, retirement waits for a complete
+durable-source census that no longer names it. Persistence compaction retries
+that check; unreadable, corrupt or unknown sources keep protection. Crash-safe
+staging stays synchronous, and disconnect or session displacement never grants
+release authority over a pending receipt.
 The asset census recognizes the mask command's exact source-association marker
 on mask-paint nodes: a string node ID and the fixed mask output ID contain no
 asset identity. Extra marker fields, other metadata and unknown schemas remain
@@ -365,7 +378,13 @@ exact compile-time registry; unavailable historical schemas remain incomplete.
 A temporary in-memory execution pin prevents eviction during acknowledgment;
 success transfers the pin to the frozen tab, while failed or stale attempts
 drop only that temporary pin. Existing frozen tabs focus without another PUT.
-Read-only inspection and close/displacement pin balancing stay unchanged.
+Each published frozen tab captures its independent acknowledged owner and
+connection lifetime. Explicit close retires that exact revision after the tab
+is removed; other views of the same digest and later reopenings keep their own
+owners. Lost release responses reconcile by GET against the exact tombstone,
+never another revision. Same-id replacement without an acknowledged handoff,
+disconnect and application disposal keep the old protection journaled.
+Read-only inspection and close/displacement execution-pin balancing stay unchanged.
 Initial collaboration adoption (Share, Join and reload rejoin) also retains the
 session snapshot and any adopted local history on the session's source backend
 before publishing its tab. Failed or stale acknowledgments keep the existing
@@ -416,8 +435,18 @@ defaults come only from the active interface. Historical connectivity changes
 recheck dynamic nodes even when their objects are shared. Dynamic metadata must
 have the known asset-free shape, and every stored state key must be read in its
 canonical construct/member scope. Unknown stored keys, elaboration diagnostics or
-budget exhaustion, and dormant wire-15 inputs remain incomplete.
-An effective unresolved selection name is incomplete, not an asset identity.
+budget exhaustion, and unsupported dormant wire-15 slots remain incomplete.
+The wire-15 DynamicCombo census visits every branch at its direct stored path,
+without changing the active interface or inventing branch-local storage keys.
+Projected names may recur across branches but not within one branch. A stored
+untyped value with conflicting branch types stays incomplete and names the input
+in its diagnostic; a typed literal supplies its own exact type. Only effective
+defaults contribute roots, while stored values from all branches are retained.
+Missing node or input schemas, unsupported value types, malformed containers and
+unresolved selection names identify the exact stored input (or effective default)
+in ownership diagnostics. A failed list element does not stop enumeration of later
+elements. Known identities remain retained even when another input is unresolved;
+an unresolved selection name is incomplete, not an asset identity.
 Untyped literal producers use every connected static consumer's input type;
 unconnected producers, unknown ports and unsupported consumer types remain
 incomplete. Their roots are rechecked against each historical document's

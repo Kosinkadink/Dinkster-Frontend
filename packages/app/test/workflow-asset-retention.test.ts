@@ -609,6 +609,9 @@ describe('retained app dispatch', () => {
       dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'active', inputs: [{
         kind: 'input', id: 'file', optional: false, type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } },
         widget: { widgetType: 'ASSET', options: {}, default: asset('a') },
+      }] }, { key: 'unsupported', inputs: [{ kind: 'input', id: 'slot', optional: true,
+        type: { kind: 'concrete', name: 'STRING' }, dynamic: { kind: 'dynamicSlot', materialization: 'wire15',
+          slotType: { kind: 'concrete', name: 'STRING' }, inputs: [] },
       }] }] },
     }] }
     app = createWorkflowApp([dynamic])
@@ -682,7 +685,27 @@ describe('retained app dispatch', () => {
     }
   })
 
-  it.each(['active', 'dormant', 'invalid', 'unknown'] as const)('classifies %s nested wire15 state without certifying dormant ownership', (variant) => {
+  it('renders exact unresolved stored inputs after an incomplete workflow open', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    app = createWorkflowApp([schema])
+    const document = session().doc
+    const incoming = { ...document, graphs: { g0: { ...document.graphs.g0!, nodes: {
+      n0: { ...document.graphs.g0!.nodes.n0!, values: { files: [asset('a')], future: asset('b') } },
+    } } } }
+    expect(await app.importWorkflowFile({ name: 'unresolved.json', text: async () => JSON.stringify(incoming) })).toBe(true)
+    const ownerApp = app
+    const html = renderToString(() => createComponent(ProblemsPanel, {
+      app: ownerApp, diagnostics: () => ownerApp.problems.get(), compatSkips: () => [],
+    }))
+    expect(html).toContain('Workflow ownership unconfirmed.')
+    expect(html).toContain("Loader (n0): Stored input 'future' has no resolved input schema")
+    expect(html).toContain('Publication and sharing remain unavailable.')
+    expect(app.connection.retainAssets).toHaveBeenCalledWith(expect.anything(), {
+      revision: 0, complete: false, digests: [asset('a').digest, asset('b').digest],
+    })
+  })
+
+  it.each(['active', 'dormant', 'invalid', 'dormant-invalid', 'unknown'] as const)('classifies %s nested wire15 state without certifying opaque values', (variant) => {
     const codec: NodeSchema['items'][number] = {
       kind: 'input', id: 'codec', optional: false, type: { kind: 'concrete', name: 'STRING' },
       dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'auto', inputs: [] }] },
@@ -690,28 +713,33 @@ describe('retained app dispatch', () => {
     const dynamic: NodeSchema = { ...schema, items: [{
       kind: 'input', id: 'format', optional: false, type: { kind: 'concrete', name: 'STRING' },
       dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
-        { key: 'auto', inputs: variant === 'dormant' ? [] : [codec] },
-        { key: 'other', inputs: variant === 'dormant' ? [codec] : [] },
+        { key: 'auto', inputs: variant === 'dormant' || variant === 'dormant-invalid' ? [] : [codec] },
+        { key: 'other', inputs: variant === 'dormant' || variant === 'dormant-invalid' ? [codec] : [] },
       ] },
     }] }
     const local = session()
     const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
       n0: { id: asNodeId('n0'), type: 'Loader', values: { opaque: asset('a') }, dynamic: {
         format: { selected: 'auto' },
-        [variant === 'unknown' ? 'format.unrelated' : 'format.codec']: { selected: variant === 'invalid' ? 'bad' : 'auto' },
+        [variant === 'unknown' ? 'format.unrelated' : 'format.codec']: {
+          selected: variant === 'invalid' || variant === 'dormant-invalid' ? 'bad' : 'auto',
+        },
       } },
     } } } }
     const history = createLocalSession(document, coreCommandRegistry([], () => dynamic)).historySnapshot()
     const roots = workflowAssetRoots(document, history, () => dynamic, [], 'admission')
     expect(roots.complete).toBe(false)
     expect(roots.digests).toEqual([asset('a').digest])
-    expect(roots.refusal).toBe(variant === 'active' ? undefined : 'Workflow dynamic identities are invalid')
-    if (variant === 'active') {
+    expect(roots.refusal).toBe(variant === 'active' || variant === 'dormant' ? undefined : 'Workflow dynamic identities are invalid')
+    if (variant === 'active' || variant === 'dormant') {
       const stored = elaborateInterface(dynamic, document.graphs.g0!.nodes.n0!, EMPTY_CONNECTIVITY, { includeDormant: true })
-      expect(stored.diagnostics).toEqual([expect.objectContaining({ code: 'elab.dormant.unsupported', severity: 'error' })])
-      expect(roots.incompleteDiagnostics).toEqual([expect.objectContaining({ code: 'elab.dormant.unsupported', severity: 'error' })])
+      expect(stored.diagnostics).toEqual([])
+      expect(roots.incompleteDiagnostics).toEqual([expect.objectContaining({
+        code: 'workflow.asset.unresolvedInput', message: "Loader (n0): Stored input 'opaque' has no resolved input schema",
+      })])
     }
-    expect(workflowAssetRoots(document, history, () => dynamic).refusal).toBe('Workflow dynamic identities are invalid')
+    expect(workflowAssetRoots(document, history, () => dynamic).refusal)
+      .toBe(variant === 'active' || variant === 'dormant' ? undefined : 'Workflow dynamic identities are invalid')
   })
 
   it.each(['artifact', 'associated', 'output', 'model3d', 'retained'] as const)(
@@ -974,6 +1002,9 @@ describe('retained app dispatch', () => {
       dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'active', inputs: [{
         kind: 'input', id: 'file', optional: false, type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } },
         widget: { widgetType: 'ASSET', options: {}, default: asset('a') },
+      }] }, { key: 'unsupported', inputs: [{ kind: 'input', id: 'slot', optional: true,
+        type: { kind: 'concrete', name: 'STRING' }, dynamic: { kind: 'dynamicSlot', materialization: 'wire15',
+          slotType: { kind: 'concrete', name: 'STRING' }, inputs: [] },
       }] }] },
     }] }
     app = createWorkflowApp([dynamic])
@@ -1120,6 +1151,258 @@ describe('retained app dispatch', () => {
       }
     },
   )
+
+  it.each(['canonical', 'workspace', 'document', 'operation', 'corrupt', 'filtered-tab', 'unknown', 'unreadable',
+    'lost-key', 'locked-commit', 'lost-release', 'disconnected', 'replaced'] as const)('keeps durable snapshot roots until their source retires: %s', async (scenario) => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([schema])
+      app.openDocument(session().doc, 'Workflow')
+      const tab = app.activeTab()!
+      const owners = new Map<string, RetainedAssets>()
+      vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const receipt = { ...owner, ...declaration, revision: 1 }
+        owners.set(owner.ownerId, receipt)
+        return receipt
+      })
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+      vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        const tombstone = { ...owners.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+        owners.set(owner.ownerId, tombstone)
+        if (scenario === 'lost-release') throw new Error('response lost')
+        return tombstone
+      })
+      expect((await app.dispatchRetainedTo(tab, replace('b'))).ok).toBe(true)
+      app.flushPersistTabs()
+      const snapshot = JSON.parse(localStorage.getItem(scopedStorageKey('dinkster.openTabs'))!)
+      const saved = snapshot.tabs.find((entry: { doc: { lineage: string } }) => entry.doc.lineage === tab.id)
+      expect(saved.doc.graphs.g0.nodes.n0.values.files).toEqual([asset('b')])
+      localStorage.removeItem(scopedStorageKey('dinkster.openTabs'))
+      localStorage.removeItem(scopedStorageKey(`dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`))
+      const sourceKey = scopedStorageKey(scenario === 'workspace' ? 'dinkster.openTabsCandidate.peer'
+        : scenario === 'document' ? `dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`
+          : scenario === 'operation' ? 'dinkster.workspaceOperation.peer#0' : 'dinkster.openTabs')
+      localStorage.setItem(sourceKey, scenario === 'corrupt' ? '{' : JSON.stringify(
+        scenario === 'document' ? { v: 1, stageId: 'older', tab: saved }
+          : scenario === 'operation' ? { opId: 'peer#0', additions: [{ id: tab.id, document: saved.doc }] }
+            : scenario === 'filtered-tab' ? { ...snapshot, tabs: [null] }
+              : scenario === 'unknown' ? { ...snapshot, tabs: [{ ...saved, doc: {
+                ...saved.doc, ext: { unresolved: {} },
+              } }] } : snapshot))
+      const keys = scenario === 'unreadable' || scenario === 'lost-key' ? vi.spyOn(localStorage, 'key').mockImplementation(() => {
+        if (scenario === 'lost-key') return null
+        throw new Error('storage unavailable')
+      }) : undefined
+      tab.store.clearHistory()
+      expect((await app.dispatchRetainedTo(tab, replace('c'))).ok).toBe(true)
+      const previous = [...owners.values()].at(-1)!
+      expect(previous.digests).toEqual([asset('b').digest, asset('c').digest])
+      tab.store.clearHistory()
+      expect((await app.dispatchRetainedTo(tab, replace('d'))).ok).toBe(true)
+      await vi.advanceTimersByTimeAsync(0)
+      const latest = [...owners.values()].at(-1)!
+      expect(latest.digests).toEqual([asset('c').digest, asset('d').digest])
+      expect(owners.get(previous.ownerId)).toEqual(previous)
+      keys?.mockRestore()
+      if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
+      if (scenario === 'replaced') app.openDocument(session([asset('f')]).doc, 'Replacement')
+      let commit: (() => void) | undefined
+      if (scenario === 'locked-commit') vi.stubGlobal('navigator', { locks: {
+        request: async (_name: string, _options: unknown, callback: () => void) => { commit = callback },
+      } })
+      else localStorage.removeItem(sourceKey)
+      app.flushPersistTabs()
+      if (scenario === 'locked-commit') {
+        expect(owners.get(previous.ownerId)).toEqual(previous)
+        expect(JSON.parse(localStorage.getItem(sourceKey)!).tabs).toEqual(snapshot.tabs)
+        expect(commit).toBeDefined()
+        commit!()
+      }
+      await vi.advanceTimersByTimeAsync(0)
+      if (scenario === 'disconnected' || scenario === 'replaced') expect(owners.get(previous.ownerId)).toEqual(previous)
+      else {
+        expect(owners.get(previous.ownerId)).toEqual({ ...previous, revision: 2, complete: true, digests: [] })
+        const intent = JSON.parse(localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${previous.ownerId}`))!)
+        expect(intent.acknowledgedRevision).toBe(2)
+      }
+      expect(owners.get(latest.ownerId)).toEqual(latest)
+    } finally { vi.useRealTimers() }
+  })
+
+  it.each(['accepted', 'startup', 'imported', 'lost-ack', 'lost-release', 'reused-owner', 'refused', 'replaced', 'disconnected', 'incomplete'] as const)(
+    'replaces only the acknowledged workflow session owner: %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([schema])
+      app.openDocument(session().doc, 'Workflow')
+      const tab = app.activeTab()!
+      const owners = new Map<string, RetainedAssets>()
+      vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const retained = { ...owner, ...declaration, revision: 1 }
+        owners.set(owner.ownerId, retained)
+        return retained
+      })
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+      if (scenario === 'startup') await app.confirmStartupOwnership()
+      else if (scenario === 'imported') {
+        expect(await app.importWorkflowFile({ name: 'source.json', text: async () => JSON.stringify(session().doc) })).toBe(true)
+      } else expect((await app.dispatchRetainedTo(tab, replace('b'))).ok).toBe(true)
+      const current = scenario === 'imported' ? app.activeTab()! : tab
+      const original = [...owners.values()].find((owner) => owner.digests.includes(asset('a').digest))!
+      app.openDocument({ ...session().doc, lineage: asLineageId('independent') }, 'Independent')
+      const independent = app.activeTab()!
+      expect((await app.dispatchRetainedTo(independent, replace('b'))).ok).toBe(true)
+      const independentOwner = [...owners.values()].at(-1)!
+      const admission = deferred<void>()
+      const requested = deferred<RetainedAssets>()
+      vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const retained = { ...owner, ...declaration, revision: 1 }
+        owners.set(owner.ownerId, retained)
+        requested.resolve(retained)
+        await admission.promise
+        if (scenario === 'refused') {
+          owners.delete(owner.ownerId)
+          throw new Error('rejected')
+        }
+        if (scenario === 'lost-ack') throw new Error('acknowledgment lost')
+        return retained
+      })
+      const release = deferred<void>()
+      const retiring = deferred<void>()
+      vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        expect(revision).toBe(original.revision)
+        retiring.resolve()
+        await release.promise
+        const tombstone = { ...owners.get(owner.ownerId)!, revision: scenario === 'reused-owner' ? 3 : 2,
+          complete: true, digests: scenario === 'reused-owner' ? [asset('f').digest] : [] }
+        owners.set(owner.ownerId, tombstone)
+        if (scenario === 'lost-release' || scenario === 'reused-owner') throw new Error('response lost')
+        return tombstone
+      })
+      const operation = app.dispatchRetainedTo(current, scenario === 'incomplete' ? {
+        command: 'node.add', params: { graphId: 'g0', type: 'Unknown', position: { x: 12, y: 34 } },
+      } : replace('c'))
+      const candidate = await requested.promise
+      const fromInitial = scenario === 'startup' || scenario === 'imported'
+      expect(candidate.digests).toEqual(scenario === 'incomplete'
+        ? [asset('a').digest, asset('b').digest] : fromInitial
+          ? [asset('a').digest, asset('c').digest] : [asset('a').digest, asset('b').digest, asset('c').digest])
+      expect(owners.get(original.ownerId)).toEqual(original)
+      expect(current.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset(fromInitial ? 'a' : 'b')])
+      if (scenario === 'replaced') app.openDocument(session([asset('d')]).doc, 'Replacement')
+      if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
+      admission.resolve()
+      const accepted = !['refused', 'replaced', 'disconnected'].includes(scenario)
+      expect((await operation).ok).toBe(accepted)
+      if (accepted && scenario !== 'incomplete') {
+        await retiring.promise
+        expect(owners.get(original.ownerId)).toEqual(original)
+        expect(current.store.undo()).toBe(true)
+        expect(current.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset(fromInitial ? 'a' : 'b')])
+        if (!fromInitial) {
+          expect(current.store.undo()).toBe(true)
+          expect(current.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('a')])
+        }
+        release.resolve()
+        await vi.waitFor(() => expect(owners.get(original.ownerId)?.revision).toBe(scenario === 'reused-owner' ? 3 : 2))
+        const key = scopedStorageKey(`dinkster.workflow-retentions.${original.ownerId}`)
+        await vi.waitFor(() => expect(JSON.parse(localStorage.getItem(key)!).acknowledgedRevision)
+          .toBe(scenario === 'reused-owner' ? 1 : 2))
+        expect(owners.get(candidate.ownerId)).toEqual(candidate)
+      } else {
+        expect(app.connection.releaseRetainedAssets).not.toHaveBeenCalled()
+        expect(owners.get(original.ownerId)).toEqual(original)
+      }
+      expect(owners.get(independentOwner.ownerId)).toEqual(independentOwner)
+      expect(independent.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
+    },
+  )
+
+  it('keeps document and history ownership across shared workspace promotion', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    app = createWorkflowApp([schema])
+    app.openDocument(session().doc, 'Workflow')
+    const local = app.activeTab()!
+    const owners = new Map<string, RetainedAssets>()
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: 1 }
+      owners.set(owner.ownerId, receipt)
+      return receipt
+    })
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+      const tombstone = { ...owners.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+      owners.set(owner.ownerId, tombstone)
+      return tombstone
+    })
+    expect((await app.dispatchRetainedTo(local, replace('b'))).ok).toBe(true)
+    const original = [...owners.values()].at(-1)!
+    const documents = new SharedWorkerDocumentAuthority()
+    const workspace = new SharedWorkerTabAuthority()
+    const channels: MessageChannel[] = []
+    const connect = (authority: { connect(port: WorkerPortLike): void }) => {
+      const channel = new MessageChannel()
+      channels.push(channel)
+      authority.connect(channel.port2)
+      return channel.port1
+    }
+    try {
+      await app.enableWorkspaceAuthority(() => connect(documents), () => connect(workspace))
+      const shared = app.activeTab()!
+      expect(shared.store).not.toBe(local.store)
+      await vi.waitFor(() => expect(owners.get(original.ownerId)?.revision).toBe(2))
+      const promoted = [...owners.values()].at(-1)!
+      expect(promoted.digests).toEqual([asset('a').digest, asset('b').digest])
+      expect((await app.dispatchRetainedTo(shared, replace('c'))).ok).toBe(true)
+      await vi.waitFor(() => expect(owners.get(promoted.ownerId)?.revision).toBe(2))
+      expect([...owners.values()].at(-1)?.digests).toEqual([asset('a').digest, asset('b').digest, asset('c').digest])
+      expect(shared.store.undo()).toBe(true)
+      expect(shared.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
+      expect(shared.store.undo()).toBe(true)
+      expect(shared.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('a')])
+    } finally {
+      app.dispose()
+      for (const channel of channels) { channel.port1.close(); channel.port2.close() }
+    }
+  })
+
+  it('keeps the newer acknowledged session owner when an earlier candidate finishes late', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    app = createWorkflowApp([schema])
+    app.openDocument(session().doc, 'Workflow')
+    const tab = app.activeTab()!
+    const owners = new Map<string, RetainedAssets>()
+    const delayed = deferred<void>()
+    const requested = deferred<void>()
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: 1 }
+      owners.set(owner.ownerId, receipt)
+      if (declaration.digests.includes(asset('c').digest)) {
+        requested.resolve()
+        await delayed.promise
+      }
+      return receipt
+    })
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner) => {
+      const receipt = { ...owners.get(owner.ownerId)!, revision: 2, digests: [], complete: true }
+      owners.set(owner.ownerId, receipt)
+      return receipt
+    })
+    expect((await app.dispatchRetainedTo(tab, replace('b'))).ok).toBe(true)
+    const first = [...owners.values()][0]!
+    const earlier = app.dispatchRetainedTo(tab, replace('c'))
+    await requested.promise
+    expect((await app.dispatchRetainedTo(tab, replace('d'))).ok).toBe(true)
+    const latest = [...owners.values()].at(-1)!
+    expect(latest.digests).toEqual([asset('a').digest, asset('b').digest, asset('d').digest])
+    delayed.resolve()
+    expect((await earlier).ok).toBe(false)
+    await vi.waitFor(() => expect(owners.get(first.ownerId)?.revision).toBe(2))
+    expect(owners.get(latest.ownerId)).toEqual(latest)
+    expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('d')])
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
+  })
 
   it.each(['dispatch', 'prepared'] as const)('refuses unadmitted local publication through %s', async (route) => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
@@ -1385,6 +1668,73 @@ describe('retained workflow opens', () => {
     expect(app.backendForTab(app.activeTab()!).id).toBe(app.connection.id)
   })
 
+  it.each(['closed', 'replaced', 'lost', 'reused-owner', 'disconnected', 'disposed'] as const)(
+    'retires only the explicitly removed frozen generation: %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([{ ...schema, isOutputNode: true }])
+      app.openDocument(session().doc, 'Live')
+      const live = app.activeTab()!
+      const compiled = app.compileTab(live)
+      if (!compiled?.ok) throw new Error(JSON.stringify(compiled?.diagnostics))
+      const owners = new Map<string, RetainedAssets>()
+      vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const retained = { ...owner, ...declaration, revision: 1 }
+        owners.set(owner.ownerId, retained)
+        return retained
+      })
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+      const releaseStarted = deferred<void>()
+      const releaseAck = deferred<void>()
+      vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        expect(revision).toBe(1)
+        releaseStarted.resolve()
+        await releaseAck.promise
+        const next = { ...owners.get(owner.ownerId)!, revision: scenario === 'reused-owner' ? 3 : 2,
+          digests: scenario === 'reused-owner' ? [asset('f').digest] : [], complete: true }
+        owners.set(owner.ownerId, next)
+        if (scenario === 'lost' || scenario === 'reused-owner') throw new Error('release response lost')
+        return next
+      })
+      const first = { connection: app.connection.id, prompt: asPromptId('frozen-first') }
+      const second = { connection: app.connection.id, prompt: asPromptId('frozen-second') }
+      app.registerRun(live, first, compiled.artifact)
+      app.registerRun(live, second, compiled.artifact)
+      expect(await app.openExecutionView(first)).toBe(true)
+      const firstTab = app.activeTab()!
+      const firstOwner = [...owners.values()][0]!
+      expect(await app.openExecutionView(second)).toBe(true)
+      const secondTab = app.activeTab()!
+      const secondOwner = [...owners.values()][1]!
+      expect(firstOwner.ownerId).not.toBe(secondOwner.ownerId)
+      if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
+      if (scenario === 'disposed') app.dispose()
+      if (scenario === 'replaced') app.openDocument({ ...session().doc, lineage: asLineageId(firstTab.id) }, 'Replacement')
+      else app.closeTab(firstTab.id)
+      if (scenario === 'disconnected' || scenario === 'disposed' || scenario === 'replaced') {
+        await Promise.resolve()
+        expect(app.connection.releaseRetainedAssets).not.toHaveBeenCalled()
+        expect(owners.get(firstOwner.ownerId)).toEqual(firstOwner)
+      } else {
+        await releaseStarted.promise
+        expect(owners.get(firstOwner.ownerId)).toEqual(firstOwner)
+        expect(app.tabs.get()).toContain(secondTab)
+        // Reopening creates a new independent owner before the old DELETE settles.
+        expect(await app.openExecutionView(first)).toBe(true)
+        const reopened = [...owners.values()].at(-1)!
+        releaseAck.resolve()
+        await vi.waitFor(() => expect(owners.get(firstOwner.ownerId)?.revision).toBe(scenario === 'reused-owner' ? 3 : 2))
+        expect(owners.get(secondOwner.ownerId)).toEqual(secondOwner)
+        expect(owners.get(reopened.ownerId)).toEqual(reopened)
+        const key = scopedStorageKey(`dinkster.workflow-retentions.${firstOwner.ownerId}`)
+        await vi.waitFor(() => expect(JSON.parse(localStorage.getItem(key)!).acknowledgedRevision)
+          .toBe(scenario === 'reused-owner' ? 1 : 2))
+        expect(await reconcileWorkflowRetentions(app.connection, new AbortController().signal)).toBe(scenario !== 'reused-owner')
+      }
+      expect(live.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('a')])
+      expect(owners.get(secondOwner.ownerId)).toEqual(secondOwner)
+    },
+  )
+
   it.each(['accepted', 'refused', 'edited', 'closed', 'disconnected', 'removed', 'disposed', 'unknown-schema', 'retired'] as const)(
     'stages a frozen snapshot without publishing early: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
@@ -1455,7 +1805,11 @@ describe('workflow candidate admission', () => {
       expect(workflowAssetRoots(document, local.historySnapshot(), resolve))
         .toEqual({ complete: false, digests: scenario === 'extra-field' ? [asset('a').digest, asset('b').digest] :
           scenario === 'asset-value' ? [] : [asset('a').digest],
-          ...(scenario === 'location' ? {} : { refusal: 'Workflow asset identity is malformed' }) })
+          ...(scenario === 'location' ? {} : { refusal: 'Workflow asset identity is malformed' }),
+          ...(scenario === 'asset-value' ? { incompleteDiagnostics: [{ severity: 'error', origin: 'schema',
+            code: 'workflow.asset.unresolvedInput', refs: [{ graphId: 'g0', nodeId: 'n0' }],
+            message: "Loader (n0): Stored input 'files' has unresolved asset identities",
+          }] } : {}) })
     })
 
   it('accepts parsed scalar schema metadata without treating it as asset storage', () => {
@@ -1558,6 +1912,84 @@ describe('workflow candidate admission', () => {
         naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 } } },
   ] }
 
+  it.each(['resolved', 'conflicting', 'typed'] as const)('censuses stored wire15 branch values: %s', (scenario) => {
+    const local = session()
+    const candidate: NodeSchema = { ...schema, items: [{
+      kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+        { key: 'a', inputs: [assetInput('file', 'a')] },
+        { key: 'b', inputs: [{ ...assetInput('file', 'b'),
+          type: scenario === 'resolved' ? assetType : { kind: 'concrete', name: 'STRING' } },
+        assetInput('other', 'e')] },
+      ] },
+    }] }
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Loader', dynamic: { mode: { selected: 'a' } },
+        values: { 'mode.file': scenario === 'typed' ? { $typed: { type: 'asset<DATA>', value: asset('c') } } : asset('c'),
+          'mode.other': asset('d') } },
+    } } } }
+    const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => candidate)
+    expect(roots.digests).toEqual([asset('c').digest, asset('d').digest])
+    expect(roots.complete).toBe(scenario !== 'conflicting')
+    if (scenario !== 'conflicting') expect(roots.incompleteDiagnostics).toBeUndefined()
+    else expect(roots.incompleteDiagnostics).toEqual([expect.objectContaining({
+      code: 'workflow.asset.ambiguousInput', message: expect.stringContaining("Stored input 'mode.file'"),
+    })])
+  })
+
+  it.each(['missing-node', 'missing-input', 'opaque', 'selection-name', 'list'] as const)(
+    'names exactly unresolved stored inputs and preserves known roots: %s', (scenario) => {
+      const local = session()
+      const candidate: NodeSchema = { ...schema, items: [{
+        kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+        dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+          { key: 'a', inputs: [assetInput('file', 'a')] },
+          { key: 'b', inputs: [{ ...assetInput('future', 'b'),
+            type: scenario === 'opaque' ? { kind: 'concrete', name: 'FUTURE' }
+              : scenario === 'list' ? { kind: 'list', element: assetType } : assetType }] },
+        ] },
+      }] }
+      const input = scenario === 'missing-input' ? 'mode.unknown' : 'mode.future'
+      const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+        n0: { id: asNodeId('n0'), type: 'Loader', dynamic: { mode: { selected: 'a' } },
+          values: { 'mode.file': asset('c'), [input]: scenario === 'selection-name' ? 'unresolved.bin'
+            : scenario === 'list' ? ['invalid', asset('d')] : asset('d') } },
+      } } } }
+      const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] },
+        () => scenario === 'missing-node' ? undefined : candidate)
+      expect(roots.complete).toBe(false)
+      expect(roots.digests).toEqual(scenario === 'selection-name' ? [asset('c').digest] : [asset('c').digest, asset('d').digest])
+      expect(roots.incompleteDiagnostics).toEqual((scenario === 'missing-node' ? ['mode.file', input] : [input]).map((key) => ({
+        severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
+        refs: [{ graphId: 'g0', nodeId: 'n0' }],
+        message: `Loader (n0): Stored input '${key}' has ${scenario === 'missing-node' ? 'no resolved node schema'
+          : scenario === 'missing-input' ? 'no resolved input schema' : 'unresolved asset identities'}`,
+      })))
+    },
+  )
+
+  it('censuses dormant wire15 branches in independent nested family member scopes', () => {
+    const local = session()
+    const candidate: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'items', type: assetType, optional: true,
+      dynamic: { kind: 'autogrow', naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 }, template: [{
+        kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: true,
+        dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+          { key: 'a', inputs: [assetInput('file', 'a')] },
+          { key: 'b', inputs: [assetInput('file', 'b'), assetInput('other', 'e')] },
+        ] },
+      }] } }] }
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Loader', values: {
+        'items.mode.file#m0': asset('c'), 'items.mode.other#m0': asset('d'),
+        'items.mode.file#m1': asset('f'),
+      }, dynamic: { items: { members: ['m0', 'm1'], memberState: {
+        m0: { 'items.mode': { selected: 'a' } }, m1: { 'items.mode': { selected: 'b' } },
+      } } } },
+    } } } }
+    expect(workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => candidate))
+      .toEqual({ complete: true, digests: ['c', 'd', 'e', 'f'].map((letter) => asset(letter).digest) })
+  })
+
   it('uses non-widget defaults only in active branches while retaining stored dormant values', () => {
     const local = session()
     const candidate: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'mode', optional: true,
@@ -1600,7 +2032,7 @@ describe('workflow candidate admission', () => {
       const document = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: { n0: node } } } } as WorkflowDocument
       const candidate: NodeSchema = scenario === 'wire15' ? { ...dynamicSchema, items: [{
         kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: true,
-        dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'a', inputs: [assetInput('file', 'a')] }] },
+        dynamic: { kind: 'dynamicSlot', materialization: 'wire15', slotType: assetType, inputs: [assetInput('file', 'a')] },
       }] } : scenario === 'static-unknown' ? schema : dynamicSchema
       expect(workflowAssetRoots(document, local.historySnapshot(), () => candidate).complete).toBe(false)
     },
@@ -1737,6 +2169,10 @@ describe('workflow candidate admission', () => {
             version: 3, connectionId: 'backend', assetBaseUrl: 'http://assets.test/', owner,
             digests: declaration.digests, complete: false,
             documentLineage: local.doc.lineage, documentRevision: prepared.history.revision,
+            incompleteDiagnostics: [{ severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
+              refs: [{ graphId: 'g0', nodeId: 'n0' }],
+              message: "Unavailable (n0): Stored input 'future' has no resolved node schema",
+            }],
           }])
           expect(local.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('a')])
           stored = { ...owner, ...declaration, revision: scenario === 'revision' ? 2 : 1,

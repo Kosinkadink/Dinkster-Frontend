@@ -29,6 +29,7 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { DinksterConnection, buildDinksterRegistry } from '@dinkster/client'
+import type { RetainedAssets } from '@dinkster/client'
 import nodesPayload from '../../core/fixtures/dinkster-nodes.json'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
@@ -465,6 +466,95 @@ describe('stableActorId', () => {
 })
 
 describe('share', () => {
+  it.each(['accepted', 'lost-ack', 'refused', 'disconnected'] as const)(
+    'carries exact workflow receipts through sharing, remote commit and local leave: %s', async (scenario) => {
+      const server = new FakeCollabServer()
+      const app = prepareWorkflowApp(makeApp(server))
+      const prior = activeTab(app)
+      const backend = app.backendForTab(prior)
+      const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
+        size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
+      const owners = new Map<string, RetainedAssets>()
+      const admission = gate()
+      const requested = gate()
+      let delayed = false
+      vi.mocked(backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const retained = { ...owner, ...declaration, revision: 1 }
+        owners.set(owner.ownerId, retained)
+        if (delayed) {
+          requested.open()
+          await admission.promise
+          if (scenario === 'refused') { owners.delete(owner.ownerId); throw new Error('refused') }
+          if (scenario === 'lost-ack') throw new Error('response lost')
+        }
+        return retained
+      })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+      vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        expect(owners.get(owner.ownerId)?.revision).toBe(revision)
+        const tombstone = { ...owners.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+        owners.set(owner.ownerId, tombstone)
+        return tombstone
+      })
+      expect((await app.dispatchTo(prior, { command: 'node.add', params: { graphId: prior.store.doc.root,
+        type: 'AssetHolder', position: { x: 20, y: 40 }, values: { held: asset('a') } } })).ok).toBe(true)
+      const original = [...owners.values()][0]!
+      delayed = true
+      const sharing = app.shareActiveTab()
+      await requested.promise
+      const sharedReceipt = [...owners.values()].at(-1)!
+      expect(activeTab(app)).toBe(prior)
+      expect(owners.get(original.ownerId)).toEqual(original)
+      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+      admission.open()
+      const accepted = scenario === 'accepted' || scenario === 'lost-ack'
+      expect(await sharing === undefined).toBe(accepted)
+      if (!accepted) {
+        expect(activeTab(app)).toBe(prior)
+        expect(owners.get(original.ownerId)).toEqual(original)
+        expect(backend.connection.releaseRetainedAssets).not.toHaveBeenCalled()
+        return
+      }
+      await until(() => owners.get(original.ownerId)?.revision === 2)
+      expect(owners.get(sharedReceipt.ownerId)).toEqual(sharedReceipt)
+      const tab = activeTab(app)
+      const shared = sharedSession(app, tab.id)
+      const node = Object.values(shared.doc.graphs[shared.doc.root]!.nodes)[0]!
+      const remoteGate = gate()
+      const remoteRequested = gate()
+      vi.mocked(backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const retained = { ...owner, ...declaration, revision: 1 }
+        owners.set(owner.ownerId, retained)
+        remoteRequested.open()
+        await remoteGate.promise
+        return retained
+      })
+      const conn = [...[...server.sessions.values()][0]!.connections][0]!
+      await conn.postOp({ protocolVersion: COLLAB_PROTOCOL_VERSION, actorId: 'peer', opId: 'asset-change',
+        baseRevision: 0, patch: [{ op: 'replace', path: ['graphs', shared.doc.root, 'nodes', node.id, 'values', 'held'], value: asset('b') }] })
+      await remoteRequested.promise
+      const remoteReceipt = [...owners.values()].at(-1)!
+      expect(remoteReceipt.digests).toEqual([asset('a').digest, asset('b').digest])
+      expect(shared.doc.graphs[shared.doc.root]!.nodes[node.id]!.values.held).toEqual(asset('a'))
+      expect(owners.get(sharedReceipt.ownerId)).toEqual(sharedReceipt)
+      remoteGate.open()
+      await shared.settle()
+      await until(() => owners.get(sharedReceipt.ownerId)?.revision === 2)
+      expect(shared.doc.graphs[shared.doc.root]!.nodes[node.id]!.values.held).toEqual(asset('b'))
+      app.leaveCollabSession(tab.id)
+      const local = activeTab(app)
+      expect(local.store).not.toBe(shared)
+      expect(owners.get(remoteReceipt.ownerId)).toEqual(remoteReceipt)
+      expect((await app.dispatchRetainedTo(local, { command: 'node.setValue', params: {
+        graphId: local.store.doc.root, nodeId: node.id, inputId: 'held', value: asset('c'),
+      } })).ok).toBe(true)
+      await until(() => owners.get(remoteReceipt.ownerId)?.revision === 2)
+      const latest = [...owners.values()].at(-1)!
+      expect(latest.digests).toEqual([asset('b').digest, asset('c').digest])
+      expect(latest.revision).toBe(1)
+    },
+  )
+
   it('retains pending prefix assets before remote adoption after history is cleared', async () => {
     const server = new FakeCollabServer()
     const app = prepareWorkflowApp(makeApp(server))

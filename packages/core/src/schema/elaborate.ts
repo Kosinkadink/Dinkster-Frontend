@@ -399,6 +399,8 @@ export interface ElabScope {
   readonly wire15MaterializeFrames?: readonly MaterializeFrame[]
   /** This scope was entered through wire-15 document materialization. */
   readonly wire15Materialization?: true
+  /** Dormant branches share stored wire paths, but validate collisions independently. */
+  readonly censusBranch?: readonly string[]
 }
 
 /** Api-name join that propagates "never reaches the prompt" (undefined). */
@@ -1182,34 +1184,35 @@ const dynamicComboHandler: DynamicKindHandler = {
     const construct = joinValuePath(scope.valuePrefix, item.id)
     const constructApi = apiJoin(scope.apiPrefix, item.id)
     const keys = spec.options.map((o) => o.key)
+    const wire15Choice = spec.materialization === 'wire15' ? scope.stateOf(construct)?.selected : undefined
+    if (wire15Choice !== undefined && (typeof wire15Choice !== 'string' || !keys.includes(wire15Choice))) {
+      ctx.report(
+        'error',
+        'prompt.bad_dynamic_choice',
+        `${ctx.nodeType}.${construct}: dynamic choice must be one of ${keys.join(', ') || '(none)'}, received ${String(wire15Choice)}`,
+        construct,
+      )
+      return
+    }
 
     if (ctx.includeDormant) {
       scope.stateOf(construct)
-      if (spec.materialization === 'wire15') {
-        ctx.report('error', 'elab.dormant.unsupported', 'Dormant wire15 inputs require branch-specific identity resolution', construct)
-        return
-      }
       for (const option of spec.options) ctx.elaborateInputs(option.inputs, {
         ...scope,
-        valuePrefix: comboBranchValuePath(construct, option.key),
+        valuePrefix: spec.materialization === 'wire15' ? construct : comboBranchValuePath(construct, option.key),
         apiPrefix: undefined,
         staticOrigin: { kind: 'branch', construct, option: option.key },
+        ...(spec.materialization === 'wire15' ? {
+          stateOf: ctx.stateOf,
+          wire15Materialization: true as const,
+          censusBranch: [...scope.censusBranch ?? [], construct, option.key],
+        } : {}),
       })
       return
     }
 
     if (spec.materialization === 'wire15') {
-      const requested = scope.stateOf(construct)?.selected as unknown
-      if (requested !== undefined && (typeof requested !== 'string' || !keys.includes(requested))) {
-        ctx.report(
-          'error',
-          'prompt.bad_dynamic_choice',
-          `${ctx.nodeType}.${construct}: dynamic choice must be one of ${keys.join(', ') || '(none)'}, received ${String(requested)}`,
-          construct,
-        )
-        return
-      }
-
+      const requested = wire15Choice
       const selected = effectiveComboOption(spec, requested === undefined ? undefined : { selected: requested })
       const schemaDefault = effectiveComboOption(spec, undefined)
       const widget: WidgetSpec = {
@@ -1659,12 +1662,13 @@ function elaborateWithStateReads(
       // allocation-free.
       const canonical = item.spec.id === id && item.spec.dynamic === undefined
       if (item.kind === 'input') {
-        if (((scope.wire15Materialization || wire15InputKeys.has(id)) && emittedInputKeys.has(id)) || submittedPaths.has(id)) {
+        const collisionKey = scope.censusBranch === undefined ? id : JSON.stringify([scope.censusBranch, id])
+        if (((scope.wire15Materialization || wire15InputKeys.has(collisionKey)) && emittedInputKeys.has(collisionKey)) || submittedPaths.has(id)) {
           exhaust('elab.projectedNamespaceCollision', `projected input namespace collision at '${id}'`)
           return
         }
-        emittedInputKeys.add(id)
-        if (scope.wire15Materialization) wire15InputKeys.add(id)
+        emittedInputKeys.add(collisionKey)
+        if (scope.wire15Materialization) wire15InputKeys.add(collisionKey)
         const { apiName: _apiName, ...rest } = item
         const apiName = scope.ghost ? undefined : item.apiName
         if (apiName !== undefined) {
@@ -1758,6 +1762,7 @@ function elaborateWithStateReads(
         ancestry: [...parent.ancestry, entry],
         ghost: parent.ghost || entry.ghost === true,
         ...(parent.hidden ? { hidden: true } : {}),
+        ...(parent.censusBranch !== undefined ? { censusBranch: parent.censusBranch } : {}),
         stateOf: stateReader(nested),
         ...(frame.displayPrefix !== undefined ? { displayPrefix: frame.displayPrefix } : {}),
         ...(frame.frames !== undefined ? { frames: frame.frames } : {}),
