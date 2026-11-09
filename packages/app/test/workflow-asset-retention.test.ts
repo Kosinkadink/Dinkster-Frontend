@@ -1894,8 +1894,41 @@ describe('workflow candidate admission', () => {
       n0: { id: asNodeId('n0'), type: 'Loader', values: { value: 7.25 } },
     } } } }
     expect(workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => numeric))
-      .toEqual({ complete: widgetType === 'NUMBER', digests: [] })
+      .toEqual({ complete: widgetType === 'NUMBER', digests: [], ...(widgetType === 'NUMBER' ? {} : {
+        incompleteDiagnostics: [{ severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
+          refs: [{ graphId: 'g0', nodeId: 'n0' }],
+          message: "Loader (n0): Declared input 'value' has an unsupported asset census widget binding 'opaque'",
+        }],
+      }) })
   })
+
+  it.each(['default', 'selected', 'cleared', 'typed', 'unknown-widget', 'invalid-value', 'invalid-binding'] as const)(
+    'counts mount selection without losing stored or historical assets: %s', (scenario) => {
+      const local = session()
+      const mountSchema: NodeSchema = { ...schema, items: [...schema.items, {
+        kind: 'input', id: 'destination', optional: false,
+        type: { kind: 'concrete', name: scenario === 'invalid-binding' ? 'FLOAT' : 'STRING' },
+        widget: { widgetType: scenario === 'unknown-widget' ? 'opaque' : 'MOUNT', options: {}, default: null },
+      }] }
+      const destination = scenario === 'cleared' ? null : scenario === 'typed'
+        ? { $typed: { type: 'STRING', value: 'output-mount' } }
+        : scenario === 'invalid-value' ? asset('c') : 'output-mount'
+      const opened = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+        n0: { ...local.doc.graphs.g0!.nodes.n0!, values: { files: [asset('a')],
+          ...(scenario === 'default' ? {} : { destination }) } },
+      } } } }
+      const workflow = createLocalSession(opened, coreCommandRegistry([], () => mountSchema))
+      expect(workflow.dispatch(replace('b')).ok).toBe(true)
+      const roots = workflowAssetRoots(workflow.doc, workflow.historySnapshot(), () => mountSchema)
+      expect(roots.complete).toBe(!['unknown-widget', 'invalid-value', 'invalid-binding'].includes(scenario))
+      expect([...roots.digests].sort()).toEqual((scenario === 'invalid-value'
+        ? [asset('a').digest, asset('b').digest, asset('c').digest] : [asset('a').digest, asset('b').digest]).sort())
+      if (scenario === 'invalid-value' || scenario === 'invalid-binding') {
+        expect(roots.incompleteDiagnostics).toEqual(expect.arrayContaining([expect.objectContaining({
+          code: 'workflow.asset.unresolvedInput', message: expect.stringContaining("Stored input 'destination'"),
+        })]))
+      }
+    })
 
   const assetInput = (id: string, letter: string) => ({ kind: 'input' as const, id,
     type: assetType, optional: true, widget: { widgetType: 'ASSET' as const, options: {}, default: asset(letter) } })

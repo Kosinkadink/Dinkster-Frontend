@@ -46,7 +46,11 @@ import { isAssetRef } from './image-editor.js'
 import { activeProjectId, scopedStorageKey } from './projects.js'
 
 const primitiveNames = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO'])
-const widgetTypes = new Set(['STRING', 'INT', 'FLOAT', 'NUMBER', 'BOOLEAN', 'COMBO', 'ASSET'])
+// Nullable scalar selections name their required socket type, not an asset.
+const widgetTypes = new Map<string, string | undefined>([
+  ['STRING', undefined], ['INT', undefined], ['FLOAT', undefined], ['NUMBER', undefined],
+  ['BOOLEAN', undefined], ['COMBO', undefined], ['ASSET', undefined], ['MOUNT', 'STRING'],
+])
 
 function assetFreeDynamicState(value: unknown, depth = 0): boolean {
   if (depth > MAX_DYNAMIC_STATE_DEPTH || typeof value !== 'object' || value === null || Array.isArray(value)) return false
@@ -102,7 +106,7 @@ export function workflowAssetRoots(
     if (type.kind === 'tuple') return type.elements.every(supported)
     return type.kind === 'concrete' && (type.name === 'ASSET' || primitiveNames.has(type.name))
   }
-  const valueRoots = (value: Json, type: TypeExpr, namedAsset = false): boolean => {
+  const valueRoots = (value: Json, type: TypeExpr, namedAsset = false, nullableScalar?: string): boolean => {
     // A cleared asset widget holds no identity; history still contributes its previous value.
     if (namedAsset && value === null) return true
     // Asset widgets can hold unresolved imported names, never a certified digest set.
@@ -115,7 +119,15 @@ export function workflowAssetRoots(
         refusal = 'Workflow typed literal is malformed'
         return false
       }
-      return valueRoots(typed.value, typeExprFromTypeId(typed.type))
+      return valueRoots(typed.value, typeExprFromTypeId(typed.type), false, nullableScalar)
+    } else if (nullableScalar !== undefined && (type.kind !== 'concrete' || type.name !== nullableScalar ||
+      (value !== null && typeof value !== 'string'))) {
+      complete = false
+      opaqueRoots(value)
+      return false
+    } else if (nullableScalar !== undefined && value === null) {
+      // The default output mount is a selection sentinel, not an asset identity.
+      return true
     } else if (!supported(type)) {
       complete = false
       opaqueRoots(value)
@@ -227,15 +239,24 @@ export function workflowAssetRoots(
       refusal = 'Workflow dynamic identities are invalid'
     }
     const inputs = unsupportedDormant.length > 0 ? [...elabInputsOf(stored), ...elabInputsOf(active)] : elabInputsOf(stored)
-    for (const { spec } of inputs) {
+    for (const input of inputs) {
+      const { spec } = input
+      const nullableScalar = widgetTypes.get(spec.widget?.widgetType ?? '')
       if (spec.ext !== undefined && Object.keys(spec.ext).some((key) => key !== 'default')) complete = false
-      if (spec.widget !== undefined && !widgetTypes.has(spec.widget.widgetType)) complete = false
+      if (spec.widget !== undefined && (!widgetTypes.has(spec.widget.widgetType) ||
+        (nullableScalar !== undefined && (spec.type.kind !== 'concrete' || spec.type.name !== nullableScalar)))) {
+        complete = false
+        incompleteDiagnostics.push({ severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
+          refs: [{ graphId: graph.id, nodeId: node.id }],
+          message: `${node.title ?? node.type} (${node.id}): Declared input '${valueKeyOf(input)}' has an unsupported asset census widget binding '${spec.widget.widgetType}'`,
+        })
+      }
     }
     for (const input of elabInputsOf(active)) {
       if (input.ancestry?.some((ancestor) => ancestor.ghost)) continue
       const fallback = input.spec.widget?.default !== undefined ? input.spec.widget.default : input.spec.ext?.['default']
       if (!Object.hasOwn(node.values, valueKeyOf(input)) && fallback !== undefined) {
-        if (!valueRoots(fallback as Json, input.spec.type, isAssetWidgetInput(input.spec))) incompleteDiagnostics.push({
+        if (!valueRoots(fallback as Json, input.spec.type, isAssetWidgetInput(input.spec), widgetTypes.get(input.spec.widget?.widgetType ?? ''))) incompleteDiagnostics.push({
           severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
           refs: [{ graphId: graph.id, nodeId: node.id }],
           message: `${node.title ?? node.type} (${node.id}): Default input '${valueKeyOf(input)}' has unresolved asset identities`,
@@ -254,7 +275,7 @@ export function workflowAssetRoots(
           message: `${node.title ?? node.type} (${node.id}): Stored input '${input}' has conflicting dormant branch types`,
         })
       }
-      const resolved = matching.map((item) => valueRoots(value, item.spec.type, isAssetWidgetInput(item.spec)))
+      const resolved = matching.map((item) => valueRoots(value, item.spec.type, isAssetWidgetInput(item.spec), widgetTypes.get(item.spec.widget?.widgetType ?? '')))
       if (!ambiguous && (matching.length === 0 || resolved.some((result) => !result))) incompleteDiagnostics.push({
         severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
         refs: [{ graphId: graph.id, nodeId: node.id }],
