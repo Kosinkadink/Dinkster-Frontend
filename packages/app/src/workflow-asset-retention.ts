@@ -644,11 +644,14 @@ export async function admitWorkflowDispatch(
   stillCurrent: () => boolean,
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
   purpose: 'publication' | 'admission' = 'publication',
+  onCommitted?: (retained: RetainedAssets) => void,
 ): Promise<CommandOutcome> {
   // Proposed history adds only the captured current state and trims existing records.
   const roots = workflowAssetRoots(prepared.currentDocument, prepared.currentHistory, resolve,
     [prepared.document, ...(prepared.retainedDocuments ?? [])], purpose)
-  await retainWorkflowAssets(connection, prepared.document.lineage, prepared.history.revision, roots, storage)
+  const retained = await retainWorkflowAssets(connection, prepared.document.lineage, prepared.history.revision, roots, storage)
   if (!stillCurrent()) throw new Error('Workflow destination changed during asset admission')
-  return prepared.commit()
+  const outcome = prepared.commit()
+  if (outcome.ok) onCommitted?.(retained)
+  return outcome
 }

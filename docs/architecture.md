@@ -284,6 +284,12 @@ session dispatch is not covered by this application-level selection.
 The retained path journals the exact backend, owner, root union and document
 lineage/revision before requesting ownership; workflow contents remain in their
 separate persistence path rather than being duplicated in each retention intent.
+Successful local command commits replace the editing session's acknowledged
+document/history receipt, including a receipt admitted during startup or import.
+The previous complete receipt retires only after the new complete inventory is
+acknowledged and committed on the same backend connection generation. Unknown
+inventories, failed candidates and superseded sessions keep their protection;
+another session's receipt is independent even when it holds the same digests.
 The asset census recognizes the mask command's exact source-association marker
 on mask-paint nodes: a string node ID and the fixed mask output ID contain no
 asset identity. Extra marker fields, other metadata and unknown schemas remain

@@ -3470,16 +3470,18 @@ export class AppState {
       const registry = backend.registry.get()
       let connectionChanged = false
       const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
-      return { ...source, registry, unsubscribe, connectionChanged: () => connectionChanged }
+      return { ...source, registry, unsubscribe, connectionChanged: () => connectionChanged,
+        project: activeProjectId(), generation: this.assetConnectionGenerations.get(backend.connection) }
     })
     try {
       if (this.disposed) throw new Error('The application closed before startup ownership could be confirmed')
       const retained = await Promise.all(candidates.filter(({ backend }) => backend.protocol === 'dinkster')
-        .map(async ({ backend, registry, document, revision, history }) => {
+        .map(async (candidate) => {
+          const { backend, registry, document, revision, history } = candidate
           const roots = workflowAssetRoots(document, history,
             this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
-          await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
-          return { document, roots }
+          const receipt = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+          return { candidate, receipt, roots }
         }))
       const latest = this.tabs.get()
       if (this.disposed || latest.length !== tabs.length || candidates.some((candidate, index) =>
@@ -3490,7 +3492,12 @@ export class AppState {
         candidate.backend.registry.get() !== candidate.registry)) {
         throw new Error('The restored workspace changed while startup ownership was being confirmed')
       }
-      for (const { document, roots } of retained) this.reportIncompleteOwnership(document.lineage, roots)
+      for (const { candidate, receipt, roots } of retained) {
+        if (candidate.tab && !candidate.tab.execution && candidate.tab.store.doc === candidate.document &&
+          candidate.tab.store.revision === candidate.revision) this.replaceWorkflowAssetOwner(candidate.tab.store,
+          candidate.backend, receipt, candidate.project, candidate.generation)
+        this.reportIncompleteOwnership(candidate.document.lineage, roots)
+      }
     } finally {
       for (const candidate of candidates) candidate.unsubscribe()
     }
@@ -6139,6 +6146,8 @@ export class AppState {
     if (tab.execution) return { ok: false, diagnostics: [] }
     const backend = this.backendForTab(tab)
     const registry = this.registryForTab(tab)
+    const project = activeProjectId()
+    const generation = this.assetConnectionGenerations.get(backend.connection)
     let connectionChanged = false
     const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
     try {
@@ -6162,6 +6171,12 @@ export class AppState {
         },
         undefined,
         'admission',
+        (retained) => {
+          if (!connectionChanged && this.registryForTab(tab) === registry &&
+            session.doc === prepared.document && session.revision === prepared.history.revision) {
+            this.replaceWorkflowAssetOwner(session, backend, retained, project, generation)
+          }
+        },
       )
       if (outcome.ok) {
         this.reportIncompleteOwnership(tab.id, workflowAssetRoots(prepared.currentDocument, prepared.currentHistory,
@@ -6900,17 +6915,20 @@ export class AppState {
     const registry = backend.registry.get()
     const destination = target ?? this.backends.get()[0]!
     const destinationRegistry = destination.registry.get()
+    const project = activeProjectId()
+    const generation = this.assetConnectionGenerations.get(destination.connection)
     let connectionChanged = false
     const unsubscribe = destination.connection.status.subscribe(() => { connectionChanged = true })
     try {
       if (destination.protocol !== 'dinkster') return prepared.publish(target ?? undefined)
       const roots = workflowAssetRoots(prepared.document, { revision: 0, undo: [], redo: [] },
         this.resolverWithVirtualNodes(destinationRegistry?.resolve ?? (() => undefined)), [], 'admission')
-      await retainWorkflowAssets(destination.connection, prepared.document.lineage, 0, roots)
+      const retained = await retainWorkflowAssets(destination.connection, prepared.document.lineage, 0, roots)
       if (this.disposed || !stillWanted() || !this.backends.get().includes(backend) ||
         !this.backends.get().includes(destination) || backend.registry.get() !== registry ||
         destination.registry.get() !== destinationRegistry || connectionChanged) return undefined
       const tab = prepared.publish(target ?? undefined)
+      this.replaceWorkflowAssetOwner(tab.store, destination, retained, project, generation)
       this.reportIncompleteOwnership(tab.id, roots)
       // Complete authority adoption before the next open captures the workspace.
       const intent = this.workflowOpenIntent
@@ -7310,6 +7328,35 @@ export class AppState {
   >()
   private readonly valueAssetReaders = new Map<RetainedAssetReader, number>()
   private readonly assetConnectionGenerations = new WeakMap<DinksterConnection, number>()
+  private readonly workflowAssetOwners = new WeakMap<DocumentSession, {
+    readonly backend: Backend
+    readonly retained: RetainedAssets
+    readonly project: string
+    readonly generation: number | undefined
+  }>()
+
+  private replaceWorkflowAssetOwner(
+    session: DocumentSession, backend: Backend, retained: RetainedAssets,
+    project: string, generation: number | undefined,
+  ): void {
+    const current = (): boolean => !this.disposed && activeProjectId() === project &&
+      this.backends.get().includes(backend) && this.assetConnectionGenerations.get(backend.connection) === generation &&
+      this.tabs.get().some((tab) => !tab.execution && tab.store === session && this.backendForTab(tab) === backend)
+    if (!current()) return
+    const previous = this.workflowAssetOwners.get(session)
+    const owner = { backend, retained, project, generation }
+    this.workflowAssetOwners.set(session, owner)
+    // The acknowledged replacement covers the committed document and its history.
+    // Unknown inventories and disconnected lifetimes are not release authority.
+    if (!previous || previous.backend !== backend || previous.project !== project || previous.generation !== generation ||
+      !previous.retained.complete || !retained.complete) return
+    queueMicrotask(() => {
+      if (current() && this.workflowAssetOwners.get(session) === owner) {
+        void retireAssetOwner(backend.connection, previous.retained)
+      }
+    })
+  }
+
   private readonly frozenAssetOwners = new WeakMap<Tab, {
     readonly backend: Backend
     readonly retained: RetainedAssets

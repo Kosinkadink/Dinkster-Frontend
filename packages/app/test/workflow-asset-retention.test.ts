@@ -1150,6 +1150,133 @@ describe('retained app dispatch', () => {
     },
   )
 
+  it.each(['accepted', 'startup', 'imported', 'lost-ack', 'lost-release', 'reused-owner', 'refused', 'replaced', 'disconnected', 'incomplete'] as const)(
+    'replaces only the acknowledged workflow session owner: %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([schema])
+      app.openDocument(session().doc, 'Workflow')
+      const tab = app.activeTab()!
+      const owners = new Map<string, RetainedAssets>()
+      vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const retained = { ...owner, ...declaration, revision: 1 }
+        owners.set(owner.ownerId, retained)
+        return retained
+      })
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+      if (scenario === 'startup') await app.confirmStartupOwnership()
+      else if (scenario === 'imported') {
+        expect(await app.importWorkflowFile({ name: 'source.json', text: async () => JSON.stringify(session().doc) })).toBe(true)
+      } else expect((await app.dispatchRetainedTo(tab, replace('b'))).ok).toBe(true)
+      const current = scenario === 'imported' ? app.activeTab()! : tab
+      const original = [...owners.values()].find((owner) => owner.digests.includes(asset('a').digest))!
+      app.openDocument({ ...session().doc, lineage: asLineageId('independent') }, 'Independent')
+      const independent = app.activeTab()!
+      expect((await app.dispatchRetainedTo(independent, replace('b'))).ok).toBe(true)
+      const independentOwner = [...owners.values()].at(-1)!
+      const admission = deferred<void>()
+      const requested = deferred<RetainedAssets>()
+      vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const retained = { ...owner, ...declaration, revision: 1 }
+        owners.set(owner.ownerId, retained)
+        requested.resolve(retained)
+        await admission.promise
+        if (scenario === 'refused') {
+          owners.delete(owner.ownerId)
+          throw new Error('rejected')
+        }
+        if (scenario === 'lost-ack') throw new Error('acknowledgment lost')
+        return retained
+      })
+      const release = deferred<void>()
+      const retiring = deferred<void>()
+      vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        expect(revision).toBe(original.revision)
+        retiring.resolve()
+        await release.promise
+        const tombstone = { ...owners.get(owner.ownerId)!, revision: scenario === 'reused-owner' ? 3 : 2,
+          complete: true, digests: scenario === 'reused-owner' ? [asset('f').digest] : [] }
+        owners.set(owner.ownerId, tombstone)
+        if (scenario === 'lost-release' || scenario === 'reused-owner') throw new Error('response lost')
+        return tombstone
+      })
+      const operation = app.dispatchRetainedTo(current, scenario === 'incomplete' ? {
+        command: 'node.add', params: { graphId: 'g0', type: 'Unknown', position: { x: 12, y: 34 } },
+      } : replace('c'))
+      const candidate = await requested.promise
+      const fromInitial = scenario === 'startup' || scenario === 'imported'
+      expect(candidate.digests).toEqual(scenario === 'incomplete'
+        ? [asset('a').digest, asset('b').digest] : fromInitial
+          ? [asset('a').digest, asset('c').digest] : [asset('a').digest, asset('b').digest, asset('c').digest])
+      expect(owners.get(original.ownerId)).toEqual(original)
+      expect(current.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset(fromInitial ? 'a' : 'b')])
+      if (scenario === 'replaced') app.openDocument(session([asset('d')]).doc, 'Replacement')
+      if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
+      admission.resolve()
+      const accepted = !['refused', 'replaced', 'disconnected'].includes(scenario)
+      expect((await operation).ok).toBe(accepted)
+      if (accepted && scenario !== 'incomplete') {
+        await retiring.promise
+        expect(owners.get(original.ownerId)).toEqual(original)
+        expect(current.store.undo()).toBe(true)
+        expect(current.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset(fromInitial ? 'a' : 'b')])
+        if (!fromInitial) {
+          expect(current.store.undo()).toBe(true)
+          expect(current.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('a')])
+        }
+        release.resolve()
+        await vi.waitFor(() => expect(owners.get(original.ownerId)?.revision).toBe(scenario === 'reused-owner' ? 3 : 2))
+        const key = scopedStorageKey(`dinkster.workflow-retentions.${original.ownerId}`)
+        await vi.waitFor(() => expect(JSON.parse(localStorage.getItem(key)!).acknowledgedRevision)
+          .toBe(scenario === 'reused-owner' ? 1 : 2))
+        expect(owners.get(candidate.ownerId)).toEqual(candidate)
+      } else {
+        expect(app.connection.releaseRetainedAssets).not.toHaveBeenCalled()
+        expect(owners.get(original.ownerId)).toEqual(original)
+      }
+      expect(owners.get(independentOwner.ownerId)).toEqual(independentOwner)
+      expect(independent.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
+    },
+  )
+
+  it('keeps the newer acknowledged session owner when an earlier candidate finishes late', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    app = createWorkflowApp([schema])
+    app.openDocument(session().doc, 'Workflow')
+    const tab = app.activeTab()!
+    const owners = new Map<string, RetainedAssets>()
+    const delayed = deferred<void>()
+    const requested = deferred<void>()
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: 1 }
+      owners.set(owner.ownerId, receipt)
+      if (declaration.digests.includes(asset('c').digest)) {
+        requested.resolve()
+        await delayed.promise
+      }
+      return receipt
+    })
+    vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner) => {
+      const receipt = { ...owners.get(owner.ownerId)!, revision: 2, digests: [], complete: true }
+      owners.set(owner.ownerId, receipt)
+      return receipt
+    })
+    expect((await app.dispatchRetainedTo(tab, replace('b'))).ok).toBe(true)
+    const first = [...owners.values()][0]!
+    const earlier = app.dispatchRetainedTo(tab, replace('c'))
+    await requested.promise
+    expect((await app.dispatchRetainedTo(tab, replace('d'))).ok).toBe(true)
+    const latest = [...owners.values()].at(-1)!
+    expect(latest.digests).toEqual([asset('a').digest, asset('b').digest, asset('d').digest])
+    delayed.resolve()
+    expect((await earlier).ok).toBe(false)
+    await vi.waitFor(() => expect(owners.get(first.ownerId)?.revision).toBe(2))
+    expect(owners.get(latest.ownerId)).toEqual(latest)
+    expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('d')])
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
+  })
+
   it.each(['dispatch', 'prepared'] as const)('refuses unadmitted local publication through %s', async (route) => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     app = createWorkflowApp([schema])
