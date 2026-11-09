@@ -285,6 +285,7 @@ interface DinksterTestBridge {
             ref: DinksterBridgeExecutionRef
             status: string
             errors: readonly unknown[]
+            artifactsHydrated: boolean
             artifact?: {
               prompt: Record<string, unknown>
               scope: { kind: string }
@@ -460,7 +461,11 @@ interface DinksterTestBridge {
         label: string
         baseUrl: string
         protocol: 'v1' | 'dinkster'
-        connection: { status: { get(): string }; ingest(event: Readonly<Record<string, unknown>> & { type: string }): void }
+        connection: {
+          status: { get(): string }
+          ingest(event: Readonly<Record<string, unknown>> & { type: string }): void
+          onLiveCompletion(listener: (execution: DinksterBridgeExecutionRef) => void): () => void
+        }
         schemaState: { get(): { status: string } }
         registry: { get(): {
           schemas: Map<string, unknown>

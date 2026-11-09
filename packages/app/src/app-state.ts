@@ -3877,18 +3877,22 @@ export class AppState {
     stillCurrent: () => boolean,
   ): Promise<void> {
     if (backend === undefined || this.disposed || !stillCurrent()) throw new Error('Remote workflow destination is unavailable')
-    const registry = backend.registry.get()
     let connectionChanged = false
     const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
     try {
-      const roots = workflowAssetRoots(current, history,
-        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [document, ...retainedDocuments], 'admission')
-      await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
-      if (this.disposed || connectionChanged || !this.backends.get().includes(backend) ||
-        backend.registry.get() !== registry || !stillCurrent()) {
-        throw new Error('Remote workflow destination changed while ownership was being confirmed')
+      for (;;) {
+        const registry = backend.registry.get()
+        const roots = workflowAssetRoots(current, history,
+          this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [document, ...retainedDocuments], 'admission')
+        await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+        if (this.disposed || connectionChanged || !this.backends.get().includes(backend) || !stillCurrent()) {
+          throw new Error('Remote workflow destination changed while ownership was being confirmed')
+        }
+        // A refreshed schema can expose new roots; its own acknowledgment must precede publication.
+        if (backend.registry.get() !== registry) continue
+        this.reportIncompleteOwnership(document.lineage, roots)
+        return
       }
-      this.reportIncompleteOwnership(document.lineage, roots)
     } finally {
       unsubscribe()
     }

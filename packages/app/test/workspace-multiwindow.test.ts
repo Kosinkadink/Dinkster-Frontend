@@ -167,11 +167,20 @@ describe('AppState multi-window workspace', () => {
       const received = () => viewer.tabs.get().find((tab) => tab.id === 'multi-window-workflow')!
       const original = received().store.doc
       const digest = `blake3:${'d'.repeat(64)}`
+      const refreshedDigest = `blake3:${'f'.repeat(64)}`
       let acknowledge!: () => void
       let requested!: () => void
       const request = new Promise<void>((resolve) => { requested = resolve })
+      let acknowledgeFresh!: () => void
+      let requestedFresh!: () => void
+      const freshRequest = new Promise<void>((resolve) => { requestedFresh = resolve })
       vi.spyOn(viewer.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
         if (!declaration.digests.includes(digest)) return { ...owner, ...declaration, revision: 1 }
+        if (declaration.digests.includes(refreshedDigest)) {
+          expect(declaration.complete).toBe(true)
+          requestedFresh()
+          return new Promise((resolve) => { acknowledgeFresh = () => resolve({ ...owner, ...declaration, revision: 1 }) })
+        }
         expect(declaration.complete).toBe(false)
         expect(localStorage.getItem(`dinkster.workflow-retentions.${owner.ownerId}`)).not.toBeNull()
         requested()
@@ -185,12 +194,32 @@ describe('AppState multi-window workspace', () => {
       await request
       expect(received().store.doc).toBe(original)
       if (scenario === 'retargeted') viewer.setTabTarget(received().id, viewer.addBackend('http://other.test', 'Other', false, 'dinkster')!.id)
-      if (scenario === 'registry') viewer.registry.set({ connection: viewer.connection.id, schemas: new Map(),
-        diagnostics: [], hash: 'changed', resolve: () => undefined })
+      if (scenario === 'registry') {
+        const schema: NodeSchema = { type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false,
+          items: [
+            { kind: 'input', id: 'held', optional: true, type: { kind: 'concrete', name: 'ASSET' } },
+            { kind: 'input', id: 'newDefault', optional: true, type: { kind: 'concrete', name: 'ASSET' },
+              widget: { widgetType: 'ASSET', options: {}, default: { digest: refreshedDigest, name: 'default.bin',
+                size: 17, mediaType: 'application/octet-stream', virtualPath: '' } } },
+          ] }
+        viewer.registry.set({ connection: viewer.connection.id, schemas: new Map([['X', schema]]),
+          diagnostics: [], hash: 'changed', resolve: (type) => type === 'X' ? schema : undefined })
+      }
       if (scenario === 'disposed') viewer.dispose()
       acknowledge()
-      if (scenario === 'accepted') {
+      if (scenario === 'registry') {
+        await freshRequest
+        expect(received().store.doc).toBe(original)
+        acknowledgeFresh()
+      }
+      if (scenario === 'accepted' || scenario === 'registry') {
         await vi.waitFor(() => expect(received().store.doc.graphs.g0!.nodes.n1!.values.held).toMatchObject({ digest }))
+        if (scenario === 'registry') {
+          expect((await viewer.dispatchTo(received(), { command: 'node.setTitle', params: {
+            graphId: 'g0', nodeId: 'n1', title: 'Editable after schema refresh',
+          } })).ok).toBe(true)
+          await vi.waitFor(() => expect(tab.store.doc.graphs.g0!.nodes.n1!.title).toBe('Editable after schema refresh'))
+        }
       } else {
         if (scenario !== 'disposed') await vi.waitFor(() => expect(viewer.problems.get().some(
           (problem) => problem.message.includes('sync failed'))).toBe(true))

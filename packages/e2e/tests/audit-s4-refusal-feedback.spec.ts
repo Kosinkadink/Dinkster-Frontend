@@ -1,4 +1,4 @@
-import { expect, openRailPanel, test, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 async function prepare(page: Page): Promise<void> {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
@@ -12,6 +12,7 @@ async function prepare(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest!.app.backends.get()[0]?.schemaState.get().status,
   )).toBe('ready')
+  await waitForStartupOwnership(page)
 }
 
 async function drag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
