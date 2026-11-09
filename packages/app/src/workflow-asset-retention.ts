@@ -359,9 +359,9 @@ export function executionAssetRoots(
 }
 
 function retentionMatches(value: RetainedAssets | undefined, owner: RetainedAssetOwner,
-  digests: readonly string[], complete: boolean, sourceToken?: string): boolean {
+  digests: readonly string[], complete: boolean, sourceToken?: string, revision = 1): boolean {
   return value !== undefined && value.scope === owner.scope && value.ownerKind === owner.ownerKind &&
-    value.ownerId === owner.ownerId && value.revision === 1 && value.complete === complete &&
+    value.ownerId === owner.ownerId && value.revision === revision && value.complete === complete &&
     value.sourceToken === sourceToken &&
     value.digests.length === digests.length && value.digests.every((digest, index) => digest === digests[index])
 }
@@ -408,9 +408,13 @@ export async function reconcileWorkflowRetentions(
             /^execution-result:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
             typeof intent.executionKey === 'string' && intent.executionKey.length > 0
         const sourceToken = intent.sourceToken
+        const releasing = intent.releaseRevision === 1 && owner?.ownerKind === 'preview'
         if ((sourceToken !== undefined && (owner?.ownerKind !== 'shown-result' ||
             typeof sourceToken !== 'string' || !/^[0-9a-f]{32}$/.test(sourceToken))) ||
-          intent.version !== 3 || (intent.acknowledgedRevision !== undefined && intent.acknowledgedRevision !== 1) ||
+          (intent.releaseRevision !== undefined && !releasing) ||
+          (releasing && intent.acknowledgedRevision !== 1 && intent.acknowledgedRevision !== 2) ||
+          intent.version !== 3 || (intent.acknowledgedRevision !== undefined && intent.acknowledgedRevision !== 1 &&
+            !(releasing && intent.acknowledgedRevision === 2)) ||
           intent.connectionId !== connection.id || intent.assetBaseUrl !== connection.assetUrl('') ||
           owner === undefined || owner === null || owner.scope !== 'local' || !contextValid || !clipboardValid ||
           owner.ownerId.length > 512 || key !== `${prefix}${owner.ownerId}` ||
@@ -420,7 +424,9 @@ export async function reconcileWorkflowRetentions(
             (index === 0 || (digests[index - 1] as string) < digest))) throw new Error('Invalid workflow retention intent')
         const observed = await connection.fetchRetainedAssets(owner, signal)
         // A concurrent window may have changed the intent while the request was in flight.
-        if (storage.getItem(key) !== bytes || !retentionMatches(observed, owner, intent.digests, intent.complete, sourceToken as string | undefined)) resolved = false
+        if (storage.getItem(key) !== bytes || !retentionMatches(observed, owner,
+          releasing ? [] : intent.digests, releasing ? true : intent.complete,
+          sourceToken as string | undefined, releasing ? 2 : 1)) resolved = false
       } catch {
         resolved = false
       }
@@ -460,12 +466,13 @@ export async function retainExecutionAssets(
   return retainAssetRoots(connection, 'shown-result', { executionKey: executionKey(ref) }, roots, storage)
 }
 
-/** Catalog entries have independent preview ownership, not workflow roots. */
+/** Source payload reads have independent preview ownership, not workflow roots. */
 export async function readAssetPreview<T>(
   connection: DinksterConnection,
   digest: string,
   consume: () => Promise<T>,
   stillCurrent: () => boolean,
+  handoff?: (value: T) => Promise<boolean>,
 ): Promise<T> {
   const project = activeProjectId()
   let connectionChanged = false
@@ -476,7 +483,44 @@ export async function readAssetPreview<T>(
     if (!current()) throw new Error('Asset preview changed before admission')
     const retained = await retainAssetRoots(connection, 'preview', { preview: true }, { complete: false, digests: [digest] }, globalThis.localStorage)
     reader = new RetainedAssetReader(connection, retained, current)
-    return await reader.read(consume)
+    const value = await reader.read(consume)
+    // Publishing a replacement can invalidate the open intent itself. Only the
+    // successful handoff, not reader closure or cancellation, authorizes release.
+    if (handoff !== undefined && await handoff(value)) {
+      await reader.close()
+      if (!connectionChanged && activeProjectId() === project) {
+        const key = scopedStorageKey(`dinkster.workflow-retentions.${retained.ownerId}`)
+        try {
+          const bytes = localStorage.getItem(key)
+          const intent = JSON.parse(bytes ?? 'null') as Record<string, unknown> | null
+          if (intent === null || intent.acknowledgedRevision !== retained.revision ||
+            intent.connectionId !== connection.id || intent.assetBaseUrl !== connection.assetUrl('') ||
+            canonicalJson(intent.owner) !== canonicalJson({ scope: retained.scope, ownerKind: retained.ownerKind, ownerId: retained.ownerId }) ||
+            canonicalJson(intent.digests) !== canonicalJson(retained.digests) || intent.complete !== retained.complete ||
+            intent.releaseRevision !== undefined) throw new Error('Asset read ownership changed before handoff')
+          const releasing = { ...intent, releaseRevision: retained.revision }
+          const pending = JSON.stringify(releasing)
+          localStorage.setItem(key, pending)
+          let released: RetainedAssets | undefined
+          try {
+            released = await connection.releaseRetainedAssets(retained, retained.revision)
+            if (!retentionMatches(released, retained, [], true, undefined, retained.revision + 1)) {
+              throw new Error('Asset read release acknowledgment differs')
+            }
+          } catch {
+            released = await connection.fetchRetainedAssets(retained)
+          }
+          if (localStorage.getItem(key) === pending &&
+            retentionMatches(released, retained, [], true, undefined, retained.revision + 1)) {
+            localStorage.setItem(key, JSON.stringify({ ...releasing, acknowledgedRevision: released!.revision }))
+          }
+        } catch {
+          // Publication already has independent ownership. Unconfirmed retirement
+          // stays journaled and never causes a write replay or a rollback.
+        }
+      }
+    }
+    return value
   } finally {
     // Cancellation closes publication, not a shared renderer's pending work.
     await reader?.close()

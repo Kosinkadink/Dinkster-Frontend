@@ -105,6 +105,12 @@ digest through independent preview ownership before fetching or parsing the
 payload. The captured backend and open intent must remain current through
 body settlement. Parsed local data then enters workflow-root admission;
 publishing the new tab is separate from the payload read it supersedes.
+Only a successfully admitted destination workflow authorizes retiring that
+source-read owner, at its captured revision. Failed or superseded opens keep
+the source owner. Release intent and acknowledgment remain journaled; lost
+responses reconcile the exact empty complete tombstone at the next revision,
+without repeating DELETE or adopting another generation's revision. A failed
+retirement does not roll back a workflow with independent acknowledged roots.
 
 Startup restoration of persisted results also admits source-workflow bytes
 before parsing or compiling their proof. The original backend, registry and

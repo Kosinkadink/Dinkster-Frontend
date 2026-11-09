@@ -7504,16 +7504,20 @@ export class AppState {
       // backend must still report ownerGone, not silently return.
       if (!this.ownerStillLive(backend)) return false
       if (!record) return false
-      const json = await readAssetPreview(backend.connection, record.digest, async () => {
+      let tab: Tab | undefined
+      await readAssetPreview(backend.connection, record.digest, async () => {
         const text = await backend.connection.fetchAssetText(record.digest)
         return text === undefined ? undefined : JSON.parse(text) as unknown
-      }, () => stillWanted() && this.backends.get().includes(backend))
+      }, () => stillWanted() && this.backends.get().includes(backend), async (json) => {
+        if (json === undefined || !this.ownerStillLive(backend)) return false
+        tab = await this.openRetainedDocument(json, record.name, backend, stillWanted)
+        if (!tab || !this.tabs.get().includes(tab)) return false
+        this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id })
+        this.markTabClean(tab.id)
+        return true
+      })
       if (!this.ownerStillLive(backend)) return false
-      if (json === undefined) return false
-      const tab = await this.openRetainedDocument(json, record.name, backend, stillWanted)
       if (!tab || !this.tabs.get().includes(tab)) return false
-      this.libraryLinks.set(tab.id, { recordId: record.id, revision: record.revision, connectionId: backend.id })
-      this.markTabClean(tab.id)
       return true
     } catch (e) {
       // A rejection from a retired backend (removal disconnects/aborts) is
@@ -7607,15 +7611,18 @@ export class AppState {
         ])
         return false
       }
-      const json = await readAssetPreview(backend.connection, run.sourceDocument, async () => {
+      let tab: Tab | undefined
+      await readAssetPreview(backend.connection, run.sourceDocument, async () => {
         const text = await backend.connection.fetchAssetText(run.sourceDocument!)
         return text === undefined ? undefined : JSON.parse(text) as unknown
-      }, () => stillWanted() && this.backends.get().includes(backend))
+      }, () => stillWanted() && this.backends.get().includes(backend), async (json) => {
+        if (json === undefined || !this.ownerStillLive(backend)) return false
+        const meta = (json as { meta?: { title?: unknown } }).meta
+        const title = typeof meta?.title === 'string' ? meta.title : `Run ${run.jobId.slice(0, 8)}`
+        tab = await this.openRetainedDocument(json, title, backend, stillWanted)
+        return tab !== undefined && this.tabs.get().includes(tab)
+      })
       if (!this.ownerStillLive(backend)) return false
-      if (json === undefined) return false
-      const meta = (json as { meta?: { title?: unknown } }).meta
-      const title = typeof meta?.title === 'string' ? meta.title : `Run ${run.jobId.slice(0, 8)}`
-      const tab = await this.openRetainedDocument(json, title, backend, stillWanted)
       if (!tab || !this.tabs.get().includes(tab)) return false
       return true
     } catch (e) {

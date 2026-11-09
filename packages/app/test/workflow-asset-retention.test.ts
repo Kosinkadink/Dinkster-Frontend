@@ -9,7 +9,7 @@ import { buildDinksterRegistry } from '@dinkster/client'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { GLSL_EDITOR_KIND } from '../src/editors.js'
-import { admitWorkflowDispatch, executionAssetRoots, reconcileWorkflowRetentions, retainExecutionAssets, RetainedAssetReader, workflowAssetRoots } from '../src/workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, readAssetPreview, reconcileWorkflowRetentions, retainExecutionAssets, RetainedAssetReader, workflowAssetRoots } from '../src/workflow-asset-retention.js'
 import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { createPreviewLoader } from '../src/node-previews.js'
@@ -45,6 +45,75 @@ function deferred<T>() {
 }
 
 describe('workflow retention recovery', () => {
+  it.each(['acknowledged', 'lost-release', 'reused-owner', 'refused-handoff', 'disconnected'] as const)(
+    'holds independent source reads until successful handoff and reconciles retirement: %s', async (scenario) => {
+      const f = recoveryFixture()
+      f.entries.clear()
+      vi.stubGlobal('localStorage', f.storage)
+      const owners = new Map<string, RetainedAssets>()
+      const ack = deferred<void>()
+      const handoff = deferred<boolean>()
+      const entered = deferred<void>()
+      const statusListeners = new Set<() => void>()
+      const connection = {
+        id: asConnectionId('source-reads'), assetUrl: () => 'http://test/api/assets/',
+        status: { subscribe: (callback: () => void) => {
+          statusListeners.add(callback)
+          return () => { statusListeners.delete(callback) }
+        } },
+        retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
+          const retained = { ...owner, ...declaration, revision: 1 }
+          owners.set(owner.ownerId, retained)
+          await ack.promise
+          return retained
+        },
+        fetchRetainedAssets: async (owner: RetainedAssetOwner) => owners.get(owner.ownerId),
+        releaseRetainedAssets: async (owner: RetainedAssetOwner, revision: number) => {
+          const before = owners.get(owner.ownerId)!
+          expect(revision).toBe(1)
+          if (scenario === 'reused-owner') {
+            owners.set(owner.ownerId, { ...before, revision: 3, digests: [asset('f').digest] })
+            throw new Error('revision conflict')
+          }
+          const released = { ...before, revision: 2, digests: [], complete: true }
+          owners.set(owner.ownerId, released)
+          if (scenario === 'lost-release') throw new Error('lost response')
+          return released
+        },
+      } as unknown as DinksterConnection
+      let consumed = false
+      const operation = readAssetPreview(connection, asset('a').digest, async () => {
+        consumed = true
+        return { nested: asset('b') }
+      }, () => true, async (value) => {
+        expect(value).toEqual({ nested: asset('b') })
+        entered.resolve()
+        return handoff.promise
+      })
+      expect(consumed).toBe(false)
+      ack.resolve()
+      await entered.promise
+      const original = [...owners.values()][0]!
+      expect(original.digests).toEqual([asset('a').digest])
+      expect(original.revision).toBe(1)
+      // A second read of the same digest has its own durable generation.
+      await readAssetPreview(connection, asset('a').digest, async () => 'independent', () => true)
+      const independent = [...owners.values()][1]!
+      expect(independent.ownerId).not.toBe(original.ownerId)
+      if (scenario === 'disconnected') for (const listener of statusListeners) listener()
+      handoff.resolve(scenario !== 'refused-handoff')
+      expect(await operation).toEqual({ nested: asset('b') })
+      expect(owners.get(independent.ownerId)).toEqual(independent)
+      const released = scenario === 'acknowledged' || scenario === 'lost-release'
+      expect(owners.get(original.ownerId)?.revision).toBe(released ? 2 : scenario === 'reused-owner' ? 3 : 1)
+      const key = scopedStorageKey(`dinkster.workflow-retentions.${original.ownerId}`)
+      const intent = JSON.parse(f.storage.getItem(key)!)
+      expect(intent.acknowledgedRevision).toBe(released ? 2 : 1)
+      expect(intent.releaseRevision).toBe(scenario === 'refused-handoff' || scenario === 'disconnected' ? undefined : 1)
+      expect(await reconcileWorkflowRetentions(connection, new AbortController().signal, f.storage))
+        .toBe(scenario !== 'reused-owner')
+    })
+
   it('journals exact source authority before claim and reconciles lost claims without replay or root substitution', async () => {
     const offer = { token: '0123456789abcdef'.repeat(2), scope: 'local', jobRef: 'original-job', attemptId: 2,
       nodeId: 'n0', outputId: 'images', publication: 3, digests: [asset('a').digest, asset('b').digest], complete: true }
