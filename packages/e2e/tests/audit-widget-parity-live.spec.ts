@@ -7,7 +7,7 @@ import { selectProductOption, skipWithoutNativeCatalog } from './fixtures.js'
 
 // Exact native catalog of the backend pinned by the hosted workflows.
 const canonicalCatalogSha256 =
-  '63d7daea5a1c5123696970eff9376a8900da95b61960e658ab164a7558806b4b'
+  '4e92783d08de2cd477025dc22ce331c864459fa114fcd3848a0c66c2365a3c07'
 const nativeBackend =
   process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -161,7 +161,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
     .update(canonicalJson(stableCatalog))
     .digest('hex')
   expect(catalogDigest).toBe(canonicalCatalogSha256)
-  expect(Object.keys(catalog.nodes)).toHaveLength(885)
+  expect(Object.keys(catalog.nodes)).toHaveLength(889)
   const inputs = widgets(catalog)
   const descriptors = inputs.flatMap(({ input }) =>
     widgetDescriptors(input.widget),
@@ -416,7 +416,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
         ),
       { timeout: 20_000 },
     )
-    .toBe(885)
+    .toBe(889)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument(
       {
