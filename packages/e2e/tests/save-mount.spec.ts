@@ -1,5 +1,5 @@
 import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
-import { elaborateInterface, loadDocument, parseDinksterSchema, type DinksterWireSchema } from '@dinkster/core'
+import { elabInputsOf, elaborateInterface, loadDocument, parseDinksterSchema, valueKeyOf, type DinksterWireSchema } from '@dinkster/core'
 
 async function mountPoint(page: Page, inputId = 'destination', nodeId = 'save') {
   return page.evaluate(({ inputId, nodeId }) => {
@@ -61,7 +61,7 @@ test('native SaveImage and SaveVideo keep imported prefixes beside independent m
   expect(pageErrors).toEqual([])
 })
 
-test('imported SaveVideo keeps active codec state verified while dormant ownership stays incomplete', async ({ page }) => {
+test('imported SaveVideo resolves dormant codecs without certifying unsupported ownership', async ({ page }) => {
   const response = await page.request.get('/api/nodes')
   expect(response.ok()).toBe(true)
   const catalog = await response.json() as { nodes: Record<string, DinksterWireSchema> }
@@ -94,13 +94,18 @@ test('imported SaveVideo keeps active codec state verified while dormant ownersh
   expect(node.dynamic).toEqual({ format: { selected: 'auto' }, 'format.codec': { selected: 'auto' }, codec: { selected: 'auto' } })
   expect(elaborateInterface(schema, node).diagnostics).toEqual([])
   const stored = elaborateInterface(schema, node, undefined, { includeDormant: true })
-  expect(stored.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['elab.dormant.unsupported', 'elab.dormant.unsupported'])
-  expect(result.shared).toBe('Workflow dynamic identities are invalid. Publication and sharing remain unavailable.')
+  expect(stored.diagnostics).toEqual([])
+  expect([...new Set(elabInputsOf(stored).map(valueKeyOf))].sort()).toEqual([
+    'codec.encoding.crf', 'filename_prefix', 'format.codec.encoding.crf', 'mount', 'video',
+  ])
+  expect(result.shared).toBe('Workflow ownership unconfirmed. Publication and sharing remain unavailable.')
   expect(result.saved).toBe(false)
-  expect(result.warnings.length).toBeGreaterThan(0)
-  expect(result.records).toContainEqual(expect.objectContaining({ complete: false,
-    incompleteDiagnostics: [expect.objectContaining({ code: 'elab.dormant.unsupported', severity: 'error' }),
-      expect.objectContaining({ code: 'elab.dormant.unsupported', severity: 'error' })] }))
+  expect(result.warnings).toEqual([])
+  expect(result.records.filter((record) => record.documentLineage === loaded.document!.lineage)).toEqual(
+    expect.arrayContaining([expect.objectContaining({ complete: false, digests: [], acknowledgedRevision: 1 })]),
+  )
+  expect(result.records.filter((record) => record.documentLineage === loaded.document!.lineage)
+    .every((record) => record.complete === false && record.incompleteDiagnostics === undefined)).toBe(true)
 })
 
 test('SaveImage and SaveVideo contract fixtures render mount beside filename_prefix without helper nodes', async ({ page }, testInfo) => {
