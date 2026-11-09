@@ -935,12 +935,14 @@ export interface WorkflowRequirementPlan {
   readonly errors: readonly string[]
 }
 
-export interface PackInstallPlan {
-  readonly confirmation: string
+export type PackInstallPlan = {
   readonly plan: Readonly<Record<string, unknown>>
   readonly review: string
   readonly expiresInSeconds: number
-}
+} & (
+  | { readonly confirmation: string; readonly commands?: undefined }
+  | { readonly confirmation?: undefined; readonly commands: readonly string[] }
+)
 
 export interface PackInstallResult {
   readonly generation: number
@@ -2803,13 +2805,18 @@ export class DinksterConnection {
   async planPackInstall(packs: readonly { readonly pack: string; readonly version: string }[]): Promise<PackInstallPlan> {
     const body = await this.packInstallRequest('plan', { packs: packs.map(({ pack, version }) => ({ pack, version })) })
     const plan = body['plan']
-    if (typeof body['confirmation'] !== 'string' || body['confirmation'].length === 0 ||
+    const confirmation = body['confirmation']
+    const commands = body['commands']
+    const terminal = Array.isArray(commands) && commands.length > 0 &&
+      commands.every((command): command is string => typeof command === 'string' && command.trim().length > 0)
+    const gateway = typeof confirmation === 'string' && confirmation.length > 0
+    if (!(terminal && confirmation === undefined || gateway && commands === undefined) ||
       typeof body['review'] !== 'string' ||
       !Number.isSafeInteger(body['expiresInSeconds']) || (body['expiresInSeconds'] as number) <= 0 ||
       typeof plan !== 'object' || plan === null || Array.isArray(plan)) {
       throw new Error('Malformed pack installation plan response')
     }
-    return { confirmation: body['confirmation'], plan: plan as Record<string, unknown>,
+    return { ...(terminal ? { commands: commands as string[] } : { confirmation: confirmation as string }), plan: plan as Record<string, unknown>,
       review: body['review'], expiresInSeconds: body['expiresInSeconds'] as number }
   }
 

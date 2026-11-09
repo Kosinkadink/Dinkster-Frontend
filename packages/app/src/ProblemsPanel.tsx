@@ -90,6 +90,7 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
     return [...packs].sort(([left], [right]) => left.localeCompare(right))
   })
   const [install, setInstall] = createSignal<PackInstallReview>()
+  const [commandsCopied, setCommandsCopied] = createSignal(false)
   createEffect(() => {
     activeTabId()
     tabs()
@@ -105,6 +106,7 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
     const current = () => props.app.activeTab() === tab &&
       props.app.backendForTab(tab) === backend && tab.store.doc === document
     const request = { current, phase: 'planning' as const }
+    setCommandsCopied(false)
     setInstall(request)
     try {
       const packs = missingPacks().filter(([pack]) => selectedPack === undefined || pack === selectedPack).map(([pack, nodes]) => {
@@ -115,12 +117,17 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
       })
       const plan = await backend.connection.planPackInstall(packs)
       if (install() !== request || !current()) return
+      const confirmation = plan.confirmation
+      if (confirmation === undefined) {
+        setInstall({ current, phase: 'review', plan })
+        return
+      }
       const review = { current, phase: 'review' as const, plan, apply: async () => {
         if (install() !== review || !current()) { setInstall(undefined); return }
         const applying = { current, phase: 'applying' as const, plan }
         setInstall(applying)
         try {
-          await backend.connection.applyPackInstall(plan.confirmation)
+          await backend.connection.applyPackInstall(confirmation)
           await props.app.refreshBackendSchemas(backend)
           if (install() === applying) setInstall(undefined)
         } catch (error) {
@@ -180,8 +187,24 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
           )}</For>
           <Show when={install()?.plan}>{(plan) => (
             <div class="problem-detail" data-testid="pack-install-review">
-              <p>{message('problems.importedPacks.reviewHint')}</p>
+              <p>{message(plan().commands === undefined ? 'problems.importedPacks.reviewHint' : 'problems.importedPacks.terminalHint')}</p>
               <pre>{plan().review}</pre>
+              <Show when={plan().commands}>{(commands) => <>
+                <pre>{commands().join('\n')}</pre>
+                <ProductButton variant="secondary" size="compact" onClick={async () => {
+                  const review = install()
+                  setCommandsCopied(false)
+                  try {
+                    await navigator.clipboard.writeText(commands().join('\n'))
+                    if (install() === review && review?.current()) {
+                      setInstall({ current: review.current, phase: 'review', plan: plan() })
+                      setCommandsCopied(true)
+                    }
+                  } catch {
+                    if (install() === review && review?.current()) setInstall({ ...review, error: message('problems.importedPacks.copyFailed') })
+                  }
+                }}>{message(commandsCopied() ? 'problems.importedPacks.copied' : 'problems.importedPacks.copyCommands')}</ProductButton>
+              </>}</Show>
             </div>
           )}</Show>
           <Show when={install()?.error}>{(error) => (
@@ -197,8 +220,10 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                 disabled={install()?.phase === 'planning' || install()?.phase === 'applying'}
                 onClick={() => void planInstall()}>{message('problems.importedPacks.plan')}</ProductButton>
             }>
-              <ProductButton variant="primary" size="compact"
-                onClick={() => void install()?.apply?.()}>{message('problems.importedPacks.confirm')}</ProductButton>
+              <Show when={install()?.apply}>
+                <ProductButton variant="primary" size="compact"
+                  onClick={() => void install()?.apply?.()}>{message('problems.importedPacks.confirm')}</ProductButton>
+              </Show>
             </Show>
             <Show when={install()?.phase === 'review'}>
               <ProductButton variant="ghost" size="compact"

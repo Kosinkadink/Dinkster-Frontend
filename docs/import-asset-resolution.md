@@ -61,10 +61,17 @@ There is no backend translation snapshot route or offline shipped copy.
 
 The shared `DinksterConnection` client exposes `planPackInstall` for exact
 pack/version selections and `applyPackInstall` for the server-held confirmation
-token. Planning returns the manager's review text and does not install.
-The plan member is an opaque JSON object owned by the host: managed roots use
-an installer plan and Desktop uses its project software plan. The renderer
-does not interpret that payload or send it back for execution.
+token. Planning returns review text and does not install. A managed bare-host
+plan returns a nonempty `commands` string array instead of `confirmation`;
+the Problems panel shows and copies these exact host-supplied commands, without
+an HTTP confirmation button. Run them in a terminal on the backend host to
+plan and apply the managed generation. After activation and reconnect, the
+existing document re-resolves against the newly installed schemas.
+Desktop gateway plans return `confirmation` instead of `commands` and retain
+the explicit HTTP confirmation flow. A response with both execution modes,
+neither mode, or malformed commands is rejected. The `plan` member is an opaque
+JSON object owned by the host; the renderer does not interpret that payload,
+execute terminal commands, or send the plan back for execution.
 Applying never retries automatically: a transport failure may have happened
 after the host changed its installation. HTTP failures retain their status and
 structured body as `PackInstallError`; absent opt-in routes remain unavailable.
@@ -73,8 +80,9 @@ the same backend's installed registry afterward; the client does not rewrite
 the document or assume a topology-specific Desktop install path.
 
 The Problems report offers review for one pack or all missing packs. The
-backend's exact plan is shown before Confirm installation; Cancel makes no
-installation request. Editing or replacing the document, switching tabs or
+backend's exact plan is shown before the terminal commands or gateway
+confirmation; Cancel makes no installation request. Clipboard failures leave
+the command text available for manual selection. Editing or replacing the document, switching tabs or
 changing its selected backend invalidates the pending confirmation. Applying
 uses the captured backend and refreshes that backend's schemas after successful
 activation, without re-importing. Host refusals (including disabled routes),

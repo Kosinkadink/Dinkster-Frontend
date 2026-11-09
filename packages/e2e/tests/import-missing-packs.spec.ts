@@ -61,6 +61,11 @@ test('reports missing packs and preserves edits as the active registry gains the
   let installed = false
   let applyCount = 0
   let refuse = true
+  let terminal = true
+  const commands = [
+    'dinkster-env --root "/home/example/My Project" packs-plan dinkster-image@0.0.1 --output /tmp/pack-review',
+    'dinkster-env --root "/home/example/My Project" packs-apply --input /tmp/pack-review --approval sha256:reviewed-plan',
+  ]
   let releaseApply: (() => void) | undefined
   const plans: unknown[] = []
   await page.route('/api/**', (route) => route.fulfill({ status: 503 }))
@@ -87,6 +92,8 @@ test('reports missing packs and preserves edits as the active registry gains the
   await page.route('/api/packs/install/plan', (route) => {
     plans.push(route.request().postDataJSON())
     return refuse ? route.fulfill({ status: 404, json: { detail: 'Pack installation is not enabled on this host.' } })
+      : terminal ? route.fulfill({ json: { commands, plan: { format: 'dinkster.project-pack-plan/1' },
+        review: 'Install dinkster-image@0.0.1\nActivate a new generation on this backend.', expiresInSeconds: 900 } })
       : route.fulfill({ json: { confirmation: 'server-confirmation', plan: { format: 'dinkster.plan/1' },
         review: 'Install dinkster-image@0.0.1\nActivate a new generation on this backend.', expiresInSeconds: 900 } })
   })
@@ -141,6 +148,31 @@ test('reports missing packs and preserves edits as the active registry gains the
   refuse = false
   await reviewImage.click()
   await expect(report.getByTestId('pack-install-review')).toContainText('Install dinkster-image@0.0.1')
+  await expect(report.getByRole('button', { name: 'Confirm installation' })).toHaveCount(0)
+  await expect(report.getByTestId('pack-install-review')).toContainText(commands[1]!)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.evaluate(() => Object.defineProperty(navigator.clipboard, 'writeText', {
+    configurable: true, value: async () => { throw new Error('Clipboard denied') },
+  }))
+  await report.getByRole('button', { name: 'Copy commands', exact: true }).click()
+  await expect(report).toContainText('Clipboard unavailable. Select and copy the commands above.')
+  await expect(report.getByTestId('pack-install-review')).toContainText(commands[0]!)
+  await report.getByRole('button', { name: 'Cancel', exact: true }).scrollIntoViewIfNeeded()
+  await expect(report.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport()
+  if (evidence) await page.screenshot({ path: resolve(evidence, 'install-terminal-copy-failed.png') })
+  await page.evaluate(() => Reflect.deleteProperty(navigator.clipboard, 'writeText'))
+  await report.getByRole('button', { name: 'Copy commands', exact: true }).click()
+  await expect(report.getByRole('button', { name: 'Commands copied', exact: true })).toBeVisible()
+  await expect(report).not.toContainText('Clipboard unavailable.')
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(commands.join('\n'))
+  expect(applyCount).toBe(0)
+  await capture('install-terminal')
+  await page.setViewportSize({ width: 780, height: 900 })
+  await capture('install-terminal-narrow')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await report.getByRole('button', { name: 'Cancel', exact: true }).click()
+  terminal = false
+  await reviewImage.click()
   await capture('install-review')
   await page.setViewportSize({ width: 780, height: 900 })
   await capture('install-review-narrow')
@@ -172,7 +204,7 @@ test('reports missing packs and preserves edits as the active registry gains the
   releaseApply!()
   await expect(report.locator('[data-pack]')).toHaveCount(1)
   expect(applyCount).toBe(2)
-  expect(plans).toEqual(Array.from({ length: 5 }, () => ({ packs: [{ pack: 'dinkster-image', version: '0.0.1' }] })))
+  expect(plans).toEqual(Array.from({ length: 6 }, () => ({ packs: [{ pack: 'dinkster-image', version: '0.0.1' }] })))
   expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(edited.document)
   await expect(report.locator('[data-pack="dinkster-sampling"]')).toBeVisible()
   await capture('one-pack-resolved')
