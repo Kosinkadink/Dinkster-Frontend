@@ -23,6 +23,7 @@
 
 import { parseAssetTypeId } from '@dinkster/core'
 import type { FetchLike } from './connection-contract.js'
+import { parseResultAssetOffer, type ResultAssetOffer } from './result-asset-offer.js'
 
 // ---------------------------------------------------------------------------
 // Wire shapes (decoded, normalized)
@@ -99,7 +100,7 @@ export interface ValueRefusal {
 }
 
 export type ValuePeekResult =
-  | { readonly available: true; readonly descriptor: ValueDescriptor; readonly renditions: readonly RenditionInfo[] }
+  | { readonly available: true; readonly descriptor: ValueDescriptor; readonly renditions: readonly RenditionInfo[]; readonly resultOffer?: ResultAssetOffer }
   | ValueRefusal
 
 export type RenditionResult =
@@ -359,7 +360,7 @@ export interface ValueReadOwner {
   read<T>(consume: () => Promise<T>): Promise<T>
 }
 
-export type ValuePeekAdmission = (query: ValueQuery, descriptor: ValueDescriptor) => Promise<ValueReadOwner>
+export type ValuePeekAdmission = (query: ValueQuery, descriptor: ValueDescriptor, offer?: ResultAssetOffer) => Promise<ValueReadOwner>
 
 interface PeekIdentity {
   readonly identity: string
@@ -501,7 +502,7 @@ export class DinksterValuesClient {
     const peekEpoch = this.peekEpoch
     let res: Response
     try {
-      res = await this.fetchFn(queryUrl, options.signal === undefined ? undefined : { signal: options.signal })
+      res = await this.fetchFn(queryUrl, { cache: 'no-store', ...(options.signal === undefined ? {} : { signal: options.signal }) })
     } catch (error) {
       return transportRefusal(error, options.signal)
     }
@@ -514,11 +515,17 @@ export class DinksterValuesClient {
     if (b?.['available'] !== true || descriptor === undefined) {
       return { available: false, reason: 'malformed-response', status: res.status, error: 'unrecognized /api/values success payload' }
     }
+    const resultOffer = parseResultAssetOffer(b['resultOffer'])
+    if (Object.hasOwn(b, 'resultOffer') && (resultOffer === undefined ||
+      resultOffer.nodeId !== query.nodeId || resultOffer.outputId !== query.outputId)) {
+      return localRefusal('malformed-response', 'Value result offer does not identify the requested parent output')
+    }
     const renditions = renditionsOf(b['renditions'])
-    const result: ValuePeekResult = { available: true, descriptor, renditions }
+    const result: ValuePeekResult = { available: true, descriptor, renditions,
+      ...(resultOffer === undefined ? {} : { resultOffer }) }
     let owner: ValueReadOwner | undefined
     try {
-      owner = await this.admitPeek?.(query, descriptor)
+      owner = await this.admitPeek?.(query, descriptor, resultOffer)
     } catch {
       return localRefusal('ownership-unconfirmed', 'Value asset ownership could not be confirmed')
     }

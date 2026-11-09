@@ -1619,6 +1619,37 @@ describe('retained asset ownership', () => {
   const owner = { scope: 'team/one', ownerKind: 'document' as const, ownerId: 'window/tab generation' }
   const manifest = { ...owner, revision: 8, digests: [a, b], complete: true }
 
+  it('reads exact immutable output and artifact offers without substituting missing or malformed roots', async () => {
+    const token = '0123456789abcdef'.repeat(2)
+    const base = { token, scope: owner.scope, jobRef: 'original-job', attemptId: 2, nodeId: 'loop[3]/saved',
+      publication: 7, digests: [a, b], complete: true }
+    const output = { ...base, outputId: 'images' }
+    const artifact = { ...base, artifact: { nodeId: base.nodeId, index: 3, digest: a, name: 'saved.png',
+      size: 19, mediaType: 'image/png', virtualPath: 'outputs/saved.png',
+      preview: { digest: b, name: 'poster.png', size: 5, mediaType: 'image/png', virtualPath: `previews/${b.slice(7)}/poster.png` } } }
+    for (const offer of [output, artifact, { ...output, complete: false }]) {
+      const { conn, requests } = submitHarness(() => jsonResponse(200, offer))
+      expect(await conn.fetchResultAssetOffer(owner.scope, token)).toEqual(offer)
+      expect(requests[0]!.url).toBe(`http://test/api/library/result-offers/${token}?scope=team%2Fone`)
+      expect(requests[0]!.init?.cache).toBe('no-store')
+    }
+    for (const offer of [
+      { ...output, scope: 'foreign' }, { ...output, token: 'f'.repeat(32) },
+      { ...output, token: `${token}\n` }, { ...output, digests: [`${a}\n`, b] },
+      { ...output, digests: [b, a] }, { ...output, digests: undefined },
+      { ...output, complete: undefined }, { ...output, attemptId: 0 },
+      { ...output, artifact: artifact.artifact }, { ...artifact, digests: [a] },
+      { ...artifact, artifact: { ...artifact.artifact, nodeId: 'foreign' } },
+    ]) {
+      const { conn } = submitHarness(() => jsonResponse(200, offer))
+      await expect(conn.fetchResultAssetOffer(owner.scope, token)).rejects.toThrow('Result asset offer')
+    }
+    const { conn: missing } = submitHarness(() => jsonResponse(404, {}))
+    expect(await missing.fetchResultAssetOffer(owner.scope, token)).toBeUndefined()
+    const { conn: unavailable } = submitHarness(() => jsonResponse(503, {}))
+    await expect(unavailable.fetchResultAssetOffer(owner.scope, token)).rejects.toThrow('failed: 503')
+  })
+
   it('acknowledges canonical sets at the exact scoped owner and revision', async () => {
     const { conn, requests } = submitHarness(() => jsonResponse(200, manifest))
     expect(await conn.retainAssets(owner, { revision: 7, digests: [b, a, b], complete: true }))
@@ -1695,6 +1726,7 @@ describe('retained asset ownership', () => {
     const { conn, requests } = submitHarness(() => jsonResponse(200, claimed))
     await expect(conn.claimResultAssets(owner, sourceToken)).rejects.toThrow('Invalid result asset claim')
     await expect(conn.claimResultAssets(resultOwner, sourceToken.toUpperCase())).rejects.toThrow('Invalid result asset claim')
+    await expect(conn.claimResultAssets(resultOwner, `${sourceToken}\n`)).rejects.toThrow('Invalid result asset claim')
     expect(requests).toHaveLength(0)
   })
 

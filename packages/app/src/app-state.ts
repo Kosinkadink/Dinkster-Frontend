@@ -4372,14 +4372,16 @@ export class AppState {
     {
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
       const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId(),
-        admitValuePeek: async (query, descriptor) => {
+        admitValuePeek: async (query, descriptor, offer) => {
+          const ref = { connection: id, prompt: asPromptId(query.jobId) }
           const generation = this.assetConnectionGenerations.get(connection)
           const current = (): boolean => !this.disposed &&
             (this.backendFor(id) ?? this.retiredBackends.get(id)) === nativeBackend &&
-            generation === this.assetConnectionGenerations.get(connection)
+            generation === this.assetConnectionGenerations.get(connection) &&
+            (offer === undefined || this.store.get(ref)?.jobRef === offer.jobRef)
           if (!current()) throw new Error('Value owner is no longer available')
-          const roots = executionAssetRoots({ outputs: { value: { descriptor } }, artifacts: [] }, () => undefined)
-          const retained = await retainExecutionAssets(connection, { connection: id, prompt: asPromptId(query.jobId) }, roots)
+          const roots = offer ?? executionAssetRoots({ outputs: { value: { descriptor } }, artifacts: [] }, () => undefined)
+          const retained = await retainExecutionAssets(connection, ref, roots)
           if (!current()) throw new Error('Value owner changed during asset admission')
           const reader = new RetainedAssetReader(connection, retained, current)
           return { read: async <T>(consume: () => Promise<T>): Promise<T> => {

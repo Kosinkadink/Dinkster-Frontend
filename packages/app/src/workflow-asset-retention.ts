@@ -1,4 +1,4 @@
-import { uuidv4, type DinksterConnection, type ExecutionState, type RetainedAssetOwner, type RetainedAssets } from '@dinkster/client'
+import { uuidv4, type DinksterConnection, type ExecutionState, type RetainedAssetOwner, type RetainedAssets, type ResultAssetOffer } from '@dinkster/client'
 import {
   APP_LAYOUT_EXT_KEY,
   EMPTY_CONNECTIVITY,
@@ -359,9 +359,10 @@ export function executionAssetRoots(
 }
 
 function retentionMatches(value: RetainedAssets | undefined, owner: RetainedAssetOwner,
-  digests: readonly string[], complete: boolean): boolean {
+  digests: readonly string[], complete: boolean, sourceToken?: string): boolean {
   return value !== undefined && value.scope === owner.scope && value.ownerKind === owner.ownerKind &&
     value.ownerId === owner.ownerId && value.revision === 1 && value.complete === complete &&
+    value.sourceToken === sourceToken &&
     value.digests.length === digests.length && value.digests.every((digest, index) => digest === digests[index])
 }
 
@@ -406,7 +407,10 @@ export async function reconcileWorkflowRetentions(
           : owner?.ownerKind === 'shown-result' && typeof owner.ownerId === 'string' &&
             /^execution-result:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
             typeof intent.executionKey === 'string' && intent.executionKey.length > 0
-        if (intent.version !== 3 || (intent.acknowledgedRevision !== undefined && intent.acknowledgedRevision !== 1) ||
+        const sourceToken = intent.sourceToken
+        if ((sourceToken !== undefined && (owner?.ownerKind !== 'shown-result' ||
+            typeof sourceToken !== 'string' || !/^[0-9a-f]{32}$/.test(sourceToken))) ||
+          intent.version !== 3 || (intent.acknowledgedRevision !== undefined && intent.acknowledgedRevision !== 1) ||
           intent.connectionId !== connection.id || intent.assetBaseUrl !== connection.assetUrl('') ||
           owner === undefined || owner === null || owner.scope !== 'local' || !contextValid || !clipboardValid ||
           owner.ownerId.length > 512 || key !== `${prefix}${owner.ownerId}` ||
@@ -416,7 +420,7 @@ export async function reconcileWorkflowRetentions(
             (index === 0 || (digests[index - 1] as string) < digest))) throw new Error('Invalid workflow retention intent')
         const observed = await connection.fetchRetainedAssets(owner, signal)
         // A concurrent window may have changed the intent while the request was in flight.
-        if (storage.getItem(key) !== bytes || !retentionMatches(observed, owner, intent.digests, intent.complete)) resolved = false
+        if (storage.getItem(key) !== bytes || !retentionMatches(observed, owner, intent.digests, intent.complete, sourceToken as string | undefined)) resolved = false
       } catch {
         resolved = false
       }
@@ -450,7 +454,7 @@ export async function retainWorkflowAssets(
 export async function retainExecutionAssets(
   connection: DinksterConnection,
   ref: ExecutionRef,
-  roots: ReturnType<typeof workflowAssetRoots>,
+  roots: ReturnType<typeof workflowAssetRoots> | ResultAssetOffer,
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
 ): Promise<RetainedAssets> {
   return retainAssetRoots(connection, 'shown-result', { executionKey: executionKey(ref) }, roots, storage)
@@ -518,25 +522,30 @@ async function retainAssetRoots(
   connection: DinksterConnection,
   ownerKind: 'document' | 'shown-result' | 'preview',
   context: { readonly documentLineage: string; readonly documentRevision: number; readonly clipboardText?: string } | { readonly executionKey: string } | { readonly preview: true },
-  roots: ReturnType<typeof workflowAssetRoots>,
+  roots: ReturnType<typeof workflowAssetRoots> | ResultAssetOffer,
   storage: Pick<Storage, 'setItem'>,
 ): Promise<RetainedAssets> {
-  if (roots.refusal !== undefined) throw new Error(roots.refusal)
+  if ('refusal' in roots && roots.refusal !== undefined) throw new Error(roots.refusal)
+  const sourceToken = 'token' in roots ? roots.token : undefined
+  if ('scope' in roots && (roots.scope !== 'local' || ownerKind !== 'shown-result')) throw new Error('Result offer owner scope differs')
   const digests = roots.digests
   if (digests.length > 4096) throw new Error('Workflow exceeds the retained identity limit')
   const owner = { scope: 'local', ownerKind, ownerId: `${ownerKind === 'document' ? 'workflow-candidate' : ownerKind === 'preview' ? 'asset-preview' : 'execution-result'}:${uuidv4()}` }
   const key = scopedStorageKey(`dinkster.workflow-retentions.${owner.ownerId}`)
   const intent = {
     version: 3, connectionId: connection.id, assetBaseUrl: connection.assetUrl(''), owner, digests, complete: roots.complete,
-    ...(roots.incompleteDiagnostics === undefined ? {} : { incompleteDiagnostics: roots.incompleteDiagnostics }),
+    ...(sourceToken === undefined ? {} : { sourceToken }),
+    ...('incompleteDiagnostics' in roots && roots.incompleteDiagnostics !== undefined ? { incompleteDiagnostics: roots.incompleteDiagnostics } : {}),
     ...context,
   }
   storage.setItem(key, JSON.stringify(intent))
   const matches = (value: RetainedAssets | undefined): value is RetainedAssets =>
-    retentionMatches(value, owner, digests, roots.complete)
+    retentionMatches(value, owner, digests, roots.complete, sourceToken)
   let acknowledged: RetainedAssets
   try {
-    const response = await connection.retainAssets(owner, { revision: 0, complete: roots.complete, digests })
+    const response = sourceToken === undefined
+      ? await connection.retainAssets(owner, { revision: 0, complete: roots.complete, digests })
+      : await connection.claimResultAssets(owner, sourceToken)
     if (!matches(response)) {
       throw new Error('Workflow retention acknowledgment differs')
     }

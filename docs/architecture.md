@@ -58,6 +58,20 @@ an empty complete manifest. Claims do not retry or release older owners.
 Ordinary manifest replacement and DELETE acknowledgments must clear the source
 binding. This transport contract alone does not certify holder completeness.
 
+`fetchResultAssetOffer` reads the immutable offer by scoped token without
+caching, validating its canonical full roots and exact source identity.
+Terminal artifact offers include the saved file and its optional preview;
+their roots must match both descriptors. Unknown or malformed offers are not
+substituted with an empty complete manifest.
+
+Value discovery carries the parent output's offer even for a nested-element
+peek. Discovery is uncached and validates the runtime node and output before
+admission. The application binds the offer to the stored execution's jobRef,
+journals its source token and full roots, and claims those roots before returning
+the value descriptor or admitting rendition reads. Lost-response recovery checks
+the exact token, roots, completeness and revision. Discovery without an offer
+uses explicitly incomplete ownership; a malformed present offer is refused.
+
 Shared asset-browser model thumbnails acknowledge independent incomplete
 `preview` ownership before entering the poster queue/cache. The project,
 connection and browser/picker lifetime must still match before publication.

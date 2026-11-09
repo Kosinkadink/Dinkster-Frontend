@@ -84,6 +84,7 @@ import {
 } from './reconnecting-socket.js'
 import { DinksterValuesClient, type ValuePeekAdmission } from './values.js'
 import { expandDynamicPrompt } from './dynamic-prompts.js'
+import { parseResultAssetOffer, type ResultAssetOffer } from './result-asset-offer.js'
 
 /** Existing /api/nodes capability flag for the placement submission sidecar. */
 export const DINKSTER_GRAPH_FEATURE_PLACEMENT = 'placement'
@@ -1231,7 +1232,7 @@ function retainedAssetAcknowledgment(value: unknown, owner: RetainedAssetOwner):
     value['ownerId'] !== owner.ownerId || typeof value['revision'] !== 'number' ||
     !Number.isSafeInteger(value['revision']) || value['revision'] < 1 ||
     (value['sourceToken'] !== undefined &&
-      (typeof value['sourceToken'] !== 'string' || !/^[0-9a-f]{32}$/.test(value['sourceToken']))) ||
+      (typeof value['sourceToken'] !== 'string' || value['sourceToken'].length !== 32 || !/^[0-9a-f]{32}$/.test(value['sourceToken']))) ||
     typeof value['complete'] !== 'boolean' || !Array.isArray(value['digests']) ||
     value['digests'].length > 4096 || !value['digests'].every((digest: unknown, index: number, digests: unknown[]) =>
       typeof digest === 'string' && JOB_ARTIFACT_DIGEST.test(digest) &&
@@ -2614,6 +2615,20 @@ export class DinksterConnection {
     }
   }
 
+  async fetchResultAssetOffer(scope: string, token: string, signal?: AbortSignal): Promise<ResultAssetOffer | undefined> {
+    if (token.length !== 32 || !/^[0-9a-f]{32}$/.test(token)) throw new Error('Invalid result offer token')
+    const res = await this.fetchFn(`${this.baseUrl}/api/library/result-offers/${token}?scope=${encodeURIComponent(scope)}`, {
+      method: 'GET', cache: 'no-store', ...(signal !== undefined ? { signal } : {}),
+    })
+    if (res.status === 404) return undefined
+    if (!res.ok) throw new Error(`GET result asset offer failed: ${res.status}`)
+    const offer = parseResultAssetOffer(await res.json())
+    if (offer === undefined || offer.scope !== scope || offer.token !== token) {
+      throw new Error('Result asset offer is malformed or belongs to another source')
+    }
+    return offer
+  }
+
   async fetchRetainedAssets(owner: RetainedAssetOwner, signal?: AbortSignal): Promise<RetainedAssets | undefined> {
     const res = await this.fetchFn(`${this.baseUrl}${retainedAssetRoute(owner)}`, {
       method: 'GET', cache: 'no-store', ...(signal !== undefined ? { signal } : {}),
@@ -2628,7 +2643,7 @@ export class DinksterConnection {
   }
 
   async claimResultAssets(owner: RetainedAssetOwner, sourceToken: string, signal?: AbortSignal): Promise<RetainedAssets> {
-    if ((owner.ownerKind !== 'shown-result' && owner.ownerKind !== 'preview') || !/^[0-9a-f]{32}$/.test(sourceToken)) {
+    if ((owner.ownerKind !== 'shown-result' && owner.ownerKind !== 'preview') || sourceToken.length !== 32 || !/^[0-9a-f]{32}$/.test(sourceToken)) {
       throw new Error('Invalid result asset claim')
     }
     const res = await this.fetchFn(`${this.baseUrl}${retainedAssetRoute(owner)}`, {
