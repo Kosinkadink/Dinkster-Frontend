@@ -48,6 +48,16 @@ DELETE requires the acknowledged positive revision and returns a complete
 empty manifest at the next revision, preserving the durable tombstone.
 Restart, disconnection and view unmount do not authorize release.
 
+`claimResultAssets` claims a server-created source token for a fresh
+`shown-result` or `preview` owner with PUT `{revision: 0, sourceToken}`.
+Caller-supplied roots are not sent: the backend selects the offer's roots and
+completeness. The acknowledgment must name the same token and revision 1;
+GET preserves that binding for explicit lost-response reconciliation against
+the original offer. An unavailable source or reused owner is an error, never
+an empty complete manifest. Claims do not retry or release older owners.
+Ordinary manifest replacement and DELETE acknowledgments must clear the source
+binding. This transport contract alone does not certify holder completeness.
+
 Shared asset-browser model thumbnails acknowledge independent incomplete
 `preview` ownership before entering the poster queue/cache. The project,
 connection and browser/picker lifetime must still match before publication.

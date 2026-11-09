@@ -1191,6 +1191,7 @@ export interface RetainedAssets extends RetainedAssetOwner {
   readonly revision: number
   readonly digests: readonly string[]
   readonly complete: boolean
+  readonly sourceToken?: string
 }
 
 export type RetainedAssetDeclaration = Pick<RetainedAssets, 'revision' | 'digests' | 'complete'>
@@ -1229,13 +1230,18 @@ function retainedAssetAcknowledgment(value: unknown, owner: RetainedAssetOwner):
   if (!record(value) || value['scope'] !== owner.scope || value['ownerKind'] !== owner.ownerKind ||
     value['ownerId'] !== owner.ownerId || typeof value['revision'] !== 'number' ||
     !Number.isSafeInteger(value['revision']) || value['revision'] < 1 ||
+    (value['sourceToken'] !== undefined &&
+      (typeof value['sourceToken'] !== 'string' || !/^[0-9a-f]{32}$/.test(value['sourceToken']))) ||
     typeof value['complete'] !== 'boolean' || !Array.isArray(value['digests']) ||
     value['digests'].length > 4096 || !value['digests'].every((digest: unknown, index: number, digests: unknown[]) =>
       typeof digest === 'string' && JOB_ARTIFACT_DIGEST.test(digest) &&
       (index === 0 || (digests[index - 1] as string) < digest))) {
     throw new Error('Retained asset acknowledgment is malformed or belongs to another owner')
   }
-  return { ...owner, revision: value['revision'], digests: value['digests'] as string[], complete: value['complete'] }
+  return {
+    ...owner, revision: value['revision'], digests: value['digests'] as string[], complete: value['complete'],
+    ...(value['sourceToken'] === undefined ? {} : { sourceToken: value['sourceToken'] as string }),
+  }
 }
 
 /**
@@ -2621,6 +2627,25 @@ export class DinksterConnection {
     return this.mutateRetainedAssets(owner, 'PUT', declaration, signal)
   }
 
+  async claimResultAssets(owner: RetainedAssetOwner, sourceToken: string, signal?: AbortSignal): Promise<RetainedAssets> {
+    if ((owner.ownerKind !== 'shown-result' && owner.ownerKind !== 'preview') || !/^[0-9a-f]{32}$/.test(sourceToken)) {
+      throw new Error('Invalid result asset claim')
+    }
+    const res = await this.fetchFn(`${this.baseUrl}${retainedAssetRoute(owner)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision: 0, sourceToken }),
+      ...(signal !== undefined ? { signal } : {}),
+    })
+    // A source claim is never replayed: GET reconciles a lost response against
+    // the persisted offer before the owning caller exposes its value.
+    if (!res.ok) throw new Error(`PUT result asset claim failed: ${res.status}`)
+    const acknowledged = retainedAssetAcknowledgment(await res.json(), owner)
+    if (acknowledged.revision !== 1 || acknowledged.sourceToken !== sourceToken) {
+      throw new Error('Retained asset acknowledgment differs from the requested source')
+    }
+    return acknowledged
+  }
+
   releaseRetainedAssets(owner: RetainedAssetOwner, revision: number, signal?: AbortSignal): Promise<RetainedAssets> {
     return this.mutateRetainedAssets(owner, 'DELETE', { revision, digests: [], complete: true }, signal)
   }
@@ -2650,7 +2675,7 @@ export class DinksterConnection {
     // an owner decision; never replay a write or adopt a conflict's revision.
     if (!res.ok) throw new Error(`${method} retained assets failed: ${res.status}`)
     const acknowledged = retainedAssetAcknowledgment(await res.json(), owner)
-    if (acknowledged.revision !== revision + 1 || acknowledged.complete !== complete ||
+    if (acknowledged.sourceToken !== undefined || acknowledged.revision !== revision + 1 || acknowledged.complete !== complete ||
       acknowledged.digests.length !== digests.length || acknowledged.digests.some((digest, index) => digest !== digests[index])) {
       throw new Error('Retained asset acknowledgment differs from the requested declaration')
     }

@@ -1667,6 +1667,56 @@ describe('retained asset ownership', () => {
     expect(requests.map((request) => request.init?.method)).toEqual(['PUT', 'GET'])
   })
 
+  it('claims server-selected roots for a fresh result or preview without declaring caller roots', async () => {
+    const sourceToken = '0123456789abcdef'.repeat(2)
+    for (const ownerKind of ['shown-result', 'preview'] as const) {
+      const resultOwner = { ...owner, ownerKind }
+      const claimed = { ...resultOwner, revision: 1, digests: [b], complete: false, sourceToken }
+      const { conn, requests } = submitHarness(() => jsonResponse(200, claimed))
+      expect(await conn.claimResultAssets(resultOwner, sourceToken)).toEqual(claimed)
+      expect(requests[0]!.url).toBe(`http://test/api/library/retentions/${ownerKind}/window%2Ftab%20generation?scope=team%2Fone`)
+      expect(JSON.parse(requests[0]!.init!.body as string)).toEqual({ revision: 0, sourceToken })
+      expect(await conn.fetchRetainedAssets(resultOwner)).toEqual(claimed)
+    }
+  })
+
+  it('rejects missing, foreign, malformed or reused source acknowledgments', async () => {
+    const sourceToken = '0123456789abcdef'.repeat(2)
+    const resultOwner = { ...owner, ownerKind: 'shown-result' as const }
+    const claimed = { ...resultOwner, revision: 1, digests: [a], complete: true, sourceToken }
+    for (const mismatch of [
+      { sourceToken: undefined }, { sourceToken: 'f'.repeat(32) }, { sourceToken: null },
+      { sourceToken: 'bad-token' }, { revision: 2 }, { scope: 'other' },
+      { digests: [b, a] }, { complete: undefined },
+    ]) {
+      const { conn } = submitHarness(() => jsonResponse(200, { ...claimed, ...mismatch }))
+      await expect(conn.claimResultAssets(resultOwner, sourceToken)).rejects.toThrow('acknowledgment')
+    }
+    const { conn, requests } = submitHarness(() => jsonResponse(200, claimed))
+    await expect(conn.claimResultAssets(owner, sourceToken)).rejects.toThrow('Invalid result asset claim')
+    await expect(conn.claimResultAssets(resultOwner, sourceToken.toUpperCase())).rejects.toThrow('Invalid result asset claim')
+    expect(requests).toHaveLength(0)
+  })
+
+  it('leaves unavailable or lost source claims to explicit GET reconciliation, not replay', async () => {
+    const sourceToken = '0123456789abcdef'.repeat(2)
+    const resultOwner = { ...owner, ownerKind: 'preview' as const }
+    const claimed = { ...resultOwner, revision: 1, digests: [b], complete: true, sourceToken }
+    for (const status of [409, 503]) {
+      const { conn, requests } = submitHarness(() => jsonResponse(status, { reason: 'source-unavailable' }))
+      await expect(conn.claimResultAssets(resultOwner, sourceToken)).rejects.toThrow(`failed: ${status}`)
+      expect(requests).toHaveLength(1)
+    }
+    const { conn, requests } = submitHarness((_url, init) => {
+      if (init?.method === 'PUT') throw new TypeError('response lost after claim')
+      return jsonResponse(200, claimed)
+    })
+    await expect(conn.claimResultAssets(resultOwner, sourceToken)).rejects.toThrow('response lost after claim')
+    expect(requests).toHaveLength(1)
+    expect(await conn.fetchRetainedAssets(resultOwner)).toEqual(claimed)
+    expect(requests.map((request) => request.init?.method)).toEqual(['PUT', 'GET'])
+  })
+
   it('preserves incomplete ownership and requires an empty next-revision release acknowledgment', async () => {
     const incomplete = { ...owner, revision: 1, digests: [b], complete: false }
     const { conn } = submitHarness(() => jsonResponse(200, incomplete))
@@ -1676,7 +1726,7 @@ describe('retained asset ownership', () => {
     expect(await releasing.releaseRetainedAssets(owner, 1)).toEqual(released)
     expect(requests[0]!.url).toContain('?scope=team%2Fone&revision=1')
     expect(requests[0]!.init!.method).toBe('DELETE')
-    for (const mismatch of [{ digests: [a] }, { complete: false }, { revision: 1 }]) {
+    for (const mismatch of [{ digests: [a] }, { complete: false }, { revision: 1 }, { sourceToken: 'a'.repeat(32) }]) {
       const { conn: invalid } = submitHarness(() => jsonResponse(200, { ...released, ...mismatch }))
       await expect(invalid.releaseRetainedAssets(owner, 1)).rejects.toThrow('acknowledgment')
     }
