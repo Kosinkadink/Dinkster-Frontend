@@ -111,6 +111,8 @@ function validDefault(widget: WidgetSpec): boolean {
       return isCompositorRecipe(d)
     case 'AUDIO_RECORD':
       return isAssetRefValue(d) && String((d as Record<string, unknown>)['mediaType']).startsWith('audio/')
+    case 'WEBCAM':
+      return isAssetRefValue(d) && String((d as Record<string, unknown>)['mediaType']).startsWith('image/')
     case 'ASSET':
       if (widget.selection === true) return typeof d === 'string' || (widget.kind === 'model/vae' && isAssetRefValue(d))
       // Multi-select (list-declared) asset inputs store ARRAYS of refs;
