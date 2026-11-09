@@ -233,9 +233,9 @@ test('translates a legacy litegraph workflow into the native format', async ({ p
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('7 node schemas')
 
-  const result = await page.evaluate((json) => {
+  const result = await page.evaluate(async (json) => {
     const app = window.__dinksterTest!.app
-    const failures = app.openDocument(json, 'Legacy')
+    const failures = (await app.openDocument(json, 'Legacy'))
     const tab = app.activeTab()!
     const doc = tab.store.doc
     return { failures, doc }
@@ -330,12 +330,12 @@ test('translates a legacy litegraph workflow into the native format', async ({ p
     })
   }
 
-  const stability = await page.evaluate(() => {
+  const stability = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     const doc = tab.store.doc
     const exported = (app as unknown as { exportDocument(id: string): unknown }).exportDocument(tab.id)!
-    const reopenFailures = app.openDocument(JSON.parse(JSON.stringify(exported)), 'Legacy reopened')
+    const reopenFailures = (await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Legacy reopened'))
     return { reopenFailures, doc, reopened: app.activeTab()!.store.doc }
   })
   expect(stability.reopenFailures).toEqual([])
@@ -379,13 +379,13 @@ test('native import retains authored classes and links through badges, save/reop
     return backend?.registry.get() !== undefined
   })
 
-  const imported = await page.evaluate(({ workflow }) => {
+  const imported = await page.evaluate(async ({ workflow }) => {
     const app = window.__dinksterTest!.app
     const backend = app.backends.get().find((candidate) => candidate.protocol === 'dinkster')!
-    const booleanControllers = [false, true].map((control) => {
-      const failures = app.openDocument({ ...workflow, nodes: workflow.nodes.map((node) => node.id === 5
+    const booleanControllers = [false, true].map(async (control) => {
+      const failures = (await app.openDocument({ ...workflow, nodes: workflow.nodes.map((node) => node.id === 5
         ? { ...node, widgets_values: [13, control, 29, 6.5, 'heun', 'karras', 0.45] }
-        : node) }, 'Legacy boolean controller')
+        : node) }, 'Legacy boolean controller'))
       const node = app.activeTab()!.store.doc.graphs.g0!.nodes.n5!
       return { failures, values: node.values, controllers: node.controllers }
     })
@@ -398,7 +398,7 @@ test('native import retains authored classes and links through badges, save/reop
     app.setTabTarget(tab.id, backend.id)
     const first = tab.store.doc
     const exported = (app as unknown as { exportDocument(id: string): unknown }).exportDocument(tab.id)!
-    const reopenFailures = app.openDocument(JSON.parse(JSON.stringify(exported)), 'SD1.5 reopened')
+    const reopenFailures = (await app.openDocument(JSON.parse(JSON.stringify(exported)), 'SD1.5 reopened'))
     const reopened = app.activeTab()!
     app.setTabTarget(reopened.id, backend.id)
     const reopenedDocument = reopened.store.doc

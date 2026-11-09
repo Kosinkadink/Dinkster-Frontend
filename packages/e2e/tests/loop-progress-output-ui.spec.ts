@@ -24,13 +24,13 @@ async function mockBackend(page: Page): Promise<void> {
 }
 
 async function installLoopExecution(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([{
       type: 'LoopOutputProof', displayName: 'Loop output', category: 'proof', source: 'v3', isOutputNode: true,
       items: [{ kind: 'output', id: 'images', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } } }],
     }])
-    bridge.app.openDocument({
+    await bridge.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'loop-progress-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { output: { id: 'output', type: 'LoopOutputProof', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { output: { position: { x: 150, y: 100 }, size: { width: 420, height: 280 } } } } } },

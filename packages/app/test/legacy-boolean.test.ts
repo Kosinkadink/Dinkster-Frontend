@@ -67,7 +67,7 @@ const valueOf = (tab: Tab, graphId: string): unknown =>
 describe('legacy boolean normalization on open', () => {
   it('rewrites recognized tokens to real booleans in every graph, one undo step', async () => {
     loadSchemas()
-    expect(app.openDocument(docJson('lin-lb-a', { tapered_corners: 'enable' }, { tapered_corners: 'OFF' }), 'T')).toEqual([])
+    expect((await app.openDocument(docJson('lin-lb-a', { tapered_corners: 'enable' }, { tapered_corners: 'OFF' }), 'T'))).toEqual([])
     const tab = app.activeTab()!
     await expect.poll(() => valueOf(tab, 'g0')).toBe(true) // 'enable' -> true
     expect(valueOf(tab, 'g1')).toBe(false) // case-insensitive: 'OFF' -> false
@@ -78,9 +78,9 @@ describe('legacy boolean normalization on open', () => {
     expect(valueOf(tab, 'g1')).toBe('OFF')
   })
 
-  it('leaves unrecognized strings and real booleans alone', () => {
+  it('leaves unrecognized strings and real booleans alone', async () => {
     loadSchemas()
-    expect(app.openDocument(docJson('lin-lb-b', { tapered_corners: 'maybe' }, { tapered_corners: true }), 'T')).toEqual([])
+    expect((await app.openDocument(docJson('lin-lb-b', { tapered_corners: 'maybe' }, { tapered_corners: true }), 'T'))).toEqual([])
     const tab = app.activeTab()!
     expect(valueOf(tab, 'g0')).toBe('maybe') // advisory keeps reporting it
     expect(valueOf(tab, 'g1')).toBe(true) // no-op, no rewrite command
@@ -90,7 +90,7 @@ describe('legacy boolean normalization on open', () => {
 
   it('defers until schemas arrive when the document opens first', async () => {
     expect(app.registry.get()).toBeUndefined()
-    expect(app.openDocument(docJson('lin-lb-c', { tapered_corners: 'yes' }), 'T')).toEqual([])
+    expect((await app.openDocument(docJson('lin-lb-c', { tapered_corners: 'yes' }), 'T'))).toEqual([])
     const tab = app.activeTab()!
     expect(valueOf(tab, 'g0')).toBe('yes') // nothing to resolve against yet
     loadSchemas()
@@ -102,7 +102,7 @@ describe('legacy boolean normalization on open', () => {
     // runs (a registry exists), converts nothing, and is consumed.
     const backend = app.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, { ...nodesPayload, nodes: {} }))
-    expect(app.openDocument(docJson('lin-lb-d', { tapered_corners: 'enable' }), 'T')).toEqual([])
+    expect((await app.openDocument(docJson('lin-lb-d', { tapered_corners: 'enable' }), 'T'))).toEqual([])
     const tab = app.activeTab()!
     expect(valueOf(tab, 'g0')).toBe('enable')
     // A schema refresh alone must not re-run the pass (an undone migration
@@ -117,7 +117,7 @@ describe('legacy boolean normalization on open', () => {
   })
 
   it.each(['accepted', 'refused', 'closed', 'replaced'])('waits for live normalization before reporting: %s', async (completion) => {
-    app.openDocument(docJson('delayed-boolean', { tapered_corners: 'enable' }), 'T')
+    await app.openDocument(docJson('delayed-boolean', { tapered_corners: 'enable' }), 'T')
     const tab = app.activeTab()!
     const dispatch = app.dispatchTo.bind(app)
     let finish!: () => void
@@ -140,7 +140,7 @@ describe('legacy boolean normalization on open', () => {
     expect(valueOf(tab, 'g0')).toBe(completion === 'refused' ? 'enable' : true)
     expect(app.problems.get().some((d) => d.code === 'upgrade.legacyBoolean')).toBe(false)
     if (completion === 'closed') app.closeTab(tab.id)
-    if (completion === 'replaced') app.openDocument(docJson('delayed-boolean', { tapered_corners: false }), 'Replacement')
+    if (completion === 'replaced') await app.openDocument(docJson('delayed-boolean', { tapered_corners: false }), 'Replacement')
     finish()
     await delivered
     await Promise.resolve()

@@ -741,7 +741,7 @@ describe('ASSET widget modal integration', () => {
       }
       const doc = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [null] }], links: [] }, () => schema).document!
       const app = createWorkflowApp([schema])
-      expect(app.openDocument(doc, 'Picker')).toEqual([])
+      expect((await app.openDocument(doc, 'Picker'))).toEqual([])
       const tab = app.activeTab()!
       const ref = { digest: `blake3:${'c'.repeat(64)}`, name: 'chosen.safetensors', size: 12,
         mediaType: 'application/x-safetensors', virtualPath: 'models/chosen.safetensors' }
@@ -1821,7 +1821,7 @@ describe('registered interactive widget expanded-editor integration', () => {
       const ref = { digest: `blake3:${'a'.repeat(64)}`, name: 'saved.wav', size: 4, mediaType: 'audio/wav', virtualPath: '' }
       const doc = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [ref] }], links: [] }, () => schema).document!
       const app = createWorkflowApp([schema])
-      expect(app.openDocument(doc, 'Recording')).toEqual([])
+      expect((await app.openDocument(doc, 'Recording'))).toEqual([])
       const tab = app.activeTab()!
       let acknowledge!: () => void
       vi.mocked(app.connection.retainAssets).mockImplementationOnce((owner, declaration) => new Promise((resolve) => {

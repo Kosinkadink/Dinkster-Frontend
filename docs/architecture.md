@@ -366,9 +366,12 @@ malformed, changed or unavailable observations produce a backend-owned Problems
 warning. Disconnect, removal and disposal cancel stale observations. All journals
 remain unchanged; recovery never replays a command, retries PUT, releases an
 owner, or certifies other holders or global completeness.
-Asynchronous native file imports and library/template/run workflow opens also
+Native direct document opens, file imports and library/template/run workflow opens
 stage their loaded snapshot before publishing a tab. They use the same durable
 owner protocol, preserving existing tabs on refusal or an uncertain response.
+`openDocument` returns a promise of diagnostics; callers await it before reading
+the opened tab. Only creation of the built-in empty workflow remains synchronous,
+because that document introduces no asset identities.
 Unknown schemas retain known roots with explicit incomplete ownership. A newer
 open, changed tab/session/history/target, changed registry or connection, caller
 cancellation or disposal prevents a late open from publishing. Library/template/run
@@ -415,8 +418,8 @@ Refused, unavailable or stale startup acknowledgments leave ownership unconfirme
 in Problems and prevent shared promotion without discarding saved documents.
 Asset publication still requires its exact acknowledgment; an unavailable
 retention route never implies an empty complete set. Restoration
-and crash-safe local writes remain synchronous; newly created durable holders and
-the synchronous `openDocument` API are not certified by this startup check.
+and crash-safe local writes remain synchronous; newly created durable holders
+are not certified by this startup check.
 Ordinary native dispatch selects admission from its candidate; complete
 frontend retention and collection remain disabled. The legacy bridge keeps
 its existing non-retained opening behavior.

@@ -33,12 +33,12 @@ async function mockBackend(page: Page): Promise<void> {
 }
 
 async function installExecution(page: Page): Promise<void> {
-  await page.evaluate((output) => {
+  await page.evaluate(async (output) => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'OutputPreviewProof', displayName: 'Save Image', category: 'proof', source: 'v3', isOutputNode: true,
       items: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: 'IMAGE' } }],
     }])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'output-preview-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { save: { id: 'save', type: 'OutputPreviewProof', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { save: { position: { x: 150, y: 100 }, size: { width: 520, height: 420 } } } } } },
@@ -279,11 +279,11 @@ test('rail viewer and canvas paging remain ordered, accessible, ephemeral, and r
   })).toEqual([0, 1])
   await page.screenshot({ path: `${proofDir}/12-shrink-clamp-single-1366.png`, animations: 'disabled' })
 
-  await page.evaluate(() => window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
     format: 'dinkster-workflow', formatVersion: 1, lineage: 'output-preview-empty', root: 'g0',
     graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
     view: { graphs: { g0: { nodes: {} } } },
-  }, 'Output Preview Empty'))
+  }, 'Output Preview Empty')))
   await expect(page.getByTestId('node-output-pager')).toHaveCount(0)
   await expect(page.locator('.output-thumbnail')).toHaveCount(0)
   await expect(page.getByTestId('outputs-panel')).toContainText('No execution selected')

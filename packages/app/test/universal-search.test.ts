@@ -1,3 +1,4 @@
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -52,14 +53,14 @@ describe('universal search model', () => {
     expect(bindings.combo('search.open')).toBe('alt+k')
   })
   it('AppState registers search.open with default Ctrl+K and supports rebinding', () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     expect(app.commands.get('search.open')?.label).toBe('Search Dinkster')
     expect(app.keybindings.combo('search.open')).toBe('ctrl+k')
     app.keybindings.set('search.open', 'Alt+K')
     expect(app.keybindings.combo('search.open')).toBe('alt+k')
   })
   it('commands provider displays the effective shortcut including overrides', () => {
-    const app = new AppState(); app.keybindings.set('search.open', 'Alt+K')
+    const app = prepareWorkflowApp(new AppState()); app.keybindings.set('search.open', 'Alt+K')
     const dispose = registerCoreSearchProviders(app)
     const provider = app.searchRegistry.list().find((item) => item.id === 'core.commands')!
     const rows = provider.query('Search Dinkster', { selection: { nodes: [] }, signal: new AbortController().signal }) as readonly SearchResult[]
@@ -67,7 +68,7 @@ describe('universal search model', () => {
     dispose.forEach((fn) => fn())
   })
   it('commands provider discovers and activates Customize layout', () => {
-    const app = new AppState(); const dispose = registerCoreSearchProviders(app)
+    const app = prepareWorkflowApp(new AppState()); const dispose = registerCoreSearchProviders(app)
     const provider = app.searchRegistry.list().find((item) => item.id === 'core.commands')!
     const rows = provider.query('Customize layout', { selection: { nodes: [] }, signal: new AbortController().signal }) as readonly SearchResult[]
     const row = rows.find((item) => item.id === 'layout.customize')!
@@ -77,7 +78,7 @@ describe('universal search model', () => {
     dispose.forEach((fn) => fn())
   })
   it('commands provider discovers the create-empty-subgraph action', () => {
-    const app = new AppState(); const dispose = registerCoreSearchProviders(app)
+    const app = prepareWorkflowApp(new AppState()); const dispose = registerCoreSearchProviders(app)
     const createEmptySubgraph = vi.fn(() => true)
     app.canvasBridge.set({ createEmptySubgraph } as never)
     const provider = app.searchRegistry.list().find((item) => item.id === 'core.commands')!
@@ -89,7 +90,7 @@ describe('universal search model', () => {
     dispose.forEach((fn) => fn())
   })
   it('discovers lifecycle actions, gates them through the canvas bridge, and invokes their shortcuts', () => {
-    const app = new AppState(); const dispose = registerCoreSearchProviders(app)
+    const app = prepareWorkflowApp(new AppState()); const dispose = registerCoreSearchProviders(app)
     const extractSubgraph = vi.fn(() => true)
     const flattenSubgraph = vi.fn(() => true)
     app.canvasBridge.set({
@@ -112,7 +113,7 @@ describe('universal search model', () => {
     dispose.forEach((fn) => fn())
   })
   it('commands provider automatically discovers workflow file import and export', () => {
-    const app = new AppState(); const dispose = registerCoreSearchProviders(app)
+    const app = prepareWorkflowApp(new AppState()); const dispose = registerCoreSearchProviders(app)
     const provider = app.searchRegistry.list().find((item) => item.id === 'core.commands')!
     const context = { selection: { nodes: [] }, signal: new AbortController().signal }
     const importRows = provider.query('Import workflow from file', context) as readonly SearchResult[]
@@ -122,7 +123,7 @@ describe('universal search model', () => {
     dispose.forEach((fn) => fn())
   })
   it('commands provider opens the Backends panel for runtime settings discovery', () => {
-    const app = new AppState(); const dispose = registerCoreSearchProviders(app)
+    const app = prepareWorkflowApp(new AppState()); const dispose = registerCoreSearchProviders(app)
     const unregister = app.panels.register({
       id: 'backends', title: 'Backends', placement: 'dock', allowedPlacements: ['dock'], order: 1,
       component: () => undefined,
@@ -139,7 +140,7 @@ describe('universal search model', () => {
     dispose.forEach((fn) => fn())
   })
   it('settings provider reuses the index action and opens focused category request', () => {
-    const app = new AppState(); const dispose = registerCoreSearchProviders(app)
+    const app = prepareWorkflowApp(new AppState()); const dispose = registerCoreSearchProviders(app)
     const provider = app.searchRegistry.list().find((item) => item.id === 'core.settings')!
     const rows = provider.query('grid', { selection: { nodes: [] }, signal: new AbortController().signal }) as readonly SearchResult[]
     const row = rows.find((item) => item.id === 'canvas.grid.visible')!
@@ -150,21 +151,21 @@ describe('universal search model', () => {
     dispose.forEach((fn) => fn())
   })
   it('tabs provider activation selects the requested tab', () => {
-    const app = new AppState(); const before = app.createWorkflow(); const after = app.createWorkflow()
+    const app = prepareWorkflowApp(new AppState()); const before = app.createWorkflow(); const after = app.createWorkflow()
     app.activeTabId.set(before.id)
     expect(runSearchAction(app, { kind: 'host', action: 'tab.activate', params: { id: after.id } })).toBe(true)
     expect(app.activeTabId.get()).toBe(after.id)
     expect(runSearchAction(app, { kind: 'host', action: 'tab.activate', params: { id: 'gone' } })).toBe(false)
   })
-  it('closes a requested template gallery when workspaces change or reload', () => {
-    const app = new AppState(); const before = app.createWorkflow(); const after = app.createWorkflow()
+  it('closes a requested template gallery when workspaces change or reload', async () => {
+    const app = prepareWorkflowApp(new AppState()); const before = app.createWorkflow(); const after = app.createWorkflow()
     app.activeTabId.set(before.id)
     app.templateGalleryOpen.set(true)
     app.activeTabId.set(after.id)
     expect(app.templateGalleryOpen.get()).toBe(false)
 
     app.templateGalleryOpen.set(true)
-    expect(app.openDocument(after.store.doc, 'Reloaded workspace')).toEqual([])
+    expect((await app.openDocument(after.store.doc, 'Reloaded workspace'))).toEqual([])
     expect(app.templateGalleryOpen.get()).toBe(false)
   })
   it('nodes provider emits placement actions that survive strict host-action decoding', () => {
@@ -174,7 +175,7 @@ describe('universal search model', () => {
     const nodesPayload = JSON.parse(readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), '../../core/fixtures/dinkster-nodes-comfy.json'), 'utf8',
     )) as DinksterNodesPayload
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const backend = app.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, nodesPayload))
     const armNodePlacement = vi.fn(() => true)
@@ -191,7 +192,7 @@ describe('universal search model', () => {
     dispose.forEach((fn) => fn())
   })
   it('forwards the Search result schema and backend snapshot to placement arming', () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const armNodePlacement = vi.fn(() => true)
     app.canvasBridge.set({ armNodePlacement } as never)
 
@@ -206,7 +207,7 @@ describe('universal search model', () => {
     })
   })
   it('rejects malformed host actions before settings or canvas effects', () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const armNodePlacement = vi.fn(() => true)
     app.canvasBridge.set({ armNodePlacement } as never)
     const initialRequest = app.settingsOpenRequest.get()

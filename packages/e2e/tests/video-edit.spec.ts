@@ -62,9 +62,9 @@ async function openDocument(page: Page, kind: 'trim' | 'crop' | 'both', values: 
     const tab = window.__dinksterTest!.app.activeTab()
     return tab !== undefined && 'status' in tab.store
   })).toBe(true)
-  await page.evaluate(({ kind, values, linked }) => {
+  await page.evaluate(async ({ kind, values, linked }) => {
     const app = window.__dinksterTest!.app
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'video-editor-test', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Video', nodes: {
         source: { id: 'source', type: 'test.video', values: {} },
@@ -148,7 +148,7 @@ async function retainRoundTrip(
   await download.saveAs(workflowPath)
   const savedText = await readFile(workflowPath, 'utf8')
   expect(JSON.parse(savedText)).toEqual(afterApply.workflow)
-  expect(await page.evaluate((text) => window.__dinksterTest!.app.openDocument(JSON.parse(text), 'Saved video reopened', undefined, true), savedText)).toEqual([])
+  expect(await page.evaluate(async (text) => (await window.__dinksterTest!.app.openDocument(JSON.parse(text), 'Saved video reopened', undefined, true)), savedText)).toEqual([])
   const afterSaveReload = await persistedState(page)
   const retainedImportOwners: string[] = []
   await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
@@ -622,11 +622,11 @@ test('malformed numeric edits visibly refuse Apply and can be corrected without 
 
 test('VIDEO_EDIT value-source pills apply, undo and reopen without sibling writes', async ({ page }, info) => {
   await openDocument(page, 'trim')
-  await page.evaluate((value) => {
+  await page.evaluate(async (value) => {
     const app = window.__dinksterTest!.app
     const doc = app.activeTab()!.store.doc
     const graph = doc.graphs.g0!
-    app.openDocument({ ...doc, lineage: 'video-edit-value-source', graphs: { ...doc.graphs, g0: {
+    await app.openDocument({ ...doc, lineage: 'video-edit-value-source', graphs: { ...doc.graphs, g0: {
       ...graph, valueSources: { v0: { id: 'v0', value } }, links: { ...graph.links,
         literal: { id: 'literal', from: { valueSource: 'v0' }, to: { node: 'edit', port: 'video_edit' } },
       },
@@ -656,9 +656,9 @@ test('VIDEO_EDIT value-source pills apply, undo and reopen without sibling write
   expect(await value()).toEqual(imported)
   await page.keyboard.press('Control+Shift+z')
   expect(await value()).toEqual(expected)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    app.openDocument(app.exportDocument(app.activeTab()!.id), 'Reopened literal', undefined, true)
+    await app.openDocument(app.exportDocument(app.activeTab()!.id), 'Reopened literal', undefined, true)
   })
   expect(await value()).toEqual(expected)
 })
@@ -675,7 +675,7 @@ test('SaveVideo v3 persists the migrated dynamic format as a static input', asyn
     }, links: { frames: { id: 'frames', from: { node: 'source', port: 'images' }, to: { node: 'edit', port: 'images' } } }, nets: {}, reroutes: {}, nextOrdinal: 3 } },
     view: { graphs: {} },
   }
-  expect(await page.evaluate((document) => window.__dinksterTest!.app.openDocument(document, 'Historical Save Video'), before)).toEqual([])
+  expect(await page.evaluate(async (document) => (await window.__dinksterTest!.app.openDocument(document, 'Historical Save Video')), before)).toEqual([])
   const expected = {
     target: { mount: 'comfy-output', prefix: 'saved-editor' },
     format: 'webm_vp9',

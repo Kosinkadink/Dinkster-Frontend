@@ -6451,9 +6451,10 @@ export class AppState {
 
   /** Create and activate a structurally valid empty workflow. */
   createWorkflow(): Tab {
-    const diagnostics = this.openDocument(emptyWorkflowJson(), 'Untitled')
-    if (diagnostics.length > 0) throw new Error('internal empty workflow did not validate')
-    return this.activeTab()!
+    this.workflowOpenIntent += 1
+    const prepared = this.prepareDocumentOpen(emptyWorkflowJson(), 'Untitled')
+    if (!prepared.ok) throw new Error('internal empty workflow did not validate')
+    return prepared.publish()
   }
 
   // -- Collaboration (shared sessions; docs/collaboration.md) ---------------
@@ -6959,12 +6960,15 @@ export class AppState {
    * on failure; on success, non-fatal translation warnings land in the
    * problems panel for review.
    */
-  openDocument(json: unknown, title: string, importVia?: Backend, forkOnCollision = false, originalPrompt?: JsonObject): readonly Diagnostic[] {
-    this.workflowOpenIntent += 1
+  async openDocument(json: unknown, title: string, importVia?: Backend, forkOnCollision = false, originalPrompt?: JsonObject): Promise<readonly Diagnostic[]> {
+    const stillWanted = this.beginWorkflowOpen()
     const prepared = this.prepareDocumentOpen(json, title, importVia, forkOnCollision, originalPrompt)
     if (!prepared.ok) return prepared.diagnostics
-    prepared.publish()
-    return []
+    const backend = importVia ?? this.backends.get()[0]!
+    const opened = await this.publishRetainedDocument(prepared, backend, stillWanted, null, false)
+    return opened ? [] : [diag(
+      'error', 'import', 'workflow.open.retention', 'Workflow ownership could not be confirmed; the existing tabs were kept.',
+    )]
   }
 
   private beginWorkflowOpen(): () => boolean {
@@ -6983,6 +6987,14 @@ export class AppState {
     if (this.disposed || !stillWanted()) return undefined
     const prepared = this.prepareDocumentOpen(json, title, backend, forkOnCollision, originalPrompt)
     if (!prepared.ok) throw new Error('invalid workflow document')
+    return this.publishRetainedDocument(prepared, backend, stillWanted, target)
+  }
+
+  private async publishRetainedDocument(
+    prepared: Extract<ReturnType<AppState['prepareDocumentOpen']>, { readonly ok: true }>,
+    backend: Backend, stillWanted: () => boolean, target: Backend | null, awaitPromotion = true,
+  ): Promise<Tab | undefined> {
+    if (this.disposed || !stillWanted()) return undefined
     const registry = backend.registry.get()
     const destination = target ?? this.backends.get()[0]!
     const destinationRegistry = destination.registry.get()
@@ -7001,6 +7013,7 @@ export class AppState {
       const tab = prepared.publish(target ?? undefined)
       this.replaceWorkflowAssetOwner(tab.store, destination, retained, project, generation)
       this.reportIncompleteOwnership(tab.id, roots)
+      if (!awaitPromotion) return tab
       // Complete authority adoption before the next open captures the workspace.
       const intent = this.workflowOpenIntent
       if (this.workspaceAuthorityEnabled) await this.startWorkspaceTabPromotion(tab)

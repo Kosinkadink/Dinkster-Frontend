@@ -123,7 +123,7 @@ interface ProofArtifact {
 
 async function installGraph(page: Page, artifact: ProofArtifact): Promise<void> {
   await waitForStartupOwnership(page)
-  await page.evaluate(({ digest, typeName, name, mediaType }) => {
+  await page.evaluate(async ({ digest, typeName, name, mediaType }) => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'ProofSavedModel',
       displayName: 'ProofSavedModel',
@@ -132,7 +132,7 @@ async function installGraph(page: Page, artifact: ProofArtifact): Promise<void> 
       isOutputNode: true,
       items: [{ kind: 'output' as const, id: 'saved', type: { kind: 'concrete' as const, name: typeName }, preview: true }],
     }])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'model3d-proof', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',

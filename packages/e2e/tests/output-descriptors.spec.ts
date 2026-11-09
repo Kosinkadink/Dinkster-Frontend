@@ -30,7 +30,7 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
   await expect(page.getByTestId('status-bar')).toContainText('0 node schemas', { timeout: 15_000 })
   await waitForStartupOwnership(page)
-  await page.evaluate((mode) => {
+  await page.evaluate(async (mode) => {
     const profile = mode === true
     const fixedIds = mode !== false
     const choices = profile
@@ -50,7 +50,7 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
         { kind: 'output', id: 'entries', type: choices[0]!.type, outputDescriptors: { input: 'entries', choices, minEntries: profile ? 1 : 0, maxEntries: profile ? 3 : 32, fixedIds, ...(profile ? { probe: { input: 'checkpoint', kind: 'model' as const, revision: '1' } } : {}) } },
       ],
     }])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'descriptor-browser', root: 'root',
       graphs: { root: { id: 'root', name: 'Descriptor editor', nodes: { n: { id: 'n', type: nodeType, values: { entries: source, ...(profile ? { checkpoint: { digest: `blake3:${'1'.repeat(64)}`, name: 'model.safetensors' } } : {}) } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10 } },
       view: { graphs: { root: { nodes: { n: { position: { x: 130, y: 100 }, size: { width: 350, height: 190 } } } } } },
@@ -280,12 +280,12 @@ test('matching saved metadata profiles restore exact ordered stable outputs', as
     assetDigest: `blake3:${'1'.repeat(64)}`,
     detectorRevision: '1',
   })
-  await page.evaluate((entries) => {
+  await page.evaluate(async (entries) => {
     const app = window.__dinksterTest!.app
     const current = app.activeTab()!
     current.store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'entries', value: entries } })
     const saved = structuredClone(current.store.doc)
-    app.openDocument(saved, 'Restored metadata profile')
+    await app.openDocument(saved, 'Restored metadata profile')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   }, source)
   expect(await pins(page)).toEqual(['vae', 'model'])
@@ -294,13 +294,13 @@ test('matching saved metadata profiles restore exact ordered stable outputs', as
   await expect(page.getByLabel('Output 2 ID', { exact: true })).toHaveValue('model')
   await expect(page.getByTestId('output-descriptors-apply')).toBeEnabled()
   await page.screenshot({ path: info.outputPath('metadata-profile-restored.png'), animations: 'disabled' })
-  await page.evaluate((entries) => {
+  await page.evaluate(async (entries) => {
     const app = window.__dinksterTest!.app
     const current = app.activeTab()!
     const restored = structuredClone(current.store.doc)
     restored.lineage = 'mismatched-restored-profile'
     restored.graphs.root!.nodes.n!.values.entries = entries
-    app.openDocument(restored, 'Mismatched restored metadata profile')
+    await app.openDocument(restored, 'Mismatched restored metadata profile')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   }, source.replace('"detectorRevision":"1"', '"detectorRevision":"2"'))
   expect(await pins(page)).toEqual([])
@@ -348,7 +348,7 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
     assetDigest: digest,
     detectorRevision: '1',
   })
-  await page.evaluate(({ digest, profile }) => {
+  await page.evaluate(async ({ digest, profile }) => {
     const app = window.__dinksterTest!.app
     const sink = (type: string, input: string) => ({
       type, displayName: type, category: 'test', source: 'v3' as const, isOutputNode: true,
@@ -356,7 +356,7 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
     })
     app.registerSchemas([sink('ModelSink', 'model'), sink('ClipSink', 'clip'), sink('VaeSink', 'vae')])
     const original = app.activeTab()!.store.doc
-    app.openDocument({
+    await app.openDocument({
       ...original,
       lineage: 'saved-checkpoint-profile-links',
       graphs: { root: {
@@ -391,9 +391,9 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
   await expect(stale).not.toContainText('model')
   await expect(stale).not.toContainText('vae')
   await stale.screenshot({ path: info.outputPath('metadata-profile-inactive-link.png'), animations: 'disabled' })
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    app.openDocument(structuredClone(app.activeTab()!.store.doc), 'Reloaded checkpoint profile links')
+    await app.openDocument(structuredClone(app.activeTab()!.store.doc), 'Reloaded checkpoint profile links')
   })
   await page.getByRole('button', { name: 'Disconnect inactive clip output' }).click()
   expect(await page.evaluate(() => window.__dinksterTest!.app.problems.get().filter((problem) => problem.code.startsWith('link.') || problem.code === 'params.invalid').map((problem) => `${problem.code}: ${problem.message}`))).toEqual([])
@@ -458,7 +458,7 @@ test('chained source-only boundaries retain the metadata probe and read-only edi
   await page.setViewportSize({ width: 1600, height: 1600 })
   await setup(page, true)
   const digest = `blake3:${'4'.repeat(64)}`
-  await page.evaluate((digest) => {
+  await page.evaluate(async (digest) => {
     const app = window.__dinksterTest!.app
     const original = structuredClone(app.activeTab()!.store.doc)
     const node = original.graphs.root!.nodes.n!
@@ -468,7 +468,7 @@ test('chained source-only boundaries retain the metadata probe and read-only edi
     })
     const inner = { ...graph('inner', node.type), nodes: { n: node } }
     const outer = graph('outer', '#inner')
-    app.openDocument({ ...original, lineage: 'source-only-descriptors', graphs: {
+    await app.openDocument({ ...original, lineage: 'source-only-descriptors', graphs: {
       root: { ...original.graphs.root!, nodes: { n: { ...node, type: '#outer', values: { ...node.values, checkpoint: { digest, name: 'current.safetensors' } } } } },
       inner, outer,
     } } as Parameters<typeof app.openDocument>[0], 'Chained metadata source')

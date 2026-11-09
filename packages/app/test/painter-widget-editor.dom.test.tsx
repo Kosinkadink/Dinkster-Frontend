@@ -24,7 +24,7 @@ it.each(['live', 'refused', 'closed', 'edited', 'disconnected', 'disposed'] as c
     }, links: { image: { id: asLinkId('image'), from: { node: asNodeId('source'), port: asPortId('IMAGE') },
       to: { node: asNodeId('n1'), port: asPortId('image') } } } } } }
     const app = createWorkflowApp([schema])
-    app.openDocument(doc, 'Connected Painter')
+    await app.openDocument(doc, 'Connected Painter')
     const tab = app.activeTab()!
     const art = { snapshot: tab.store.doc, schemaHash: 'schema', connection: app.connection.id,
       prompt: { source: { class_type: 'Source', inputs: {} } },
@@ -178,7 +178,7 @@ it.each(['live', 'refused', 'closed-before', 'closed-decode', 'edited', 'disconn
     const initial = { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png', name: 'mask.png', size: 7, virtualPath: '' }
     const doc = importLitegraph({ nodes: [{ id: 1, type: 'Painter', widgets_values: [initial] }], links: [] }, () => schema).document!
     const app = createWorkflowApp([schema])
-    expect(app.openDocument(doc, 'Painter reader')).toEqual([])
+    expect((await app.openDocument(doc, 'Painter reader'))).toEqual([])
     const tab = app.activeTab()!
     const context = { clearRect: vi.fn(), drawImage: vi.fn(), fillRect: vi.fn() }
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context as unknown as CanvasRenderingContext2D)

@@ -1,3 +1,4 @@
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { asNodeId } from '@dinkster/core'
 import type { CommandOutcome, DinksterNodesPayload } from '@dinkster/core'
@@ -12,11 +13,11 @@ import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 
 let app: AppState
 
-beforeEach(() => {
+beforeEach(async () => {
   app = createWorkflowApp(null)
   const blank = app.activeTab()!
-  app.openDocument(seedBasic, 'Basic')
-  app.openDocument(seedSubgraph, 'Subgraph')
+  await app.openDocument(seedBasic, 'Basic')
+  await app.openDocument(seedSubgraph, 'Subgraph')
   app.closeTab(blank.id)
 })
 
@@ -96,7 +97,7 @@ describe('authored workflows on a native backend', () => {
     const instance = (id: number, name: string) => ({ id, type: 'model-body',
       inputs: [{ name: 'file', type: 'ASSET', widget: { name: 'file' } }],
       outputs: [{ name: 'MODEL', type: 'MODEL' }], widgets_values: [name] })
-    expect(app.openDocument({ version: 0.4,
+    expect((await app.openDocument({ version: 0.4,
       nodes: [instance(1, 'turbo.safetensors'), instance(2, 'sibling.safetensors')], links: [],
       definitions: { subgraphs: [{ id: 'model-body', name: 'Model', version: 1,
         nodes: [{ id: 3, type: 'ModelFile', inputs: [{ name: 'file', widget: { name: 'file' }, link: 1 }],
@@ -108,7 +109,7 @@ describe('authored workflows on a native backend', () => {
           { id: 2, origin_id: 3, origin_slot: 0, target_id: -20, target_slot: 0, type: 'MODEL' },
         ],
       }] },
-    }, 'Promoted models')).toEqual([])
+    }, 'Promoted models'))).toEqual([])
     const tab = app.activeTab()!
     const before = structuredClone(tab.store.doc)
     await vi.waitFor(() => expect(app.importAssetResolution.get()?.matches.map((match) => match.query).sort()).toEqual([
@@ -152,7 +153,7 @@ describe('authored workflows on a native backend', () => {
       })
       return delivered as unknown as CommandOutcome
     })
-    app.openDocument({ version: 0.4, nodes: [
+    await app.openDocument({ version: 0.4, nodes: [
       { id: 1, type: 'AssetLoader', pos: [100, 100], widgets_values: ['known.png'] },
       { id: 2, type: 'AssetLoader', pos: [400, 100], widgets_values: ['missing.png'] },
     ], links: [] }, 'Imported assets')
@@ -163,7 +164,7 @@ describe('authored workflows on a native backend', () => {
     expect(app.importAssetResolution.get()).toBeUndefined()
     expect(app.problems.get().some((entry) => entry.code === 'import.assets.autoResolved')).toBe(false)
     if (completion === 'closed') app.closeTab(tab.id)
-    if (completion === 'replaced') app.openDocument(original, 'Replacement')
+    if (completion === 'replaced') await app.openDocument(original, 'Replacement')
     const newer = { matches: [], reasons: {}, accept: () => {}, cancel: () => {} }
     if (completion === 'newer dialog') app.importAssetResolution.set(newer)
     finish!()
@@ -185,9 +186,9 @@ describe('authored workflows on a native backend', () => {
     }
   })
 
-  it('imports exact native classes and links without inserting or rewriting nodes', () => {
+  it('imports exact native classes and links without inserting or rewriting nodes', async () => {
     loadNativeSchemas()
-    expect(app.openDocument(imageWorkflow, 'Image workflow')).toEqual([])
+    expect((await app.openDocument(imageWorkflow, 'Image workflow'))).toEqual([])
     const tab = app.activeTab()!
     const graph = tab.store.doc.graphs.g0!
     expect(Object.values(graph.nodes).map((node) => [node.id, node.type])).toEqual([
@@ -207,18 +208,18 @@ describe('authored workflows on a native backend', () => {
     }
   })
 
-  it('refuses LiteGraph import before schemas without changing the active document', () => {
+  it('refuses LiteGraph import before schemas without changing the active document', async () => {
     const tab = app.activeTab()!
     const authored = structuredClone(tab.store.doc)
-    expect(app.openDocument(imageWorkflow, 'Image chain')).toContainEqual(expect.objectContaining({ code: 'import.registryMissing' }))
+    expect((await app.openDocument(imageWorkflow, 'Image chain'))).toContainEqual(expect.objectContaining({ code: 'import.registryMissing' }))
     expect(app.activeTab()).toBe(tab)
     expect(tab.store.doc).toEqual(authored)
     expect(tab.store.canUndo).toBe(false)
   })
 
-  it.each([false, true])('keeps a native document intact when schemas are initially available=%s', (available) => {
+  it.each([false, true])('keeps a native document intact when schemas are initially available=%s', async (available) => {
     if (available) loadNativeSchemas()
-    expect(app.openDocument(seedBasic, 'Image chain')).toEqual([])
+    expect((await app.openDocument(seedBasic, 'Image chain'))).toEqual([])
     const tab = app.activeTab()!
     const authored = structuredClone(tab.store.doc)
     loadNativeSchemas()
@@ -229,7 +230,7 @@ describe('authored workflows on a native backend', () => {
     expect(app.compileTab(tab)?.ok).toBe(false)
   })
 
-  it('retains every authored node and edge of an unregistered processing chain', () => {
+  it('retains every authored node and edge of an unregistered processing chain', async () => {
     loadNativeSchemas()
     const types = ['EmptyImage', 'ImageTileSplit', 'ImageScaleBy', 'ImageTileMerge', 'PreviewImage']
     const workflow = {
@@ -241,7 +242,7 @@ describe('authored workflows on a native backend', () => {
       })),
       links: types.slice(1).map((_, index) => [index + 1, index + 1, 0, index + 2, 0, 'IMAGE']),
     }
-    expect(app.openDocument(workflow, 'Processing chain')).toEqual([])
+    expect((await app.openDocument(workflow, 'Processing chain'))).toEqual([])
     const tab = app.activeTab()!
     const graph = tab.store.doc.graphs.g0!
     expect(Object.values(graph.nodes).map((node) => node.type)).toEqual(types)
@@ -258,11 +259,11 @@ describe('authored workflows on a native backend', () => {
     }))
   })
 
-  it('preserves native document output identities instead of repairing them from a schema', () => {
+  it('preserves native document output identities instead of repairing them from a schema', async () => {
     loadNativeSchemas()
     const document = structuredClone(app.tabs.get()[0]!.store.doc)
     const authored = document.graphs[document.root]!.links
-    expect(app.openDocument(document, 'Native document')).toEqual([])
+    expect((await app.openDocument(document, 'Native document'))).toEqual([])
     const tab = app.activeTab()!
     expect(tab.store.doc.graphs[document.root]!.links).toEqual(authored)
     expect(tab.store.doc).toEqual(document)
@@ -305,7 +306,7 @@ describe('authored workflows on a native backend', () => {
     expect(tab.store.doc.graphs.g0!.nodes.n0!.values.width).toBe(64)
   })
 
-  it('retains authored identities when persisted documents reopen with a different registry', () => {
+  it('retains authored identities when persisted documents reopen with a different registry', async () => {
     const global = globalThis as { localStorage?: Storage }
     const entries = new Map<string, string>()
     global.localStorage = {
@@ -316,15 +317,15 @@ describe('authored workflows on a native backend', () => {
       get length() { return entries.size },
     } as Storage
     try {
-      const first = new AppState()
+      const first = prepareWorkflowApp(new AppState())
       const blank = first.activeTab()!
-      first.openDocument(seedBasic, 'Basic')
+      await first.openDocument(seedBasic, 'Basic')
       first.closeTab(blank.id)
       const backend = first.backends.get()[0]!
       backend.registry.set(historicalRegistry(backend.id))
       const authored = structuredClone(first.activeTab()!.store.doc)
       first.flushPersistTabs()
-      const second = new AppState()
+      const second = prepareWorkflowApp(new AppState())
       const restoredBackend = second.backends.get()[0]!
       restoredBackend.registry.set(buildDinksterRegistry(restoredBackend.id, nativePayload))
       expect(second.activeTab()!.store.doc).toEqual(authored)
@@ -334,8 +335,8 @@ describe('authored workflows on a native backend', () => {
 })
 
 describe('unresolved-type reporting', () => {
-  it('reports schema arrival without rewriting unresolved documents', () => {
-    expect(app.openDocument(docJson('NoSuchNode'), 'Missing')).toEqual([])
+  it('reports schema arrival without rewriting unresolved documents', async () => {
+    expect((await app.openDocument(docJson('NoSuchNode'), 'Missing'))).toEqual([])
     const tab = app.activeTab()!
     const authored = structuredClone(tab.store.doc)
     expect(app.problems.get().some((entry) => entry.code === 'schema.unresolvedType')).toBe(false)
@@ -346,9 +347,9 @@ describe('unresolved-type reporting', () => {
     expect(app.problems.get()).toContainEqual(expect.objectContaining({ code: 'schema.unresolvedType', message: expect.stringContaining('NoSuchNode') }))
   })
 
-  it('names the missing type and count without claiming the whole workflow cannot run', () => {
+  it('names the missing type and count without claiming the whole workflow cannot run', async () => {
     loadNativeSchemas()
-    expect(app.openDocument(docJson('NoSuchNode', 2), 'Missing')).toEqual([])
+    expect((await app.openDocument(docJson('NoSuchNode', 2), 'Missing'))).toEqual([])
     const found = app.problems.get().find((entry) => entry.code === 'schema.unresolvedType' && entry.message.includes('NoSuchNode'))
     expect(found).toBeDefined()
     expect(found!.severity).toBe('warning')
@@ -357,21 +358,21 @@ describe('unresolved-type reporting', () => {
     expect(found!.message).not.toContain('cannot run')
   })
 
-  it('reports once per open rather than again on later backend ticks', () => {
+  it('reports once per open rather than again on later backend ticks', async () => {
     loadNativeSchemas()
-    expect(app.openDocument(docJson('NoSuchNode'), 'Missing')).toEqual([])
+    expect((await app.openDocument(docJson('NoSuchNode'), 'Missing'))).toEqual([])
     const count = () => app.problems.get().filter((entry) => entry.code === 'schema.unresolvedType' && entry.message.includes('NoSuchNode')).length
     expect(count()).toBe(1)
     app.backendsTick.update((value) => value + 1)
     expect(count()).toBe(1)
   })
 
-  it('recognizes only the exact registered identity, including prefixes', () => {
+  it('recognizes only the exact registered identity, including prefixes', async () => {
     loadNativeSchemas()
     const before = app.problems.get().filter((entry) => entry.code === 'schema.unresolvedType')
-    expect(app.openDocument(docJson('EmptyImage'), 'Registered')).toEqual([])
+    expect((await app.openDocument(docJson('EmptyImage'), 'Registered'))).toEqual([])
     expect(app.problems.get().filter((entry) => entry.code === 'schema.unresolvedType')).toEqual(before)
-    expect(app.openDocument(docJson('comfy.EmptyImage'), 'Different identity')).toEqual([])
+    expect((await app.openDocument(docJson('comfy.EmptyImage'), 'Different identity'))).toEqual([])
     expect(app.problems.get()).toContainEqual(expect.objectContaining({ code: 'schema.unresolvedType', message: expect.stringContaining('comfy.EmptyImage') }))
   })
 })

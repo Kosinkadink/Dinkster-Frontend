@@ -1,3 +1,4 @@
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 /**
  * Multi-backend tests: several ComfyUI servers behind ONE shared
  * ExecutionStore. Each backend owns its connection, schema registry, and
@@ -92,10 +93,10 @@ const foreignRun = (connection: string, prompt: string): ExecutionRef => {
   return ref
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   app = createWorkflowApp(null)
   for (const name of ['basic', 'subgraph']) {
-    app.openDocument(JSON.parse(readFileSync(join(root, `fixtures/workflows/seed-${name}.json`), 'utf8')), name)
+    await app.openDocument(JSON.parse(readFileSync(join(root, `fixtures/workflows/seed-${name}.json`), 'utf8')), name)
   }
   basic = app.tabs.get().find((tab) => tab.id === 'lineage-seed-basic')!
 })
@@ -282,7 +283,7 @@ describe('addBackend / removeBackend', () => {
     const backend = app.backends.get()[0]!
     const oldOptions = ['old-option']
     backend.registry.set(choiceRegistry(backend, oldOptions))
-    expect(app.openDocument({
+    expect((await app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'choice-refresh',
@@ -309,7 +310,7 @@ describe('addBackend / removeBackend', () => {
         },
       },
       view: { graphs: { root: { nodes: {} }, body: { nodes: {} } } },
-    }, 'Choice refresh')).toEqual([])
+    }, 'Choice refresh'))).toEqual([])
     const tab = app.activeTab()!
     const storedBefore = JSON.stringify(tab.store.doc)
     vi.spyOn(backend.connection, 'fetchSchemas').mockResolvedValue(choiceRegistry(backend, refreshedOptions))
@@ -385,7 +386,7 @@ describe('addBackend / removeBackend', () => {
       })
     })
     setLocale('en')
-    const nativeApp = new AppState()
+    const nativeApp = prepareWorkflowApp(new AppState())
     const backend = nativeApp.addBackend('http://native:8000', 'Native', false, 'dinkster')
     if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')
 
@@ -567,6 +568,8 @@ describe('backend protocols', () => {
       const backend = app.backends.get()[0]!
       const ownerBackend = scenario === 'removed' ? addOffline('http://native:8000', 'Native') : backend
       const ref: ExecutionRef = { connection: ownerBackend.id, prompt: asPromptId('held-cache') }
+      const previousOwners = await Promise.all(vi.mocked(ownerBackend.connection.retainAssets).mock.results
+        .map((result) => result.value as ReturnType<typeof ownerBackend.connection.retainAssets>))
       const digest = (letter: string) => `blake3:${letter.repeat(64)}`
       const outputs = { image: { result: { typeId: 'list<ASSET>', elementsTruncated: true,
         elements: [{ typeId: 'ASSET', meta: { digest: digest('e') } },
@@ -585,8 +588,9 @@ describe('backend protocols', () => {
           acknowledge = () => scenario === 'refused' ? reject(new Error('retention refused')) : resolve(acknowledgment)
         })
       })
-      vi.spyOn(ownerBackend.connection, 'fetchRetainedAssets').mockImplementation(async () =>
-        scenario === 'refused' ? undefined : acknowledgment)
+      vi.spyOn(ownerBackend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) =>
+        previousOwners.find((receipt) => receipt.ownerId === owner.ownerId) ??
+        (scenario === 'refused' ? undefined : acknowledgment))
       app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
       app.store.hydrateArtifacts(ref, [{ nodeId: 'image', digest: digest('a'), name: 'result.bin', size: 7,
         mediaType: 'application/octet-stream', virtualPath: '', preview: { digest: digest('c'), name: 'preview.png',
@@ -852,13 +856,13 @@ describe('per-tab backend targeting (view state)', () => {
     expect(app.backendForTab(frozen)).toBe(b)
   })
 
-  it('replacing a tab document clears its target', () => {
+  it('replacing a tab document clears its target', async () => {
     const b = addOffline('http://other:8188')
     app.setTabTarget(basic.id, b.id)
     const json = JSON.parse(
       readFileSync(join(root, 'fixtures/workflows/seed-basic.json'), 'utf8'),
     ) as unknown
-    expect(app.openDocument(json, 'Basic')).toEqual([])
+    expect((await app.openDocument(json, 'Basic'))).toEqual([])
     const replaced = app.tabs.get().find((t) => t.id === basic.id)!
     expect(app.backendForTab(replaced)).toBe(app.backends.get()[0])
     expect(app.tabTargets.get().has(basic.id)).toBe(false)

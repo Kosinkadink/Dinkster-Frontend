@@ -1,3 +1,4 @@
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as core from '@dinkster/core'
 import { createComponent } from 'solid-js'
@@ -332,7 +333,7 @@ describe('workflow retention recovery', () => {
         }
         return new Response('{}', { status: 503 })
       }))
-      const app = new AppState()
+      const app = prepareWorkflowApp(new AppState())
       try {
         const backend = app.addBackend('http://native:8000', 'Recovery native', false, 'dinkster')!
         const intent = { ...f.intent, connectionId: backend.id, assetBaseUrl: backend.connection.assetUrl('') }
@@ -396,7 +397,7 @@ describe('retained app dispatch', () => {
     'admits completed outputs and artifacts through sealed source claims: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       app = createWorkflowApp([{ ...schema, isOutputNode: true }])
-      app.openDocument(session().doc, 'Terminal source')
+      await app.openDocument(session().doc, 'Terminal source')
       const tab = app.activeTab()!
       const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
       backend.registry.set(app.registry.get())
@@ -474,7 +475,7 @@ describe('retained app dispatch', () => {
           renditions: [], resultOffer: offer }), { status: 200 })
         : new Response('{}', { status: 503 }))
       app = createWorkflowApp([{ ...schema, isOutputNode: true }])
-      app.openDocument(session().doc, 'Value source')
+      await app.openDocument(session().doc, 'Value source')
       const tab = app.activeTab()!
       const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
       backend.registry.set(app.registry.get())
@@ -518,7 +519,7 @@ describe('retained app dispatch', () => {
         ...(unknown ? { future: { nested: asset('b') } } : {}),
       }] }, version: 1,
     } } }
-    expect(app.openDocument(document, 'App View ownership')).toEqual([])
+    expect((await app.openDocument(document, 'App View ownership'))).toEqual([])
     const tab = app.activeTab()!
     expect(workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(), resolve)).toEqual({
       complete: !unknown, digests: unknown ? [asset('a').digest, asset('b').digest] : [asset('a').digest],
@@ -550,7 +551,12 @@ describe('retained app dispatch', () => {
         outputs: [],
       } },
     } }
-    expect(app.openDocument(document, 'Generated boundary')).toEqual([])
+    const opened = await app.openDocument(document, 'Generated boundary')
+    if (severity === 'error') {
+      expect(opened).toContainEqual(expect.objectContaining({ code: 'workflow.open.retention' }))
+      app.dispose()
+      app = createWorkflowApp([schema], document)
+    } else expect(opened).toEqual([])
     const tab = app.activeTab()!
     const resolveDocument = documentNodeResolver(document, app.registryForTab(tab)!.resolve)
     const instance = document.graphs.g0!.nodes.instance!
@@ -794,7 +800,7 @@ describe('retained app dispatch', () => {
         await vi.waitFor(() => expect(reads).toHaveLength(1))
         expect(urls).toEqual([`/assets/${route === 'associated' ? asset('b').digest : asset('a').digest}`])
         // Editing an unrelated workflow does not retire a result's independent reader.
-        expect(app.openDocument(session().doc, 'Unrelated')).toEqual([])
+        expect((await app.openDocument(session().doc, 'Unrelated'))).toEqual([])
         expect((await app.dispatchTo(app.activeTab()!, replace('c'))).ok).toBe(true)
         expect(source.current!()).toBe(true)
         app.store.hydrateArtifacts(ref, [...state.artifacts])
@@ -866,7 +872,7 @@ describe('retained app dispatch', () => {
     'binds input-$kind decode and cache reads to acknowledged document ownership: $scenario', async ({ kind, scenario }) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       app = createWorkflowApp([schema])
-      expect(app.openDocument(session().doc, 'Image owner')).toEqual([])
+      expect((await app.openDocument(session().doc, 'Image owner'))).toEqual([])
       const ownerApp = app
       const tab = app.activeTab()!
       const reads: Array<ReturnType<typeof deferred<void>>> = []
@@ -1030,7 +1036,7 @@ describe('retained app dispatch', () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     app = createWorkflowApp([schema])
     const document = session().doc
-    app.openDocument({ ...document, graphs: { g0: { ...document.graphs.g0!, nodes: {
+    await app.openDocument({ ...document, graphs: { g0: { ...document.graphs.g0!, nodes: {
       ...document.graphs.g0!.nodes,
       old: { id: asNodeId('old'), type: 'Previous', values: {} },
     } } } }, 'Migrated snapshot')
@@ -1074,14 +1080,14 @@ describe('retained app dispatch', () => {
         setItem: (key: string, value: string) => { storage.set(key, value) },
       } satisfies Storage)
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
-      app = new AppState()
+      app = prepareWorkflowApp(new AppState())
       const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
       const registry = {
         connection: backend.id, diagnostics: [], hash: 'test',
         schemas: new Map([[schema.type, schema]]), resolve,
       }
       backend.registry.set(registry)
-      expect(app.openDocument(session().doc, 'Retained workflow')).toEqual([])
+      expect((await app.openDocument(session().doc, 'Retained workflow'))).toEqual([])
       const tab = app.activeTab()!
       app.setTabTarget(tab.id, backend.id)
       const requested = deferred<{ owner: RetainedAssetOwner; declaration: RetainedAssetDeclaration }>()
@@ -1114,7 +1120,7 @@ describe('retained app dispatch', () => {
         expect(app.activeTab()!.editorKind).toBe(GLSL_EDITOR_KIND)
       }
       if (scenario === 'replaced') {
-        expect(app.openDocument(session([asset('c')]).doc, 'Replacement')).toEqual([])
+        expect((await app.openDocument(session([asset('c')]).doc, 'Replacement'))).toEqual([])
         app.setTabTarget(tab.id, backend.id)
         expect(app.activeTab()!.id).toBe(tab.id)
         expect(app.activeTab()!.store).not.toBe(tab.store)
@@ -1159,7 +1165,7 @@ describe('retained app dispatch', () => {
     try {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       app = createWorkflowApp([schema])
-      app.openDocument(session().doc, 'Workflow')
+      await app.openDocument(session().doc, 'Workflow')
       const tab = app.activeTab()!
       const owners = new Map<string, RetainedAssets>()
       vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
@@ -1207,7 +1213,7 @@ describe('retained app dispatch', () => {
       expect(owners.get(previous.ownerId)).toEqual(previous)
       keys?.mockRestore()
       if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
-      if (scenario === 'replaced') app.openDocument(session([asset('f')]).doc, 'Replacement')
+      if (scenario === 'replaced') await app.openDocument(session([asset('f')]).doc, 'Replacement')
       let commit: (() => void) | undefined
       if (scenario === 'locked-commit') vi.stubGlobal('navigator', { locks: {
         request: async (_name: string, _options: unknown, callback: () => void) => { commit = callback },
@@ -1235,7 +1241,7 @@ describe('retained app dispatch', () => {
     'replaces only the acknowledged workflow session owner: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       app = createWorkflowApp([schema])
-      app.openDocument(session().doc, 'Workflow')
+      await app.openDocument(session().doc, 'Workflow')
       const tab = app.activeTab()!
       const owners = new Map<string, RetainedAssets>()
       vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
@@ -1250,7 +1256,7 @@ describe('retained app dispatch', () => {
       } else expect((await app.dispatchRetainedTo(tab, replace('b'))).ok).toBe(true)
       const current = scenario === 'imported' ? app.activeTab()! : tab
       const original = [...owners.values()].find((owner) => owner.digests.includes(asset('a').digest))!
-      app.openDocument({ ...session().doc, lineage: asLineageId('independent') }, 'Independent')
+      await app.openDocument({ ...session().doc, lineage: asLineageId('independent') }, 'Independent')
       const independent = app.activeTab()!
       expect((await app.dispatchRetainedTo(independent, replace('b'))).ok).toBe(true)
       const independentOwner = [...owners.values()].at(-1)!
@@ -1259,6 +1265,7 @@ describe('retained app dispatch', () => {
       vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
         const retained = { ...owner, ...declaration, revision: 1 }
         owners.set(owner.ownerId, retained)
+        if (declaration.digests.includes(asset('d').digest)) return retained
         requested.resolve(retained)
         await admission.promise
         if (scenario === 'refused') {
@@ -1290,7 +1297,7 @@ describe('retained app dispatch', () => {
           ? [asset('a').digest, asset('c').digest] : [asset('a').digest, asset('b').digest, asset('c').digest])
       expect(owners.get(original.ownerId)).toEqual(original)
       expect(current.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset(fromInitial ? 'a' : 'b')])
-      if (scenario === 'replaced') app.openDocument(session([asset('d')]).doc, 'Replacement')
+      if (scenario === 'replaced') await app.openDocument(session([asset('d')]).doc, 'Replacement')
       if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
       admission.resolve()
       const accepted = !['refused', 'replaced', 'disconnected'].includes(scenario)
@@ -1335,7 +1342,7 @@ describe('retained app dispatch', () => {
       return registry
     })
     app = createWorkflowApp([schema])
-    app.openDocument(session().doc, 'Workflow')
+    await app.openDocument(session().doc, 'Workflow')
     const documents = new SharedWorkerDocumentAuthority()
     const workspace = new SharedWorkerTabAuthority()
     const channels: MessageChannel[] = []
@@ -1414,8 +1421,6 @@ describe('retained app dispatch', () => {
   it('keeps document and history ownership across shared workspace promotion', async () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     app = createWorkflowApp([schema])
-    app.openDocument(session().doc, 'Workflow')
-    const local = app.activeTab()!
     const owners = new Map<string, RetainedAssets>()
     vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
       const receipt = { ...owner, ...declaration, revision: 1 }
@@ -1427,6 +1432,8 @@ describe('retained app dispatch', () => {
       owners.set(owner.ownerId, tombstone)
       return tombstone
     })
+    await app.openDocument(session().doc, 'Workflow')
+    const local = app.activeTab()!
     expect((await app.dispatchRetainedTo(local, replace('b'))).ok).toBe(true)
     const original = [...owners.values()].at(-1)!
     const documents = new SharedWorkerDocumentAuthority()
@@ -1461,7 +1468,7 @@ describe('retained app dispatch', () => {
   it('keeps the newer acknowledged session owner when an earlier candidate finishes late', async () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     app = createWorkflowApp([schema])
-    app.openDocument(session().doc, 'Workflow')
+    await app.openDocument(session().doc, 'Workflow')
     const tab = app.activeTab()!
     const owners = new Map<string, RetainedAssets>()
     const delayed = deferred<void>()
@@ -1500,7 +1507,7 @@ describe('retained app dispatch', () => {
   it.each(['dispatch', 'prepared'] as const)('refuses unadmitted local publication through %s', async (route) => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     app = createWorkflowApp([schema])
-    app.openDocument(session().doc, 'Existing')
+    await app.openDocument(session().doc, 'Existing')
     await app.confirmStartupOwnership()
     const tab = app.activeTab()!
     vi.mocked(app.connection.retainAssets).mockClear()
@@ -1525,16 +1532,15 @@ describe('retained app dispatch', () => {
     expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
   })
 
-  it.each(['valid', 'malformed'] as const)('keeps asset-neutral commands synchronous with %s existing identities', (scenario) => {
+  it.each(['valid', 'malformed'] as const)('keeps asset-neutral commands synchronous with %s existing identities', async (scenario) => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
-    app = createWorkflowApp([schema])
     const document = session().doc
     const existing = scenario === 'valid' ? document : { ...document, graphs: {
       g0: { ...document.graphs.g0!, nodes: { n0: { ...document.graphs.g0!.nodes.n0!,
         values: { files: [{ digest: asset('a').digest, name: 'a.bin' }] },
       } } },
     } }
-    app.openDocument(existing, 'Existing')
+    app = createWorkflowApp([schema], existing)
     const tab = app.activeTab()!
     const outcome = app.dispatchTo(tab, { command: 'node.setTitle', params: {
       graphId: 'g0', nodeId: 'n0', title: 'Renamed loader',
@@ -1554,7 +1560,7 @@ describe('retained picker consumers', () => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       const app = createWorkflowApp([schema])
       try {
-        app.openDocument(session().doc, 'Picker source')
+        await app.openDocument(session().doc, 'Picker source')
         const tab = app.activeTab()!
         const backend = app.backendForTab(tab)
         const requested = deferred<{ owner: RetainedAssetOwner; declaration: RetainedAssetDeclaration }>()
@@ -1590,7 +1596,7 @@ describe('retained picker consumers', () => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       const app = createWorkflowApp([schema])
       try {
-        app.openDocument(session().doc, 'Picker source')
+        await app.openDocument(session().doc, 'Picker source')
         const tab = app.activeTab()!
         const backend = app.backendForTab(tab)
         const release = vi.spyOn(app.connection, 'releaseRetainedAssets')
@@ -1633,7 +1639,7 @@ describe('retained clipboard consumers', () => {
         const document: WorkflowDocument = { ...source, graphs: { g0: { ...source.graphs.g0!, nextOrdinal: 2, nodes: {
           ...source.graphs.g0!.nodes, n1: { ...source.graphs.g0!.nodes.n0!, id: asNodeId('n1'), values: { files: [asset('c')] } },
         } } }, view: { graphs: { g0: { nodes: { n0: { position: { x: 0, y: 0 } }, n1: { position: { x: 200, y: 0 } } } } } } }
-        expect(app.openDocument(document, 'Copied source')).toEqual([])
+        expect((await app.openDocument(document, 'Copied source'))).toEqual([])
         const tab = app.activeTab()!
         const text = JSON.stringify(serializeSelection(tab.store.doc, 'g0', { nodes: ['n0'], reroutes: [] }, 'copy-source'))
         expect(text).not.toContain(asset('c').digest)
@@ -1690,11 +1696,13 @@ describe('retained workflow opens', () => {
     vi.unstubAllGlobals()
   })
 
-  it.each(['accepted', 'refused', 'edited', 'closed', 'replacement', 'registry', 'target', 'canceled', 'disposed'] as const)(
-    'keeps the existing tab until a current file-open acknowledgment: %s', async (scenario) => {
+  it.each((['file', 'direct'] as const).flatMap((kind) =>
+    (['accepted', 'lost', 'refused', 'edited', 'closed', 'replacement', 'registry', 'target', 'canceled', 'disposed'] as const)
+      .map((scenario) => [kind, scenario] as const)))(
+    'keeps the existing tab until a current %s-open acknowledgment: %s', async (kind, scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       app = createWorkflowApp([schema])
-      app.openDocument(session().doc, 'Existing')
+      await app.openDocument(session().doc, 'Existing')
       const previous = app.activeTab()!
       const previousTabs = app.tabs.get()
       const incoming = { ...session([asset('c')]).doc, lineage: asLineageId('incoming') }
@@ -1708,25 +1716,33 @@ describe('retained workflow opens', () => {
         expect(journal.digests).toEqual([asset('c').digest])
         expect(journal.documentLineage).toBe('incoming')
         requested.resolve(declaration)
-        return response.promise
+        const acknowledged = await response.promise
+        if (scenario === 'lost') throw new Error('lost response')
+        return acknowledged
       })
-      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async () =>
+        scenario === 'lost' ? { ...owner, ...await requested.promise, revision: 1 } : undefined)
       let wanted = true
-      const operation = app.importWorkflowFile({ name: 'incoming.json', text: async () => JSON.stringify(incoming) }, () => wanted)
+      const operation = kind === 'direct'
+        ? app.openDocument(incoming, 'Incoming').then((diagnostics) => diagnostics.length === 0)
+        : app.importWorkflowFile({ name: 'incoming.json', text: async () => JSON.stringify(incoming) }, () => wanted)
       const declaration = await requested.promise
       expect(app.activeTab()).toBe(previous)
       expect(app.tabs.get()).toBe(previousTabs)
       expect(declaration).toEqual({ revision: 0, complete: true, digests: [asset('c').digest] })
       if (scenario === 'edited') expect((await app.dispatchTo(previous, replace('b'))).ok).toBe(true)
       if (scenario === 'closed') app.closeTab(previous.id)
-      if (scenario === 'replacement') app.openDocument(session([asset('b')]).doc, 'Replacement')
+      if (scenario === 'replacement') await app.openDocument(session([asset('b')]).doc, 'Replacement')
       if (scenario === 'registry') app.registry.set(undefined)
       if (scenario === 'target') app.setTabTarget(previous.id, app.addBackend('http://other:8000', 'Other', false)!.id)
-      if (scenario === 'canceled') wanted = false
+      if (scenario === 'canceled') {
+        wanted = false
+        if (kind === 'direct') app.createWorkflow()
+      }
       if (scenario === 'disposed') app.dispose()
       response.resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
-      expect(await operation).toBe(scenario === 'accepted')
-      expect(app.tabs.get().some((tab) => tab.id === 'incoming')).toBe(scenario === 'accepted')
+      expect(await operation).toBe(scenario === 'accepted' || scenario === 'lost')
+      expect(app.tabs.get().some((tab) => tab.id === 'incoming')).toBe(scenario === 'accepted' || scenario === 'lost')
       if (scenario !== 'closed' && scenario !== 'replacement') expect(app.tabs.get()).toContain(previous)
       expect(previous.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset(scenario === 'edited' ? 'b' : 'a')])
       expect([...Array(localStorage.length)].some((_, index) => localStorage.key(index)?.includes('workflow-retentions.'))).toBe(true)
@@ -1765,10 +1781,6 @@ describe('retained workflow opens', () => {
     'retires only the explicitly removed frozen generation: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       app = createWorkflowApp([{ ...schema, isOutputNode: true }])
-      app.openDocument(session().doc, 'Live')
-      const live = app.activeTab()!
-      const compiled = app.compileTab(live)
-      if (!compiled?.ok) throw new Error(JSON.stringify(compiled?.diagnostics))
       const owners = new Map<string, RetainedAssets>()
       vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
         const retained = { ...owner, ...declaration, revision: 1 }
@@ -1776,6 +1788,10 @@ describe('retained workflow opens', () => {
         return retained
       })
       vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+      await app.openDocument(session().doc, 'Live')
+      const live = app.activeTab()!
+      const compiled = app.compileTab(live)
+      if (!compiled?.ok) throw new Error(JSON.stringify(compiled?.diagnostics))
       const releaseStarted = deferred<void>()
       const releaseAck = deferred<void>()
       vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
@@ -1794,14 +1810,14 @@ describe('retained workflow opens', () => {
       app.registerRun(live, second, compiled.artifact)
       expect(await app.openExecutionView(first)).toBe(true)
       const firstTab = app.activeTab()!
-      const firstOwner = [...owners.values()][0]!
+      const firstOwner = [...owners.values()].at(-1)!
       expect(await app.openExecutionView(second)).toBe(true)
       const secondTab = app.activeTab()!
-      const secondOwner = [...owners.values()][1]!
+      const secondOwner = [...owners.values()].at(-1)!
       expect(firstOwner.ownerId).not.toBe(secondOwner.ownerId)
       if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
       if (scenario === 'disposed') app.dispose()
-      if (scenario === 'replaced') app.openDocument({ ...session().doc, lineage: asLineageId(firstTab.id) }, 'Replacement')
+      if (scenario === 'replaced') await app.openDocument({ ...session().doc, lineage: asLineageId(firstTab.id) }, 'Replacement')
       else app.closeTab(firstTab.id)
       if (scenario === 'disconnected' || scenario === 'disposed' || scenario === 'replaced') {
         await Promise.resolve()
@@ -1832,7 +1848,8 @@ describe('retained workflow opens', () => {
     'stages a frozen snapshot without publishing early: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       app = createWorkflowApp([{ ...schema, isOutputNode: true }])
-      app.openDocument(session().doc, 'Live')
+      await app.openDocument(session().doc, 'Live')
+      vi.mocked(app.connection.retainAssets).mockClear()
       const previous = app.activeTab()!
       const source = app.addBackend('http://source:8000', 'Source', false)!
       source.registry.set(app.registry.get())

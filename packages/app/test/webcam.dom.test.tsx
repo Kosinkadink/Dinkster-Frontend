@@ -190,7 +190,7 @@ it('does not replace connected literal camera inputs with unused captures', asyn
       const document = state.tab.store.doc
       const graph = document.graphs.g0!
       const connected = { ...state.saved, digest: `blake3:${'d'.repeat(64)}`, name: 'connected.png' }
-      expect(state.app.openDocument({ ...document, graphs: { ...document.graphs, g0: {
+      expect((await state.app.openDocument({ ...document, graphs: { ...document.graphs, g0: {
         ...graph,
         nodes: { ...graph.nodes, n2: kind === 'net'
           ? { ...graph.nodes.n2!, type: 'test.frame', values: {} }
@@ -200,7 +200,7 @@ it('does not replace connected literal camera inputs with unused captures', asyn
           id: 'l0', from: kind === 'tap' ? { node: 'n2', tap: 'image' } : { valueSource: 'v0' }, to: { node: 'n1', port: 'image' },
         } },
         nets: kind === 'net' ? { net0: { id: 'net0', name: 'camera', source: { node: 'n2', port: 'frame' }, sinks: [{ node: 'n1', port: 'image' }] } } : {},
-      } } }, 'Connected camera')).toEqual([])
+      } } }, 'Connected camera'))).toEqual([])
       const tab = state.app.activeTab()!
       await state.app.queue(tab, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('n1') }] })
       expect(state.submit, JSON.stringify(state.app.problems.get())).toHaveBeenCalledOnce()
@@ -242,7 +242,7 @@ it('saves a nested camera on its promoted owner and preserves a connected bounda
       const document = state.tab.store.doc
       const root = document.graphs.g0!
       const frame = { ...state.saved, digest: `blake3:${'e'.repeat(64)}`, name: 'boundary.png' }
-      expect(state.app.openDocument({ ...document, graphs: {
+      expect((await state.app.openDocument({ ...document, graphs: {
         g0: { ...root, nodes: { n1: { id: 'n1', type: '#camera', values: { frame: state.saved } } },
           valueSources: { v0: { id: 'v0', value: frame, type: { kind: 'concrete', types: ['WEBCAM'] } } },
           links: connected ? { l0: { id: 'l0', from: { valueSource: 'v0' }, to: { node: 'n1', port: 'frame' } } } : {},
@@ -254,7 +254,7 @@ it('saves a nested camera on its promoted owner and preserves a connected bounda
             outputs: [{ id: 'result', binds: { kind: 'port', node: 'inner', port: 'image' } }],
           },
         },
-      } }, 'Nested camera')).toEqual([])
+      } }, 'Nested camera'))).toEqual([])
       const tab = state.app.activeTab()!
       await state.app.queue(tab, { kind: 'partial', targets: [{ instancePath: [asNodeId('n1')], node: asNodeId('inner') }] })
       expect(state.submit, JSON.stringify(state.app.problems.get())).toHaveBeenCalledOnce()
@@ -288,7 +288,7 @@ it.each([false, true])('validates shared-frame dimensions with native sizing %s'
   try {
     const document = state.tab.store.doc
     const root = document.graphs.g0!
-    expect(state.app.openDocument({ ...document, graphs: {
+    expect((await state.app.openDocument({ ...document, graphs: {
       g0: { ...root, nodes: {
         n1: { id: 'n1', type: '#camera', values: { width: native ? 0 : 640, height: 180 } },
         n2: { id: 'n2', type: '#camera', values: { width: native ? 0 : 320, height: 240 } },
@@ -300,7 +300,7 @@ it.each([false, true])('validates shared-frame dimensions with native sizing %s'
           outputs: [{ id: 'result', binds: { kind: 'port', node: 'inner', port: 'image' } }],
         },
       },
-    } }, 'Shared camera')).toEqual([])
+    } }, 'Shared camera'))).toEqual([])
     const tab = state.app.activeTab()!
     await state.app.queue(tab, { kind: 'partial', targets: ['n1', 'n2'].map((id) => ({ instancePath: [asNodeId(id)], node: asNodeId('inner') })) })
     if (native) {
