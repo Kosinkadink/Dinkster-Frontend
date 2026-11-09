@@ -101,6 +101,45 @@ it('converts supplied first-party interfaces before resolving installed packs', 
   expect(checkDocument(document)).toEqual([])
 })
 
+it.each([false, true])('converts declared dotted port ids, including internal links: %s', (internal) => {
+  const schema: NodeSchema = {
+    type: 'dinkster.models.merge', displayName: 'Merge', category: 'test', source: 'v3', isOutputNode: false,
+    items: [
+      { kind: 'input', id: 'time_embed.', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+        widget: { widgetType: 'FLOAT', options: {}, default: 0 } },
+      { kind: 'input', id: 'input_blocks.0.', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+        widget: { widgetType: 'FLOAT', options: {}, default: 0 } },
+      { kind: 'output', id: 'result.value', type: { kind: 'concrete', name: 'FLOAT' } },
+    ],
+  }
+  const translations: ComfyTranslation[] = [{ pack: 'dinkster-models', version: '0.0.2', schema,
+    rule: { from: 'ModelMergeExample', cases: [{ to: schema.type,
+      inputs: { 'time_embed.': { kind: 'copy', input: 'time_embed.' }, 'input_blocks.0.': { kind: 'copy', input: 'input_blocks.0.' } },
+      outputs: { 'result.value': 'result.value' },
+      ...(internal ? { nodes: { helper: { type: schema.type } }, links: [{ from: 'helper:result.value', to: 'time_embed.' }] } : {}),
+    }] },
+  }]
+  const imported = importLitegraph({ nodes: [
+    { id: 1, type: 'ModelMergeExample', widgets_values: [0.17, 0.83], outputs: [{ name: 'result.value' }] },
+    { id: 2, type: 'ModelMergeExample', widgets_values: [0.29, 0.71], inputs: [{ name: 'input_blocks.0.', link: 1 }] },
+  ], links: [[1, 1, 0, 2, 0, 'FLOAT']] }, () => undefined, undefined, translations)
+  expect(imported.diagnostics).toEqual([])
+  const graph = imported.document!.graphs.g0!
+  expect([graph.nodes.n1!, graph.nodes.n2!].map((node) => [node.type, node.values])).toEqual([
+    [schema.type, { 'time_embed.': 0.17, 'input_blocks.0.': 0.83 }],
+    [schema.type, { 'time_embed.': 0.29, 'input_blocks.0.': 0.71 }],
+  ])
+  expect(Object.values(graph.links).map((link) => [link.from, link.to])).toEqual([
+    [{ node: 'n1', port: 'result.value' }, { node: 'n2', port: 'input_blocks.0.' }],
+    ...(internal ? [
+      [{ node: 'n1:helper', port: 'result.value' }, { node: 'n1', port: 'time_embed.' }],
+      [{ node: 'n2:helper', port: 'result.value' }, { node: 'n2', port: 'time_embed.' }],
+    ] : []),
+  ])
+  expect(resolveImportedNodePacks(imported.document!, () => undefined).filter((node) => node.pack !== undefined).map((node) => node.status)).toEqual(['installable', 'installable'])
+  expect(checkDocument(imported.document!)).toEqual([])
+})
+
 it.each([false, true])('fully translates primary and helper chains inside a subgraph: %s', (nested) => {
   const schema = (type: string): NodeSchema => ({
     type, displayName: type, category: 'test', source: 'v3', isOutputNode: false,
