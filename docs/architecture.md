@@ -411,7 +411,13 @@ defaults come only from the active interface. Historical connectivity changes
 recheck dynamic nodes even when their objects are shared. Dynamic metadata must
 have the known asset-free shape, and every stored state key must be read in its
 canonical construct/member scope. Unknown stored keys, elaboration diagnostics or
-budget exhaustion, and dormant wire-15 inputs remain incomplete.
+budget exhaustion, and unsupported dormant wire-15 slots remain incomplete.
+The wire-15 DynamicCombo census visits every branch at its direct stored path,
+without changing the active interface or inventing branch-local storage keys.
+Projected names may recur across branches but not within one branch. A stored
+untyped value with conflicting branch types stays incomplete and names the input
+in its diagnostic; a typed literal supplies its own exact type. Only effective
+defaults contribute roots, while stored values from all branches are retained.
 An effective unresolved selection name is incomplete, not an asset identity.
 Untyped literal producers use every connected static consumer's input type;
 unconnected producers, unknown ports and unsupported consumer types remain

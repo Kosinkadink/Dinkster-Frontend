@@ -231,6 +231,14 @@ export function workflowAssetRoots(
     for (const [input, value] of Object.entries(node.values)) {
       const matching = inputs.filter((item) => valueKeyOf(item) === input)
       if (matching.length === 0) complete = false
+      if (matching.some((item) => item.wire15Materialization) &&
+        new Set(matching.map((item) => canonicalJson(item.spec.type))).size > 1 && parseTypedLiteralWire(value) === undefined) {
+        complete = false
+        incompleteDiagnostics.push({ severity: 'error', origin: 'schema', code: 'workflow.asset.ambiguousInput',
+          refs: [{ graphId: graph.id, nodeId: node.id }],
+          message: `${node.title ?? node.type} (${node.id}): Stored input '${input}' has conflicting dormant branch types`,
+        })
+      }
       for (const item of matching) valueRoots(value, item.spec.type, isAssetWidgetInput(item.spec))
     }
   }

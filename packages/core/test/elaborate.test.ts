@@ -169,6 +169,34 @@ describe('static schemas', () => {
     expect(strength.spec).toBe(schema.items[3]) // no cloning on the static path
   })
 
+  it('censuses every wire15 combo branch at its stored path without changing the active interface', () => {
+    const schema = schemaOf([{
+      kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+        { key: 'a', inputs: [socketInput('file', 'IMAGE')] },
+        { key: 'b', inputs: [socketInput('file', 'MASK'), socketInput('other', 'AUDIO')] },
+      ] },
+    }])
+    const node = { values: {}, dynamic: { mode: { selected: 'a' } } }
+    const active = elaborateInterface(schema, node)
+    expect(active.diagnostics).toEqual([])
+    expect(elabInputsOf(active).map((input) => input.spec.id)).toEqual(['mode', 'mode.file'])
+    const stored = elaborateInterface(schema, node, EMPTY_CONNECTIVITY, { includeDormant: true })
+    expect(stored.diagnostics).toEqual([])
+    expect(elabInputsOf(stored).map((input) => [input.spec.id, input.spec.type, input.apiName])).toEqual([
+      ['mode.file', { kind: 'concrete', name: 'IMAGE' }, undefined],
+      ['mode.file', { kind: 'concrete', name: 'MASK' }, undefined],
+      ['mode.other', { kind: 'concrete', name: 'AUDIO' }, undefined],
+    ])
+    expect(elaborateInterface(schema, node)).toEqual(active)
+    const duplicate = { ...schema, items: [{ ...schema.items[0]!, dynamic: {
+      kind: 'dynamicCombo' as const, materialization: 'wire15' as const,
+      options: [{ key: 'a', inputs: [socketInput('file'), socketInput('file')] }],
+    } }] } as NodeSchema
+    expect(elaborateInterface(duplicate, node, EMPTY_CONNECTIVITY, { includeDormant: true }).diagnostics)
+      .toContainEqual(expect.objectContaining({ code: 'elab.projectedNamespaceCollision' }))
+  })
+
   it('warns on schema ids containing reserved path characters', () => {
     const e = elaborateInterface(schemaOf([socketInput('a.b')]), noState)
     expect(e.diagnostics.some((d) => d.code === 'elab.id.reserved')).toBe(true)

@@ -607,6 +607,9 @@ describe('retained app dispatch', () => {
       dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'active', inputs: [{
         kind: 'input', id: 'file', optional: false, type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } },
         widget: { widgetType: 'ASSET', options: {}, default: asset('a') },
+      }] }, { key: 'unsupported', inputs: [{ kind: 'input', id: 'slot', optional: true,
+        type: { kind: 'concrete', name: 'STRING' }, dynamic: { kind: 'dynamicSlot', materialization: 'wire15',
+          slotType: { kind: 'concrete', name: 'STRING' }, inputs: [] },
       }] }] },
     }] }
     app = createWorkflowApp([dynamic])
@@ -680,7 +683,7 @@ describe('retained app dispatch', () => {
     }
   })
 
-  it.each(['active', 'dormant', 'invalid', 'unknown'] as const)('classifies %s nested wire15 state without certifying dormant ownership', (variant) => {
+  it.each(['active', 'dormant', 'invalid', 'dormant-invalid', 'unknown'] as const)('classifies %s nested wire15 state without certifying opaque values', (variant) => {
     const codec: NodeSchema['items'][number] = {
       kind: 'input', id: 'codec', optional: false, type: { kind: 'concrete', name: 'STRING' },
       dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'auto', inputs: [] }] },
@@ -688,28 +691,31 @@ describe('retained app dispatch', () => {
     const dynamic: NodeSchema = { ...schema, items: [{
       kind: 'input', id: 'format', optional: false, type: { kind: 'concrete', name: 'STRING' },
       dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
-        { key: 'auto', inputs: variant === 'dormant' ? [] : [codec] },
-        { key: 'other', inputs: variant === 'dormant' ? [codec] : [] },
+        { key: 'auto', inputs: variant === 'dormant' || variant === 'dormant-invalid' ? [] : [codec] },
+        { key: 'other', inputs: variant === 'dormant' || variant === 'dormant-invalid' ? [codec] : [] },
       ] },
     }] }
     const local = session()
     const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
       n0: { id: asNodeId('n0'), type: 'Loader', values: { opaque: asset('a') }, dynamic: {
         format: { selected: 'auto' },
-        [variant === 'unknown' ? 'format.unrelated' : 'format.codec']: { selected: variant === 'invalid' ? 'bad' : 'auto' },
+        [variant === 'unknown' ? 'format.unrelated' : 'format.codec']: {
+          selected: variant === 'invalid' || variant === 'dormant-invalid' ? 'bad' : 'auto',
+        },
       } },
     } } } }
     const history = createLocalSession(document, coreCommandRegistry([], () => dynamic)).historySnapshot()
     const roots = workflowAssetRoots(document, history, () => dynamic, [], 'admission')
     expect(roots.complete).toBe(false)
     expect(roots.digests).toEqual([asset('a').digest])
-    expect(roots.refusal).toBe(variant === 'active' ? undefined : 'Workflow dynamic identities are invalid')
-    if (variant === 'active') {
+    expect(roots.refusal).toBe(variant === 'active' || variant === 'dormant' ? undefined : 'Workflow dynamic identities are invalid')
+    if (variant === 'active' || variant === 'dormant') {
       const stored = elaborateInterface(dynamic, document.graphs.g0!.nodes.n0!, EMPTY_CONNECTIVITY, { includeDormant: true })
-      expect(stored.diagnostics).toEqual([expect.objectContaining({ code: 'elab.dormant.unsupported', severity: 'error' })])
-      expect(roots.incompleteDiagnostics).toEqual([expect.objectContaining({ code: 'elab.dormant.unsupported', severity: 'error' })])
+      expect(stored.diagnostics).toEqual([])
+      expect(roots.incompleteDiagnostics).toBeUndefined()
     }
-    expect(workflowAssetRoots(document, history, () => dynamic).refusal).toBe('Workflow dynamic identities are invalid')
+    expect(workflowAssetRoots(document, history, () => dynamic).refusal)
+      .toBe(variant === 'active' || variant === 'dormant' ? undefined : 'Workflow dynamic identities are invalid')
   })
 
   it.each(['artifact', 'associated', 'output', 'model3d', 'retained'] as const)(
@@ -972,6 +978,9 @@ describe('retained app dispatch', () => {
       dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'active', inputs: [{
         kind: 'input', id: 'file', optional: false, type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } },
         widget: { widgetType: 'ASSET', options: {}, default: asset('a') },
+      }] }, { key: 'unsupported', inputs: [{ kind: 'input', id: 'slot', optional: true,
+        type: { kind: 'concrete', name: 'STRING' }, dynamic: { kind: 'dynamicSlot', materialization: 'wire15',
+          slotType: { kind: 'concrete', name: 'STRING' }, inputs: [] },
       }] }] },
     }] }
     app = createWorkflowApp([dynamic])
@@ -1556,6 +1565,31 @@ describe('workflow candidate admission', () => {
         naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 } } },
   ] }
 
+  it.each(['resolved', 'conflicting', 'typed'] as const)('censuses stored wire15 branch values: %s', (scenario) => {
+    const local = session()
+    const candidate: NodeSchema = { ...schema, items: [{
+      kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+        { key: 'a', inputs: [assetInput('file', 'a')] },
+        { key: 'b', inputs: [{ ...assetInput('file', 'b'),
+          type: scenario === 'resolved' ? assetType : { kind: 'concrete', name: 'STRING' } },
+        assetInput('other', 'e')] },
+      ] },
+    }] }
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Loader', dynamic: { mode: { selected: 'a' } },
+        values: { 'mode.file': scenario === 'typed' ? { $typed: { type: 'asset<DATA>', value: asset('c') } } : asset('c'),
+          'mode.other': asset('d') } },
+    } } } }
+    const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => candidate)
+    expect(roots.digests).toEqual([asset('c').digest, asset('d').digest])
+    expect(roots.complete).toBe(scenario !== 'conflicting')
+    if (scenario !== 'conflicting') expect(roots.incompleteDiagnostics).toBeUndefined()
+    else expect(roots.incompleteDiagnostics).toEqual([expect.objectContaining({
+      code: 'workflow.asset.ambiguousInput', message: expect.stringContaining("Stored input 'mode.file'"),
+    })])
+  })
+
   it('uses non-widget defaults only in active branches while retaining stored dormant values', () => {
     const local = session()
     const candidate: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'mode', optional: true,
@@ -1598,7 +1632,7 @@ describe('workflow candidate admission', () => {
       const document = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: { n0: node } } } } as WorkflowDocument
       const candidate: NodeSchema = scenario === 'wire15' ? { ...dynamicSchema, items: [{
         kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: true,
-        dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'a', inputs: [assetInput('file', 'a')] }] },
+        dynamic: { kind: 'dynamicSlot', materialization: 'wire15', slotType: assetType, inputs: [assetInput('file', 'a')] },
       }] } : scenario === 'static-unknown' ? schema : dynamicSchema
       expect(workflowAssetRoots(document, local.historySnapshot(), () => candidate).complete).toBe(false)
     },
