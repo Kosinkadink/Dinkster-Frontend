@@ -9226,17 +9226,25 @@ export class AppState {
         if (held.jobRef !== undefined && job.jobRef !== held.jobRef) return false
         if (held.jobRef !== undefined && (job.state === 'completed' || job.state === 'failed' || job.state === 'cancelled')) {
           const terminal = await connection.fetchTerminalResultAssets(held.jobRef, ref.prompt)
-          if (!current()) return false
-          if (terminal !== undefined) {
-            if (terminal.state !== job.state || terminal.attemptId !== job.attemptId) return false
-            for (const offer of terminal.offers) {
-              if (offer.artifact !== undefined) {
-                const { index, ...artifact } = offer.artifact
-                if (canonicalJson(job.artifacts?.[index]) !== canonicalJson(artifact)) return false
-              }
-              await retainExecutionAssets(connection, ref, offer)
-              if (!current()) return false
+          if (!current() || terminal === undefined) return false
+          if (terminal.state !== job.state || terminal.attemptId !== job.attemptId) return false
+          const outputs = job.outputs ?? {}
+          if (!workspaceRecord(outputs) || Object.values(outputs).some((node) => !workspaceRecord(node))) return false
+          const outputKeys = Object.entries(outputs).flatMap(([nodeId, node]) =>
+            Object.keys(node as Record<string, unknown>).map((outputId) => JSON.stringify([nodeId, outputId]))).sort()
+          const offeredKeys = terminal.offers.flatMap((offer) => offer.outputId === undefined ? [] :
+            [JSON.stringify([offer.nodeId, offer.outputId])]).sort()
+          if (canonicalJson(outputKeys) !== canonicalJson(offeredKeys) ||
+            terminal.offers.filter((offer) => offer.artifact !== undefined).length !== (job.artifacts?.length ?? 0)) return false
+          for (const offer of terminal.offers) {
+            if (offer.artifact !== undefined) {
+              const { index, ...artifact } = offer.artifact
+              if (canonicalJson(job.artifacts?.[index]) !== canonicalJson(artifact)) return false
             }
+          }
+          for (const offer of terminal.offers) {
+            await retainExecutionAssets(connection, ref, offer)
+            if (!current()) return false
           }
         }
         const outputs = workspaceRecord(job.outputs)

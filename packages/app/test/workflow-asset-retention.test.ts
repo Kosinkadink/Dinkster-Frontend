@@ -321,7 +321,8 @@ describe('retained app dispatch', () => {
     vi.unstubAllGlobals()
   })
 
-  it.each(['acknowledged', 'lost', 'rejected', 'removed'] as const)(
+  it.each(['acknowledged', 'lost', 'rejected', 'removed', 'missing-seal', 'unoffered-output',
+    'unoffered-artifact', 'foreign-artifact', 'extra-offer', 'foreign-attempt'] as const)(
     'admits completed outputs and artifacts through sealed source claims: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       app = createWorkflowApp([{ ...schema, isOutputNode: true }])
@@ -337,13 +338,17 @@ describe('retained app dispatch', () => {
       const artifact = { ...asset('b'), nodeId: 'n0' }
       const outputs = { n0: { images: { typeId: 'ASSET', fingerprint: 'saved', meta: asset('b') } } }
       vi.spyOn(backend.connection, 'fetchJob').mockResolvedValue({ state: 'completed', jobRef: 'original-job',
-        attemptId: 2, outputs, artifacts: [artifact] })
+        attemptId: 2, outputs: scenario === 'unoffered-output' ? { ...outputs, extra: { result: { meta: asset('c') } } } : outputs,
+        artifacts: scenario === 'unoffered-artifact' ? [artifact, { ...asset('c'), nodeId: 'extra' }] : [artifact] })
       const offer = { token: 'a'.repeat(32), scope: 'local', jobRef: 'original-job', attemptId: 2,
         nodeId: 'n0', outputId: 'images', publication: 7, digests: [asset('a').digest, asset('b').digest], complete: true }
       const artifactOffer = { token: 'b'.repeat(32), scope: 'local', jobRef: 'original-job', attemptId: 2,
-        nodeId: 'n0', artifact: { ...artifact, index: 0 }, publication: 1, digests: [asset('b').digest], complete: true }
-      vi.spyOn(backend.connection, 'fetchTerminalResultAssets').mockResolvedValue({ scope: 'local', jobRef: 'original-job',
-        attemptId: 2, state: 'completed', complete: true, offers: [offer, artifactOffer] })
+        nodeId: 'n0', artifact: { ...artifact, ...(scenario === 'foreign-artifact' ? { digest: asset('c').digest } : {}), index: 0 },
+        publication: 1, digests: [asset('b').digest], complete: true }
+      vi.spyOn(backend.connection, 'fetchTerminalResultAssets').mockResolvedValue(scenario === 'missing-seal' ? undefined : {
+        scope: 'local', jobRef: 'original-job', attemptId: scenario === 'foreign-attempt' ? 3 : 2,
+        state: 'completed', complete: true, offers: [offer, artifactOffer,
+          ...(scenario === 'extra-offer' ? [{ ...offer, token: 'c'.repeat(32), outputId: 'extra' }] : [])] })
       const admitted = deferred<void>()
       const requested = deferred<void>()
       const saved = new Map<string, RetainedAssets>()
@@ -360,6 +365,13 @@ describe('retained app dispatch', () => {
       vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => saved.get(owner.ownerId))
       vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => ({ ...owner, ...declaration, revision: 1 }))
       backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
+      if (['missing-seal', 'unoffered-output', 'unoffered-artifact', 'foreign-artifact', 'extra-offer', 'foreign-attempt'].includes(scenario)) {
+        admitted.resolve()
+        await new Promise<void>((done) => setImmediate(done))
+        expect(app.store.get(ref)?.outputs).toEqual({})
+        expect(app.store.get(ref)?.artifacts).toEqual([])
+        return
+      }
       await requested.promise
       expect(app.store.get(ref)?.outputs).toEqual({})
       expect(app.store.get(ref)?.artifacts).toEqual([])
