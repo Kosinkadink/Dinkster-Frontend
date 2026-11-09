@@ -267,6 +267,28 @@ it.each(['type-cycle', 'recursive-helper', 'same-type'])('keeps %s translations 
   expect(checkDocument(result.document!)).toEqual([])
 })
 
+it('applies a same-type import value transform exactly once', () => {
+  const schema: NodeSchema = {
+    type: 'SameType', displayName: 'Same Type', category: 'test', source: 'v3', isOutputNode: false,
+    items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+      widget: { widgetType: 'FLOAT', options: {}, default: 0 } }],
+  }
+  const imported = importLitegraph({ nodes: [{ id: 1, type: 'SameType', widgets_values: [7] }], links: [] },
+    () => undefined, undefined, [{ schema, pack: 'example-pack', version: '1',
+      rule: { from: 'SameType', cases: [{ to: 'SameType', inputs: {
+        value: { kind: 'value', input: 'value', transform: { kind: 'scale', factor: 3, offset: 5 } },
+      } }] },
+    }])
+  expect(imported.diagnostics).toEqual([])
+  const document = imported.document!
+  expect(document.graphs.g0!.nodes.n1!.values).toEqual({ value: 26 })
+  expect(resolveImportedNodePacks(document, () => undefined)).toEqual([
+    expect.objectContaining({ sourceClass: 'SameType', status: 'installable', pack: 'example-pack' }),
+  ])
+  expect(loadDocument(JSON.parse(JSON.stringify(document))).document).toEqual(document)
+  expect(checkDocument(document)).toEqual([])
+})
+
 it('imports authored combo choices and typed index separately from linked extra dependencies', () => {
   const combo = parseDinksterSchema('CustomCombo', {
     outputNode: true, additionalInputs: { kind: 'wildcard' },
