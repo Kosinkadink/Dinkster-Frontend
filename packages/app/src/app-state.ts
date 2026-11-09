@@ -7861,6 +7861,7 @@ export class AppState {
     registry: SchemaRegistry,
     result: PersistedExecutionResult,
     stillCurrent: () => boolean,
+    document: WorkflowDocument,
   ): Promise<Parameters<ExecutionStore['restoreCompleted']>[0] | null | undefined> {
     if (result.ref.connection !== backend.id || result.proof.connection !== backend.id ||
       result.proof.schemaHash !== registry.hash) return undefined
@@ -7871,21 +7872,13 @@ export class AppState {
       history.sourceDocument !== result.sourceDocument ||
       history.principalId !== result.submittedBy?.principalId ||
       history.principalKind !== result.submittedBy?.kind) return undefined
+    if (!stillCurrent()) return null
     const job = await backend.connection.fetchJob(result.ref.prompt)
     if (job === undefined || job.state !== 'completed' ||
       job.jobRef !== result.jobRef || job.sourceDocument !== result.sourceDocument ||
       job.submittedBy?.principalId !== result.submittedBy?.principalId ||
       job.submittedBy?.kind !== result.submittedBy?.kind) return undefined
-    const document = await readAssetPreview(backend.connection, result.sourceDocument, async () => {
-      const source = await backend.connection.fetchAssetText(result.sourceDocument)
-      if (source === undefined) return undefined
-      try {
-        return loadDocument(JSON.parse(source) as unknown).document
-      } catch {
-        return undefined
-      }
-    }, stillCurrent)
-    if (document === undefined) return undefined
+    if (!stillCurrent()) return null
     const choices = new Map((result.proof.choices ?? []).map((choice) => [
       JSON.stringify([choice.graph, choice.selector]),
       choice.candidate,
@@ -7931,11 +7924,13 @@ export class AppState {
       const progress = jobNodes[nodeId]
       if (progress?.state !== 'done' && progress?.state !== 'cached') continue
       for (const outputId of outputIds) {
+        if (!stillCurrent()) return null
         const peek = await backend.connection.values().peek({
           jobId: result.ref.prompt,
           nodeId,
           outputId,
         })
+        if (!stillCurrent()) return null
         if (!peek.available) {
           if (peek.status === 0 || peek.status === 408 || peek.status === 429 ||
             peek.status >= 500 || peek.reason === 'malformed-response') return null
@@ -7989,21 +7984,29 @@ export class AppState {
       for (const result of loadExecutionResults(identity)) {
         if (!current()) return
         try {
-          const restored = await this.validatedExecutionResult(backend, registry, result, current)
-          if (!current()) return
-          if (restored === undefined) removeExecutionResult(result)
-          else if (restored !== null) {
+          const restored = await readAssetPreview(backend.connection, result.sourceDocument, async () => {
+            const source = await backend.connection.fetchAssetText(result.sourceDocument)
+            if (!current()) return null
+            if (source === undefined) return undefined
+            let document: WorkflowDocument | undefined
+            try { document = loadDocument(JSON.parse(source) as unknown).document } catch { return undefined }
+            return document === undefined ? undefined : this.validatedExecutionResult(backend, registry, result, current, document)
+          }, current, async (candidate) => {
+            if (candidate == null || !current()) return false
             for (const receipt of result.assetRetentions ?? []) {
               const observed = await backend.connection.fetchRetainedAssets(receipt)
-              if (!current()) return
+              if (!current()) return false
               if (canonicalJson(observed) !== canonicalJson(receipt)) throw new Error('Persisted result retention differs')
             }
-            const roots = executionAssetRoots(restored, this.resolverWithVirtualNodes(registry.resolve))
-            const retained = await retainExecutionAssets(backend.connection, restored.ref, roots)
-            if (!current()) return
-            this.retainedRegistries.set(restored.artifact, registry)
-            this.store.restoreCompleted({ ...restored, assetRetentions: [...result.assetRetentions ?? [], retained] })
-          }
+            const roots = executionAssetRoots(candidate, this.resolverWithVirtualNodes(registry.resolve))
+            const retained = await retainExecutionAssets(backend.connection, candidate.ref, roots)
+            if (!current() || this.store.get(candidate.ref) !== undefined) return false
+            this.retainedRegistries.set(candidate.artifact, registry)
+            this.store.restoreCompleted({ ...candidate, assetRetentions: [...result.assetRetentions ?? [], retained] })
+            return this.store.get(candidate.ref)?.assetRetentions?.includes(retained) === true
+          })
+          if (!current()) return
+          if (restored === undefined) removeExecutionResult(result)
         } catch {
           // A transport failure proves nothing; retry the retained record on a later reload.
         }

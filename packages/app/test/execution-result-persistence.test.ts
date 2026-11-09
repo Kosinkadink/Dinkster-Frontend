@@ -151,6 +151,61 @@ describe('startup result source admission', () => {
     return { app, backend, registry, ref, nodeId, saved, backendIdentity, fetchSource, source: JSON.stringify(loaded.document) }
   }
 
+  it.each(['accepted', 'lost-release', 'refused', 'changed-registry', 'reused-execution'] as const)(
+    'keeps restored source ownership through result admission and publication: %s', async (mode) => {
+      const test = setup()
+      const owners = new Map<string, RetainedAssets>()
+      let entered!: () => void
+      const resultRequested = new Promise<void>((resolve) => { entered = resolve })
+      let acknowledge!: () => void
+      const acknowledgment = new Promise<void>((resolve) => { acknowledge = resolve })
+      vi.mocked(test.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        if (owner.ownerKind === 'shown-result') {
+          entered()
+          await acknowledgment
+          if (mode === 'refused') throw new Error('Result admission refused')
+        }
+        const retained = { ...owner, ...declaration, revision: declaration.revision + 1 }
+        owners.set(owner.ownerId, retained)
+        return retained
+      })
+      vi.spyOn(test.backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+      vi.spyOn(test.backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        const retained = owners.get(owner.ownerId)!
+        if (retained.revision !== revision) throw new Error('revision conflict')
+        const released = { ...retained, revision: revision + 1, complete: true, digests: [] }
+        owners.set(owner.ownerId, released)
+        if (mode === 'lost-release') throw new Error('Lost release response')
+        return released
+      })
+      try {
+        const starting = test.app.start()
+        await resultRequested
+        expect(test.app.store.get(test.ref)).toBeUndefined()
+        const sourceOwner = [...owners.values()].find((owner) => owner.ownerKind === 'preview')!
+        expect(sourceOwner).toMatchObject({ revision: 1, complete: false, digests: [test.saved.sourceDocument] })
+        if (mode === 'changed-registry') test.backend.registry.set({ ...test.registry })
+        if (mode === 'reused-execution') test.app.store.apply({ kind: 'started', execution: test.ref, timestamp: 40 })
+        const reused = test.app.store.get(test.ref)
+        acknowledge()
+        await starting
+        const accepted = mode === 'accepted' || mode === 'lost-release'
+        if (accepted) {
+          const restored = test.app.store.get(test.ref)!
+          expect(restored.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+          expect(restored.assetRetentions).toContainEqual(expect.objectContaining({ ownerKind: 'shown-result', revision: 1 }))
+          expect(owners.get(sourceOwner.ownerId)).toMatchObject({ revision: 2, complete: true, digests: [] })
+        } else {
+          expect(test.app.store.get(test.ref)).toBe(reused)
+          expect(owners.get(sourceOwner.ownerId)).toEqual(sourceOwner)
+          expect(loadExecutionResults(test.backendIdentity)).toHaveLength(1)
+        }
+        const intent = JSON.parse(localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${sourceOwner.ownerId}`))!)
+        expect(intent.releaseRevision).toBe(accepted ? 1 : undefined)
+      } finally { test.app.dispose() }
+    },
+  )
+
   it.each(['accepted', 'refused', 'mismatched', 'malformed', 'absent', 'failed-body'] as const)('restores only an admitted persisted source: %s', async (mode) => {
     const test = setup()
     try {

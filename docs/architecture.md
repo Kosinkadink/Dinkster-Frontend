@@ -116,7 +116,10 @@ Startup restoration of persisted results also admits source-workflow bytes
 before parsing or compiling their proof. The original backend, registry and
 connection lifetime must remain current. Refused or stale reads preserve the
 saved result for retry; malformed or absent source documents remain invalid.
-Shown-result ownership and publication follow separately after proof validation.
+The source owner survives proof validation, output discovery and reconciliation
+of every saved receipt. Only publication with independent acknowledged
+shown-result ownership permits its revision-bound retirement. A reused execution
+key, refused admission or changed registry keeps the source owner protected.
 
 Retained previews carry the original stored execution for each runtime
 occurrence, including when a partial run displays outputs from several runs.
