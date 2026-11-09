@@ -9,6 +9,10 @@ Saved, content-addressed artifacts also remain available for unchanged branches
 omitted from a partial run, including save nodes whose output values are tensors.
 Their previews use the original artifact bytes, not the new job's tensor values.
 
+If completion arrives before the submission acknowledgment, output inventory is
+re-read after the producing artifact is attached. The earlier inventory is not
+published under changed ownership.
+
 ## Proof and invalidation
 
 Each persisted result is partitioned by project, backend URL, stable backend

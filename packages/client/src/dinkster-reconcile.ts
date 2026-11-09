@@ -45,9 +45,17 @@ export async function hydrateDinksterCompletedExecution(
   prepareHydration?: PrepareExecutionHydration,
 ): Promise<void> {
   if (ref.connection !== connection.id) return
+  const artifact = store.get(ref)?.artifact
   const admit = prepareHydration?.(ref)
   const job = await connection.fetchJob(ref.prompt)
-  if (admit !== undefined && !await admit(job)) return
+  if (admit !== undefined && !await admit(job)) {
+    // A live completion may beat the submit response that installs its artifact.
+    // Re-read under that new owner rather than publishing the rejected result.
+    if (artifact === undefined && store.get(ref)?.artifact !== undefined) {
+      await hydrateDinksterCompletedExecution(connection, store, ref, prepareHydration)
+    }
+    return
+  }
   if (job?.state === 'completed') {
     if (job.submittedBy !== undefined) store.hydrateSubmittedBy(ref, job.submittedBy)
     // run_finished precedes result persistence; an earlier output fetch may
