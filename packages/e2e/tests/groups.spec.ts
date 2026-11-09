@@ -5,7 +5,7 @@
  * fall-through to panning, graph-definition scoping, and the invariant that
  * group operations never touch semantic state.
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 
@@ -101,6 +101,7 @@ test.beforeEach(async ({ page }) => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
     return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
   })).toBe(true)
+  await waitForStartupOwnership(page)
   await identityViewport(page)
 })
 
