@@ -360,7 +360,13 @@ exact compile-time registry; unavailable historical schemas remain incomplete.
 A temporary in-memory execution pin prevents eviction during acknowledgment;
 success transfers the pin to the frozen tab, while failed or stale attempts
 drop only that temporary pin. Existing frozen tabs focus without another PUT.
-Read-only inspection and close/displacement pin balancing stay unchanged.
+Each published frozen tab captures its independent acknowledged owner and
+connection lifetime. Explicit close retires that exact revision after the tab
+is removed; other views of the same digest and later reopenings keep their own
+owners. Lost release responses reconcile by GET against the exact tombstone,
+never another revision. Same-id replacement without an acknowledged handoff,
+disconnect and application disposal keep the old protection journaled.
+Read-only inspection and close/displacement execution-pin balancing stay unchanged.
 Initial collaboration adoption (Share, Join and reload rejoin) also retains the
 session snapshot and any adopted local history on the session's source backend
 before publishing its tab. Failed or stale acknowledgments keep the existing
@@ -418,7 +424,11 @@ Projected names may recur across branches but not within one branch. A stored
 untyped value with conflicting branch types stays incomplete and names the input
 in its diagnostic; a typed literal supplies its own exact type. Only effective
 defaults contribute roots, while stored values from all branches are retained.
-An effective unresolved selection name is incomplete, not an asset identity.
+Missing node or input schemas, unsupported value types, malformed containers and
+unresolved selection names identify the exact stored input (or effective default)
+in ownership diagnostics. A failed list element does not stop enumeration of later
+elements. Known identities remain retained even when another input is unresolved;
+an unresolved selection name is incomplete, not an asset identity.
 Untyped literal producers use every connected static consumer's input type;
 unconnected producers, unknown ports and unsupported consumer types remain
 incomplete. Their roots are rechecked against each historical document's

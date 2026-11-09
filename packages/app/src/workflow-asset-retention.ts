@@ -102,36 +102,39 @@ export function workflowAssetRoots(
     if (type.kind === 'tuple') return type.elements.every(supported)
     return type.kind === 'concrete' && (type.name === 'ASSET' || primitiveNames.has(type.name))
   }
-  const valueRoots = (value: Json, type: TypeExpr, namedAsset = false): void => {
+  const valueRoots = (value: Json, type: TypeExpr, namedAsset = false): boolean => {
     // A cleared asset widget holds no identity; history still contributes its previous value.
-    if (namedAsset && value === null) return
+    if (namedAsset && value === null) return true
     // Asset widgets can hold unresolved imported names, never a certified digest set.
-    if (namedAsset && typeof value === 'string') { complete = false; return }
+    if (namedAsset && typeof value === 'string') { complete = false; return false }
     const typed = parseTypedLiteralWire(value)
     if (typed !== undefined) {
       const wrapper = value as { readonly [key: string]: Json }
       if (Object.keys(wrapper).length !== 1 || Object.keys(wrapper['$typed'] as object).length !== 2) {
         complete = false
         refusal = 'Workflow typed literal is malformed'
-        return
+        return false
       }
-      valueRoots(typed.value, typeExprFromTypeId(typed.type))
+      return valueRoots(typed.value, typeExprFromTypeId(typed.type))
     } else if (!supported(type)) {
       complete = false
       opaqueRoots(value)
+      return false
     } else if (type.kind === 'asset' || (type.kind === 'concrete' && type.name === 'ASSET')) {
       if (isAssetRef(value)) digests.add(value.digest)
-      else { complete = false; refusal = 'Workflow asset identity is malformed' }
+      else { complete = false; refusal = 'Workflow asset identity is malformed'; return false }
     } else if (type.kind === 'list') {
-      if (!Array.isArray(value)) { complete = false; refusal = 'Workflow asset list is malformed' }
-      else for (const element of value) valueRoots(element, type.element)
+      if (!Array.isArray(value)) { complete = false; refusal = 'Workflow asset list is malformed'; return false }
+      return value.map((element) => valueRoots(element, type.element)).every(Boolean)
     } else if (type.kind === 'tuple') {
-      if (!Array.isArray(value) || value.length !== type.elements.length) { complete = false; refusal = 'Workflow asset tuple is malformed' }
-      else value.forEach((element, index) => valueRoots(element, type.elements[index]!))
+      if (!Array.isArray(value) || value.length !== type.elements.length) { complete = false; refusal = 'Workflow asset tuple is malformed'; return false }
+      return value.map((element, index) => valueRoots(element, type.elements[index]!)).every(Boolean)
     } else if (typeof value === 'object') {
       complete = false
       opaqueRoots(value)
+      return false
     }
+    return true
   }
   const checkExtensions = (value: Json, stored = true): void => {
     if (typeof value !== 'object' || value === null) return
@@ -182,7 +185,14 @@ export function workflowAssetRoots(
     for (const value of Object.values(node.values)) opaqueRoots(value)
     if (node.ext !== undefined) opaqueRoots(node.ext)
     if (node.dynamic !== undefined) opaqueRoots(node.dynamic as Json)
-    if (schema === undefined) { complete = false; return }
+    if (schema === undefined) {
+      complete = false
+      for (const input of Object.keys(node.values)) incompleteDiagnostics.push({ severity: 'error', origin: 'schema',
+        code: 'workflow.asset.unresolvedInput', refs: [{ graphId: graph.id, nodeId: node.id }],
+        message: `${node.title ?? node.type} (${node.id}): Stored input '${input}' has no resolved node schema`,
+      })
+      return
+    }
     const metadata = schema.ext?.['dinkster']
     if (schema.ext !== undefined && Object.keys(schema.ext).length === 1 &&
       typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata)) {
@@ -225,21 +235,31 @@ export function workflowAssetRoots(
       if (input.ancestry?.some((ancestor) => ancestor.ghost)) continue
       const fallback = input.spec.widget?.default !== undefined ? input.spec.widget.default : input.spec.ext?.['default']
       if (!Object.hasOwn(node.values, valueKeyOf(input)) && fallback !== undefined) {
-        valueRoots(fallback as Json, input.spec.type, isAssetWidgetInput(input.spec))
+        if (!valueRoots(fallback as Json, input.spec.type, isAssetWidgetInput(input.spec))) incompleteDiagnostics.push({
+          severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
+          refs: [{ graphId: graph.id, nodeId: node.id }],
+          message: `${node.title ?? node.type} (${node.id}): Default input '${valueKeyOf(input)}' has unresolved asset identities`,
+        })
       }
     }
     for (const [input, value] of Object.entries(node.values)) {
       const matching = inputs.filter((item) => valueKeyOf(item) === input)
       if (matching.length === 0) complete = false
-      if (matching.some((item) => item.wire15Materialization) &&
-        new Set(matching.map((item) => canonicalJson(item.spec.type))).size > 1 && parseTypedLiteralWire(value) === undefined) {
+      const ambiguous = matching.some((item) => item.wire15Materialization) &&
+        new Set(matching.map((item) => canonicalJson(item.spec.type))).size > 1 && parseTypedLiteralWire(value) === undefined
+      if (ambiguous) {
         complete = false
         incompleteDiagnostics.push({ severity: 'error', origin: 'schema', code: 'workflow.asset.ambiguousInput',
           refs: [{ graphId: graph.id, nodeId: node.id }],
           message: `${node.title ?? node.type} (${node.id}): Stored input '${input}' has conflicting dormant branch types`,
         })
       }
-      for (const item of matching) valueRoots(value, item.spec.type, isAssetWidgetInput(item.spec))
+      const resolved = matching.map((item) => valueRoots(value, item.spec.type, isAssetWidgetInput(item.spec)))
+      if (!ambiguous && (matching.length === 0 || resolved.some((result) => !result))) incompleteDiagnostics.push({
+        severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
+        refs: [{ graphId: graph.id, nodeId: node.id }],
+        message: `${node.title ?? node.type} (${node.id}): Stored input '${input}' has ${matching.length === 0 ? 'no resolved input schema' : 'unresolved asset identities'}`,
+      })
     }
   }
   const visit = (snapshot: WorkflowDocument, changes?: readonly PatchOp[]): void => {
@@ -416,7 +436,7 @@ export async function reconcileWorkflowRetentions(
             /^execution-result:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
             typeof intent.executionKey === 'string' && intent.executionKey.length > 0
         const sourceToken = intent.sourceToken
-        const releasing = intent.releaseRevision === 1 && (owner?.ownerKind === 'preview' || owner?.ownerKind === 'shown-result')
+        const releasing = intent.releaseRevision === 1
         if ((sourceToken !== undefined && (owner?.ownerKind !== 'shown-result' ||
             typeof sourceToken !== 'string' || !/^[0-9a-f]{32}$/.test(sourceToken))) ||
           (intent.releaseRevision !== undefined && !releasing) ||

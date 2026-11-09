@@ -6255,6 +6255,8 @@ export class AppState {
     const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
     if (!backend) return false
     const registry = this.registryForExecution(ref)
+    const project = activeProjectId()
+    const generation = this.assetConnectionGenerations.get(backend.connection)
     let connectionChanged = false
     const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
     let published = false
@@ -6262,16 +6264,18 @@ export class AppState {
     this.store.retain(ref)
     try {
       let roots: ReturnType<typeof workflowAssetRoots> | undefined
+      let retained: RetainedAssets | undefined
       if (backend.protocol === 'dinkster') {
         roots = workflowAssetRoots(artifact.snapshot, { revision: artifact.revision, undo: [], redo: [] },
           this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
-        await retainWorkflowAssets(backend.connection, artifact.snapshot.lineage, artifact.revision, roots)
+        retained = await retainWorkflowAssets(backend.connection, artifact.snapshot.lineage, artifact.revision, roots)
       }
-      if (!stillWanted() || connectionChanged || this.store.get(ref)?.artifact !== artifact ||
+      if (!stillWanted() || connectionChanged || activeProjectId() !== project || this.store.get(ref)?.artifact !== artifact ||
         this.registryForExecution(ref) !== registry ||
         (this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)) !== backend) return false
       const title = `${this.tabTitleFor(ref)} @ ${ref.prompt.slice(0, 8)}`
       const tab = this.makeTab(artifact.snapshot, title, ref)
+      if (retained) this.frozenAssetOwners.set(tab, { backend, retained, project, generation })
       published = true
       this.tabs.update((tabs) => [...tabs, tab])
       this.activeTabId.set(id)
@@ -6308,7 +6312,19 @@ export class AppState {
     // collide with a frozen tab id, putting a live tab first in the list
     // while the removal still drops the frozen tab behind it.
     for (const tab of this.tabs.get()) {
-      if (tab.id === id && tab.execution) this.store.release(tab.execution)
+      if (tab.id !== id || !tab.execution) continue
+      this.store.release(tab.execution)
+      const owner = this.frozenAssetOwners.get(tab)
+      if (!owner) continue
+      this.frozenAssetOwners.delete(tab)
+      // Removal, not renderer unmount or process disposal, ends this holder.
+      queueMicrotask(() => {
+        // A same-id replacement needs its own acknowledged handoff, not an id match.
+        if (this.disposed || this.tabs.get().some((candidate) => candidate.id === tab.id) || activeProjectId() !== owner.project ||
+          (this.backendFor(owner.backend.id) ?? this.retiredBackends.get(owner.backend.id)) !== owner.backend ||
+          this.assetConnectionGenerations.get(owner.backend.connection) !== owner.generation) return
+        void retireAssetOwner(owner.backend.connection, owner.retained)
+      })
     }
   }
 
@@ -7294,6 +7310,12 @@ export class AppState {
   >()
   private readonly valueAssetReaders = new Map<RetainedAssetReader, number>()
   private readonly assetConnectionGenerations = new WeakMap<DinksterConnection, number>()
+  private readonly frozenAssetOwners = new WeakMap<Tab, {
+    readonly backend: Backend
+    readonly retained: RetainedAssets
+    readonly project: string
+    readonly generation: number | undefined
+  }>()
   private readonly pendingResultReads = new Map<string, {
     readonly backend: Backend
     readonly jobRef: string
