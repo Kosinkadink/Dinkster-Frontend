@@ -26,12 +26,11 @@ test('uninstalled search renders the same real preview as installed search and n
     installed = true
     return route.fulfill({ json: { generation: 2, activation: { generation: 2, epoch: 3, added: ['image-tools'], removed: [], reloaded: [], unchanged: [], failed: {}, rolledBack: false } } })
   })
-  await page.route('https://catalog.example/static/**', (route) => route.fulfill({
+  await page.route('https://registry.dinkster.org/static/**', (route) => route.fulfill({
     headers: { 'Access-Control-Allow-Origin': '*' },
     body: route.request().url().endsWith('index.json') ? JSON.stringify({ schemaVersion: 1, items: [{ name: 'image-tools', publisher: 'dinkster', version: '1.10.0', displayName: 'Image Tools', platforms: ['linux', 'darwin'], url: 'packs/image-tools/1.10.0/schemas.json', digest: `sha256:${createHash('sha256').update(body).digest('hex')}` }] }) : body,
     contentType: 'application/json',
   }))
-  await page.addInitScript(() => localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'search.registryUrl': 'https://catalog.example/static' } })))
   await page.goto('/')
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('@ catalog-resample')

@@ -58,6 +58,10 @@ describe('universal search model', () => {
     app.keybindings.set('search.open', 'Alt+K')
     expect(app.keybindings.combo('search.open')).toBe('alt+k')
   })
+  it('defaults external node discovery to the published static prefix', () => {
+    const app = new AppState()
+    expect(app.settings.get('search.registryUrl')).toBe('https://registry.dinkster.org/static')
+  })
   it('commands provider displays the effective shortcut including overrides', () => {
     const app = new AppState(); app.keybindings.set('search.open', 'Alt+K')
     const dispose = registerCoreSearchProviders(app)

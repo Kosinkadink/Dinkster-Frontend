@@ -3140,7 +3140,7 @@ export class AppState {
     })
     register('search.open', 'command.search.open', 'Ctrl+K', () => this.searchOpen.set(true))
     this.settings.register({ id: 'search.recentActivations', get name() { return t('settings.search.recentActivations') }, category: 'search', type: 'string', defaultValue: '[]' })
-    this.settings.register({ id: 'search.registryUrl', get name() { return t('search.registryUrl.name') }, get description() { return t('search.registryUrl.description') }, category: 'search', type: 'string', defaultValue: 'https://registry.dinkster.org' })
+    this.settings.register({ id: 'search.registryUrl', get name() { return t('search.registryUrl.name') }, get description() { return t('search.registryUrl.description') }, category: 'search', type: 'string', defaultValue: 'https://registry.dinkster.org/static' })
     this.frontendDoors.canvasLayer('core.canvas.grid', canvasGridLayer(defaultTokens))
     this.frontendDoors.nodeDecoration('core.node.mode', {
       decorate: (node) => node.mode === 'muted'

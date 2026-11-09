@@ -117,8 +117,9 @@ including when Content-Length is absent or inaccurate. Discovery accepts at
 most 1,024 packs and 16,384 nodes per pack; oversized input is rejected, not
 silently truncated. Cached input is subject to the same limits.
 
-`search.registryUrl` selects the registry or static mirror prefix; clearing
-it disables external discovery. Opening search revalidates in the background,
+`search.registryUrl` selects the static prefix, defaulting to
+`https://registry.dinkster.org/static`; clearing it disables external
+discovery. Opening search revalidates in the background,
 without delaying installed results. `core.nodes` ranks the combined display
 corpus, retaining search terms and omitting external nodes whose type or pack
 is already installed on the active backend. External rows always identify
