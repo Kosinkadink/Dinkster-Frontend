@@ -8799,6 +8799,11 @@ export class AppState {
     let held = this.store.get(event.execution)
     const registry = backend.registry.get()
     let executionRegistry = this.registryForExecution(event.execution)
+    let firstRegistration = held?.artifact === undefined ? undefined : held
+    const unsubscribeRegistration = this.store.executions.subscribe(() => {
+      const state = this.store.get(event.execution)
+      if (firstRegistration === undefined && state?.artifact !== undefined) firstRegistration = state
+    })
     let unchanged = true
     const unsubscribe = backend.connection.status.subscribe(() => { unchanged = false })
     const current = (): boolean => unchanged && !this.disposed &&
@@ -8817,20 +8822,34 @@ export class AppState {
         held = state
         executionRegistry = this.registryForExecution(event.execution)
       }
-      if (!current()) return
-      if (incoming !== undefined) {
-        const state = this.store.get(event.execution)
-        const roots = state === undefined ? incoming : executionAssetRoots(state,
-          this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined)))
-        await retainExecutionAssets(backend.connection, event.execution, { complete: false,
-          digests: [...new Set([...roots.digests, ...incoming.digests])].sort() })
+      for (;;) {
+        if (!current()) {
+          const state = this.store.get(event.execution)
+          // Submit registration may follow live events. Re-admit its roots;
+          // never reuse the acknowledgment captured before that promotion.
+          if (!unchanged || this.disposed || this.backendFor(backend.id) !== backend ||
+            backend.registry.get() !== registry || held?.artifact !== undefined || state?.artifact === undefined ||
+            state.artifact !== firstRegistration?.artifact || state.sourceDocument !== firstRegistration.sourceDocument) return
+          held = state
+          executionRegistry = this.registryForExecution(event.execution)
+        }
+        if (incoming !== undefined) {
+          const state = this.store.get(event.execution)
+          const roots = state === undefined ? incoming : executionAssetRoots(state,
+            this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined)))
+          await retainExecutionAssets(backend.connection, event.execution, { complete: false,
+            digests: [...new Set([...roots.digests, ...incoming.digests])].sort() })
+        }
+        if (!current()) continue
+        if (this.publishWorkspaceExecutionEvent(event)) onApplied?.()
+        return
       }
-      if (current() && this.publishWorkspaceExecutionEvent(event)) onApplied?.()
     }).catch((error: unknown) => {
       if (current()) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'runtime',
         'execution.eventRetentionFailed', `Could not retain execution event assets: ${error instanceof Error ? error.message : String(error)}`)])
     }).finally(() => {
       unsubscribe()
+      unsubscribeRegistration()
       if (this.pendingExecutionEvents.get(key) === pending) this.pendingExecutionEvents.delete(key)
     })
     this.pendingExecutionEvents.set(key, pending)

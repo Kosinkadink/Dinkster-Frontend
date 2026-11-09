@@ -245,6 +245,9 @@ Live and mirrored structured outputs and preview records also await incomplete
 shown-result ownership, including records with no known digest. Later events
 for that execution wait for admission so completion cannot overtake the held
 payload. Refusal withholds that payload without blocking unrelated executions.
+If submit registration overtakes live-event admission, the event retains roots
+again under that first registered owner before publication. A replacement,
+disconnect or registry change still invalidates the pending event.
 Self-contained Blob and ArrayBuffer preview bytes need no additional ownership
 request, but still follow any pending event from the same execution.
 
