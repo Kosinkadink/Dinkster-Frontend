@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as core from '@dinkster/core'
 import { createComponent } from 'solid-js'
 import { renderToString } from 'solid-js/web'
 import {
@@ -1317,6 +1318,98 @@ describe('retained app dispatch', () => {
       expect(independent.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
     },
   )
+
+  it.each([
+    ['ordered', 'covered'], ['ordered', 'unowned'], ['snapshot', 'covered'], ['snapshot', 'unowned'],
+  ] as const)('checks a generated asset after %s rebase: %s', async (route, scenario) => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    const commands = coreCommandRegistry
+    vi.spyOn(core, 'coreCommandRegistry').mockImplementation((...args) => {
+      const registry = new Map(commands(...args))
+      registry.set('test.generatedAsset', { id: 'test.generatedAsset', run(document, _params, tx) {
+        tx.set(['graphs', 'g0', 'nodes', 'n0', 'values', 'files'],
+          [{ ...asset(scenario === 'unowned' && document.graphs.g0!.name === 'foreign' ? 'f' : 'a'),
+            name: document.graphs.g0!.name === 'foreign' ? 'rebased.bin' : 'pending.bin' }])
+        return []
+      } })
+      return registry
+    })
+    app = createWorkflowApp([schema])
+    app.openDocument(session().doc, 'Workflow')
+    const documents = new SharedWorkerDocumentAuthority()
+    const workspace = new SharedWorkerTabAuthority()
+    const channels: MessageChannel[] = []
+    let release: (() => void) | undefined
+    let hold = false
+    let snapshotRequired = route === 'snapshot'
+    const connect = (authority: { connect(port: WorkerPortLike): void }, intercept = false) => {
+      const channel = new MessageChannel()
+      channels.push(channel)
+      authority.connect(channel.port2)
+      if (!intercept) return channel.port1
+      return {
+        postMessage(message: unknown) {
+          const request = message as { kind?: string; id: number }
+          if (hold && request.kind === 'post-op') {
+            release = () => { channel.port1.postMessage(message) }
+          } else if (hold && request.kind === 'fetch-ops' && snapshotRequired) {
+            snapshotRequired = false
+            channel.port2.postMessage({ kind: 'response', id: request.id,
+              value: { kind: 'resync-required', snapshotRevision: 1 } })
+          } else channel.port1.postMessage(message)
+        },
+        addEventListener: channel.port1.addEventListener.bind(channel.port1),
+        start: () => channel.port1.start(),
+        close: () => channel.port1.close(),
+      }
+    }
+    let peer: import('../src/shared-worker-connection.js').SharedWorkerCollabConnection | undefined
+    try {
+      await app.enableWorkspaceAuthority(() => connect(documents, true), () => connect(workspace))
+      const tab = app.activeTab()!
+      const { SharedWorkerCollabConnection } = await import('../src/shared-worker-connection.js')
+      peer = await SharedWorkerCollabConnection.open(tab.id, tab.store.doc, () => connect(documents), 'peer')
+      hold = true
+      expect(app.dispatchTo(tab, { command: 'node.setTitle', params: {
+        graphId: 'g0', nodeId: 'n0', title: 'pending',
+      } })).toMatchObject({ ok: true })
+      await vi.waitFor(() => expect(release).toBeDefined())
+      expect(app.dispatchTo(tab, { command: 'test.generatedAsset', params: {} })).toMatchObject({ ok: true })
+      const observed: string[] = []
+      tab.store.document.subscribe((document) => {
+        observed.push(JSON.stringify(document))
+      })
+      const requested = deferred<RetainedAssets>()
+      const acknowledgment = deferred<RetainedAssets>()
+      vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        requested.resolve({ ...owner, ...declaration, revision: 1 })
+        return acknowledgment.promise
+      })
+      expect(await peer.postOp({ protocolVersion: core.COLLAB_PROTOCOL_VERSION,
+        actorId: 'peer', opId: 'peer#0', baseRevision: 0, patch: [{
+        op: 'replace', path: ['graphs', 'g0', 'name'], value: 'foreign',
+      }] })).toMatchObject({ kind: 'accepted' })
+      const receipt = await requested.promise
+      expect(receipt.digests).toEqual([asset('a').digest])
+      expect(tab.store.doc.graphs.g0!.name).toBe('Root')
+      expect(observed).toEqual([])
+      acknowledgment.resolve(receipt)
+      await vi.waitFor(() => expect(tab.store.doc.graphs.g0!.name).toBe('foreign'))
+      if (route === 'snapshot') expect(snapshotRequired).toBe(false)
+      expect(observed.join('')).not.toContain(asset('f').digest)
+      expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([
+        scenario === 'covered' ? { ...asset('a'), name: 'rebased.bin' } : asset('a'),
+      ])
+      expect(tab.store.doc.graphs.g0!.nodes.n0!.title).toBe(route === 'ordered' ? 'pending' : undefined)
+      expect(app.problems.get().some((problem) => problem.code === 'command.retention.required')).toBe(scenario === 'unowned')
+    } finally {
+      hold = false
+      release?.()
+      peer?.close()
+      app.dispose()
+      for (const channel of channels) { channel.port1.close(); channel.port2.close() }
+    }
+  })
 
   it('keeps document and history ownership across shared workspace promotion', async () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
