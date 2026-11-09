@@ -7986,11 +7986,16 @@ export class AppState {
           if (!current()) return
           if (restored === undefined) removeExecutionResult(result)
           else if (restored !== null) {
+            for (const receipt of result.assetRetentions ?? []) {
+              const observed = await backend.connection.fetchRetainedAssets(receipt)
+              if (!current()) return
+              if (canonicalJson(observed) !== canonicalJson(receipt)) throw new Error('Persisted result retention differs')
+            }
             const roots = executionAssetRoots(restored, this.resolverWithVirtualNodes(registry.resolve))
-            await retainExecutionAssets(backend.connection, restored.ref, roots)
+            const retained = await retainExecutionAssets(backend.connection, restored.ref, roots)
             if (!current()) return
             this.retainedRegistries.set(restored.artifact, registry)
-            this.store.restoreCompleted(restored)
+            this.store.restoreCompleted({ ...restored, assetRetentions: [...result.assetRetentions ?? [], retained] })
           }
         } catch {
           // A transport failure proves nothing; retry the retained record on a later reload.
@@ -9243,8 +9248,9 @@ export class AppState {
             }
           }
           for (const offer of terminal.offers) {
-            await retainExecutionAssets(connection, ref, offer)
+            const retained = await retainExecutionAssets(connection, ref, offer)
             if (!current()) return false
+            this.store.recordAssetRetentions(ref, [retained])
           }
         }
         const outputs = workspaceRecord(job.outputs)
@@ -9253,9 +9259,11 @@ export class AppState {
         const existing = executionAssetRoots(held, resolve)
         const fetched = executionAssetRoots({ ...held, outputs, artifacts: job.artifacts ?? [],
           ...(job.sourceDocument === undefined ? {} : { sourceDocument: job.sourceDocument }) }, resolve)
-        await retainExecutionAssets(connection, ref, { complete: false,
+        const retained = await retainExecutionAssets(connection, ref, { complete: false,
           digests: [...new Set([...existing.digests, ...fetched.digests])].sort() })
-        return current()
+        if (!current()) return false
+        this.store.recordAssetRetentions(ref, [retained])
+        return true
       }
     }
   }

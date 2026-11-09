@@ -1237,7 +1237,7 @@ function retainedAssetRoute(owner: RetainedAssetOwner): string {
   return `/api/library/retentions/${owner.ownerKind}/${encodeURIComponent(owner.ownerId)}?scope=${encodeURIComponent(owner.scope)}`
 }
 
-function retainedAssetAcknowledgment(value: unknown, owner: RetainedAssetOwner): RetainedAssets {
+export function retainedAssetAcknowledgment(value: unknown, owner: RetainedAssetOwner): RetainedAssets {
   if (!record(value) || value['scope'] !== owner.scope || value['ownerKind'] !== owner.ownerKind ||
     value['ownerId'] !== owner.ownerId || typeof value['revision'] !== 'number' ||
     !Number.isSafeInteger(value['revision']) || value['revision'] < 1 ||

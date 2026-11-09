@@ -20,6 +20,13 @@ status updates preserve the active source and its browsing context. ComfyUI
 backends identify saved workflows as unavailable instead of suggesting an
 unsupported save.
 
+Persisted native execution results keep their acknowledged asset-owner IDs,
+revisions, source bindings and complete digest sets separately from bounded
+display descriptors. Restore checks each recorded owner against the same
+backend before exposing the result. A missing, changed or unreachable owner
+leaves the record unresolved; it does not authorize release or a replayed
+write. Legacy records without owner metadata do not certify completeness.
+
 Host-owned source controls, search labels, detail headings, confirmations, and
 loading, failure, and empty-state copy follow the active application locale and
 update while the Library remains open. Backend labels and status, protocol

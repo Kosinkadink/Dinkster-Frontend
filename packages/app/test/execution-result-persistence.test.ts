@@ -173,6 +173,41 @@ describe('startup result source admission', () => {
     } finally { test.app.dispose() }
   })
 
+  it.each(['accepted', 'missing', 'revision', 'source', 'roots', 'failed'] as const)(
+    'reconciles persisted owners before restoring results: %s', async (mode) => {
+      const test = setup()
+      const receipt: RetainedAssets = { scope: 'local', ownerKind: 'shown-result',
+        ownerId: 'execution-result:original', revision: 1, complete: true,
+        digests: [`blake3:${'c'.repeat(64)}`], sourceToken: 'a'.repeat(32) }
+      saveExecutionResult({ ...test.saved, assetRetentions: [receipt] }, test.backendIdentity)
+      let entered!: () => void
+      const fetching = new Promise<void>((resolve) => { entered = resolve })
+      let settle!: (value: RetainedAssets | undefined) => void
+      let fail!: (error: Error) => void
+      const acknowledgment = new Promise<RetainedAssets | undefined>((resolve, reject) => { settle = resolve; fail = reject })
+      vi.spyOn(test.backend.connection, 'fetchRetainedAssets').mockImplementation(() => { entered(); return acknowledgment })
+      try {
+        const starting = test.app.start()
+        await fetching
+        expect(test.app.store.get(test.ref)).toBeUndefined()
+        if (mode === 'failed') fail(new Error('Lost connection'))
+        else settle(mode === 'missing' ? undefined : { ...receipt,
+          ...(mode === 'revision' ? { revision: 2 } : {}),
+          ...(mode === 'source' ? { sourceToken: 'b'.repeat(32) } : {}),
+          ...(mode === 'roots' ? { digests: [`blake3:${'d'.repeat(64)}`] } : {}),
+        })
+        await starting
+        if (mode === 'accepted') {
+          expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+          expect(test.app.store.get(test.ref)?.assetRetentions).toContainEqual(receipt)
+        } else {
+          expect(test.app.store.get(test.ref)).toBeUndefined()
+          expect(loadExecutionResults(test.backendIdentity)[0]?.assetRetentions).toEqual([receipt])
+        }
+      } finally { test.app.dispose() }
+    },
+  )
+
   it.each(['admission', 'body'] as const)('refuses a source whose backend registry changes during %s', async (phase) => {
     const test = setup()
     try {
@@ -237,6 +272,33 @@ describe('execution result persistence', () => {
     const { sourceDocument: _sourceDocument, ...unstamped } = completed('unstamped')
     saveExecutionResult(foreign, identity)
     saveExecutionResult(unstamped, identity)
+    expect(loadExecutionResults(identity)).toEqual([])
+  })
+
+  it('persists exact independent owners even when display descriptors omit their roots', () => {
+    const roots = [`blake3:${'c'.repeat(64)}`, `blake3:${'d'.repeat(64)}`]
+    const assetRetentions: RetainedAssets[] = [
+      { scope: 'local', ownerKind: 'shown-result', ownerId: 'execution-result:one', revision: 1,
+        digests: roots, complete: true, sourceToken: 'a'.repeat(32) },
+      { scope: 'local', ownerKind: 'shown-result', ownerId: 'execution-result:two', revision: 3,
+        digests: roots, complete: false },
+    ]
+    saveExecutionResult({ ...completed('owners'), assetRetentions }, identity)
+    const [saved] = loadExecutionResults(identity)
+    expect(saved?.assetRetentions).toEqual(assetRetentions)
+    expect(JSON.stringify(saved?.outputs)).not.toContain(roots[1])
+  })
+
+  it.each([
+    { revision: 0 }, { ownerKind: 'document' }, { ownerId: 'different-owner' },
+    { sourceToken: 'invalid' }, { digests: [`blake3:${'f'.repeat(64)}`, `blake3:${'e'.repeat(64)}`] },
+  ])('refuses malformed persisted retention metadata: %j', (invalid) => {
+    saveExecutionResult(completed('bad-owner'), identity)
+    const raw = globalThis.localStorage.getItem(EXECUTION_RESULTS_STORAGE_KEY)!
+    const envelope = JSON.parse(raw)
+    envelope.results[0].assetRetentions = [{ scope: 'local', ownerKind: 'shown-result',
+      ownerId: 'execution-result:one', revision: 1, digests: [], complete: false, ...invalid }]
+    globalThis.localStorage.setItem(EXECUTION_RESULTS_STORAGE_KEY, JSON.stringify(envelope))
     expect(loadExecutionResults(identity)).toEqual([])
   })
 
