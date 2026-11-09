@@ -3803,6 +3803,9 @@ export class AppState {
       this.applyingWorkspaceTabs = true
       try {
         this.tabs.set(this.tabs.get().map((tab) => replacements.get(tab.id) ?? tab))
+        for (const [id, local] of replacements) {
+          this.continueWorkflowAssetOwner(this.workspaceSessions.get(id)!.session, local.store)
+        }
       } finally {
         this.applyingWorkspaceTabs = false
       }
@@ -3889,8 +3892,11 @@ export class AppState {
     history: HistorySnapshot,
     retainedDocuments: readonly WorkflowDocument[],
     stillCurrent: () => boolean,
-  ): Promise<void> {
+    session: DocumentSession | undefined,
+  ): Promise<() => void> {
     if (backend === undefined || this.disposed || !stillCurrent()) throw new Error('Remote workflow destination is unavailable')
+    const project = activeProjectId()
+    const generation = this.assetConnectionGenerations.get(backend.connection)
     let connectionChanged = false
     const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
     try {
@@ -3898,14 +3904,20 @@ export class AppState {
         const registry = backend.registry.get()
         const roots = workflowAssetRoots(current, history,
           this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [document, ...retainedDocuments], 'admission')
-        await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
-        if (this.disposed || connectionChanged || !this.backends.get().includes(backend) || !stillCurrent()) {
+        const retained = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+        if (this.disposed || connectionChanged || activeProjectId() !== project ||
+          this.assetConnectionGenerations.get(backend.connection) !== generation ||
+          !this.backends.get().includes(backend) || !stillCurrent()) {
           throw new Error('Remote workflow destination changed while ownership was being confirmed')
         }
         // A refreshed schema can expose new roots; its own acknowledgment must precede publication.
         if (backend.registry.get() !== registry) continue
         this.reportIncompleteOwnership(document.lineage, roots)
-        return
+        return () => {
+          if (session !== undefined && !connectionChanged && stillCurrent() && backend.registry.get() === registry) {
+            this.replaceWorkflowAssetOwner(session, backend, retained, project, generation)
+          }
+        }
       }
     } finally {
       unsubscribe()
@@ -3916,6 +3928,8 @@ export class AppState {
     const sourceDocument = tab.store.doc
     const sourceRevision = tab.store.revision
     const backend = this.backendForTab(tab)
+    const project = activeProjectId()
+    const connectionGeneration = this.assetConnectionGenerations.get(backend.connection)
     const registry = (): SchemaRegistry | undefined => {
       const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
       return live ? this.registryForTab(live) : undefined
@@ -3943,6 +3957,7 @@ export class AppState {
               () => this.workspaceAuthorityEnabled && generation === this.workspaceAuthorityGeneration &&
                 owner !== undefined && this.tabs.get().some((candidate) =>
                   candidate.store === owner.store && this.backendForTab(candidate) === destination),
+              session,
             )
           },
           onConflict: (conflict) => this.reportProblems(tab.id, conflict.diagnostics),
@@ -3977,6 +3992,7 @@ export class AppState {
       // stay behind.
       if (sameDocument) session.adoptHistory(tab.store.historySnapshot())
       let current = live
+      let retained: RetainedAssets | undefined
       if (backend.protocol === 'dinkster') {
         const registry = backend.registry.get()
         const document = session.doc
@@ -3988,9 +4004,10 @@ export class AppState {
         try {
           const roots = workflowAssetRoots(document, session.historySnapshot(),
             this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
-          await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+          retained = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
           const latest = this.tabs.get().find((candidate) => candidate.id === tab.id)
           if (this.disposed || generation !== this.workspaceAuthorityGeneration || !this.workspaceAuthorityEnabled ||
+            activeProjectId() !== project || this.assetConnectionGenerations.get(backend.connection) !== connectionGeneration ||
             connectionChanged || !this.backends.get().includes(backend) || backend.registry.get() !== registry ||
             latest?.store !== tab.store || this.backendForTab(latest) !== backend || this.collabTabs.get().has(tab.id) ||
             tab.store.doc !== localDocument || tab.store.revision !== localRevision ||
@@ -4016,6 +4033,8 @@ export class AppState {
       reconcileGraphNavigation(replacement)
       this.workspaceSessions.set(tab.id, { tab: replacement, session })
       this.tabs.set(this.tabs.get().map((candidate) => candidate === current ? replacement : candidate))
+      if (sameDocument) this.continueWorkflowAssetOwner(tab.store, session)
+      if (retained !== undefined) this.replaceWorkflowAssetOwner(session, backend, retained, project, connectionGeneration)
     } catch (error) {
       session?.close()
       this.reportProblems(tab.id, [diag(
@@ -6511,6 +6530,7 @@ export class AppState {
     local.graphStack.set(tab.graphStack.get())
     local.instancePath.set(tab.instancePath.get())
     this.tabs.update((tabs) => tabs.map((t) => (t.id === tabId ? local : t)))
+    this.continueWorkflowAssetOwner(entry.session, local.store)
   }
 
   /** DELETE the server session for every participant, then fall back local. */
@@ -6601,7 +6621,7 @@ export class AppState {
             : this.backendForTab(live)
           return this.confirmRemoteDocumentOwnership(backend, document, revision, current, history, retainedDocuments,
             () => session === undefined || this.tabs.get().some((tab) =>
-              tab.store === session && this.backendForTab(tab) === backend))
+              tab.store === session && this.backendForTab(tab) === backend), session)
         },
         onConflict: (conflict: SessionConflict) =>
           report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
@@ -6634,7 +6654,8 @@ export class AppState {
       session.close()
       throw new CollabRejoinTabGoneError()
     }
-    if (expect !== undefined && JSON.stringify(session.doc) === JSON.stringify(expect.store.doc)) {
+    const preservesHistory = expect !== undefined && JSON.stringify(session.doc) === JSON.stringify(expect.store.doc)
+    if (preservesHistory) {
       session.adoptHistory(expect.store.historySnapshot())
     }
     const backend = this.backends.get().find((entry) => entry.baseUrl === baseUrl && entry.protocol === 'dinkster')
@@ -6645,15 +6666,19 @@ export class AppState {
     const priorRevision = priorStore?.revision
     const priorDocument = priorStore?.doc
     const priorTarget = prior === undefined ? undefined : this.backendForTab(prior)
+    const project = activeProjectId()
+    const generation = backend === undefined ? undefined : this.assetConnectionGenerations.get(backend.connection)
+    let retained: RetainedAssets
     let connectionChanged = false
     const unsubscribe = backend?.connection.status.subscribe(() => { connectionChanged = true })
     try {
       if (backend === undefined || this.disposed) throw new Error('Shared workflow backend is unavailable')
       const roots = workflowAssetRoots(document, session.historySnapshot(),
         this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
-      await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+      retained = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
       const current = this.tabs.get().find((tab) => tab.id === owner && !tab.execution)
       if (this.disposed || connectionChanged || !this.backends.get().includes(backend) ||
+        activeProjectId() !== project || this.assetConnectionGenerations.get(backend.connection) !== generation ||
         backend.registry.get() !== registry || session.doc !== document || session.revision !== revision ||
         session.status.get() !== 'live' ||
         current?.store !== priorStore || current?.store.revision !== priorRevision || current?.store.doc !== priorDocument ||
@@ -6686,6 +6711,8 @@ export class AppState {
     this.tabs.update((tabs) =>
       tabs.some((t) => t.id === tab.id) ? tabs.map((t) => (t.id === tab.id ? tab : t)) : [...tabs, tab],
     )
+    if (preservesHistory && prior !== undefined) this.continueWorkflowAssetOwner(prior.store, session)
+    this.replaceWorkflowAssetOwner(session, backend, retained, project, generation)
     if (opts?.activate !== false) this.activeTabId.set(tab.id)
     const presence = new PresenceChannel(session, actorId)
     // A session that ends REMOTELY (session_closed, terminal error) never
@@ -7334,6 +7361,19 @@ export class AppState {
     readonly project: string
     readonly generation: number | undefined
   }>()
+
+  private continueWorkflowAssetOwner(previous: DocumentSession, session: DocumentSession): void {
+    const owner = this.workflowAssetOwners.get(previous)
+    if (owner === undefined || this.workflowAssetOwners.has(session) || this.disposed ||
+      activeProjectId() !== owner.project || !this.backends.get().includes(owner.backend) ||
+      this.assetConnectionGenerations.get(owner.backend.connection) !== owner.generation ||
+      this.tabs.get().some((tab) => !tab.execution && tab.store === previous) ||
+      !this.tabs.get().some((tab) => !tab.execution && tab.store === session && this.backendForTab(tab) === owner.backend)) return
+    // A synchronous fallback keeps the same document under its existing receipt.
+    // Only a later acknowledged complete replacement can release that receipt.
+    this.workflowAssetOwners.set(session, owner)
+    this.workflowAssetOwners.delete(previous)
+  }
 
   private replaceWorkflowAssetOwner(
     session: DocumentSession, backend: Backend, retained: RetainedAssets,

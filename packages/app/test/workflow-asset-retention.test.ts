@@ -1240,6 +1240,53 @@ describe('retained app dispatch', () => {
     },
   )
 
+  it('keeps document and history ownership across shared workspace promotion', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    app = createWorkflowApp([schema])
+    app.openDocument(session().doc, 'Workflow')
+    const local = app.activeTab()!
+    const owners = new Map<string, RetainedAssets>()
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: 1 }
+      owners.set(owner.ownerId, receipt)
+      return receipt
+    })
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+      const tombstone = { ...owners.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+      owners.set(owner.ownerId, tombstone)
+      return tombstone
+    })
+    expect((await app.dispatchRetainedTo(local, replace('b'))).ok).toBe(true)
+    const original = [...owners.values()].at(-1)!
+    const documents = new SharedWorkerDocumentAuthority()
+    const workspace = new SharedWorkerTabAuthority()
+    const channels: MessageChannel[] = []
+    const connect = (authority: { connect(port: WorkerPortLike): void }) => {
+      const channel = new MessageChannel()
+      channels.push(channel)
+      authority.connect(channel.port2)
+      return channel.port1
+    }
+    try {
+      await app.enableWorkspaceAuthority(() => connect(documents), () => connect(workspace))
+      const shared = app.activeTab()!
+      expect(shared.store).not.toBe(local.store)
+      await vi.waitFor(() => expect(owners.get(original.ownerId)?.revision).toBe(2))
+      const promoted = [...owners.values()].at(-1)!
+      expect(promoted.digests).toEqual([asset('a').digest, asset('b').digest])
+      expect((await app.dispatchRetainedTo(shared, replace('c'))).ok).toBe(true)
+      await vi.waitFor(() => expect(owners.get(promoted.ownerId)?.revision).toBe(2))
+      expect([...owners.values()].at(-1)?.digests).toEqual([asset('a').digest, asset('b').digest, asset('c').digest])
+      expect(shared.store.undo()).toBe(true)
+      expect(shared.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
+      expect(shared.store.undo()).toBe(true)
+      expect(shared.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('a')])
+    } finally {
+      app.dispose()
+      for (const channel of channels) { channel.port1.close(); channel.port2.close() }
+    }
+  })
+
   it('keeps the newer acknowledged session owner when an earlier candidate finishes late', async () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     app = createWorkflowApp([schema])
