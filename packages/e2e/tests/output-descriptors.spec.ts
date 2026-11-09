@@ -52,7 +52,7 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
     }])
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'descriptor-browser', root: 'root',
-      graphs: { root: { id: 'root', name: 'Descriptor editor', nodes: { n: { id: 'n', type: nodeType, values: { entries: source, ...(profile ? { checkpoint: { digest: `blake3:${'1'.repeat(64)}`, name: 'model.safetensors' } } : {}) } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10 } },
+      graphs: { root: { id: 'root', name: 'Descriptor editor', nodes: { n: { id: 'n', type: nodeType, values: { entries: source, ...(profile ? { checkpoint: { digest: `blake3:${'1'.repeat(64)}`, name: 'model.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } } : {}) } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10 } },
       view: { graphs: { root: { nodes: { n: { position: { x: 130, y: 100 }, size: { width: 350, height: 190 } } } } } },
     }, 'Output descriptors')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
@@ -246,7 +246,7 @@ test('profile probe uses asset identity, rejects connection races, and inactivat
   expect(await pins(page)).toEqual(['model', 'vae'])
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    app.activeTab()!.store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'2'.repeat(64)}`, name: 'model.safetensors' } } })
+    app.activeTab()!.store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'2'.repeat(64)}`, name: 'model.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } } })
   })
   expect(await pins(page)).toEqual([])
   await openDescriptors(page)
@@ -260,7 +260,7 @@ test('profile probe uses asset identity, rejects connection races, and inactivat
   await page.getByTestId('output-profile-probe').click()
   await expect.poll(() => requested).toBe(true)
   await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
-    command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'3'.repeat(64)}`, name: 'model.safetensors' } },
+    command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'3'.repeat(64)}`, name: 'model.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } },
   }))
   release!()
   await expect(page.getByTestId('output-descriptor-editor')).toBeHidden()
@@ -362,7 +362,7 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
       graphs: { root: {
         ...original.graphs.root!,
         nodes: {
-          n: { ...original.graphs.root!.nodes.n!, values: { checkpoint: { digest, name: 'model.safetensors' }, entries: profile } },
+          n: { ...original.graphs.root!.nodes.n!, values: { checkpoint: { digest, name: 'model.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' }, entries: profile } },
           modelSink: { id: 'modelSink', type: 'ModelSink', values: {} },
           clipSink: { id: 'clipSink', type: 'ClipSink', values: {} },
           vaeSink: { id: 'vaeSink', type: 'VaeSink', values: {} },
@@ -404,7 +404,7 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.links.clipLink)).toBeUndefined()
 
   await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
-    command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'2'.repeat(64)}`, name: 'replacement.safetensors' } },
+    command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'2'.repeat(64)}`, name: 'replacement.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } },
   }))
   expect(await pins(page)).toEqual([])
   await openDescriptors(page)
@@ -469,7 +469,7 @@ test('chained source-only boundaries retain the metadata probe and read-only edi
     const inner = { ...graph('inner', node.type), nodes: { n: node } }
     const outer = graph('outer', '#inner')
     await app.openDocument({ ...original, lineage: 'source-only-descriptors', graphs: {
-      root: { ...original.graphs.root!, nodes: { n: { ...node, type: '#outer', values: { ...node.values, checkpoint: { digest, name: 'current.safetensors' } } } } },
+      root: { ...original.graphs.root!, nodes: { n: { ...node, type: '#outer', values: { ...node.values, checkpoint: { digest, name: 'current.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } } } } },
       inner, outer,
     } } as Parameters<typeof app.openDocument>[0], 'Chained metadata source')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })

@@ -372,8 +372,11 @@ owner protocol, preserving existing tabs on refusal or an uncertain response.
 `openDocument` returns a promise of diagnostics; callers await it before reading
 the opened tab. Only creation of the built-in empty workflow remains synchronous,
 because that document introduces no asset identities.
-Unknown schemas retain known roots with explicit incomplete ownership. A newer
-open, changed tab/session/history/target, changed registry or connection, caller
+Unknown schemas retain known roots with explicit incomplete ownership. An
+open can also retain an incomplete output descriptor for repair. Historical
+dynamic state is admitted only when a declared migration plans successfully;
+it remains incomplete until migration, and malformed asset identities still refuse.
+A newer open, changed tab/session/history/target, changed registry or connection, caller
 cancellation or disposal prevents a late open from publishing. Library/template/run
 tabs publish with their source backend already selected. Local file imports keep
 their existing untargeted semantics: legacy translation uses the chosen source

@@ -22,6 +22,7 @@ import {
   isAssetWidgetInput,
   maskPaintSourceNodeId,
   parseTypedLiteralWire,
+  planReplacement,
   replayHistoryOps,
   typeExprFromTypeId,
   valueSourceConsumersOf,
@@ -175,7 +176,7 @@ export function workflowAssetRoots(
       dynamic.variants?.forEach((variant) => variant.inputs.forEach(registerInputDefaults))
     }
   }
-  const visitNode = (node: NodeData, schemas: DocumentNodeResolver, graph: GraphDef): void => {
+  const visitNode = (node: NodeData, schemas: DocumentNodeResolver, graph: GraphDef, snapshot: WorkflowDocument): void => {
     if (node.type.startsWith('#')) hasContextualValues = true
     const schema = schemas(graph.id, node)
     const dynamic = schema?.items.some((item) => (item.kind === 'input' || item.kind === 'output') && item.dynamic !== undefined)
@@ -236,7 +237,18 @@ export function workflowAssetRoots(
       stored.diagnostics.some((diagnostic) => diagnostic.severity === 'error' &&
         (purpose === 'publication' || diagnostic.code !== 'elab.dormant.unsupported'))) {
       complete = false
-      refusal = 'Workflow dynamic identities are invalid'
+      const invalidIdentities = [...active.diagnostics, ...stored.diagnostics].some((diagnostic) =>
+        diagnostic.severity === 'error' && diagnostic.code !== 'elab.dormant.unsupported' &&
+        (purpose !== 'admission' || diagnostic.code !== 'elab.outputDescriptors.invalid'))
+      // A planned historical migration can consume state the current schema
+      // no longer describes. Retain its opaque roots, never certify it complete.
+      const migrates = purpose === 'admission' && [...active.diagnostics, ...stored.diagnostics]
+        .every((diagnostic) => diagnostic.severity !== 'error' || diagnostic.code === 'elab.dynamic.unknownState') && schema.replacements?.some((rule) => {
+        if (rule.migration === undefined) return false
+        const result = planReplacement(snapshot, graph.id, node.id, rule, resolve)
+        return result.plan !== undefined && !result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+      })
+      if (!migrates && (invalidIdentities || purpose !== 'admission')) refusal = 'Workflow dynamic identities are invalid'
     }
     const inputs = unsupportedDormant.length > 0 ? [...elabInputsOf(stored), ...elabInputsOf(active)] : elabInputsOf(stored)
     for (const input of inputs) {
@@ -312,12 +324,12 @@ export function workflowAssetRoots(
         return node === undefined ? [] : [[node, graph!] as const]
       }))
       if ([...nodes.keys()].every((node) => !node.type.startsWith('#'))) {
-        for (const [node, graph] of nodes) visitNode(node, schemas, graph)
+        for (const [node, graph] of nodes) visitNode(node, schemas, graph, snapshot)
         return
       }
     }
     for (const graph of Object.values(snapshot.graphs)) {
-      for (const node of Object.values(graph.nodes)) visitNode(node, schemas, graph)
+      for (const node of Object.values(graph.nodes)) visitNode(node, schemas, graph, snapshot)
       for (const source of Object.values(graph.valueSources ?? {})) {
         opaqueRoots(source.value)
         if (source.spec?.options !== undefined) complete = false
