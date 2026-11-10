@@ -2103,7 +2103,7 @@ describe('retained app dispatch', () => {
 
 describe('retained picker consumers', () => {
   it.each(['accepted', 'closed', 'edited', 'registry', 'disconnected', 'disposed', 'refused'] as const)(
-    'confirms a separate incomplete owner before a picker can publish: %s', async (scenario) => {
+    'confirms a separate complete selection owner before a picker can publish: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       const app = createWorkflowApp([schema])
       try {
@@ -2121,7 +2121,7 @@ describe('retained picker consumers', () => {
         const operation = app.retainPickerAssets(tab, backend, [asset('b'), asset('c')])
         const settled = operation.then(() => true, () => false)
         const { owner, declaration } = await requested.promise
-        expect(declaration).toEqual({ revision: 0, complete: false, digests: [asset('b').digest, asset('c').digest] })
+        expect(declaration).toEqual({ revision: 0, complete: true, digests: [asset('b').digest, asset('c').digest] })
         expect(tab.store.doc).toBe(before)
         if (scenario === 'closed') app.closeTab(tab.id)
         if (scenario === 'edited') tab.store.dispatch({ command: 'node.setTitle', params: {
@@ -2134,6 +2134,82 @@ describe('retained picker consumers', () => {
         expect(await settled).toBe(scenario === 'accepted')
         if (scenario !== 'edited') expect(tab.store.doc).toBe(before)
         expect(tab.store.canUndo).toBe(scenario === 'edited')
+      } finally { app.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() }
+    },
+  )
+
+  it.each(['accepted', 'lost', 'refused', 'canceled', 'foreign', 'disconnected-body', 'reused-owner'] as const)(
+    'hands a picker selection off without releasing independent or unfinished reads: %s', async (scenario) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      const app = createWorkflowApp([schema])
+      try {
+        const tab = app.activeTab()!
+        const backend = app.backendForTab(tab)
+        const owners = new Map<string, RetainedAssets>()
+        let refuse = false
+        let lost = false
+        vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+          if (refuse) throw new Error('refused')
+          const receipt = { ...owner, ...declaration, revision: 1 }
+          owners.set(owner.ownerId, receipt)
+          if (lost) throw new Error('lost response')
+          return receipt
+        })
+        vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+        const release = vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+          const current = owners.get(owner.ownerId)!
+          if (current.revision !== revision) throw new Error('revision changed')
+          const receipt = { ...current, revision: revision + 1, complete: true, digests: [] }
+          owners.set(owner.ownerId, receipt)
+          return receipt
+        })
+        const previous = await app.retainPickerAssets(tab, backend, [asset('c'), asset('b'), asset('c')])
+        const original = [...owners.values()][0]!
+        expect(original.digests).toEqual([asset('b').digest, asset('c').digest])
+        expect(original.complete).toBe(true)
+        const independent = await app.retainPickerAssets(tab, backend, asset('b'))
+        const independentReceipt = [...owners.values()][1]!
+        const started = deferred<void>()
+        const body = deferred<number>()
+        const reading = previous.read(async () => { started.resolve(); return body.promise }).then(() => true, () => false)
+        await started.promise
+        refuse = scenario === 'refused'
+        lost = scenario === 'lost'
+        const replacement = await app.retainPickerAssets(tab, backend, []).catch(() => undefined)
+        const published = deferred<void>()
+        const publish = vi.fn(() => { published.resolve(); return scenario !== 'canceled' })
+        const prior = scenario === 'foreign' ? { ...previous } : previous
+        const transfer = replacement === undefined ? Promise.resolve(false) : app.replacePickerAssets(prior, replacement, publish)
+        if (!['refused', 'foreign'].includes(scenario)) await published.promise
+        expect(owners.get(original.ownerId)).toEqual(original)
+        expect(release).not.toHaveBeenCalled()
+        const accepted = ['accepted', 'lost', 'disconnected-body', 'reused-owner'].includes(scenario)
+        expect(previous.current()).toBe(!accepted)
+        if (scenario === 'disconnected-body') { backend.connection.connect(); backend.connection.disconnect() }
+        if (scenario === 'reused-owner') owners.set(original.ownerId, { ...original, revision: 7, digests: [asset('e').digest] })
+        body.resolve(37)
+        expect(await reading).toBe(!accepted)
+        expect(await transfer).toBe(accepted)
+        const retired = scenario === 'accepted' || scenario === 'lost'
+        expect(owners.get(original.ownerId)).toEqual(retired ? { ...original, revision: 2, complete: true, digests: [] } :
+          scenario === 'reused-owner' ? { ...original, revision: 7, digests: [asset('e').digest] } : original)
+        expect(owners.get(independentReceipt.ownerId)).toEqual(independentReceipt)
+        if (scenario !== 'disconnected-body') expect(independent.current()).toBe(true)
+        if (replacement) expect(owners.get([...owners.keys()][2]!)?.digests).toEqual([])
+        expect(publish).toHaveBeenCalledTimes(['refused', 'foreign'].includes(scenario) ? 0 : 1)
+      } finally { app.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() }
+    },
+  )
+
+  it.each([{ ...asset('b'), digest: 'invalid' }, { ...asset('b'), extra: asset('c') }, { nested: asset('c') }])(
+    'refuses a malformed or opaque picker inventory before claiming completeness', async (value) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      const app = createWorkflowApp([schema])
+      try {
+        const tab = app.activeTab()!
+        vi.mocked(app.connection.retainAssets).mockClear()
+        await expect(app.retainPickerAssets(tab, app.backendForTab(tab), value)).rejects.toThrow('Picker asset inventory is invalid')
+        expect(app.connection.retainAssets).not.toHaveBeenCalled()
       } finally { app.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() }
     },
   )

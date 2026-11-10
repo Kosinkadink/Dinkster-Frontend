@@ -38,9 +38,13 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
       if (!current()) return false
       const reader = await props.editor.app.retainPickerAssets(ed.tab, backend, ref)
       if (!current()) return false
-      draftReader = reader
-      setDraft(ref)
-      return true
+      const publish = (): boolean => {
+        if (!current() || !reader.current()) return false
+        draftReader = reader
+        setDraft(ref)
+        return true
+      }
+      return draftReader ? props.editor.app.replacePickerAssets(draftReader, reader, publish) : publish()
     } catch (reason) {
       if (live) setError(reason instanceof Error ? reason.message : String(reason))
       return false

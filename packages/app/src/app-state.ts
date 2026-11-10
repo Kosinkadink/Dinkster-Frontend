@@ -5728,23 +5728,40 @@ export class AppState {
     } finally { unsubscribe() }
   }
 
+  private readonly pickerAssetOwners = new WeakMap<NonNullable<ReturnType<AppState['workflowAssetReader']>>, {
+    readonly session: DocumentSession
+    readonly backend: Backend
+    readonly registry: ReturnType<Backend['registry']['get']>
+    readonly project: string
+    readonly generation: number | undefined
+    readonly owned: RetainedAssetReader
+    readonly current: () => boolean
+    readonly invalidate: () => void
+  }>()
+
   async retainPickerAssets(tab: Tab, backend: Backend, value: unknown): Promise<NonNullable<ReturnType<AppState['workflowAssetReader']>>> {
     const session = tab.store
     const document = session.doc
     const revision = session.revision
     const registry = backend.registry.get()
+    const project = activeProjectId()
     const generation = this.assetConnectionGenerations.get(backend.connection)
-    const current = (): boolean => !this.disposed && session.doc === document && session.revision === revision &&
+    let active = true
+    const destinationCurrent = (): boolean => !this.disposed && activeProjectId() === project &&
+      session.doc === document && session.revision === revision &&
       generation === this.assetConnectionGenerations.get(backend.connection) &&
       this.backendFor(backend.id) === backend && backend.registry.get() === registry &&
       this.tabs.get().some((candidate) => candidate.store === session && !candidate.execution &&
         this.backendForTab(candidate) === backend)
+    const current = (): boolean => active && destinationCurrent()
     if (backend.protocol !== 'dinkster' || !current()) throw new Error('Picker destination is unavailable')
-    const roots = executionAssetRoots({ outputs: { picker: { value } }, artifacts: [] }, () => undefined)
+    const assets = value === null ? [] : Array.isArray(value) ? value : [value]
+    if (!assets.every(isAssetRef)) throw new Error('Picker asset inventory is invalid')
+    const roots = { complete: true, digests: [...new Set(assets.map((asset) => asset.digest))].sort() }
     const retained = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
     if (!current()) throw new Error('Picker destination changed during asset admission')
     const owned = new RetainedAssetReader(backend.connection, retained, current)
-    return {
+    const reader = {
       key: `picker:${++this.workflowAssetReaderSequence}`,
       current,
       read: async <T>(consume: () => Promise<T>): Promise<T> => {
@@ -5758,6 +5775,29 @@ export class AppState {
         }
       },
     }
+    this.pickerAssetOwners.set(reader, { session, backend, registry, project, generation, owned,
+      current: destinationCurrent, invalidate: () => { active = false } })
+    return reader
+  }
+
+  async replacePickerAssets(
+    previous: NonNullable<ReturnType<AppState['workflowAssetReader']>>,
+    replacement: NonNullable<ReturnType<AppState['workflowAssetReader']>>,
+    publish: () => boolean,
+  ): Promise<boolean> {
+    const before = this.pickerAssetOwners.get(previous)
+    const after = this.pickerAssetOwners.get(replacement)
+    if (previous === replacement || !before || !after || !previous.current() || !replacement.current() ||
+      before.session !== after.session || before.backend !== after.backend || before.registry !== after.registry ||
+      before.project !== after.project || before.generation !== after.generation || !publish() ||
+      !replacement.current() || this.pickerAssetOwners.get(previous) !== before) return false
+    before.invalidate()
+    this.pickerAssetOwners.delete(previous)
+    // Publication transfers the staged selection, not an unfinished body read.
+    // Closing admission waits for every reader before retiring its exact receipt.
+    await before.owned.close()
+    if (before.current() && after.current()) await retireAssetOwner(before.backend.connection, before.owned.retained)
+    return true
   }
 
   private readonly editorAssetRequests = new WeakMap<ImageEditorTarget | CompositorEditorTarget, object>()
