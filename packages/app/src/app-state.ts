@@ -3724,7 +3724,8 @@ export class AppState {
       if (this.workspaceTabConnection !== connection) throw new Error('Shared tab connection changed during asset admission')
       return connection.mutate(mutation)
     })
-    this.workspaceOperationSubmission = submitted
+    // A refused operation stays blocked, but does not poison later admissions.
+    this.workspaceOperationSubmission = submitted.catch(() => undefined)
     void submitted.then(
       (snapshot) => {
         if (this.workspaceTabConnection === connection) {

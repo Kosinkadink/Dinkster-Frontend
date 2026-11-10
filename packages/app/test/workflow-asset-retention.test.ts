@@ -1159,7 +1159,7 @@ describe('retained app dispatch', () => {
     },
   )
 
-  it.each(['acknowledged', 'lost', 'refused', 'reused-owner', 'replaced', 'removed', 'registry', 'disconnected', 'ordered', 'incomplete'] as const)(
+  it.each(['acknowledged', 'lost', 'refused', 'reused-owner', 'replaced', 'removed', 'registry', 'disconnected', 'ordered', 'incomplete', 'storage'] as const)(
     'binds operation recovery to an independent acknowledged generation: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
       app = createWorkflowApp([schema])
@@ -1213,9 +1213,35 @@ describe('retained app dispatch', () => {
           return receipt
         })
         vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+        const setItem = localStorage.setItem.bind(localStorage)
+        const storageFailure = scenario === 'storage' ? vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+          if (key.startsWith(scopedStorageKey('dinkster.workspaceOperation.'))) throw new Error('storage full')
+          setItem(key, value)
+        }) : undefined
         const document = { ...session([asset('b')]).doc, lineage: asLineageId('new-operation'),
           ...(scenario === 'incomplete' ? { ext: { unresolved: {} } } : {}) }
         expect(await app.openDocument(document, 'New operation')).toEqual([])
+        if (scenario === 'storage') {
+          await vi.waitFor(() => expect(app!.problems.get()).toContainEqual(expect.objectContaining({
+            code: 'workspace.tabs.mutationFailed', message: 'Shared tab change failed: storage full',
+          })))
+          expect(operationKey()).toBeUndefined()
+          expect(mutations).toEqual([])
+          storageFailure!.mockRestore()
+          expect(await app.openDocument({ ...session([asset('c')]).doc,
+            lineage: asLineageId('later-operation') }, 'Later')).toEqual([])
+          const sent = await submitted.promise
+          expect(mutations[0]!.additions.map((entry) => entry.id)).toEqual(['later-operation'])
+          expect(await app.openDocument({ ...session([asset('d')]).doc,
+            lineage: asLineageId('last-operation') }, 'Last')).toEqual([])
+          // The last admission can finish, but its worker request still waits
+          // for the preceding operation's actual response.
+          expect(mutations).toHaveLength(1)
+          sent.deliver()
+          await vi.waitFor(() => expect(mutations.flatMap((mutation) => mutation.additions
+            .map((entry) => entry.id))).toEqual(['later-operation', 'last-operation']))
+          return
+        }
         const receipt = await requested.promise
         const key = operationKey()!
         const pending = JSON.parse(localStorage.getItem(key)!)

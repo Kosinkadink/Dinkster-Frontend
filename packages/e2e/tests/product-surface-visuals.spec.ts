@@ -707,7 +707,12 @@ test('Boundary prompt and definition empty states at desktop and compact widths'
     await expect(page.getByTestId('boundary-prompt')).toContainText('Open a subgraph definition')
     await expect(page.getByTestId('boundary-prompt').getByRole('button')).toHaveCount(0)
     await screenshot(page, `boundary-prompt-${width}`)
-    await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
+    expect(await page.evaluate(async () => {
+      const app = window.__dinksterTest!.app
+      // Blank workflow creation starts promotion without waiting for it.
+      // Opening the fixture must not race that session replacement.
+      await (app as unknown as { enableWorkspaceAuthority(): Promise<void> }).enableWorkspaceAuthority()
+      return app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'boundary-visual', root: 'root',
       graphs: {
         root: {
@@ -723,7 +728,8 @@ test('Boundary prompt and definition empty states at desktop and compact widths'
         root: { nodes: { occurrence: { position: { x: 200, y: 100 } } } },
         sub: { nodes: {} },
       } },
-    }, 'Boundary visual')))
+      }, 'Boundary visual')
+    })).toEqual([])
     const open = page.getByTestId('boundary-prompt').getByRole('button', { name: 'Open Nested workflow', exact: true })
     await expect(open).toBeEnabled()
     await screenshot(page, `boundary-open-definition-${width}`)

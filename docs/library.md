@@ -43,6 +43,8 @@ the staged content, backend and generation, before its operation is submitted
 to the SharedWorker. Lost acknowledgments reconcile the exact receipt; refusal,
 replacement or a changed backend/catalog leaves the staged entry unresolved.
 Admissions settling out of order do not reorder the actor's operations. A
+failed admission blocks that operation, not subsequent independent admissions;
+storage recovery does not require a SharedWorker reconnect. A
 reconnect admits fresh owners instead of trusting stored receipt metadata.
 Journal removal, disconnect and application exit do not release these owners.
 
