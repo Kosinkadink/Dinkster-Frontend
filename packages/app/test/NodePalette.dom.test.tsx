@@ -459,10 +459,11 @@ describe('NodePalette search surface', () => {
   })
 
   it('exposes expandable category hierarchy and selected category state without claiming tree keyboard semantics', async () => {
-    const { root, dispose } = mountPalette([
+    const [entries, setEntries] = createSignal([
       paletteEntry('alpha', 'Alpha', 'Image/Loaders'),
       paletteEntry('beta', 'Beta', 'Image/Transforms'),
     ])
+    const { root, dispose } = mountPalette(entries)
     try {
       await flushMicrotasks()
       const categories = root.querySelector<HTMLElement>('[aria-label="Node categories"]')!
@@ -476,7 +477,19 @@ describe('NodePalette search surface', () => {
       const loaders = [...categories.querySelectorAll<HTMLButtonElement>('[data-testid="palette-category"]')]
         .find((button) => button.textContent?.includes('Loaders'))!
       loaders.click()
+      loaders.focus()
       expect(loaders.getAttribute('aria-pressed')).toBe('true')
+      setEntries([
+        ...entries().map((entry) => ({ ...entry })),
+        paletteEntry('audio', 'Audio', 'Audio'),
+        paletteEntry('adjust', 'Adjust', 'Image/Adjust'),
+        paletteEntry('second-loader', 'Second loader', 'Image/Loaders'),
+      ])
+      await flushMicrotasks()
+      expect(document.activeElement?.textContent).toBe('Loaders2')
+      expect(document.activeElement?.getAttribute('aria-pressed')).toBe('true')
+      expect(categories.textContent).toContain('Adjust1')
+      expect(categories.querySelector('[aria-label="Collapse Image"]')?.getAttribute('aria-expanded')).toBe('true')
     } finally {
       dispose()
     }

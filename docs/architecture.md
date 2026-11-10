@@ -392,6 +392,8 @@ keep the same document session and do not cancel admission. Library/template/run
 tabs publish with their source backend already selected. Local file imports keep
 their existing untargeted semantics: legacy translation uses the chosen source
 schemas, but ownership is requested from the default destination backend.
+An unchanged SharedWorker session continuation does not cancel an opening view:
+tab order, title, editor kind, document, revision and backend must still match.
 Frozen execution opens also await snapshot ownership on the execution's original
 live or retired backend, never the default backend. Root discovery uses the
 exact compile-time registry; unavailable historical schemas remain incomplete.
