@@ -114,6 +114,9 @@ schema registry. Unrecognized versions or positional layouts remain raw with
 an import warning; they are not decoded by guessing. Original workflow JSON
 remains in import provenance. Automatic replacements, including their defaults
 and any loss, still follow the ordinary migration and single-step undo rules.
+Installed replacement rules that rename inputs use this migration path rather
+than decoding the predecessor's widgets against the successor's input names.
+Installed rules still take precedence over registry translation metadata.
 
 For SaveVideo versions not listed in the table, including absent versions, the
 layout is authoritative without numeric or lexical version comparison. A node

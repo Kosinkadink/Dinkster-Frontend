@@ -8042,7 +8042,12 @@ export class AppState {
     })
     const installedSources = new Set(installed.map((record) => record.rule.from))
     const result = importLitegraph(json as JsonObject, registry.resolve, undefined, [
-      ...translations.filter((record) => !installedSources.has(record.source ?? record.rule.from)), ...installed,
+      ...translations.filter((record) => !installedSources.has(record.source ?? record.rule.from)),
+      // Input renames need the historical source values and undoable migration,
+      // not the target interface used as a decoder for the saved source.
+      ...installed.filter(({ rule }) => rule.cases.every((branch) =>
+        Object.entries(branch.inputs ?? {}).every(([target, mapping]) =>
+          mapping.kind === 'constant' || mapping.input === target))),
     ])
     if (!unavailable) return result
     return { ...result, diagnostics: result.diagnostics.map((entry) => entry.code === 'import.schema.missing'
