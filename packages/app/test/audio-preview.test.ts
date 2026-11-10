@@ -26,8 +26,8 @@ describe('bounded audio previews', () => {
     const client = values()
     const signal = new AbortController().signal
     const result = await audioPreview(client, query, descriptor, renditions).load(5000, 2, signal)
-    expect(client.rendition).toHaveBeenCalledWith(query, 'waveform', { batch: 2, rendererVersion: 'wave-v1', waveform: { width: 512, height: 128 }, signal })
-    expect(client.rendition).toHaveBeenCalledWith(query, 'window', { batch: 2, rendererVersion: 'window-v1', window: { start: 5000, duration: 3 }, signal })
+    expect(client.rendition).toHaveBeenCalledWith(query, 'waveform', { descriptor, batch: 2, rendererVersion: 'wave-v1', waveform: { width: 512, height: 128 }, signal })
+    expect(client.rendition).toHaveBeenCalledWith(query, 'window', { descriptor, batch: 2, rendererVersion: 'window-v1', window: { start: 5000, duration: 3 }, signal })
     expect(result.diagnostics).toEqual(['Waveform: sampled peaks (not exhaustive)'])
     expect(descriptor.meta).toEqual(meta)
   })

@@ -129,6 +129,8 @@ export interface RetainedExecutionView {
   readonly execution: ExecutionState
   /** Runtime occurrences whose data was copied from an older execution. */
   readonly retainedRuntimeIds: ReadonlySet<string>
+  /** Original stored executions, never the composite presentation state. */
+  readonly executionOwners?: ReadonlyMap<string, ExecutionState>
 }
 
 const digestOutputs = (outputs: ExecutionState['outputs'][string]) => {
@@ -189,6 +191,7 @@ export function retainProvenExecution(
     ...current.artifacts.map((artifact) => artifact.nodeId),
   ])
   const selected = new Set<string>()
+  const executionOwners = new Map([...occupied].map((runtimeId) => [runtimeId, current]))
   const candidates = executions
     .filter((candidate) => candidate.key !== current.key && candidate.queuedAt < current.queuedAt)
     .sort((a, b) => b.queuedAt - a.queuedAt)
@@ -241,11 +244,14 @@ export function retainProvenExecution(
       // a tensor whose rendition belongs to the previous job.
       const priorArtifacts = candidate.artifacts.filter((artifact) => artifact.nodeId === runtimeId)
       artifacts.push(...priorArtifacts)
-      if (nodes[runtimeId] !== undefined || outputs[runtimeId] !== undefined || priorArtifacts.length > 0) selected.add(runtimeId)
+      if (nodes[runtimeId] !== undefined || outputs[runtimeId] !== undefined || priorArtifacts.length > 0) {
+        selected.add(runtimeId)
+        executionOwners.set(runtimeId, candidate)
+      }
     }
   }
   if (selected.size === 0) return unchanged()
-  return { execution: { ...current, nodes, outputs, previews, artifacts }, retainedRuntimeIds: selected }
+  return { execution: { ...current, nodes, outputs, previews, artifacts }, retainedRuntimeIds: selected, executionOwners }
 }
 
 /** One derivation pass, ready for the host to install on the renderer. */
@@ -522,6 +528,7 @@ export function deriveSceneOverlays(args: {
   readonly exactProducer: ((runtimeId: string) => boolean) | undefined
   /** Runtime occurrences explicitly retained from older executions. */
   readonly retainedRuntimeIds?: ReadonlySet<string> | undefined
+  readonly executionOwners?: ReadonlyMap<string, ExecutionState> | undefined
   /** Current compile + widget/solver diagnostics projected onto this view. */
   readonly nodeProblems?: NodeProblemMap
   /** Nodes whose runtime error badge the user dismissed for THIS run. */
@@ -845,6 +852,7 @@ export function deriveSceneOverlays(args: {
       frozen: args.frozen,
       exactProducer: args.exactProducer,
       ...(args.retainedRuntimeIds === undefined ? {} : { retainedRuntimeIds: args.retainedRuntimeIds }),
+      ...(args.executionOwners === undefined ? {} : { executionOwners: args.executionOwners }),
       companionSources: derived.sources,
       values: args.values,
       selectedAsset: representedAsset ?? selectedPreviewAssetForNode(n, args.previewRendererFor),

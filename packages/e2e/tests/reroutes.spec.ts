@@ -5,7 +5,7 @@
  * input; document assertions go through the __dinksterTest bridge and prove
  * reroutes stay structural (ID-keyed topology + separated view geometry).
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 
@@ -146,6 +146,7 @@ async function openRerouteWorkflow(page: Page): Promise<void> {
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
   await identityViewport(page)
 })
 

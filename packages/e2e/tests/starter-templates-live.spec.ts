@@ -5,6 +5,7 @@ import {
   openRailPanel,
   selectProductOption,
   test,
+  waitForStartupOwnership,
   type Page,
 } from "./fixtures.js";
 
@@ -50,6 +51,7 @@ async function connect(page: Page): Promise<string> {
   await expect
     .poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined))
     .toBe(true);
+  await waitForStartupOwnership(page);
   await page.getByTestId("backends-toggle").click();
   await page.getByTestId("backend-url-input").fill(NATIVE_BACKEND);
   await page.getByTestId("backend-add").click();
@@ -115,6 +117,7 @@ async function connectNativeFrontend(page: Page): Promise<string> {
       ),
     )
     .toBeDefined();
+  await waitForStartupOwnership(page);
   return page.evaluate(() => {
     const backend = window
       .__dinksterTest!.app.backends.get()

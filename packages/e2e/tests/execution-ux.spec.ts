@@ -5,7 +5,7 @@
  * backend; the only synthetic piece is an injected runtime-error event,
  * pushed through the SAME ExecutionStore.apply path the connection uses.
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 
@@ -105,6 +105,7 @@ const rootValues = (page: Page, tabId?: string) =>
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
+  await waitForStartupOwnership(page)
 })
 
 test('execution row opens a frozen view pinned to that execution', async ({ page }) => {
@@ -137,6 +138,7 @@ test('execution row opens a frozen view pinned to that execution', async ({ page
 test('frozen snapshot survives live edits and both sides report divergence', async ({ page }) => {
   await queueAndComplete(page)
   await page.getByTestId('execution-row').first().locator('.execution-open').click()
+  await expect(page.getByTestId('tab-bar').locator('.tab.frozen.active')).toHaveCount(1)
   const frozenTabId = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.id)
 
   // Back to live; the sync chip matches the execution before any edit.
@@ -176,7 +178,7 @@ test('a frozen view without its compile-time schemas warns instead of borrowing 
   // recorded schema hash matches no registry this session ever held: the
   // frozen view must show the visible warning, never silently resolve with
   // the backend's current schemas (AP5).
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     const result = app.compileTab(tab)
@@ -184,20 +186,20 @@ test('a frozen view without its compile-time schemas warns instead of borrowing 
     const artifact = { ...result.artifact, schemaHash: 'hash-never-held-this-session' }
     const ref = { connection: artifact.connection, prompt: 'synthetic-frozen-registry' }
     app.store.register(ref, artifact, Date.now())
-    if (!app.openExecutionView(ref)) throw new Error('frozen view did not open')
+    if (!await app.openExecutionView(ref)) throw new Error('frozen view did not open')
   })
   await expect(page.getByTestId('frozen-banner')).toBeVisible()
   await expect(page.getByTestId('frozen-schema-missing')).toBeVisible()
 
   // The REAL run's frozen view resolves its retained compile-time registry:
   // banner present, no warning.
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const real = [...app.store.executions.get().values()].find(
       (e) => String(e.ref.prompt) !== 'synthetic-frozen-registry',
     )
     if (!real) throw new Error('no real execution')
-    if (!app.openExecutionView(real.ref)) throw new Error('frozen view did not open')
+    if (!await app.openExecutionView(real.ref)) throw new Error('frozen view did not open')
   })
   await expect(page.getByTestId('frozen-banner')).toBeVisible()
   await expect(page.getByTestId('frozen-schema-missing')).not.toBeVisible()
@@ -312,6 +314,10 @@ test('execute-between toolbox hover previews and submits the selected sinks', as
 test('queue-selection menu action submits a real partial prompt', async ({ page }) => {
   // Target the OUTPUT node (the server only counts OUTPUT_NODE classes as
   // partial targets); the submitted prompt is its upstream closure.
+  await page.waitForFunction(() => {
+    const app = window.__dinksterTest!.app
+    return app.backendForTab(app.activeTab()!).workerCatalog.get().status !== 'loading'
+  })
   await identityViewport(page)
   await page.mouse.click(...xy(await pointOn(page, 'n1', { kind: 'header' })), { button: 'right' })
   const item = page

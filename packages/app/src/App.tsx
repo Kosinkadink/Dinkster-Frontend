@@ -592,8 +592,10 @@ export function App(props: {
     // this panel.
     if (sourceId !== 'history') return
     const exec = app.store.executions.get().get(entry.id)
-    if (exec?.artifact && app.openExecutionView(exec.ref)) {
-      setPanelOpen(app.panels, app.dock, 'library', 'left', false)
+    if (exec?.artifact) {
+      void app.openExecutionView(exec.ref).then((ok) => {
+        if (ok) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
+      })
     }
   }
   const libraryEntryAction = (sourceId: string, entry: CollectionEntry, actionId: string): void => {
@@ -1218,7 +1220,7 @@ export function App(props: {
       title={app.tabTitleFor(p.exec.ref)}
       testId="execution-row"
       relation={overlayRoleOf(p.exec)}
-      onOpen={() => app.openExecutionView(p.exec.ref)}
+      onOpen={() => { void app.openExecutionView(p.exec.ref) }}
       onPin={live() ? () => {
         const tab = live()
         if (!tab) return
@@ -1233,9 +1235,14 @@ export function App(props: {
   // from the registry, so moving a surface is a descriptor change, not a
   // JSX rewrite. Bodies stay local components so they can close over App
   // state.
-  const BackendMetadataState = (props: { readonly children: JSX.Element }) => {
+  const BackendMetadataState = (props: { readonly children: JSX.Element; readonly independentMounts?: boolean }) => {
     const [retrying, setRetrying] = createSolidSignal(false)
-    const error = () => { backendsTick(); return backendMetadataError(activeBackend()) }
+    const error = () => {
+      backendsTick()
+      const backend = activeBackend()
+      if (props.independentMounts && backend.schemaState.get().status !== 'error') return undefined
+      return backendMetadataError(backend)
+    }
     const retry = async (): Promise<void> => {
       if (retrying()) return
       const backend = activeBackend()
@@ -1272,17 +1279,19 @@ export function App(props: {
     />
     </BackendMetadataState>
   )
-  const AssetsPanelBody = () => {
-    const backend = activeBackend()
-    return backend.protocol === 'dinkster'
-      ? <BackendMetadataState><AssetsBody
+  const AssetsPanelBody = () => <Show when={activeBackend()} keyed>
+    {(backend) => {
+      return backend.protocol === 'dinkster'
+      ? <BackendMetadataState independentMounts><AssetsBody
           connection={backend.connection}
           backendId={String(backend.id)}
           baseUrl={backend.baseUrl}
+          backendLabel={backend.label}
           {...(props.federatedAssets ? { federatedContract: props.federatedAssets } : {})}
         /></BackendMetadataState>
       : <ProductEmptyState title={message('shell.backend.assetsRequireNative')} />
-  }
+    }}
+  </Show>
   const LogsBody = () => <ActivityLog entries={logs} clearArmed={logsClearArmed} />
   /**
    * Best-effort display title for a runtime node id: resolve through compile
@@ -1543,6 +1552,7 @@ export function App(props: {
         keybindings={app.keybindings}
         request={app.settingsOpenRequest.get()}
         onRequestConsumed={() => app.settingsOpenRequest.set(undefined)}
+        storageConnection={activeBackend().connection}
         packSettings={'fetchPackSettings' in app.connection ? {
           client: app.connection,
           packs: () => [...(defaultRegistry()?.packs ?? [])]
@@ -2251,17 +2261,18 @@ export function App(props: {
       editorsTick()
       return app.editors.get(paneEditorKind())
     }
-    const [paneGraphStackDepth, setPaneGraphStackDepth] = createSolidSignal(0)
+    const [paneGraphStack, setPaneGraphStack] = createSolidSignal<readonly string[]>([])
     createEffect(() => {
       const tab = paneActiveTab()
       if (!tab) {
-        setPaneGraphStackDepth(0)
+        setPaneGraphStack([])
         return
       }
-      setPaneGraphStackDepth(tab.graphStack.get().length)
-      const unsubscribe = tab.graphStack.subscribe((stack) => setPaneGraphStackDepth(stack.length))
+      setPaneGraphStack(tab.graphStack.get())
+      const unsubscribe = tab.graphStack.subscribe((stack) => setPaneGraphStack(stack))
       onCleanup(unsubscribe)
     })
+    const paneCommandScope = createMemo(() => ({ tab: paneActiveTab(), store: paneActiveTab()?.store, stack: paneGraphStack() }))
     const [viewMenu, setViewMenu] = createSolidSignal(false)
     const [lensMenu, setLensMenu] = createSolidSignal(false)
     const paneCanvasLens = () => {
@@ -2419,7 +2430,7 @@ export function App(props: {
             })
           }}>
             <CanvasViewControls
-              drilled={paneEditorKind() === GRAPH_EDITOR_KIND && paneGraphStackDepth() > 1}
+              drilled={paneEditorKind() === GRAPH_EDITOR_KIND && paneGraphStack().length > 1}
               disabled={!paneActiveTab() || paneActiveTab()!.execution !== undefined}
               activeView={paneEditorKind()}
               appViewEnabled={appViewEnabled()}
@@ -2429,10 +2440,13 @@ export function App(props: {
               lensMenuOpen={lensMenu()}
               onToggleViewMenu={() => { setLensMenu(false); setViewMenu((open) => !open) }}
               onToggleLensMenu={() => { setViewMenu(false); setLensMenu((open) => !open) }}
-              onSetAllNetsDisplay={(mode) => {
+              commandScope={paneCommandScope()}
+              onSetAllNetsDisplay={async (mode) => {
                 const tab = paneActiveTab()
-                if (tab) app.dispatchTo(tab, { command: 'view.setAllNetsDisplay', params: { graphId: currentGraphId(tab), mode } })
-                setViewMenu(false)
+                if (!tab) return
+                const scope = paneCommandScope()
+                const outcome = await app.dispatchTo(tab, { command: 'view.setAllNetsDisplay', params: { graphId: currentGraphId(tab), mode } })
+                if (paneCommandScope() === scope) return outcome
               }}
               onSelectView={(kind) => {
                 const tab = paneActiveTab()
@@ -2475,7 +2489,7 @@ export function App(props: {
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), tab().execution === undefined && app.registryForTab(tab()) !== undefined)}
                       onQueue={() => { void app.queue(tab()) }}
-                      onOpenExecution={(ref) => { app.openExecutionView(ref) }}
+                      onOpenExecution={(ref) => { void app.openExecutionView(ref) }}
                     />
                   )}
                 </Show>

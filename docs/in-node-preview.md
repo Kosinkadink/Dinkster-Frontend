@@ -45,6 +45,18 @@ original saved file under its original filename. An unavailable preview does not
 remove that download or fetch the original as a display fallback. File metadata
 is not an inline payload: large saved-file sizes and multiple nodes' file lists
 remain intact, and malformed optional previews do not discard valid saved files.
+Disposing a preview loader aborts its pending recorded-file and associated-image
+response bodies without stopping another loader's reads. A disposed loader no
+longer accepts source loads or live-frame decodes, including stale callers that
+still hold its sources. This closes loader admission but does not settle already
+admitted shared renderers or release retained owners.
+
+Recorded artifacts, their associated images and recorded image outputs wait for
+their execution's retained-asset acknowledgment before fetching or decoding.
+Canvas and App View keep those readers separate from the editable tab. Changed
+output inventories or observed connection transitions reject stale decoded cache
+entries and late publication. Model orbit viewers borrow the same captured
+reader independently; closing a viewer does not release retained ownership.
 
 ## Video inspection
 

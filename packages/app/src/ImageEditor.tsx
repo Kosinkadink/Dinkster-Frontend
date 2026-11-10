@@ -150,17 +150,29 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
       setError('Image editing requires a native Dinkster backend')
       return
     }
-    void fetch(backend.connection.assetUrl(request.sourceRef.digest)).then(async (response) => {
-      if (!response.ok) throw new Error(`Source image fetch failed (${response.status})`)
-      const decoded = await decodePng(new Uint8Array(await response.arrayBuffer()))
-      if (!live || generation !== loadGeneration || target() !== request) return
-      const created = createImageSession(decoded)
-      const existingOperations = request.maskPaint?.expectedPaintOperations
-      setSession(existingOperations === undefined || existingOperations === null
-        ? created
-        : restoreMaskPaintSession(created, existingOperations, request.sourceRef.digest))
-    }).catch((cause) => {
-      if (live && generation === loadGeneration) setError(cause instanceof Error ? cause.message : String(cause))
+    const abort = new AbortController()
+    onCleanup(() => abort.abort())
+    const reader = props.app.workflowAssetReader(resolved.tab, request.sourceRef.digest)
+    const current = (): boolean => live && !abort.signal.aborted && generation === loadGeneration &&
+      target() === request && reader?.current() === true
+    void (async () => {
+      if (!reader) throw new Error('Source image ownership is unavailable')
+      await reader.read(async () => {
+        if (!current()) return
+        const response = await fetch(backend.connection.assetUrl(request.sourceRef.digest), { signal: abort.signal })
+        if (!response.ok) throw new Error(`Source image fetch failed (${response.status})`)
+        const bytes = await response.arrayBuffer()
+        if (!current()) return
+        const decoded = await decodePng(new Uint8Array(bytes))
+        if (!current()) return
+        const created = createImageSession(decoded)
+        const existingOperations = request.maskPaint?.expectedPaintOperations
+        setSession(existingOperations === undefined || existingOperations === null
+          ? created
+          : restoreMaskPaintSession(created, existingOperations, request.sourceRef.digest))
+      })
+    })().catch((cause) => {
+      if (live && !abort.signal.aborted && generation === loadGeneration) setError(cause instanceof Error ? cause.message : String(cause))
     })
   })
 
@@ -194,7 +206,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
           setError('The image destination changed while the mask was being edited')
           return
         }
-        const outcome = props.app.dispatchTo(currentTab, {
+        const outcome = await props.app.dispatchRetainedTo(currentTab, {
           command: 'image.applyMaskPaint',
           params: {
             graphId: request.graphId,
@@ -207,7 +219,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
             expectedMaskLinkIds: request.maskPaint!.expectedMaskLinkIds,
             expectedMaskNetIds: request.maskPaint!.expectedMaskNetIds,
           },
-        })
+        }, () => live && !abort.signal.aborted && target() === request)
         if (!outcome.ok) {
           setError(outcome.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? 'Mask apply was rejected')
           return
@@ -232,7 +244,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
         mediaType: 'image/png',
         virtualPath: '',
       }
-      const outcome = props.app.dispatchTo(currentTab, {
+      const outcome = await props.app.dispatchRetainedTo(currentTab, {
         command: 'image.applyAsset',
         params: {
           graphId: request.graphId,
@@ -241,7 +253,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
           expectedSourceDigest: request.sourceRef.digest,
           asset: ref,
         },
-      })
+      }, () => live && !abort.signal.aborted && target() === request)
       if (!outcome.ok) {
         setError(outcome.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? 'Image apply was rejected')
         return

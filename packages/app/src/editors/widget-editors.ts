@@ -10,6 +10,7 @@ import { MarkdownWidgetEditor } from './MarkdownWidgetEditor.js'
 import { MountWidgetEditor } from './MountWidgetEditor.js'
 import { ScalarWidgetEditor } from './ScalarWidgetEditor.js'
 import { VideoEditWidgetEditor } from './VideoEditWidgetEditor.js'
+import { WebcamWidgetEditor } from './WebcamWidgetEditor.js'
 
 const coreWidgetEditors = new Map<string, unknown>([
   ['INT', ScalarWidgetEditor],
@@ -23,6 +24,7 @@ const coreWidgetEditors = new Map<string, unknown>([
   ['MULTI_COMBO', MultiComboWidgetEditor],
   ['ASSET', AssetWidgetEditor],
   ['AUDIO_RECORD', AudioRecordWidgetEditor],
+  ['WEBCAM', WebcamWidgetEditor],
   ['LOAD_3D', Load3dWidgetEditor],
   ['MOUNT', MountWidgetEditor],
   ['VIDEO_EDIT', VideoEditWidgetEditor],

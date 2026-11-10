@@ -30,6 +30,7 @@ import {
   type Signal,
   type ValueDiagnostic,
 } from '@dinkster/core'
+import type { RetainedAssets } from './dinkster-connection.js'
 
 export type ExecutionStatus = 'queued' | 'running' | 'completed' | 'error' | 'interrupted'
 
@@ -115,6 +116,8 @@ export interface ExecutionState {
   readonly artifacts: readonly ExecutionArtifact[]
   /** A completed job supplied a valid artifacts field, including an empty list. */
   readonly artifactsHydrated: boolean
+  /** Exact acknowledged owners, independent of descriptor display limits. */
+  readonly assetRetentions?: readonly RetainedAssets[]
   /** runtime node id -> stream key -> latest attributed preview frame
    * (metadata protocol). Frames without a stream use the '' key, so a
    * multi-stream family (H3 video + audio) retains one frame per stream. */
@@ -427,6 +430,7 @@ export class ExecutionStore {
     readonly nodes: Readonly<Record<string, NodeProgress>>
     readonly outputs: Readonly<Record<string, Readonly<Record<string, unknown>>>>
     readonly artifacts: readonly ExecutionArtifact[]
+    readonly assetRetentions?: readonly RetainedAssets[]
     readonly submittedBy?: ExecutionSubmitter
     readonly jobRef: string
     readonly sourceDocument: string
@@ -450,6 +454,7 @@ export class ExecutionStore {
       outputs: state.outputs,
       artifacts: state.artifacts,
       artifactsHydrated: true,
+      ...(state.assetRetentions === undefined ? {} : { assetRetentions: [...state.assetRetentions] }),
       previews: {},
       activities: [],
       logs: [],
@@ -808,6 +813,13 @@ export class ExecutionStore {
     const state = this.map.get(executionKey(ref))
     if (!state) return
     this.put({ ...state, artifacts: [...artifacts], artifactsHydrated: true })
+  }
+
+  /** Recording a new acknowledgment never retires an earlier owner. */
+  recordAssetRetentions(ref: ExecutionRef, retained: readonly RetainedAssets[]): void {
+    const state = this.map.get(executionKey(ref))
+    if (!state || retained.length === 0) return
+    this.put({ ...state, assetRetentions: [...state.assetRetentions ?? [], ...retained] })
   }
 
   /** Attach the server-authenticated principal that submitted this job. */

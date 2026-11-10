@@ -11,7 +11,7 @@
  *   /api/jobs body carries a NEW job identity, never the interrupted one.
  *   Nothing auto-resumes, by contract.
  */
-import { expect, selectProductOption, test, type Page } from './fixtures.js'
+import { expect, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const DIGEST = `blake3:${'a'.repeat(64)}`
 
@@ -121,10 +121,12 @@ const unstampedRecord = {
 /** Route-stub the page-origin backend: catalog, quiet library, history. */
 async function installFixture(page: Page): Promise<{ submitted(): Record<string, unknown> | undefined }> {
   let submitted: Record<string, unknown> | undefined
+  await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: nativeTable }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
+  await page.route('/api/mounts*', (route) => route.fulfill({ json: { mounts: [] } }))
   await page.route('/api/library*', (route) => route.fulfill({ json: { records: [] } }))
   await page.route('/api/templates*', (route) => route.fulfill({ json: { templates: [] } }))
   // Durable history list: path is exactly /api/history (query carries scope).
@@ -156,6 +158,7 @@ async function bootAndOpenRuns(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('test.ImageSink') ?? false,
   )).toBe(true)
+  await waitForStartupOwnership(page)
   await page.getByTestId('library-toggle').click()
   const library = page.getByTestId('library-overlay')
   await expect(library).toBeVisible()

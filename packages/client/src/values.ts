@@ -23,6 +23,7 @@
 
 import { parseAssetTypeId } from '@dinkster/core'
 import type { FetchLike } from './connection-contract.js'
+import { parseResultAssetOffer, type ResultAssetOffer } from './result-asset-offer.js'
 
 // ---------------------------------------------------------------------------
 // Wire shapes (decoded, normalized)
@@ -42,6 +43,8 @@ export interface ValuePeekOptions {
 }
 
 export interface RenditionOptions {
+  /** Exact admitted descriptor whose reader owns this request, including cache hits. */
+  readonly descriptor?: ValueDescriptor
   /** Tensor batch index, independent of ValueQuery.element list descent. */
   readonly batch?: number
   /** Advertised provider version, used only for local cache identity. */
@@ -97,7 +100,7 @@ export interface ValueRefusal {
 }
 
 export type ValuePeekResult =
-  | { readonly available: true; readonly descriptor: ValueDescriptor; readonly renditions: readonly RenditionInfo[] }
+  | { readonly available: true; readonly descriptor: ValueDescriptor; readonly renditions: readonly RenditionInfo[]; readonly resultOffer?: ResultAssetOffer }
   | ValueRefusal
 
 export type RenditionResult =
@@ -353,27 +356,42 @@ interface NormalizedRenditionOptions {
 
 type CachedRendition = Omit<Extract<RenditionResult, { available: true }>, 'available'>
 
+export interface ValueReadOwner {
+  read<T>(consume: () => Promise<T>): Promise<T>
+}
+
+export type ValuePeekAdmission = (query: ValueQuery, descriptor: ValueDescriptor, offer?: ResultAssetOffer) => Promise<ValueReadOwner>
+
+interface PeekIdentity {
+  readonly identity: string
+  readonly sequence: number
+  readonly cacheKeys: ReadonlyMap<string, string>
+  readonly defaultCacheKey?: string
+}
+
 export class DinksterValuesClient {
   private readonly baseUrl: string
   private readonly clientId: string
   private readonly fetchFn: FetchLike
+  private readonly admitPeek: ValuePeekAdmission | undefined
   /** Normalized selectors plus ETag (or advertised/legacy fallback) -> bytes. */
   private readonly renditionCache = new Map<string, CachedRendition>()
   /** Query URL and announced identity -> cache key for no-network repeats. */
   private readonly urlCacheKey = new Map<string, string>()
-  private readonly peekIdentity = new Map<string, {
-    identity: string
-    sequence: number
-    cacheKeys: ReadonlyMap<string, string>
-    defaultCacheKey?: string
+  private readonly peekIdentity = new Map<string, PeekIdentity>()
+  private readonly descriptorReaders = new WeakMap<ValueDescriptor, {
+    readonly queryUrl: string
+    readonly identity: PeekIdentity
+    readonly owner: ValueReadOwner | undefined
   }>()
   private peekSequence = 0
   private peekEpoch = 0
 
-  constructor(opts: { baseUrl: string; clientId: string; fetchFn?: FetchLike }) {
+  constructor(opts: { baseUrl: string; clientId: string; fetchFn?: FetchLike; admitPeek?: ValuePeekAdmission }) {
     this.baseUrl = opts.baseUrl
     this.clientId = opts.clientId
     this.fetchFn = opts.fetchFn ?? ((url, init) => fetch(url, init))
+    this.admitPeek = opts.admitPeek
   }
 
   private url(query: ValueQuery, rendition?: string, options?: NormalizedRenditionOptions): string {
@@ -484,7 +502,7 @@ export class DinksterValuesClient {
     const peekEpoch = this.peekEpoch
     let res: Response
     try {
-      res = await this.fetchFn(queryUrl, options.signal === undefined ? undefined : { signal: options.signal })
+      res = await this.fetchFn(queryUrl, { cache: 'no-store', ...(options.signal === undefined ? {} : { signal: options.signal }) })
     } catch (error) {
       return transportRefusal(error, options.signal)
     }
@@ -497,8 +515,36 @@ export class DinksterValuesClient {
     if (b?.['available'] !== true || descriptor === undefined) {
       return { available: false, reason: 'malformed-response', status: res.status, error: 'unrecognized /api/values success payload' }
     }
+    const resultOffer = parseResultAssetOffer(b['resultOffer'])
+    if (Object.hasOwn(b, 'resultOffer') && (resultOffer === undefined ||
+      resultOffer.nodeId !== query.nodeId || resultOffer.outputId !== query.outputId)) {
+      return localRefusal('malformed-response', 'Value result offer does not identify the requested parent output')
+    }
     const renditions = renditionsOf(b['renditions'])
-    const result: ValuePeekResult = { available: true, descriptor, renditions }
+    const result: ValuePeekResult = { available: true, descriptor, renditions,
+      ...(resultOffer === undefined ? {} : { resultOffer }) }
+    let owner: ValueReadOwner | undefined
+    try {
+      owner = await this.admitPeek?.(query, descriptor, resultOffer)
+    } catch {
+      return localRefusal('ownership-unconfirmed', 'Value asset ownership could not be confirmed')
+    }
+    if (signalAborted(options.signal)) return aborted()
+    const cacheKeys = new Map<string, string>()
+    for (const rendition of renditions) {
+      if (rendition.cacheKey !== undefined) cacheKeys.set(rendition.kind, rendition.cacheKey)
+    }
+    const defaultCacheKey = renditions.find((rendition) => rendition.default)?.cacheKey
+    const identity: PeekIdentity = {
+      identity: JSON.stringify([
+        descriptor.fingerprint,
+        renditions.map((r) => [r.kind, r.cacheKey, r.version, r.default]),
+      ]),
+      sequence,
+      cacheKeys,
+      ...(defaultCacheKey !== undefined ? { defaultCacheKey } : {}),
+    }
+    this.descriptorReaders.set(descriptor, { queryUrl, identity, owner })
     const announced = this.peekIdentity.get(queryUrl)
     if (sequence < (announced?.sequence ?? 0)) return result
     if (announced === undefined && peekEpoch !== this.peekEpoch) {
@@ -508,20 +554,7 @@ export class DinksterValuesClient {
       return result
     }
     this.peekIdentity.delete(queryUrl)
-    const cacheKeys = new Map<string, string>()
-    for (const rendition of renditions) {
-      if (rendition.cacheKey !== undefined) cacheKeys.set(rendition.kind, rendition.cacheKey)
-    }
-    const defaultCacheKey = renditions.find((rendition) => rendition.default)?.cacheKey
-    this.peekIdentity.set(queryUrl, {
-      identity: JSON.stringify([
-        descriptor.fingerprint,
-        renditions.map((r) => [r.kind, r.cacheKey, r.version, r.default]),
-      ]),
-      sequence,
-      cacheKeys,
-      ...(defaultCacheKey !== undefined ? { defaultCacheKey } : {}),
-    })
+    this.peekIdentity.set(queryUrl, identity)
     if (this.peekIdentity.size > RENDITION_CACHE_MAX * 4) {
       this.peekIdentity.delete(this.peekIdentity.keys().next().value!)
       // Forget aliases too, so an evicted announcement cannot revive pre-peek bytes.
@@ -531,18 +564,43 @@ export class DinksterValuesClient {
     return result
   }
 
+  /** Keep the peek's admitted owner pending through consumer-side decode and publication. */
+  async read<T>(query: ValueQuery, descriptor: ValueDescriptor, consume: () => Promise<T>): Promise<T> {
+    const reader = this.descriptorReaders.get(descriptor)
+    if (this.admitPeek !== undefined && (reader?.owner === undefined || reader.queryUrl !== this.url(query))) {
+      throw new Error('Read requires its admitted value descriptor')
+    }
+    return reader?.owner === undefined ? consume() : reader.owner.read(consume)
+  }
+
   /**
    * Raw rendition bytes. `kind` is a declared rendition kind or 'default'.
    * Completed reads are cached by normalized selectors and server identity.
    */
   async rendition(query: ValueQuery, kind: string, options: RenditionOptions = {}): Promise<RenditionResult> {
     if (options.signal?.aborted === true) return aborted()
+    const reader = options.descriptor === undefined ? undefined : this.descriptorReaders.get(options.descriptor)
+    if (this.admitPeek !== undefined && (reader?.owner === undefined || reader.queryUrl !== this.url(query))) {
+      return localRefusal('ownership-unconfirmed', 'Rendition requires its admitted value descriptor')
+    }
+    if (reader?.owner !== undefined) {
+      try {
+        return await reader.owner.read(() => this.readRendition(query, kind, options))
+      } catch {
+        return localRefusal('ownership-unconfirmed', 'Value reader is no longer available')
+      }
+    }
+    return this.readRendition(query, kind, options)
+  }
+
+  private async readRendition(query: ValueQuery, kind: string, options: RenditionOptions): Promise<RenditionResult> {
     const bad = DinksterValuesClient.badElement(query)
     if (bad) return bad
     const normalized = DinksterValuesClient.renditionOptions(options)
     if ('available' in normalized) return normalized
     const queryUrl = this.url(query)
-    const announcement = this.peekIdentity.get(queryUrl)
+    const captured = options.descriptor === undefined ? undefined : this.descriptorReaders.get(options.descriptor)
+    const announcement = captured?.queryUrl === queryUrl ? captured.identity : this.peekIdentity.get(queryUrl)
     const announcedIdentity = announcement?.identity
     const advertisedCacheKey = kind === 'default'
       ? announcement?.defaultCacheKey

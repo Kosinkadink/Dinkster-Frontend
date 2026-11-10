@@ -9,6 +9,7 @@ import {
   asNodeId,
   coreCommandRegistry,
   createSignal,
+  diag,
   DocumentStore,
   registerCatalog,
   setLocale,
@@ -66,6 +67,56 @@ afterEach(() => {
 })
 
 describe('SurfacePanel locale boundary', () => {
+  it('keeps group choices pending and refused until accepted without losing selector focus', async () => {
+    const original = documentFixture()
+    const store = new DocumentStore({ ...original, surfaces: { rawSurface: {
+      ...original.surfaces!['rawSurface']!, config: { title: 'Mode panel', bindings: [] },
+    } } }, coreCommandRegistry())
+    const tab = {
+      id: 'tab0', title: 'Workflow', store,
+      graphStack: createSignal<readonly string[]>(['g0']),
+    } as unknown as Tab
+    let settle: (accept: boolean) => void = () => { throw new Error('No pending group binding') }
+    const app = {
+      tabs: createSignal<readonly Tab[]>([tab]), activeTabId: createSignal(tab.id),
+      selectionTick: createSignal(0), canvasBridge: createSignal(undefined),
+      dispatchTo: (_tab: Tab, invocation: Parameters<AppState['dispatchTo']>[1]) => new Promise((resolve) => {
+        settle = (accept) => resolve(accept ? store.dispatch(invocation) : {
+          ok: false, diagnostics: [diag('error', 'command', 'test.refused', 'Group binding refused')],
+        })
+      }),
+    } as unknown as AppState
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <SurfacePanel app={app} />, root)
+    const trigger = root.querySelector<HTMLButtonElement>('[data-testid="surface-bind-group-rawSurface"]')!
+    trigger.focus()
+    trigger.click()
+    await flush()
+    const option = () => document.body.querySelector<HTMLElement>('[data-option-id="grp0"]')!
+    option().click()
+    await flush()
+    expect(document.body.querySelector('[role="listbox"]')).not.toBeNull()
+    expect(trigger.getAttribute('aria-busy')).toBe('true')
+    expect(option().getAttribute('aria-disabled')).toBe('true')
+    expect(store.revision).toBe(0)
+    settle(false)
+    await flush()
+    expect(root.querySelector('[data-testid="surface-group-error"]')?.textContent).toBe('Group binding refused')
+    expect(document.body.querySelector('[role="listbox"]')).not.toBeNull()
+    expect(store.doc.surfaces!['rawSurface']!.config).toEqual({ title: 'Mode panel', bindings: [] })
+    option().click()
+    settle(true)
+    await flush()
+    expect(store.doc.surfaces!['rawSurface']!.config).toEqual({ title: 'Mode panel', bindings: [
+      { kind: 'group', graphId: 'g0', groupId: 'grp0' },
+    ] })
+    expect(document.body.querySelector('[role="listbox"]')).toBeNull()
+    expect(root.querySelector('[data-testid="surface-group-error"]')).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+    dispose()
+  })
+
   it('relabels mounted chrome while preserving open controls, raw data, and dispatch', async () => {
     registerCatalog('de-DE', {
       'controlSurfaces.action.addModePanel': '[MODUSFELD HINZUFUGEN]',

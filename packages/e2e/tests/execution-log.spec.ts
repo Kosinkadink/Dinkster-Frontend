@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const proofDir = process.env['DINKSTER_EXECUTION_LOG_PROOF_DIR']
@@ -23,6 +23,7 @@ async function seedRun(page: Page): Promise<Seed> {
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
   const seed = await page.evaluate(() => {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([

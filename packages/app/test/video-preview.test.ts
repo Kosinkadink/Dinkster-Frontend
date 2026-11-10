@@ -41,7 +41,7 @@ describe('video inspection contract', () => {
     expect(second.video?.query).toEqual({ jobId: 'job', nodeId: 'r[2]/n', outputId: 'clips', element: [1] })
     expect(second.inspection.index).toBe(1)
     await second.inspection.request('frame', { frame: 12 })
-    expect(rendition).toHaveBeenLastCalledWith(second.video!.query, 'frame', { frame: 12, rendererVersion: 'frame-v2' })
+    expect(rendition).toHaveBeenLastCalledWith(second.video!.query, 'frame', { descriptor: second.video!.descriptor, frame: 12, rendererVersion: 'frame-v2' })
     expect(calls.at(-1)?.searchParams.get('frame')).toBe('12')
     expect(calls.at(-1)?.searchParams.get('element')).toBe('1')
     const third = await inspection.select(2)
@@ -63,7 +63,10 @@ describe('video inspection contract', () => {
     const bounded = await refresh()
     expect(bounded.thumbnailCount).toBe(3)
     await bounded.request('thumbs', { thumbs: bounded.thumbnailCount! })
-    expect(rendition).toHaveBeenLastCalledWith(expect.objectContaining({ element: [0] }), 'thumbs', { thumbs: 3, rendererVersion: 'thumbs-v3' })
+    expect(rendition).toHaveBeenLastCalledWith(expect.objectContaining({ element: [0] }), 'thumbs', {
+      descriptor: { typeId: 'VIDEO', fingerprint: 'video', meta: { effective: { fps: [24, 1], frame_count: 24 } } },
+      thumbs: 3, rendererVersion: 'thumbs-v3',
+    })
     thumbsInfo = { ...thumbsInfo, defaults: { thumbs: 'not-a-count' } }
     expect((await refresh()).thumbnailCount).toBeUndefined()
     expect(calls.every((url) => url.hostname === 'owner' && url.searchParams.get('clientId') === 'client' &&

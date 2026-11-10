@@ -31,6 +31,54 @@ const OK_SCALAR = {
   renditions: [],
 }
 
+describe('peek: source-bound admission', () => {
+  const offer = { token: '0123456789abcdef'.repeat(2), scope: 'local', jobRef: 'original-job',
+    attemptId: 2, nodeId: Q.nodeId, outputId: Q.outputId, publication: 3,
+    digests: [`blake3:${'a'.repeat(64)}`, `blake3:${'b'.repeat(64)}`], complete: true }
+
+  it('holds a nested descriptor behind admission of its full parent offer', async () => {
+    let acknowledge!: () => void
+    const ack = new Promise<void>((resolve) => { acknowledge = resolve })
+    let admitted!: () => void
+    const admission = new Promise<void>((resolve) => { admitted = resolve })
+    const client = new DinksterValuesClient({ baseUrl: 'http://test', clientId: 'client-1',
+      fetchFn: async () => jsonResponse(200, { ...OK_SCALAR, resultOffer: offer }),
+      admitPeek: async (query, descriptor, source) => {
+        expect(query.element).toEqual([4, 1])
+        expect(descriptor.value).toBe(42)
+        expect(source).toEqual(offer)
+        admitted()
+        await ack
+        return { read: (consume) => consume() }
+      },
+    })
+    let published = false
+    const pending = client.peek({ ...Q, element: [4, 1] }).then((result) => { published = true; return result })
+    await admission
+    expect(published).toBe(false)
+    acknowledge()
+    const result = await pending
+    expect(result.available && result.resultOffer).toEqual(offer)
+  })
+
+  it('refuses malformed or foreign parent authority rather than dropping it', async () => {
+    for (const resultOffer of [null, { ...offer, nodeId: 'other' }, { ...offer, outputId: 'other' },
+      { ...offer, digests: [], complete: undefined }, { ...offer, digests: [...offer.digests].reverse() }]) {
+      const { client } = harness(() => jsonResponse(200, { ...OK_SCALAR, resultOffer }))
+      const result = await client.peek(Q)
+      expect(result.available).toBe(false)
+      if (!result.available) expect(result.reason).toBe('malformed-response')
+    }
+    const client = new DinksterValuesClient({ baseUrl: 'http://test', clientId: 'client-1',
+      fetchFn: async () => jsonResponse(200, { ...OK_SCALAR, resultOffer: offer }),
+      admitPeek: async () => { throw new Error('source unavailable') },
+    })
+    const result = await client.peek(Q)
+    expect(result.available).toBe(false)
+    if (!result.available) expect(result.reason).toBe('ownership-unconfirmed')
+  })
+})
+
 describe('peek: query construction', () => {
   it('sends the four required params and no optional ones by default', async () => {
     const { client, urls } = harness(() => jsonResponse(200, OK_SCALAR))
