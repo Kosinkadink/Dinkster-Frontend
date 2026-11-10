@@ -11,7 +11,7 @@ import { buildDinksterRegistry } from '@dinkster/client'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { GLSL_EDITOR_KIND } from '../src/editors.js'
-import { admitWorkflowDispatch, executionAssetRoots, readAssetPreview, reconcileWorkflowRetentions, retainExecutionAssets, RetainedAssetReader, workflowAssetRoots } from '../src/workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, retainExecutionAssets, RetainedAssetReader, workflowAssetRoots } from '../src/workflow-asset-retention.js'
 import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { createPreviewLoader } from '../src/node-previews.js'
@@ -187,6 +187,23 @@ describe('workflow retention recovery', () => {
     expect(settled).toBe(true)
     expect(reader.retained).toBe(receipt)
     expect(releaseRetainedAssets).not.toHaveBeenCalled()
+  })
+
+  it('certifies only exact asset-free preview formats and preserves unknown roots', () => {
+    const event = { kind: 'preview' as const, execution: { connection: asConnectionId('native'), prompt: asPromptId('preview') }, timestamp: 1 }
+    const histogram = Array.from({ length: 256 }, (_, index) => index * 3)
+    expect(previewAssetRoots({ ...event, channel: core.CURVE_HISTOGRAM_PREVIEW_CHANNEL, payload: { histogram } })).toEqual({ complete: true, digests: [] })
+    for (const payload of [{ histogram: histogram.slice(1) }, { histogram, digest: asset('e').digest }]) {
+      expect(previewAssetRoots({ ...event, channel: core.CURVE_HISTOGRAM_PREVIEW_CHANNEL, payload }).complete).toBe(false)
+    }
+    const shader = { width: 2, height: 3, inputs: [{ name: 'u_image0', stream: 'glsl-input-u_image0' }], floats: {}, ints: {}, bools: {}, curves: {} }
+    expect(previewAssetRoots({ ...event, channel: core.GLSL_STATE_PREVIEW_CHANNEL, payload: shader })).toEqual({ complete: true, digests: [] })
+    expect(previewAssetRoots({ ...event, channel: core.GLSL_STATE_PREVIEW_CHANNEL, payload: { ...shader, digest: asset('c').digest } }))
+      .toEqual({ complete: false, digests: [asset('c').digest] })
+    expect(previewAssetRoots({ ...event, channel: 'unknown', payload: { resources: [asset('e')] } }))
+      .toEqual({ complete: false, digests: [asset('e').digest] })
+    expect(previewAssetRoots({ ...event, channel: 'image/png', payload: new Uint8Array([7, 3]).buffer }))
+      .toEqual({ complete: true, digests: [] })
   })
 
   it('retains nested preview documents and ring resources without certifying opaque payloads', () => {

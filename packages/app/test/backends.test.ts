@@ -33,6 +33,7 @@ import { AppState, type Backend, type Tab } from '../src/app-state.js'
 import { historicalSchemas } from './historical-schemas.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { reconcileWorkflowRetentions } from '../src/workflow-asset-retention.js'
+import { scopedStorageKey } from '../src/projects.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -790,6 +791,116 @@ describe('backend protocols', () => {
       await new Promise<void>((resolve) => setImmediate(resolve))
       expect(app.store.get(ref)?.previews.image?.['']?.payload).toEqual(scenario === 'registered' ? payload : undefined)
       expect(app.store.get(ref)?.status).toBe(scenario === 'registered' ? 'completed' : 'running')
+    },
+  )
+
+  it.each(['accepted', 'refused', 'lost', 'reused', 'disconnected', 'same-digest', 'ring', 'lost-release', 'reused-release'] as const)(
+    'admits independent compositor preview generations and retires only replaced frames: %s', async (scenario) => {
+      let receive: ((event: MessageEvent<unknown>) => void) | undefined
+      if (scenario === 'ring') {
+        app.dispose()
+        app = prepareWorkflowApp(new AppState({ workspaceEvents: {
+          postMessage() {}, addEventListener(_type, listener) { receive = listener },
+        } }))
+      }
+      const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
+      const ref = { connection: backend.id, prompt: asPromptId('preview-generations') }
+      const digest = (letter: string) => `blake3:${letter.repeat(64)}`
+      const preview = (letter: string) => ({ version: 2, documentDigest: digest(letter), stale: false, layerStreams: ['compositor.layer.0'],
+        document: { format: 'dinkster-image', formatVersion: 2, lineage: 'preview',
+          canvas: { width: 2, height: 3, colorSpace: 'srgb', channelDepth: 8, compositing: 'premultiplied-alpha' },
+          allocation: { nextOrdinal: 3 }, rootLayerIds: ['l0'], masks: {},
+          layers: { l0: { id: 'l0', kind: 'raster', name: 'Hidden', visible: false, opacity: 65535,
+            transform: { a: 1000000, b: 0, c: 0, d: 1000000, tx: 0, ty: 0,
+              components: { x: 0, y: 0, width: 2, height: 3, rotation: 0, flipHorizontal: false, flipVertical: false, sourceWidth: 2, sourceHeight: 3 } },
+            blendMode: 'normal', clipping: 'none', maskIds: [], resourceId: 'r1', sourceRect: { x: 0, y: 0, width: 2, height: 3 }, z_index: 0 } },
+          resources: Object.fromEntries(['r1', 'r2'].map((id) => [id, { id, kind: 'raster', digest: digest(id === 'r1' ? 'e' : 'f'),
+            byteSize: 1, mediaType: 'image/png', width: 2, height: 3, colorSpace: 'srgb', channelDepth: 8, alphaMode: 'straight' }])) } })
+      const requests: Array<{ receipt: import('@dinkster/client').RetainedAssets; accept: () => void }> = []
+      const release = vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        if (scenario === 'lost-release') throw new Error('Release acknowledgment lost')
+        return { ...owner, revision: revision + (scenario === 'reused-release' ? 2 : 1), complete: true, digests: [] }
+      })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => {
+        const held = requests.find((request) => request.receipt.ownerId === owner.ownerId)?.receipt
+        if (scenario === 'lost-release' && held) return { ...held, revision: held.revision + 1, complete: true, digests: [] }
+        return scenario === 'lost' || scenario === 'reused-release' ? held : undefined
+      })
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
+        const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+        return new Promise((resolve, reject) => requests.push({ receipt, accept: () => {
+          if (requests.length > 1 && (scenario === 'refused' || scenario === 'lost')) reject(new Error('Preview acknowledgment unavailable'))
+          else resolve(requests.length > 1 && scenario === 'reused' ? { ...receipt, revision: receipt.revision + 1 } : receipt)
+        } }))
+      })
+      const deliver = (data: ReturnType<typeof preview>, timestamp: number, nodeId = 'image') => {
+        if (receive) receive({ data: { source: 'other-window', kind: 'event', event: {
+          kind: 'preview', execution: ref, timestamp, runtimeNodeId: nodeId,
+          channel: 'application/vnd.dinkster.compositor-state+json', stream: 'compositor-state', payload: data,
+          frameIndex: (timestamp - 1) % 2, frameCount: 2,
+        } } } as MessageEvent<unknown>)
+        else backend.connection.ingest({ type: 'node_event', event: 'dinkster.compositor.state', jobId: ref.prompt,
+          nodeId, data, timestamp })
+      }
+      backend.connection.ingest({ type: 'run_started', jobId: ref.prompt })
+      const first = preview('a')
+      deliver(first, 1)
+      await vi.waitFor(() => expect(requests).toHaveLength(1))
+      expect(requests[0]!.receipt).toMatchObject({ ownerKind: 'preview', complete: true, digests: [digest('a'), digest('e'), digest('f')] })
+      expect(app.store.get(ref)?.previews).toEqual({})
+      requests[0]!.accept()
+      await vi.waitFor(() => expect(app.store.get(ref)?.previews.image?.['compositor-state']).toBeDefined())
+      if (scenario === 'same-digest') {
+        deliver(first, 1, 'other')
+        await vi.waitFor(() => expect(requests).toHaveLength(2))
+        requests[1]!.accept()
+        await vi.waitFor(() => expect(app.store.get(ref)?.previews.other?.['compositor-state']).toBeDefined())
+      }
+      const next = preview(scenario === 'same-digest' ? 'a' : 'b')
+      deliver(next, 2)
+      await vi.waitFor(() => expect(requests).toHaveLength(scenario === 'same-digest' ? 3 : 2))
+      const replacement = requests.at(-1)!
+      expect(replacement.receipt.ownerId).not.toBe(requests[0]!.receipt.ownerId)
+      expect(app.store.get(ref)?.previews.image?.['compositor-state']?.payload).toMatchObject({ documentDigest: digest('a') })
+      expect(release).not.toHaveBeenCalled()
+      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+      if (scenario === 'ring') {
+        deliver(preview('c'), 3)
+        expect(requests).toHaveLength(2)
+        replacement.accept()
+        await vi.waitFor(() => expect(requests).toHaveLength(3))
+        expect(app.store.get(ref)?.previewRings?.image?.['compositor-state']?.frames[0]?.payload).toMatchObject({ documentDigest: digest('a') })
+        expect(release).not.toHaveBeenCalled()
+        backend.connection.ingest({ type: 'run_finished', jobId: ref.prompt })
+        expect(app.store.get(ref)?.status).toBe('running')
+        requests[2]!.accept()
+        await vi.waitFor(() => expect(app.store.get(ref)?.status).toBe('completed'))
+        await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(2))
+        expect(release.mock.calls).toEqual([[requests[0]!.receipt, 1], [requests[1]!.receipt, 1]])
+        expect(app.store.get(ref)?.previews.image?.['compositor-state']?.payload).toMatchObject({ documentDigest: digest('c') })
+        return
+      }
+      replacement.accept()
+      if (scenario === 'accepted' || scenario === 'lost' || scenario === 'same-digest' || scenario === 'lost-release' || scenario === 'reused-release') {
+        await vi.waitFor(() => expect(release).toHaveBeenCalledOnce())
+        expect(release.mock.calls).toEqual([[requests[0]!.receipt, 1]])
+        if (scenario === 'lost-release' || scenario === 'reused-release') {
+          const key = scopedStorageKey(`dinkster.workflow-retentions.${requests[0]!.receipt.ownerId}`)
+          await vi.waitFor(() => expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({
+            releaseRevision: 1, acknowledgedRevision: scenario === 'lost-release' ? 2 : 1,
+          }))
+        }
+        expect(app.store.get(ref)?.previews.image?.['compositor-state']?.payload).toMatchObject({ documentDigest: next.documentDigest })
+        backend.connection.ingest({ type: 'run_finished', jobId: ref.prompt })
+        expect(release).toHaveBeenCalledOnce()
+        if (scenario === 'same-digest') {
+          expect(app.store.get(ref)?.previews.other?.['compositor-state']?.payload).toMatchObject({ documentDigest: digest('a') })
+        }
+      } else {
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        expect(release).not.toHaveBeenCalled()
+        expect(app.store.get(ref)?.previews.image?.['compositor-state']?.payload).toMatchObject({ documentDigest: digest('a') })
+      }
     },
   )
 

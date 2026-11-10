@@ -206,7 +206,7 @@ import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegist
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
-import { admitWorkflowDispatch, executionAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots } from './workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -3314,6 +3314,7 @@ export class AppState {
         if (identity !== undefined) saveExecutionResult(execution, identity)
       }
       this.retireUnusedResultOwners()
+      this.retireUnusedPreviewOwners()
     })
     let previousProblems: readonly OwnedDiagnostic[] = []
     this.problems.subscribe((problems) => {
@@ -9305,6 +9306,33 @@ export class AppState {
     }
   }
 
+  private readonly previewAssetOwners = new Map<RetainedAssets, {
+    readonly payload: object
+    readonly execution: string
+    readonly backend: Backend
+    readonly project: string
+    readonly generation: number | undefined
+  }>()
+
+  private retireUnusedPreviewOwners(): void {
+    if (this.disposed || this.previewAssetOwners.size === 0) return
+    for (const [retained, owner] of this.previewAssetOwners) {
+      if (activeProjectId() !== owner.project || this.backendFor(owner.backend.id) !== owner.backend ||
+        this.assetConnectionGenerations.get(owner.backend.connection) !== owner.generation) {
+        // The durable journal keeps obsolete lifetimes protected without retaining their payloads in memory.
+        this.previewAssetOwners.delete(retained)
+        continue
+      }
+      const state = this.store.executions.get().get(owner.execution)
+      const frames = [state?.lastPreview, ...Object.values(state?.previews ?? {}).flatMap(Object.values),
+        ...Object.values(state?.previewRings ?? {}).flatMap((streams) => Object.values(streams)
+          .flatMap((ring) => Object.values(ring.frames)))]
+      if (frames.some((frame) => frame?.payload === owner.payload)) continue
+      this.previewAssetOwners.delete(retained)
+      void retireAssetOwner(owner.backend.connection, retained)
+    }
+  }
+
   private applyWorkspaceExecutionEvent(event: NormalizedEvent, onApplied?: () => void): void {
     if (!isExecutionEvent(event)) {
       if (this.publishWorkspaceExecutionEvent(event)) onApplied?.()
@@ -9323,6 +9351,8 @@ export class AppState {
     }
     const backend = this.backendFor(event.execution.connection)
     if (backend === undefined) return
+    const project = activeProjectId()
+    const generation = this.assetConnectionGenerations.get(backend.connection)
     const registration = this.pendingWorkspaceRegistrations.get(key)
     let held = this.store.get(event.execution)
     const registry = backend.registry.get()
@@ -9334,7 +9364,8 @@ export class AppState {
     })
     let unchanged = true
     const unsubscribe = backend.connection.status.subscribe(() => { unchanged = false })
-    const current = (): boolean => unchanged && !this.disposed &&
+    const current = (): boolean => unchanged && !this.disposed && activeProjectId() === project &&
+      this.assetConnectionGenerations.get(backend.connection) === generation &&
       this.backendFor(backend.id) === backend && backend.registry.get() === registry &&
       this.registryForExecution(event.execution) === executionRegistry &&
       this.store.get(event.execution)?.artifact === held?.artifact &&
@@ -9355,20 +9386,28 @@ export class AppState {
           const state = this.store.get(event.execution)
           // Submit registration may follow live events. Re-admit its roots;
           // never reuse the acknowledgment captured before that promotion.
-          if (!unchanged || this.disposed || this.backendFor(backend.id) !== backend ||
+          if (!unchanged || this.disposed || activeProjectId() !== project ||
+            this.assetConnectionGenerations.get(backend.connection) !== generation || this.backendFor(backend.id) !== backend ||
             backend.registry.get() !== registry || held?.artifact !== undefined || state?.artifact === undefined ||
             state.artifact !== firstRegistration?.artifact || state.sourceDocument !== firstRegistration.sourceDocument) return
           held = state
           executionRegistry = this.registryForExecution(event.execution)
         }
+        let previewOwner: RetainedAssets | undefined
         if (incoming !== undefined) {
           const state = this.store.get(event.execution)
           const roots = state === undefined ? incoming : executionAssetRoots(state,
             this.resolverWithVirtualNodes(executionRegistry?.resolve ?? (() => undefined)))
-          await retainExecutionAssets(backend.connection, event.execution, { complete: false,
-            digests: [...new Set([...roots.digests, ...incoming.digests])].sort() })
+          const union = { complete: false, digests: [...new Set([...roots.digests, ...incoming.digests])].sort() }
+          if (event.kind === 'preview') {
+            const preview = previewAssetRoots(event)
+            previewOwner = await retainPreviewAssets(backend.connection, preview.complete ? preview : union)
+          } else await retainExecutionAssets(backend.connection, event.execution, union)
         }
         if (!current()) continue
+        if (previewOwner?.complete && event.kind === 'preview') {
+          this.previewAssetOwners.set(previewOwner, { payload: event.payload, execution: key, backend, project, generation })
+        }
         if (this.publishWorkspaceExecutionEvent(event)) onApplied?.()
         return
       }

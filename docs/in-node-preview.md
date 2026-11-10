@@ -8,6 +8,15 @@ Recorded string outputs also render automatically inside the producing node
 in the Standard view. This makes short text results visible immediately after
 execution without switching to the Data lens.
 
+Live compositor state waits for independent complete preview ownership, including
+the document digest and every external resource, before replacing the visible
+state. Hidden and unused resources remain roots. Refused or obsolete admission
+preserves the prior state. Latest stills and ring slots keep their captured owner
+while any slot still names that generation; replacement and budget eviction
+retire only that owner's exact revision on the admitting connection lifetime.
+Terminal stills remain held. Unknown structured previews stay explicitly
+incomplete and journaled; inline binary frames introduce no CAS identities.
+
 ## Source precedence
 
 The first available source wins:

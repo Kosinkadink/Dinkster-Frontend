@@ -10,6 +10,11 @@ import {
   appLayoutItemToJson,
   buildGraphConnectivity,
   canonicalJson,
+  COMPOSITOR_STATE_PREVIEW_CHANNEL,
+  compositorStateOf,
+  CURVE_HISTOGRAM_PREVIEW_CHANNEL,
+  GLSL_STATE_PREVIEW_CHANNEL,
+  glslShaderStateOf,
   documentNodeResolver,
   elabInputsOf,
   elaborateInterface,
@@ -31,6 +36,7 @@ import {
   type Diagnostic,
   type DocumentNodeResolver,
   type ExecutionRef,
+  type ExecutionEvent,
   type HistorySnapshot,
   type GraphDef,
   type InputSpec,
@@ -525,6 +531,30 @@ export async function retainExecutionAssets(
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
 ): Promise<RetainedAssets> {
   return retainAssetRoots(connection, 'shown-result', { executionKey: executionKey(ref) }, roots, storage)
+}
+
+/** Only validated preview formats certify their entire external inventory. */
+export function previewAssetRoots(event: Extract<ExecutionEvent, { readonly kind: 'preview' }>): ReturnType<typeof workflowAssetRoots> {
+  if (event.payload instanceof Blob || event.payload instanceof ArrayBuffer) return { complete: true, digests: [] }
+  if (event.channel === GLSL_STATE_PREVIEW_CHANNEL && glslShaderStateOf(event.payload) !== undefined) return { complete: true, digests: [] }
+  const histogram = event.payload['histogram']
+  if (event.channel === CURVE_HISTOGRAM_PREVIEW_CHANNEL && Object.keys(event.payload).length === 1 &&
+    Array.isArray(histogram) && histogram.length === 256 && histogram.every((value) =>
+      typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)) return { complete: true, digests: [] }
+  const state = event.channel === COMPOSITOR_STATE_PREVIEW_CHANNEL ? compositorStateOf(event.payload) : undefined
+  if (state !== undefined && canonicalJson(state.document as unknown as Json) === canonicalJson(event.payload['document'] as Json)) {
+    return { complete: true, digests: [...new Set([state.documentDigest,
+    ...Object.values(state.document.resources).filter((resource) => resource.inline === undefined)
+      .map((resource) => resource.digest)])].sort() }
+  }
+  return executionAssetRoots({ outputs: { preview: { payload: event.payload } }, artifacts: [] }, () => undefined)
+}
+
+export async function retainPreviewAssets(
+  connection: DinksterConnection,
+  roots: ReturnType<typeof workflowAssetRoots>,
+): Promise<RetainedAssets> {
+  return retainAssetRoots(connection, 'preview', { preview: true }, roots, globalThis.localStorage)
 }
 
 /** Source payload reads have independent preview ownership, not workflow roots. */
