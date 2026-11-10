@@ -215,6 +215,7 @@ import { ShellLayout } from './shell-layout.js'
 import { pollSupervisor } from './supervisor-poll.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
+import type { CatalogNode } from './node-catalog.js'
 import { activeProjectId, scopedSharedName, scopedStorageKey } from './projects.js'
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
@@ -2488,6 +2489,10 @@ export class AppState {
   readonly menuRegistry = createMenuRegistry()
   readonly searchRegistry = createSearchRegistry()
   readonly searchOpen = createSignal(false)
+  readonly searchCatalog = createSignal<readonly CatalogNode[]>([])
+  readonly nodeInstallRequest = createSignal<(CatalogNode & { readonly backendId: string }) | undefined>(undefined)
+  /** Unacknowledged mutations survive closing the prompt until the installed node is observed. */
+  readonly nodeInstallUncertain = new Map<string, string>()
   readonly templateGalleryOpen = createSignal(false)
   /** Node docs page requested by the canvas, palette, or F1 command. */
   readonly nodeHelpRequest = createSignal<NodeHelpRequest | undefined>(undefined)

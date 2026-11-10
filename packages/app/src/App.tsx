@@ -77,7 +77,8 @@ import { LearnPanel } from './help/LearnPanel.js'
 import { NodeHelpPanel } from './help/NodeHelpPanel.js'
 import { useAppMessage } from './locale.js'
 import { UniversalSearch, UniversalSearchTrigger } from './UniversalSearch.js'
-import { registerCoreSearchProviders } from './universal-search.js'
+import { bindSearchCatalog, registerCoreSearchProviders } from './universal-search.js'
+import { NodeInstallPrompt } from './NodeInstallPrompt.js'
 import { HostUiProviderHost } from './host-ui.js'
 import {
   activePanelIndicator,
@@ -479,6 +480,7 @@ export function App(props: {
   }
   const modalPanel = useSignal(app.modalPanel)
   const searchOpen = useSignal(app.searchOpen)
+  const nodeInstallRequest = useSignal(app.nodeInstallRequest)
   const placementStatus = useSignal(app.placementStatus)
   const transientStatus = useSignal(app.transientStatus)
   const detachedWorkflowIds = (): ReadonlySet<string> => new Set(managedLayout().windows.flatMap((entry) =>
@@ -1725,6 +1727,8 @@ export function App(props: {
   window.addEventListener('keydown', onCommandKeyDown)
   onCleanup(() => window.removeEventListener('keydown', onCommandKeyDown))
   const unregisterSearch = registerCoreSearchProviders(app)
+  const unbindSearchCatalog = bindSearchCatalog(app)
+  onCleanup(unbindSearchCatalog)
   onCleanup(() => unregisterSearch.forEach((dispose) => dispose()))
   const editorsTick = useSignal(app.editors.changed)
   // Keyboard traversal between editor groups, in the tree's reading order.
@@ -2651,6 +2655,7 @@ export function App(props: {
         </div>
       </header>
       <Show when={searchOpen()}><UniversalSearch app={app} /></Show>
+      <Show when={nodeInstallRequest()} keyed>{(request) => <NodeInstallPrompt app={app} request={request} />}</Show>
 
       {/* ModalHost: actuates the 'modal' placement (docs/shell.md). ONE
           modal at a time, hosted by a native <dialog> opened with

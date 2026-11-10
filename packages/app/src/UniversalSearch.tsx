@@ -4,7 +4,9 @@ import Search from 'lucide-solid/icons/search'
 import type { AppState } from './app-state.js'
 import { Icon } from './Icon.js'
 import { SearchInput, SearchResultGroup, SearchResultRow, SearchState } from './SearchSurface.js'
-import { recordSearchRecent, runSearchAction, searchRecents } from './universal-search.js'
+import { recordSearchRecent, runSearchAction, searchNodeSchema, searchRecents } from './universal-search.js'
+import { SchemaPreview } from './SchemaPreview.js'
+import { useSignal } from './solid-adapter.js'
 
 type VisibleSearchRow =
   | { readonly kind: 'result'; readonly group: SearchGroup; readonly item: SearchResult }
@@ -25,6 +27,7 @@ export function UniversalSearchTrigger(props: { readonly shortcut?: string | und
 }
 
 export function UniversalSearch(props: { app: AppState }) {
+  const catalog = useSignal(props.app.searchCatalog)
   const [query, setQuery] = createSignal(''); const [groups, setGroups] = createSignal<readonly SearchGroup[]>([])
   const [selected, setSelected] = createSignal<string>(); const [expanded, setExpanded] = createSignal<ReadonlySet<string>>(new Set())
   const [activating, setActivating] = createSignal(false)
@@ -110,7 +113,7 @@ export function UniversalSearch(props: { app: AppState }) {
     const action = row.item.action.kind === 'host' ? decodeSearchHostAction(row.item.action) : row.item.action
     if (action === undefined) return
     const opensModal = action.kind === 'host'
-      && (action.action === 'settings.open' || action.action === 'command.run')
+      && (action.action === 'settings.open' || action.action === 'command.run' || action.action === 'node.previewInstall')
     if (opensModal) {
       const command = action.action === 'command.run' ? props.app.commands.get(action.params.id) : undefined
       if (action.action === 'command.run' && (!command || command.enabled?.() === false)) return
@@ -292,6 +295,9 @@ export function UniversalSearch(props: { app: AppState }) {
           <Show when={activeResult()?.item.preview}>{(preview) =>
             <aside id={previewId} class="search-result-preview" data-testid="search-result-preview" aria-labelledby={previewHeadingId}>
               <h2 id={previewHeadingId}>{preview().title ?? activeResult()?.item.title}</h2>
+              <Show when={(() => { catalog(); const row = activeResult(); return row === undefined ? undefined : searchNodeSchema(props.app, row.item.action) })()}>{(schema) =>
+                <SchemaPreview schema={schema()} widgets={props.app.widgetRegistryForTab(props.app.activeTab())} />
+              }</Show>
               <div id={previewContentId}>
                 <Show when={preview().description}>{(description) => <p>{description()}</p>}</Show>
                 <Show when={(preview().fields?.length ?? 0) > 0}>

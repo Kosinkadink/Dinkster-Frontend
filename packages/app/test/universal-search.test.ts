@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import type { DinksterNodesPayload, SearchResult } from '@dinkster/core'
+import { parseDinksterSchema, type DinksterNodesPayload, type SearchResult } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { KeybindingRegistry, SettingsRegistry } from '../src/settings.js'
@@ -57,6 +57,10 @@ describe('universal search model', () => {
     expect(app.keybindings.combo('search.open')).toBe('ctrl+k')
     app.keybindings.set('search.open', 'Alt+K')
     expect(app.keybindings.combo('search.open')).toBe('alt+k')
+  })
+  it('defaults external node discovery to the published static prefix', () => {
+    const app = new AppState()
+    expect(app.settings.get('search.registryUrl')).toBe('https://registry.dinkster.org/static')
   })
   it('commands provider displays the effective shortcut including overrides', () => {
     const app = new AppState(); app.keybindings.set('search.open', 'Alt+K')
@@ -235,5 +239,34 @@ describe('universal search model', () => {
     expect(armNodePlacement).not.toHaveBeenCalled()
     expect(app.settingsOpenRequest.get()).toBe(initialRequest)
     expect(app.modalPanel.get()).toBe(initialModal)
+  })
+  it('searches preview-only catalog nodes, rejects stale actions, and gives installed schemas precedence', () => {
+    const app = new AppState()
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, { schemaVersion: 1, nodes: {}, packs: {} }))
+    const armNodePlacement = vi.fn(() => true)
+    app.canvasBridge.set({ armNodePlacement } as never)
+    const schema = parseDinksterSchema('image.resize', { schemaVersion: 1, interface: [], displayName: 'Resize', searchTerms: ['resample'], pack: 'image-tools' }).schema!
+    const pack = { name: 'image-tools', publisher: 'dinkster' as const, version: '1.10.0', displayName: 'Image Tools', platforms: ['linux'], url: '', digest: '' }
+    const dispose = registerCoreSearchProviders(app)
+    const query = () => app.searchRegistry.list().find((provider) => provider.id === 'core.nodes')!.query('resample', { selection: { nodes: [] }, signal: new AbortController().signal }) as readonly SearchResult[]
+    expect(query()).toEqual([])
+    app.searchCatalog.set([{ schema, pack }])
+    const row = query()[0]!
+    expect(row.detail).toContain('Image Tools - Not installed')
+    expect(backend.registry.get()!.resolve(schema.type)).toBeUndefined()
+    expect(runSearchAction(app, row.action)).toBe(true)
+    expect(app.nodeInstallRequest.get()?.pack.name).toBe('image-tools')
+    expect(armNodePlacement).not.toHaveBeenCalled()
+    app.nodeInstallRequest.set(undefined)
+    app.searchCatalog.set([{ pack, schema: { ...schema, displayName: 'Changed' } }])
+    expect(runSearchAction(app, row.action)).toBe(false)
+    app.searchCatalog.set([{ schema, pack }])
+    app.registerSchemas([schema])
+    expect(query()).toHaveLength(1)
+    expect(query()[0]!.action).toMatchObject({ action: 'node.armPlacement' })
+    expect(query()[0]!.detail).not.toContain('Not installed')
+    expect(runSearchAction(app, row.action)).toBe(false)
+    dispose.forEach((fn) => fn())
   })
 })

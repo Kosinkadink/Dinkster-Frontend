@@ -72,6 +72,9 @@ the explicit HTTP confirmation flow. A response with both execution modes,
 neither mode, or malformed commands is rejected. The `plan` member is an opaque
 JSON object owned by the host; the renderer does not interpret that payload,
 execute terminal commands, or send the plan back for execution.
+Both methods accept an optional AbortSignal. Planning has the ordinary
+30-second metadata deadline. Cancelling an apply stops the caller's wait,
+not the backend mutation; its outcome requires installed-catalog reconciliation.
 Applying never retries automatically: a transport failure may have happened
 after the host changed its installation. HTTP failures retain their status and
 structured body as `PackInstallError`; absent opt-in routes remain unavailable.
