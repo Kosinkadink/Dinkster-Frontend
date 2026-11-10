@@ -1097,6 +1097,16 @@ describe('compile and registry routing', () => {
 })
 
 describe('execution output routing', () => {
+  it('refuses malformed or opaque model byte inventories without admitting a reader', () => {
+    const backend = addOffline('http://model-owner:8188')
+    const ref = foreignRun(String(backend.id), 'invalid-model-reader')
+    const digest = `blake3:${'a'.repeat(64)}`
+    for (const asset of [{ digest: 'blake3:bad' }, { digest, hidden: { digest: `blake3:${'b'.repeat(64)}` } },
+      { verification: 'unverified', localBinding: 'local-grant' }]) {
+      expect(app.file3dAssetReaderForExecution(ref, [asset])).toBeUndefined()
+    }
+  })
+
   it.each(['live', 'removed', 'replaced', 'disposed'] as const)('keeps model resources admitted through the %s viewer lifetime', async (mode) => {
     const backend = addOffline('http://model-owner:8188')
     const ref = foreignRun(String(backend.id), 'model-viewer')
@@ -1119,7 +1129,7 @@ describe('execution output routing', () => {
       .then((result) => { settled = true; return result }, () => { settled = true; return 'refused' })
     try {
       await vi.waitFor(() => expect(retain).toHaveBeenCalledOnce())
-      expect(retain.mock.calls[0]![1]).toEqual({ revision: 0, complete: false, digests })
+      expect(retain.mock.calls[0]![1]).toEqual({ revision: 0, complete: true, digests })
       expect(entered).toBe(false)
       admit()
       await vi.waitFor(() => expect(entered).toBe(true))
@@ -1159,8 +1169,8 @@ describe('execution output routing', () => {
       try {
         await vi.waitFor(() => expect(retain).toHaveBeenCalledOnce())
         expect(retain.mock.calls[0]).toEqual([
-          expect.objectContaining({ scope: 'local', ownerKind: 'shown-result' }),
-          { revision: 0, complete: false, digests: [digest] },
+          expect.objectContaining({ scope: 'local', ownerKind: 'preview' }),
+          { revision: 0, complete: true, digests: [digest] },
         ])
         expect(fetch).not.toHaveBeenCalled()
         expect(settled).toBe(false)

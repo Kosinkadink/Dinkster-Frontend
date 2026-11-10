@@ -73,6 +73,9 @@ thumbnails likewise register their selected bytes; opaque source-document reads
 remain incomplete until the parsed document has its own admission. Closing a
 viewer, evicting decoded pixels, or unmounting a renderer does not release durable
 ownership. Prior acknowledged generations stay protected through replacements.
+Captured model-byte readers accept canonical digest-only identities as well as
+full resource references; presentation metadata is not needed to protect bytes.
+Malformed digests and opaque resource fields cannot certify a complete inventory.
 
 ## Video inspection
 

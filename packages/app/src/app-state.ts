@@ -5222,7 +5222,9 @@ export class AppState {
         generation === this.assetConnectionGenerations.get(backend.connection)
     }
     if (!current()) return undefined
-    if (!assets.every((asset) => validFile3dAsset(asset) && asset.verification !== 'unverified')) return undefined
+    if (!assets.every((asset) => asset.verification !== 'unverified' &&
+      (validFile3dAsset(asset) || (Object.keys(asset).length === 1 && typeof asset.digest === 'string' &&
+        /^blake3:[0-9a-f]{64}$/.test(asset.digest))))) return undefined
     const roots = { complete: true, digests: [...new Set(assets.map((asset) => asset.digest as string))].sort() }
     let admission: Promise<RetainedAssetReader> | undefined
     return {
