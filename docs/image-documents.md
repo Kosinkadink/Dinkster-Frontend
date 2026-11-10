@@ -348,9 +348,23 @@ policy guards initial construction and local commits. Ordered remote ingest,
 starting catch-up or resync, disconnect, close, history clearing, and intervening local commits
 invalidate previously prepared candidates. A refused or stale history replay
 leaves its history record intact; synchronous undo/redo still reports replay
-conflicts. This policy does not guard remote
-publication or perform backend admission; the workspace does not yet use it
-for shared ownership. Shared retained digests remain conservative.
+conflicts. This synchronous policy guards local changes, not remote publication.
+
+An optional asynchronous `beforeRemoteDocument` hook guards shared initial,
+ordered-operation, rebase, and resync publication. Callers supplying it must use
+`connectSharedImageDocumentSession`; direct construction cannot bypass initial
+admission. The hook receives the proposed optimistic document, server revision,
+current document, complete conservative external inventory, and immutable
+confirmed/current/intermediate snapshots. Rebase planning copies pending edits
+and history without changing live state. Signals, operations, history changes,
+and confirmed ground publish only after admission and a current-generation
+check. Concurrent local changes require a fresh proposal and admission; a
+refused admission or changed connection preserves the last published state.
+Closing prevents pending admissions from publishing. Events received during
+initial admission are caught up through the same boundary. The hook itself
+does not acquire or release backend owners; shared workspace ownership is not
+established until the caller supplies that admission. Retained digests remain
+conservative.
 
 The workspace waits for backend admission before exposing a recovered or
 imported local session. External rasters are verified against staged bytes and

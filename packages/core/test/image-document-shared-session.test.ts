@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   COLLAB_PROTOCOL_VERSION,
   IMAGE_DOCUMENT_FORMAT_VERSION,
@@ -161,6 +161,311 @@ async function settle(...sessions: SharedImageDocumentSession[]): Promise<void> 
 }
 
 describe('SharedImageDocumentSession', () => {
+  it.each(['admit', 'refuse', 'disconnect'] as const)('waits for initial remote admission: %s', async (outcome) => {
+    const server = new FakeServer()
+    const connection = server.connect()
+    let complete!: () => void
+    const gate = new Promise<void>((resolve) => { complete = resolve })
+    let proposed: ImageDocument | undefined
+    let exposed = false
+    const options = { beforeRemoteDocument: async (document: ImageDocument, revision: number,
+      current: ImageDocument, digests: readonly string[]) => {
+      expect(revision).toBe(0)
+      expect(current).toBe(document)
+      expect(digests).toEqual([DIGEST_A])
+      proposed = document
+      await gate
+      if (outcome === 'refuse') throw new Error('Ownership refused')
+    } }
+    expect(() => new SharedImageDocumentSession(connection, server.document, 0, options))
+      .toThrow('requires connectSharedImageDocumentSession')
+    const pending = connectSharedImageDocumentSession(connection, server.descriptor, options)
+      .then((session) => { exposed = true; return session })
+    await vi.waitFor(() => expect(proposed).toBeDefined())
+    expect(exposed).toBe(false)
+    if (outcome === 'disconnect') connection.emit({ kind: 'disconnected' })
+    complete()
+    if (outcome === 'admit') {
+      const session = await pending
+      expect(session.doc).toEqual(proposed)
+      session.close()
+    } else {
+      await expect(pending).rejects.toThrow(outcome === 'refuse' ? 'Ownership refused' : 'connection changed')
+    }
+    expect(server.log).toEqual([])
+  })
+
+  it('catches up operations announced during initial admission', async () => {
+    const server = new FakeServer()
+    let complete!: () => void
+    const gate = new Promise<void>((resolve) => { complete = resolve })
+    const revisions: number[] = []
+    const pending = connectSharedImageDocumentSession(server.connect(), server.descriptor, {
+      beforeRemoteDocument: async (_document, revision) => {
+        revisions.push(revision)
+        if (revision === 0) await gate
+      },
+    })
+    await vi.waitFor(() => expect(revisions).toEqual([0]))
+    const remote = await connectSharedImageDocumentSession(server.connect(), server.descriptor)
+    remote.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'During admission' } })
+    await remote.settle()
+    complete()
+    const session = await pending
+    await session.settle()
+    expect(revisions).toEqual([0, 1])
+    expect(session.doc.layers['l1']?.name).toBe('During admission')
+    expect(session.revision).toBe(1)
+    session.close()
+    remote.close()
+  })
+
+  it('admits ordered remote documents before signals and operations', async () => {
+    const server = new FakeServer()
+    let complete!: () => void
+    const gate = new Promise<void>((resolve) => { complete = resolve })
+    const proposals: number[] = []
+    const session = await connectSharedImageDocumentSession(server.connect(), server.descriptor, {
+      beforeRemoteDocument: async (_document, revision) => {
+        proposals.push(revision)
+        if (revision === 1) await gate
+      },
+    })
+    const current = session.doc
+    const visible: ImageDocument[] = []
+    const operations: number[] = []
+    session.document.subscribe((document) => visible.push(document))
+    session.onOp((operation) => operations.push(operation.revision))
+    const remote = await connectSharedImageDocumentSession(server.connect(), server.descriptor)
+    remote.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'Remote' } })
+    await remote.settle()
+    remote.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', opacity: 23_456 } })
+    await remote.settle()
+    await vi.waitFor(() => expect(proposals).toEqual([0, 1]))
+    expect(session.doc).toBe(current)
+    expect(session.revision).toBe(0)
+    expect(visible).toEqual([])
+    expect(operations).toEqual([])
+    complete()
+    await session.settle()
+    expect(proposals).toEqual([0, 1, 2])
+    expect(operations).toEqual([1, 2])
+    expect(visible.map((document) => document.layers['l1'])).toMatchObject([
+      { name: 'Remote', opacity: IMAGE_OPACITY_MAX }, { name: 'Remote', opacity: 23_456 },
+    ])
+    expect(session.doc).toEqual(server.document)
+    session.close()
+    remote.close()
+  })
+
+  it.each(['refuse', 'close', 'disconnect'] as const)('preserves published state on remote admission %s', async (outcome) => {
+    const server = new FakeServer()
+    const connection = server.connect()
+    let complete!: () => void
+    const gate = new Promise<void>((resolve) => { complete = resolve })
+    let waiting = false
+    const session = await connectSharedImageDocumentSession(connection, server.descriptor, {
+      beforeRemoteDocument: async (_document, revision) => {
+        if (revision === 0) return
+        waiting = true
+        await gate
+        if (outcome === 'refuse') throw new Error('Ownership refused')
+      },
+    })
+    const current = session.doc
+    const visible: ImageDocument[] = []
+    session.document.subscribe((document) => visible.push(document))
+    const remote = await connectSharedImageDocumentSession(server.connect(), server.descriptor)
+    remote.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'Remote' } })
+    await remote.settle()
+    await vi.waitFor(() => expect(waiting).toBe(true))
+    if (outcome === 'close') session.close()
+    if (outcome === 'disconnect') connection.emit({ kind: 'disconnected' })
+    complete()
+    await session.settle()
+    expect(session.status.get()).toBe(outcome === 'close' ? 'closed' : 'error')
+    expect(session.doc).toBe(current)
+    expect(session.revision).toBe(0)
+    expect(visible).toEqual([])
+    session.close()
+    remote.close()
+  })
+
+  it('discards a superseded ordered admission before publishing the replacement snapshot', async () => {
+    const server = new FakeServer()
+    const connection = server.connect()
+    let complete!: () => void
+    const gate = new Promise<void>((resolve) => { complete = resolve })
+    const revisions: number[] = []
+    const session = await connectSharedImageDocumentSession(connection, server.descriptor, {
+      beforeRemoteDocument: async (_document, revision) => {
+        revisions.push(revision)
+        if (revision === 1) await gate
+      },
+    })
+    const names: string[] = []
+    session.document.subscribe((document) => names.push(document.layers['l1']!.name))
+    const remote = await connectSharedImageDocumentSession(server.connect(), server.descriptor)
+    remote.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'Superseded' } })
+    await remote.settle()
+    await vi.waitFor(() => expect(revisions).toEqual([0, 1]))
+    connection.fetchSnapshot = async () => ({ revision: 2, document: {
+      ...server.document, layers: { ...server.document.layers, l1: { ...server.document.layers['l1']!, name: 'Replacement' } },
+    } })
+    connection.emit({ kind: 'op', op: {
+      actorId: 'remote', opId: 'invalid', baseRevision: 0, revision: -1, patch: [], timestamp: 1,
+    } })
+    complete()
+    await session.settle()
+    expect(revisions).toEqual([0, 1, 2])
+    expect(names).toEqual(['Replacement'])
+    expect(session.revision).toBe(2)
+    session.close()
+    remote.close()
+  })
+
+  it('does not admit a page fetched across a disconnect and reconnect', async () => {
+    const server = new FakeServer()
+    const connection = server.connect()
+    let complete!: () => void
+    const gate = new Promise<void>((resolve) => { complete = resolve })
+    let fetching = false
+    connection.fetchOps = async (after) => {
+      fetching = true
+      await gate
+      return { kind: 'ops', ops: server.log.filter((operation) => operation.revision > after) }
+    }
+    const revisions: number[] = []
+    const session = await connectSharedImageDocumentSession(connection, server.descriptor, {
+      beforeRemoteDocument: async (_document, revision) => { revisions.push(revision) },
+    })
+    const current = session.doc
+    const remote = await connectSharedImageDocumentSession(server.connect(), server.descriptor)
+    remote.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'Old connection' } })
+    await remote.settle()
+    await vi.waitFor(() => expect(fetching).toBe(true))
+    connection.emit({ kind: 'disconnected' })
+    connection.emit({ kind: 'connected', descriptor: server.descriptor })
+    complete()
+    await session.settle()
+    expect(session.status.get()).toBe('error')
+    expect(session.doc).toBe(current)
+    expect(session.revision).toBe(0)
+    expect(revisions).toEqual([0])
+    session.close()
+    remote.close()
+  })
+
+  it('re-admits rebased pending edits when local state changes during remote admission', async () => {
+    const server = new FakeServer()
+    const connection = server.connect()
+    let finishPost!: (outcome: PostOpOutcome) => void
+    connection.postOp = async () => new Promise((resolve) => { finishPost = resolve })
+    let complete!: () => void
+    const gate = new Promise<void>((resolve) => { complete = resolve })
+    const proposals: { name: string; opacity: number; digests: readonly string[] }[] = []
+    const session = await connectSharedImageDocumentSession(connection, server.descriptor, {
+      beforeRemoteDocument: async (document, revision, _current, digests, retained) => {
+        if (revision === 0) return
+        expect(retained.some((snapshot) => snapshot.layers['l1']?.name === 'Remote')).toBe(true)
+        proposals.push({ name: document.layers['l1']!.name, opacity: document.layers['l1']!.opacity, digests })
+        await gate
+      },
+    })
+    session.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', opacity: 12_345 } })
+    await Promise.resolve()
+    const remote = await connectSharedImageDocumentSession(server.connect(), server.descriptor)
+    remote.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'Remote' } })
+    await remote.settle()
+    await vi.waitFor(() => expect(proposals).toHaveLength(1))
+    const undoBefore = session.prepareUndo()
+    expect(undoBefore.ok && undoBefore.document.layers['l1']?.opacity).toBe(IMAGE_OPACITY_MAX)
+    session.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', opacity: 34_567 } })
+    expect(session.doc.layers['l1']?.name).toBe('Pixels')
+    complete()
+    await vi.waitFor(() => expect(session.status.get()).toBe('live'))
+    expect(proposals).toEqual([
+      { name: 'Remote', opacity: 12_345, digests: [DIGEST_A] },
+      { name: 'Remote', opacity: 34_567, digests: [DIGEST_A] },
+    ])
+    expect(session.doc.layers['l1']).toMatchObject({ name: 'Remote', opacity: 34_567 })
+    const undo = session.prepareUndo()
+    expect(undo.ok && undo.document.layers['l1']).toMatchObject({ name: 'Remote', opacity: 12_345 })
+    session.close()
+    finishPost({ kind: 'error', message: 'Closed' })
+    await session.settle()
+    remote.close()
+  })
+
+  it('admits unused remote resources while keeping earlier holders in the inventory', async () => {
+    const server = new FakeServer()
+    const actual: string[][] = []
+    const session = await connectSharedImageDocumentSession(server.connect(), server.descriptor, {
+      beforeRemoteDocument: async (document, revision, current, digests, retained) => {
+        actual.push([...digests])
+        if (revision === 0) return
+        expect(current.resources['r2']).toBeUndefined()
+        expect(document.resources['r2']?.digest).toBe(DIGEST_B)
+        expect(document.layers['l1']).toMatchObject({ kind: 'raster', resourceId: 'r0' })
+        expect(retained.some((snapshot) => snapshot === current)).toBe(true)
+        expect(Object.isFrozen(document.resources['r2'])).toBe(true)
+      },
+    })
+    await server.post({ protocolVersion: COLLAB_PROTOCOL_VERSION, opId: 'unused', actorId: 'remote', baseRevision: 0, patch: [
+      { op: 'add', path: ['resources', 'r2'], value: { ...server.document.resources['r0']!, id: 'r2', digest: DIGEST_B } },
+      { op: 'replace', path: ['allocation', 'nextOrdinal'], value: 3 },
+    ] })
+    await session.settle()
+    expect(actual).toEqual([[DIGEST_A], [DIGEST_A, DIGEST_B]])
+    expect(session.retainedResourceDigests()).toEqual(new Set([DIGEST_A, DIGEST_B]))
+    session.close()
+  })
+
+  it.each(['admit', 'refuse'] as const)('preserves snapshot history until admission: %s', async (outcome) => {
+    const server = new FakeServer()
+    const connection = server.connect()
+    let complete!: () => void
+    const gate = new Promise<void>((resolve) => { complete = resolve })
+    let waiting = false
+    const session = await connectSharedImageDocumentSession(connection, server.descriptor, {
+      beforeRemoteDocument: async (_document, revision) => {
+        if (revision < 2) return
+        waiting = true
+        await gate
+        if (outcome === 'refuse') throw new Error('Snapshot ownership refused')
+      },
+    })
+    session.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'Local' } })
+    await session.settle()
+    const current = session.doc
+    const revision = session.revision
+    connection.fetchOps = async () => ({ kind: 'resync-required', snapshotRevision: 2 })
+    connection.fetchSnapshot = async () => ({ revision: 2, document: {
+      ...server.document, canvas: { ...server.document.canvas, width: 13 },
+    } })
+    connection.emit({ kind: 'op', op: {
+      actorId: 'remote', opId: 'gap', baseRevision: 1, revision: 2, patch: [], timestamp: 1,
+    } })
+    await vi.waitFor(() => expect(waiting).toBe(true))
+    expect(session.doc).toBe(current)
+    expect(session.revision).toBe(revision)
+    expect(session.canUndo).toBe(true)
+    complete()
+    await session.settle()
+    if (outcome === 'refuse') {
+      expect(session.status.get()).toBe('error')
+      expect(session.doc).toBe(current)
+      expect(session.revision).toBe(revision)
+      expect(session.canUndo).toBe(true)
+    } else {
+      expect(session.status.get()).toBe('live')
+      expect(session.doc.canvas.width).toBe(13)
+      expect(session.revision).toBe(2)
+      expect(session.canUndo).toBe(false)
+    }
+    session.close()
+  })
+
   it.each(['dispatch', 'undo', 'redo'] as const)('prepares %s without publication and admits it once', async (kind) => {
     const server = new FakeServer()
     let allowed = true
