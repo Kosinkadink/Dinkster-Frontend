@@ -741,6 +741,7 @@ describe('Tab editorKind', () => {
       tabs: { editorKind?: string }[]
     }
     raw.tabs[0]!.editorKind = 'compositor' // e.g. from an unloaded extension
+    g.localStorage = makeStorage()
     globalThis.localStorage!.setItem(TABS_KEY, JSON.stringify(raw))
     // The shell renders its "No editor registered" fallback for this kind;
     // the user's choice survives until the kind's provider returns.

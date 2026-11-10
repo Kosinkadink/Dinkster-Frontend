@@ -86,9 +86,9 @@ describe('open-tab persistence', () => {
       const app = createEditableApp()
       expect(app.tabs.get()).toHaveLength(1)
       expect(app.activeTab()!.store.doc).toEqual(newest)
-      // Compaction may retire workspace candidates before the network responds.
+      // Incomplete canonical ownership cannot retire a losing recovery source.
       flush()
-      expect(localStorage.getItem('dinkster.openTabsCandidate.peer')).toBeNull()
+      expect(localStorage.getItem('dinkster.openTabsCandidate.peer')).not.toBeNull()
       if (scenario.startsWith('targeted')) {
         const backend = app.addBackend('http://other.test', 'Other', false, 'dinkster')!
         vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
@@ -201,7 +201,10 @@ describe('open-tab persistence', () => {
     g.localStorage!.setItem(TABS_KEY, JSON.stringify(newer))
     enterLock!()
     await vi.waitFor(() => expect(request).toHaveReturned())
-    expect(JSON.parse(g.localStorage!.getItem(TABS_KEY)!)).toEqual(newer)
+    const { assetRetention: _assetRetention, ...expected } = newer as Record<string, unknown>
+    const { assetRetention: retention, ...actual } = JSON.parse(g.localStorage!.getItem(TABS_KEY)!)
+    expect(actual).toEqual(expected)
+    expect(retention).toEqual({ stageId: expect.any(String), acknowledged: false })
     seed.dispose()
     stale.dispose()
   })
@@ -419,6 +422,7 @@ describe('open-tab persistence', () => {
       .graphViewports[basic.store.doc.root]!.scale = MIN_SCALE / 2
     stored.tabs.find((tab) => tab.doc.lineage === subgraph.id)!.viewState!
       .graphViewports[subgraphRoot]!.scale = MAX_SCALE * 2
+    g.localStorage = fakeStorage()
     g.localStorage!.setItem(TABS_KEY, JSON.stringify(stored))
 
     const restored = prepareWorkflowApp(new AppState())
@@ -473,6 +477,7 @@ describe('open-tab persistence', () => {
       tabs: { title: string; doc: unknown }[]
     }
     raw.tabs[0]!.doc = { format: 'not-a-workflow' }
+    g.localStorage = fakeStorage()
     g.localStorage!.setItem(TABS_KEY, JSON.stringify(raw))
 
     const second = prepareWorkflowApp(new AppState())
@@ -614,9 +619,12 @@ describe('open-tab persistence', () => {
     expect(persistedTab.doc.graphs[persistedTab.doc.root]!.name).toBe('later-A')
     expect(persistedTab.documentRevision).toBe(1)
     expect(JSON.parse(g.localStorage!.getItem(key)!)).toEqual(candidate('later-A', 'stage-A'))
-    expect([...Array(g.localStorage!.length).keys()]
+    const candidates = [...Array(g.localStorage!.length).keys()]
       .map((index) => g.localStorage!.key(index))
-      .filter((key) => key?.startsWith('dinkster.openTabsCandidate.'))).toEqual([])
+      .filter((key) => key?.startsWith('dinkster.openTabsCandidate.'))
+    expect(candidates).toHaveLength(2)
+    for (const candidate of candidates) expect(JSON.parse(g.localStorage!.getItem(candidate!)!).assetRetention)
+      .toEqual({ stageId: expect.any(String), acknowledged: false })
     seed.dispose()
     restored.dispose()
   })
@@ -695,6 +703,7 @@ describe('open-tab persistence', () => {
     }
     // Corrupt/hand-edited snapshot: the Basic document appears twice.
     raw.tabs.push({ title: 'Basic (duplicate)', doc: raw.tabs[0]!.doc })
+    g.localStorage = fakeStorage()
     g.localStorage!.setItem(TABS_KEY, JSON.stringify(raw))
 
     const second = prepareWorkflowApp(new AppState())

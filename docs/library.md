@@ -48,6 +48,16 @@ storage recovery does not require a SharedWorker reconnect. A
 reconnect admits fresh owners instead of trusting stored receipt metadata.
 Journal removal, disconnect and application exit do not release these owners.
 
+Canonical workspace snapshots, each window's recovery candidate, and each
+document's recovery slot also admit separate owners for their exact saved
+documents, without undo/redo roots belonging only to the live editor. Recovery
+bytes are written synchronously, explicitly unacknowledged until admission
+settles. A changed slot or catalog cannot inherit a stale acknowledgment.
+Only a complete acknowledgment for the current canonical generation permits
+removing unchanged covered workspace candidates and operation entries. Network
+admission does not hold the cross-window persistence lock. Removing a source
+does not itself release its durable owners.
+
 Host-owned source controls, search labels, detail headings, confirmations, and
 loading, failure, and empty-state copy follow the active application locale and
 update while the Library remains open. Backend labels and status, protocol

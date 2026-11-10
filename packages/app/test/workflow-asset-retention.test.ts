@@ -1298,6 +1298,103 @@ describe('retained app dispatch', () => {
     },
   )
 
+  it.each(['acknowledged', 'lost', 'replaced', 'registry', 'incomplete', 'locked-cleanup'] as const)(
+    'admits independent durable snapshot slots without acknowledging stale content: %s', async (scenario) => {
+      vi.useFakeTimers()
+      try {
+        vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+        app = createWorkflowApp([schema])
+        const document = { ...session().doc, ...(scenario === 'incomplete' ? { ext: { unknown: {} } } : {}) }
+        expect(await app.openDocument(document, 'Snapshots')).toEqual([])
+        expect((await app.dispatchRetainedTo(app.activeTab()!, replace('b'))).ok).toBe(true)
+        const requests: { receipt: RetainedAssets; response: ReturnType<typeof deferred<void>> }[] = []
+        const owners = new Map<string, RetainedAssets>()
+        vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+          const receipt = { ...owner, ...declaration, revision: 1 }
+          const response = deferred<void>()
+          requests.push({ receipt, response })
+          await response.promise
+          owners.set(owner.ownerId, receipt)
+          if (scenario === 'lost') throw new Error('lost acknowledgment')
+          return receipt
+        })
+        vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+        const peerKey = scopedStorageKey('dinkster.openTabsCandidate.peer')
+        const peer = JSON.stringify({ v: 1, active: document.lineage, tabs: [{ title: 'Peer', doc: app.activeTab()!.store.doc }] })
+        localStorage.setItem(peerKey, peer)
+        let cleanup: (() => void) | undefined
+        let locked = false
+        vi.stubGlobal('navigator', { locks: {
+          request: async (_name: string, _options: unknown, callback: () => void) => {
+            if (locked) cleanup = callback
+            else { locked = true; callback() }
+          },
+        } })
+        app.flushPersistTabs(true)
+        const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+          .filter((key) => key !== peerKey && (key === scopedStorageKey('dinkster.openTabs') ||
+            key.startsWith(scopedStorageKey('dinkster.openTabsCandidate.')) ||
+            key.startsWith(scopedStorageKey('dinkster.openTabsDocumentCandidate.'))))
+        expect(keys).toHaveLength(3)
+        expect(localStorage.getItem(peerKey)).toBe(peer)
+        const firstRequests = [...requests]
+        const staged = keys.map((key) => localStorage.getItem(key)!)
+        for (const raw of staged) expect(JSON.parse(raw).assetRetention)
+          .toEqual({ stageId: expect.any(String), acknowledged: false })
+        if (scenario === 'registry') app.registry.set({ ...app.registry.get()!, hash: 'replacement' })
+        if (scenario === 'replaced') {
+          const replacement = staged.map((raw) => raw.replaceAll(asset('b').digest, asset('c').digest))
+          keys.forEach((key, index) => localStorage.setItem(key, replacement[index]!))
+          expect(replacement).not.toEqual(staged)
+          for (const request of firstRequests) request.response.resolve()
+          await vi.advanceTimersByTimeAsync(0)
+          expect(keys.map((key) => localStorage.getItem(key)!)).toEqual(replacement)
+          expect(localStorage.getItem(peerKey)).toBe(peer)
+          return
+        }
+        for (const request of requests) request.response.resolve()
+        await vi.advanceTimersByTimeAsync(0)
+        if (scenario === 'registry') {
+          expect(keys.map((key) => localStorage.getItem(key)!)).toEqual(staged)
+          expect(localStorage.getItem(peerKey)).toBe(peer)
+          return
+        }
+        if (scenario === 'locked-cleanup') {
+          expect(cleanup).toBeDefined()
+          expect(localStorage.getItem(peerKey)).toBe(peer)
+          const canonicalKey = scopedStorageKey('dinkster.openTabs')
+          const changed = localStorage.getItem(canonicalKey)!.replaceAll(asset('b').digest, asset('c').digest)
+          localStorage.setItem(canonicalKey, changed)
+          cleanup!()
+          expect(localStorage.getItem(peerKey)).toBe(peer)
+          expect(localStorage.getItem(canonicalKey)).toBe(changed)
+          return
+        }
+        const receipts: RetainedAssets[] = []
+        for (const key of keys) {
+          const snapshot = JSON.parse(localStorage.getItem(key)!)
+          expect(snapshot.assetRetention).toMatchObject({ acknowledged: true, complete: scenario !== 'incomplete' })
+          const saved = snapshot.tab ?? snapshot.tabs.find((tab: { doc: WorkflowDocument }) => tab.doc.lineage === document.lineage)
+          expect(saved.doc.graphs.g0.nodes.n0.values.files).toEqual([asset('b')])
+          const receipt = snapshot.assetRetention.owners.find((owner: { documentLineage: string }) =>
+            owner.documentLineage === document.lineage).retained as RetainedAssets
+          expect(receipt.digests).toEqual([asset('b').digest])
+          expect(receipt.complete).toBe(scenario !== 'incomplete')
+          const intent = JSON.parse(localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${receipt.ownerId}`))!)
+          expect(intent).toMatchObject({ documentLineage: document.lineage, acknowledgedRevision: 1,
+            digests: [asset('b').digest], complete: scenario !== 'incomplete' })
+          receipts.push(receipt)
+        }
+        expect(new Set(receipts.map((receipt) => receipt.ownerId)).size).toBe(3)
+        expect(cleanup).toBeDefined()
+        cleanup!()
+        expect(localStorage.getItem(peerKey)).toBe(scenario === 'incomplete' ? peer : null)
+        const ownCandidate = keys.find((key) => key.startsWith(scopedStorageKey('dinkster.openTabsCandidate.')))!
+        expect(localStorage.getItem(ownCandidate) === null).toBe(scenario !== 'incomplete')
+      } finally { vi.useRealTimers() }
+    },
+  )
+
   it.each(['canonical', 'workspace', 'document', 'operation', 'corrupt', 'filtered-tab', 'unknown', 'unreadable',
     'lost-key', 'locked-commit', 'lost-release', 'disconnected', 'replaced'] as const)('keeps durable snapshot roots until their source retires: %s', async (scenario) => {
     vi.useFakeTimers()
@@ -1662,7 +1759,8 @@ describe('retained app dispatch', () => {
     const persisted = JSON.parse(localStorage.getItem(scopedStorageKey('dinkster.openTabs'))!)
     expect(persisted.tabs.find((entry: { doc: WorkflowDocument }) => entry.doc.lineage === original.lineage)
       .doc.graphs.g0.nodes.n0.values.files).toEqual([asset('a')])
-    expect(app.connection.retainAssets).not.toHaveBeenCalled()
+    expect(vi.mocked(app.connection.retainAssets).mock.calls.flatMap(([, declaration]) => declaration.digests))
+      .not.toContain(asset('b').digest)
     expect((await app.dispatchTo(tab, replace('b'))).ok).toBe(true)
     expect(tab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
     expect(tab.store.undo()).toBe(true)
@@ -2029,7 +2127,8 @@ describe('retained workflow opens', () => {
       const accepted = scenario === 'accepted' || scenario === 'unknown-schema' || scenario === 'retired'
       expect(await opening).toBe(accepted)
       expect(app.tabs.get().some((tab) => tab.execution)).toBe(accepted)
-      expect(app.connection.retainAssets).not.toHaveBeenCalled()
+      expect(vi.mocked(app.connection.retainAssets).mock.calls.flatMap(([, declaration]) => declaration.digests))
+        .not.toContain(asset('a').digest)
       if (accepted) {
         expect(app.activeTab()!.store.doc).toEqual(compiled.artifact.snapshot)
         expect(app.activeTab()!.execution).toEqual(ref)
