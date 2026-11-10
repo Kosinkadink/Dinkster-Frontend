@@ -154,7 +154,7 @@ export const test = nativeTest.extend({
       localStorage.setItem('dinkster.openTabs', JSON.stringify({
         v: 1,
         active: basic.lineage,
-        tabs: [{ title: 'Basic', doc: basic }, { title: 'Subgraph', doc: subgraph }],
+        tabs: [{ title: 'Basic', doc: basic, documentRevision: 0 }, { title: 'Subgraph', doc: subgraph, documentRevision: 0 }],
       }))
     }, { basic, subgraph })
     await use(page)
