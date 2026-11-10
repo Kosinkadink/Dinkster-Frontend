@@ -244,10 +244,12 @@ test('profile probe uses asset identity, rejects connection races, and inactivat
   await page.getByTestId('output-descriptors-apply').click()
   expect(await stored(page)).toBe(canonicalProfile)
   expect(await pins(page)).toEqual(['model', 'vae'])
-  await page.evaluate(() => {
+  expect(await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    app.activeTab()!.store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'2'.repeat(64)}`, name: 'model.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } } })
-  })
+    const tab = app.activeTab()!
+    if ('settle' in tab.store && typeof tab.store.settle === 'function') await tab.store.settle()
+    return await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'2'.repeat(64)}`, name: 'model.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } } })
+  })).toMatchObject({ ok: true })
   expect(await pins(page)).toEqual([])
   await openDescriptors(page)
   await expect(page.getByTestId('output-descriptor-editor')).toContainText('stale')
@@ -259,9 +261,9 @@ test('profile probe uses asset identity, rejects connection races, and inactivat
   requested = false
   await page.getByTestId('output-profile-probe').click()
   await expect.poll(() => requested).toBe(true)
-  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
+  expect(await page.evaluate(async () => (await window.__dinksterTest!.app.dispatchTo(window.__dinksterTest!.app.activeTab()!, {
     command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'3'.repeat(64)}`, name: 'model.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } },
-  }))
+  })).ok)).toBe(true)
   release!()
   await expect(page.getByTestId('output-descriptor-editor')).toBeHidden()
   await openDescriptors(page)
@@ -403,9 +405,9 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
   })
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.links.clipLink)).toBeUndefined()
 
-  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
+  expect(await page.evaluate(async () => (await window.__dinksterTest!.app.dispatchTo(window.__dinksterTest!.app.activeTab()!, {
     command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'2'.repeat(64)}`, name: 'replacement.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } },
-  }))
+  })).ok)).toBe(true)
   expect(await pins(page)).toEqual([])
   await openDescriptors(page)
   await expect(page.getByTestId('output-descriptor-stale-links')).toContainText('model')

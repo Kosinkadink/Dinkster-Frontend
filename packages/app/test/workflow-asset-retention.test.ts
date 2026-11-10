@@ -1697,7 +1697,7 @@ describe('retained workflow opens', () => {
   })
 
   it.each((['file', 'direct'] as const).flatMap((kind) =>
-    (['accepted', 'lost', 'refused', 'edited', 'closed', 'replacement', 'registry', 'target', 'canceled', 'disposed'] as const)
+    (['accepted', 'view', 'lost', 'refused', 'edited', 'closed', 'replacement', 'registry', 'target', 'canceled', 'disposed'] as const)
       .map((scenario) => [kind, scenario] as const)))(
     'keeps the existing tab until a current %s-open acknowledgment: %s', async (kind, scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
@@ -1730,6 +1730,7 @@ describe('retained workflow opens', () => {
       expect(app.activeTab()).toBe(previous)
       expect(app.tabs.get()).toBe(previousTabs)
       expect(declaration).toEqual({ revision: 0, complete: true, digests: [asset('c').digest] })
+      if (scenario === 'view') app.setTabAppArrange(previous.id, true)
       if (scenario === 'edited') expect((await app.dispatchTo(previous, replace('b'))).ok).toBe(true)
       if (scenario === 'closed') app.closeTab(previous.id)
       if (scenario === 'replacement') await app.openDocument(session([asset('b')]).doc, 'Replacement')
@@ -1741,9 +1742,10 @@ describe('retained workflow opens', () => {
       }
       if (scenario === 'disposed') app.dispose()
       response.resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
-      expect(await operation).toBe(scenario === 'accepted' || scenario === 'lost')
-      expect(app.tabs.get().some((tab) => tab.id === 'incoming')).toBe(scenario === 'accepted' || scenario === 'lost')
-      if (scenario !== 'closed' && scenario !== 'replacement') expect(app.tabs.get()).toContain(previous)
+      expect(await operation).toBe(scenario === 'accepted' || scenario === 'view' || scenario === 'lost')
+      expect(app.tabs.get().some((tab) => tab.id === 'incoming')).toBe(scenario === 'accepted' || scenario === 'view' || scenario === 'lost')
+      if (scenario === 'view') expect(app.tabs.get().find((tab) => tab.id === previous.id)?.store).toBe(previous.store)
+      else if (scenario !== 'closed' && scenario !== 'replacement') expect(app.tabs.get()).toContain(previous)
       expect(previous.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset(scenario === 'edited' ? 'b' : 'a')])
       expect([...Array(localStorage.length)].some((_, index) => localStorage.key(index)?.includes('workflow-retentions.'))).toBe(true)
     },

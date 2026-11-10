@@ -6975,9 +6975,12 @@ export class AppState {
     const intent = ++this.workflowOpenIntent
     const tabs = this.tabs.get()
     const sessions = tabs.map((tab) => ({ tab, revision: tab.store.revision, document: tab.store.doc, target: this.backendForTab(tab) }))
-    return () => !this.disposed && intent === this.workflowOpenIntent && this.tabs.get() === tabs &&
-      sessions.every(({ tab, revision, document, target }) => tab.store.revision === revision &&
-        tab.store.doc === document && this.backendForTab(tab) === target)
+    return () => !this.disposed && intent === this.workflowOpenIntent && this.tabs.get().length === tabs.length &&
+      sessions.every(({ tab, revision, document, target }) => {
+        const current = this.tabs.get().find((candidate) => candidate.id === tab.id)
+        return current?.store === tab.store && current.store.revision === revision &&
+          current.store.doc === document && this.backendForTab(current) === target
+      })
   }
 
   private async openRetainedDocument(
@@ -7304,7 +7307,8 @@ export class AppState {
     const destination = this.activeTab()
     const backend = destination === undefined ? this.backends.get()[0]! : this.backendForTab(destination)
     const stillWanted = () => current() && stillOwned() &&
-      this.activeTab() === destination && (destination === undefined || this.backendForTab(destination) === backend)
+      this.activeTab()?.id === destination?.id && this.activeTab()?.store === destination?.store &&
+      (destination === undefined || this.backendForTab(destination) === backend)
     try {
       const title = file.name.replace(/\.json$/i, '') || 'Imported workflow'
       const text = await file.text()

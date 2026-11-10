@@ -377,7 +377,8 @@ open can also retain an incomplete output descriptor for repair. Historical
 dynamic state is admitted only when a declared migration plans successfully;
 it remains incomplete until migration, and malformed asset identities still refuse.
 A newer open, changed tab/session/history/target, changed registry or connection, caller
-cancellation or disposal prevents a late open from publishing. Library/template/run
+cancellation or disposal prevents a late open from publishing. View-only changes
+keep the same document session and do not cancel admission. Library/template/run
 tabs publish with their source backend already selected. Local file imports keep
 their existing untargeted semantics: legacy translation uses the chosen source
 schemas, but ownership is requested from the default destination backend.
