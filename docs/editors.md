@@ -111,6 +111,9 @@ Mask source loading requires acknowledged workflow asset ownership before
 fetching. The read remains owned through the response body and PNG decode;
 closing, replacing the target, or changing its owner prevents late pixels from
 entering the edit session. Refused ownership leaves the source unavailable.
+When a local workflow becomes a shared workspace during source loading, the
+editor cancels the old session's read and admits a new read through the shared
+session. An already loaded mask and its edits stay intact for the same target.
 
 ## Switching kinds (the app view)
 

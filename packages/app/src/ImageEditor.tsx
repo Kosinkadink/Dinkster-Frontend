@@ -48,6 +48,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
     return request && !isCompositorEditorTarget(request) ? request : undefined
   }
   const tabs = useSignal(props.app.tabs)
+  const targetStore = createMemo(() => tabs().find((tab) => tab.id === target()?.tabId)?.store)
   const globalActiveTabId = useSignal(props.app.activeTabId)
   // When hosted inside a split group, this editor shows the group's active
   // tab, which may differ from the app-global active tab.
@@ -65,6 +66,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
   let viewportElement!: HTMLDivElement
   let live = true
   let loadGeneration = 0
+  let loadedTarget: ImageEditorTarget | undefined
   let uploadAbort: AbortController | undefined
   let stroke: ActiveStroke | undefined
   let activePan: ActivePan | undefined
@@ -135,6 +137,8 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
 
   createEffect(() => {
     const request = target()
+    const store = targetStore()
+    if (request && request === loadedTarget && activeTabId() === request.tabId && untrack(session)) return
     const generation = ++loadGeneration
     resetInput()
     setSession(undefined)
@@ -142,7 +146,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
     if (!request || activeTabId() !== request.tabId) return
     const resolved = untrack(() => {
       const tab = tabs().find((candidate) => candidate.id === request.tabId)
-      return tab ? { tab, backend: props.app.backendForTab(tab) } : undefined
+      return tab && tab.store === store ? { tab, backend: props.app.backendForTab(tab) } : undefined
     })
     if (!resolved) return
     const { backend } = resolved
@@ -167,6 +171,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
         if (!current()) return
         const created = createImageSession(decoded)
         const existingOperations = request.maskPaint?.expectedPaintOperations
+        loadedTarget = request
         setSession(existingOperations === undefined || existingOperations === null
           ? created
           : restoreMaskPaintSession(created, existingOperations, request.sourceRef.digest))
