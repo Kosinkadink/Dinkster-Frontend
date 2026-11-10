@@ -942,6 +942,36 @@ export interface WorkflowRequirementPlan {
   readonly errors: readonly string[]
 }
 
+export type PackInstallPlan = {
+  readonly plan: Readonly<Record<string, unknown>>
+  readonly review: string
+  readonly expiresInSeconds: number
+} & (
+  | { readonly confirmation: string; readonly commands?: undefined }
+  | { readonly confirmation?: undefined; readonly commands: readonly string[] }
+)
+
+export interface PackInstallResult {
+  readonly generation: number
+  readonly activation: {
+    readonly epoch: number
+    readonly added: readonly string[]
+    readonly removed: readonly string[]
+    readonly reloaded: readonly string[]
+    readonly unchanged: readonly string[]
+  }
+}
+
+export class PackInstallError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: Readonly<Record<string, unknown>> | undefined,
+  ) {
+    super(typeof body?.['detail'] === 'string' && body['detail'] !== '' ? body['detail']
+      : typeof body?.['error'] === 'string' ? body['error'] : `Pack installation request failed: ${status}`)
+  }
+}
+
 export interface AssetSelectionOption {
   readonly name: string
   readonly shape: 'file' | 'pair' | 'directory' | 'literal'
@@ -3021,6 +3051,59 @@ export class DinksterConnection {
       matches.push(...parseAssetGuessMatches(await res.json()))
     }
     return matches
+  }
+
+  private async packInstallRequest(action: 'plan' | 'apply', body: unknown, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const response = await this.fetchFn(`${this.baseUrl}/api/packs/install/${action}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      ...(signal === undefined ? {} : { signal }),
+    })
+    const payload = await responsePayload(response)
+    if (!response.ok) throw new PackInstallError(response.status, payload)
+    if (payload === undefined) throw new Error(`Malformed pack installation ${action} response`)
+    return payload
+  }
+
+  /** Request a review with terminal commands or a gateway confirmation; never apply. */
+  async planPackInstall(packs: readonly { readonly pack: string; readonly version: string }[], signal?: AbortSignal): Promise<PackInstallPlan> {
+    const body = await requestWithDeadline((deadline) => this.packInstallRequest('plan',
+      { packs: packs.map(({ pack, version }) => ({ pack, version })) },
+      signal === undefined ? deadline : AbortSignal.any([deadline, signal])))
+    const plan = body['plan']
+    const confirmation = body['confirmation']
+    const commands = body['commands']
+    const terminal = Array.isArray(commands) && commands.length > 0 &&
+      commands.every((command): command is string => typeof command === 'string' && command.trim().length > 0)
+    const gateway = typeof confirmation === 'string' && confirmation.length > 0
+    if (!(terminal && confirmation === undefined || gateway && commands === undefined) ||
+      typeof body['review'] !== 'string' ||
+      !Number.isSafeInteger(body['expiresInSeconds']) || (body['expiresInSeconds'] as number) <= 0 ||
+      typeof plan !== 'object' || plan === null || Array.isArray(plan)) {
+      throw new Error('Malformed pack installation plan response')
+    }
+    return { ...(terminal ? { commands: commands as string[] } : { confirmation: confirmation as string }), plan: plan as Record<string, unknown>,
+      review: body['review'], expiresInSeconds: body['expiresInSeconds'] as number }
+  }
+
+  /** Apply only a human-confirmed token, without retrying a possibly completed mutation. */
+  async applyPackInstall(confirmation: string, signal?: AbortSignal): Promise<PackInstallResult> {
+    const body = await this.packInstallRequest('apply', { confirmation }, signal)
+    const raw = body['activation']
+    const invalid = () => new Error('Malformed pack installation activation response')
+    if (!Number.isSafeInteger(body['generation']) || (body['generation'] as number) < 1 ||
+      typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
+    const activation = raw as Record<string, unknown>
+    const failed = activation['failed']
+    if (!Number.isSafeInteger(activation['epoch']) || (activation['epoch'] as number) < 0 ||
+      activation['generation'] !== body['generation'] || activation['rolledBack'] !== false ||
+      typeof failed !== 'object' || failed === null || Array.isArray(failed) || Object.keys(failed).length !== 0 ||
+      !['added', 'removed', 'reloaded', 'unchanged'].every((key) =>
+        Array.isArray(activation[key]) && (activation[key] as unknown[]).every((pack) => typeof pack === 'string'))) throw invalid()
+    return { generation: body['generation'] as number, activation: {
+      epoch: activation['epoch'] as number,
+      added: activation['added'] as string[], removed: activation['removed'] as string[],
+      reloaded: activation['reloaded'] as string[], unchanged: activation['unchanged'] as string[],
+    } }
   }
 
   /** Read host requirements without granting download or installation consent. */
