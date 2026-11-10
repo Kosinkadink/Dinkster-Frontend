@@ -76,6 +76,10 @@ values select hosted images for main validation, schedules, and manual runs.
 
 ## Full validation
 
+The App View queue fixture creates its submission-release promise before the
+request handler runs, so observing Submitting can release either an already
+waiting request or one that arrives afterward without losing the release.
+
 Screenshots use the product's bundled fonts, including canvas text, without
 test-only font injection or host font configuration. Baseline paths are shared
 across projects and platforms; all validation lanes compare the same images.

@@ -25,7 +25,8 @@ test('authors multiple partial queue buttons, persists them, and reports executi
   mkdirSync(proofDir, { recursive: true })
   const submissions: Record<string, unknown>[] = []
   let holdNextSubmission = false
-  let releaseSubmission: (() => void) | undefined
+  let releaseSubmission!: () => void
+  const submissionRelease = new Promise<void>((resolve) => { releaseSubmission = resolve })
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: nativeTable }))
@@ -35,7 +36,7 @@ test('authors multiple partial queue buttons, persists them, and reports executi
     submissions.push(body)
     if (holdNextSubmission) {
       holdNextSubmission = false
-      await new Promise<void>((resolve) => { releaseSubmission = resolve })
+      await submissionRelease
     }
     await route.fulfill({ status: 202, json: { clientId: body['clientId'], jobId: body['jobId'], state: 'queued' } })
   })
@@ -131,7 +132,7 @@ test('authors multiple partial queue buttons, persists them, and reports executi
   await page.getByRole('button', { name: 'Generate base' }).click()
   await expect(baseQueue.getByTestId('app-layout-queue-state')).toHaveText('Submitting')
   await page.screenshot({ path: `${proofDir}/05-submitting-state.png`, animations: 'disabled' })
-  releaseSubmission?.()
+  releaseSubmission()
   await expect.poll(() => submissions.length).toBe(1)
   expect(submissions[0]?.['targets']).toEqual(['baseA.result', 'baseB.result'])
   await expect(baseQueue.getByTestId('app-layout-queue-state')).toHaveText('Queued')
