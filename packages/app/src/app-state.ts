@@ -4387,6 +4387,14 @@ export class AppState {
       refreshForEpoch?: (epoch: number) => void,
       onStatusChange?: (status: ConnectionStatus) => void,
     ): (() => void) => {
+      const reconcileConnected = (): void => {
+        if (connection.status.get() !== 'connected') return
+        reconcile().catch((e: unknown) => {
+          this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
+            diag('error', 'runtime', 'reconcile.failed', `[${label}] failed to reconcile executions after reconnect: ${e instanceof Error ? e.message : String(e)}`),
+          ])
+        })
+      }
       const unsubs = [
         connection.onEvent((e) => {
           // Connection-level control events never reach the execution store:
@@ -4438,18 +4446,14 @@ export class AppState {
           onStatusChange?.(s)
           this.backendsTick.update((v) => v + 1)
           this.log(s === 'disconnected' ? 'warn' : 'info', label, s)
-          if (s !== 'connected') return
-          reconcile().catch((e: unknown) => {
-            // A failed reconcile must be visible, not vanish into a void
-            // promise: executions would silently stay 'running' forever.
-            this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-              diag('error', 'runtime', 'reconcile.failed', `[${label}] failed to reconcile executions after reconnect: ${e instanceof Error ? e.message : String(e)}`),
-            ])
-          })
+          reconcileConnected()
         }),
         registry.subscribe(() => {
           this.backendsTick.update((v) => v + 1)
           this.flushWorkspaceRegistrations(id)
+          // Schema refresh can invalidate an in-flight reconnect read. The
+          // coalesced trailing pass captures the newly published owner.
+          reconcileConnected()
         }),
         base.workerCatalog.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.templatesEnabled.subscribe(() => this.backendsTick.update((v) => v + 1)),

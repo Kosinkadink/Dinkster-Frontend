@@ -86,6 +86,8 @@ before publishing output descriptors, saved artifacts or replayed node states.
 A refused declaration leaves the existing view unchanged for a later retry.
 The read captures its backend, connection lifetime, registry and execution
 identity; an acknowledgment for a retired owner cannot publish fetched data.
+When schema refresh replaces a connected backend's registry, reconciliation
+reads again under the new owner so missed terminal events can still converge.
 
 Live previews and cross-window output events also confirm known digest roots
 before publication. Later events for the same execution wait behind the
