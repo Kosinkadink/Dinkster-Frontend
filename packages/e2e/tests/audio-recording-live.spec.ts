@@ -205,7 +205,8 @@ test(PHYSICAL_MICROPHONE
     new URL(candidate.url()).pathname === '/api/assets/media')
   await recorder.getByRole('button', { name: 'Save recording' }).click()
   const accepted = await uploadResponse
-  await page.unroute('**/api/assets/media?*')
+  // Context cleanup removes interception after picker admission; disabling it
+  // on the upload response can strand the immediately following retention PUT.
   expect([200, 201]).toContain(accepted.status())
   const response = await accepted.json() as { readonly asset: UploadedAsset; readonly kind: string }
   const recordedBytes = Buffer.from(await page.evaluate(async () => {
