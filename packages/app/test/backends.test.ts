@@ -273,11 +273,14 @@ describe('addBackend / removeBackend', () => {
       .mockResolvedValueOnce(olderTranslations)
       .mockResolvedValueOnce(newestTranslations)
     const importedVersions: (string | undefined)[] = []
+    const imports: Promise<void>[] = []
     backend.registry.subscribe(() => {
-      app.openDocument({ nodes: [{ id: 1, type: 'LegacyChoice' }], links: [] }, 'First open', backend)
-      const tab = app.activeTab()!
-      expect(tab.store.doc.graphs.g0!.nodes.n1!.type).toBe('Choice')
-      importedVersions.push(resolveImportedNodePacks(tab.store.doc, backend.registry.get()!.resolve)[0]?.version)
+      imports.push(app.openDocument({ nodes: [{ id: 1, type: 'LegacyChoice' }], links: [] }, 'First open', backend).then((diagnostics) => {
+        expect(diagnostics).toEqual([])
+        const tab = app.activeTab()!
+        expect(tab.store.doc.graphs.g0!.nodes.n1!.type).toBe('Choice')
+        importedVersions.push(resolveImportedNodePacks(tab.store.doc, backend.registry.get()!.resolve)[0]?.version)
+      }))
     })
 
     const first = app.refreshBackendSchemas(backend)
@@ -287,6 +290,7 @@ describe('addBackend / removeBackend', () => {
     await second
     resolveFirst(buildDinksterRegistry(backend.id, nodesPayload))
     await first
+    await Promise.all(imports)
 
     expect(backend.registry.get()).toBe(newest)
     expect(backend.schemaState.get()).toEqual({ status: 'ready' })
@@ -322,7 +326,7 @@ describe('addBackend / removeBackend', () => {
     expect(backend.registry.get()).toBe(registry)
     expect(backend.comfyTranslations.get()).toEqual(records)
     if (outcome === 'available') {
-      app.openDocument({ nodes: [{ id: 1, type: 'LegacyChoice' }], links: [] }, 'Late metadata', backend)
+      expect(await app.openDocument({ nodes: [{ id: 1, type: 'LegacyChoice' }], links: [] }, 'Late metadata', backend)).toEqual([])
       expect(app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.type).toBe('Choice')
     }
   })

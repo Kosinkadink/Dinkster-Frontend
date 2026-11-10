@@ -171,10 +171,15 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
         if (!current()) return
         const created = createImageSession(decoded)
         const existingOperations = request.maskPaint?.expectedPaintOperations
-        loadedTarget = request
-        setSession(existingOperations === undefined || existingOperations === null
+        const editing = existingOperations === undefined || existingOperations === null
           ? created
-          : restoreMaskPaintSession(created, existingOperations, request.sourceRef.digest))
+          : restoreMaskPaintSession(created, existingOperations, request.sourceRef.digest)
+        await props.app.retainEditorAssets(request, backend, request.sourceRef, () => {
+          if (!current()) return false
+          loadedTarget = request
+          setSession(editing)
+          return true
+        })
       })
     })().catch((cause) => {
       if (live && !abort.signal.aborted && generation === loadGeneration) setError(cause instanceof Error ? cause.message : String(cause))

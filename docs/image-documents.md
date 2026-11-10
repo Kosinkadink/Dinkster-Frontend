@@ -251,6 +251,10 @@ and rewires only that loader's current mask consumers. The original image
 AssetRef remains unchanged, so the edit is visible and repeatable in execution.
 Pending mask edits and undo history survive layout refreshes while the same
 tab and image target remain active.
+Decoded mask-editor pixels remain unpublished until an independent editor owner
+acknowledges the source digest. The workflow read stays owned through that
+admission; refused or obsolete editor admissions cannot enable editing or draw
+pixels into a closed or replaced session.
 The live acceptance executes paint, layer, and flatten nodes and checks every
 decoded transparency-mask sample against the identically edited explicit bake.
 For other eligible inputs, **Bake to asset** explicitly replaces the input
