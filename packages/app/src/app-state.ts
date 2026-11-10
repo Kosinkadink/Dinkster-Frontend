@@ -5828,7 +5828,7 @@ export class AppState {
       read: async <T>(consume: () => Promise<T>): Promise<T> => {
         this.valueAssetReaders.set(owned, (this.valueAssetReaders.get(owned) ?? 0) + 1)
         try {
-          return await owned.read(consume)
+          return await owned.read(() => readAssetPreview(backend.connection, roots, consume, current))
         } finally {
           const remaining = this.valueAssetReaders.get(owned)! - 1
           if (remaining === 0) this.valueAssetReaders.delete(owned)

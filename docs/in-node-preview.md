@@ -86,6 +86,9 @@ work and revokes blob URLs without releasing durable owners.
 Saved Painter masks, mask-editor sources, recorded audio and Load3D resources
 also scope their readers to the mounted editor, not its workflow tab. Two
 editors of the same asset wait for separate acknowledgments.
+Picker preview reads also acquire independent complete preview owners before
+consuming staged selection bytes. Selection handoff waits for pending reads,
+but retiring that selection never retires a decoded consumer's preview owner.
 
 ## Video inspection
 

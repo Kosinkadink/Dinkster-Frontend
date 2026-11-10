@@ -2204,6 +2204,49 @@ describe('retained app dispatch', () => {
 })
 
 describe('retained picker consumers', () => {
+  it('admits independent preview holders before consuming a staged picker selection', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    const app = createWorkflowApp([schema])
+    try {
+      const tab = app.activeTab()!
+      const backend = app.backendForTab(tab)
+      const selected = await app.retainPickerAssets(tab, backend, asset('b'))
+      const requests: { receipt: RetainedAssets; acknowledge: () => void }[] = []
+      const retain = vi.mocked(app.connection.retainAssets).getMockImplementation()!
+      vi.mocked(app.connection.retainAssets).mockImplementation((owner, declaration) => {
+        if (owner.ownerKind !== 'preview') return retain(owner, declaration)
+        return new Promise((resolve) => {
+          const receipt = { ...owner, ...declaration, revision: 1 }
+          requests.push({ receipt, acknowledge: () => resolve(receipt) })
+        })
+      })
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+      const release = vi.spyOn(app.connection, 'releaseRetainedAssets')
+      const first = vi.fn(async () => 17)
+      const second = vi.fn(async () => 29)
+      const reading = [selected.read(first), selected.read(second)]
+      await vi.waitFor(() => expect(requests).toHaveLength(2))
+      expect(requests[0]!.receipt.ownerId).not.toBe(requests[1]!.receipt.ownerId)
+      for (const { receipt } of requests) expect(receipt).toMatchObject({
+        ownerKind: 'preview', complete: true, digests: [asset('b').digest],
+      })
+      expect(first).not.toHaveBeenCalled()
+      expect(second).not.toHaveBeenCalled()
+      requests[1]!.acknowledge()
+      expect(await reading[1]).toBe(29)
+      expect(first).not.toHaveBeenCalled()
+      requests[0]!.acknowledge()
+      expect(await reading[0]).toBe(17)
+      const replacement = await app.retainPickerAssets(tab, backend, [])
+      expect(await app.replacePickerAssets(selected, replacement, () => true)).toBe(true)
+      expect(release).toHaveBeenCalledOnce()
+      expect(release.mock.calls[0]![0].ownerKind).toBe('document')
+      for (const { receipt } of requests) {
+        expect(release.mock.calls.some(([owner]) => owner.ownerId === receipt.ownerId)).toBe(false)
+      }
+    } finally { app.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() }
+  })
+
   it.each(['accepted', 'closed', 'edited', 'registry', 'disconnected', 'disposed', 'refused'] as const)(
     'confirms a separate complete selection owner before a picker can publish: %s', async (scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
@@ -2297,7 +2340,8 @@ describe('retained picker consumers', () => {
           scenario === 'reused-owner' ? { ...original, revision: 7, digests: [asset('e').digest] } : original)
         expect(owners.get(independentReceipt.ownerId)).toEqual(independentReceipt)
         if (scenario !== 'disconnected-body') expect(independent.current()).toBe(true)
-        if (replacement) expect(owners.get([...owners.keys()][2]!)?.digests).toEqual([])
+        if (replacement) expect([...owners.values()].find((receipt) => receipt.ownerKind === 'document' &&
+          receipt.ownerId !== original.ownerId && receipt.ownerId !== independentReceipt.ownerId)?.digests).toEqual([])
         expect(publish).toHaveBeenCalledTimes(['refused', 'foreign'].includes(scenario) ? 0 : 1)
       } finally { app.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() }
     },
