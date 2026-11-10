@@ -61,11 +61,18 @@ still hold its sources. This closes loader admission but does not settle already
 admitted shared renderers or release retained owners.
 
 Recorded artifacts, their associated images and recorded image outputs wait for
-their execution's retained-asset acknowledgment before fetching or decoding.
-Canvas and App View keep those readers separate from the editable tab. Changed
+an independent complete preview-owner acknowledgment before fetching or decoding.
+The inventory names the selected CAS bytes, including both an artifact and its
+associated preview, not the execution's opaque runtime values. Canvas and App
+View cache separate reader generations, scoped to the exact document or result
+and backend; the same digest in another tab or loader never borrows that owner. Changed
 output inventories or observed connection transitions reject stale decoded cache
 entries and late publication. Model orbit viewers borrow the same captured
-reader independently; closing a viewer does not release retained ownership.
+reader independently, covering every declared external sidecar. Browser library
+thumbnails likewise register their selected bytes; opaque source-document reads
+remain incomplete until the parsed document has its own admission. Closing a
+viewer, evicting decoded pixels, or unmounting a renderer does not release durable
+ownership. Prior acknowledged generations stay protected through replacements.
 
 ## Video inspection
 

@@ -797,7 +797,7 @@ describe('retained app dispatch', () => {
       const urls: string[] = []
       const loader = createPreviewLoader({
         assetUrlForInput: () => '', assetUrlForExecution: (_ref, digest) => `/assets/${digest}`,
-        executionAssetReader: (execution, digests) => ownerApp.executionAssetReader(execution, digests),
+        executionAssetReader: (execution, digests, holder) => ownerApp.executionAssetReader(execution, digests, holder),
         fetchRecordedOutput: async (url) => { urls.push(url); return new Response(new Uint8Array([3])) },
         renderModel3dPoster: async () => { await decode(); return { image: {} as CanvasImageSource, width: 13, height: 7 } },
         onDecoded: () => {},
@@ -810,6 +810,8 @@ describe('retained app dispatch', () => {
           route === 'retained' ? new Map([['n1', state]]) : undefined)!
         const pending = source.load()
         const { owner, declaration } = await requested.promise
+        expect(owner.ownerKind).toBe('preview')
+        expect(declaration.complete).toBe(true)
         expect(declaration.digests).toEqual(route === 'associated' ? [asset('a').digest, asset('b').digest] : [asset('a').digest])
         expect(urls).toEqual([])
         expect(reads).toHaveLength(0)
@@ -915,7 +917,7 @@ describe('retained app dispatch', () => {
       const loader = createPreviewLoader({
         assetUrlForExecution: () => '',
         assetUrlForInput: (digest) => ownerApp.connection.assetUrl(digest),
-        inputAssetReader: (digest) => ownerApp.workflowAssetReader(tab, digest),
+        inputAssetReader: (digest, holder) => ownerApp.workflowAssetReader(tab, digest, holder),
         renderModel3dPoster: async () => {
           const read = deferred<void>()
           reads.push(read)
@@ -932,6 +934,8 @@ describe('retained app dispatch', () => {
         const pending = source.load()
         expect(reads).toHaveLength(0)
         const { owner, declaration } = await requested.promise
+        expect(owner.ownerKind).toBe('preview')
+        expect(declaration.complete).toBe(true)
         expect(declaration.digests).toEqual([asset('a').digest])
         expect(reads).toHaveLength(0)
         acknowledged.resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
@@ -976,6 +980,87 @@ describe('retained app dispatch', () => {
       } finally {
         loader.dispose()
       }
+    },
+  )
+
+  it.each((['workflow', 'execution'] as const).flatMap((route) =>
+    (['acknowledged', 'lost', 'reused'] as const).map((acknowledgment) => ({ route, acknowledgment }))))(
+    'keeps independent $route decode owners through out-of-order $acknowledgment admission', async ({ route, acknowledgment }) => {
+      vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+      app = createWorkflowApp([schema])
+      const ownerApp = app
+      expect(await app.openDocument(session([asset('a'), asset('b')]).doc, 'Two assets')).toEqual([])
+      let tab = app.activeTab()!
+      const ref = { connection: app.connection.id, prompt: asPromptId('independent-decodes') }
+      app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
+      app.store.hydrateArtifacts(ref, ['a', 'b'].map((letter, index) => ({ ...asset(letter),
+        nodeId: `n${index}`, mediaType: 'image/png' })))
+      const saved = new Map<string, RetainedAssets>()
+      const requests: Array<{ receipt: RetainedAssets; gate: ReturnType<typeof deferred<void>> }> = []
+      const retain = vi.mocked(app.connection.retainAssets).getMockImplementation()!
+      vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        const receipt = { ...owner, ...declaration, revision: 1 }
+        const gate = deferred<void>()
+        requests.push({ receipt, gate })
+        await gate.promise
+        saved.set(owner.ownerId, acknowledgment === 'reused' && requests[0]?.receipt === receipt
+          ? { ...receipt, revision: 3, digests: [asset('f').digest] } : receipt)
+        if (acknowledgment !== 'acknowledged' && requests[0]?.receipt === receipt) throw new Error('lost response')
+        return receipt
+      })
+      vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => saved.get(owner.ownerId))
+      const release = vi.spyOn(app.connection, 'releaseRetainedAssets')
+      const decoded: string[] = []
+      class Image {
+        src = ''
+        naturalWidth = 13
+        naturalHeight = 7
+        async decode() { decoded.push(this.src) }
+      }
+      vi.stubGlobal('Image', Image)
+      const loaders = [0, 1].map(() => createPreviewLoader({
+        assetUrlForExecution: (_ref, digest) => `/assets/${digest}`,
+        assetUrlForInput: (digest) => `/assets/${digest}`,
+        executionAssetReader: (execution, digests, holder) => ownerApp.executionAssetReader(execution, digests, holder),
+        inputAssetReader: (digest, holder) => ownerApp.workflowAssetReader(tab, digest, holder),
+        fetchRecordedOutput: async () => new Response(new Uint8Array([3, 17])), onDecoded: () => {},
+      }))
+      const source = (index: number) => route === 'workflow'
+        ? loaders[index]!.inputAssetSource!(asset('a').digest, 'image/png', 'image')!
+        : loaders[index]!.sourceFor(ownerApp.store.get(ref)!, ['n0'], false)!
+      try {
+        const first = source(0)
+        const second = source(1)
+        expect(source(0).key).toBe(first.key)
+        expect(second.key).not.toBe(first.key)
+        const before = first.load().then(() => 'published', () => 'refused')
+        const after = second.load()
+        await vi.waitFor(() => expect(requests).toHaveLength(2))
+        for (const { receipt } of requests) {
+          expect(receipt).toMatchObject({ ownerKind: 'preview', complete: true, digests: [asset('a').digest] })
+        }
+        expect(requests[0]!.receipt.ownerId).not.toBe(requests[1]!.receipt.ownerId)
+        expect(decoded).toEqual([])
+        requests[1]!.gate.resolve()
+        expect(await after).toMatchObject({ width: 13, height: 7 })
+        expect(decoded).toHaveLength(1)
+        requests[0]!.gate.resolve()
+        expect(await before).toBe(acknowledgment === 'reused' ? 'refused' : 'published')
+        expect(decoded).toHaveLength(acknowledgment === 'reused' ? 1 : 2)
+        expect(second.current!()).toBe(true)
+        if (route === 'workflow') {
+          // A still-open old tab must not lend its reader to the newly selected tab.
+          const previous = tab
+          vi.mocked(app.connection.retainAssets).mockImplementation(retain)
+          expect(await app.openDocument({ ...session([asset('a')]).doc, lineage: asLineageId('other') }, 'Another owner')).toEqual([])
+          tab = app.activeTab()!
+          expect(tab.store).not.toBe(previous.store)
+          expect(source(1).key).not.toBe(second.key)
+        }
+        loaders[0]!.dispose()
+        expect(second.current!()).toBe(true)
+        expect(release).not.toHaveBeenCalled()
+      } finally { requests.forEach(({ gate }) => gate.resolve()); loaders.forEach((loader) => loader.dispose()) }
     },
   )
 

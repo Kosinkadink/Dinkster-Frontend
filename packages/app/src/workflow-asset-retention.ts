@@ -470,7 +470,7 @@ export async function reconcileWorkflowRetentions(
             Number.isSafeInteger(intent.documentRevision) && (intent.documentRevision as number) >= 0
           : owner?.ownerKind === 'preview'
             ? typeof owner.ownerId === 'string' && /^asset-preview:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
-              intent.preview === true && intent.complete === false
+              intent.preview === true
           : owner?.ownerKind === 'shown-result' && typeof owner.ownerId === 'string' &&
             /^execution-result:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
             typeof intent.executionKey === 'string' && intent.executionKey.length > 0
@@ -560,7 +560,7 @@ export async function retainPreviewAssets(
 /** Source payload reads have independent preview ownership, not workflow roots. */
 export async function readAssetPreview<T>(
   connection: DinksterConnection,
-  digest: string,
+  inventory: string | ReturnType<typeof workflowAssetRoots>,
   consume: () => Promise<T>,
   stillCurrent: () => boolean,
   handoff?: (value: T) => Promise<boolean>,
@@ -572,7 +572,8 @@ export async function readAssetPreview<T>(
   let reader: RetainedAssetReader | undefined
   try {
     if (!current()) throw new Error('Asset preview changed before admission')
-    const retained = await retainAssetRoots(connection, 'preview', { preview: true }, { complete: false, digests: [digest] }, globalThis.localStorage)
+    const retained = await retainPreviewAssets(connection, typeof inventory === 'string'
+      ? { complete: false, digests: [inventory] } : inventory)
     reader = new RetainedAssetReader(connection, retained, current)
     const value = await reader.read(consume)
     // Publishing a replacement can invalidate the open intent itself. Only the

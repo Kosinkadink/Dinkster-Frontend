@@ -101,7 +101,7 @@ it.each(['accepted', 'refused', 'closed', 'project', 'connection', 'mismatched']
     await vi.waitFor(() => expect(f.entries.size).toBe(1))
     expect(renderer).not.toHaveBeenCalled()
     const intent = JSON.parse([...f.entries.values()][0]!)
-    expect(intent).toMatchObject({ owner: { scope: 'local', ownerKind: 'preview' }, preview: true, complete: false,
+    expect(intent).toMatchObject({ owner: { scope: 'local', ownerKind: 'preview' }, preview: true, complete: true,
       digests: [`blake3:${'a'.repeat(64)}`] })
     expect(intent.documentLineage).toBeUndefined()
     if (scenario === 'closed') f.stale()
@@ -113,7 +113,7 @@ it.each(['accepted', 'refused', 'closed', 'project', 'connection', 'mismatched']
     expect(f.releaseRetainedAssets).not.toHaveBeenCalled()
     expect(f.listeners.size).toBe(0)
     if (scenario === 'accepted') {
-      f.fetchRetainedAssets.mockResolvedValue({ ...intent.owner, revision: 1, complete: false, digests: intent.digests })
+      f.fetchRetainedAssets.mockResolvedValue({ ...intent.owner, revision: 1, complete: true, digests: intent.digests })
       expect(await reconcileWorkflowRetentions(f.owner.connection, new AbortController().signal, f.storage)).toBe(true)
     }
   },

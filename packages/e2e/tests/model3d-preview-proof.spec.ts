@@ -470,7 +470,7 @@ test('canonical FILE_3D embedded GLB textures render without granting unrelated 
         const ungrantedSource = createUrl(new Blob([JSON.stringify(json)]))
         let authoredFailure = ''
         try {
-          const poster = await renderModel3dPoster(ungrantedSource, 'model/gltf+json', { format: 'gltf', resources: {} })
+          const poster = await renderModel3dPoster(ungrantedSource, 'model/gltf+json', { format: 'gltf' })
           poster.image.close()
         } catch (error) { authoredFailure = String(error) }
         finally { URL.revokeObjectURL(ungrantedSource); URL.revokeObjectURL(ungrantedImage) }

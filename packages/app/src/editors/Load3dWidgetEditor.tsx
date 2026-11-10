@@ -240,7 +240,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       const assets = [model, ...resourceRefs.map(([, ref]) => object(ref))].filter((ref) => ref.verification !== 'unverified')
       const reader = !assets.length ? undefined : modelExecution !== undefined
         ? props.editor.app.file3dAssetReaderForExecution(modelExecution, assets)
-        : props.editor.app.workflowAssetReader(ed.tab, assets[0]!.digest as string)
+        : props.editor.app.workflowAssetReader(ed.tab, assets.map((asset) => asset.digest as string))
       if (assets.length && !reader) throw unavailable()
       const mount = async () => {
         if (!live || !sourcesCurrent() || reader?.current() === false) throw unavailable()

@@ -205,6 +205,7 @@ import { createCoreLensRegistry } from './lenses.js'
 import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
 import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
+import { validFile3dAsset } from './file3d-preview.js'
 import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
 import { admitWorkflowDispatch, executionAssetRoots, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
@@ -5099,7 +5100,7 @@ export class AppState {
   }
 
   /** Capture one document's ownership before input-image decode or model-poster work. */
-  workflowAssetReader(tab: Tab, digest: string): {
+  workflowAssetReader(tab: Tab, digest: string | readonly string[], holder: object = tab): {
     readonly key: string
     current(): boolean
     read<T>(consume: () => Promise<T>): Promise<T>
@@ -5110,17 +5111,20 @@ export class AppState {
     const revision = tab.store.revision
     const registry = this.registryForTab(tab)
     const generation = this.assetConnectionGenerations.get(backend.connection)
-    const held = this.workflowAssetReaders.get(tab)
-    if (held?.document === document && held.revision === revision && held.registry === registry &&
-      held.backend === backend && held.generation === generation) return held.digests.has(digest) ? held.reader : undefined
+    const project = activeProjectId()
     const session = tab.store
+    const digests = [...new Set(typeof digest === 'string' ? [digest] : digest)].sort()
+    const cacheKey = JSON.stringify(['workflow', tab.id, backend.id, digests])
+    const held = this.cachedAssetReaders.get(holder)?.get(cacheKey)
+    if (held?.current()) return held
     const history = session.historySnapshot()
-    const roots = workflowAssetRoots(document, history, this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
-    const digests = new Set(roots.digests)
-    if (!digests.has(digest)) return undefined
+    const inventory = workflowAssetRoots(document, history, this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
+    if (inventory.refusal !== undefined || !digests.every((value) => inventory.digests.includes(value))) return undefined
+    // This reader owns only the selected bytes, not the opaque workflow that names them.
+    const roots = { complete: true, digests }
     const current = (): boolean => {
       const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
-      return !this.disposed && live?.store === session && session.doc === document && session.revision === revision &&
+      return !this.disposed && activeProjectId() === project && live?.store === session && session.doc === document && session.revision === revision &&
         this.backendForTab(live) === backend && this.registryForTab(live) === registry &&
         generation === this.assetConnectionGenerations.get(backend.connection)
     }
@@ -5130,10 +5134,9 @@ export class AppState {
       current,
       read: async <T>(consume: () => Promise<T>): Promise<T> => {
         if (!current()) throw new Error('Workflow asset reader is no longer current')
-        admission ??= retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+        admission ??= retainPreviewAssets(backend.connection, roots)
           .then((retained) => {
             if (!current()) throw new Error('Workflow changed during asset admission')
-            this.reportIncompleteOwnership(tab.id, roots)
             return new RetainedAssetReader(backend.connection, retained, current)
           }).catch((error: unknown) => {
             admission = undefined
@@ -5150,26 +5153,28 @@ export class AppState {
         }
       },
     }
-    this.workflowAssetReaders.set(tab, { document, revision, registry, backend, generation, digests, reader })
-    return reader
+    return this.cacheAssetReader(holder, cacheKey, reader)
   }
 
   /** Recorded file consumers borrow the captured execution, never the active tab. */
-  executionAssetReader(state: ExecutionState, digests: readonly string[]): ReturnType<AppState['workflowAssetReader']> {
+  executionAssetReader(state: ExecutionState, digests: readonly string[], holder: object = state.outputs): ReturnType<AppState['workflowAssetReader']> {
     const backend = this.backendFor(state.ref.connection) ?? this.retiredBackends.get(state.ref.connection)
     if (backend?.protocol !== 'dinkster' || this.store.get(state.ref) !== state) return undefined
     const generation = this.assetConnectionGenerations.get(backend.connection)
-    const held = this.executionAssetReaders.get(state.outputs)
+    const project = activeProjectId()
+    const roots = { complete: true, digests: [...new Set(digests)].sort() }
+    const cacheKey = JSON.stringify(['execution', state.key, roots.digests])
+    const held = this.cachedAssetReaders.get(holder)?.get(cacheKey)
+    if (held?.current()) return held
     const sameResult = (candidate: ExecutionState | undefined): boolean => candidate !== undefined &&
       candidate.key === state.key && candidate.queuedAt === state.queuedAt && candidate.jobRef === state.jobRef &&
       candidate.sourceDocument === state.sourceDocument && candidate.artifact === state.artifact &&
       candidate.outputs === state.outputs && candidate.artifacts === state.artifacts
-    if (held !== undefined && sameResult(held.state) && held.backend === backend && held.generation === generation) return digests.every((digest) => held.digests.has(digest)) ? held.reader : undefined
-    const roots = executionAssetRoots(state, this.registryForExecution(state.ref)?.resolve ?? (() => undefined))
-    const known = new Set(roots.digests)
+    const inventory = executionAssetRoots(state, this.registryForExecution(state.ref)?.resolve ?? (() => undefined))
+    const known = new Set(inventory.digests)
     if (!digests.every((digest) => known.has(digest))) return undefined
     const current = (): boolean => {
-      return !this.disposed && sameResult(this.store.get(state.ref)) &&
+      return !this.disposed && activeProjectId() === project && sameResult(this.store.get(state.ref)) &&
         (this.backendFor(state.ref.connection) ?? this.retiredBackends.get(state.ref.connection)) === backend &&
         generation === this.assetConnectionGenerations.get(backend.connection)
     }
@@ -5179,7 +5184,7 @@ export class AppState {
       current,
       read: async <T>(consume: () => Promise<T>): Promise<T> => {
         if (!current()) throw new Error('Execution asset reader is no longer current')
-        admission ??= retainExecutionAssets(backend.connection, state.ref, roots).then((retained) => {
+        admission ??= retainPreviewAssets(backend.connection, roots).then((retained) => {
           if (!current()) throw new Error('Execution changed during asset admission')
           return new RetainedAssetReader(backend.connection, retained, current)
         }).catch((error: unknown) => {
@@ -5197,8 +5202,7 @@ export class AppState {
         }
       },
     }
-    this.executionAssetReaders.set(state.outputs, { state, backend, generation, digests: known, reader })
-    return reader
+    return this.cacheAssetReader(holder, cacheKey, reader)
   }
 
   /** Revealed model resources borrow their execution through decode and viewer disposal. */
@@ -5207,9 +5211,10 @@ export class AppState {
     if (backend?.protocol !== 'dinkster') return undefined
     const execution = this.store.get(ref)
     const generation = this.assetConnectionGenerations.get(backend.connection)
+    const project = activeProjectId()
     const current = (): boolean => {
       const latest = this.store.get(ref)
-      return !this.disposed && execution !== undefined && latest !== undefined &&
+      return !this.disposed && activeProjectId() === project && execution !== undefined && latest !== undefined &&
         latest.queuedAt === execution.queuedAt && latest.outputs === execution.outputs &&
         latest.artifacts === execution.artifacts && latest.artifact === execution.artifact &&
         latest.sourceDocument === execution.sourceDocument &&
@@ -5217,14 +5222,15 @@ export class AppState {
         generation === this.assetConnectionGenerations.get(backend.connection)
     }
     if (!current()) return undefined
-    const roots = executionAssetRoots({ outputs: { model: { assets } }, artifacts: [] }, () => undefined)
+    if (!assets.every((asset) => validFile3dAsset(asset) && asset.verification !== 'unverified')) return undefined
+    const roots = { complete: true, digests: [...new Set(assets.map((asset) => asset.digest as string))].sort() }
     let admission: Promise<RetainedAssetReader> | undefined
     return {
       key: `model:${++this.workflowAssetReaderSequence}`,
       current,
       read: async <T>(consume: () => Promise<T>): Promise<T> => {
         if (!current()) throw new Error('Original model owner is unavailable')
-        admission ??= retainExecutionAssets(backend.connection, ref, roots)
+        admission ??= retainPreviewAssets(backend.connection, roots)
           .then((retained) => new RetainedAssetReader(backend.connection, retained, current))
           .catch((error: unknown) => { admission = undefined; throw error })
         const owned = await admission
@@ -7814,22 +7820,18 @@ export class AppState {
   }
 
   private workflowAssetReaderSequence = 0
-  private readonly workflowAssetReaders = new WeakMap<Tab, {
-    readonly document: WorkflowDocument
-    readonly revision: number
-    readonly registry: SchemaRegistry | undefined
-    readonly backend: Backend
-    readonly generation: number | undefined
-    readonly digests: ReadonlySet<string>
-    readonly reader: NonNullable<ReturnType<AppState['workflowAssetReader']>>
-  }>()
-  private readonly executionAssetReaders = new WeakMap<ExecutionState['outputs'], {
-    readonly state: ExecutionState
-    readonly backend: Backend
-    readonly generation: number | undefined
-    readonly digests: ReadonlySet<string>
-    readonly reader: NonNullable<ReturnType<AppState['workflowAssetReader']>>
-  }>()
+  private readonly cachedAssetReaders = new WeakMap<object, Map<string, NonNullable<ReturnType<AppState['workflowAssetReader']>>>>()
+
+  private cacheAssetReader(
+    holder: object, key: string, reader: NonNullable<ReturnType<AppState['workflowAssetReader']>>,
+  ): NonNullable<ReturnType<AppState['workflowAssetReader']>> {
+    let readers = this.cachedAssetReaders.get(holder)
+    if (readers === undefined) { readers = new Map(); this.cachedAssetReaders.set(holder, readers) }
+    if (readers.size >= 160) readers.delete(readers.keys().next().value!)
+    readers.set(key, reader)
+    return reader
+  }
+
   private submissionAssetOwners = new WeakMap<Tab, {
     readonly connection: DinksterConnection
     readonly document: WorkflowDocument
