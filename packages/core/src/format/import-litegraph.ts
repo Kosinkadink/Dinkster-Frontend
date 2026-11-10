@@ -64,10 +64,6 @@ import {
   convertLitegraphLoops,
   convertLitegraphListConsumers,
 } from './import-litegraph-loops.js'
-import { createTransactionBuilder } from '../commands/contract.js'
-import { REPLACE_COMMANDS } from '../commands/replace-commands.js'
-import { planReplacement } from '../replace/plan.js'
-import type { ReplacementRule } from '../replace/model.js'
 
 // -- litegraph wire shapes (loose: this is foreign, hostile JSON) ------------
 
@@ -169,51 +165,6 @@ export interface ImportLitegraphResult {
   /** Present only when there are no error-level diagnostics. */
   readonly document?: WorkflowDocument
   readonly diagnostics: readonly Diagnostic[]
-}
-
-/** Import-only interfaces never join the installed schema registry. */
-export interface ComfyTranslation {
-  readonly source?: string
-  readonly pack?: string
-  readonly version?: string
-  readonly rule: ReplacementRule
-  readonly schema: NodeSchema
-  readonly interfaces?: readonly NodeSchema[]
-}
-
-export interface ImportedNodePackResolution {
-  readonly graphId: string
-  readonly nodeId: string
-  readonly type: string
-  readonly sourceClass: string
-  readonly status: 'installed' | 'installable' | 'unknown'
-  readonly pack?: string
-  readonly version?: string
-}
-
-/** Recompute after registry changes; the imported document is not rewritten. */
-export function resolveImportedNodePacks(
-  document: WorkflowDocument,
-  resolve: (type: string) => NodeSchema | undefined,
-): readonly ImportedNodePackResolution[] {
-  return Object.entries(document.graphs).flatMap(([graphId, graph]) =>
-    Object.values(graph.nodes).map((node): ImportedNodePackResolution => {
-      const metadata = node.ext?.['importer.comfyTranslation']
-      const translation = metadata !== null && typeof metadata === 'object' && !Array.isArray(metadata)
-        ? metadata as JsonObject : undefined
-      const pack = typeof translation?.['pack'] === 'string' ? translation['pack'] : undefined
-      const version = typeof translation?.['version'] === 'string' ? translation['version'] : undefined
-      const sourceClass = typeof translation?.['sourceClass'] === 'string' ? translation['sourceClass'] : node.type
-      const installed = node.virtual === true || resolve(node.type)?.type === node.type ||
-        (node.type.startsWith('#') && document.graphs[node.type.slice(1)] !== undefined)
-      return {
-        graphId, nodeId: node.id, type: node.type, sourceClass,
-        status: installed ? 'installed' : pack !== undefined ? 'installable' : 'unknown',
-        ...(pack !== undefined ? { pack } : {}),
-        ...(version !== undefined ? { version } : {}),
-      }
-    }),
-  )
 }
 
 const imp = (severity: 'error' | 'warning' | 'info', code: string, message: string): Diagnostic =>
@@ -677,45 +628,6 @@ const fnv1a = (s: string): string => {
   return (h >>> 0).toString(16).padStart(8, '0')
 }
 
-/** Rule-local helper names may repeat across import hops, unlike graph IDs. */
-function freshImportHelpers(rule: ReplacementRule, graph: GraphDef, nodeId: string): ReplacementRule {
-  if (!rule.cases.some((branch) => Object.keys(branch.nodes ?? {}).length > 0)) return rule
-  const occupied = new Set([
-    graph.nodes, graph.links, graph.nets, graph.reroutes, graph.valueSources ?? {}, graph.selectors ?? {},
-  ].flatMap((entities) => Object.keys(entities)))
-  return { ...rule, cases: rule.cases.map((branch) => {
-    if (branch.nodes === undefined) return branch
-    const reserved = new Set(Object.keys(branch.nodes))
-    const names = new Map<string, string>()
-    for (const localId of Object.keys(branch.nodes)) {
-      let fresh = localId
-      let suffix = 1
-      while (occupied.has(`${nodeId}:${fresh}`) || (fresh !== localId && reserved.has(fresh))) {
-        fresh = `${localId}_${suffix++}`
-      }
-      reserved.add(fresh)
-      names.set(localId, fresh)
-    }
-    const address = (value: string): string => {
-      const colon = value.indexOf(':')
-      if (colon < 0) return value
-      const renamed = names.get(value.slice(0, colon))
-      return renamed === undefined ? value : `${renamed}${value.slice(colon)}`
-    }
-    const keys = <T>(entries: Readonly<Record<string, T>>): Record<string, T> =>
-      Object.fromEntries(Object.entries(entries).map(([key, value]) => [address(key), value]))
-    return {
-      ...branch,
-      nodes: Object.fromEntries(Object.entries(branch.nodes).map(([key, value]) => [names.get(key)!, value])),
-      ...(branch.inputs !== undefined ? { inputs: keys(branch.inputs) } : {}),
-      ...(branch.outputs !== undefined ? { outputs: keys(branch.outputs) } : {}),
-      ...(branch.slotVariants !== undefined ? { slotVariants: keys(branch.slotVariants) } : {}),
-      ...(branch.inputFamilies !== undefined ? { inputFamilies: keys(branch.inputFamilies) } : {}),
-      ...(branch.links !== undefined ? { links: branch.links.map((link) => ({ from: address(link.from), to: address(link.to) })) } : {}),
-    }
-  }) }
-}
-
 /**
  * Translate a legacy litegraph workflow into a v1 dinkster document. `resolve`
  * supplies the ordinary schemas used to decode each authored class.
@@ -727,85 +639,21 @@ export function importLitegraph(
   input: JsonObject,
   resolve: (type: string) => NodeSchema | undefined,
   upgrades: ComfyNodeUpgradeTable = COMFY_NODE_UPGRADES,
-  translations: readonly ComfyTranslation[] = [],
 ): ImportLitegraphResult {
   const ingress = ownJson(input)
   if (!ingress.ok) return { diagnostics: [imp('error', 'import.notJson', `workflow rejected: ${ingress.reason}`)] }
-  const ambiguous = new Set<string>()
-  const bySource = new Map<string, ComfyTranslation>()
-  for (const record of translations) {
-    const source = record.source ?? record.rule.from
-    if (bySource.has(source)) ambiguous.add(source)
-    bySource.set(source, record)
-  }
-  for (const source of ambiguous) bySource.delete(source)
-  const importSchemas = new Map([...bySource].flatMap(([source, record]) => [
-    [source, { ...record.schema, type: source }] as const,
-    ...(record.interfaces ?? [record.schema]).map((schema) => [schema.type, schema] as const),
-  ]))
-  const resolveForImport = (type: string): NodeSchema | undefined => {
-    const installed = resolve(type)
-    return installed?.type === type ? installed : importSchemas.get(type)
-  }
   const result = importLitegraphSubgraphs(ingress.value as JsonObject, (type) => {
-    const schema = resolveForImport(type)
+    const schema = resolve(type)
     return schema?.type === type ? schema : undefined
   }, (graph, localResolve, definitions) =>
     importLitegraphGraph(graph, localResolve, definitions, upgrades))
   if (!result.document) return result
-  let document = result.document
-  const diagnostics = [...result.diagnostics]
-  for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
-    if (ambiguous.has(node.type)) diagnostics.push(imp('warning', 'import.translation.ambiguous', `node ${node.id} ('${node.type}'): multiple registry replacements; original node kept for review`))
-  }
-  for (const [graphId, graph] of Object.entries(document.graphs)) {
-    const pending = Object.values(graph.nodes).map((node) => ({ nodeId: node.id as string, sources: [] as string[], sourceClass: node.type }))
-    for (let index = 0; index < pending.length; index++) {
-      const { nodeId, sources, sourceClass } = pending[index]!
-      const node = document.graphs[graphId]!.nodes[nodeId]
-      if (node === undefined) continue
-      const record = bySource.get(node.type)
-      if (record === undefined) continue
-      // Helpers inherit ancestry too: fresh helper IDs must not evade cycle detection.
-      if (sources.includes(node.type)) {
-        diagnostics.push(imp('warning', 'import.translation.cycle', `translation cycle at '${node.type}' in ${graphId}/${nodeId}; node kept for review`))
-        continue
-      }
-      const rule = freshImportHelpers({ ...record.rule, from: node.type }, document.graphs[graphId]!, node.id)
-      const planned = planReplacement(document, graphId, node.id, rule, resolveForImport)
-      // A failed translation is advisory: retain the editable imported node.
-      diagnostics.push(...planned.diagnostics.map((entry) => ({ ...entry, severity: entry.severity === 'error' ? 'warning' as const : entry.severity })))
-      if (planned.plan === undefined) continue
-      const tx = createTransactionBuilder(document)
-      const applied = REPLACE_COMMANDS.find((command) => command.id === 'node.replace')!.run(
-        document, { plan: planned.plan } as unknown as Json, tx,
-        { kind: 'initial', schemaResolverFor: () => resolveForImport },
-      )
-      diagnostics.push(...applied.map((entry) => ({ ...entry, severity: entry.severity === 'error' ? 'warning' as const : entry.severity })))
-      if (applied.some((entry) => entry.severity === 'error')) continue
-      const translated = tx.result().doc
-      const translatedNode = translated.graphs[graphId]!.nodes[node.id]!
-      tx.set(['graphs', graphId, 'nodes', node.id, 'ext'], {
-        ...translatedNode.ext,
-        'importer.comfyTranslation': { sourceClass,
-          ...(record.pack !== undefined ? { pack: record.pack } : {}),
-          ...(record.version !== undefined ? { version: record.version } : {}),
-        },
-      })
-      document = tx.result().doc
-      const ancestry = [...sources, node.type]
-      if (translatedNode.type !== node.type) pending.push({ nodeId, sources: ancestry, sourceClass })
-      for (const helper of planned.plan.createdNodes ?? []) {
-        pending.push({ nodeId: helper.nodeId, sources: ancestry, sourceClass: helper.type })
-      }
-    }
-  }
-  const retained = ownJson({ ...document,
+  const retained = ownJson({ ...result.document,
     lineage: `lg-${fnv1a(JSON.stringify(ingress.value))}` as WorkflowDocument['lineage'],
-    ext: { ...document.ext, 'importer.comfyWorkflow': ingress.value },
+    ext: { ...result.document.ext, 'importer.comfyWorkflow': ingress.value },
   })
-  if (!retained.ok) return { diagnostics: [...diagnostics, imp('error', 'import.notJson', `workflow provenance rejected: ${retained.reason}`)] }
-  return { diagnostics, document: retained.value as unknown as WorkflowDocument }
+  if (!retained.ok) return { diagnostics: [...result.diagnostics, imp('error', 'import.notJson', `workflow provenance rejected: ${retained.reason}`)] }
+  return { ...result, document: retained.value as unknown as WorkflowDocument }
 }
 
 export interface ImportedAssetLiteral {
