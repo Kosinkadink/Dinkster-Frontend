@@ -404,6 +404,21 @@ test('populated image workspace at desktop and compact widths', async ({ page })
   await closeGallery(page)
   await page.getByTestId('image-documents-button').click()
   const workspace = page.getByTestId('image-document-workspace')
+  await page.route('/api/assets/media?*', async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    const digest = await request.headerValue('x-dinkster-digest')
+    const body = request.postDataBuffer()!
+    expect(request.method()).toBe('POST')
+    expect(url.searchParams.get('scope')).toBe('local')
+    expect(url.searchParams.get('kind')).toBe('media/image')
+    expect(digest).toMatch(/^blake3:[0-9a-f]{64}$/)
+    expect(body.length).toBeGreaterThan(0)
+    await route.fulfill({ status: 201, json: {
+      kind: 'media/image', asset: { digest, name: url.searchParams.get('name'),
+        size: body.length, mediaType: 'image/png', virtualPath: '' },
+    } })
+  })
   const bytes = await page.evaluate(async () => {
     const canvas = document.createElement('canvas')
     canvas.width = 640
