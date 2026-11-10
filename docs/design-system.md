@@ -175,6 +175,8 @@ pending, ignores duplicate choices and retains the active option after refusal.
 Acceptance closes it. The callback receives a `stillWanted` guard for notices
 after dismissal; Escape, Tab and outside clicks dismiss without cancelling the
 submitted command. Synchronous select callers keep their immediate behavior.
+Option IDs preserve pointer targets across inventory refreshes and reordering;
+labels, values and disabled state follow the current inventory.
 
 The compositor editor uses the same buttons, number inputs, checkboxes,
 sliders, text input and select controls as the Image document workspace.

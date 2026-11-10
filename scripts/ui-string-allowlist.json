@@ -733,6 +733,7 @@
     "text:Promise",
     "text:[] readonly selectedId: string readonly onSelect?: (option: ProductSelectOption",
     "text:option.id === props.selectedId) const selectedOption = (): ProductSelectOption",
+    "text:optionsById().get(id)! return (",
     "text:readonly id?: string readonly class?: string readonly testId?: string readonly ariaLabel?: string readonly ariaLabelledBy?: string readonly ariaDescribedBy?: string | undefined readonly ariaInvalid?: boolean readonly disabled?: boolean readonly dataAttributes?: Readonly",
     "text:readonly onFocus?: JSX.EventHandlerUnion",
     "text:readonly onPointerDown?: JSX.EventHandlerUnion",

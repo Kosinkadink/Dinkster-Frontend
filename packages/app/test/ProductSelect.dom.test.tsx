@@ -3,7 +3,7 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ProductSelect } from '../src/ProductSelect.js'
+import { ProductSelect, type ProductSelectOption } from '../src/ProductSelect.js'
 
 const key = (target: Element, value: string): KeyboardEvent => {
   const event = new KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true })
@@ -154,14 +154,37 @@ describe('ProductSelect', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const [selected, setSelected] = createSignal('one')
-    const [options, setOptions] = createSignal([
+    const [options, setOptions] = createSignal<ProductSelectOption<string>[]>([
       { id: 'one', label: 'One', value: 'one' },
       { id: 'two', label: 'Two', value: 'two' },
     ])
-    render(() => <ProductSelect options={options()} selectedId={selected()} onSelect={(option) => { commits(option.value); setSelected(option.value) }} />, root)
+    render(() => <ProductSelect options={options()} selectedId={selected()} onSelect={(option) => { commits(option.value); setSelected(option.id) }} />, root)
     const trigger = root.querySelector<HTMLButtonElement>('[role="combobox"]')!
     trigger.focus()
     trigger.click()
+    const gestureTarget = document.querySelector<HTMLElement>('[role="option"][data-option-id="two"]')!
+    gestureTarget.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }))
+    setOptions([
+      { id: 'earlier', label: 'Earlier', value: 'earlier' },
+      { id: 'one', label: 'One', value: 'one' },
+      { id: 'two', label: 'Two refreshed', value: 'two-refreshed' },
+    ])
+    expect(gestureTarget.textContent).toBe('Two refreshed')
+    gestureTarget.click()
+    expect(commits).toHaveBeenCalledWith('two-refreshed')
+    expect(trigger.getAttribute('data-selected-id')).toBe('two')
+    commits.mockClear()
+    setSelected('one')
+    trigger.click()
+    const disabledTarget = document.querySelector<HTMLElement>('[role="option"][data-option-id="two"]')!
+    setOptions([
+      { id: 'one', label: 'One', value: 'one' },
+      { id: 'two', label: 'Two unavailable', value: 'two-refreshed', disabled: true },
+    ])
+    expect(disabledTarget.getAttribute('aria-disabled')).toBe('true')
+    disabledTarget.click()
+    expect(commits).not.toHaveBeenCalled()
+    expect(trigger.getAttribute('data-selected-id')).toBe('one')
     key(trigger, 'End')
     setOptions([{ id: 'one', label: 'One', value: 'one' }, { id: 'three', label: 'Three', value: 'three' }])
     expect(root.querySelector('[role="combobox"]')).toBe(trigger)
