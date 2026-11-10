@@ -33,7 +33,7 @@ import {
   type StagedImageResource,
 } from './image-document-local.js'
 import { activeProjectId } from './projects.js'
-import { retainWorkflowAssets, retireAssetOwner } from './workflow-asset-retention.js'
+import { RetainedAssetReader, retainWorkflowAssets, retireAssetOwner } from './workflow-asset-retention.js'
 
 export const IMAGE_DOCUMENT_LIBRARY_LABEL = 'image-document'
 
@@ -42,6 +42,8 @@ export interface RetainedImageDocumentSession<S extends ImageDocumentSession = I
   dispatch(invocation: ImageDocumentCommandInvocation): Promise<ImageDocumentDispatchOutcome>
   undo(): Promise<ImageDocumentDispatchOutcome>
   redo(): Promise<ImageDocumentDispatchOutcome>
+  readPreviewResource<T>(holder: object, resource: ImageRasterResource, consume: (staged: StagedImageResource) => Promise<T>): Promise<T>
+  previewCurrent(): boolean
   close(): Promise<void>
 }
 
@@ -104,6 +106,7 @@ async function createRetainedImageDocumentSession<S extends ReturnType<typeof cr
   let admitted: ImageDocument | undefined
   let stopSession = (): void => undefined
   const pending = new Set<Promise<unknown>>()
+  const previewReaders = new WeakMap<object, Map<string, Promise<RetainedAssetReader>>>()
   let session: S | undefined
   let owner: RetainedAssets | undefined
   const superseded = new Set<RetainedAssets>()
@@ -201,9 +204,55 @@ async function createRetainedImageDocumentSession<S extends ReturnType<typeof cr
     }
     return {
       session,
+      previewCurrent: (): boolean => { try { assertCurrent(); return true } catch { return false } },
       dispatch: (invocation: ImageDocumentCommandInvocation) => commit(admittedSession.prepareDispatch(invocation)),
       undo: () => commit(admittedSession.prepareUndo()),
       redo: () => commit(admittedSession.prepareRedo()),
+      readPreviewResource: <T>(holder: object, resource: ImageRasterResource, consume: (staged: StagedImageResource) => Promise<T>): Promise<T> => {
+        const task = (async (): Promise<T> => {
+          assertCurrent()
+          let readers = previewReaders.get(holder)
+          if (readers === undefined) { readers = new Map(); previewReaders.set(holder, readers) }
+          const key = JSON.stringify(resource)
+          let admission = readers.get(key)
+          if (admission === undefined) {
+            admission = (async () => {
+              const digests = resource.inline === undefined ? [resource.digest] : []
+              const read = await store.beginResourceRead(connection.id, assetBaseUrl, remoteScope ?? 'local', digests)
+              assertCurrent()
+              const matches = (actual: RetainedAssets | undefined): actual is RetainedAssets => actual !== undefined &&
+                actual.scope === read.owner.scope && actual.ownerKind === read.owner.ownerKind &&
+                actual.ownerId === read.owner.ownerId && actual.revision === 1 && actual.complete === true &&
+                actual.digests.length === digests.length && actual.digests.every((digest, index) => digest === digests[index])
+              let acknowledged: RetainedAssets | undefined
+              try {
+                acknowledged = await connection.retainAssets(read.owner, { revision: 0, complete: true, digests })
+                if (!matches(acknowledged)) throw new Error('Image preview retention acknowledgment differs')
+              } catch (cause) {
+                try { acknowledged = await connection.fetchRetainedAssets(read.owner) } catch { /* Intent stays unresolved. */ }
+                if (!matches(acknowledged)) throw cause
+              }
+              assertCurrent()
+              return new RetainedAssetReader(connection, acknowledged, () => {
+                try { assertCurrent(); return true } catch { return false }
+              })
+            })()
+            readers.set(key, admission)
+          }
+          const reader = await admission
+          return reader.read(async () => {
+            const staged = await store.getResource(resource.digest)
+            assertCurrent()
+            if (staged === undefined || !stagedMatches(resource, staged)) {
+              throw new Error(`staged ImageDocument resource does not match its descriptor: ${resource.id}`)
+            }
+            return consume(staged)
+          })
+        })()
+        pending.add(task)
+        void task.finally(() => pending.delete(task)).catch(() => undefined)
+        return task
+      },
       close: async (): Promise<void> => {
         closed = true
         unsubscribe()

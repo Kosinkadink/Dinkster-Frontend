@@ -149,7 +149,7 @@ function ImageDocumentEditor(props: {
   const [cropHeight, setCropHeight] = createSignal(documentValue().canvas.height)
   const [resizeWidth, setResizeWidth] = createSignal(documentValue().canvas.width)
   const [resizeHeight, setResizeHeight] = createSignal(documentValue().canvas.height)
-  const renderer = new ImageDocumentPreviewRenderer(props.store)
+  const renderer = new ImageDocumentPreviewRenderer(props.entry.retained)
   let preview!: HTMLCanvasElement
   let layerInput!: HTMLInputElement
   let maskInput!: HTMLInputElement
@@ -159,7 +159,7 @@ function ImageDocumentEditor(props: {
   let receivedAuthoritative = props.entry.authoritative
   onCleanup(() => {
     rendererLive = false
-    renderer.dispose()
+    void renderer.dispose()
   })
 
   const entryName = (): string => { props.metadataTick(); return props.entry.name }
@@ -250,7 +250,7 @@ function ImageDocumentEditor(props: {
       const rendered = document.createElement('canvas')
       try {
         await renderer.draw(current, rendered)
-        if (!rendererLive || pendingRender !== undefined) continue
+        if (!rendererLive || pendingRender !== undefined || !props.entry.retained.previewCurrent()) continue
         preview.width = rendered.width
         preview.height = rendered.height
         preview.getContext('2d')?.drawImage(rendered, 0, 0)

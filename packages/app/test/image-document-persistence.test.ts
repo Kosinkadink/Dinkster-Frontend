@@ -28,7 +28,7 @@ import {
 } from '../src/image-document-library.js'
 import { exportImageDocumentSnapshot, openGraphImageDocument } from '../src/image-document-graph.js'
 import type { AppState } from '../src/app-state.js'
-import { imageDocumentPreviewRefusal } from '../src/image-document-renderer.js'
+import { ImageDocumentPreviewRenderer, imageDocumentPreviewRefusal } from '../src/image-document-renderer.js'
 import { RetainedAssetReader } from '../src/workflow-asset-retention.js'
 
 const SOURCE_PIXELS = new Uint8ClampedArray([
@@ -175,6 +175,110 @@ function deferred<T>() {
 }
 
 describe('ImageDocument local persistence', () => {
+  it.each(['local', 'shared'].flatMap((kind) =>
+    ['acknowledged', 'lost', 'refused', 'reused', 'destination', 'disconnected'].map((scenario) => [kind, scenario])))(
+    'admits independent %s bitmap cache owners before decoding (%s)', async (kind, scenario) => {
+      const store = new ImageDocumentLocalStore('preview-admission', new FakeIDBFactory())
+      const draft = await imported(store)
+      const resource = draft.document.resources.r0!
+      const remote = connectionFor(draft.document, (await store.getResource(resource.digest))!.bytes)
+      let current = true
+      const descriptor: CollabSessionDescriptor = { protocolVersion: COLLAB_PROTOCOL_VERSION,
+        sessionId: 'preview-image', scope: 'shared', documentKind: 'image', documentId: draft.document.lineage,
+        revision: 0, snapshotRevision: 0 }
+      const transport = { sessionId: descriptor.sessionId,
+        fetchSnapshot: async () => ({ revision: 0, document: draft.document }),
+        onEvent: () => () => undefined, close: vi.fn(),
+      } as unknown as CollabConnection
+      const controller = await (kind === 'local'
+        ? createRetainedLocalImageDocumentSession(remote.connection, store, draft.document, () => current, { setItem: () => undefined })
+        : createRetainedSharedImageDocumentSession(remote.connection, store, transport, descriptor, {}, () => current, { setItem: () => undefined }))
+      const gates: Array<{ receipt: RetainedAssets; finish: ReturnType<typeof deferred<void>> }> = []
+      remote.methods.retainAssets.mockImplementation(async (owner, declaration) => {
+        const receipt = { ...owner, ...declaration, revision: scenario === 'reused' ? 3 : 1 }
+        const finish = deferred<void>()
+        gates.push({ receipt, finish })
+        await finish.promise
+        if (scenario === 'refused') throw new Error('preview refused')
+        if (scenario === 'lost') throw new Error('response lost')
+        return receipt
+      })
+      remote.methods.fetchRetainedAssets.mockImplementation(async (owner) => scenario === 'lost'
+        ? gates.find((gate) => gate.receipt.ownerId === owner.ownerId)?.receipt : undefined)
+      const drawn = vi.fn()
+      const bitmap = { close: vi.fn() } as unknown as ImageBitmap
+      const decode = vi.fn(async () => bitmap)
+      vi.stubGlobal('createImageBitmap', decode)
+      vi.stubGlobal('document', { createElement: () => ({ width: 0, height: 0,
+        getContext: () => ({ clearRect() {}, scale() {}, save() {}, restore() {}, transform() {}, drawImage: drawn }) }) })
+      const first = new ImageDocumentPreviewRenderer(controller)
+      const second = new ImageDocumentPreviewRenderer(controller)
+      const firstDraw = first.draw(draft.document, document.createElement('canvas')).then(() => 'drawn', () => 'blocked')
+      const secondDraw = second.draw(draft.document, document.createElement('canvas')).then(() => 'drawn', () => 'blocked')
+      await vi.waitFor(() => expect(gates).toHaveLength(2))
+      expect(decode).not.toHaveBeenCalled()
+      expect(drawn).not.toHaveBeenCalled()
+      expect(gates[0]!.receipt.ownerId).not.toBe(gates[1]!.receipt.ownerId)
+      expect(gates.map(({ receipt }) => receipt.scope)).toEqual([kind === 'local' ? 'local' : 'shared', kind === 'local' ? 'local' : 'shared'])
+      expect(gates.map(({ receipt }) => [receipt.ownerKind, receipt.complete, receipt.digests]))
+        .toEqual([['preview', true, [resource.digest]], ['preview', true, [resource.digest]]])
+      if (scenario === 'destination') current = false
+      if (scenario === 'disconnected') remote.methods.status.get = () => 'disconnected'
+      gates[1]!.finish.resolve()
+      const success = scenario === 'acknowledged' || scenario === 'lost'
+      expect(await secondDraw).toBe(success ? 'drawn' : 'blocked')
+      expect(decode).toHaveBeenCalledTimes(success ? 1 : 0)
+      gates[0]!.finish.resolve()
+      expect(await firstDraw).toBe(success ? 'drawn' : 'blocked')
+      if (success) {
+        await first.draw(draft.document, document.createElement('canvas'))
+        expect(decode).toHaveBeenCalledTimes(2)
+        expect(gates).toHaveLength(2)
+      }
+      await first.dispose()
+      await second.dispose()
+      await controller.close()
+      expect(remote.methods.releaseRetainedAssets).not.toHaveBeenCalled()
+      expect((await store.resourceReads()).map((read) => read.owner.ownerId).sort())
+        .toEqual(gates.map((gate) => gate.receipt.ownerId).sort())
+      await store.close()
+    },
+  )
+
+  it('waits for bitmap settlement on close and disposal without releasing its cache owner', async () => {
+    const store = new ImageDocumentLocalStore('preview-settlement', new FakeIDBFactory())
+    const draft = await imported(store)
+    const resource = draft.document.resources.r0!
+    const remote = connectionFor(draft.document, (await store.getResource(resource.digest))!.bytes)
+    const controller = await createRetainedLocalImageDocumentSession(remote.connection, store, draft.document,
+      () => true, { setItem: () => undefined })
+    const decoded = deferred<ImageBitmap>()
+    const decode = vi.fn(() => decoded.promise)
+    const drawn = vi.fn()
+    vi.stubGlobal('createImageBitmap', decode)
+    vi.stubGlobal('document', { createElement: () => ({ width: 0, height: 0,
+      getContext: () => ({ clearRect() {}, scale() {}, save() {}, restore() {}, transform() {}, drawImage: drawn }) }) })
+    const renderer = new ImageDocumentPreviewRenderer(controller)
+    const draw = renderer.draw(draft.document, document.createElement('canvas')).then(() => 'drawn', () => 'blocked')
+    await vi.waitFor(() => expect(decode).toHaveBeenCalledTimes(1))
+    let closed = false
+    let disposed = false
+    const close = controller.close().then(() => { closed = true })
+    const dispose = renderer.dispose().then(() => { disposed = true })
+    await Promise.resolve()
+    expect(closed).toBe(false)
+    expect(disposed).toBe(false)
+    const closeBitmap = vi.fn()
+    decoded.resolve({ close: closeBitmap } as unknown as ImageBitmap)
+    expect(await draw).toBe('blocked')
+    await Promise.all([close, dispose])
+    expect(closeBitmap).toHaveBeenCalledTimes(1)
+    expect(drawn).not.toHaveBeenCalled()
+    expect(remote.methods.releaseRetainedAssets).not.toHaveBeenCalled()
+    expect(await store.resourceReads()).toHaveLength(1)
+    await store.close()
+  })
+
   it.each(['local', 'shared'].flatMap((kind) =>
     ['acknowledged', 'lost', 'refused', 'reused', 'destination', 'disconnected'].map((scenario) => [kind, scenario])))(
     'admits a recovered %s session only after exact durable ownership (%s)', async (kind, scenario) => {

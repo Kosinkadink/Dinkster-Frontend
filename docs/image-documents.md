@@ -391,6 +391,14 @@ changed destination, or foreign journal grants no release authority. Closing
 waits for already-started retirements but never releases the current owner.
 Independent session and staged-raster owners remain separate and held.
 
+Each preview renderer admits independent, scoped owners for its raster bitmap
+cache before decoding or drawing staged bytes. Cache hits recheck the captured
+project, backend, connection, and session lifetime; descriptor changes require
+a new owner. Lost acknowledgments reconcile by exact owner readback, without
+replaying a write. Closing waits for pending decoding and closes bitmaps, but
+does not release cache owners or their durable read intents. Session replacement
+cannot retire a renderer's independent owner, even for the same digest.
+
 ## Shared editing
 
 **Share** creates a live ImageDocument session after all current raster
