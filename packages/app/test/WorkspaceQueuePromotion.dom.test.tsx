@@ -21,7 +21,7 @@ import { WorkflowQueueControl } from '../src/WorkflowQueueControl.js'
 class MemoryPort implements WorkerPortLike {
   peer: MemoryPort | undefined
   paused = false
-  private readonly queued: unknown[] = []
+  readonly queued: unknown[] = []
   private readonly listeners = new Set<(event: MessageEvent<unknown>) => void>()
 
   postMessage(message: unknown): void {
@@ -181,7 +181,10 @@ describe('workspace promotion queueing', () => {
     const submit = vi.spyOn(app.connection, 'submit').mockResolvedValue({ ok: false, diagnostics: [] })
     await vi.waitFor(() => expect(promotionPorts).toHaveLength(1))
     const queueing = app.queue(original)
-    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    await vi.waitFor(() => {
+      expect(promotionPorts[0]!.paused).toBe(true)
+      expect(promotionPorts[0]!.queued.length).toBeGreaterThan(0)
+    })
 
     const initial = workflow()
     const replacement: WorkflowDocument = {
