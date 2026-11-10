@@ -1,0 +1,13 @@
+https://github.com/Kosinkadink/comfy-vibe-station/issues/507#issuecomment-6370895382
+VERDICT: PASS - 6f5ca59fe761bd25510c97109fa289dca5db92ba
+
+Verified PR 147 head 6f5ca59fe761bd25510c97109fa289dca5db92ba on a fresh detached clone. The branch was pushed October 23, 2026 at 10:22:09 AM Pacific PDT. API precondition matched immediately before this verdict.
+
+Independent merge-base review used GitHub origin/main 0145ef01f250923fbc5cbf5f282a922cfe73ac2c, not the owner checkout's stale local main. The PR contains only docs, one Linux fontconfig fixture, the visual-spec font bootstrap, and eight expected PNG baselines. Deleted test/spec diff is empty; no skips, screenshot tolerances, or assertions were weakened. The common boot asserts both checked-in regular and bold ProductVisual font loads. Linux Chromium is given a spec-local fontconfig file mapping system-ui and sans-serif to the checked-in Noto Sans fixtures, while other specs retain their normal environment.
+
+Fresh-clone checks passed: pnpm install --frozen-lockfile; pnpm check:raw-controls; pnpm -r typecheck; DINKSTER_SOURCE_ROOT=owner/.ci/Dinkster pnpm ci:fast; pnpm --filter @dinkster/app build; and NODE_OPTIONS=--max-semi-space-size=64 run_counted_suite.sh pnpm test.
+
+Fresh hosted-config browser verification used a fresh ComfyUI clone at 15eb748b3ec5f8a0a2d470b7fb280e2d7579f916 and the supplied isolated ports. It passed 3 active product-surface tests with 5 existing skips. Repeating twice with the parent FONTCONFIG_FILE restricted to Liberation passed 6 active tests with 10 existing skips, demonstrating the spec launch environment overrides ambient parent font configuration. All started services stopped after each run.
+
+I inspected all eight refreshed desktop and compact baselines. Typography is intact and controls do not overlap. Compact canvas node-edge clipping, dock/tab ellipses, and viewport-bound content are existing intentional framing conditions, not introduced structural defects; the open menus and minimap controls remain readable and unobstructed.
+
