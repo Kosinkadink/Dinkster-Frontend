@@ -1559,10 +1559,12 @@ describe('retained app dispatch', () => {
         app.registry.set({ connection: app.connection.id, schemas, diagnostics: [], hash: 'restarted',
           resolve: (type) => schemas.get(type) })
         const admitted = deferred<void>()
+        const restoredOwners: RetainedAssetOwner[] = []
         vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
           expect(oldOwners.has(owner.ownerId)).toBe(false)
           const restored = declaration.digests.includes(asset('b').digest)
           if (restored) {
+            restoredOwners.push(owner)
             await admitted.promise
             if (scenario === 'refused') throw new Error('restart admission refused')
           }
@@ -1585,6 +1587,33 @@ describe('retained app dispatch', () => {
         expect(await startup).toBe(scenario !== 'refused' && scenario !== 'reused-owner')
         expect(app.tabs.get().find((tab) => tab.id === 'retention')!.store.doc.graphs.g0!.nodes.n0!.values.files)
           .toEqual([asset('b')])
+        expect(restoredOwners).toHaveLength(1)
+        const restoredOwner = restoredOwners[0]!
+        const restoredReceipt = owners.get(restoredOwner.ownerId)
+        expect(restoredReceipt).toEqual(scenario === 'refused' ? undefined : {
+          ...restoredOwner, complete: true, digests: [asset('b').digest],
+          revision: scenario === 'reused-owner' ? 3 : 1,
+        })
+        const replacementAdmitted = deferred<void>()
+        vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+          expect(oldOwners.has(owner.ownerId)).toBe(false)
+          expect(owner.ownerId).not.toBe(restoredOwner.ownerId)
+          await replacementAdmitted.promise
+          return retain(owner, declaration)
+        })
+        const restoredTab = app.tabs.get().find((tab) => tab.id === 'retention')!
+        let replaced = false
+        const replacement = app.dispatchRetainedTo(restoredTab, replace('c')).finally(() => { replaced = true })
+        await vi.advanceTimersByTimeAsync(0)
+        expect(replaced).toBe(false)
+        expect(restoredTab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('b')])
+        expect(owners.get(restoredOwner.ownerId)).toEqual(restoredReceipt)
+        replacementAdmitted.resolve()
+        expect((await replacement).ok).toBe(true)
+        await vi.advanceTimersByTimeAsync(0)
+        expect(restoredTab.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset('c')])
+        expect(owners.get(restoredOwner.ownerId)).toEqual(scenario === 'refused' || scenario === 'reused-owner'
+          ? restoredReceipt : { ...restoredReceipt!, revision: 2, complete: true, digests: [] })
         for (const [id, receipt] of oldOwners) expect(owners.get(id)).toEqual(receipt)
         for (const [key, raw] of oldIntents) expect(localStorage.getItem(key)).toBe(raw)
       } finally { vi.useRealTimers() }
