@@ -1,0 +1,14 @@
+$ node scripts/check-path-case.mjs && pnpm -r typecheck
+Scope: 6 of 7 workspace projects
+packages/core typecheck$ tsc --noEmit
+packages/core typecheck: Done
+packages/canvas typecheck$ tsc --noEmit
+packages/client typecheck$ tsc --noEmit
+packages/e2e typecheck$ tsc --noEmit
+packages/widgets typecheck$ tsc --noEmit
+packages/widgets typecheck: Done
+packages/client typecheck: Done
+packages/canvas typecheck: Done
+packages/app typecheck$ tsc --noEmit
+packages/e2e typecheck: Done
+packages/app typecheck: Done

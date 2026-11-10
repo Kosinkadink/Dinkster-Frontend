@@ -1,0 +1,87 @@
+$ node scripts/ci-fast.mjs
+Checking formatting...
+All matched files use Prettier code style!
+$ node scripts/check-extension-literals.mjs
+$ node scripts/check-raw-controls.mjs
+$ node scripts/check-ui-strings.mjs
+$ node scripts/check-v1-boundary.mjs
+V1 dependency boundary passed
+$ node scripts/check-path-case.mjs && pnpm -r typecheck
+Scope: 6 of 7 workspace projects
+packages/core typecheck$ tsc --noEmit
+packages/core typecheck: Done
+packages/client typecheck$ tsc --noEmit
+packages/widgets typecheck$ tsc --noEmit
+packages/canvas typecheck$ tsc --noEmit
+packages/e2e typecheck$ tsc --noEmit
+packages/widgets typecheck: Done
+packages/client typecheck: Done
+packages/canvas typecheck: Done
+packages/app typecheck$ tsc --noEmit
+packages/e2e typecheck: Done
+packages/app typecheck: Done
+
+ RUN  v3.2.7 /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/custom-widget-diagnostics-verifier/packages/core
+
+ ✓ test/events.golden.test.ts (25 tests) 10ms
+ ✓ test/object-info.golden.test.ts (6 tests) 6ms
+ ✓ test/dinkster-graph.test.ts (38 tests) 14ms
+ ✓ test/dinkster-inline-value.test.ts (4 tests) 4ms
+ ✓ test/format.schema.test.ts (16 tests) 37ms
+
+ Test Files  5 passed (5)
+      Tests  89 passed (89)
+   Start at  16:24:55
+   Duration  670ms (transform 538ms, setup 0ms, collect 1.10s, tests 71ms, environment 1ms, prepare 579ms)
+
+
+ RUN  v3.2.7 /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/custom-widget-diagnostics-verifier/packages/e2e
+
+ ✓ test/ci-workflow.test.ts (6 tests) 9ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  16:24:57
+   Duration  388ms (transform 57ms, setup 0ms, collect 66ms, tests 9ms, environment 0ms, prepare 98ms)
+
+
+ RUN  v3.2.7 /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/custom-widget-diagnostics-verifier/packages/app
+
+(node:3759825) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3759826) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ test/extension-dogfooding.test.ts (6 tests) 34ms
+ ✓ test/extension-world.test.ts (43 tests) 499ms
+
+ Test Files  2 passed (2)
+      Tests  49 passed (49)
+   Start at  16:24:58
+   Duration  11.18s (transform 8.82s, setup 0ms, collect 20.68s, tests 533ms, environment 0ms, prepare 168ms)
+
+✔ extension literal guard rejects site and ceiling drift (1654.801351ms)
+✔ extension literal write refuses to raise a ceiling (962.919158ms)
+✔ extension literal ceilings ratchet against the baseline (476.595567ms)
+✔ default scan includes every package source root (456.47908ms)
+✔ tracked path guard finds case-insensitive collisions (0.965609ms)
+✔ raw-control ratchet rejects stale controls and unused ceiling headroom (2274.003092ms)
+✔ design tokens resolve from the shared projection or local declarations in every stylesheet (899.97216ms)
+✔ raw-control ratchet rejects new controls and styling literals but accepts reductions (1738.617811ms)
+✔ UI string guard rejects literals added to new and allowlisted files (104.395358ms)
+✔ accepts one explicit V1 connection-kind entry (9.711713ms)
+✔ checks package boundaries alongside dependency build permissions (5.962874ms)
+✔ ignores non-package directories matched by a workspace glob (2.908765ms)
+✔ rejects direct and transitive native imports of V1 code (2.991457ms)
+✔ fails closed on unresolved local imports (2.439711ms)
+✔ fails closed on non-literal dynamic imports (2.999347ms)
+✔ allows explicit Vite external runtime imports (2.248795ms)
+✔ fails closed on source syntax errors (2.443471ms)
+✔ fails closed on malformed workspace manifests (1.507284ms)
+ℹ tests 18
+ℹ suites 0
+ℹ pass 18
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4965.137576

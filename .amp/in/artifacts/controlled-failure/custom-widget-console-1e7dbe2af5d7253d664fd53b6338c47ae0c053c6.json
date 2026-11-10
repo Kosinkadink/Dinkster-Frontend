@@ -1,0 +1,74 @@
+[
+  {
+    "at": "2026-10-23T23:29:35.720Z",
+    "type": "debug",
+    "text": "[vite] connecting...",
+    "location": {
+      "url": "http://127.0.0.1:15840/@vite/client",
+      "line": 788,
+      "column": 8,
+      "lineNumber": 788,
+      "columnNumber": 8
+    }
+  },
+  {
+    "at": "2026-10-23T23:29:35.729Z",
+    "type": "debug",
+    "text": "[vite] connected.",
+    "location": {
+      "url": "http://127.0.0.1:15840/@vite/client",
+      "line": 911,
+      "column": 14,
+      "lineNumber": 911,
+      "columnNumber": 14
+    }
+  },
+  {
+    "at": "2026-10-23T23:29:37.599Z",
+    "type": "error",
+    "text": "Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+    "location": {
+      "url": "http://127.0.0.1:15840/supervisor/status",
+      "line": 0,
+      "column": 0,
+      "lineNumber": 0,
+      "columnNumber": 0
+    }
+  },
+  {
+    "at": "2026-10-23T23:29:37.914Z",
+    "type": "error",
+    "text": "Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+    "location": {
+      "url": "http://127.0.0.1:15840/supervisor/status",
+      "line": 0,
+      "column": 0,
+      "lineNumber": 0,
+      "columnNumber": 0
+    }
+  },
+  {
+    "at": "2026-10-23T23:29:38.604Z",
+    "type": "error",
+    "text": "custom-widget diagnostic validation marker",
+    "location": {
+      "url": "",
+      "line": 0,
+      "column": 14,
+      "lineNumber": 0,
+      "columnNumber": 14
+    }
+  },
+  {
+    "at": "2026-10-23T23:29:40.917Z",
+    "type": "error",
+    "text": "Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+    "location": {
+      "url": "http://127.0.0.1:15840/supervisor/status",
+      "line": 0,
+      "column": 0,
+      "lineNumber": 0,
+      "columnNumber": 0
+    }
+  }
+]

@@ -1,0 +1,189 @@
+Test started: 2026-10-23T23:29:35.488Z
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m setup plugin alembic.autogenerate.schemas
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m setup plugin alembic.autogenerate.tables
+[WebServer] [32m[INFO][0m setup plugin alembic.autogenerate.types
+[WebServer] [32m[INFO][0m setup plugin alembic.autogenerate.constraints
+[WebServer] [32m[INFO][0m setup plugin alembic.autogenerate.defaults
+[WebServer] [32m[INFO][0m setup plugin alembic.autogenerate.comments
+[WebServer] [32m[INFO][0m setup plugin alembic.ext.checkconstraint_byname
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m Found comfy_kitchen backend eager: {'available': True, 'disabled': False, 'unavailable_reason': None, 'capabilities': ['adaln', 'apply_rope', 'apply_rope1', 'apply_rope1_', 'apply_rope_', 'apply_rope_split_half', 'apply_rope_split_half1', 'apply_rope_split_half1_', 'apply_rope_split_half_', 'convrot_w4a4_linear', 'dequantize_convrot_w4a4_weight', 'dequantize_int8_convrot_weight', 'dequantize_int8_convrot_weight_dtype', 'dequantize_int8_embedding', 'dequantize_int8_simple', 'dequantize_int8_simple_dtype', 'dequantize_mxfp8', 'dequantize_nvfp4', 'dequantize_per_tensor_fp8', 'dequantize_w4a8_int8_weight', 'fp16_conv3d', 'fp16_linear', 'gemv_awq_w4a16', 'group_norm_silu_pad3d', 'int8_linear', 'na3d', 'prepare_int4_weight_for_int8_linear', 'quantize_and_rotate_rowwise', 'quantize_convrot_w4a4_weight', 'quantize_int8_convrot_weight', 'quantize_int8_rowwise', 'quantize_int8_tensorwise', 'quantize_mxfp8', 'quantize_nvfp4', 'quantize_per_tensor_fp8', 'quantize_svdquant_w4a4', 'quantize_w4a8_int8_weight', 'rms_adaln', 'rms_rope', 'rms_rope1', 'rms_rope1_', 'rms_rope_', 'rms_rope_split_half', 'rms_rope_split_half1', 'rms_rope_split_half1_', 'rms_rope_split_half_', 'rotate_int8_convrot_weight', 'scaled_mm_mxfp8', 'scaled_mm_nvfp4', 'scaled_mm_svdquant_w4a4', 'sol_attn', 'stochastic_rounding_fp8', 'w4a8_int8_linear']}
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m Found comfy_kitchen backend cuda: {'available': False, 'disabled': False, 'unavailable_reason': 'CUDA not available on this system', 'capabilities': []}
+[WebServer] [32m[INFO][0m Found comfy_kitchen backend hip: {'available': False, 'disabled': False, 'unavailable_reason': 'PyTorch ROCm/HIP runtime not available', 'capabilities': []}
+[WebServer] [32m[INFO][0m Found comfy_kitchen backend triton: {'available': False, 'disabled': True, 'unavailable_reason': 'Neither CUDA nor XPU available on this system', 'capabilities': []}
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m Checkpoint files will always be loaded safely.
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m Total VRAM 128719 MB, total RAM 128719 MB
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m pytorch version: 2.14.1+cu130
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m Set vram state to: DISABLED
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m Device: cpu
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m Using sub quadratic optimization for attention, if you have memory or speed issues try using: --use-split-cross-attention
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m Python version: 3.12.13 (main, Jun 23 2026, 15:18:55) [Clang 22.1.3 ]
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m ComfyUI version: 0.34.0
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m comfy-aimdo version: 0.5.5
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m comfy-kitchen version: 0.2.35
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m comfyui-frontend-package version: 1.51.9
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m comfyui-workflow-templates version: 0.11.55
+[WebServer] [32m[INFO][0m comfyui-embedded-docs version: 0.5.11
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m comfy-kitchen version: 0.2.35
+[WebServer] [32m[INFO][0m comfy-aimdo version: 0.5.5
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m [Prompt Server] web root: /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/custom-widget-diagnostics-verifier/.ci/ComfyUI/venv/lib/python3.12/site-packages/comfyui_frontend_package/static
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m Asset seeder disabled
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m No OpenGL_accelerate module loaded: No module named 'OpenGL_accelerate'
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m 
+[WebServer] Import times for custom nodes:
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m    0.0 seconds: /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/custom-widget-diagnostics-verifier/.ci/ComfyUI/custom_nodes/websocket_image_save.py
+[WebServer] [32m[INFO][0m 
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m Context impl SQLiteImpl.
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m Will assume non-transactional DDL.
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m Using RAM pressure cache.
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m Starting server
+[WebServer] 
+2026-10-23T23:29:35.166Z stderr [WebServer] [32m[INFO][0m To see the GUI go to: http://127.0.0.1:15841
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:10 INFO     dinkster.serve: p2p unavailable
+2026-10-23T23:29:35.166Z stderr [WebServer] official resolver bootstrap refused: official resolver URL and provider ID must both be configured
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.serve: pack dinkster-nodes-foundation announced (1/16, epoch 2)
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount output scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount output scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount output scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount output: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.serve: pack dinkster-nodes-generation announced (2/16, epoch 3)
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.serve: pack dinkster-nodes-media-io announced (3/16, epoch 4)
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-input scan: 0/1 files, 0/8589 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-input scan: 0/1 files, 0/8589 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-input scan: 1/1 files, 8589/8589 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-input: 1 entry cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-output scan: 0/1 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-output scan: 0/1 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-output scan: 1/1 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-output: 1 entry cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-audio-encoders-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-audio-encoders-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-audio-encoders-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-audio-encoders-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-background-removal-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-background-removal-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-background-removal-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-background-removal-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-checkpoints-1 scan: 0/1 files, 0/39 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-checkpoints-1 scan: 0/1 files, 0/39 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-checkpoints-1 scan: 1/1 files, 39/39 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-checkpoints-1: 1 entry cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 WARNING  dinkster.mounts: mount comfy-model-checkpoints-2 scan failed: asset library root is not a directory: /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/custom-widget-diagnostics-verifier/.ci/ComfyUI/output/checkpoints
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-clip-vision-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-clip-vision-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-clip-vision-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-clip-vision-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-controlnet-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-controlnet-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-controlnet-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-controlnet-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 WARNING  dinkster.mounts: mount comfy-model-controlnet-2 scan failed: asset library root is not a directory: /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/custom-widget-diagnostics-verifier/.ci/ComfyUI/models/t2i_adapter
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-detection-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-detection-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-detection-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-detection-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-diffusion-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-diffusion-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-diffusion-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-diffusion-models-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-diffusion-models-2 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-diffusion-models-2 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-diffusion-models-2 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-diffusion-models-2: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 WARNING  dinkster.mounts: mount comfy-model-diffusion-models-3 scan failed: asset library root is not a directory: /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/custom-widget-diagnostics-verifier/.ci/ComfyUI/output/diffusion_models
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-embeddings-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-embeddings-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-embeddings-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-embeddings-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-frame-interpolation-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-frame-interpolation-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-frame-interpolation-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-frame-interpolation-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-geometry-estimation-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-geometry-estimation-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-geometry-estimation-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-geometry-estimation-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-gligen-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-gligen-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-gligen-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-gligen-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-hypernetworks-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-hypernetworks-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-hypernetworks-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-hypernetworks-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-latent-upscale-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-latent-upscale-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-latent-upscale-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-latent-upscale-models-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-loras-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-loras-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-loras-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-loras-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 WARNING  dinkster.mounts: mount comfy-model-loras-2 scan failed: asset library root is not a directory: /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/custom-widget-diagnostics-verifier/.ci/ComfyUI/output/loras
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-model-patches-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-model-patches-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-model-patches-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-model-patches-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-optical-flow-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-optical-flow-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-optical-flow-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-optical-flow-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-photomaker-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-photomaker-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-photomaker-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-photomaker-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-style-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-style-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-style-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-style-models-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-text-encoders-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-text-encoders-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-text-encoders-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-text-encoders-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-text-encoders-2 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-text-encoders-2 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-text-encoders-2 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-text-encoders-2: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 WARNING  dinkster.mounts: mount comfy-model-text-encoders-3 scan failed: asset library root is not a directory: /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/custom-widget-diagnostics-verifier/.ci/ComfyUI/output/clip
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-upscale-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-upscale-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-upscale-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-upscale-models-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-vae-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-vae-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-vae-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 INFO     dinkster.mounts: mount comfy-model-vae-1: 0 entries cataloged
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 WARNING  dinkster.mounts: mount comfy-model-vae-2 scan failed: asset library root is not a directory: /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/custom-widget-diagnostics-verifier/.ci/ComfyUI/output/vae
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:16 WARNING  dinkster.workers.aimdo: dinkster_aimdo.control is unavailable; process continues without successful aimdo bootstrap
+2026-10-23T23:29:35.166Z stderr [WebServer] (node:3791744) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+2026-10-23T23:29:35.166Z stderr [WebServer] [2m$ vite --host 127.0.0.1 --port 15840 --strictPort[22m
+2026-10-23T23:29:35.166Z stderr [WebServer] (node:3791765) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+2026-10-23T23:29:35.166Z stdout [WebServer] 
+[WebServer]   VITE v6.4.3  ready in 220 ms
+[WebServer] 
+2026-10-23T23:29:35.166Z stdout [WebServer]   ➜  Local:   http://127.0.0.1:15840/
+2026-10-23T23:29:35.166Z stderr [WebServer] (node:3791815) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+2026-10-23T23:29:35.166Z stderr [WebServer] [2m$ vite --host 127.0.0.1 --port 15843 --strictPort[22m
+2026-10-23T23:29:35.166Z stderr [WebServer] (node:3791843) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+2026-10-23T23:29:35.166Z stdout [WebServer] 
+[WebServer]   VITE v6.4.3  ready in 222 ms
+[WebServer] 
+2026-10-23T23:29:35.166Z stdout [WebServer]   ➜  Local:   http://127.0.0.1:15843/
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:23 INFO     dinkster.serve: pack dinkster-compat-comfy announced (4/16, epoch 5)
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:23 INFO     dinkster.serve: pack dinkster-nodes-image announced (5/16, epoch 6)
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:24 INFO     dinkster.serve: pack dinkster-nodes-remote announced (6/16, epoch 7)
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:25 INFO     dinkster.serve: pack dinkster-vision-birefnet announced (7/16, epoch 8)
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:26 INFO     dinkster.serve: pack dinkster-vision-depth-anything-v2 announced (8/16, epoch 9)
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:27 INFO     dinkster.serve: pack dinkster-vision-depth-anything-v3 announced (9/16, epoch 10)
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:28 INFO     dinkster.serve: pack dinkster-vision-detr announced (10/16, epoch 11)
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:29 INFO     dinkster.serve: pack dinkster-vision-efficient-sam announced (11/16, epoch 12)
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:30 INFO     dinkster.serve: pack dinkster-vision-hed announced (12/16, epoch 13)
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:32 INFO     dinkster.serve: pack dinkster-vision-rtdetr announced (13/16, epoch 14)
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:33 INFO     dinkster.serve: pack dinkster-vision-sam31 announced (14/16, epoch 15)
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:34 INFO     dinkster.serve: pack dinkster-vision-upscale announced (15/16, epoch 16)
+2026-10-23T23:29:35.166Z stderr [WebServer] 16:29:34 INFO     dinkster.serve: pack dinkster-nodes-dev announced (16/16, epoch 17)
+2026-10-23T23:29:35.447Z stderr (node:3793492) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
