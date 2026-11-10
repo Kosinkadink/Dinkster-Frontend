@@ -820,6 +820,29 @@ describe('backend protocols', () => {
     expect(fetchJob).toHaveBeenCalledWith('saved-job')
   })
 
+  it('reconciles again when schema refresh supersedes a pending job read', async () => {
+    const backend = addOffline('http://native:8000', 'Native')
+    registryFor(backend)
+    const ref = foreignRun(backend.id, 'refreshing-job')
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    type Job = NonNullable<Awaited<ReturnType<typeof backend.connection.fetchJob>>>
+    const reads: Array<(job: Job) => void> = []
+    vi.spyOn(backend.connection, 'fetchJob').mockImplementation(() =>
+      new Promise((resolve) => reads.push(resolve)))
+
+    registryFor(backend)
+    await vi.waitFor(() => expect(reads).toHaveLength(1))
+    registryFor(backend)
+    reads[0]!({ state: 'completed', outputs: { producer: { value: 7 } }, artifacts: [] })
+    await vi.waitFor(() => expect(reads).toHaveLength(2))
+    expect(app.store.get(ref)).toMatchObject({ status: 'running', outputs: {} })
+
+    reads[1]!({ state: 'completed', outputs: { producer: { value: 42 } }, artifacts: [] })
+    await vi.waitFor(() => expect(app.store.get(ref)).toMatchObject({
+      status: 'completed', outputs: { producer: { value: 42 } }, artifactsHydrated: true,
+    }))
+  })
+
   it('retries a failed live completion artifact read on reconnect', async () => {
     const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
     if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')

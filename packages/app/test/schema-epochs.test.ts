@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveImportedNodePacks, type ComfyTranslation } from '@dinkster/core'
 import { EngineNotReadyError, type DinksterDiagnostics, type SchemaRegistry } from '@dinkster/client'
-import { AppState, GLOBAL_PROBLEMS_OWNER, type Backend } from '../src/app-state.js'
+import { AppState, backendConnectionStatus, GLOBAL_PROBLEMS_OWNER, type Backend } from '../src/app-state.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -256,6 +256,57 @@ describe('reconnect capability invalidation', () => {
     ;(backend.connection.status as unknown as { set(v: string): void }).set(s)
   }
 
+  it.each([
+    ['success', 'before'], ['failure', 'before'], ['success', 'after'], ['failure', 'after'],
+  ] as const)('keeps reconnect schema health when startup %s completes %s refresh', async (outcome, order) => {
+    let resolveStartup!: (registry: SchemaRegistry) => void
+    let rejectStartup!: (error: Error) => void
+    let resolveRefresh!: (registry: SchemaRegistry) => void
+    vi.spyOn(backend.connection, 'fetchSchemas')
+      .mockImplementationOnce(() => new Promise((resolve, reject) => {
+        resolveStartup = resolve
+        rejectStartup = reject
+      }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve }))
+    const startup = app.refreshBackendSchemas(backend)
+    setStatus('connected')
+    const finishStartup = async (): Promise<void> => {
+      if (outcome === 'success') resolveStartup(reg(backend, 2))
+      else rejectStartup(new Error('schema fetch invalidated by server reconnect'))
+      await startup
+    }
+    if (order === 'before') await finishStartup()
+    resolveRefresh(reg(backend, 7))
+    await vi.waitFor(() => expect(backend.registry.get()?.epoch).toBe(7))
+    expect(backend.schemaState.get()).toEqual({ status: 'ready' })
+    if (order === 'after') await finishStartup()
+
+    expect(backend.registry.get()?.epoch).toBe(7)
+    expect(backend.schemaState.get()).toEqual({ status: 'ready' })
+    expect(backendConnectionStatus(backend)).toBe('connected')
+    expect(app.problems.get().some((problem) => problem.code === 'schema.fetchFailed')).toBe(false)
+  })
+
+  it.each(['success', 'failure'] as const)('keeps a newer manual refresh when reconnect finishes with %s', async (outcome) => {
+    let resolveRefresh!: (registry: SchemaRegistry) => void
+    let rejectRefresh!: (error: Error) => void
+    vi.spyOn(backend.connection, 'fetchSchemas')
+      .mockImplementationOnce(() => new Promise((resolve, reject) => {
+        resolveRefresh = resolve
+        rejectRefresh = reject
+      }))
+      .mockResolvedValueOnce(reg(backend, 9))
+    setStatus('connected')
+    await app.refreshBackendSchemas(backend)
+    if (outcome === 'success') resolveRefresh(reg(backend, 3))
+    else rejectRefresh(new Error('obsolete reconnect failed'))
+    await flush()
+    expect(backend.registry.get()?.epoch).toBe(9)
+    expect(backend.schemaState.get()).toEqual({ status: 'ready' })
+    expect(backendConnectionStatus(backend)).toBe('connected')
+    expect(app.problems.get().some((problem) => problem.code === 'schema.refreshFailed')).toBe(false)
+  })
+
   it('retires the worker catalog as soon as the connection leaves connected', () => {
     vi.spyOn(backend.connection, 'fetchSchemas').mockImplementation(() => new Promise(() => {}))
     setStatus('connected')
@@ -401,6 +452,8 @@ describe('reconnect capability invalidation', () => {
     expect(backend.registry.get()?.extensionSnapshotPair).toBeUndefined()
     expect(connection.currentRegistry?.extensionSnapshotPair).toBeUndefined()
     expect(app.problems.get().some((p) => p.code === 'schema.refreshFailed')).toBe(true)
+    expect(backend.schemaState.get()).toEqual({ status: 'error', message: 'offline' })
+    expect(backendConnectionStatus(backend)).toBe('disconnected')
   })
 
   it.each([[false, false], [true, false], [true, true]])('discards previous-server metadata when lookup fails=%s and schemas fail early=%s', async (fails, schemasFailEarly) => {
