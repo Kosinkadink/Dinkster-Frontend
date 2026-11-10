@@ -61,6 +61,10 @@ The native client ignores pack-level alias/group catalogs: they supply neither
 registry entries nor extra carrier search terms. Native schema resolution uses
 only exact registered node IDs; historical node alias metadata is not a lookup
 path. Search terms remain presentation-only properties of the schema.
+Replacement mappings retain exact declared static port IDs, including dotted
+model-merge input names such as `time_embed.` and `input_blocks.0.`. Punctuation
+does not turn a declared static port into a dynamic member path; undeclared
+member paths still require the corresponding family mapping.
 The importer also requires a supplied schema's ID to equal the requested class:
 a custom resolver cannot rename a node by returning another class's schema.
 Mismatched results are treated as missing, retaining authored widget values and
@@ -110,6 +114,13 @@ schema registry. Unrecognized versions or positional layouts remain raw with
 an import warning; they are not decoded by guessing. Original workflow JSON
 remains in import provenance. Automatic replacements, including their defaults
 and any loss, still follow the ordinary migration and single-step undo rules.
+Installed replacement rules that rename inputs use this migration path rather
+than decoding the predecessor's widgets against the successor's input names.
+Installed rules still take precedence over registry translation metadata.
+Installed schemas become available independently of the advisory registry
+lookup. A slow or unavailable index does not block native workflow startup.
+Later metadata applies to subsequent imports only, and responses from an older
+backend generation, catalog prefix, or superseded lookup are discarded.
 
 For SaveVideo versions not listed in the table, including absent versions, the
 layout is authoritative without numeric or lexical version comparison. A node
