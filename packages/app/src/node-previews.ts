@@ -773,6 +773,7 @@ export function createPreviewLoader(deps: {
     executedImageInventory(exec, {
       runtimeIds,
       assetUrlForExecution: deps.assetUrlForExecution,
+      ...(deps.executionAssetReader === undefined ? {} : { executionAssetReader: deps.executionAssetReader }),
     })
 
   return {

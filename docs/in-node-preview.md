@@ -77,6 +77,12 @@ Captured model-byte readers accept canonical digest-only identities as well as
 full resource references; presentation metadata is not needed to protect bytes.
 Malformed digests and opaque resource fields cannot certify a complete inventory.
 
+Saved image tiles in the output rail, Canvas and App View viewers admit their
+own preview owners before fetching CAS bytes. Each mounted tile holds its own
+reader through browser decode, even when compare sides show the same digest.
+Refused or obsolete admission publishes no image URL. Unmounting aborts local
+work and revokes blob URLs without releasing durable owners.
+
 ## Video inspection
 
 Canvas and App View use the same video transport. It exposes play/pause,
