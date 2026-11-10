@@ -9,16 +9,21 @@ import {
 import {
   MAX_IMAGE_DOCUMENT_BYTES,
   canonicalJson,
+  connectSharedImageDocumentSession,
   createLocalImageDocumentSession,
   diag,
   loadImageDocument,
   serializeImageDocument,
+  type CollabConnection,
+  type CollabSessionDescriptor,
   type ImageDocument,
   type ImageDocumentCommandInvocation,
   type ImageDocumentDispatchOutcome,
   type ImageDocumentSession,
   type ImageRasterResource,
   type PreparedImageDocumentDispatch,
+  type SharedImageDocumentSession,
+  type SharedImageDocumentSessionOptions,
 } from '@dinkster/core'
 import {
   ImageDocumentLocalStore,
@@ -31,12 +36,51 @@ import { retainWorkflowAssets } from './workflow-asset-retention.js'
 
 export const IMAGE_DOCUMENT_LIBRARY_LABEL = 'image-document'
 
-export async function createRetainedLocalImageDocumentSession(
+export interface RetainedImageDocumentSession<S extends ImageDocumentSession = ImageDocumentSession> {
+  readonly session: S
+  dispatch(invocation: ImageDocumentCommandInvocation): Promise<ImageDocumentDispatchOutcome>
+  undo(): Promise<ImageDocumentDispatchOutcome>
+  redo(): Promise<ImageDocumentDispatchOutcome>
+  close(): Promise<void>
+}
+
+export function createRetainedLocalImageDocumentSession(
   connection: DinksterConnection,
   store: ImageDocumentLocalStore,
   document: ImageDocument,
   isCurrent: () => boolean,
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
+): Promise<RetainedImageDocumentSession> {
+  return createRetainedImageDocumentSession(connection, store,
+    (options) => Promise.resolve(createLocalImageDocumentSession(document, options)), isCurrent, storage)
+}
+
+export async function createRetainedSharedImageDocumentSession(
+  connection: DinksterConnection,
+  store: ImageDocumentLocalStore,
+  transport: CollabConnection,
+  descriptor: CollabSessionDescriptor,
+  options: Pick<SharedImageDocumentSessionOptions, 'actorId' | 'onConflict' | 'onError'>,
+  isCurrent: () => boolean,
+  storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
+): Promise<RetainedImageDocumentSession<SharedImageDocumentSession>> {
+  try {
+    return await createRetainedImageDocumentSession(connection, store,
+      (admission) => connectSharedImageDocumentSession(transport, descriptor, { ...options, ...admission }),
+      isCurrent, storage, descriptor.scope)
+  } catch (cause) {
+    transport.close()
+    throw cause
+  }
+}
+
+async function createRetainedImageDocumentSession<S extends ReturnType<typeof createLocalImageDocumentSession> | SharedImageDocumentSession>(
+  connection: DinksterConnection,
+  store: ImageDocumentLocalStore,
+  createSession: (options: Pick<SharedImageDocumentSessionOptions, 'validateCommit' | 'beforeRemoteDocument'>) => Promise<S>,
+  isCurrent: () => boolean,
+  storage: Pick<Storage, 'setItem'>,
+  remoteScope?: string,
 ) {
   const assetBaseUrl = connection.assetUrl('')
   let closed = false
@@ -50,16 +94,35 @@ export async function createRetainedLocalImageDocumentSession(
   }
   let initializing = true
   let admitted: ImageDocument | undefined
-  const pending = new Set<Promise<ImageDocumentDispatchOutcome>>()
+  let stopSession = (): void => undefined
+  const pending = new Set<Promise<unknown>>()
   try {
     assertCurrent()
-    const session = createLocalImageDocumentSession(document, {
+    const session = await createSession({
       validateCommit: (_current, candidate) => {
         if (initializing) return []
         if (admitted === candidate) { admitted = undefined; return [] }
         return [diag('error', 'command', 'image.retention.required', 'ImageDocument change requires asset admission')]
       },
+      ...(remoteScope === undefined ? {} : {
+        beforeRemoteDocument: (document, revision, _current, digests, snapshots) => {
+          const task = (async (): Promise<void> => {
+            assertCurrent()
+            for (const snapshot of snapshots) {
+              await hydrateImageDocumentResources(connection, store, snapshot, remoteScope, assertCurrent)
+            }
+            assertCurrent()
+            await retainWorkflowAssets(connection, document.lineage, revision,
+              { complete: true, digests }, storage)
+            assertCurrent()
+          })()
+          pending.add(task)
+          void task.finally(() => pending.delete(task)).catch(() => undefined)
+          return task
+        },
+      } satisfies Pick<SharedImageDocumentSessionOptions, 'beforeRemoteDocument'>),
     })
+    stopSession = (): void => { if ('close' in session) session.close() }
     initializing = false
     const uploaded = new Set<string>()
     const uploadResources = async (snapshot: ImageDocument): Promise<void> => {
@@ -71,14 +134,16 @@ export async function createRetainedLocalImageDocumentSession(
           throw new Error(`staged ImageDocument resource does not match its descriptor: ${resource.id}`)
         }
         if (uploaded.has(resource.digest)) continue
-        await uploadImageDocumentResource(connection, store, resource, 'local', undefined, assertCurrent)
+        await uploadImageDocumentResource(connection, store, resource, remoteScope ?? 'local', undefined, assertCurrent)
         uploaded.add(resource.digest)
       }
     }
-    await uploadResources(session.doc)
-    assertCurrent()
-    await retainWorkflowAssets(connection, session.doc.lineage, session.revision,
-      { complete: true, digests: [...session.retainedResourceDigests()].sort() }, storage)
+    if (remoteScope === undefined) {
+      await uploadResources(session.doc)
+      assertCurrent()
+      await retainWorkflowAssets(connection, session.doc.lineage, session.revision,
+        { complete: true, digests: [...session.retainedResourceDigests()].sort() }, storage)
+    }
     assertCurrent()
     const commit = (prepared: PreparedImageDocumentDispatch): Promise<ImageDocumentDispatchOutcome> => {
       const revision = session.revision + 1
@@ -97,19 +162,21 @@ export async function createRetainedLocalImageDocumentSession(
       return task
     }
     return {
-      session: session as ImageDocumentSession,
+      session,
       dispatch: (invocation: ImageDocumentCommandInvocation) => commit(session.prepareDispatch(invocation)),
       undo: () => commit(session.prepareUndo()),
       redo: () => commit(session.prepareRedo()),
       close: async (): Promise<void> => {
         closed = true
         unsubscribe()
+        stopSession()
         await Promise.allSettled([...pending])
       },
     }
   } catch (cause) {
     closed = true
     unsubscribe()
+    stopSession()
     throw cause
   }
 }

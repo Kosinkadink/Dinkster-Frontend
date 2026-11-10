@@ -124,6 +124,88 @@ describe('ImageDocumentWorkspace', () => {
     },
   )
 
+  it.each(['accepted', 'lost', 'refused', 'reused', 'backend', 'project', 'dispose'])(
+    'guards shared recovery and edits with durable workspace ownership (%s)', async (scenario) => {
+      vi.stubGlobal('indexedDB', new FakeIDBFactory())
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      const store = new ImageDocumentLocalStore(activeProjectId())
+      const draft = await importSingleRaster(new File(['source'], 'Held shared.png', { type: 'image/png' }), store,
+        { lineage: 'held-shared', normalize: async () => ({ width: 2, height: 1, rgba }) })
+      await store.setCollaboration(draft.document.lineage, { sessionId: 'held-shared', baseUrl: 'http://shared.test' })
+      const descriptor: CollabSessionDescriptor = { protocolVersion: COLLAB_PROTOCOL_VERSION,
+        sessionId: 'held-shared', scope: 'shared', documentKind: 'image', documentId: draft.document.lineage,
+        revision: 0, snapshotRevision: 0 }
+      const log: CollabServerOp[] = []
+      const transport = { sessionId: descriptor.sessionId,
+        fetchSnapshot: async () => ({ revision: 0, document: draft.document }),
+        fetchOps: async () => ({ kind: 'ops', ops: [...log] }),
+        postOp: async (op: CollabClientOp) => {
+          const accepted = { ...op, revision: op.baseRevision + 1, timestamp: 1 }
+          log.push(accepted)
+          return { kind: 'accepted', op: accepted }
+        },
+        onEvent: (listener: (event: CollabConnectionEvent) => void) => {
+          listener({ kind: 'connected', descriptor })
+          return () => undefined
+        },
+        putSnapshot: async () => ({ kind: 'ok' }), close: () => undefined,
+      } as unknown as CollabConnection
+      let hold = true
+      let entered = false
+      let acknowledge!: () => void
+      let observed: Awaited<ReturnType<DinksterConnection['retainAssets']>> | undefined
+      const release = vi.fn()
+      const assetConnection = { ...imageRetention,
+        retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
+          const receipt = { ...owner, ...declaration, revision: scenario === 'reused' ? 3 : 1 }
+          if (!hold || !owner.ownerId.startsWith('workflow-candidate:')) return { ...receipt, revision: 1 }
+          observed = receipt
+          entered = true
+          await new Promise<void>((resolve) => { acknowledge = resolve })
+          if (scenario === 'refused') { observed = undefined; throw new Error('shared owner refused') }
+          if (scenario === 'lost') throw new Error('lost shared acknowledgment')
+          return receipt
+        }, fetchRetainedAssets: async () => observed, releaseRetainedAssets: release }
+      let backend = { id: 'shared-owner', protocol: 'dinkster', baseUrl: 'http://shared.test',
+        connection: assetConnection as unknown as DinksterConnection }
+      const app = { libraryBackend: () => imageBackend, collabBackend: () => backend,
+        backends: { get: () => [backend] }, collabActorId: 'alice',
+        collabTransport: { get: async () => descriptor, connect: () => transport }, showTransientStatus: vi.fn(),
+      } as unknown as AppState
+      const root = document.createElement('div')
+      document.body.append(root)
+      const dispose = render(() => <ImageDocumentWorkspace active app={app} onBusyChange={() => undefined} onClose={() => undefined} />, root)
+      await vi.waitFor(() => expect(entered).toBe(true))
+      expect(root.querySelector('.image-document-shared-status')).toBeNull()
+      if (scenario === 'backend') backend = { ...backend }
+      if (scenario === 'project') initializeProjectScope('displaced-shared')
+      if (scenario === 'dispose') dispose()
+      hold = false
+      acknowledge()
+      if (scenario === 'accepted' || scenario === 'lost') {
+        await vi.waitFor(() => expect(root.querySelector('.image-document-shared-status')?.textContent).toBe('Shared'))
+        hold = true
+        entered = false
+        root.querySelector<HTMLElement>('[role="slider"][aria-label="Layer opacity"]')!
+          .dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+        await vi.waitFor(() => expect(entered).toBe(true))
+        expect(root.querySelector('.image-document-properties output')?.textContent).toBe('100%')
+        expect(log).toEqual([])
+        hold = false
+        acknowledge()
+        await vi.waitFor(() => expect(root.querySelector('.image-document-properties output')?.textContent).toBe('0%'))
+        await vi.waitFor(async () => expect((await store.recoverDraft(draft.document.lineage))!.document.layers.l1!.opacity).toBe(0))
+      } else {
+        if (scenario === 'refused' || scenario === 'reused') await vi.waitFor(() => expect(root.textContent).toContain('Shared image could not rejoin:'))
+        expect(root.querySelector('.image-document-shared-status')).toBeNull()
+        expect(log).toEqual([])
+      }
+      expect(release).not.toHaveBeenCalled()
+      if (scenario !== 'dispose') dispose()
+      await store.close()
+    },
+  )
+
   it.each(['accepted', 'failed', 'project', 'backend', 'connection', 'dispose', 'project-failed', 'preflight-project', 'preflight-backend', 'preflight-tab'])(
     'keeps recipe export with its original workspace and source graph (%s)', async (outcome) => {
       vi.stubGlobal('indexedDB', new FakeIDBFactory())
@@ -638,7 +720,7 @@ describe('ImageDocumentWorkspace', () => {
       const connection = { sessionId: descriptor.sessionId,
         fetchSnapshot: async () => ({ revision: 0, document: seed.document }),
         fetchOps: async () => ({ kind: 'ops', ops: [] }),
-        onEvent: (listener: (event: CollabConnectionEvent) => void) => { notify = listener; return () => { notify = undefined } },
+        onEvent: (listener: (event: CollabConnectionEvent) => void) => { notify = listener; return () => { if (notify === listener) notify = undefined } },
         close: () => undefined,
       } as unknown as CollabConnection
       let finish!: () => void
@@ -723,7 +805,7 @@ describe('ImageDocumentWorkspace', () => {
       const connection = { sessionId: descriptor.sessionId,
         fetchSnapshot: async () => ({ revision: 0, document: seed.document }),
         fetchOps: async () => ({ kind: 'ops', ops: [] }),
-        onEvent: (listener: (event: CollabConnectionEvent) => void) => { notify = listener; return () => { notify = undefined } },
+        onEvent: (listener: (event: CollabConnectionEvent) => void) => { notify = listener; return () => { if (notify === listener) notify = undefined } },
         close: () => undefined,
       } as unknown as CollabConnection
       let backend = { id: 'leave-owner', protocol: 'dinkster', baseUrl: membership.baseUrl,
@@ -939,7 +1021,7 @@ describe('ImageDocumentWorkspace', () => {
         fetchOps: async () => ({ kind: 'ops', ops: [] }),
         onEvent: (listener: (event: CollabConnectionEvent) => void) => {
           notify = listener
-          return () => { notify = undefined }
+          return () => { if (notify === listener) notify = undefined }
         },
         close: () => { sessionClosed = true },
       } as unknown as CollabConnection
@@ -1996,7 +2078,7 @@ describe('ImageDocumentWorkspace', () => {
       onEvent: (next) => {
         listener = next
         next({ kind: 'connected', descriptor })
-        return () => { listener = undefined }
+        return () => { if (listener === next) listener = undefined }
       },
       close: () => undefined,
     }

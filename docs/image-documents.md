@@ -362,21 +362,23 @@ check. Concurrent local changes require a fresh proposal and admission; a
 refused admission or changed connection preserves the last published state.
 Closing prevents pending admissions from publishing. Events received during
 initial admission are caught up through the same boundary. The hook itself
-does not acquire or release backend owners; shared workspace ownership is not
-established until the caller supplies that admission. Retained digests remain
-conservative.
+does not acquire or release backend owners. Retained digests remain conservative.
 
-The workspace waits for backend admission before exposing a recovered or
-imported local session. External rasters are verified against staged bytes and
-uploaded before a fresh document owner is journaled and acknowledged. Local
-commands, undo, and redo prepare their complete proposed document/history
+The workspace waits for backend admission before exposing a recovered,
+imported, or shared session. Local external rasters are verified against staged
+bytes and uploaded before a fresh document owner is journaled and acknowledged.
+Shared initial, ordered, rebase, and resync admission hydrates and verifies
+confirmed/current/intermediate snapshots before acknowledging an independent
+document owner for the complete inventory. Shared and local commands, undo,
+and redo prepare their complete proposed document/history
 inventory and await an exact acknowledgment before commit. A lost response is
 reconciled by reading that owner, without replaying its write. Refusal, reuse,
 disconnection, or a changed project/backend/session prevents publication.
 Unavailable backends leave recovered drafts blocked, not visible without
 ownership. Closing the workspace waits for pending admissions but does not
 release their durable owners. These session owners remain held conservatively;
-this does not establish shared-session or renderer-cache lifetime ownership.
+generation-bound session retirement and renderer-cache lifetime ownership are
+separate from admission.
 
 ## Shared editing
 

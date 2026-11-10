@@ -8,7 +8,6 @@ import {
   MAX_IMAGE_CANVAS_DIMENSION,
   asConnectionId,
   asImageResourceId,
-  connectSharedImageDocumentSession,
   formatNumber,
   imageOutputPolicyOf,
   orderedImageLayerIds,
@@ -38,9 +37,10 @@ import {
 } from './image-document-local.js'
 import {
   type VerifiedImageDocumentRender,
+  type RetainedImageDocumentSession,
   adoptImageDocumentForRender,
   createRetainedLocalImageDocumentSession,
-  hydrateImageDocumentResources,
+  createRetainedSharedImageDocumentSession,
   openImageDocumentFromLibrary,
   renderAdoptedImageDocument,
   saveImageDocumentToLibrary,
@@ -68,13 +68,12 @@ const LIBRARY_SCOPE = 'local'
 
 interface OpenImageDocument {
   readonly session: ImageDocumentSession
-  readonly retained?: Awaited<ReturnType<typeof createRetainedLocalImageDocumentSession>>
+  readonly retained: RetainedImageDocumentSession
   readonly publicationCurrent: () => boolean
   readonly stop: () => void
   name: string
   draft: ImageDocumentDraft
   persist: Promise<void>
-  hydrate: Promise<void>
   authoritative?: VerifiedImageDocumentRender
   origin?: ImageDocumentGraphOrigin
   readonly collaboration?: {
@@ -214,9 +213,7 @@ function ImageDocumentEditor(props: {
       if (rendererLive) setAuthoritativeBusy(false)
     }
   }
-  const dispatchCommand = (invocation: ImageDocumentCommandInvocation) => props.entry.retained === undefined
-    ? Promise.resolve(props.entry.session.dispatch(invocation))
-    : props.entry.retained.dispatch(invocation)
+  const dispatchCommand = (invocation: ImageDocumentCommandInvocation) => props.entry.retained.dispatch(invocation)
   const dispatch = async (invocation: ImageDocumentCommandInvocation): Promise<boolean> => {
     if (props.editingBlocked()) return false
     try {
@@ -235,12 +232,9 @@ function ImageDocumentEditor(props: {
   const history = async (direction: 'undo' | 'redo'): Promise<void> => {
     if (props.editingBlocked()) return
     try {
-      if (props.entry.retained === undefined) props.entry.session[direction]()
-      else {
-        const outcome = await props.entry.retained[direction]()
-        if (rendererLive && !outcome.ok && outcome.diagnostics.length > 0) {
-          props.onError(outcome.diagnostics[0]!.message)
-        }
+      const outcome = await props.entry.retained[direction]()
+      if (rendererLive && !outcome.ok && outcome.diagnostics.length > 0) {
+        props.onError(outcome.diagnostics[0]!.message)
       }
     } catch (cause) {
       if (rendererLive) props.onError(messageOf(cause))
@@ -842,21 +836,10 @@ export function ImageDocumentWorkspace(props: {
       if (current()) setError(`Draft recovery save failed: ${messageOf(cause)}`)
     })
   }
-  const scheduleHydrate = (entry: OpenImageDocument): void => {
-    const shared = entry.collaboration
-    const backend = shared === undefined ? undefined : backendForCollaboration(shared.baseUrl)
-    if (backend?.protocol !== 'dinkster') return
-    entry.hydrate = entry.hydrate.catch(() => undefined).then(() =>
-      hydrateImageDocumentResources(backend.connection, store, entry.session.doc, shared!.descriptor.scope),
-    ).then(() => {
-      if (live) setResourceTick((tick) => tick + 1)
-    }).catch((cause) => {
-      if (live) setError(`Shared image resource failed: ${messageOf(cause)}`)
-    })
-  }
   const attach = async (
     draft: ImageDocumentDraft,
-    shared?: { readonly descriptor: CollabSessionDescriptor; readonly baseUrl: string; readonly session: SharedImageDocumentSession },
+    shared?: { readonly descriptor: CollabSessionDescriptor; readonly baseUrl: string; readonly session: SharedImageDocumentSession;
+      readonly retained: Awaited<ReturnType<typeof createRetainedSharedImageDocumentSession>> },
     authoritative?: VerifiedImageDocumentRender,
     origin?: ImageDocumentGraphOrigin,
     initialCurrent: () => boolean = () => true,
@@ -878,31 +861,28 @@ export function ImageDocumentWorkspace(props: {
     }
     const retained = shared === undefined
       ? await createRetainedLocalImageDocumentSession(connection as DinksterConnection, store, draft.document, current)
-      : undefined
-    const session = shared?.session ?? retained!.session
+      : shared.retained
+    const session = retained.session
     const stopOperation = session.onOp(() => {
       queuePersist(entry)
-      scheduleHydrate(entry)
+      setResourceTick((tick) => tick + 1)
     })
     let stopStatus = (): void => undefined
     const stop = (): void => {
       stopOperation()
       stopStatus()
-      if (retained !== undefined) {
-        const task = retained.close()
-        pendingAdmissions.add(task)
-        void task.finally(() => pendingAdmissions.delete(task))
-      }
+      const task = retained.close()
+      pendingAdmissions.add(task)
+      void task.finally(() => pendingAdmissions.delete(task))
     }
     entry = {
       session,
       draft,
       name: draft.name,
       persist: Promise.resolve(),
-      hydrate: Promise.resolve(),
       stop,
       publicationCurrent: () => destinationCurrent() && initialCurrent(),
-      ...(retained !== undefined ? { retained } : {}),
+      retained,
       ...(authoritative !== undefined ? { authoritative } : {}),
       ...(origin !== undefined ? { origin } : {}),
       ...(shared !== undefined ? { collaboration: shared } : {}),
@@ -955,29 +935,36 @@ export function ImageDocumentWorkspace(props: {
     previous?: OpenImageDocument,
     isCurrent: () => boolean = () => true,
   ): Promise<OpenImageDocument> => {
+    const backend = backendForCollaboration(baseUrl)
+    if (backend?.protocol !== 'dinkster') throw new Error(message('imageDocument.workspace.error.collaborationBackendDisconnected'))
+    const assetConnection = backend.connection
+    let next: OpenImageDocument | undefined
+    const current = (): boolean => live && activeProjectId() === store.projectId &&
+      backendForCollaboration(baseUrl) === backend && backend.connection === assetConnection &&
+      (next === undefined ? isCurrent() : documents().includes(next))
     const assertCurrent = (): void => {
-      if (!isCurrent()) throw new Error('Shared image recovery is no longer current')
+      if (!current()) throw new Error('Shared image recovery is no longer current')
     }
     assertCurrent()
     if (descriptor.documentKind !== 'image') throw new Error('collaboration session is not an ImageDocument')
-    const backend = backendForCollaboration(baseUrl)
-    if (backend?.protocol !== 'dinkster') throw new Error(message('imageDocument.workspace.error.collaborationBackendDisconnected'))
     const connection = props.app.collabTransport.connect({
       baseUrl,
       sessionId: descriptor.sessionId,
       actorId: props.app.collabActorId,
     })
     let session: SharedImageDocumentSession | undefined
+    let retained: Awaited<ReturnType<typeof createRetainedSharedImageDocumentSession>> | undefined
     try {
-      session = await connectSharedImageDocumentSession(connection, descriptor, {
+      retained = await createRetainedSharedImageDocumentSession(assetConnection, store, connection, descriptor, {
         actorId: props.app.collabActorId,
         onConflict: (conflict) => {
-          if (live && isCurrent()) setLocalizedError('imageDocument.workspace.error.conflict', { reason: conflict.message })
+          if (current()) setLocalizedError('imageDocument.workspace.error.conflict', { reason: conflict.message })
         },
         onError: (reason) => {
-          if (live && isCurrent()) setLocalizedError('imageDocument.workspace.error.sessionFailed', { reason })
+          if (current()) setLocalizedError('imageDocument.workspace.error.sessionFailed', { reason })
         },
-      })
+      }, current)
+      session = retained.session
       assertCurrent()
       if (session.doc.lineage !== descriptor.documentId) {
         throw new Error('shared ImageDocument lineage does not match the session')
@@ -987,8 +974,6 @@ export function ImageDocumentWorkspace(props: {
       await session.settle()
       assertCurrent()
       const sharedDocument = session.doc
-      await hydrateImageDocumentResources(backend.connection, store, sharedDocument, descriptor.scope, assertCurrent)
-      assertCurrent()
       if (previous !== undefined &&
         serializeImageDocument(previous.session.doc) !== serializeImageDocument(sharedDocument)) {
         throw new Error('the local image differs from the shared session; publish or discard it before joining')
@@ -1007,17 +992,18 @@ export function ImageDocumentWorkspace(props: {
         baseUrl,
       }, assertCurrent)
       assertCurrent()
-      const next = await attach({ ...linked, document: sharedDocument, name: saved.name }, {
+      next = await attach({ ...linked, document: sharedDocument, name: saved.name }, {
         descriptor,
         baseUrl,
         session,
+        retained,
       })
       replaceEntry(previous, next)
       queuePersist(next, session.doc)
-      if (session.doc !== sharedDocument) scheduleHydrate(next)
       setResourceTick((tick) => tick + 1)
       return next
     } catch (cause) {
+      await retained?.close()
       if (session === undefined) connection.close()
       else session.close()
       throw cause
@@ -1323,7 +1309,6 @@ export function ImageDocumentWorkspace(props: {
     }
     void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingAdmissions, ...pendingRecipeExports, ...pendingSnapshotExports, ...[...pendingAuthoritativeRenders].map((task) => task.catch(() => undefined)), ...pendingPublications, ...pendingDraftSaves, ...pendingLibraryLists, ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
-      entry.hydrate.catch(() => undefined),
     ])]).finally(() => store.close())
   })
 
