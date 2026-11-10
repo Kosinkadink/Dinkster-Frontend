@@ -402,8 +402,7 @@ test('edits, executes, persists, and falls back safely when compositor sources c
     },
   }])
   expect([...new Set((problems[0]!.data!['reason'] as string).split('; '))].sort()).toEqual([
-    'dinkster.image.generate (blue): Dormant wire15 inputs require branch-specific identity resolution',
-    'dinkster.image.generate (red): Dormant wire15 inputs require branch-specific identity resolution',
+    "dinkster.image.create_layered (create): Stored input 'compositor' has unresolved asset identities",
   ])
   const errors = browserErrors.get(page)
   if (errors === undefined) throw new Error('browser error collector was not installed')
