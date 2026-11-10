@@ -83,6 +83,10 @@ reader through browser decode, even when compare sides show the same digest.
 Refused or obsolete admission publishes no image URL. Unmounting aborts local
 work and revokes blob URLs without releasing durable owners.
 
+Saved Painter masks, mask-editor sources, recorded audio and Load3D resources
+also scope their readers to the mounted editor, not its workflow tab. Two
+editors of the same asset wait for separate acknowledgments.
+
 ## Video inspection
 
 Canvas and App View use the same video transport. It exposes play/pause,

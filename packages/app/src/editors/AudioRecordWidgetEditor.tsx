@@ -63,7 +63,7 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
       let ownedUrl: string | undefined
       const previewAbort = new AbortController()
       const reader = ref === initial && backend.protocol === 'dinkster'
-        ? props.editor.app.workflowAssetReader(ed.tab, ref.digest) : draftReader
+        ? props.editor.app.workflowAssetReader(ed.tab, ref.digest, previewAbort.signal) : draftReader
       if (backend.protocol === 'dinkster') {
         const load = async () => {
           if (!current || reader?.current() !== true) return

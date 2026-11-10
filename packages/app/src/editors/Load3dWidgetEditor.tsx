@@ -198,7 +198,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         if (ref.verification !== 'unverified' && typeof ref.digest !== 'string') throw new Error(message('load3dWidget.chooseModel'))
         if (!live || !sourcesCurrent()) throw unavailable()
         const reader = modelExecution === undefined && ref.verification !== 'unverified'
-          ? props.editor.app.workflowAssetReader(ed.tab, ref.digest as string) : undefined
+          ? props.editor.app.workflowAssetReader(ed.tab, ref.digest as string, abort.signal) : undefined
         if (modelExecution === undefined && ref.verification !== 'unverified' && !reader) throw unavailable()
         const bytes = modelExecution !== undefined
           ? await props.editor.app.readFile3dAssetForExecution(modelExecution, ref, abort.signal)
@@ -240,7 +240,7 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       const assets = [model, ...resourceRefs.map(([, ref]) => object(ref))].filter((ref) => ref.verification !== 'unverified')
       const reader = !assets.length ? undefined : modelExecution !== undefined
         ? props.editor.app.file3dAssetReaderForExecution(modelExecution, assets)
-        : props.editor.app.workflowAssetReader(ed.tab, assets.map((asset) => asset.digest as string))
+        : props.editor.app.workflowAssetReader(ed.tab, assets.map((asset) => asset.digest as string), abort.signal)
       if (assets.length && !reader) throw unavailable()
       const mount = async () => {
         if (!live || !sourcesCurrent() || reader?.current() === false) throw unavailable()

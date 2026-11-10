@@ -156,7 +156,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
     }
     const abort = new AbortController()
     onCleanup(() => abort.abort())
-    const reader = props.app.workflowAssetReader(resolved.tab, request.sourceRef.digest)
+    const reader = props.app.workflowAssetReader(resolved.tab, request.sourceRef.digest, abort.signal)
     const current = (): boolean => live && !abort.signal.aborted && generation === loadGeneration &&
       target() === request && reader?.current() === true
     void (async () => {
