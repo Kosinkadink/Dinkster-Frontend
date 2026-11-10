@@ -308,8 +308,9 @@ owners. Exact complete acknowledgment precedes retiring covered candidate and
 operation slots. A local slot replacement retires its previous owners only after
 complete acknowledgment on the same backend/catalog lifetime; incomplete or
 refused replacements keep them. Cleanup releases only receipts admitted by this
-application for the exact removed bytes. Other windows' receipts and recovered
-receipts are observation-only, even when their digests match. Release remains
+application for the removed generation and unchanged payload; retention metadata
+updates do not change that identity or transfer release authority. Other windows'
+receipts and recovered receipts are observation-only, even when their digests match. Release remains
 revision-bound and uncertain responses stay journaled for observation, not replay.
 The asset census recognizes the mask command's exact source-association marker
 on mask-paint nodes: a string node ID and the fixed mask output ID contain no

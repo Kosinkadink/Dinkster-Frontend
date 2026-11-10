@@ -2018,6 +2018,18 @@ function removeWorkspaceOperation(opId: string): void {
   }
 }
 
+function samePersistedWorkflowStage(stagedRaw: string, currentRaw: string): boolean {
+  try {
+    const staged = JSON.parse(stagedRaw)
+    const { assetRetention, ...value } = JSON.parse(currentRaw)
+    return typeof staged?.assetRetention?.stageId === 'string' &&
+      assetRetention?.stageId === staged.assetRetention.stageId &&
+      JSON.stringify({ ...value, assetRetention: staged.assetRetention }) === stagedRaw
+  } catch {
+    return false
+  }
+}
+
 function commitPersistedTabs(
   state: PersistedTabs,
   actorId: string,
@@ -2082,18 +2094,9 @@ function commitPersistedTabs(
             if (current === candidate.raw) {
               storage.removeItem(candidate.key)
               onSlotRetired(candidate.key, current)
-            } else if (current !== null) {
-              try {
-                const staged = JSON.parse(candidate.raw)
-                const { assetRetention, ...value } = JSON.parse(current)
-                if (assetRetention?.stageId === staged.assetRetention?.stageId &&
-                  JSON.stringify({ ...value, assetRetention: staged.assetRetention }) === candidate.raw) {
-                  storage.removeItem(candidate.key)
-                  onSlotRetired(candidate.key, current)
-                }
-              } catch {
-                // A malformed replacement cannot retire or block other slots.
-              }
+            } else if (current !== null && samePersistedWorkflowStage(candidate.raw, current)) {
+              storage.removeItem(candidate.key)
+              onSlotRetired(candidate.key, current)
             }
           }
           onRetired(retired)
@@ -3738,7 +3741,8 @@ export class AppState {
 
   private retirePersistedWorkflowSlot(key: string, raw: string): void {
     const slot = this.persistedWorkflowSlots.get(key)
-    if (slot?.raw !== raw || globalThis.localStorage?.getItem(key) !== null) return
+    if (slot === undefined || (slot.raw !== raw && !samePersistedWorkflowStage(slot.raw, raw)) ||
+      globalThis.localStorage?.getItem(key) !== null) return
     this.persistedWorkflowSlots.delete(key)
     this.retirePersistedWorkflowOwners(slot.owners)
   }

@@ -1298,7 +1298,7 @@ describe('retained app dispatch', () => {
     },
   )
 
-  it.each(['acknowledged', 'lost', 'replaced', 'registry', 'incomplete', 'locked-cleanup'] as const)(
+  it.each(['acknowledged', 'lost', 'replaced', 'registry', 'incomplete', 'locked-cleanup', 'metadata-only', 'metadata-stage', 'metadata-payload'] as const)(
     'admits independent durable snapshot slots without acknowledging stale content: %s', async (scenario) => {
       vi.useFakeTimers()
       try {
@@ -1387,10 +1387,37 @@ describe('retained app dispatch', () => {
         }
         expect(new Set(receipts.map((receipt) => receipt.ownerId)).size).toBe(3)
         expect(cleanup).toBeDefined()
+        const ownCandidate = keys.find((key) => key.startsWith(scopedStorageKey('dinkster.openTabsCandidate.')))!
+        let candidateReceipt: RetainedAssets | undefined
+        let foreignReceipt: RetainedAssets | undefined
+        const metadataChange = scenario === 'metadata-only' || scenario === 'metadata-stage' || scenario === 'metadata-payload'
+        if (metadataChange) {
+          const candidate = JSON.parse(localStorage.getItem(ownCandidate)!)
+          candidateReceipt = candidate.assetRetention.owners.find((entry: { documentLineage: string }) =>
+            entry.documentLineage === document.lineage).retained
+          foreignReceipt = { ...candidateReceipt!, ownerId: 'workflow-candidate:foreign', revision: 1 }
+          owners.set(foreignReceipt.ownerId, foreignReceipt)
+          candidate.assetRetention.owners = [{ connectionId: app.connection.id, assetBaseUrl: app.connection.assetUrl(''),
+            documentLineage: document.lineage, retained: foreignReceipt }]
+          if (scenario === 'metadata-stage') candidate.assetRetention.stageId = 'foreign-stage'
+          if (scenario === 'metadata-payload') candidate.active = 'foreign-active'
+          localStorage.setItem(ownCandidate, JSON.stringify(candidate))
+          vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+            const released = { ...owners.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+            owners.set(owner.ownerId, released)
+            return released
+          })
+        }
         cleanup!()
         expect(localStorage.getItem(peerKey)).toBe(scenario === 'incomplete' ? peer : null)
-        const ownCandidate = keys.find((key) => key.startsWith(scopedStorageKey('dinkster.openTabsCandidate.')))!
-        expect(localStorage.getItem(ownCandidate) === null).toBe(scenario !== 'incomplete')
+        expect(localStorage.getItem(ownCandidate) === null).toBe(scenario !== 'incomplete' &&
+          scenario !== 'metadata-stage' && scenario !== 'metadata-payload')
+        if (metadataChange) {
+          await vi.advanceTimersByTimeAsync(0)
+          expect(owners.get(candidateReceipt!.ownerId)).toEqual(scenario === 'metadata-only'
+            ? { ...candidateReceipt!, revision: 2, complete: true, digests: [] } : candidateReceipt)
+          expect(owners.get(foreignReceipt!.ownerId)).toEqual(foreignReceipt)
+        }
       } finally { vi.useRealTimers() }
     },
   )
