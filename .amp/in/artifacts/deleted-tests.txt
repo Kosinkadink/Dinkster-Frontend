@@ -1,0 +1,5 @@
+packages/app/test/TimelineViewport.dom.test.tsx
+packages/app/test/fixtures/timeline-viewport.tsx
+packages/app/test/timeline-view.test.ts
+packages/canvas/test/scene-audit.test.ts
+packages/e2e/tests/timeline-viewport.spec.ts
