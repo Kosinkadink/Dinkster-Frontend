@@ -76,6 +76,10 @@ values select hosted images for main validation, schedules, and manual runs.
 
 ## Full validation
 
+The App View queue fixture creates its submission-release promise before the
+request handler runs, so observing Submitting can release either an already
+waiting request or one that arrives afterward without losing the release.
+
 Screenshots use the product's bundled fonts, including canvas text, without
 test-only font injection or host font configuration. Baseline paths are shared
 across projects and platforms; all validation lanes compare the same images.
@@ -164,6 +168,8 @@ explicit per-test option, and spec-local routes take precedence over context
 routes. No standing development server is reused or stopped.
 Product option fixtures resolve controls by option ID rather than global list
 position so collection updates cannot redirect a pending selection.
+Palette surface fixtures await startup ownership before publishing schemas or
+opening their document so they do not invalidate the restored inventory's acknowledgment.
 Hosted native launches declare `--engine-variant linux-cpu`. After composition,
 global setup requires an empty workflow to return an empty requirement plan
 without a request variant. Mock-only native fixtures explicitly answer that

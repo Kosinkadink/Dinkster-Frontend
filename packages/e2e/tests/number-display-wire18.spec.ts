@@ -1,5 +1,6 @@
 import { mkdir } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
+import { waitForStartupOwnership } from './fixtures.js'
 
 const PROOF_DIR = '/tmp/audit-ae-proof'
 const RANGE_FILL = '#343940'
@@ -123,6 +124,7 @@ test.beforeEach(async ({ page }) => {
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(1)
   expect(advertisedWires).not.toHaveLength(0)
   expect(advertisedWires.every((wire) => wire === '')).toBe(true)
+  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'wire18-number-display', root: 'g0',

@@ -471,7 +471,7 @@ describe('AppState multi-window workspace', () => {
     expect(first.imageEditorTarget.get()).toBe(target)
   })
 
-  it('keeps a local frozen view active without publishing it as shared workspace focus', async () => {
+  it.each(['after', 'during'] as const)('keeps a local frozen view active when promotion lands %s admission', async (promotionTiming) => {
     const factory = authorityFactories()
     const first = createEditableApp()
     const second = new AppState()
@@ -493,11 +493,22 @@ describe('AppState multi-window workspace', () => {
     const ref = { connection: asConnectionId('local'), prompt: asPromptId('frozen-local') }
     first.registerRun(tab, ref, result.artifact)
 
-    expect(await first.openExecutionView(ref)).toBe(true)
+    let acknowledge!: () => void
+    if (promotionTiming === 'during') {
+      vi.spyOn(first.connection, 'retainAssets').mockImplementationOnce((owner, declaration) =>
+        new Promise((resolve) => { acknowledge = () => resolve({ ...owner, ...declaration,
+          revision: declaration.revision + 1 }) }))
+    }
+    const opening = first.openExecutionView(ref)
+    if (promotionTiming === 'after') expect(await opening).toBe(true)
     await Promise.all([
       first.enableWorkspaceAuthority(factory.document, factory.workspace),
       second.enableWorkspaceAuthority(factory.document, factory.workspace),
     ])
+    if (promotionTiming === 'during') {
+      acknowledge()
+      expect(await opening).toBe(true)
+    }
     await drainTasks()
 
     expect(first.activeTab()?.execution).toEqual(ref)
