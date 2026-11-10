@@ -37,6 +37,15 @@ revision. Disconnected lifetimes and unreadable persistence remain blocked;
 restart and backend removal do not authorize release. Lost release responses
 reconcile only the exact next-revision tombstone, without repeating DELETE.
 
+Shared-workspace operation recovery is written synchronously as unacknowledged
+staging. Each added native document has a separate durable receipt, bound to
+the staged content, backend and generation, before its operation is submitted
+to the SharedWorker. Lost acknowledgments reconcile the exact receipt; refusal,
+replacement or a changed backend/catalog leaves the staged entry unresolved.
+Admissions settling out of order do not reorder the actor's operations. A
+reconnect admits fresh owners instead of trusting stored receipt metadata.
+Journal removal, disconnect and application exit do not release these owners.
+
 Host-owned source controls, search labels, detail headings, confirmations, and
 loading, failure, and empty-state copy follow the active application locale and
 update while the Library remains open. Backend labels and status, protocol

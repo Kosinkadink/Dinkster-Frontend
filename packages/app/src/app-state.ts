@@ -1936,14 +1936,6 @@ function loadPersistedTabStates(): {
   return { states, candidates, documentCandidates }
 }
 
-function persistWorkspaceOperation(mutation: WorkspaceTabMutation): void {
-  try {
-    globalThis.localStorage?.setItem(`${workspaceOperationPrefix()}${mutation.opId}`, JSON.stringify(mutation))
-  } catch {
-    // Storage unavailable/full: the live SharedWorker remains authoritative.
-  }
-}
-
 function loadWorkspaceOperations(): readonly WorkspaceTabMutation[] {
   const operations: WorkspaceTabMutation[] = []
   try {
@@ -1954,7 +1946,8 @@ function loadWorkspaceOperations(): readonly WorkspaceTabMutation[] {
       if (!key?.startsWith(workspaceOperationPrefix())) continue
       const raw = storage.getItem(key)
       if (!raw) continue
-      const operation = JSON.parse(raw) as WorkspaceTabMutation
+      const { assetRetention: _assetRetention, ...operation } = JSON.parse(raw) as
+        WorkspaceTabMutation & { readonly assetRetention?: unknown }
       if (typeof operation.opId === 'string' && key === `${workspaceOperationPrefix()}${operation.opId}`) {
         operations.push(operation)
       }
@@ -2938,6 +2931,7 @@ export class AppState {
   private unsubscribeWorkspaceSnapshots: (() => void) | undefined
   private unsubscribeWorkspaceDisconnect: (() => void) | undefined
   private readonly workspaceAcknowledgedOperations = new Map<string, number>()
+  private workspaceOperationSubmission: Promise<unknown> = Promise.resolve()
   private readonly documentPersistenceRevisions = new Map<string, number>()
   private readonly documentPersistenceDirty = new Set<string>()
   private readonly workspaceActorId = randomWorkspaceId('window')
@@ -3584,6 +3578,7 @@ export class AppState {
         return
       }
       this.workspaceTabConnection = opened.connection
+      this.workspaceOperationSubmission = Promise.resolve()
       this.unsubscribeWorkspaceSnapshots = opened.connection.onSnapshot((snapshot) => this.receiveWorkspaceTabSnapshot(snapshot))
       this.unsubscribeWorkspaceDisconnect = opened.connection.onDisconnect((error) => {
         if (this.workspaceTabConnection === opened.connection) void this.reconnectWorkspaceAuthority(error)
@@ -3675,15 +3670,62 @@ export class AppState {
     this.workspaceActiveBaseline = synchronizedActive
     if (!mutation) return
     if (this.workspaceTabConnection) this.submitWorkspaceTabMutation(mutation)
-    else persistWorkspaceOperation(mutation)
+    else void this.persistWorkspaceOperation(mutation).catch(() => undefined)
+  }
+
+  private async persistWorkspaceOperation(mutation: WorkspaceTabMutation): Promise<void> {
+    const storage = globalThis.localStorage
+    if (!storage) throw new Error('Workspace recovery storage is unavailable')
+    const project = activeProjectId()
+    const key = `${workspaceOperationPrefix()}${mutation.opId}`
+    const stageId = randomWorkspaceId('stage')
+    // Teardown cannot wait for the network. This generation is recovery data,
+    // not acknowledged ownership, until its exact captured roots are retained.
+    const pending = JSON.stringify({ ...mutation, assetRetention: { stageId, acknowledged: false } })
+    storage.setItem(key, pending)
+    const local = this.backends.get().find((backend) => backend.connection === this.connection)!
+    const sources = mutation.additions.map((entry) => {
+      const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.id === entry.id)
+      const backend = tab ? this.backendForTab(tab) : local
+      return { document: entry.document, tab, backend, registry: backend.registry.get(),
+        generation: this.assetConnectionGenerations.get(backend.connection) }
+    })
+    const native = sources.filter(({ backend }) => backend.protocol === 'dinkster')
+    const owners = await Promise.all(native.map(async ({ document, backend, registry }) => {
+      const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] },
+        this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
+      const retained = await retainWorkflowAssets(backend.connection, document.lineage, 0, roots, storage)
+      return { connectionId: backend.connection.id, assetBaseUrl: backend.connection.assetUrl(''),
+        documentLineage: document.lineage, retained }
+    }))
+    if (this.disposed || activeProjectId() !== project || globalThis.localStorage !== storage ||
+      storage.getItem(key) !== pending || sources.some(({ tab, backend, registry, generation }) =>
+        !this.backends.get().includes(backend) || backend.registry.get() !== registry ||
+        this.assetConnectionGenerations.get(backend.connection) !== generation ||
+        (tab !== undefined && this.backendForTab(tab) !== backend))) {
+      throw new Error('Workspace recovery changed during asset admission')
+    }
+    storage.setItem(key, JSON.stringify({ ...mutation, assetRetention: {
+      stageId, acknowledged: true,
+      complete: native.length === sources.length && owners.every(({ retained }) => retained.complete), owners,
+    } }))
   }
 
   private submitWorkspaceTabMutation(mutation: WorkspaceTabMutation): void {
     const connection = this.workspaceTabConnection
     if (!connection) return
-    persistWorkspaceOperation(mutation)
     this.workspaceTabPending += 1
-    void connection.mutate(mutation).then(
+    // Admissions may settle out of order; causal mutations must not.
+    const admitted = this.persistWorkspaceOperation(mutation).then(() => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }))
+    const submitted = this.workspaceOperationSubmission.then(async () => {
+      const admission = await admitted
+      if (!admission.ok) throw admission.error
+      if (this.workspaceTabConnection !== connection) throw new Error('Shared tab connection changed during asset admission')
+      return connection.mutate(mutation)
+    })
+    this.workspaceOperationSubmission = submitted
+    void submitted.then(
       (snapshot) => {
         if (this.workspaceTabConnection === connection) {
           this.workspaceAcknowledgedOperations.set(mutation.opId, snapshot.revision)
