@@ -473,7 +473,7 @@ describe('Tab editorKind', () => {
       await acknowledgment
       return { ...owner, ...declaration, revision: declaration.revision + 1 }
     })
-    const admission = app.retainEditorAssets(opened, app.backendForTab(tab), source)
+    const admission = app.retainEditorAssets(opened, app.backendForTab(tab), source, () => true)
     const refused = expect(admission).rejects.toThrow('Editor source changed')
     app.closeImageEditor(opened)
     accept()

@@ -18,6 +18,7 @@ import {
   canonicalTypeIdOf,
   companionSourcesOf,
   compile,
+  compositorStateOf,
   documentResolver,
   coreCommandRegistry,
   coreMenuContributions,
@@ -5759,21 +5760,57 @@ export class AppState {
     }
   }
 
-  async retainEditorAssets(target: ImageEditorTarget | CompositorEditorTarget, backend: Backend, value: unknown): Promise<void> {
+  private readonly editorAssetRequests = new WeakMap<ImageEditorTarget | CompositorEditorTarget, object>()
+  private readonly editorAssetOwners = new WeakMap<ImageEditorTarget | CompositorEditorTarget, {
+    readonly backend: Backend
+    readonly retained: RetainedAssets
+    readonly project: string
+    readonly registry: ReturnType<Backend['registry']['get']>
+    readonly generation: number | undefined
+  }>()
+
+  async retainEditorAssets(
+    target: ImageEditorTarget | CompositorEditorTarget, backend: Backend, value: unknown, publish: () => boolean,
+  ): Promise<void> {
     const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
     const registry = backend.registry.get()
+    const project = activeProjectId()
+    const generation = this.assetConnectionGenerations.get(backend.connection)
+    const request = {}
+    this.editorAssetRequests.set(target, request)
     let unchanged = true
     const unsubscribe = backend.connection.status.subscribe(() => { unchanged = false })
-    const current = (): boolean => unchanged && !this.disposed && tab !== undefined &&
+    const current = (): boolean => unchanged && !this.disposed && activeProjectId() === project && tab !== undefined &&
+      this.editorAssetRequests.get(target) === request && generation === this.assetConnectionGenerations.get(backend.connection) &&
       this.imageEditorTarget.get() === target && this.backendFor(backend.id) === backend &&
       backend.registry.get() === registry && this.tabs.get().some((candidate) =>
         candidate.id === tab.id && candidate.store === tab.store && this.backendForTab(candidate) === backend) &&
       (isCompositorEditorTarget(target) ? this.validateCompositorTarget(target) : this.validateImageTarget(target)) !== undefined
     try {
       if (tab === undefined || !current() || backend.protocol !== 'dinkster') throw new Error('Editor source is no longer available')
-      const roots = executionAssetRoots({ outputs: { editor: { value } }, artifacts: [] }, () => undefined)
-      if (roots.digests.length > 0) await retainWorkflowAssets(backend.connection, tab.store.doc.lineage, tab.store.revision, roots)
+      let digests: readonly string[]
+      if (isCompositorEditorTarget(target)) {
+        const state = compositorStateOf(value)
+        if (state === undefined) throw new Error('Editor resource inventory is invalid')
+        // Every external resource belongs to the editable document, including
+        // hidden layers, masks and resources not referenced by the current recipe.
+        digests = [...new Set([state.documentDigest, ...Object.values(state.document.resources)
+          .filter((resource) => resource.inline === undefined).map((resource) => resource.digest)])].sort()
+      } else {
+        if (!isAssetRef(value) || value.digest !== target.sourceRef.digest) throw new Error('Editor resource inventory is invalid')
+        digests = [value.digest]
+      }
+      const retained = await retainWorkflowAssets(backend.connection, tab.store.doc.lineage, tab.store.revision, { complete: true, digests })
       if (!current()) throw new Error('Editor source changed during asset admission')
+      const previous = this.editorAssetOwners.get(target)
+      if (!publish() || !current()) return
+      this.editorAssetOwners.set(target, { backend, retained, project, registry, generation })
+      // A canceled view does not transfer ownership. Only publishing the
+      // acknowledged replacement on this exact lifetime can retire its draft.
+      if (current() && previous?.backend === backend && previous.project === project &&
+        previous.registry === registry && previous.generation === generation) {
+        await retireAssetOwner(backend.connection, previous.retained)
+      }
     } finally { unsubscribe() }
   }
 
