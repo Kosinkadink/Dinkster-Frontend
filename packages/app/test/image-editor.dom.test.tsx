@@ -7,7 +7,7 @@ import { encodePng } from '../src/image-png.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-it.each(['close', 'replace', 'tab', 'dispose'] as const)('settles obsolete mask source bodies on %s without cancelling a replacement', async (action) => {
+it.each(['close', 'replace', 'session', 'tab', 'dispose'] as const)('settles obsolete mask source bodies on %s without cancelling a replacement', async (action) => {
   vi.stubGlobal('ImageData', class {
     constructor(readonly data: Uint8ClampedArray, readonly width: number, readonly height: number) {}
   })
@@ -31,7 +31,7 @@ it.each(['close', 'replace', 'tab', 'dispose'] as const)('settles obsolete mask 
     }),
   }) as Response)
   const app = {
-    imageEditorTarget, activeTabId, tabs: createSignal([{ id: 'first' } as Tab]),
+    imageEditorTarget, activeTabId, tabs: createSignal([{ id: 'first', store: {} } as Tab]),
     backendForTab: () => ({ protocol: 'dinkster', connection: { assetUrl: (digest: string) => `/api/assets/${digest}` } }),
     closeImageEditor: () => imageEditorTarget.set(undefined), retainEditorAssets: async () => {},
     workflowAssetReader: () => ({ current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
@@ -45,24 +45,31 @@ it.each(['close', 'replace', 'tab', 'dispose'] as const)('settles obsolete mask 
     expect(apply()?.disabled).toBe(true)
     if (action === 'close') Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === 'Cancel')!.click()
     else if (action === 'replace') imageEditorTarget.set(next)
+    else if (action === 'session') app.tabs.update((tabs) => tabs.map((tab) => ({ ...tab, store: {} as Tab['store'] })))
     else if (action === 'tab') activeTabId.set('second')
     else dispose()
     expect(reads[0]!.signal?.aborted).toBe(true)
-    if (action === 'replace') {
+    if (action === 'replace' || action === 'session') {
       await vi.waitFor(() => expect(reads).toHaveLength(2))
       expect(activeBodies).toBe(1)
       expect(reads[1]!.signal?.aborted).toBe(false)
       const bytes = await encodePng(2, 1, new Uint8ClampedArray([1, 7, 3, 255, 4, 8, 2, 0]))
       reads[1]!.finish(new Uint8Array(bytes).buffer)
       await vi.waitFor(() => expect(apply()?.disabled).toBe(false))
-      expect(root.querySelector('small')?.textContent).toBe('new.png')
+      expect(root.querySelector('small')?.textContent).toBe(action === 'replace' ? 'new.png' : 'old.png')
       expect(root.querySelector('canvas')?.width).toBe(2)
       expect(root.querySelector('canvas')?.height).toBe(1)
+      app.tabs.update((tabs) => tabs.map((tab) => ({ ...tab, title: 'Renamed' })))
+      expect(apply()?.disabled).toBe(false)
+      Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === 'Invert')!.click()
+      app.tabs.update((tabs) => tabs.map((tab) => ({ ...tab, store: {} as Tab['store'] })))
+      expect(apply()?.disabled).toBe(false)
+      expect(Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === 'Undo mask edit')!.disabled).toBe(false)
     }
     expect(activeBodies).toBe(0)
     expect(root.querySelector('[role="alert"]')).toBeNull()
-    expect(reads.map((read) => read.url)).toEqual(action === 'replace'
-      ? [`/api/assets/${source.digest}`, `/api/assets/${next.sourceRef.digest}`] : [`/api/assets/${source.digest}`])
+    expect(reads.map((read) => read.url)).toEqual(action === 'replace' || action === 'session'
+      ? [`/api/assets/${source.digest}`, `/api/assets/${action === 'replace' ? next.sourceRef.digest : source.digest}`] : [`/api/assets/${source.digest}`])
   } finally { for (const read of reads) read.finish(new ArrayBuffer(0)); dispose() }
 })
 
