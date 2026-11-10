@@ -24,6 +24,8 @@ filters match canonical and legacy type names case-insensitively, use OR
 within one direction, and use AND between input and output directions. A
 no-match state is announced outside the empty listbox. If the live catalog
 changes while a no-match query is open, the first new match becomes active.
+Catalog refreshes preserve focus on an existing category and keep its expanded
+children open while updating counts and adding or removing other categories.
 
 ## Preview and placement
 

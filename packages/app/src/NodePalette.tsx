@@ -13,6 +13,7 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, createUniqueId, For, on, onCleanup, onMount, Show } from 'solid-js'
+import { createStore, reconcile } from 'solid-js/store'
 import {
   defaultTokens,
   presentedType,
@@ -502,7 +503,11 @@ export function NodePalette(props: {
     return rankSearch(filters.text, selected, (e) => e.fields, { limit: 200 })
   })
 
-  const paletteCategories = () => buildCategoryTree(paletteEntries().map((entry) => entry.category))
+  const [paletteCategories, setPaletteCategories] = createStore(buildCategoryTree([]))
+  createEffect(() => {
+    // Catalog refreshes must not replace focused category controls.
+    setPaletteCategories(reconcile(buildCategoryTree(paletteEntries().map((entry) => entry.category)), { key: 'path' }))
+  })
 
   const toggleCategory = (path: string): void => {
     const next = new Set(expandedCategories())
@@ -811,8 +816,8 @@ export function NodePalette(props: {
           <button type="button" classList={{ active: paletteCategory() === undefined }} aria-pressed={paletteCategory() === undefined} onClick={() => { setPaletteCategory(undefined); setPaletteIndex(0) }}>
             <span>{props.recentTypes().length > 0 && !paletteQuery() ? message('palette.category.recentAll') : message('palette.category.mostRelevant')}</span>
           </button>
-          <CategoryRows folders={paletteCategories().folders} depth={0} />
-          <Show when={paletteCategories().uncategorized > 0}><button type="button" data-testid="palette-category" classList={{ active: paletteCategory() === '' }} aria-pressed={paletteCategory() === ''} onClick={() => { setPaletteCategory(''); setPaletteIndex(0) }}><span>{message('palette.category.uncategorized')}</span><span>{paletteCategories().uncategorized}</span></button></Show>
+          <CategoryRows folders={paletteCategories.folders} depth={0} />
+          <Show when={paletteCategories.uncategorized > 0}><button type="button" data-testid="palette-category" classList={{ active: paletteCategory() === '' }} aria-pressed={paletteCategory() === ''} onClick={() => { setPaletteCategory(''); setPaletteIndex(0) }}><span>{message('palette.category.uncategorized')}</span><span>{paletteCategories.uncategorized}</span></button></Show>
         </nav>
         <div class="palette-results">
           <div
