@@ -1,0 +1,214 @@
+[WebServer] [INFO] setup plugin alembic.autogenerate.schemas
+[WebServer] [INFO] setup plugin alembic.autogenerate.tables
+[WebServer] [INFO] setup plugin alembic.autogenerate.types
+[WebServer] [INFO] setup plugin alembic.autogenerate.constraints
+[WebServer] [INFO] setup plugin alembic.autogenerate.defaults
+[WebServer] [INFO] setup plugin alembic.autogenerate.comments
+[WebServer] [INFO] setup plugin alembic.ext.checkconstraint_byname
+[WebServer] [INFO] Found comfy_kitchen backend ascend: {'available': False, 'disabled': False, 'unavailable_reason': "torch-npu is not installed: No module named 'torch_npu'", 'capabilities': []}
+[WebServer] [INFO] Found comfy_kitchen backend eager: {'available': True, 'disabled': False, 'unavailable_reason': None, 'capabilities': ['adaln', 'apply_rope', 'apply_rope1', 'apply_rope1_', 'apply_rope_', 'apply_rope_split_half', 'apply_rope_split_half1', 'apply_rope_split_half1_', 'apply_rope_split_half_', 'convrot_w4a4_linear', 'dequantize_convrot_w4a4_weight', 'dequantize_int8_convrot_weight', 'dequantize_int8_convrot_weight_dtype', 'dequantize_int8_embedding', 'dequantize_int8_simple', 'dequantize_int8_simple_dtype', 'dequantize_mxfp8', 'dequantize_nvfp4', 'dequantize_per_tensor_fp8', 'dequantize_w4a8_int8_weight', 'fp16_conv3d', 'fp16_conv3d_out', 'fp16_linear', 'gemv_awq_w4a16', 'group_norm_silu_pad3d', 'group_norm_silu_pad3d_out', 'int8_linear', 'na3d', 'prepare_int4_weight_for_int8_linear', 'quantize_and_rotate_rowwise', 'quantize_convrot_w4a4_weight', 'quantize_int8_convrot_weight', 'quantize_int8_rowwise', 'quantize_int8_tensorwise', 'quantize_mxfp8', 'quantize_nvfp4', 'quantize_per_tensor_fp8', 'quantize_svdquant_w4a4', 'quantize_w4a8_int8_weight', 'rms_adaln', 'rms_rope', 'rms_rope1', 'rms_rope1_', 'rms_rope_', 'rms_rope_split_half', 'rms_rope_split_half1', 'rms_rope_split_half1_', 'rms_rope_split_half_', 'rotate_int8_convrot_weight', 'scaled_mm_mxfp8', 'scaled_mm_nvfp4', 'scaled_mm_svdquant_w4a4', 'sol_attn', 'stochastic_rounding_fp8', 'w4a8_int8_linear', 'w4a8_packed_linear']}
+[WebServer] [INFO] Found comfy_kitchen backend triton: {'available': False, 'disabled': True, 'unavailable_reason': "ImportError: No module named 'triton'", 'capabilities': []}
+[WebServer] [INFO] Found comfy_kitchen backend hip: {'available': False, 'disabled': False, 'unavailable_reason': 'PyTorch ROCm/HIP runtime not available', 'capabilities': []}
+[WebServer] [INFO] Found comfy_kitchen backend cuda: {'available': False, 'disabled': True, 'unavailable_reason': 'CUDA not available on this system', 'capabilities': []}
+[WebServer] [INFO] Checkpoint files will always be loaded safely.
+[WebServer] [INFO] Total VRAM 128719 MB, total RAM 128719 MB
+[WebServer] [INFO] pytorch version: 2.14.1+cpu
+[WebServer] [INFO] Set vram state to: DISABLED
+[WebServer] [INFO] Device: cpu
+[WebServer] [INFO] Using sub quadratic optimization for attention, if you have memory or speed issues try using: --use-split-cross-attention
+[WebServer] [INFO] Python version: 3.12.13 (main, Jun 23 2026, 15:18:55) [Clang 22.1.3 ]
+[WebServer] [INFO] ComfyUI version: 0.34.0
+[WebServer] [INFO] comfy-aimdo version: 0.5.6
+[WebServer] [INFO] comfy-kitchen version: 0.2.39
+[WebServer] [WARNING] ****** User settings have been changed to be stored on the server instead of browser storage. ******
+[WebServer] [WARNING] ****** For multi-user setups add the --multi-user CLI argument to enable multiple user profiles. ******
+[WebServer] [INFO] comfyui-frontend-package version: 1.51.9
+[WebServer] [INFO] comfyui-workflow-templates version: 0.11.55
+[WebServer] [INFO] comfyui-embedded-docs version: 0.5.11
+[WebServer] [INFO] comfy-kitchen version: 0.2.39
+[WebServer] [INFO] comfy-aimdo version: 0.5.6
+[WebServer] [INFO] [Prompt Server] web root: /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/verifier-app-font/.ci/ComfyUI/venv/lib/python3.12/site-packages/comfyui_frontend_package/static
+[WebServer] [INFO] Asset seeder disabled
+[WebServer] /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/verifier-app-font/.ci/ComfyUI/venv/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+[WebServer]   warnings.warn(
+[WebServer] [INFO] No OpenGL_accelerate module loaded: No module named 'OpenGL_accelerate'
+[WebServer] [INFO] 
+[WebServer] Import times for custom nodes:
+[WebServer] [INFO]    0.0 seconds: /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/verifier-app-font/.ci/ComfyUI/custom_nodes/websocket_image_save.py
+[WebServer] [INFO] 
+[WebServer] [INFO] Context impl SQLiteImpl.
+[WebServer] [INFO] Will assume non-transactional DDL.
+[WebServer] [INFO] Context impl SQLiteImpl.
+[WebServer] [INFO] Will assume non-transactional DDL.
+[WebServer] [INFO] Running upgrade  -> 0001_assets, Initial assets schema
+[WebServer] Revision ID: 0001_assets
+[WebServer] Revises: None
+[WebServer] Create Date: 2025-12-10 00:00:00
+[WebServer] [INFO] Running upgrade 0001_assets -> 0002_merge_to_asset_references, Merge AssetInfo and AssetCacheState into unified asset_references table.
+[WebServer] [INFO] Running upgrade 0002_merge_to_asset_references -> 0003_add_metadata_job_id, Add system_metadata and job_id columns to asset_references.
+[WebServer] Change preview_id FK from assets.id to asset_references.id.
+[WebServer] [INFO] Running upgrade 0003_add_metadata_job_id -> 0004_drop_tag_type, Drop the vestigial tags.tag_type column.
+[WebServer] [INFO] Running upgrade 0004_drop_tag_type -> 0005_allow_case_sensitive_tags, Allow case-sensitive tag names.
+[WebServer] [INFO] Running upgrade 0005_allow_case_sensitive_tags -> 0006_add_loader_path, Add loader_path column to asset_references.
+[WebServer] [INFO] Database upgraded from None to 0006_add_loader_path
+[WebServer] [INFO] Using RAM pressure cache.
+[WebServer] [INFO] Starting server
+[WebServer] 
+[WebServer] [INFO] To see the GUI go to: http://127.0.0.1:15831
+[WebServer] 09:35:39 INFO     dinkster.serve: p2p unavailable
+[WebServer] official resolver bootstrap refused: official resolver URL and provider ID must both be configured
+[WebServer] 09:35:44 INFO     dinkster.serve: pack dinkster-nodes-foundation announced (1/16, epoch 2)
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount output scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount output scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount output scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount output: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.serve: pack dinkster-nodes-generation announced (2/16, epoch 3)
+[WebServer] 09:35:44 INFO     dinkster.serve: pack dinkster-nodes-media-io announced (3/16, epoch 4)
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-input scan: 0/1 files, 0/8589 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-input scan: 0/1 files, 0/8589 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-input scan: 1/1 files, 8589/8589 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-input: 1 entry cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-output scan: 0/1 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-output scan: 0/1 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-output scan: 1/1 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-output: 1 entry cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-audio-encoders-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-audio-encoders-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-audio-encoders-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-audio-encoders-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-background-removal-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-background-removal-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-background-removal-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-background-removal-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-checkpoints-1 scan: 0/1 files, 0/39 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-checkpoints-1 scan: 0/1 files, 0/39 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-checkpoints-1 scan: 1/1 files, 39/39 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-checkpoints-1: 1 entry cataloged
+[WebServer] 09:35:44 WARNING  dinkster.mounts: mount comfy-model-checkpoints-2 scan failed: asset library root is not a directory: /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/verifier-app-font/.ci/ComfyUI/output/checkpoints
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-clip-vision-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-clip-vision-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-clip-vision-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-clip-vision-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-controlnet-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-controlnet-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-controlnet-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-controlnet-1: 0 entries cataloged
+[WebServer] 09:35:44 WARNING  dinkster.mounts: mount comfy-model-controlnet-2 scan failed: asset library root is not a directory: /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/verifier-app-font/.ci/ComfyUI/models/t2i_adapter
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-detection-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-detection-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-detection-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-detection-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-diffusion-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-diffusion-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-diffusion-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-diffusion-models-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-diffusion-models-2 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-diffusion-models-2 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-diffusion-models-2 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-diffusion-models-2: 0 entries cataloged
+[WebServer] 09:35:44 WARNING  dinkster.mounts: mount comfy-model-diffusion-models-3 scan failed: asset library root is not a directory: /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/verifier-app-font/.ci/ComfyUI/output/diffusion_models
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-embeddings-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-embeddings-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-embeddings-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-embeddings-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-frame-interpolation-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-frame-interpolation-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-frame-interpolation-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-frame-interpolation-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-geometry-estimation-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-geometry-estimation-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-geometry-estimation-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-geometry-estimation-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-gligen-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-gligen-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-gligen-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-gligen-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-hypernetworks-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-hypernetworks-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-hypernetworks-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-hypernetworks-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-latent-upscale-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-latent-upscale-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-latent-upscale-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-latent-upscale-models-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-loras-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-loras-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-loras-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-loras-1: 0 entries cataloged
+[WebServer] 09:35:44 WARNING  dinkster.mounts: mount comfy-model-loras-2 scan failed: asset library root is not a directory: /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/verifier-app-font/.ci/ComfyUI/output/loras
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-model-patches-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-model-patches-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-model-patches-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-model-patches-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-optical-flow-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-optical-flow-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-optical-flow-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-optical-flow-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-photomaker-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-photomaker-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-photomaker-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-photomaker-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-style-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-style-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-style-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-style-models-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-text-encoders-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-text-encoders-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-text-encoders-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-text-encoders-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-text-encoders-2 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-text-encoders-2 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-text-encoders-2 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-text-encoders-2: 0 entries cataloged
+[WebServer] 09:35:44 WARNING  dinkster.mounts: mount comfy-model-text-encoders-3 scan failed: asset library root is not a directory: /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/verifier-app-font/.ci/ComfyUI/output/clip
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-upscale-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-upscale-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-upscale-models-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-upscale-models-1: 0 entries cataloged
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-vae-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-vae-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-vae-1 scan: 0/0 files, 0/0 bytes, 0.0s elapsed
+[WebServer] 09:35:44 INFO     dinkster.mounts: mount comfy-model-vae-1: 0 entries cataloged
+[WebServer] 09:35:44 WARNING  dinkster.mounts: mount comfy-model-vae-2 scan failed: asset library root is not a directory: /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/verifier-app-font/.ci/ComfyUI/output/vae
+[WebServer] WARNING:root:Could not autodetect AIMDO implementation, assuming Nvidia
+[WebServer] 09:35:44 INFO     dinkster.workers.aimdo: dinkster_aimdo.control.init() completed successfully with simple_vram_headroom=1127428915 bytes
+[WebServer] (node:1375756) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] $ vite --host 127.0.0.1 --port 15830 --strictPort
+[WebServer] (node:1375780) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:1375839) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] $ vite --host 127.0.0.1 --port 15833 --strictPort
+[WebServer] (node:1375854) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] /home/kosin/comfy-vibe-station/lanes/frontend-primitives-507/verifier-app-font/.ci/ComfyUI/venv/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+[WebServer]   warnings.warn(
+[WebServer] 09:35:50 INFO     dinkster.serve: pack dinkster-compat-comfy announced (4/16, epoch 5)
+[WebServer] 09:35:50 INFO     dinkster.serve: pack dinkster-nodes-image announced (5/16, epoch 6)
+[WebServer] 09:35:51 INFO     dinkster.serve: pack dinkster-nodes-remote announced (6/16, epoch 7)
+[WebServer] 09:35:52 INFO     dinkster.serve: pack dinkster-vision-birefnet announced (7/16, epoch 8)
+[WebServer] 09:35:53 INFO     dinkster.serve: pack dinkster-vision-depth-anything-v2 announced (8/16, epoch 9)
+[WebServer] 09:35:54 INFO     dinkster.serve: pack dinkster-vision-depth-anything-v3 announced (9/16, epoch 10)
+[WebServer] 09:35:55 INFO     dinkster.serve: pack dinkster-vision-detr announced (10/16, epoch 11)
+[WebServer] 09:35:56 INFO     dinkster.serve: pack dinkster-vision-efficient-sam announced (11/16, epoch 12)
+[WebServer] 09:35:56 INFO     dinkster.serve: pack dinkster-vision-hed announced (12/16, epoch 13)
+[WebServer] 09:35:57 INFO     dinkster.serve: pack dinkster-vision-rtdetr announced (13/16, epoch 14)
+[WebServer] 09:35:58 INFO     dinkster.serve: pack dinkster-vision-sam31 announced (14/16, epoch 15)
+[WebServer] 09:35:59 INFO     dinkster.serve: pack dinkster-vision-upscale announced (15/16, epoch 16)
+[WebServer] 09:36:00 INFO     dinkster.serve: pack dinkster-nodes-dev announced (16/16, epoch 17)
+
+Running 7 tests using 1 worker
+
+(node:1377126) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [parallel-safe] › tests/product-surface-visuals.spec.ts:91:1 › canvas chrome at desktop and compact widths (3.0s)
+  -  2 [parallel-safe] › tests/product-surface-visuals.spec.ts:110:1 › shell and canvas visual matrix
+  -  3 [parallel-safe] › tests/product-surface-visuals.spec.ts:183:1 › dock visual matrix
+  -  4 [parallel-safe] › tests/product-surface-visuals.spec.ts:229:1 › rail visual matrix
+  -  5 [parallel-safe] › tests/product-surface-visuals.spec.ts:248:1 › modal visual matrix
+  ✓  6 [parallel-safe] › tests/product-surface-visuals.spec.ts:269:1 › populated app-view controls and arrange visuals (2.4s)
+  -  7 [parallel-safe] › tests/product-surface-visuals.spec.ts:333:1 › document and app-view visual matrix
+
+  5 skipped
+  2 passed (33.8s)
