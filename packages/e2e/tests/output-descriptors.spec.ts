@@ -284,33 +284,42 @@ test('matching saved metadata profiles restore exact ordered stable outputs', as
     assetDigest: `blake3:${'1'.repeat(64)}`,
     detectorRevision: '1',
   })
-  await page.evaluate(async (entries) => {
+  const restoredDiagnostics = await page.evaluate(async (entries) => {
     const app = window.__dinksterTest!.app
+    await (app as unknown as { enableWorkspaceAuthority(): Promise<void> }).enableWorkspaceAuthority()
+    await (app as unknown as { workspaceOperationSubmission: Promise<unknown> }).workspaceOperationSubmission
     const current = app.activeTab()!
-    current.store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'entries', value: entries } })
     const saved = structuredClone(current.store.doc)
-    await app.openDocument(saved, 'Restored metadata profile')
+    saved.graphs.root!.nodes.n!.values.entries = entries
+    const diagnostics = await app.openDocument(saved, 'Restored metadata profile')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    return diagnostics
   }, source)
+  expect(restoredDiagnostics).toEqual([])
   expect(await pins(page)).toEqual(['vae', 'model'])
   await openDescriptors(page)
   await expect(page.getByLabel('Output 1 ID', { exact: true })).toHaveValue('vae')
   await expect(page.getByLabel('Output 2 ID', { exact: true })).toHaveValue('model')
   await expect(page.getByTestId('output-descriptors-apply')).toBeEnabled()
   await page.screenshot({ path: info.outputPath('metadata-profile-restored.png'), animations: 'disabled' })
-  await page.evaluate(async (entries) => {
+  const mismatchedDiagnostics = await page.evaluate(async (entries) => {
     const app = window.__dinksterTest!.app
+    await (app as unknown as { enableWorkspaceAuthority(): Promise<void> }).enableWorkspaceAuthority()
+    await (app as unknown as { workspaceOperationSubmission: Promise<unknown> }).workspaceOperationSubmission
     const current = app.activeTab()!
     const restored = structuredClone(current.store.doc)
     restored.lineage = 'mismatched-restored-profile'
     restored.graphs.root!.nodes.n!.values.entries = entries
-    await app.openDocument(restored, 'Mismatched restored metadata profile')
+    const diagnostics = await app.openDocument(restored, 'Mismatched restored metadata profile')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    return diagnostics
   }, source.replace('"detectorRevision":"1"', '"detectorRevision":"2"'))
+  expect(mismatchedDiagnostics).toEqual([])
   expect(await pins(page)).toEqual([])
   await openDescriptors(page)
   await expect(page.getByTestId('output-descriptor-editor')).toContainText('stale')
   await expect(page.getByTestId('output-descriptors-apply')).toBeDisabled()
+  await page.screenshot({ path: info.outputPath('metadata-profile-mismatched.png'), animations: 'disabled' })
 })
 
 test('invalid metadata profile responses expose no outputs and cannot be applied', async ({ page }) => {
