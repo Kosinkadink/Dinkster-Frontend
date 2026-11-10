@@ -9,6 +9,7 @@ import {
   asImageLineageId,
   asImageResourceId,
   connectSharedImageDocumentSession,
+  diag,
   type CollabClientOp,
   type CollabConnection,
   type CollabConnectionEvent,
@@ -160,6 +161,209 @@ async function settle(...sessions: SharedImageDocumentSession[]): Promise<void> 
 }
 
 describe('SharedImageDocumentSession', () => {
+  it.each(['dispatch', 'undo', 'redo'] as const)('prepares %s without publication and admits it once', async (kind) => {
+    const server = new FakeServer()
+    let allowed = true
+    const session = await connectSharedImageDocumentSession(server.connect(), server.descriptor, {
+      validateCommit: () => allowed ? [] : [diag('error', 'command', 'test.refused', 'Refused')],
+    })
+    const edit = { command: 'image.layer.update' as const, params: { layerId: 'l1', name: 'Changed' } }
+    if (kind !== 'dispatch') {
+      expect(session.dispatch(edit).ok).toBe(true)
+      await session.settle()
+    }
+    if (kind === 'redo') {
+      expect(session.undo()).toBe(true)
+      await session.settle()
+    }
+    const current = session.doc
+    const revision = session.revision
+    const logLength = server.log.length
+    const history = [session.canUndo, session.canRedo]
+    const visible: ImageDocument[] = []
+    session.document.subscribe((document) => visible.push(document))
+    const prepared = kind === 'dispatch' ? session.prepareDispatch(edit)
+      : kind === 'undo' ? session.prepareUndo() : session.prepareRedo()
+    if (!prepared.ok) throw new Error('Missing candidate')
+    expect(prepared.currentDocument).toBe(current)
+    expect(prepared.currentResourceDigests).toEqual([DIGEST_A])
+    expect(prepared.resourceDigests).toEqual([DIGEST_A])
+    expect(Object.isFrozen(prepared.document.layers['l1'])).toBe(true)
+    expect(Object.isFrozen(prepared.resourceDigests)).toBe(true)
+    expect(session.doc).toBe(current)
+    expect(session.revision).toBe(revision)
+    expect([session.canUndo, session.canRedo]).toEqual(history)
+    expect(visible).toEqual([])
+    expect(server.log).toHaveLength(logLength)
+    allowed = false
+    const refused = kind === 'dispatch' ? session.dispatch(edit)
+      : kind === 'undo' ? { ok: session.undo() } : { ok: session.redo() }
+    expect(refused.ok).toBe(false)
+    expect(session.doc).toBe(current)
+    expect([session.canUndo, session.canRedo]).toEqual(history)
+    allowed = true
+    expect(prepared.commit().ok).toBe(true)
+    expect(session.doc).toBe(prepared.document)
+    expect(session.doc.layers['l1']?.name).toBe(kind === 'undo' ? 'Pixels' : 'Changed')
+    expect(visible).toEqual([prepared.document])
+    expect(prepared.commit().ok).toBe(false)
+    await session.settle()
+    expect(server.log).toHaveLength(logLength + 1)
+    expect(session.doc).toEqual(server.document)
+    session.close()
+  })
+
+  it('consumes a refused candidate without consuming history or submitting it', async () => {
+    const server = new FakeServer()
+    let allowed = true
+    const session = await connectSharedImageDocumentSession(server.connect(), server.descriptor, {
+      validateCommit: () => allowed ? [] : [diag('error', 'command', 'test.refused', 'Refused')],
+    })
+    expect(session.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', visible: false } }).ok).toBe(true)
+    await session.settle()
+    const current = session.doc
+    const prepared = session.prepareUndo()
+    if (!prepared.ok) throw new Error('Missing undo')
+    allowed = false
+    expect(prepared.commit().ok).toBe(false)
+    allowed = true
+    expect(prepared.commit().ok).toBe(false)
+    expect(session.doc).toBe(current)
+    expect(session.canUndo).toBe(true)
+    expect(session.canRedo).toBe(false)
+    expect(server.log).toHaveLength(1)
+    expect(session.undo()).toBe(true)
+    await session.settle()
+    expect(server.document.layers['l1']?.visible).toBe(true)
+    session.close()
+  })
+
+  it.each(['command', 'clear', 'remote', 'disconnect', 'close'] as const)('invalidates candidates after %s', async (change) => {
+    const server = new FakeServer()
+    const connection = server.connect()
+    const session = await connectSharedImageDocumentSession(connection, server.descriptor)
+    const prepared = session.prepareDispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'Stale' } })
+    if (!prepared.ok) throw new Error('Missing candidate')
+    if (change === 'command') session.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', opacity: 12_345 } })
+    if (change === 'clear') session.clearHistory()
+    if (change === 'remote') {
+      const remote = await connectSharedImageDocumentSession(server.connect(), server.descriptor)
+      remote.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', opacity: 23_456 } })
+      await remote.settle()
+      remote.close()
+    }
+    if (change === 'disconnect') connection.emit({ kind: 'disconnected' })
+    if (change === 'close') session.close()
+    const current = session.doc
+    const revision = session.revision
+    expect(prepared.commit()).toMatchObject({ ok: false, diagnostics: [{ code: 'image.candidate.stale' }] })
+    expect(session.doc).toBe(current)
+    expect(session.revision).toBe(revision)
+    expect(session.doc.layers['l1']?.name).toBe('Pixels')
+    await session.settle()
+    session.close()
+  })
+
+  it('rechecks the generation after a reentrant admission policy', async () => {
+    const server = new FakeServer()
+    let reenter = false
+    const session = await connectSharedImageDocumentSession(server.connect(), server.descriptor, {
+      validateCommit: () => {
+        if (reenter) session.clearHistory()
+        return []
+      },
+    })
+    const prepared = session.prepareDispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'Stale' } })
+    if (!prepared.ok) throw new Error('Missing candidate')
+    reenter = true
+    expect(prepared.commit().ok).toBe(false)
+    expect(session.doc.layers['l1']?.name).toBe('Pixels')
+    expect(session.revision).toBe(0)
+    expect(server.log).toEqual([])
+    session.close()
+  })
+
+  it('invalidates a prepared edit when a replacement snapshot is adopted', async () => {
+    const server = new FakeServer()
+    const connection = server.connect()
+    const session = await connectSharedImageDocumentSession(connection, server.descriptor)
+    const prepared = session.prepareDispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'Stale' } })
+    if (!prepared.ok) throw new Error('Missing candidate')
+    const replacement = { ...server.document, canvas: { ...server.document.canvas, width: 13 } }
+    connection.fetchOps = async () => ({ kind: 'resync-required', snapshotRevision: 2 })
+    connection.fetchSnapshot = async () => ({ revision: 2, document: replacement })
+    connection.emit({ kind: 'op', op: {
+      actorId: 'remote', opId: 'gap', baseRevision: 1, revision: 2, patch: [], timestamp: 1,
+    } })
+    await session.settle()
+    expect(session.doc.canvas.width).toBe(13)
+    expect(prepared.commit().ok).toBe(false)
+    expect(session.doc.layers['l1']?.name).toBe('Pixels')
+    expect(session.revision).toBe(2)
+    session.close()
+  })
+
+  it('reports a stale synchronous undo without removing its retained history', async () => {
+    const server = new FakeServer()
+    const conflicts: string[] = []
+    const session = await connectSharedImageDocumentSession(server.connect(), server.descriptor, {
+      onConflict: (conflict) => conflicts.push(conflict.origin),
+    })
+    session.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'Local' } })
+    await session.settle()
+    const remote = await connectSharedImageDocumentSession(server.connect(), server.descriptor)
+    remote.dispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'Remote' } })
+    await remote.settle()
+    const current = session.doc
+    expect(session.prepareUndo().ok).toBe(false)
+    expect(conflicts).toEqual([])
+    expect(session.undo()).toBe(false)
+    expect(conflicts).toEqual(['image.undo'])
+    expect(session.doc).toBe(current)
+    expect(session.canUndo).toBe(true)
+    expect(server.log).toHaveLength(2)
+    remote.close()
+    session.close()
+  })
+
+  it('includes unused and pending external rasters but excludes inline bytes', async () => {
+    const server = new FakeServer()
+    const pendingDigest = `blake3:${'c'.repeat(64)}` as const
+    const digest = 'blake3:2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213' as const
+    server.document = { ...server.document, allocation: { nextOrdinal: 4 }, resources: {
+      ...server.document.resources,
+      r2: { ...server.document.resources['r0']!, id: asImageResourceId('r2'), digest: DIGEST_B },
+      r3: { ...server.document.resources['r0']!, id: asImageResourceId('r3'), digest,
+        byteSize: 1, inline: 'AA==' },
+    } }
+    const session = await connectSharedImageDocumentSession(server.connect(), server.descriptor)
+    const prepared = session.prepareDispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'Changed' } })
+    if (!prepared.ok) throw new Error('Missing candidate')
+    expect(prepared.currentResourceDigests).toEqual([DIGEST_A, DIGEST_B])
+    expect(prepared.resourceDigests).toEqual([DIGEST_A, DIGEST_B])
+    expect(prepared.resourceDigests).not.toContain(digest)
+    expect(session.dispatch({ command: 'image.layer.addRaster', params: {
+      parentId: null, index: 1, name: 'Pending',
+      resource: { ...server.document.resources['r0']!, digest: pendingDigest },
+      sourceRect: { x: 0, y: 0, width: 8, height: 6 },
+    } }).ok).toBe(true)
+    expect(session.undo()).toBe(true)
+    session.clearHistory()
+    const pending = session.prepareDispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'Pending inventory' } })
+    if (!pending.ok) throw new Error('Missing pending candidate')
+    expect(pending.resourceDigests).toEqual([DIGEST_A, DIGEST_B, pendingDigest])
+    await session.settle()
+    session.close()
+  })
+
+  it('refuses construction before the session exposes its document', async () => {
+    const server = new FakeServer()
+    await expect(connectSharedImageDocumentSession(server.connect(), server.descriptor, {
+      validateCommit: () => [diag('error', 'command', 'test.refused', 'Initial document refused')],
+    })).rejects.toThrow('Initial document refused')
+    expect(server.log).toEqual([])
+  })
+
   it('rebases concurrent edits in server order', async () => {
     const server = new FakeServer()
     const first = await connectSharedImageDocumentSession(server.connect(), server.descriptor, { actorId: 'alice' })

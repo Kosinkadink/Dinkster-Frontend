@@ -341,6 +341,17 @@ commit, including direct synchronous calls. A refused policy leaves the existing
 document and history unchanged. These core APIs do not themselves perform
 backend admission.
 
+The shared core also exposes one-use prepared command, undo, and redo
+candidates. Their external inventory includes the confirmed ground, unused
+resources, pending edits, and retained history. Its optional `validateCommit`
+policy guards initial construction and local commits. Ordered remote ingest,
+resync, disconnect, close, history clearing, and intervening local commits
+invalidate previously prepared candidates. A refused or stale history replay
+leaves its history record intact; synchronous undo/redo still reports replay
+conflicts. This policy does not guard remote
+publication or perform backend admission; the workspace does not yet use it
+for shared ownership. Shared retained digests remain conservative.
+
 The workspace waits for backend admission before exposing a recovered or
 imported local session. External rasters are verified against staged bytes and
 uploaded before a fresh document owner is journaled and acknowledged. Local
