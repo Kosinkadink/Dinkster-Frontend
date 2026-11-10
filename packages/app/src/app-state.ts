@@ -2075,11 +2075,15 @@ function commitPersistedTabs(
             const current = storage.getItem(candidate.key)
             if (current === candidate.raw) storage.removeItem(candidate.key)
             else if (current !== null) {
-              const staged = JSON.parse(candidate.raw)
-              const { assetRetention, ...value } = JSON.parse(current)
-              if (assetRetention?.stageId === staged.assetRetention?.stageId &&
-                JSON.stringify({ ...value, assetRetention: staged.assetRetention }) === candidate.raw) {
-                storage.removeItem(candidate.key)
+              try {
+                const staged = JSON.parse(candidate.raw)
+                const { assetRetention, ...value } = JSON.parse(current)
+                if (assetRetention?.stageId === staged.assetRetention?.stageId &&
+                  JSON.stringify({ ...value, assetRetention: staged.assetRetention }) === candidate.raw) {
+                  storage.removeItem(candidate.key)
+                }
+              } catch {
+                // A malformed replacement cannot retire or block other slots.
               }
             }
           }

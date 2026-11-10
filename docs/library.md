@@ -56,7 +56,8 @@ settles. A changed slot or catalog cannot inherit a stale acknowledgment.
 Only a complete acknowledgment for the current canonical generation permits
 removing unchanged covered workspace candidates and operation entries. Network
 admission does not hold the cross-window persistence lock. Removing a source
-does not itself release its durable owners.
+does not itself release its durable owners. Malformed replacement candidates
+remain untouched and do not block cleanup of other covered sources.
 
 Host-owned source controls, search labels, detail headings, confirmations, and
 loading, failure, and empty-state copy follow the active application locale and

@@ -414,7 +414,9 @@ test('changed source refuses stale preview and a concurrent edit cannot be overw
 test('execution snapshot ownership keeps the live view pending and refused before opening read-only', async ({ page }, info) => {
   await openDocument(page, 'trim')
   const replies: ((revision: number) => Promise<void>)[] = []
+  let openingOwner = Promise.resolve('')
   await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
+    if (decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!) !== await openingOwner) return route.fallback()
     if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
     expect(route.request().method()).toBe('PUT')
     expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
@@ -427,11 +429,17 @@ test('execution snapshot ownership keeps the live view pending and refused befor
       })
     })
   })
-  const begin = () => page.evaluate(() => {
-    const app = window.__dinksterTest!.app
-    const execution = [...app.store.executions.get().values()].find((item) => item.ref.prompt === 'video-editor-run')!
-    ;(window as unknown as { frozenOpening: Promise<boolean> }).frozenOpening = app.openExecutionView(execution.ref)
-  })
+  const begin = () => {
+    openingOwner = page.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      const execution = [...app.store.executions.get().values()].find((item) => item.ref.prompt === 'video-editor-run')!
+      const before = new Set(Object.keys(localStorage))
+      ;(window as unknown as { frozenOpening: Promise<boolean> }).frozenOpening = app.openExecutionView(execution.ref)
+      const key = Object.keys(localStorage).find((key) => !before.has(key) && key.includes('dinkster.workflow-retentions.'))!
+      return JSON.parse(localStorage.getItem(key)!).owner.ownerId as string
+    })
+    return openingOwner
+  }
   const result = () => page.evaluate(() => (window as unknown as { frozenOpening: Promise<boolean> }).frozenOpening)
   await page.screenshot({ path: info.outputPath('frozen-default.png') })
   await begin()
@@ -454,6 +462,7 @@ test('execution snapshot ownership keeps the live view pending and refused befor
 test('execution snapshots refuse VIDEO_EDIT writes and changing editor views', async ({ page }) => {
   await openDocument(page, 'trim')
   await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
+    if (route.request().method() !== 'PUT' || route.request().postDataJSON().complete === true) return route.fallback()
     expect(route.request().method()).toBe('PUT')
     expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
     return route.fulfill({ json: { scope: 'local', ownerKind: 'document',

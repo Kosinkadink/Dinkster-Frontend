@@ -1395,6 +1395,85 @@ describe('retained app dispatch', () => {
     },
   )
 
+  it('keeps malformed replacement candidates without blocking covered sources or operation retirement', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    app = createWorkflowApp([schema])
+    const documents = new SharedWorkerDocumentAuthority()
+    const workspace = new SharedWorkerTabAuthority()
+    const channels: MessageChannel[] = []
+    const responded = deferred<void>()
+    const activeMutations = new Map<number, string>()
+    let createdId: string | undefined
+    const connect = (authority: { connect(port: WorkerPortLike): void }, observe = false) => {
+      const channel = new MessageChannel()
+      channels.push(channel)
+      authority.connect(channel.port2)
+      return {
+        postMessage(message: unknown) {
+          if (observe && (message as { kind: string }).kind === 'mutate') {
+            const request = message as { id: number; mutation: { active: string } }
+            activeMutations.set(request.id, request.mutation.active)
+          }
+          channel.port1.postMessage(message)
+        },
+        addEventListener(_type: 'message', listener: (event: MessageEvent) => void) {
+          channel.port1.addEventListener('message', (event) => {
+            listener(event)
+            if (observe && createdId !== undefined && event.data.kind === 'response' &&
+              activeMutations.get(event.data.id) === createdId) responded.resolve()
+          })
+        },
+        start: () => channel.port1.start(), close: () => channel.port1.close(),
+      }
+    }
+    try {
+      await app.enableWorkspaceAuthority(() => connect(documents), () => connect(workspace, true))
+      vi.useFakeTimers()
+      createdId = app.createWorkflow().id
+      await responded.promise
+      // The actual worker response settles the actor submission in microtasks.
+      await vi.advanceTimersByTimeAsync(0)
+      const operationKey = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+        .find((key) => key.startsWith(scopedStorageKey('dinkster.workspaceOperation.')))!
+      expect(operationKey).toBeDefined()
+      const operation = localStorage.getItem(operationKey)!
+      const malformedKey = scopedStorageKey('dinkster.openTabsCandidate.replaced')
+      const coveredKey = scopedStorageKey('dinkster.openTabsCandidate.covered')
+      const candidate = JSON.stringify({ v: 1, active: app.activeTab()!.id,
+        tabs: app.tabs.get().map((tab) => ({ title: tab.title, doc: tab.store.doc })) })
+      localStorage.setItem(malformedKey, candidate)
+      localStorage.setItem(coveredKey, candidate)
+      let cleanup: (() => void) | undefined
+      let pause = false
+      vi.stubGlobal('navigator', { locks: {
+        request: async (_name: string, _options: unknown, callback: () => void) => {
+          if (pause) cleanup = callback
+          else { pause = true; callback() }
+        },
+      } })
+      app.flushPersistTabs(true)
+      await vi.waitFor(() => expect(cleanup).toBeDefined())
+      localStorage.setItem(malformedKey, '{')
+      expect(() => cleanup!()).not.toThrow()
+      expect(localStorage.getItem(malformedKey)).toBe('{')
+      expect(localStorage.getItem(coveredKey)).toBeNull()
+      expect(localStorage.getItem(operationKey)).toBeNull()
+      // Reappearing bytes are not still authorized by a retired actor acknowledgment.
+      localStorage.setItem(operationKey, operation)
+      localStorage.removeItem(malformedKey)
+      pause = false
+      cleanup = undefined
+      app.flushPersistTabs(true)
+      await vi.waitFor(() => expect(cleanup).toBeDefined())
+      cleanup!()
+      expect(localStorage.getItem(operationKey)).toBe(operation)
+    } finally {
+      app.dispose()
+      for (const channel of channels) { channel.port1.close(); channel.port2.close() }
+      vi.useRealTimers()
+    }
+  })
+
   it.each(['canonical', 'workspace', 'document', 'operation', 'corrupt', 'filtered-tab', 'unknown', 'unreadable',
     'lost-key', 'locked-commit', 'lost-release', 'disconnected', 'replaced'] as const)('keeps durable snapshot roots until their source retires: %s', async (scenario) => {
     vi.useFakeTimers()
