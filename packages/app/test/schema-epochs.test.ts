@@ -7,6 +7,7 @@
  * normalizer -> wire listener), so this covers the full pipeline.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { resolveImportedNodePacks, type ComfyTranslation } from '@dinkster/core'
 import { EngineNotReadyError, type DinksterDiagnostics, type SchemaRegistry } from '@dinkster/client'
 import { AppState, GLOBAL_PROBLEMS_OWNER, type Backend } from '../src/app-state.js'
 
@@ -21,6 +22,13 @@ const reg = (backend: Backend, epoch?: number): SchemaRegistry => ({
   resolve: () => undefined,
   ...(epoch !== undefined ? { epoch } : {}),
 })
+
+const translations = (version: string): readonly ComfyTranslation[] => [{
+  pack: 'dinkster-text', version,
+  schema: { type: 'dinkster.text.string_length', displayName: 'String Length', category: 'text',
+    source: 'v3', isOutputNode: false, items: [] },
+  rule: { from: 'StringLength', cases: [{ to: 'dinkster.text.string_length', inputs: {}, outputs: {} }] },
+}]
 
 /** Push a raw wire message through the connection's real WS data path. */
 const push = (backend: Backend, msg: Record<string, unknown>): void => {
@@ -45,9 +53,53 @@ beforeEach(() => {
   if (!b) throw new Error('addBackend rejected')
   backend = b
   vi.spyOn(nativeConnection(), 'fetchCompositionFailures').mockResolvedValue(undefined)
+  vi.spyOn(nativeConnection(), 'fetchComfyTranslations').mockResolvedValue([])
 })
 
 describe('schema_changed epoch invalidation', () => {
+  it.each(['schema_changed', 'reconnect'])('publishes schemas after %s while advisory metadata is held', async (event) => {
+    backend.registry.set(reg(backend, 1))
+    let resolve!: (records: readonly ComfyTranslation[]) => void
+    vi.mocked(nativeConnection().fetchComfyTranslations).mockReturnValue(new Promise((done) => { resolve = done }))
+    vi.spyOn(nativeConnection(), 'fetchSchemas').mockResolvedValue(reg(backend, 2))
+    if (event === 'reconnect') {
+      ;(backend.connection.status as unknown as { set(value: string): void }).set('connected')
+    }
+    else push(backend, { type: 'schema_changed', epoch: 2 })
+    await vi.waitFor(() => expect(backend.registry.get()?.epoch).toBe(2))
+    expect(backend.comfyTranslationsUnavailable.get()).toBe(true)
+    resolve(translations('0.0.2'))
+    await vi.waitFor(() => expect(backend.comfyTranslationsUnavailable.get()).toBe(false))
+    app.openDocument({ nodes: [{ id: 1, type: 'StringLength' }], links: [] }, 'Late metadata', backend)
+    expect(resolveImportedNodePacks(app.activeTab()!.store.doc, backend.registry.get()!.resolve)[0]?.version).toBe('0.0.2')
+  })
+
+  it.each([
+    ['schema_changed', true], ['reconnect', true], ['schema_changed', false], ['reconnect', false],
+  ] as const)('imports after %s with metadata available=%s', async (event, available) => {
+    backend.registry.set(reg(backend, 1))
+    backend.comfyTranslations.set(translations('0.0.1'))
+    vi.spyOn(nativeConnection(), 'fetchSchemas').mockResolvedValue(reg(backend, 2))
+    if (available) vi.mocked(nativeConnection().fetchComfyTranslations).mockResolvedValue(translations('0.0.2'))
+    else vi.mocked(nativeConnection().fetchComfyTranslations).mockRejectedValue(new Error('metadata offline'))
+    if (event === 'reconnect') {
+      ;(backend.connection.status as unknown as { set(value: string): void }).set('connected')
+    } else push(backend, { type: 'schema_changed', epoch: 2 })
+    await vi.waitFor(() => expect(backend.registry.get()?.epoch).toBe(2))
+
+    app.openDocument({ nodes: [{ id: 1, type: 'StringLength', widgets_values: ['retained during outage'] }], links: [] }, 'Refreshed import', backend)
+    const document = app.activeTab()!.store.doc
+    expect(document.graphs.g0!.nodes.n1!.type).toBe(available ? 'dinkster.text.string_length' : 'StringLength')
+    expect(resolveImportedNodePacks(document, backend.registry.get()!.resolve)).toEqual([
+      expect.objectContaining(available ? { status: 'installable', pack: 'dinkster-text', version: '0.0.2' } : { status: 'unknown' }),
+    ])
+    if (!available) {
+      expect(document.graphs.g0!.nodes.n1!.ext!['importer.rawWidgetValues']).toEqual(['retained during outage'])
+      expect(app.problems.get()).toContainEqual(expect.objectContaining({ code: 'import.registry.unreachable', message: expect.stringContaining('StringLength') }))
+      expect(app.activeTab()!.store.dispatch({ command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: 'Still editable' } }).ok).toBe(true)
+    }
+  })
+
   it('refetches once and replaces the registry when a newer epoch is pinged', async () => {
     backend.registry.set(reg(backend, 1))
     const fetchSpy = vi
@@ -351,11 +403,23 @@ describe('reconnect capability invalidation', () => {
     expect(app.problems.get().some((p) => p.code === 'schema.refreshFailed')).toBe(true)
   })
 
-  it('never commits a response fetched under the PREVIOUS server life', async () => {
+  it.each([[false, false], [true, false], [true, true]])('discards previous-server metadata when lookup fails=%s and schemas fail early=%s', async (fails, schemasFailEarly) => {
     backend.registry.set({ ...reg(backend, 3), graphFeatures: ['typedLiteral'] })
     let resolveFirst!: (r: SchemaRegistry) => void
+    let rejectFirst!: (error: Error) => void
+    let resolveOldTranslations!: (records: readonly ComfyTranslation[]) => void
+    let rejectOldTranslations!: (error: Error) => void
+    vi.mocked(nativeConnection().fetchComfyTranslations)
+      .mockImplementationOnce(() => new Promise((resolve, reject) => {
+        resolveOldTranslations = resolve
+        rejectOldTranslations = reject
+      }))
+      .mockResolvedValue(translations('0.0.2'))
     const fetchSpy = vi.spyOn(backend.connection, 'fetchSchemas')
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve, reject) => {
+        resolveFirst = resolve
+        rejectFirst = reject
+      }))
       .mockResolvedValue(reg(backend, 3)) // the new life: no features
     push(backend, { type: 'schema_changed', epoch: 4 })
     expect(fetchSpy).toHaveBeenCalledTimes(1)
@@ -363,10 +427,18 @@ describe('reconnect capability invalidation', () => {
     // response advertising typedLiteral must be discarded, not committed -
     // committing would restore the capabilities the reconnect invalidated.
     setStatus('connected')
-    resolveFirst({ ...reg(backend, 3), graphFeatures: ['typedLiteral'] })
+    if (schemasFailEarly) {
+      rejectFirst(new Error('old schema connection reset'))
+      await vi.waitFor(() => expect(backend.comfyTranslations.get()[0]?.version).toBe('0.0.2'))
+    } else resolveFirst({ ...reg(backend, 3), graphFeatures: ['typedLiteral'] })
+    if (fails) rejectOldTranslations(new Error('obsolete metadata request'))
+    else resolveOldTranslations(translations('0.0.1'))
     await flush()
     expect(fetchSpy).toHaveBeenCalledTimes(2)
     expect(backend.registry.get()?.graphFeatures).toBeUndefined()
+    expect(app.logs.get().some((entry) => entry.message.includes('obsolete metadata request'))).toBe(false)
+    app.openDocument({ nodes: [{ id: 1, type: 'StringLength' }], links: [] }, 'Current server import', backend)
+    expect(resolveImportedNodePacks(app.activeTab()!.store.doc, backend.registry.get()!.resolve)[0]?.version).toBe('0.0.2')
   })
 
   it('a reconnect during a FAILING refresh gets exactly one follow-up fetch, which never retries itself', async () => {

@@ -90,6 +90,10 @@ export const nativeTest = base.extend<{ appView: boolean; retentionApi: boolean 
   // declarations while source-bound result claims use the live backend.
   retentionApi: [true, { option: true }],
   context: async ({ context, appView, retentionApi }, use) => {
+    // Historical-schema fixtures do not import identities from the live pack
+    // directory. Import integration tests override this with explicit metadata.
+    await context.route('**/replacements/index.json', (route) =>
+      route.fulfill({ json: { schemaVersion: 1, items: [] } }))
     if (retentionApi) {
       const owners = new Map<string, { scope: string; ownerKind: string; ownerId: string;
         revision: number; complete: boolean; digests: string[] }>()
@@ -150,7 +154,7 @@ export const test = nativeTest.extend({
       localStorage.setItem('dinkster.openTabs', JSON.stringify({
         v: 1,
         active: basic.lineage,
-        tabs: [{ title: 'Basic', doc: basic }, { title: 'Subgraph', doc: subgraph }],
+        tabs: [{ title: 'Basic', doc: basic, documentRevision: 0 }, { title: 'Subgraph', doc: subgraph, documentRevision: 0 }],
       }))
     }, { basic, subgraph })
     await use(page)
