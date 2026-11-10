@@ -1,0 +1,93 @@
+name: Browser reliability observation
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/browser-reliability-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    if: github.head_ref == 'probe/672-browser-observation'
+    runs-on: ${{ fromJSON(vars.CI_RUNNERS).linux }}
+    timeout-minutes: 45
+    env:
+      CUDA_VISIBLE_DEVICES: ""
+      DINKSTER_ACCELERATOR: cpu
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          repository: Comfy-Org/ComfyUI
+          ref: 15eb748b3ec5f8a0a2d470b7fb280e2d7579f916
+          path: .ci/ComfyUI
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          repository: Kosinkadink/Dinkster
+          ref: 9454699a70f9b5aef08f917da37da01303d5fdfa
+          path: .ci/Dinkster
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.8
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: pnpm install --frozen-lockfile
+      - run: uv venv --python 3.12 .ci/ComfyUI/venv
+      - run: uv pip install --python .ci/ComfyUI/venv/bin/python torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+      - run: uv pip install --python .ci/ComfyUI/venv/bin/python -r .ci/ComfyUI/requirements.txt
+      - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
+      - name: Install checkout pack sources
+        run: |
+          uv pip install --python .ci/Dinkster/.venv/bin/python --no-deps --no-sources \
+            -e .ci/Dinkster/packages/dinkster-nodes-foundation \
+            -e .ci/Dinkster/packages/dinkster-nodes-image \
+            -e .ci/Dinkster/packages/dinkster-nodes-media-io \
+            -e .ci/Dinkster/packages/dinkster-nodes-remote \
+            -e .ci/Dinkster/packages/dinkster-nodes-comfy \
+            -e .ci/Dinkster/packages/dinkster-nodes-dev \
+            -e .ci/Dinkster/packages/dinkster-nodes-vision
+      - name: Install hosted compatibility dependencies
+        run: |
+          uv venv --python 3.12 .ci/Dinkster/.venv-torch
+          uv pip install --python .ci/Dinkster/.venv-torch/bin/python torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          uv pip install --python .ci/Dinkster/.venv-torch/bin/python -r .ci/ComfyUI/requirements.txt
+          uv pip install --python .ci/Dinkster/.venv-torch/bin/python --index https://download.pytorch.org/whl/cpu --default-index https://pypi.org/simple --index-strategy unsafe-best-match \
+            "dinkster-inference @ git+https://github.com/Kosinkadink/dinkster-inference.git@9a9d0fd74ede9dea3058a0a63b2c5e9a8b00cb1c" \
+            packaging "comfy-kitchen==0.2.40" "comfy-aimdo==0.6.0" \
+            "sentencepiece==0.2.1" "tokenizers==0.23.1"
+      - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
+        env:
+          UV_TORCH_BACKEND: cpu
+      - run: pnpm --filter @dinkster/e2e exec playwright install chromium
+      - run: sudo apt-get update && sudo apt-get install --no-install-recommends --yes mesa-vulkan-drivers
+      - name: Repeat unchanged audio and upload specs with failure traces
+        run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=backend-serial tests/audio-recording-live.spec.ts tests/image-upload-byte-proof.spec.ts --workers=1 --repeat-each=30 --retries=0 --trace=retain-on-failure
+        env:
+          VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.json
+          DINKSTER_E2E_COMFY_ROOT: ${{ github.workspace }}/.ci/ComfyUI
+          DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
+          DINKSTER_E2E_PORT: "15410"
+          DINKSTER_E2E_NATIVE_PORT: "15412"
+          DINKSTER_E2E_USE_NATIVE: "1"
+          DINKSTER_NATIVE_BACKEND: http://127.0.0.1:15412
+      - name: Retain observation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-reliability-observation
+          path: packages/e2e/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
