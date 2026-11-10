@@ -40,9 +40,6 @@ const imported = { vendor: { future: [1, 'keep'] }, trim: { start_time: 1.25, du
 
 test.beforeEach(async ({ page }) => {
   await page.route('/api/**', (route) => route.fulfill({ status: 404, json: { error: 'Isolated fixture' } }))
-  await page.route('https://registry.dinkster.org/static/replacements/index.json', (route) =>
-    route.fulfill({ json: { schemaVersion: 1, items: [] } }),
-  )
   await page.route('**/api/library/retentions/*/*?scope=local', (route) => {
     if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
     const parts = new URL(route.request().url()).pathname.split('/')

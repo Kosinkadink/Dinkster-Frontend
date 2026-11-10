@@ -1455,7 +1455,6 @@ function planReplacementForCase(
     }
     if (
       !activeInputs.has(targetKey(address.localId)) &&
-      staticTargetInput(address.schema, address.port) === undefined &&
       (address.port.includes('.') || address.port.includes('#'))
     ) {
       errors.push(diag('error', 'replace.target.dynamicPath', `replace: target input '${targetInput}' is a dynamic member path; rules map static inputs only`))
@@ -1730,7 +1729,7 @@ function planReplacementForCase(
       errors.push(diag('error', 'replace.target.address', `replace: target output address '${targetOutput}' is invalid`))
       continue
     }
-    if (!staticTargetOutput(address.schema, address.port) && (address.port.includes('.') || address.port.includes('#'))) {
+    if (address.port.includes('.') || address.port.includes('#')) {
       errors.push(diag('error', 'replace.target.dynamicPath', `replace: target output '${targetOutput}' is a dynamic member path; rules map static outputs only`))
       continue
     }
@@ -1892,8 +1891,9 @@ function planReplacementForCase(
       continue
     }
     if (
-      (!staticTargetOutput(from.schema, from.port) && (from.port.includes('.') || from.port.includes('#'))) ||
-      (!activeInputs.has(targetKey(to.localId)) && staticTargetInput(to.schema, to.port) === undefined && (to.port.includes('.') || to.port.includes('#')))
+      from.port.includes('.') ||
+      from.port.includes('#') ||
+      (!activeInputs.has(targetKey(to.localId)) && (to.port.includes('.') || to.port.includes('#')))
     ) {
       errors.push(diag('error', 'replace.target.dynamicPath', `replace: internal link '${internal.from}' -> '${internal.to}' uses a dynamic member path`))
       continue
