@@ -162,6 +162,8 @@ schemas and API routes. The shared fixture does not select a stock protocol,
 block native discovery, or add backend settings responses. App View remains an
 explicit per-test option, and spec-local routes take precedence over context
 routes. No standing development server is reused or stopped.
+Palette surface fixtures await startup ownership before publishing schemas or
+opening their document so they do not invalidate the restored inventory's acknowledgment.
 Hosted native launches declare `--engine-variant linux-cpu`. After composition,
 global setup requires an empty workflow to return an empty requirement plan
 without a request variant. Mock-only native fixtures explicitly answer that

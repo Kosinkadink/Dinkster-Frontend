@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { evidencePath } from './evidence-output.js'
+import { waitForStartupOwnership } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_PALETTE_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -91,6 +92,7 @@ async function installPaletteFixture(page: Page): Promise<void> {
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined)).toBe(true)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
+  await waitForStartupOwnership(page)
   await page.evaluate(async (fixtureSchemas) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas(fixtureSchemas)
