@@ -399,11 +399,17 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
   await expect(stale).not.toContainText('model')
   await expect(stale).not.toContainText('vae')
   await stale.screenshot({ path: info.outputPath('metadata-profile-inactive-link.png'), animations: 'disabled' })
-  await page.evaluate(async () => {
+  expect(await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    await app.openDocument(structuredClone(app.activeTab()!.store.doc), 'Reloaded checkpoint profile links')
-  })
+    const diagnostics = await app.openDocument(structuredClone(app.activeTab()!.store.doc), 'Reloaded checkpoint profile links')
+    await (app as unknown as { enableWorkspaceAuthority(): Promise<void> }).enableWorkspaceAuthority()
+    return diagnostics
+  })).toEqual([])
   await page.getByRole('button', { name: 'Disconnect inactive clip output' }).click()
+  await page.evaluate(async () => {
+    // Guarded ingress must finish before preparing the next retained command.
+    await (window.__dinksterTest!.app.activeTab()!.store as unknown as { settle(): Promise<void> }).settle()
+  })
   expect(await page.evaluate(() => window.__dinksterTest!.app.problems.get().filter((problem) => problem.code.startsWith('link.') || problem.code === 'params.invalid').map((problem) => `${problem.code}: ${problem.message}`))).toEqual([])
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.links)).toMatchObject({
     modelLink: { from: { node: 'n', port: 'model' } },
@@ -411,9 +417,10 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
   })
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.links.clipLink)).toBeUndefined()
 
-  expect(await page.evaluate(async () => (await window.__dinksterTest!.app.dispatchTo(window.__dinksterTest!.app.activeTab()!, {
+  const outcome = await page.evaluate(async () => window.__dinksterTest!.app.dispatchTo(window.__dinksterTest!.app.activeTab()!, {
     command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'2'.repeat(64)}`, name: 'replacement.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } },
-  })).ok)).toBe(true)
+  }))
+  expect(outcome.ok, JSON.stringify(outcome)).toBe(true)
   expect(await pins(page)).toEqual([])
   await openDescriptors(page)
   await expect(page.getByTestId('output-descriptor-stale-links')).toContainText('model')
