@@ -303,6 +303,42 @@ describe('SharedImageDocumentSession', () => {
     session.close()
   })
 
+  it.each(['catch-up', 'resync'] as const)('invalidates before a delayed %s fetch completes', async (trigger) => {
+    const server = new FakeServer()
+    const connection = server.connect()
+    const session = await connectSharedImageDocumentSession(connection, server.descriptor)
+    const prepared = session.prepareDispatch({ command: 'image.layer.update', params: { layerId: 'l1', name: 'Stale' } })
+    if (!prepared.ok) throw new Error('Missing candidate')
+    const current = session.doc
+    let complete!: () => void
+    const gate = new Promise<void>((resolve) => { complete = resolve })
+    connection.fetchOps = async () => {
+      await gate
+      return { kind: 'resync-required', snapshotRevision: 2 }
+    }
+    connection.fetchSnapshot = async () => {
+      await gate
+      return { revision: 2, document: { ...server.document, canvas: { ...server.document.canvas, width: 13 } } }
+    }
+    connection.emit({ kind: 'op', op: {
+      actorId: 'remote', opId: 'incoming', baseRevision: 1,
+      revision: trigger === 'catch-up' ? 2 : -1, patch: [], timestamp: 1,
+    } })
+    expect(session.status.get()).toBe('catching-up')
+    expect(session.doc).toBe(current)
+    expect(prepared.commit()).toMatchObject({ ok: false, diagnostics: [{ code: 'image.candidate.stale' }] })
+    expect(session.doc).toBe(current)
+    expect(session.revision).toBe(0)
+    expect(session.canUndo).toBe(false)
+    expect(server.log).toEqual([])
+    complete()
+    await session.settle()
+    expect(session.doc.canvas.width).toBe(13)
+    expect(session.doc.layers['l1']?.name).toBe('Pixels')
+    expect(session.revision).toBe(2)
+    session.close()
+  })
+
   it('reports a stale synchronous undo without removing its retained history', async () => {
     const server = new FakeServer()
     const conflicts: string[] = []

@@ -345,7 +345,7 @@ The shared core also exposes one-use prepared command, undo, and redo
 candidates. Their external inventory includes the confirmed ground, unused
 resources, pending edits, and retained history. Its optional `validateCommit`
 policy guards initial construction and local commits. Ordered remote ingest,
-resync, disconnect, close, history clearing, and intervening local commits
+starting catch-up or resync, disconnect, close, history clearing, and intervening local commits
 invalidate previously prepared candidates. A refused or stale history replay
 leaves its history record intact; synchronous undo/redo still reports replay
 conflicts. This policy does not guard remote

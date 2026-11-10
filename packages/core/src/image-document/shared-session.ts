@@ -592,6 +592,7 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
 
   private startSync(): void {
     if (this.syncing || this.statusSignal.get() === 'closed' || this.statusSignal.get() === 'error') return
+    this.generation += 1
     this.syncing = true
     this.statusSignal.set('catching-up')
     this.syncPromise = this.syncLoop().catch((error: unknown) => this.fail(
