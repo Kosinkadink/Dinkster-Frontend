@@ -1,0 +1,18 @@
+Error: ENOENT: no such file or directory, access '/home/kosin/comfy-vibe-station/lanes/feature-inventory-audit-311-workers/editing-canvas/Dinkster-Frontend/.ci/ComfyUI'
+    at accessSync (node:fs:242:11)
+    at requiredDirectory (file:///home/kosin/comfy-vibe-station/lanes/feature-inventory-audit-311-workers/editing-canvas/Dinkster-Frontend/packages/e2e/playwright.hosted.config.ts:22:3)
+    at file:///home/kosin/comfy-vibe-station/lanes/feature-inventory-audit-311-workers/editing-canvas/Dinkster-Frontend/packages/e2e/playwright.hosted.config.ts:41:19
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+    at requireOrImport (/home/kosin/comfy-vibe-station/lanes/feature-inventory-audit-311-workers/editing-canvas/Dinkster-Frontend/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/lib/common/index.js:1147:12)
+    at loadUserConfig (/home/kosin/comfy-vibe-station/lanes/feature-inventory-audit-311-workers/editing-canvas/Dinkster-Frontend/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/lib/common/index.js:1334:46)
+    at loadConfig (/home/kosin/comfy-vibe-station/lanes/feature-inventory-audit-311-workers/editing-canvas/Dinkster-Frontend/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/lib/common/index.js:1341:22)
+    at Object.loadConfigFromFile (/home/kosin/comfy-vibe-station/lanes/feature-inventory-audit-311-workers/editing-canvas/Dinkster-Frontend/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/lib/common/index.js:1553:10)
+    at runTests (/home/kosin/comfy-vibe-station/lanes/feature-inventory-audit-311-workers/editing-canvas/Dinkster-Frontend/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/lib/cli/testActions.js:46:18)
+    at _Command.<anonymous> (/home/kosin/comfy-vibe-station/lanes/feature-inventory-audit-311-workers/editing-canvas/Dinkster-Frontend/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/lib/program.js:53:7) {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'access',
+  path: '/home/kosin/comfy-vibe-station/lanes/feature-inventory-audit-311-workers/editing-canvas/Dinkster-Frontend/.ci/ComfyUI'
+}
