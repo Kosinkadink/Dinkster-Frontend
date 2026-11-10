@@ -7023,9 +7023,16 @@ export class AppState {
     const intent = ++this.workflowOpenIntent
     const tabs = this.tabs.get()
     const sessions = tabs.map((tab) => ({ tab, revision: tab.store.revision, document: tab.store.doc, target: this.backendForTab(tab) }))
-    return () => !this.disposed && intent === this.workflowOpenIntent && this.tabs.get() === tabs &&
-      sessions.every(({ tab, revision, document, target }) => tab.store.revision === revision &&
-        tab.store.doc === document && this.backendForTab(tab) === target)
+    return () => !this.disposed && intent === this.workflowOpenIntent && this.tabs.get().length === tabs.length &&
+      sessions.every(({ tab, revision, document, target }, index) => {
+        const current = this.tabs.get()[index]!
+        if (tab.store.revision !== revision || tab.store.doc !== document || this.backendForTab(current) !== target) return false
+        if (current === tab) return true
+        // Authority promotion can replace an unchanged session while an open awaits ownership.
+        return current === this.liveTabContinuing(tab.store) && current.title === tab.title &&
+          current.editorKind === tab.editorKind && current.store.revision === revision &&
+          canonicalJson(current.store.doc) === canonicalJson(document)
+      })
   }
 
   private async openRetainedDocument(
