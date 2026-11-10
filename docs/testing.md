@@ -162,6 +162,8 @@ schemas and API routes. The shared fixture does not select a stock protocol,
 block native discovery, or add backend settings responses. App View remains an
 explicit per-test option, and spec-local routes take precedence over context
 routes. No standing development server is reused or stopped.
+Product option fixtures resolve controls by option ID rather than global list
+position so collection updates cannot redirect a pending selection.
 Hosted native launches declare `--engine-variant linux-cpu`. After composition,
 global setup requires an empty workflow to return an empty requirement plan
 without a request variant. Mock-only native fixtures explicitly answer that

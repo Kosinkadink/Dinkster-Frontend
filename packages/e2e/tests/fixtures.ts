@@ -31,16 +31,10 @@ export async function skipWithoutNativeCatalog(request: APIRequestContext, testI
 }
 
 export async function productOption(page: Page, optionId: string): Promise<Locator> {
-  const options = page.getByRole('option')
-  await expect.poll(() => options.evaluateAll(
-    (items, id) => items.some((item) => item.getAttribute('data-option-id') === id),
-    optionId,
-  )).toBe(true)
-  for (let index = 0; index < await options.count(); index += 1) {
-    const option = options.nth(index)
-    if (await option.getAttribute('data-option-id') === optionId) return option
-  }
-  throw new Error(`No product option has id '${optionId}'`)
+  const escapedId = await page.evaluate((id) => CSS.escape(id), optionId)
+  const option = page.getByRole('option').and(page.locator(`[data-option-id="${escapedId}"]`))
+  await expect(option).toHaveCount(1)
+  return option
 }
 
 export async function selectProductOption(page: Page, control: Locator, optionId: string, selectedId = optionId): Promise<void> {
