@@ -18,6 +18,7 @@ import {
   importSingleRaster,
 } from '../src/image-document-local.js'
 import {
+  createRetainedLocalImageDocumentSession,
   hydrateImageDocumentResources,
   openImageDocumentFromLibrary,
   renderAdoptedImageDocument,
@@ -85,6 +86,7 @@ function connectionFor(document: ImageDocument, resourceBytes: Uint8Array) {
   const retained = new Map<string, RetainedAssets>()
   const methods = {
     id: 'backend-a',
+    status: { get: () => 'connected', subscribe: (_listener: () => void) => () => undefined },
     retainAssets: vi.fn(async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
       const value = { ...owner, ...declaration, revision: declaration.revision + 1 }
       retained.set(owner.ownerId, value)
@@ -169,6 +171,133 @@ function deferred<T>() {
 }
 
 describe('ImageDocument local persistence', () => {
+  it.each(['acknowledged', 'lost', 'refused', 'reused', 'destination', 'disconnected'])(
+    'admits a recovered local session only after exact durable ownership (%s)', async (scenario) => {
+      const factory = new FakeIDBFactory()
+      const store = new ImageDocumentLocalStore('local-admission', factory)
+      const draft = await imported(store)
+      const resource = draft.document.resources.r0!
+      const remote = connectionFor(draft.document, (await store.getResource(resource.digest))!.bytes)
+      const entries = new Map<string, string>()
+      const storage = { setItem: (key: string, value: string) => { entries.set(key, value) } }
+      const acknowledged = deferred<void>()
+      const requested = deferred<RetainedAssets>()
+      let observed: RetainedAssets | undefined
+      let current = true
+      let statusChanged: () => void = () => undefined
+      remote.methods.status.subscribe = (listener) => { statusChanged = listener; return () => undefined }
+      const original = remote.methods.retainAssets.getMockImplementation()!
+      remote.methods.retainAssets.mockImplementation(async (owner, declaration) => {
+        if (!owner.ownerId.startsWith('workflow-candidate:')) return original(owner, declaration)
+        const intent = JSON.parse([...entries.values()][0]!)
+        expect(intent.owner).toEqual(owner)
+        expect(intent.digests).toEqual([resource.digest])
+        expect(intent.acknowledgedRevision).toBeUndefined()
+        observed = { ...owner, ...declaration, revision: scenario === 'reused' ? 3 : 1 }
+        requested.resolve(observed)
+        await acknowledged.promise
+        if (scenario === 'refused') { observed = undefined; throw new Error('refused admission') }
+        if (scenario === 'lost') throw new Error('lost response')
+        return observed!
+      })
+      remote.methods.fetchRetainedAssets.mockImplementation(async () => observed)
+      let published = false
+      const pending = createRetainedLocalImageDocumentSession(remote.connection, store, draft.document,
+        () => current, storage).then((value) => { published = true; return value })
+      const outcome = pending.catch((cause: unknown) => cause)
+      const receipt = await requested.promise
+      expect(published).toBe(false)
+      expect(await store.recoverDraft(draft.document.lineage)).toMatchObject({ document: draft.document })
+      if (scenario === 'destination') current = false
+      if (scenario === 'disconnected') statusChanged()
+      acknowledged.resolve(undefined)
+      const result = await outcome
+      const accepted = scenario === 'acknowledged' || scenario === 'lost'
+      expect(published).toBe(accepted)
+      if (accepted) {
+        const controller = result as Awaited<ReturnType<typeof createRetainedLocalImageDocumentSession>>
+        expect(controller.session.doc).toEqual(draft.document)
+        expect(controller.session.revision).toBe(0)
+        await controller.close()
+      } else expect(result).toBeInstanceOf(Error)
+      expect(remote.methods.retainAssets.mock.calls.filter(([owner]) => owner.ownerId === receipt.ownerId)).toHaveLength(1)
+      expect(remote.methods.releaseRetainedAssets).not.toHaveBeenCalled()
+      expect((await store.getResource(resource.digest))!.bytes.byteLength).toBe(resource.byteSize)
+      await store.close()
+      const recovered = new ImageDocumentLocalStore('local-admission', factory)
+      expect((await recovered.stagedResourceRetentions())[0]?.acknowledgedRevision).toBe(1)
+      expect(JSON.parse([...entries.values()][0]!).acknowledgedRevision).toBe(accepted ||
+        scenario === 'destination' || scenario === 'disconnected' ? 1 : undefined)
+      await recovered.close()
+    },
+  )
+
+  it('keeps local commands and history invisible until admission and refuses stale, direct and closed publication', async () => {
+    const store = new ImageDocumentLocalStore('local-history', new FakeIDBFactory())
+    const draft = await imported(store)
+    const resource = draft.document.resources.r0!
+    const remote = connectionFor(draft.document, (await store.getResource(resource.digest))!.bytes)
+    const entries = new Map<string, string>()
+    const storage = { setItem: (key: string, value: string) => { entries.set(key, value) } }
+    const controller = await createRetainedLocalImageDocumentSession(remote.connection, store, draft.document, () => true, storage)
+    const operations: number[] = []
+    controller.session.onOp((operation) => operations.push(operation.revision))
+    const original = remote.methods.retainAssets.getMockImplementation()!
+    const gates: Array<{ readonly receipt: RetainedAssets; readonly finish: ReturnType<typeof deferred<void>> }> = []
+    remote.methods.retainAssets.mockImplementation(async (owner, declaration) => {
+      const receipt = await original(owner, declaration)
+      const finish = deferred<void>()
+      gates.push({ receipt, finish })
+      await finish.promise
+      return receipt
+    })
+    const update = (width: number) => ({ command: 'image.canvas.update' as const, params: { width, height: 1 } })
+    const first = controller.dispatch(update(7))
+    await vi.waitFor(() => expect(gates).toHaveLength(1))
+    expect(controller.session.doc.canvas.width).toBe(2)
+    expect(controller.session.canUndo).toBe(false)
+    expect(operations).toEqual([])
+    expect(controller.session.dispatch(update(99)).ok).toBe(false)
+    const later = controller.dispatch(update(11))
+    await vi.waitFor(() => expect(gates).toHaveLength(2))
+    gates[1]!.finish.resolve(undefined)
+    expect((await later).ok).toBe(true)
+    gates[0]!.finish.resolve(undefined)
+    expect((await first).ok).toBe(false)
+    expect(controller.session.doc.canvas.width).toBe(11)
+    expect(operations).toEqual([1])
+    const undo = controller.undo()
+    await vi.waitFor(() => expect(gates).toHaveLength(3))
+    expect(controller.session.doc.canvas.width).toBe(11)
+    expect(controller.session.canRedo).toBe(false)
+    gates[2]!.finish.resolve(undefined)
+    expect((await undo).ok).toBe(true)
+    expect(controller.session.doc.canvas.width).toBe(2)
+    const redo = controller.redo()
+    await vi.waitFor(() => expect(gates).toHaveLength(4))
+    expect(controller.session.doc.canvas.width).toBe(2)
+    gates[3]!.finish.resolve(undefined)
+    expect((await redo).ok).toBe(true)
+    expect(controller.session.doc.canvas.width).toBe(11)
+    const discarded = controller.dispatch(update(13))
+    const rejected = discarded.catch((cause: unknown) => cause)
+    await vi.waitFor(() => expect(gates).toHaveLength(5))
+    let closed = false
+    const closing = controller.close().then(() => { closed = true })
+    await Promise.resolve()
+    expect(closed).toBe(false)
+    gates[4]!.finish.resolve(undefined)
+    expect(await rejected).toBeInstanceOf(Error)
+    await closing
+    expect(controller.session.doc.canvas.width).toBe(11)
+    expect(operations).toEqual([1, 2, 3])
+    expect(gates.every(({ receipt }) => receipt.complete && receipt.digests.length === 1 && receipt.digests[0] === resource.digest)).toBe(true)
+    expect(new Set(gates.map(({ receipt }) => receipt.ownerId)).size).toBe(5)
+    expect(remote.methods.releaseRetainedAssets).not.toHaveBeenCalled()
+    expect(entries.size).toBe(6)
+    await store.close()
+  })
+
   it('holds rendered PNG reads until verified local bytes replace the remote dependency', async () => {
     const store = new ImageDocumentLocalStore('render-reader', new FakeIDBFactory())
     try {

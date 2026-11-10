@@ -341,6 +341,18 @@ commit, including direct synchronous calls. A refused policy leaves the existing
 document and history unchanged. These core APIs do not themselves perform
 backend admission.
 
+The workspace waits for backend admission before exposing a recovered or
+imported local session. External rasters are verified against staged bytes and
+uploaded before a fresh document owner is journaled and acknowledged. Local
+commands, undo, and redo prepare their complete proposed document/history
+inventory and await an exact acknowledgment before commit. A lost response is
+reconciled by reading that owner, without replaying its write. Refusal, reuse,
+disconnection, or a changed project/backend/session prevents publication.
+Unavailable backends leave recovered drafts blocked, not visible without
+ownership. Closing the workspace waits for pending admissions but does not
+release their durable owners. These session owners remain held conservatively;
+this does not establish shared-session or renderer-cache lifetime ownership.
+
 ## Shared editing
 
 **Share** creates a live ImageDocument session after all current raster

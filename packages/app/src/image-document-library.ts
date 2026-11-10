@@ -9,10 +9,16 @@ import {
 import {
   MAX_IMAGE_DOCUMENT_BYTES,
   canonicalJson,
+  createLocalImageDocumentSession,
+  diag,
   loadImageDocument,
   serializeImageDocument,
   type ImageDocument,
+  type ImageDocumentCommandInvocation,
+  type ImageDocumentDispatchOutcome,
+  type ImageDocumentSession,
   type ImageRasterResource,
+  type PreparedImageDocumentDispatch,
 } from '@dinkster/core'
 import {
   ImageDocumentLocalStore,
@@ -21,8 +27,92 @@ import {
   type ImageLibraryLink,
   type StagedImageResource,
 } from './image-document-local.js'
+import { retainWorkflowAssets } from './workflow-asset-retention.js'
 
 export const IMAGE_DOCUMENT_LIBRARY_LABEL = 'image-document'
+
+export async function createRetainedLocalImageDocumentSession(
+  connection: DinksterConnection,
+  store: ImageDocumentLocalStore,
+  document: ImageDocument,
+  isCurrent: () => boolean,
+  storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
+) {
+  const assetBaseUrl = connection.assetUrl('')
+  let closed = false
+  let connectionChanged = false
+  const unsubscribe = connection.status.subscribe(() => { connectionChanged = true })
+  const assertCurrent = (): void => {
+    if (closed || connectionChanged || connection.status.get() !== 'connected' ||
+      connection.assetUrl('') !== assetBaseUrl || !isCurrent()) {
+      throw new Error('ImageDocument destination changed during asset admission')
+    }
+  }
+  let initializing = true
+  let admitted: ImageDocument | undefined
+  const pending = new Set<Promise<ImageDocumentDispatchOutcome>>()
+  try {
+    assertCurrent()
+    const session = createLocalImageDocumentSession(document, {
+      validateCommit: (_current, candidate) => {
+        if (initializing) return []
+        if (admitted === candidate) { admitted = undefined; return [] }
+        return [diag('error', 'command', 'image.retention.required', 'ImageDocument change requires asset admission')]
+      },
+    })
+    initializing = false
+    const uploaded = new Set<string>()
+    const uploadResources = async (snapshot: ImageDocument): Promise<void> => {
+      for (const resource of Object.values(snapshot.resources)) {
+        if (resource.inline !== undefined) continue
+        const staged = await store.getResource(resource.digest)
+        assertCurrent()
+        if (staged === undefined || !stagedMatches(resource, staged)) {
+          throw new Error(`staged ImageDocument resource does not match its descriptor: ${resource.id}`)
+        }
+        if (uploaded.has(resource.digest)) continue
+        await uploadImageDocumentResource(connection, store, resource, 'local', undefined, assertCurrent)
+        uploaded.add(resource.digest)
+      }
+    }
+    await uploadResources(session.doc)
+    assertCurrent()
+    await retainWorkflowAssets(connection, session.doc.lineage, session.revision,
+      { complete: true, digests: [...session.retainedResourceDigests()].sort() }, storage)
+    assertCurrent()
+    const commit = (prepared: PreparedImageDocumentDispatch): Promise<ImageDocumentDispatchOutcome> => {
+      const revision = session.revision + 1
+      const task = (async (): Promise<ImageDocumentDispatchOutcome> => {
+        assertCurrent()
+        if (!prepared.ok) return prepared
+        await uploadResources(prepared.document)
+        await retainWorkflowAssets(connection, prepared.document.lineage, revision,
+          { complete: true, digests: prepared.resourceDigests }, storage)
+        assertCurrent()
+        admitted = prepared.document
+        try { return prepared.commit() } finally { admitted = undefined }
+      })()
+      pending.add(task)
+      void task.finally(() => pending.delete(task)).catch(() => undefined)
+      return task
+    }
+    return {
+      session: session as ImageDocumentSession,
+      dispatch: (invocation: ImageDocumentCommandInvocation) => commit(session.prepareDispatch(invocation)),
+      undo: () => commit(session.prepareUndo()),
+      redo: () => commit(session.prepareRedo()),
+      close: async (): Promise<void> => {
+        closed = true
+        unsubscribe()
+        await Promise.allSettled([...pending])
+      },
+    }
+  } catch (cause) {
+    closed = true
+    unsubscribe()
+    throw cause
+  }
+}
 
 function expectedDependencies(document: ImageDocument): readonly ImageDocumentDependency[] {
   return Object.values(document.resources)
