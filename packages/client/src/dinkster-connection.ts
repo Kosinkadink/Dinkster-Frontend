@@ -41,6 +41,8 @@ import {
   outputsOf,
   packsFromDinksterWire,
   parseDinksterNodes,
+  parseDinksterSchema,
+  isReplacementRule,
   sha256Hex,
   graphFeaturesFromDinksterWire,
   mergeableTypesFromDinksterWire,
@@ -49,6 +51,7 @@ import {
   schemaForEditorRole,
   validateDinksterGraph,
   type CompileArtifact,
+  type ComfyTranslation,
   type ConnectionId,
   type Diagnostic,
   type ExecutionArm,
@@ -56,6 +59,7 @@ import {
   type DinksterInputWire,
   type DinksterJobWire,
   type DinksterNodesPayload,
+  type DinksterWireSchema,
   type DinksterRawJson,
   type DinksterRawMessage,
   type ExecutionRef,
@@ -767,6 +771,8 @@ export interface DinksterConnectionConfig extends CollabCredentials {
   readonly id: ConnectionId
   /** HTTP base, no trailing slash. '' = same origin (dev proxy). */
   readonly baseUrl: string
+  /** Public registry static prefix; backend credentials never accompany these reads. */
+  readonly registryStaticUrl?: () => string
   /** Stable per-session client id; jobs and WS routing are keyed by it. */
   readonly clientId: string
   /** Immutable window project; folder preferences never change global priorities. */
@@ -940,6 +946,36 @@ export interface WorkflowRequirementPlan {
     readonly packagedFrom?: readonly string[]
   }[]
   readonly errors: readonly string[]
+}
+
+export type PackInstallPlan = {
+  readonly plan: Readonly<Record<string, unknown>>
+  readonly review: string
+  readonly expiresInSeconds: number
+} & (
+  | { readonly confirmation: string; readonly commands?: undefined }
+  | { readonly confirmation?: undefined; readonly commands: readonly string[] }
+)
+
+export interface PackInstallResult {
+  readonly generation: number
+  readonly activation: {
+    readonly epoch: number
+    readonly added: readonly string[]
+    readonly removed: readonly string[]
+    readonly reloaded: readonly string[]
+    readonly unchanged: readonly string[]
+  }
+}
+
+export class PackInstallError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: Readonly<Record<string, unknown>> | undefined,
+  ) {
+    super(typeof body?.['detail'] === 'string' && body['detail'] !== '' ? body['detail']
+      : typeof body?.['error'] === 'string' ? body['error'] : `Pack installation request failed: ${status}`)
+  }
 }
 
 export interface AssetSelectionOption {
@@ -1740,6 +1776,8 @@ export class DinksterConnection {
   private readonly clientId: string
   private readonly project: string | undefined
   private readonly fetchFn: FetchLike
+  private readonly registryFetchFn: FetchLike
+  private readonly registryStaticUrl: () => string
   private readonly admitValuePeek: ValuePeekAdmission | undefined
   private readonly normalizer: DinksterNormalizer
   private readonly extensionSnapshots = new Map<string, EffectiveExtensionSnapshot>()
@@ -1787,6 +1825,8 @@ export class DinksterConnection {
     this.project = config.project
     this.admitValuePeek = config.admitValuePeek
     const fetchFn = config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
+    this.registryFetchFn = fetchFn
+    this.registryStaticUrl = config.registryStaticUrl ?? (() => '')
     this.fetchFn = config.token !== undefined || config.actorKind !== undefined
       ? credentialFetch(config, fetchFn)
       : fetchFn
@@ -3021,6 +3061,120 @@ export class DinksterConnection {
       matches.push(...parseAssetGuessMatches(await res.json()))
     }
     return matches
+  }
+
+  private async packInstallRequest(action: 'plan' | 'apply', body: unknown): Promise<Record<string, unknown>> {
+    const response = await this.fetchFn(`${this.baseUrl}/api/packs/install/${action}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+    const payload = await responsePayload(response)
+    if (!response.ok) throw new PackInstallError(response.status, payload)
+    if (payload === undefined) throw new Error(`Malformed pack installation ${action} response`)
+    return payload
+  }
+
+  private comfyTranslationCache: { readonly url: string; readonly etag: string | null; readonly body: unknown } | undefined
+  private comfyTranslationRequestGeneration = 0
+
+  /** Import-only metadata; never adds schemas to the executable registry. */
+  async fetchComfyTranslations(): Promise<readonly ComfyTranslation[]> {
+    const generation = ++this.comfyTranslationRequestGeneration
+    const prefix = this.registryStaticUrl().trim().replace(/\/+$/, '')
+    if (!prefix) throw new Error('No registry static prefix configured')
+    const url = `${prefix}/replacements/index.json`
+    const cached = this.comfyTranslationCache?.url === url ? this.comfyTranslationCache : undefined
+    return requestWithDeadline(async (signal) => {
+      const response = await this.registryFetchFn(url, {
+        signal, credentials: 'omit', ...(cached?.etag ? { headers: { 'If-None-Match': cached.etag } } : {}),
+      })
+      if (response.status !== 304 && !response.ok) throw new Error(`Registry replacements request failed: ${response.status}`)
+      const raw: unknown = response.status === 304 && cached ? cached.body : await response.json()
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('Malformed ComfyUI translation index')
+      const index = raw as Record<string, unknown>
+      if (index['schemaVersion'] !== 1 || !Array.isArray(index['items'])) throw new Error('Malformed ComfyUI translation index')
+      const sources = new Set<string>()
+      const packs = new Map<string, Promise<readonly NodeSchema[]>>()
+      const interfaces = (pack: string, version: string): Promise<readonly NodeSchema[]> => {
+        const path = `${prefix}/packs/${encodeURIComponent(pack)}/${encodeURIComponent(version)}/schemas.json`
+        let pending = packs.get(path)
+        if (!pending) {
+          pending = (async () => {
+            const result = await this.registryFetchFn(path, { signal, credentials: 'omit' })
+            if (!result.ok) throw new Error(`Registry pack schemas request failed: ${result.status}`)
+            const envelope = await result.json() as Record<string, unknown>
+            if (envelope['packName'] !== pack || envelope['version'] !== version || !Array.isArray(envelope['schemas'])) throw new Error('Invalid registry schema envelope')
+            return envelope['schemas'].map((entry: Record<string, unknown>) => {
+              if (typeof entry['nodeType'] !== 'string' || entry['schemaWireVersion'] !== DINKSTER_SCHEMA_WIRE_VERSION ||
+                typeof entry['schema'] !== 'object' || entry['schema'] === null) throw new Error('Invalid registry schema entry')
+              const decoded = parseDinksterSchema(entry['nodeType'], { ...entry['schema'], pack } as DinksterWireSchema)
+              if (!decoded.schema) throw new Error(`Invalid ComfyUI import interface: ${entry['nodeType']}`)
+              return decoded.schema
+            })
+          })()
+          packs.set(path, pending)
+        }
+        return pending
+      }
+      const records = (await Promise.all(index['items'].map(async (item: unknown): Promise<ComfyTranslation[]> => {
+        if (typeof item !== 'object' || item === null || Array.isArray(item)) throw new Error('Malformed ComfyUI translation record')
+        const row = item as Record<string, unknown>
+        if (typeof row['from'] !== 'string' || !row['from'] || sources.has(row['from']) || !Array.isArray(row['candidates'])) throw new Error('Ambiguous ComfyUI translation identity')
+        sources.add(row['from'])
+        const source = row['from']
+        return Promise.all(row['candidates'].map(async (candidate: Record<string, unknown>): Promise<ComfyTranslation> => {
+          if (typeof candidate['pack'] !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(candidate['pack']) ||
+            typeof candidate['version'] !== 'string' || !/^[0-9][a-zA-Z0-9.!+_-]*$/.test(candidate['version']) ||
+            typeof candidate['target'] !== 'string' || !isReplacementRule(candidate['rule'])) throw new Error('Malformed ComfyUI translation candidate')
+          const schemas = await interfaces(candidate['pack'], candidate['version'])
+          const schema = schemas.find((schema) => schema.type === candidate['target'])
+          if (!schema) throw new Error(`Missing ComfyUI import interface: ${candidate['target']}`)
+          return { source, pack: candidate['pack'], version: candidate['version'], rule: candidate['rule'], schema, interfaces: schemas }
+        }))
+      }))).flat()
+      signal.throwIfAborted()
+      if (generation === this.comfyTranslationRequestGeneration) this.comfyTranslationCache = { url, etag: response.status === 304 ? cached?.etag ?? null : response.headers.get('ETag'), body: raw }
+      return records
+    })
+  }
+
+  /** Request a review only; the server retains the executable plan. */
+  async planPackInstall(packs: readonly { readonly pack: string; readonly version: string }[]): Promise<PackInstallPlan> {
+    const body = await this.packInstallRequest('plan', { packs: packs.map(({ pack, version }) => ({ pack, version })) })
+    const plan = body['plan']
+    const confirmation = body['confirmation']
+    const commands = body['commands']
+    const terminal = Array.isArray(commands) && commands.length > 0 &&
+      commands.every((command): command is string => typeof command === 'string' && command.trim().length > 0)
+    const gateway = typeof confirmation === 'string' && confirmation.length > 0
+    if (!(terminal && confirmation === undefined || gateway && commands === undefined) ||
+      typeof body['review'] !== 'string' ||
+      !Number.isSafeInteger(body['expiresInSeconds']) || (body['expiresInSeconds'] as number) <= 0 ||
+      typeof plan !== 'object' || plan === null || Array.isArray(plan)) {
+      throw new Error('Malformed pack installation plan response')
+    }
+    return { ...(terminal ? { commands: commands as string[] } : { confirmation: confirmation as string }), plan: plan as Record<string, unknown>,
+      review: body['review'], expiresInSeconds: body['expiresInSeconds'] as number }
+  }
+
+  /** Apply only a human-confirmed token, without retrying a possibly completed mutation. */
+  async applyPackInstall(confirmation: string): Promise<PackInstallResult> {
+    const body = await this.packInstallRequest('apply', { confirmation })
+    const raw = body['activation']
+    const invalid = () => new Error('Malformed pack installation activation response')
+    if (!Number.isSafeInteger(body['generation']) || (body['generation'] as number) < 1 ||
+      typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
+    const activation = raw as Record<string, unknown>
+    const failed = activation['failed']
+    if (!Number.isSafeInteger(activation['epoch']) || (activation['epoch'] as number) < 0 ||
+      activation['generation'] !== body['generation'] || activation['rolledBack'] !== false ||
+      typeof failed !== 'object' || failed === null || Array.isArray(failed) || Object.keys(failed).length !== 0 ||
+      !['added', 'removed', 'reloaded', 'unchanged'].every((key) =>
+        Array.isArray(activation[key]) && (activation[key] as unknown[]).every((pack) => typeof pack === 'string'))) throw invalid()
+    return { generation: body['generation'] as number, activation: {
+      epoch: activation['epoch'] as number,
+      added: activation['added'] as string[], removed: activation['removed'] as string[],
+      reloaded: activation['reloaded'] as string[], unchanged: activation['unchanged'] as string[],
+    } }
   }
 
   /** Read host requirements without granting download or installation consent. */
