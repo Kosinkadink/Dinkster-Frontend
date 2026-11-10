@@ -30,6 +30,7 @@ import {
   ExecutionStore,
   IMAGE_DOCUMENT_MEDIA_TYPE,
   hydrateDinksterCompletedExecution,
+  PackInstallError,
   parseAssetsMissingRejection,
   promptToDinksterGraph,
   reconcileDinksterExecutions,
@@ -63,6 +64,106 @@ const ref = (jobId: string): ExecutionRef => ({ connection: C0, prompt: asPrompt
 
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+
+it.each([
+  { format: 'dinkster.plan/1', base: null },
+  { format: 'desktop.project-software/1', retained: { engine: 'sealed', constraints: ['cpu'] } },
+])('plans exact pack selections with an opaque host plan and applies only confirmation', async (hostPlan) => {
+  const plan = { confirmation: 'opaque-review-token', plan: hostPlan,
+    review: 'Install sampling 2.1 and image 3.2', expiresInSeconds: 900 }
+  const activation = { generation: 3, epoch: 7, added: ['sampling', 'image'], removed: [],
+    reloaded: ['models'], unchanged: ['base'], failed: {}, diagnostics: [], rolledBack: false }
+  const calls: { url: string; body: unknown }[] = []
+  const fetchFn: FetchLike = async (url, init) => {
+    calls.push({ url, body: JSON.parse(init!.body as string) })
+    return jsonResponse(200, url.endsWith('/plan') ? plan : { generation: 3, activation })
+  }
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer', fetchFn,
+    webSocketFactory: () => ({}) as WebSocketLike })
+  const reviewed = await connection.planPackInstall([
+    { pack: 'sampling', version: '2.1' }, { pack: 'image', version: '3.2' },
+  ])
+  expect(reviewed).toEqual(plan)
+  expect(calls).toEqual([{ url: '/selected/api/packs/install/plan', body: { packs: [
+    { pack: 'sampling', version: '2.1' }, { pack: 'image', version: '3.2' },
+  ] } }])
+  if (reviewed.commands !== undefined) throw new Error('Expected a gateway confirmation')
+  expect(await connection.applyPackInstall(reviewed.confirmation)).toEqual({ generation: 3,
+    activation: { epoch: 7, added: ['sampling', 'image'], removed: [], reloaded: ['models'], unchanged: ['base'] } })
+  expect(calls[1]).toEqual({ url: '/selected/api/packs/install/apply', body: { confirmation: 'opaque-review-token' } })
+})
+
+it('retains terminal-only installation commands without granting HTTP confirmation', async () => {
+  const plan = { plan: { format: 'dinkster.project-pack-plan/1' }, review: 'Install on the backend host',
+    commands: ['dinkster-env --root /project packs-plan image@3.2 --output /tmp/review',
+      'dinkster-env --root /project packs-apply --input /tmp/review --approval sha256:example'], expiresInSeconds: 900 }
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer',
+    fetchFn: async () => jsonResponse(200, plan), webSocketFactory: () => ({}) as WebSocketLike })
+  expect(await connection.planPackInstall([{ pack: 'image', version: '3.2' }])).toEqual(plan)
+})
+
+it.each([404, 409, 422])('preserves structured installation failures without retries: HTTP %s', async (status) => {
+  let requests = 0
+  const body = { error: 'activation-failed', detail: 'Old live surface retained', generation: 4,
+    activation: { failed: { image: 'worker failed' } } }
+  const fetchFn: FetchLike = async () => { requests++; return jsonResponse(status, body) }
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer', fetchFn,
+    webSocketFactory: () => ({}) as WebSocketLike })
+  for (const request of [() => connection.planPackInstall([{ pack: 'image', version: '1' }]),
+    () => connection.applyPackInstall('token')]) {
+    await expect(request()).rejects.toMatchObject({ status, body, message: body.detail })
+  }
+  expect(requests).toBe(2)
+  await expect(connection.applyPackInstall('token')).rejects.toBeInstanceOf(PackInstallError)
+})
+
+it('rejects malformed installation success and activation rollback instead of reporting installed', async () => {
+  let response: unknown
+  const fetchFn: FetchLike = async () => jsonResponse(200, response)
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer', fetchFn,
+    webSocketFactory: () => ({}) as WebSocketLike })
+  const plan = { confirmation: 'token', plan: { format: 'dinkster.plan/1' }, review: 'Review', expiresInSeconds: 900 }
+  const terminal = { ...plan, confirmation: undefined, commands: ['run command'] }
+  for (const invalid of [null, [], { ...plan, confirmation: '' }, { ...plan, plan: [] },
+    { ...terminal, commands: [] }, { ...terminal, commands: [''] }, { ...terminal, commands: [4] },
+    { ...terminal, confirmation: 'mixed-authority' }, { ...terminal, commands: 'run command' },
+    { ...plan, plan: null }, { ...plan, review: 4 }, { ...plan, expiresInSeconds: 0 }]) {
+    response = invalid
+    await expect(connection.planPackInstall([{ pack: 'image', version: '1' }])).rejects.toThrow('Malformed')
+  }
+  const activation = { generation: 2, epoch: 3, added: ['image'], removed: [], reloaded: [], unchanged: [],
+    failed: {}, rolledBack: false }
+  for (const invalid of [null, { ...activation, epoch: -1 }, { ...activation, generation: 3 },
+    { ...activation, added: [4] }, { ...activation, failed: { image: 'failure' } },
+    { ...activation, failed: [] }, { ...activation, rolledBack: true }]) {
+    response = { generation: 2, activation: invalid }
+    await expect(connection.applyPackInstall('token')).rejects.toThrow('Malformed')
+  }
+})
+
+it('bounds install planning and forwards cancellation without retrying apply', async () => {
+  vi.useFakeTimers()
+  try {
+    const signals: AbortSignal[] = []
+    const fetchFn: FetchLike = async (_url, init) => {
+      const signal = init!.signal as AbortSignal
+      signals.push(signal)
+      return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('cancelled')), { once: true }))
+    }
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer', fetchFn,
+      webSocketFactory: () => ({}) as WebSocketLike })
+    const planning = expect(connection.planPackInstall([{ pack: 'image', version: '1' }])).rejects.toThrow('timed out')
+    await vi.advanceTimersByTimeAsync(30_000)
+    await planning
+    expect(signals[0]!.aborted).toBe(true)
+    const controller = new AbortController()
+    const applying = expect(connection.applyPackInstall('token', controller.signal)).rejects.toThrow('cancelled')
+    controller.abort()
+    await applying
+    expect(signals[1]!.aborted).toBe(true)
+    expect(signals).toHaveLength(2)
+  } finally { vi.useRealTimers() }
+})
 
 it('reads live source selections from the editing connection and rejects malformed options', async () => {
   let payload: unknown = { kind: 'model/vae', options: [
