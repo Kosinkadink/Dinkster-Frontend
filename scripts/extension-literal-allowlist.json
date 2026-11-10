@@ -43,7 +43,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5485,
+      "line": 5509,
       "column": 38,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -51,7 +51,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5678,
+      "line": 5702,
       "column": 9,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -59,7 +59,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5939,
+      "line": 5963,
       "column": 34,
       "symbol": "widgetType:COMPOSITOR",
       "issue": 122
@@ -67,7 +67,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5997,
+      "line": 6021,
       "column": 36,
       "symbol": "widgetType:CURVE",
       "issue": 122
@@ -75,7 +75,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 6115,
+      "line": 6139,
       "column": 34,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -83,7 +83,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 7401,
+      "line": 7425,
       "column": 38,
       "symbol": "widgetType:ASSET",
       "issue": 122

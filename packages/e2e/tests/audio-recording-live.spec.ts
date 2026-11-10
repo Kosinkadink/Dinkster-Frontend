@@ -32,6 +32,14 @@ async function inputPoint(page: Page): Promise<{ readonly x: number; readonly y:
 }
 
 async function queueEnvelope(page: Page): Promise<SubmittedJob> {
+  // This proof requires execution, not a valid cached editor result from an
+  // earlier recording with the same canonical envelope curve. Explicit targets
+  // retain each inspected output without depending on the execution cache.
+  await page.route('**/api/jobs', async (route) => {
+    await route.continue({ postData: JSON.stringify({
+      ...route.request().postDataJSON(), cacheEnabled: false, targets: ['load', 'envelope', 'editor'],
+    }) })
+  })
   let submitted: SubmittedJob | undefined
   const listener = (candidate: Request) => {
     if (candidate.method() === 'POST' && new URL(candidate.url()).pathname === '/api/jobs') {
@@ -205,7 +213,8 @@ test(PHYSICAL_MICROPHONE
     new URL(candidate.url()).pathname === '/api/assets/media')
   await recorder.getByRole('button', { name: 'Save recording' }).click()
   const accepted = await uploadResponse
-  await page.unroute('**/api/assets/media?*')
+  // Context cleanup removes interception after picker admission; disabling it
+  // on the upload response can strand the immediately following retention PUT.
   expect([200, 201]).toContain(accepted.status())
   const response = await accepted.json() as { readonly asset: UploadedAsset; readonly kind: string }
   const recordedBytes = Buffer.from(await page.evaluate(async () => {
@@ -228,7 +237,7 @@ test(PHYSICAL_MICROPHONE
   )
   expect(receiptResponse.ok()).toBe(true)
   const receipt = await receiptResponse.json() as { readonly state: string; readonly executed: readonly string[] }
-  expect(receipt).toMatchObject({ state: 'completed', executed: expect.arrayContaining(['load', 'envelope', 'editor']) })
+  expect(receipt).toMatchObject({ state: 'completed', cacheEnabled: false, executed: expect.arrayContaining(['load', 'envelope', 'editor']) })
 
   const descriptorQuery = new URLSearchParams({
     clientId: submitted.clientId, jobId: submitted.jobId, nodeId: 'load', outputId: 'audio',
