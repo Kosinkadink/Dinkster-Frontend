@@ -325,9 +325,21 @@ order, transforms, opacity, blend mode, and raster masks. Every result passes
 the same loader and invariant checks as an imported document.
 
 Undo and redo replay immutable patches. Allocation cursors never rewind, so an
-id is not reused after undo. The history reports every raster digest that its
-undo or redo stack can restore; local resource cleanup must retain those bytes
-until the corresponding history entry is evicted or cleared.
+id is not reused after undo. The history reports every external raster digest
+that its undo or redo stack can restore; inline bytes travel inside the document.
+Local resource cleanup must retain external bytes until the corresponding
+history entry is evicted or cleared.
+
+The local core session exposes `prepareDispatch`, `prepareUndo`, and
+`prepareRedo` for callers that must await ownership before publication. Preparing
+does not change the document, revision, history, signal, or operation stream. A
+candidate carries the current external-resource inventory and the proposed
+document/history inventory, including unused resources. Its one-use `commit`
+refuses an intervening document or history change. An optional synchronous
+`validateCommit` policy guards initial construction and every command/history
+commit, including direct synchronous calls. A refused policy leaves the existing
+document and history unchanged. These core APIs do not themselves perform
+backend admission.
 
 ## Shared editing
 
