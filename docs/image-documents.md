@@ -199,6 +199,15 @@ External raster hydration first journals a fresh scoped read owner in IndexedDB
 and obtains an exact retained-asset acknowledgment before fetching bytes. The
 owner protects missing external resources through digest verification and local
 durable staging; inline and already-staged resources need no server read owner.
+Before verified external bytes enter durable staging, a separate document owner
+is journaled and acknowledged for that exact digest and scope. Uploading a staged
+raster likewise confirms its independent staged owner before returning it to
+the caller. A refused or mismatched acknowledgment blocks staging/publication;
+a lost response requires an exact owner/revision readback, not a repeated write.
+Staged owners and unresolved intents survive store closure and restart. Read
+completion releases only the read owner, never the staged owner. Staged ownership
+is conservative: replacing an image, closing its editor or disconnecting does
+not release its durable raster protection.
 Release happens only after those reads settle. Lost registration or release
 responses reconcile by the exact owner and revision without replaying writes.
 Unconfirmed owners remain journaled across restart; closing an editor or local

@@ -35,6 +35,12 @@ const rgba = new Uint8ClampedArray([
   0, 128, 255, 255,
 ])
 
+const imageRetention = {
+  id: 'image-backend', assetUrl: (digest: string) => `http://image.test/${digest}`,
+  retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) =>
+    ({ ...owner, ...declaration, revision: declaration.revision + 1 }),
+}
+
 afterEach(() => {
   document.body.replaceChildren()
   vi.useRealTimers()
@@ -161,6 +167,7 @@ describe('ImageDocumentWorkspace', () => {
       let adopted = false
       const pause = async (): Promise<void> => { entered = true; await held }
       const connection = {
+        ...imageRetention,
         uploadMediaAsset: async () => ({ digest: resource.digest, size: resource.byteSize, mediaType: resource.mediaType }),
         adoptImageDocument: async (bytes: Uint8Array) => {
           adopted = true
@@ -341,6 +348,7 @@ describe('ImageDocumentWorkspace', () => {
         })
       }
       const connection = {
+        ...imageRetention,
         uploadMediaAsset: async () => ({ digest: resource.digest, size: resource.byteSize, mediaType: resource.mediaType }),
         adoptImageDocument: async (bytes: Uint8Array) => {
           documentDigest = imageDocumentDigest(bytes)
@@ -765,7 +773,7 @@ describe('ImageDocumentWorkspace', () => {
         close: () => { sessionClosed = true },
       } as unknown as CollabConnection
       let backend = { id: 'share-owner', protocol: 'dinkster', baseUrl: 'http://share.test',
-        connection: { uploadMediaAsset: async () => {
+        connection: { ...imageRetention, uploadMediaAsset: async () => {
           uploads += 1
           if (outcome.startsWith('upload-')) { entered = true; await held }
           return { digest: resource.digest, name: 'source.png', size: resource.byteSize,
@@ -1615,6 +1623,7 @@ describe('ImageDocumentWorkspace', () => {
       revision: 1,
     }))
     const connection = {
+      ...imageRetention,
       uploadMediaAsset: vi.fn(async () => ({
         digest: resource.digest,
         name: staged.name,
@@ -1923,6 +1932,7 @@ describe('ImageDocumentWorkspace', () => {
       connect: () => connection,
     }
     const backendConnection = {
+      ...imageRetention,
       uploadMediaAsset: vi.fn(async () => {
         order.push('upload')
         return {

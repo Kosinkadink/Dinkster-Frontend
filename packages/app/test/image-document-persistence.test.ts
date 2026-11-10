@@ -280,6 +280,97 @@ describe('ImageDocument local persistence', () => {
     }
   })
 
+  it.each(['acknowledged', 'lost', 'refused', 'reused', 'superseded'] as const)(
+    'admits an independent staged raster owner before publishing durable bytes: %s', async (scenario) => {
+      const factory = new FakeIDBFactory()
+      const source = new ImageDocumentLocalStore('staged-source', factory)
+      const target = new ImageDocumentLocalStore('staged-target', factory)
+      let gate: ReturnType<typeof deferred<void>> | undefined
+      try {
+        const draft = await imported(source)
+        const resource = draft.document.resources.r0!
+        const bytes = (await source.getResource(resource.digest))!.bytes
+        const remote = connectionFor(draft.document, bytes)
+        const retain = remote.methods.retainAssets.getMockImplementation()!
+        const fetch = remote.methods.fetchRetainedAssets.getMockImplementation()!
+        const independent = await remote.connection.retainAssets({ scope: 'shared', ownerKind: 'preview', ownerId: 'another-holder' },
+          { revision: 0, complete: true, digests: [resource.digest] })
+        const requested = deferred<RetainedAssetOwner>()
+        gate = deferred<void>()
+        let current = true
+        remote.methods.retainAssets.mockImplementation(async (owner, declaration) => {
+          if (owner.ownerKind !== 'document') return retain(owner, declaration)
+          expect(declaration).toEqual({ revision: 0, complete: true, digests: [resource.digest] })
+          requested.resolve(owner)
+          await gate!.promise
+          if (scenario === 'refused') throw new Error('staged admission refused')
+          const receipt = await retain(owner, declaration)
+          if (scenario === 'lost') throw new Error('staged response lost')
+          return scenario === 'reused' ? { ...receipt, revision: 7 } : receipt
+        })
+        remote.methods.fetchRetainedAssets.mockImplementation(async (owner) => {
+          const receipt = await fetch(owner)
+          return scenario === 'reused' && owner.ownerKind === 'document' && receipt
+            ? { ...receipt, revision: 7 } : receipt
+        })
+        const operation = hydrateImageDocumentResources(remote.connection, target, draft.document, 'shared', () => {
+          if (!current) throw new Error('destination changed')
+        }).then(() => true, () => false)
+        const owner = await requested.promise
+        expect(owner.scope).toBe('shared')
+        const intents = await target.stagedResourceRetentions()
+        expect(intents).toMatchObject([{ owner, projectId: 'staged-target', connectionId: 'backend-a', digests: [resource.digest] }])
+        expect(await target.getResource(resource.digest)).toBeUndefined()
+        expect(remote.methods.releaseRetainedAssets).not.toHaveBeenCalled()
+        if (scenario === 'superseded') current = false
+        gate.resolve()
+        const accepted = scenario === 'acknowledged' || scenario === 'lost'
+        expect(await operation).toBe(accepted)
+        expect((await target.getResource(resource.digest))?.bytes).toEqual(accepted ? bytes : undefined)
+        expect(remote.methods.releaseRetainedAssets.mock.calls.every(([released]) => released.ownerId !== owner.ownerId)).toBe(true)
+        expect(await remote.connection.fetchRetainedAssets(independent)).toEqual(independent)
+        const recorded = scenario === 'refused' || scenario === 'reused'
+          ? intents : intents.map((intent) => ({ ...intent, acknowledgedRevision: 1 }))
+        expect(await target.stagedResourceRetentions()).toEqual(recorded)
+        await target.close()
+        const reopened = new ImageDocumentLocalStore('staged-target', factory)
+        try { expect(await reopened.stagedResourceRetentions()).toEqual(recorded) } finally { await reopened.close() }
+      } finally { gate?.resolve(); await source.close(); await target.close() }
+    },
+  )
+
+  it.each([false, true])('holds library publication behind its uploaded raster owner: refused=%s', async (refused) => {
+    const store = new ImageDocumentLocalStore('upload-staging', new FakeIDBFactory())
+    const gate = deferred<void>()
+    try {
+      const draft = await imported(store)
+      const resource = draft.document.resources.r0!
+      const remote = connectionFor(draft.document, (await store.getResource(resource.digest))!.bytes)
+      const retain = remote.methods.retainAssets.getMockImplementation()!
+      const requested = deferred<RetainedAssetOwner>()
+      remote.methods.retainAssets.mockImplementation(async (owner, declaration) => {
+        requested.resolve(owner)
+        await gate.promise
+        if (refused) throw new Error('upload owner refused')
+        return retain(owner, declaration)
+      })
+      const operation = saveImageDocumentToLibrary(remote.connection, store, draft.document,
+        { name: draft.name, scope: 'local', connectionId: 'backend-a' })
+        .then(() => true, () => false)
+      const owner = await requested.promise
+      expect(owner.ownerKind).toBe('document')
+      expect(remote.methods.uploadMediaAsset).toHaveBeenCalledOnce()
+      expect(remote.methods.adoptImageDocument).not.toHaveBeenCalled()
+      expect(remote.methods.createLibraryRecord).not.toHaveBeenCalled()
+      gate.resolve()
+      expect(await operation).toBe(!refused)
+      expect(remote.methods.createLibraryRecord).toHaveBeenCalledTimes(refused ? 0 : 1)
+      expect(await store.stagedResourceRetentions()).toMatchObject([{ owner, digests: [resource.digest],
+        ...(refused ? {} : { acknowledgedRevision: 1 }) }])
+      expect(remote.methods.releaseRetainedAssets).not.toHaveBeenCalled()
+    } finally { gate.resolve(); await store.close() }
+  })
+
   it('does not read on mismatched admission and preserves unresolved owners across restart', async () => {
     const factory = new FakeIDBFactory()
     const source = new ImageDocumentLocalStore('lost-source', factory)
@@ -328,7 +419,7 @@ describe('ImageDocument local persistence', () => {
       await hydrateImageDocumentResources(remote.connection, target, draft.document, 'local')
       expect((await target.getResource(resource.digest))?.bytes).toEqual(bytes)
       expect(await target.resourceReads()).toEqual([])
-      expect(remote.methods.retainAssets).toHaveBeenCalledTimes(1)
+      expect(remote.methods.retainAssets).toHaveBeenCalledTimes(2)
       expect(remote.methods.releaseRetainedAssets).toHaveBeenCalledTimes(1)
     } finally {
       await source.close()
@@ -362,18 +453,21 @@ describe('ImageDocument local persistence', () => {
     }
   })
 
-  it('adds the read journal to a version-one database without losing drafts or raster bytes', async () => {
+  it.each([1, 2])('upgrades a version-%s database without losing raster bytes or read intents', async (version) => {
     const factory = new FakeIDBFactory()
-    const database = factory.open('dinkster.image-documents', 1)
+    const database = factory.open('dinkster.image-documents', version)
     database.onupgradeneeded = () => {
-      for (const name of ['resources', 'drafts']) {
+      for (const name of ['resources', 'drafts', ...(version === 2 ? ['resourceReads'] : [])]) {
         database.result.createObjectStore(name, { keyPath: 'key' }).createIndex('byProject', 'projectId')
       }
     }
     const old = await request(database)
-    const edit = old.transaction('resources', 'readwrite')
+    const edit = old.transaction(['resources', ...(version === 2 ? ['resourceReads'] : [])], 'readwrite')
     const done = transaction(edit)
     const digest = imageDocumentDigest(new Uint8Array([7, 8, 9]))
+    const intent = { key: 'prior-read', projectId: 'old-project', connectionId: 'old-backend', assetBaseUrl: 'http://old/',
+      owner: { scope: 'private', ownerKind: 'preview', ownerId: 'prior-read' }, digests: [digest] }
+    if (version === 2) edit.objectStore('resourceReads').put(intent)
     edit.objectStore('resources').put({
       key: `old-project\u0000${digest}`, projectId: 'old-project', digest,
       bytes: new Uint8Array([7, 8, 9]), name: 'old.png', mediaType: 'image/png',
@@ -384,9 +478,12 @@ describe('ImageDocument local persistence', () => {
     const upgraded = new ImageDocumentLocalStore('old-project', factory)
     try {
       expect((await upgraded.getResource(digest))?.bytes).toEqual(new Uint8Array([7, 8, 9]))
-      expect(await upgraded.resourceReads()).toEqual([])
+      const previous = version === 2 ? [intent] : []
+      expect(await upgraded.resourceReads()).toEqual(previous)
+      expect(await upgraded.stagedResourceRetentions()).toEqual([])
       const read = await upgraded.beginResourceRead('backend-a', 'http://assets.test/', 'private', [digest])
-      expect(await upgraded.resourceReads()).toEqual([read])
+      expect(await upgraded.resourceReads()).toEqual(expect.arrayContaining([...previous, read]))
+      expect(await upgraded.resourceReads()).toHaveLength(previous.length + 1)
     } finally {
       await upgraded.close()
     }
@@ -434,7 +531,7 @@ describe('ImageDocument local persistence', () => {
     try {
       const draft = await imported(store)
       const v1 = { ...draft.document, formatVersion: 1 }
-      const database = await request(factory.open('dinkster.image-documents', 2))
+      const database = await request(factory.open('dinkster.image-documents'))
       const edit = database.transaction('drafts', 'readwrite')
       const done = transaction(edit)
       const drafts = edit.objectStore('drafts')
@@ -638,7 +735,7 @@ describe('ImageDocument local persistence', () => {
     const nonCanonical = await imported(store, 'image-noncanonical')
     const invalidOwnership = await imported(store, 'image-invalid-ownership')
     const valid = await imported(store, 'image-valid')
-    const database = await request(factory.open('dinkster.image-documents', 2))
+    const database = await request(factory.open('dinkster.image-documents'))
     const edit = database.transaction('drafts', 'readwrite')
     const done = transaction(edit)
     const records = edit.objectStore('drafts')
@@ -1083,7 +1180,7 @@ describe('ImageDocument library persistence', () => {
     const target = new ImageDocumentLocalStore('project-open-repair', factory)
     const draft = await imported(source)
     await target.saveDraft(draft.document, draft.name)
-    const database = await request(factory.open('dinkster.image-documents', 2))
+    const database = await request(factory.open('dinkster.image-documents'))
     const edit = database.transaction('drafts', 'readwrite')
     const done = transaction(edit)
     const drafts = edit.objectStore('drafts')

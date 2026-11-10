@@ -108,6 +108,30 @@ export async function uploadImageDocumentResource(
     mediaTypeBase(adopted.mediaType) !== resource.mediaType) {
     throw new Error(`server returned a mismatched ImageDocument resource: ${resource.id}`)
   }
+  await retainStagedImageResource(connection, store, scope, resource.digest)
+  assertCurrent()
+}
+
+async function retainStagedImageResource(
+  connection: DinksterConnection,
+  store: ImageDocumentLocalStore,
+  scope: string,
+  digest: string,
+): Promise<void> {
+  const retention = await store.beginStagedResourceRetention(connection.id, connection.assetUrl(''), scope, digest)
+  const matches = (actual: RetainedAssets | undefined): boolean => actual !== undefined &&
+    actual.scope === scope && actual.ownerKind === retention.owner.ownerKind &&
+    actual.ownerId === retention.owner.ownerId && actual.revision === 1 && actual.complete === true &&
+    actual.digests.length === 1 && actual.digests[0] === digest
+  try {
+    const acknowledged = await connection.retainAssets(retention.owner, { revision: 0, complete: true, digests: [digest] })
+    if (!matches(acknowledged)) throw new Error('Staged image retention acknowledgment differs')
+  } catch (cause) {
+    let observed: RetainedAssets | undefined
+    try { observed = await connection.fetchRetainedAssets(retention.owner) } catch { /* Durable intent stays unresolved. */ }
+    if (!matches(observed)) throw cause
+  }
+  await store.confirmStagedResourceRetention(retention)
 }
 
 async function withImageResourceRead<T>(
@@ -190,9 +214,17 @@ export async function hydrateImageDocumentResources(
         if (fetched === undefined) {
           throw new Error(`ImageDocument resource is not held by the server: ${resource.id}`)
         }
+        const bytes = new Uint8Array(fetched)
+        if (bytes.byteLength !== resource.byteSize || imageDocumentDigest(bytes) !== resource.digest) {
+          throw new Error('staged resource bytes do not match their descriptor')
+        }
+        if (resource.inline === undefined) {
+          await retainStagedImageResource(connection, store, scope, resource.digest)
+          assertCurrent()
+        }
         await store.stageResource(
           resource,
-          new Uint8Array(fetched),
+          bytes,
           `${resource.id}.${resource.mediaType.slice('image/'.length)}`,
         )
       }
