@@ -2025,6 +2025,7 @@ function commitPersistedTabs(
   stage: (key: string, value: object, documents: readonly { readonly document: WorkflowDocument; readonly revision: number }[]) => Promise<string | undefined>,
   onCommitted: (committed: PersistedTabs) => void,
   onRetired: (retired: readonly string[]) => void,
+  onSlotRetired: (key: string, raw: string) => void,
 ): void {
   const storage = globalThis.localStorage
   if (!storage) return
@@ -2070,17 +2071,25 @@ function commitPersistedTabs(
           if (admitted === undefined || storage.getItem(tabsKey()) !== admitted) return
           const retired = operations.filter(({ opId, raw }) =>
             storage.getItem(`${workspaceOperationPrefix()}${opId}`) === raw).map(({ opId }) => opId)
-          for (const opId of retired) removeWorkspaceOperation(opId)
+          for (const opId of retired) {
+            const key = `${workspaceOperationPrefix()}${opId}`
+            const raw = storage.getItem(key)
+            removeWorkspaceOperation(opId)
+            if (raw !== null && storage.getItem(key) === null) onSlotRetired(key, raw)
+          }
           for (const candidate of loaded.candidates) {
             const current = storage.getItem(candidate.key)
-            if (current === candidate.raw) storage.removeItem(candidate.key)
-            else if (current !== null) {
+            if (current === candidate.raw) {
+              storage.removeItem(candidate.key)
+              onSlotRetired(candidate.key, current)
+            } else if (current !== null) {
               try {
                 const staged = JSON.parse(candidate.raw)
                 const { assetRetention, ...value } = JSON.parse(current)
                 if (assetRetention?.stageId === staged.assetRetention?.stageId &&
                   JSON.stringify({ ...value, assetRetention: staged.assetRetention }) === candidate.raw) {
                   storage.removeItem(candidate.key)
+                  onSlotRetired(candidate.key, current)
                 }
               } catch {
                 // A malformed replacement cannot retire or block other slots.
@@ -3715,6 +3724,34 @@ export class AppState {
       mutation.additions.map((entry) => ({ document: entry.document, revision: 0 })))
   }
 
+  private readonly persistedWorkflowSlots = new Map<string, {
+    readonly raw: string
+    readonly owners: readonly {
+      readonly backend: Backend
+      readonly registry: SchemaRegistry | undefined
+      readonly generation: number | undefined
+      readonly project: string
+      readonly storage: Storage
+      readonly retained: RetainedAssets
+    }[]
+  }>()
+
+  private retirePersistedWorkflowSlot(key: string, raw: string): void {
+    const slot = this.persistedWorkflowSlots.get(key)
+    if (slot?.raw !== raw || globalThis.localStorage?.getItem(key) !== null) return
+    this.persistedWorkflowSlots.delete(key)
+    this.retirePersistedWorkflowOwners(slot.owners)
+  }
+
+  private retirePersistedWorkflowOwners(owners: NonNullable<ReturnType<typeof this.persistedWorkflowSlots.get>>['owners']): void {
+    for (const owner of owners) {
+      if (this.disposed || activeProjectId() !== owner.project || globalThis.localStorage !== owner.storage ||
+        !this.backends.get().includes(owner.backend) || owner.backend.registry.get() !== owner.registry ||
+        this.assetConnectionGenerations.get(owner.backend.connection) !== owner.generation) continue
+      void retireAssetOwner(owner.backend.connection, owner.retained)
+    }
+  }
+
   private stagePersistedWorkflowSlot(
     key: string, value: object,
     documents: readonly { readonly document: WorkflowDocument; readonly revision: number }[],
@@ -3726,8 +3763,11 @@ export class AppState {
     // Teardown cannot wait for the network. This generation is recovery data,
     // not acknowledged ownership, until its exact captured roots are retained.
     const pending = JSON.stringify({ ...value, assetRetention: { stageId, acknowledged: false } })
+    const previous = this.persistedWorkflowSlots.get(key)
+    const previousOwners = previous?.raw === storage.getItem(key) ? previous.owners : []
     storage.setItem(key, pending)
     if (this.disposed) return Promise.resolve(undefined)
+    this.persistedWorkflowSlots.set(key, { raw: pending, owners: previousOwners })
     const local = this.backends.get().find((backend) => backend.connection === this.connection)!
     const sources = documents.map(({ document, revision }) => {
       const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.id === document.lineage)
@@ -3755,6 +3795,15 @@ export class AppState {
         stageId, acknowledged: true, complete, owners,
       } })
       storage.setItem(key, acknowledged)
+      this.persistedWorkflowSlots.set(key, { raw: acknowledged, owners: [
+        ...(complete ? [] : previousOwners),
+        ...owners.map(({ retained }, index) => ({ ...native[index]!, project, storage, retained })),
+      ] })
+      // Only this app's exact staged generations confer release authority.
+      // Stored receipts from another window or lifetime remain observation-only.
+      if (complete) this.retirePersistedWorkflowOwners(previousOwners.filter((owner) =>
+        native.some(({ backend, registry, generation }) => owner.backend === backend &&
+          owner.registry === registry && owner.generation === generation)))
       return complete ? acknowledged : undefined
     })
   }
@@ -4380,7 +4429,7 @@ export class AppState {
         }
       }
       this.retireSupersededWorkflowOwners()
-    })
+    }, (key, raw) => this.retirePersistedWorkflowSlot(key, raw))
   }
 
   private log(severity: AppLogEntry['severity'], source: string, message: string): void {

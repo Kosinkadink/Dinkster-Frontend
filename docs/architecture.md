@@ -302,6 +302,15 @@ durable-source census that no longer names it. Persistence compaction retries
 that check; unreadable, corrupt or unknown sources keep protection. Crash-safe
 staging stays synchronous, and disconnect or session displacement never grants
 release authority over a pending receipt.
+Canonical workspace snapshots, per-window candidates, per-lineage recovery
+documents and operation-journal additions each have independent saved-document
+owners. Exact complete acknowledgment precedes retiring covered candidate and
+operation slots. A local slot replacement retires its previous owners only after
+complete acknowledgment on the same backend/catalog lifetime; incomplete or
+refused replacements keep them. Cleanup releases only receipts admitted by this
+application for the exact removed bytes. Other windows' receipts and recovered
+receipts are observation-only, even when their digests match. Release remains
+revision-bound and uncertain responses stay journaled for observation, not replay.
 The asset census recognizes the mask command's exact source-association marker
 on mask-paint nodes: a string node ID and the fixed mask output ID contain no
 asset identity. A MOUNT widget binds a STRING mount ID or null for the default

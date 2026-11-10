@@ -1395,6 +1395,101 @@ describe('retained app dispatch', () => {
     },
   )
 
+  it.each(['acknowledged', 'lost', 'lost-release', 'out-of-order', 'refused', 'replaced', 'foreign-generation', 'registry', 'disconnected', 'disposed', 'incomplete', 'reused-owner'] as const)(
+    'retires only locally admitted snapshot generations after acknowledged handoff: %s', async (scenario) => {
+      vi.useFakeTimers()
+      try {
+        vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+        app = createWorkflowApp([schema])
+        expect(await app.openDocument(session().doc, 'Snapshots')).toEqual([])
+        const tab = app.activeTab()!
+        const owners = new Map<string, RetainedAssets>()
+        const admitted = deferred<void>()
+        let admission = admitted.promise
+        let pause = false
+        vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+          const receipt = { ...owner, ...declaration, revision: 1 }
+          if (pause) {
+            await admission
+            if (scenario === 'refused') throw new Error('refused')
+          }
+          owners.set(owner.ownerId, receipt)
+          if (pause && scenario === 'lost') throw new Error('lost acknowledgment')
+          return receipt
+        })
+        vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+        vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+          const receipt = owners.get(owner.ownerId)!
+          if (receipt.revision !== revision) throw new Error('revision conflict')
+          const released = { ...receipt, revision: revision + 1, complete: true, digests: [] }
+          owners.set(owner.ownerId, released)
+          if (scenario === 'lost-release') throw new Error('lost release response')
+          return released
+        })
+        expect((await app.dispatchRetainedTo(tab, replace('b'))).ok).toBe(true)
+        app.flushPersistTabs(true)
+        const stagedOwners = [...owners.values()]
+        await vi.advanceTimersByTimeAsync(0)
+        const canonicalKey = scopedStorageKey('dinkster.openTabs')
+        const documentKey = scopedStorageKey(`dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`)
+        const receiptAt = (key: string): RetainedAssets => JSON.parse(localStorage.getItem(key)!)
+          .assetRetention.owners.find((entry: { documentLineage: string }) => entry.documentLineage === tab.id).retained
+        const previous = receiptAt(canonicalKey)
+        const recovery = receiptAt(documentKey)
+        expect(previous.digests).toEqual([asset('b').digest])
+        expect(recovery.ownerId).not.toBe(previous.ownerId)
+        const candidateOwners = stagedOwners.filter((owner) => owner.digests.length === 1 &&
+          owner.digests[0] === asset('b').digest && owner.ownerId !== previous.ownerId && owner.ownerId !== recovery.ownerId)
+        // The workspace candidate was removed only after canonical admission.
+        expect(candidateOwners).toHaveLength(1)
+        expect(owners.get(candidateOwners[0]!.ownerId)).toEqual({ ...candidateOwners[0]!, revision: 2, complete: true, digests: [] })
+        expect(owners.get(previous.ownerId)).toEqual(previous)
+        expect(owners.get(recovery.ownerId)).toEqual(recovery)
+        const independent = await readAssetPreview(app.connection, asset('b').digest, async () => 'held', () => true)
+        expect(independent).toBe('held')
+        const independentOwner = [...owners.values()].at(-1)!
+        expect((await app.dispatchRetainedTo(tab, replace('c'))).ok).toBe(true)
+        if (scenario === 'incomplete') expect((await app.dispatchRetainedTo(tab, { command: 'node.add', params: {
+          graphId: 'g0', type: 'Unknown', position: { x: 1, y: 2 },
+        } })).ok).toBe(true)
+        if (scenario === 'foreign-generation') {
+          const foreign = JSON.parse(localStorage.getItem(canonicalKey)!)
+          foreign.assetRetention.stageId = 'foreign-stage'
+          localStorage.setItem(canonicalKey, JSON.stringify(foreign))
+        }
+        pause = true
+        app.flushPersistTabs(true)
+        expect(JSON.parse(localStorage.getItem(canonicalKey)!).assetRetention.acknowledged).toBe(false)
+        expect(owners.get(previous.ownerId)).toEqual(previous)
+        expect(owners.get(recovery.ownerId)).toEqual(recovery)
+        if (scenario === 'replaced') localStorage.setItem(canonicalKey, '{')
+        if (scenario === 'registry') app.registry.set({ ...app.registry.get()!, hash: 'new-catalog' })
+        if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
+        if (scenario === 'disposed') app.dispose()
+        if (scenario === 'reused-owner') owners.set(previous.ownerId, { ...previous, revision: 3, digests: [asset('f').digest] })
+        let newer: string | undefined
+        if (scenario === 'out-of-order') {
+          admission = Promise.resolve()
+          app.flushPersistTabs(true)
+          await vi.advanceTimersByTimeAsync(0)
+          newer = localStorage.getItem(canonicalKey)!
+          expect(JSON.parse(newer).assetRetention.acknowledged).toBe(true)
+          expect(owners.get(previous.ownerId)).toEqual({ ...previous, revision: 2, complete: true, digests: [] })
+        }
+        admitted.resolve()
+        await vi.advanceTimersByTimeAsync(0)
+        if (newer !== undefined) expect(localStorage.getItem(canonicalKey)).toBe(newer)
+        const accepted = scenario === 'acknowledged' || scenario === 'lost' || scenario === 'lost-release' || scenario === 'out-of-order'
+        expect(owners.get(previous.ownerId)).toEqual(accepted
+          ? { ...previous, revision: 2, complete: true, digests: [] }
+          : scenario === 'reused-owner' ? { ...previous, revision: 3, digests: [asset('f').digest] } : previous)
+        expect(owners.get(recovery.ownerId)).toEqual(accepted || scenario === 'replaced' || scenario === 'reused-owner' || scenario === 'foreign-generation'
+          ? { ...recovery, revision: 2, complete: true, digests: [] } : recovery)
+        expect(owners.get(independentOwner.ownerId)).toEqual(independentOwner)
+      } finally { vi.useRealTimers() }
+    },
+  )
+
   it('keeps malformed replacement candidates without blocking covered sources or operation retirement', async () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     app = createWorkflowApp([schema])
@@ -1437,6 +1532,9 @@ describe('retained app dispatch', () => {
         .find((key) => key.startsWith(scopedStorageKey('dinkster.workspaceOperation.')))!
       expect(operationKey).toBeDefined()
       const operation = localStorage.getItem(operationKey)!
+      const operationOwner: RetainedAssets = JSON.parse(operation).assetRetention.owners[0].retained
+      vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) =>
+        ({ ...owner, revision: revision + 1, complete: true, digests: [] }))
       const malformedKey = scopedStorageKey('dinkster.openTabsCandidate.replaced')
       const coveredKey = scopedStorageKey('dinkster.openTabsCandidate.covered')
       const candidate = JSON.stringify({ v: 1, active: app.activeTab()!.id,
@@ -1458,6 +1556,9 @@ describe('retained app dispatch', () => {
       expect(localStorage.getItem(malformedKey)).toBe('{')
       expect(localStorage.getItem(coveredKey)).toBeNull()
       expect(localStorage.getItem(operationKey)).toBeNull()
+      await vi.advanceTimersByTimeAsync(0)
+      const operationIntentKey = scopedStorageKey(`dinkster.workflow-retentions.${operationOwner.ownerId}`)
+      expect(JSON.parse(localStorage.getItem(operationIntentKey)!)).toMatchObject({ acknowledgedRevision: 2, releaseRevision: 1 })
       // Reappearing bytes are not still authorized by a retired actor acknowledgment.
       localStorage.setItem(operationKey, operation)
       localStorage.removeItem(malformedKey)
