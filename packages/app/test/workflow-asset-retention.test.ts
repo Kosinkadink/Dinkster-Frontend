@@ -1517,6 +1517,80 @@ describe('retained app dispatch', () => {
     },
   )
 
+  it.each(['acknowledged', 'lost', 'refused', 'reused-owner', 'pending-intent'] as const)(
+    'recovers saved ownership after renderer restart without replaying old owners: %s', async (scenario) => {
+      vi.useFakeTimers()
+      try {
+        vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+        app = createWorkflowApp([schema])
+        const owners = new Map<string, RetainedAssets>()
+        const retain = async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
+          const receipt = { ...owner, ...declaration, revision: 1 }
+          owners.set(owner.ownerId, receipt)
+          return receipt
+        }
+        const release = async (owner: RetainedAssetOwner, revision: number) => {
+          const receipt = { ...owners.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+          owners.set(owner.ownerId, receipt)
+          return receipt
+        }
+        vi.mocked(app.connection.retainAssets).mockImplementation(retain)
+        vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(release)
+        expect(await app.openDocument(session().doc, 'Before restart')).toEqual([])
+        expect((await app.dispatchRetainedTo(app.activeTab()!, replace('b'))).ok).toBe(true)
+        app.flushPersistTabs(true)
+        await vi.advanceTimersByTimeAsync(0)
+        const canonical = JSON.parse(localStorage.getItem(scopedStorageKey('dinkster.openTabs'))!)
+        const original: RetainedAssets = canonical.assetRetention.owners.find((entry: { documentLineage: string }) =>
+          entry.documentLineage === 'retention').retained
+        expect(original.digests).toEqual([asset('b').digest])
+        app.dispose()
+        const oldOwners = new Map(owners)
+        const oldIntents = new Map([...oldOwners.keys()].map((id) => {
+          const key = scopedStorageKey(`dinkster.workflow-retentions.${id}`)
+          if (scenario === 'pending-intent' && id === original.ownerId) {
+            const { acknowledgedRevision: _acknowledged, ...pending } = JSON.parse(localStorage.getItem(key)!)
+            localStorage.setItem(key, JSON.stringify(pending))
+          }
+          return [key, localStorage.getItem(key)!] as const
+        }))
+        app = prepareWorkflowApp(new AppState())
+        const schemas = new Map([[schema.type, schema]])
+        app.registry.set({ connection: app.connection.id, schemas, diagnostics: [], hash: 'restarted',
+          resolve: (type) => schemas.get(type) })
+        const admitted = deferred<void>()
+        vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+          expect(oldOwners.has(owner.ownerId)).toBe(false)
+          const restored = declaration.digests.includes(asset('b').digest)
+          if (restored) {
+            await admitted.promise
+            if (scenario === 'refused') throw new Error('restart admission refused')
+          }
+          const receipt = await retain(owner, declaration)
+          if (restored && scenario === 'reused-owner') owners.set(owner.ownerId, { ...receipt, revision: 3 })
+          if (restored && (scenario === 'lost' || scenario === 'reused-owner')) throw new Error('restart acknowledgment lost')
+          return receipt
+        })
+        vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+        vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(release)
+        expect(await reconcileWorkflowRetentions(app.connection, new AbortController().signal)).toBe(true)
+        for (const [key, raw] of oldIntents) expect(localStorage.getItem(key)).toBe(raw)
+        let settled = false
+        const startup = app.confirmStartupOwnership().then(() => true, () => false)
+          .finally(() => { settled = true })
+        await vi.advanceTimersByTimeAsync(0)
+        expect(settled).toBe(false)
+        for (const [id, receipt] of oldOwners) expect(owners.get(id)).toEqual(receipt)
+        admitted.resolve()
+        expect(await startup).toBe(scenario !== 'refused' && scenario !== 'reused-owner')
+        expect(app.tabs.get().find((tab) => tab.id === 'retention')!.store.doc.graphs.g0!.nodes.n0!.values.files)
+          .toEqual([asset('b')])
+        for (const [id, receipt] of oldOwners) expect(owners.get(id)).toEqual(receipt)
+        for (const [key, raw] of oldIntents) expect(localStorage.getItem(key)).toBe(raw)
+      } finally { vi.useRealTimers() }
+    },
+  )
+
   it('keeps malformed replacement candidates without blocking covered sources or operation retirement', async () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     app = createWorkflowApp([schema])
