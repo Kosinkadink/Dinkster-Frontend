@@ -4,6 +4,9 @@ import type { Route } from '@playwright/test'
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-01-01T00:00:00Z'))
   await page.route('/api/**', emptyVisualBackend)
+  await page.route('https://registry.dinkster.org/static/replacements/index.json', (route) =>
+    route.fulfill({ json: { schemaVersion: 1, items: [] } }),
+  )
   await page.route('/memory/**', (route) =>
     route.fulfill({ status: 502, body: 'visual fixture unavailable' }),
   )

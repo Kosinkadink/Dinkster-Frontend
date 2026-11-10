@@ -709,6 +709,9 @@
   "OutputMountSettings.tsx": [
     "text:mount.mode === \"readwrite\") ?? []; const save = async (): Promise"
   ],
+  "ProblemsPanel.tsx": [
+    "text:Promise"
+  ],
   "ProductControls.tsx": [
     "text:('[role=\"radio\"]')] const current = radios.indexOf(control) for (let offset = 1; offset",
     "text:void readonly id?: string readonly class?: string readonly testId?: string readonly ariaLabel?: string readonly ariaLabelledBy?: string readonly ariaDescribedBy?: string | undefined readonly ariaInvalid?: boolean readonly disabled?: boolean readonly enterActivates?: boolean readonly dataAttributes?: Readonly"

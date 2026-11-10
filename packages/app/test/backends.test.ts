@@ -12,8 +12,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   asConnectionId,
   asPromptId,
+  resolveImportedNodePacks,
   executionKey,
   setLocale,
+  type ComfyTranslation,
   type DinksterNodesPayload,
   type ExecutionRef,
   type NodeSchema,
@@ -261,6 +263,22 @@ describe('addBackend / removeBackend', () => {
     vi.spyOn(backend.connection, 'fetchSchemas')
       .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
       .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve }))
+    const translations = (version: string): readonly ComfyTranslation[] => [{
+      pack: 'dinkster-image', version, schema: choiceSchema([]),
+      rule: { from: 'LegacyChoice', cases: [{ to: 'Choice', inputs: {}, outputs: {} }] },
+    }]
+    const olderTranslations = translations('0.0.1')
+    const newestTranslations = translations('0.0.2')
+    vi.spyOn(backend.connection, 'fetchComfyTranslations')
+      .mockResolvedValueOnce(olderTranslations)
+      .mockResolvedValueOnce(newestTranslations)
+    const importedVersions: (string | undefined)[] = []
+    backend.registry.subscribe(() => {
+      app.openDocument({ nodes: [{ id: 1, type: 'LegacyChoice' }], links: [] }, 'First open', backend)
+      const tab = app.activeTab()!
+      expect(tab.store.doc.graphs.g0!.nodes.n1!.type).toBe('Choice')
+      importedVersions.push(resolveImportedNodePacks(tab.store.doc, backend.registry.get()!.resolve)[0]?.version)
+    })
 
     const first = app.refreshBackendSchemas(backend)
     const second = app.refreshBackendSchemas(backend)
@@ -272,6 +290,41 @@ describe('addBackend / removeBackend', () => {
 
     expect(backend.registry.get()).toBe(newest)
     expect(backend.schemaState.get()).toEqual({ status: 'ready' })
+    expect(backend.comfyTranslations.get()).toBe(newestTranslations)
+    expect(importedVersions).toEqual(['0.0.2'])
+  })
+
+  it.each(['available', 'empty', 'unavailable'] as const)('publishes installed schemas before advisory metadata becomes %s', async (outcome) => {
+    const backend = app.addBackend('/advisory', 'Native', false, 'dinkster', false)!
+    let resolve!: (records: readonly ComfyTranslation[]) => void
+    let reject!: (error: Error) => void
+    vi.spyOn(backend.connection, 'fetchComfyTranslations').mockReturnValue(new Promise((done, fail) => {
+      resolve = done
+      reject = fail
+    }))
+    const registry = buildDinksterRegistry(backend.id, nodesPayload)
+    vi.spyOn(backend.connection, 'fetchSchemas').mockResolvedValue(registry)
+    vi.spyOn(backend, 'refreshDiagnostics').mockImplementation(() => {})
+    await app.refreshBackendSchemas(backend)
+    expect(backend.registry.get()).toBe(registry)
+    expect(backend.schemaState.get()).toEqual({ status: 'ready' })
+    expect(backend.comfyTranslationsUnavailable.get()).toBe(true)
+    const records: readonly ComfyTranslation[] = outcome === 'available' ? [{
+      pack: 'dinkster-image', version: '0.0.2', schema: choiceSchema([]),
+      rule: { from: 'LegacyChoice', cases: [{ to: 'Choice', inputs: {}, outputs: {} }] },
+    }] : []
+    if (outcome === 'unavailable') reject(new Error('metadata offline'))
+    else resolve(records)
+    await vi.waitFor(() => {
+      if (outcome === 'unavailable') expect(app.logs.get()).toContainEqual(expect.objectContaining({ message: expect.stringContaining('metadata offline') }))
+      else expect(backend.comfyTranslationsUnavailable.get()).toBe(false)
+    })
+    expect(backend.registry.get()).toBe(registry)
+    expect(backend.comfyTranslations.get()).toEqual(records)
+    if (outcome === 'available') {
+      app.openDocument({ nodes: [{ id: 1, type: 'LegacyChoice' }], links: [] }, 'Late metadata', backend)
+      expect(app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.type).toBe('Choice')
+    }
   })
 
   // ComfyUI_frontend 2dde8ae00c36b43e0ec84bc6f3a60caad5119303:

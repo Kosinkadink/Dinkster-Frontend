@@ -43,7 +43,9 @@ describe('native open-time replacement', () => {
   beforeEach(() => { app = createWorkflowApp(null) })
   afterEach(() => { app.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-  it.each([false, true])('imports the deprecated resize with size and image links intact, nested=%s', async (nested) => {
+  it.each([
+    [false, false], [true, false], [false, true], [true, true],
+  ])('imports the deprecated resize with size and image links intact, nested=%s, stale metadata=%s', async (nested, staleMetadata) => {
     const resizeApp = prepareWorkflowApp(new AppState())
     const backend = resizeApp.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, { ...payload, nodes: {
@@ -65,6 +67,14 @@ describe('native open-time replacement', () => {
         }] }],
       },
     } }))
+    if (staleMetadata) backend.comfyTranslations.set([{
+      schema: backend.registry.get()!.resolve('ImageScaleToMaxDimension')!,
+      rule: { from: 'ResizeImagesByLongerEdge', cases: [{
+        to: 'ImageScaleToMaxDimension', inputs: {
+          largest_size: { kind: 'constant', value: 29 },
+        },
+      }] },
+    }])
     const graph: JsonObject = {
       nodes: [
         { id: 1, type: 'Source', pos: [0, 0], outputs: [{ name: 'IMAGE', links: [1] }] },
