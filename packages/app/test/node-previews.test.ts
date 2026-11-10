@@ -53,6 +53,51 @@ const outputImage = (name: string) => ({
 })
 
 describe('sourceFor', () => {
+  it.each(['artifact', 'associated', 'output'] as const)('aborts a pending %s body on disposal without stopping another loader', async (route) => {
+    class FakeImage {
+      src = ''
+      naturalWidth = 9
+      naturalHeight = 5
+      decode = async () => {}
+    }
+    vi.stubGlobal('Image', FakeImage)
+    const reads: { signal: AbortSignal | null | undefined; finish: () => void; stopped: boolean }[] = []
+    const changed: number[] = []
+    const make = (id: number) => createPreviewLoader({
+      assetUrlForInput: () => '', assetUrlForExecution: (_ref, digest) => `/assets/${digest}`,
+      onDecoded: () => { changed.push(id) },
+      fetchRecordedOutput: async (_url, init) => {
+        let body!: ReadableStreamDefaultController<Uint8Array>
+        const stream = new ReadableStream<Uint8Array>({ start(controller) { body = controller } })
+        const read = { signal: init?.signal, stopped: false, finish: () => { if (!read.stopped) { read.stopped = true; body.enqueue(new Uint8Array([7])); body.close() } } }
+        reads.push(read)
+        init?.signal?.addEventListener('abort', () => { read.stopped = true; body.error(init.signal!.reason) }, { once: true })
+        return new Response(stream)
+      },
+    })
+    const a = make(1), b = make(2)
+    const artifact = { nodeId: 'n1', digest: `blake3:${'a'.repeat(64)}`, name: 'out.png', size: 12, mediaType: 'image/png', virtualPath: 'out.png' }
+    const state = route === 'output' ? exec({ outputs: { n1: { image: outputImage('out.png') } } })
+      : exec({ artifacts: [{ ...artifact, ...(route === 'associated' ? { mediaType: 'image/x-exr', name: 'out.exr',
+        preview: { ...artifact, digest: `blake3:${'b'.repeat(64)}`, name: 'preview.png' } } : {}) }] })
+    const source = a.sourceFor(state, ['n1'], false)!
+    const control = b.sourceFor(state, ['n1'], false)!
+    try {
+      a.resolve(source); b.resolve(control)
+      await vi.waitFor(() => expect(reads).toHaveLength(2))
+      a.dispose()
+      expect(reads[0]!.signal?.aborted).toBe(true)
+      expect(reads[0]!.stopped).toBe(true)
+      expect(reads[1]!.signal?.aborted).toBe(false)
+      expect(a.resolve(source)).toBeUndefined()
+      await flush()
+      expect(reads).toHaveLength(2)
+      reads[1]!.finish()
+      await vi.waitFor(() => expect(b.resolve(control)).toMatchObject({ width: 9, height: 5 }))
+      expect(changed).toEqual([2])
+    } finally { reads.forEach((read) => read.finish()); a.dispose(); b.dispose(); vi.unstubAllGlobals() }
+  })
+
   it('ignores runtime ids outside the occurrence mapping', () => {
     const e = exec({ previews: { other: { payload: new Blob(['x']), timestamp: 1 } } })
     expect(loader().sourceFor(e, ['n1'], true)).toBeUndefined()
@@ -439,7 +484,7 @@ describe('sourceFor', () => {
       const loaded = await source.load()
       expect(loaded.image).toBeInstanceOf(FakeImage)
       expect(loaded).toMatchObject({ width: 12, height: 8 })
-      expect(fetchRecordedOutput).toHaveBeenCalledExactlyOnceWith(`http://backend/api/assets/${previewDigest}`)
+      expect(fetchRecordedOutput).toHaveBeenCalledExactlyOnceWith(`http://backend/api/assets/${previewDigest}`, undefined)
       expect(loaded.download).toMatchObject({ src: `http://backend/api/assets/${originalDigest}`, name: 'frame-64.exr' })
       expect(loaded.download?.previewOnly).toBeUndefined()
       const signal = new AbortController().signal
@@ -465,7 +510,7 @@ describe('sourceFor', () => {
       preview: { digest: `blake3:${'8'.repeat(64)}`, name: 'preview.jpg', size: 24, mediaType: 'image/jpeg', virtualPath: `previews/${'8'.repeat(64)}/preview.jpg` },
     }] }), ['save'], false)!.load()
     expect(loaded).toMatchObject({ status: 'failed', statusMessage: 'Preview unavailable', download: { src: `http://backend/api/assets/blake3:${'7'.repeat(64)}`, name: 'original.exr' } })
-    expect(fetchRecordedOutput).toHaveBeenCalledExactlyOnceWith(`http://backend/api/assets/blake3:${'8'.repeat(64)}`)
+    expect(fetchRecordedOutput).toHaveBeenCalledExactlyOnceWith(`http://backend/api/assets/blake3:${'8'.repeat(64)}`, undefined)
   })
 
   it('fetches cross-origin recorded audio only for an explicit download and sanitizes the filename', async () => {
@@ -770,6 +815,34 @@ describe('resolve', () => {
     expect(l.resolve(otherBackend)).toBeUndefined()
     await flush()
     expect(l.resolve(otherBackend)).toBeDefined()
+  })
+
+  it('carries acknowledged document ownership into input audio and refuses stale cache reads', async () => {
+    let current = true
+    let admit!: () => void
+    const admission = new Promise<void>((resolve) => { admit = resolve })
+    const owner = { key: 'document-a', current: () => current, read: async <T,>(consume: () => Promise<T>): Promise<T> => {
+      await admission
+      if (!current) throw new Error('Document changed')
+      return consume()
+    } }
+    const l = createPreviewLoader({ assetUrlForExecution: () => '', assetUrlForInput: () => '/clip.wav',
+      inputAssetReader: () => owner, onDecoded: () => {} })
+    try {
+      const source = l.inputAssetSource!('digest', 'audio/wav', 'audio')!
+      expect(source.assetReader).toBe(owner)
+      let published = false
+      const pending = source.load().then((value) => { published = true; return value })
+      await Promise.resolve()
+      expect(published).toBe(false)
+      admit()
+      expect(await pending).toMatchObject({ kind: 'audio', src: '/clip.wav' })
+      l.resolve(source)
+      await vi.waitFor(() => expect(l.resolve(source)).toMatchObject({ kind: 'audio', src: '/clip.wav' }))
+      current = false
+      expect(l.resolve(source)).toBeUndefined()
+      await expect(source.load()).rejects.toThrow('changed')
+    } finally { l.dispose() }
   })
 
   it('refuses selected videos without requesting original input bytes on either backend', async () => {
@@ -1120,6 +1193,26 @@ describe('peekSource negative cache', () => {
 })
 
 describe('resolveFrame', () => {
+  it('does not admit frame decodes after disposal while another loader stays live', async () => {
+    const bitmap = { width: 8, height: 6 }
+    const decode = vi.fn(async () => bitmap)
+    vi.stubGlobal('createImageBitmap', decode)
+    const retired = loader(), live = loader()
+    const payload = new Blob(['frame'])
+    try {
+      retired.dispose()
+      expect(retired.resolveFrame!('frame:retired', payload)).toBeUndefined()
+      await flush()
+      expect(decode).not.toHaveBeenCalled()
+      expect(live.resolveFrame!('frame:live', payload)).toBeUndefined()
+      await flush()
+      expect(live.resolveFrame!('frame:live', payload)).toBe(bitmap)
+      expect(decode).toHaveBeenCalledTimes(1)
+    } finally {
+      retired.dispose(); live.dispose(); vi.unstubAllGlobals()
+    }
+  })
+
   it('kicks one decode per key, caches the bitmap, and fires onDecoded', async () => {
     const bitmap = { width: 8, height: 6 }
     const decode = vi.fn(async () => bitmap)

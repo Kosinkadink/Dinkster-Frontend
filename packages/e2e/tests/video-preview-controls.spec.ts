@@ -18,7 +18,7 @@ async function install(
 ) {
   const requests: URL[] = []
   let strip = png
-  await page.route('/api/**', (route) => route.fulfill({ status: 404, json: { error: 'isolated video fixture' } }))
+  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 404, json: { error: 'isolated video fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'video-test', schemaWire: 1 }, nodes: {} } }))
@@ -365,6 +365,10 @@ test('selected cloud-only VIDEO input explicitly waits for a bounded route in Ca
   await install(page)
   const originals: string[] = []
   await page.route('**/api/assets/**', (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === '/api/assets/availability') {
+      return route.fulfill({ json: { assets: url.searchParams.getAll('digest').map((digest) => ({ digest, status: 'missing' })) } })
+    }
     originals.push(route.request().url())
     return route.fulfill({ status: 404, body: 'Original video must not be read' })
   })

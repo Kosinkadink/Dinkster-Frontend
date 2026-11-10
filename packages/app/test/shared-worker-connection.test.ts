@@ -92,6 +92,25 @@ const title = (value: string) => ({
 })
 
 describe('SharedWorker document authority', () => {
+  it('keeps staged edits private until commit, then converges peers and undo', async () => {
+    const { factory } = harness()
+    const first = await connectSharedWorkerSession('doc', document(), coreCommandRegistry(), { actorId: 'first' }, factory)
+    const second = await connectSharedWorkerSession('doc', document(), coreCommandRegistry(), { actorId: 'second' }, factory)
+    const prepared = first.prepareDispatch(title('admitted'))
+    if (!prepared.ok) throw new Error('Shared preparation rejected')
+    expect(first.doc.graphs.g0!.nodes.n1!.title).toBeUndefined()
+    expect(second.doc.graphs.g0!.nodes.n1!.title).toBeUndefined()
+    expect(prepared.commit().ok).toBe(true)
+    await Promise.all([first.settle(), second.settle()])
+    expect(first.doc).toEqual(second.doc)
+    expect(second.doc.graphs.g0!.nodes.n1!.title).toBe('admitted')
+    expect(first.undo()).toBe(true)
+    await Promise.all([first.settle(), second.settle()])
+    expect(second.doc.graphs.g0!.nodes.n1!.title).toBeUndefined()
+    first.close()
+    second.close()
+  })
+
   it('orders concurrent edits, rebases the loser, and converges both shared sessions', async () => {
     const { factory } = harness()
     const revisions: number[] = []

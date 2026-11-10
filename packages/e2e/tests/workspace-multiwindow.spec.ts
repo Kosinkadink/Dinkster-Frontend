@@ -1,23 +1,380 @@
 import type { Dialog, Page } from '@playwright/test'
-import { expect, test } from './fixtures.js'
+import type { NodeSchema } from '@dinkster/core'
+import { expect, test, waitForStartupOwnership as waitForOwnership } from './fixtures.js'
+import seedBasic from '../../core/fixtures/workflows/seed-basic.json' with { type: 'json' }
 
-async function disableNativeDiscovery(page: Page): Promise<void> {
-  await page.route('/api/nodes*', (route) => route.fulfill({ status: 502, body: 'no native backend' }))
+test.beforeEach(async ({ context }) => {
+  await context.route('**/api/library/retentions/document/*?scope=local', async (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+    const declaration = route.request().postDataJSON()
+    await route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
+      ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!),
+      revision: declaration.revision + 1 } })
+  })
+})
+
+async function disableSupervisorDiscovery(page: Page): Promise<void> {
+  // Keep the same-origin catalog: ownership admission needs the document schemas.
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
+}
+
+async function waitForStartupOwnership(page: Page): Promise<void> {
+  await waitForOwnership(page)
+  await page.evaluate(() => window.__dinksterTest!.app.registerSchemas(
+    ['TestNode', 'NewLocalNode'].map((type) => ({
+      type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, items: [],
+    })),
+  ))
 }
 
 const tabIds = (page: Page): Promise<string[]> => page.evaluate(() =>
   window.__dinksterTest!.app.tabs.get().map((tab) => tab.id))
 
+for (const accepted of [true, false]) {
+  test(`image session waits for editor ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }, info) => {
+    await disableSupervisorDiscovery(page)
+    const png = await page.evaluate(() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 128
+      canvas.height = 96
+      const context = canvas.getContext('2d')!
+      context.fillStyle = '#3c91d2'
+      context.fillRect(0, 0, 128, 96)
+      return canvas.toDataURL('image/png').split(',')[1]!
+    })
+    await page.route('**/api/assets/**', (route) => route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64') }))
+    await page.goto('/')
+    await waitForStartupOwnership(page)
+    await page.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      const schema: NodeSchema = {
+        type: 'ImageLoader', displayName: 'Image Loader', category: 'test', source: 'v3', isOutputNode: false,
+        items: [{ kind: 'input', id: 'image', optional: false,
+          type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } },
+          widget: { widgetType: 'ASSET', options: { accept: ['image/png'] } } }],
+      }
+      app.registerSchemas([schema])
+      app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'editor-assets', root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'Root', nodes: { n0: { id: 'n0', type: 'ImageLoader', values: {
+          image: { digest: `blake3:${'a'.repeat(64)}`, name: 'source.png', size: 100,
+            mediaType: 'image/png', virtualPath: '' },
+        } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } }, view: { graphs: {} },
+      }, 'Retained image editor')
+    })
+    await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
+    let release!: () => void
+    const barrier = new Promise<void>((resolve) => { release = resolve })
+    let requests = 0
+    await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
+      if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+      const declaration = route.request().postDataJSON()
+      requests++
+      await barrier
+      if (!accepted) return route.fulfill({ status: 409, json: { error: 'Editor ownership refused' } })
+      await route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
+        ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: 1 } })
+    })
+    expect(await page.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      const editor = app as unknown as {
+        imageTargetForInput(tab: unknown, graph: string, node: string, input: string): unknown
+        openImageEditor(target: unknown): boolean
+      }
+      return editor.openImageEditor(editor.imageTargetForInput(app.activeTab(), 'g0', 'n0', 'image'))
+    })).toBe(true)
+    await expect.poll(() => requests).toBeGreaterThan(0)
+    await expect(page.getByRole('button', { name: 'Bake to asset' })).toBeDisabled()
+    await page.screenshot({ path: info.outputPath('image-editor-pending.png') })
+    release()
+    if (accepted) await expect(page.getByRole('button', { name: 'Bake to asset' })).toBeEnabled()
+    else {
+      await expect(page.locator('.image-editor-error')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Bake to asset' })).toBeDisabled()
+    }
+    await page.screenshot({ path: info.outputPath(`image-editor-${accepted ? 'accepted' : 'refused'}.png`) })
+  })
+}
+
+for (const accepted of [true, false]) {
+  test(`ordinary asset edits wait for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }, info) => {
+    await disableSupervisorDiscovery(page)
+    await page.goto('/')
+    await waitForStartupOwnership(page)
+    await page.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      const schema: NodeSchema = {
+        type: 'AssetLoader', displayName: 'Asset Loader', category: 'test', source: 'v3', isOutputNode: false,
+        items: [{ kind: 'input', id: 'file', optional: false,
+          type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } }],
+      }
+      app.registerSchemas([schema])
+      app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'ordinary-assets', root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'Root', nodes: { n0: { id: 'n0', type: 'AssetLoader', values: {
+          file: { digest: `blake3:${'a'.repeat(64)}`, name: 'before.bin', size: 7,
+            mediaType: 'application/octet-stream', virtualPath: '' },
+        } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+        view: { graphs: { g0: { nodes: { n0: { position: { x: 100, y: 100 } } } } } },
+      }, 'Retained asset edit')
+    })
+    await expect(page.getByTestId('tab-bar').getByText('Retained asset edit', { exact: true })).toBeVisible()
+    await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
+    expect(await page.evaluate(() => {
+      const store = window.__dinksterTest!.app.activeTab()!.store
+      const invocation = { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n0', inputId: 'file', value: {
+          digest: `blake3:${'c'.repeat(64)}`, name: 'unadmitted.bin', size: 7,
+          mediaType: 'application/octet-stream', virtualPath: '',
+        },
+      } }
+      const direct = store.dispatch(invocation)
+      const prepared = store.prepareDispatch(invocation)
+      return { direct: direct.ok, prepared: prepared.ok && prepared.commit().ok,
+        value: store.doc.graphs.g0!.nodes.n0!.values.file }
+    })).toMatchObject({ direct: false, prepared: false, value: { name: 'before.bin' } })
+    let release!: () => void
+    const acknowledgment = new Promise<void>((resolve) => { release = resolve })
+    let requested!: () => void
+    const request = new Promise<void>((resolve) => { requested = resolve })
+    await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
+      if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+      const declaration = route.request().postDataJSON()
+      if (declaration.digests.includes(`blake3:${'b'.repeat(64)}`)) {
+        requested()
+        await acknowledgment
+        if (!accepted) return route.fulfill({ status: 409, json: { error: 'Ownership refused' } })
+      }
+      await route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
+        ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: 1 } })
+    })
+    const mutation = page.evaluate(async () => {
+      const app = window.__dinksterTest!.app
+      return (await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n0', inputId: 'file', value: {
+          digest: `blake3:${'b'.repeat(64)}`, name: 'after.bin', size: 7,
+          mediaType: 'application/octet-stream', virtualPath: '',
+        },
+      } })).ok
+    })
+    await request
+    expect(await page.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      app.flushPersistTabs(true)
+      return app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.file
+    })).toMatchObject({ name: 'before.bin' })
+    await page.screenshot({ path: info.outputPath('ordinary-pending.png') })
+    release()
+    expect(await mutation).toBe(accepted)
+    expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.file))
+      .toMatchObject({ name: accepted ? 'after.bin' : 'before.bin' })
+    await page.screenshot({ path: info.outputPath(`ordinary-${accepted ? 'accepted' : 'refused'}.png`) })
+  })
+}
+
+for (const accepted of [true, false]) {
+  test(`foreign shared edits wait for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page, context }, info) => {
+    await page.goto('/')
+    await waitForStartupOwnership(page)
+    const viewer = await context.newPage()
+    await disableSupervisorDiscovery(viewer)
+    await viewer.goto('/')
+    await waitForStartupOwnership(viewer)
+    await expect.poll(() => viewer.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc))
+      .toEqual(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc))
+    let acknowledge!: () => void
+    const acknowledgment = new Promise<void>((resolve) => { acknowledge = resolve })
+    let requested!: () => void
+    const request = new Promise<void>((resolve) => { requested = resolve })
+    await viewer.route('**/api/library/retentions/document/*?scope=local', async (route) => {
+      if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+      const declaration = route.request().postDataJSON()
+      requested()
+      await acknowledgment
+      await route.fulfill({ status: accepted ? 200 : 409, json: accepted
+        ? { ...declaration, scope: 'local', ownerKind: 'document',
+          ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: 1 }
+        : { error: 'Ownership refused' } })
+    })
+    const original = await viewer.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
+    expect(await page.evaluate(() => {
+      const tab = window.__dinksterTest!.app.activeTab()!
+      return tab.store.dispatch({ command: 'node.setTitle', params: {
+        graphId: tab.store.doc.root, nodeId: 'n0', title: 'Incoming shared title',
+      } }).ok
+    })).toBe(true)
+    await request
+    expect(await viewer.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)).toEqual(original)
+    await viewer.screenshot({ path: info.outputPath('foreign-pending.png') })
+    acknowledge()
+    if (accepted) await expect.poll(() => viewer.evaluate(() =>
+      window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.title)).toBe('Incoming shared title')
+    else {
+      await expect.poll(() => viewer.evaluate(() => window.__dinksterTest!.app.problems.get().some(
+        (problem) => problem.message.includes('sync failed')))).toBe(true)
+      expect(await viewer.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)).toEqual(original)
+    }
+    await viewer.screenshot({ path: info.outputPath(`foreign-${accepted ? 'accepted' : 'refused'}.png`) })
+  })
+}
+
+for (const accepted of [true, false]) {
+  test(`restored startup renders before ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }, info) => {
+    const digest = `blake3:${'e'.repeat(64)}`
+    await page.addInitScript(({ document, digest }) => {
+      const closed = { ...document, lineage: 'closed-recovery', ext: { held: {
+        digest, name: 'closed.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '',
+      } } }
+      localStorage.setItem('dinkster.openTabsDocumentCandidate.closed-recovery', JSON.stringify({
+        v: 1, stageId: 'closed', tab: { title: 'Closed recovery', doc: closed },
+      }))
+    }, { document: seedBasic, digest })
+    let release!: () => void
+    const acknowledgment = new Promise<void>((resolve) => { release = resolve })
+    let requests = 0
+    let recoveryRequested = false
+    let released = false
+    await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
+      if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+      const declaration = route.request().postDataJSON()
+      if (declaration.digests.includes(digest)) recoveryRequested = true
+      if (!released) { requests += 1; await acknowledgment }
+      if (!accepted) return route.fulfill({ status: 409, body: 'Ownership refused' })
+      await route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
+        ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: 1 } })
+    })
+    await page.goto('/')
+    await expect.poll(() => requests).toBeGreaterThan(0)
+    await expect.poll(() => recoveryRequested).toBe(true)
+    await expect(page.getByRole('tab', { name: /^Basic,/ })).toBeVisible()
+    await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
+    expect(await page.evaluate(() => window.__dinksterTest!.app.tabs.get().every(
+      (tab) => !('status' in tab.store)))).toBe(true)
+    await expect(page.getByTestId('problems-panel')).toContainText('Workflow ownership unconfirmed.')
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('dinkster.openTabs')!))
+    expect(saved.tabs.map((tab: { title: string }) => tab.title)).toEqual(['Basic', 'Subgraph'])
+    await page.screenshot({ path: info.outputPath('recovery-pending.png') })
+    released = true
+    release()
+    if (accepted) {
+      await waitForStartupOwnership(page)
+      await expect(page.getByRole('tab', { name: /^Basic,/ })).toBeVisible()
+      expect(await tabIds(page)).toEqual(saved.tabs.map((tab: { doc: { lineage: string } }) => tab.doc.lineage))
+    } else {
+      await expect(page.getByTestId('problems-panel')).toContainText('409')
+      await expect(page.getByRole('tab', { name: /^Basic,/ })).toBeVisible()
+      expect(await page.evaluate(() => window.__dinksterTest!.app.tabs.get().every(
+        (tab) => !('status' in tab.store)))).toBe(true)
+      expect(await page.evaluate(() => JSON.parse(localStorage.getItem('dinkster.openTabs')!).tabs))
+        .toEqual(saved.tabs)
+    }
+    await page.screenshot({ path: info.outputPath(`recovery-${accepted ? 'accepted' : 'refused'}.png`) })
+  })
+}
+
+for (const accepted of [true, false]) {
+  test(`incoming workspace tabs wait for ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page, context }, info) => {
+    await page.goto('/')
+    await waitForStartupOwnership(page)
+    const viewer = await context.newPage()
+    await disableSupervisorDiscovery(viewer)
+    await viewer.goto('/')
+    await waitForStartupOwnership(viewer)
+    await expect.poll(() => tabIds(viewer)).toEqual(await tabIds(page))
+    await expect.poll(() => viewer.evaluate(() => window.__dinksterTest!.app.tabs.get().every(
+      (tab) => 'status' in tab.store))).toBe(true)
+    const previous = await tabIds(viewer)
+    await viewer.screenshot({ path: info.outputPath('incoming-default.png') })
+    let acknowledge!: () => void
+    const acknowledgment = new Promise<void>((resolve) => { acknowledge = resolve })
+    let requested!: () => void
+    const request = new Promise<void>((resolve) => { requested = resolve })
+    await viewer.route('**/api/library/retentions/document/*?scope=local', async (route) => {
+      if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+      const declaration = route.request().postDataJSON()
+      requested()
+      await acknowledgment
+      if (accepted) await route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
+        ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: 1 } })
+      else await route.fulfill({ status: 409, body: 'Ownership refused' })
+    })
+    const id = await page.evaluate(() => {
+      const app = window.__dinksterTest!.app as unknown as { createWorkflow(): { id: string } }
+      return app.createWorkflow().id
+    })
+    await request
+    expect(await tabIds(viewer)).toEqual(previous)
+    await viewer.screenshot({ path: info.outputPath('incoming-pending.png') })
+    await acknowledge()
+    if (accepted) await expect.poll(() => tabIds(viewer)).toContain(id)
+    else {
+      await expect.poll(() => viewer.evaluate(() => window.__dinksterTest!.app.problems.get().some(
+        (problem) => problem.message.includes('Shared tab ownership unavailable')))).toBe(true)
+      expect(await tabIds(viewer)).toEqual(previous)
+    }
+    await viewer.screenshot({ path: info.outputPath(`incoming-${accepted ? 'accepted' : 'refused'}.png`) })
+  })
+}
+
+test('workspace promotion preserves a local edit while ownership acknowledgment is pending', async ({ page }, info) => {
+  await page.goto('/')
+  await waitForStartupOwnership(page)
+  await page.screenshot({ path: info.outputPath('workspace-default.png') })
+  let acknowledge!: () => Promise<void>
+  let requested!: () => void
+  const request = new Promise<void>((resolve) => { requested = resolve })
+  await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
+    const declaration = route.request().postDataJSON()
+    await new Promise<void>((done) => {
+      acknowledge = async () => {
+        await route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
+          ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: 1 } })
+        done()
+      }
+      requested()
+    })
+  })
+  const id = await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as { createWorkflow(): { id: string } }
+    return app.createWorkflow().id
+  })
+  await request
+  const shared = () => page.evaluate((id) => {
+    const tab = window.__dinksterTest!.app.tabs.get().find((candidate) => candidate.id === id)!
+    return 'status' in tab.store
+  }, id)
+  expect(await shared()).toBe(false)
+  await page.screenshot({ path: info.outputPath('workspace-pending.png') })
+  await page.evaluate((id) => {
+    const tab = window.__dinksterTest!.app.tabs.get().find((candidate) => candidate.id === id)!
+    tab.store.dispatch({ command: 'node.add', params: { graphId: tab.store.doc.root,
+      type: 'NewLocalNode', position: { x: 20, y: 40 } } })
+  }, id)
+  await acknowledge()
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.problems.get().some(
+    (problem) => problem.message.includes('ownership was being confirmed')))).toBe(true)
+  expect(await shared()).toBe(false)
+  expect(await page.evaluate((id) => {
+    const tab = window.__dinksterTest!.app.tabs.get().find((candidate) => candidate.id === id)!
+    return Object.values(tab.store.doc.graphs[tab.store.doc.root]!.nodes).map((node) => node.type)
+  }, id)).toEqual(['NewLocalNode'])
+  await page.screenshot({ path: info.outputPath('workspace-stale.png') })
+  await page.unroute('**/api/library/retentions/document/*?scope=local')
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app as unknown as { enableWorkspaceAuthority(): Promise<void> }
+    await app.enableWorkspaceAuthority()
+  })
+  await expect.poll(shared).toBe(true)
+  await page.screenshot({ path: info.outputPath('workspace-accepted.png') })
+})
+
 test('two windows converge tab operations and restore the durable inventory', async ({ page, context }) => {
   await page.addInitScript(() => localStorage.removeItem('dinkster.openTabs'))
   await page.goto('/')
-  await page.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(page)
   await expect.poll(async () => (await tabIds(page)).length).toBeGreaterThan(0)
   const second = await context.newPage()
-  await disableNativeDiscovery(second)
+  await disableSupervisorDiscovery(second)
   await second.goto('/')
-  await second.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(second)
   await expect.poll(() => tabIds(second)).toEqual(await tabIds(page))
 
   const created = await page.evaluate(() => {
@@ -78,21 +435,21 @@ test('two windows converge tab operations and restore the durable inventory', as
   await Promise.all([page.close(), second.close()])
 
   const reopened = await context.newPage()
-  await disableNativeDiscovery(reopened)
+  await disableSupervisorDiscovery(reopened)
   await reopened.goto('/')
-  await reopened.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(reopened)
   await expect.poll(() => tabIds(reopened)).toEqual(expected)
 })
 
 test('pagehide stages the latest document while another window holds the persistence lock', async ({ page, context }) => {
   await page.addInitScript(() => localStorage.removeItem('dinkster.openTabs'))
   await page.goto('/')
-  await page.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(page)
   await page.waitForTimeout(500)
   const blocker = await context.newPage()
-  await disableNativeDiscovery(blocker)
+  await disableSupervisorDiscovery(blocker)
   await blocker.goto('/')
-  await blocker.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(blocker)
   await blocker.evaluate(async () => {
     const state = globalThis as typeof globalThis & { releasePersistenceLock?: () => void }
     void navigator.locks.request('dinkster.openTabs.commit', async () => {
@@ -139,9 +496,9 @@ test('pagehide stages the latest document while another window holds the persist
   })
   await blocker.close()
   const reopened = await context.newPage()
-  await disableNativeDiscovery(reopened)
+  await disableSupervisorDiscovery(reopened)
   await reopened.goto('/')
-  await reopened.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(reopened)
   await expect.poll(() => reopened.evaluate((id) => {
     const tab = window.__dinksterTest!.app.tabs.get().find((entry) => entry.id === id)!
     return Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes).length
@@ -156,19 +513,19 @@ test('concurrent dirty pagehide candidates are all reconciled before restart', a
     }
   })
   await page.goto('/')
-  await page.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(page)
   const later = page
   const earlier = await context.newPage()
-  await disableNativeDiscovery(earlier)
+  await disableSupervisorDiscovery(earlier)
   await earlier.goto('/')
-  await earlier.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(earlier)
   await expect.poll(() => tabIds(earlier)).toEqual(await tabIds(later))
   const lineage = (await tabIds(later))[0]!
 
   const blocker = await context.newPage()
-  await disableNativeDiscovery(blocker)
+  await disableSupervisorDiscovery(blocker)
   await blocker.goto('/')
-  await blocker.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(blocker)
   await later.waitForTimeout(500)
   await blocker.evaluate(async () => {
     const state = globalThis as typeof globalThis & { releasePersistenceLock?: () => void }
@@ -286,9 +643,9 @@ test('concurrent dirty pagehide candidates are all reconciled before restart', a
 
   await Promise.all([earlier.close(), later.close(), blocker.close()])
   const reopened = await context.newPage()
-  await disableNativeDiscovery(reopened)
+  await disableSupervisorDiscovery(reopened)
   await reopened.goto('/')
-  await reopened.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(reopened)
   await expect.poll(() => reopened.evaluate((id) => {
     const app = window.__dinksterTest!.app as unknown as {
       tabs: { get(): ReadonlyArray<{ id: string; store: { doc: { root: string; graphs: Record<string, { name: string }> } } }> }
@@ -301,11 +658,11 @@ test('concurrent dirty pagehide candidates are all reconciled before restart', a
 test('a reconnect fallback cannot overwrite a fresher document at the same workspace revision', async ({ page, context }) => {
   await page.addInitScript(() => localStorage.removeItem('dinkster.openTabs'))
   await page.goto('/')
-  await page.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(page)
   const stale = await context.newPage()
-  await disableNativeDiscovery(stale)
+  await disableSupervisorDiscovery(stale)
   await stale.goto('/')
-  await stale.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(stale)
   await expect.poll(() => tabIds(stale)).toEqual(await tabIds(page))
   // Edit a workflow created empty here: the startup tab set depends on
   // same-origin discovery (a conclusive v1 answer seeds two-node fixture
@@ -371,9 +728,9 @@ test('a reconnect fallback cannot overwrite a fresher document at the same works
 
   await Promise.all([page.close(), stale.close()])
   const reopened = await context.newPage()
-  await disableNativeDiscovery(reopened)
+  await disableSupervisorDiscovery(reopened)
   await reopened.goto('/')
-  await reopened.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(reopened)
   await expect.poll(() => reopened.evaluate((id) => {
     const tab = window.__dinksterTest!.app.tabs.get().find((entry) => entry.id === id)!
     return Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes).length

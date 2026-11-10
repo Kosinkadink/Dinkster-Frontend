@@ -1,4 +1,4 @@
-import { expect, openRailPanel, test } from './fixtures.js'
+import { expect, openRailPanel, test, waitForStartupOwnership } from './fixtures.js'
 
 const catalog = {
   schemaVersion: 1,
@@ -78,6 +78,7 @@ test('surface group action restores focus, escapes without commit, resets, and r
   })))
   await page.goto('/')
   await expect(page.getByTestId('settings-button')).toBeVisible()
+  await waitForStartupOwnership(page)
   const diagnostics = await page.evaluate(() => window.__dinksterTest!.app.openDocument({
     format: 'dinkster-workflow',
     formatVersion: 1,

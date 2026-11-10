@@ -13,7 +13,8 @@ export interface ProductSelectOption<T> {
 export function ProductSelect<T>(props: {
   readonly options: readonly ProductSelectOption<T>[]
   readonly selectedId: string
-  readonly onSelect: (option: ProductSelectOption<T>) => void
+  readonly onSelect?: (option: ProductSelectOption<T>) => void
+  readonly onSelectAsync?: (option: ProductSelectOption<T>, stillWanted: () => boolean) => Promise<boolean>
   readonly id?: string
   readonly class?: string
   readonly testId?: string
@@ -30,12 +31,16 @@ export function ProductSelect<T>(props: {
   const listboxId = `product-select-listbox-${instanceId}`
   const optionId = (index: number): string => `${listboxId}-option-${index}`
   const [open, setOpen] = createSignal(false)
+  const [pending, setPending] = createSignal(false)
   const [activeIndex, setActiveIndex] = createSignal(-1)
   const [position, setPosition] = createSignal({ left: 0, top: 0, width: 160, maxWidth: 160, maxHeight: 240 })
   let trigger: HTMLButtonElement | undefined
   let listbox: HTMLDivElement | undefined
   let typeahead = ''
   let typeaheadTimer: ReturnType<typeof setTimeout> | undefined
+  let generation = 0
+  let live = true
+  onCleanup(() => { live = false; generation++ })
 
   const selectedIndex = (): number => props.options.findIndex((option) => option.id === props.selectedId)
   const selectedOption = (): ProductSelectOption<T> | undefined => props.options[selectedIndex()]
@@ -98,6 +103,8 @@ export function ProductSelect<T>(props: {
     })
   }
   const close = (restoreFocus: boolean): void => {
+    generation++
+    setPending(false)
     setOpen(false)
     setActiveIndex(-1)
     if (restoreFocus) focusTrigger()
@@ -110,14 +117,31 @@ export function ProductSelect<T>(props: {
       place()
     })
   }
+  const chooseAsync = async (option: ProductSelectOption<T>): Promise<void> => {
+    const owner = generation
+    setPending(true)
+    try {
+      const accepted = await props.onSelectAsync!(option, () => live && owner === generation)
+      if (live && owner === generation && accepted) close(true)
+    } catch {
+      // The caller presents refusal while the selected draft remains available.
+    } finally {
+      if (live && owner === generation) {
+        setPending(false)
+        queueMicrotask(() => { if (live && owner === generation && open()) place() })
+      }
+    }
+  }
   const choose = (index: number): void => {
+    if (pending() || props.disabled === true) return
     const option = props.options[index]
     if (!option || option.disabled === true) return
     if (option.id === props.selectedId) {
       close(true)
       return
     }
-    props.onSelect(option)
+    if (props.onSelectAsync !== undefined) { void chooseAsync(option); return }
+    props.onSelect?.(option)
     close(true)
   }
   const move = (delta: -1 | 1): void => {
@@ -156,6 +180,10 @@ export function ProductSelect<T>(props: {
       event.preventDefault()
       event.stopPropagation()
       close(true)
+      return
+    }
+    if (pending() || props.disabled === true) {
+      event.preventDefault()
       return
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -240,11 +268,13 @@ export function ProductSelect<T>(props: {
         aria-haspopup="listbox"
         aria-controls={listboxId}
         aria-expanded={open()}
+        aria-busy={pending()}
+        aria-disabled={props.disabled === true || pending()}
         aria-activedescendant={open() && activeIndex() >= 0 ? optionId(activeIndex()) : undefined}
         disabled={props.disabled}
         onFocus={props.onFocus}
         onPointerDown={props.onPointerDown}
-        onClick={() => open() ? close(true) : show()}
+        onClick={() => { if (!pending()) open() ? close(true) : show() }}
         onKeyDown={keydown}
       >
         <span class="product-select-value">{selectedOption()?.label ?? props.selectedId}</span>
@@ -257,6 +287,7 @@ export function ProductSelect<T>(props: {
             id={listboxId}
             class="product-select-listbox floating-surface"
             role="listbox"
+            aria-busy={pending()}
             aria-label={props.ariaLabel}
             aria-labelledby={props.ariaLabelledBy}
             style={{
@@ -284,8 +315,8 @@ export function ProductSelect<T>(props: {
                   data-option-id={option.id}
                   role="option"
                   aria-selected={option.id === props.selectedId}
-                  aria-disabled={option.disabled === true}
-                  onPointerMove={() => { if (option.disabled !== true) setActiveIndex(index()) }}
+                  aria-disabled={option.disabled === true || pending()}
+                  onPointerMove={() => { if (!pending() && option.disabled !== true) setActiveIndex(index()) }}
                   onClick={() => choose(index())}
                 >
                   {option.label}

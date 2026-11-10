@@ -29,6 +29,81 @@ const type = (element: HTMLInputElement, value: string): void => {
 }
 
 describe('UniversalSearch palette', () => {
+  it.each([false, true])('waits for document command acceptance %s before dismissal and recency', async (accepted) => {
+    const { app, root, dispose } = fixture([{
+      id: 'edits', label: 'Edits', priority: 1,
+      query: () => [{ ...row('add-node', 1), action: {
+        kind: 'command', invocation: { command: 'node.add', params: { graphId: 'root', type: 'Fixture', position: { x: 12, y: 34 } } },
+      } }],
+    }])
+    app.searchOpen.set(true)
+    const recents = searchRecents(app.settings)
+    let settle!: () => void
+    const dispatch = vi.spyOn(app, 'dispatchTo').mockImplementation(() => new Promise((resolve) => {
+      settle = () => resolve({ ok: accepted, diagnostics: [] })
+    }) as never)
+    await new Promise<void>((resolve) => queueMicrotask(resolve))
+    const button = root.querySelector<HTMLButtonElement>('[data-testid="search-result-row"]')!
+    button.click()
+    expect(app.searchOpen.get()).toBe(true)
+    expect(searchRecents(app.settings)).toEqual(recents)
+    expect(input(root).getAttribute('aria-busy')).toBe('true')
+    button.click()
+    input(root).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(dispatch).toHaveBeenCalledOnce()
+    settle()
+    await vi.waitFor(() => expect(input(root).getAttribute('aria-busy')).toBe('false'))
+    expect(app.searchOpen.get()).toBe(!accepted)
+    expect(searchRecents(app.settings)).toEqual(accepted ? ['edits:add-node', ...recents.filter((id) => id !== 'edits:add-node')].slice(0, 20) : recents)
+    if (!accepted) {
+      button.click()
+      expect(dispatch).toHaveBeenCalledTimes(2)
+      settle()
+      await vi.waitFor(() => expect(input(root).getAttribute('aria-busy')).toBe('false'))
+    }
+    dispose()
+    app.dispose()
+  })
+
+  it.each(['query', 'tab', 'reopen', 'unmount'] as const)('isolates a delayed document command after %s replacement', async (replacement) => {
+    const { app, root, dispose } = fixture([{
+      id: 'edits', label: 'Edits', priority: 1,
+      query: () => [{ ...row('edit', 1), action: {
+        kind: 'command', invocation: { command: 'node.remove', params: { graphId: 'root', nodeIds: [] } },
+      } }],
+    }])
+    app.searchOpen.set(true)
+    const recents = searchRecents(app.settings)
+    let settle!: () => void
+    vi.spyOn(app, 'dispatchTo').mockImplementation(() => new Promise((resolve) => {
+      settle = () => resolve({ ok: true })
+    }) as never)
+    await new Promise<void>((resolve) => queueMicrotask(resolve))
+    root.querySelector<HTMLButtonElement>('[data-testid="search-result-row"]')!.click()
+    if (replacement === 'query') {
+      type(input(root), 'another query')
+      type(input(root), '')
+    } else if (replacement === 'tab') {
+      const tab = app.activeTabId.get()
+      app.activeTabId.set('another-tab')
+      app.activeTabId.set(tab)
+    } else if (replacement === 'reopen') {
+      app.searchOpen.set(false)
+      app.searchOpen.set(true)
+    } else {
+      dispose()
+      app.searchOpen.set(true)
+    }
+    settle()
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(app.searchOpen.get()).toBe(true)
+    expect(searchRecents(app.settings)).toEqual(recents)
+    if (replacement !== 'unmount') dispose()
+    app.dispose()
+  })
+
   it('renders the host-owned combobox, ranked groups, rows, announcements, and five-row expansion', async () => {
     const { root, dispose } = fixture([
       { id: 'commands', label: 'Commands', prefix: '>', priority: 20, query: () => [row('low', 1), row('high', 10)] },

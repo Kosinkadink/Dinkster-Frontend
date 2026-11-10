@@ -86,8 +86,9 @@ import {
   type ScheduleFn,
   type WebSocketFactory,
 } from './reconnecting-socket.js'
-import { DinksterValuesClient } from './values.js'
+import { DinksterValuesClient, type ValuePeekAdmission } from './values.js'
 import { expandDynamicPrompt } from './dynamic-prompts.js'
+import { parseResultAssetOffer, type ResultAssetOffer } from './result-asset-offer.js'
 
 /** Existing /api/nodes capability flag for the placement submission sidecar. */
 export const DINKSTER_GRAPH_FEATURE_PLACEMENT = 'placement'
@@ -782,6 +783,8 @@ export interface DinksterConnectionConfig extends CollabCredentials {
   readonly webSocketFactory?: WebSocketFactory
   readonly scheduleFn?: ScheduleFn
   readonly cancelFn?: CancelFn
+  /** Application-owned asset admission before exposing a peek descriptor. */
+  readonly admitValuePeek?: ValuePeekAdmission
   /** Job id allocator; injectable so tests are deterministic. */
   readonly jobIdFactory?: () => string
 }
@@ -862,10 +865,20 @@ const decodeWorkers = (value: unknown): readonly WorkerInfo[] | undefined => {
 /** One job's wire record plus the identity it is keyed by. */
 export interface DinksterJobRecord extends DinksterJobWire {
   readonly jobId?: unknown
+  readonly attemptId?: unknown
   readonly outputs?: unknown
   readonly artifacts?: readonly ExecutionArtifact[]
   readonly submittedBy?: ExecutionSubmitter
   readonly sourceDocument?: string
+}
+
+export interface TerminalResultAssets {
+  readonly scope: string
+  readonly jobRef: string
+  readonly attemptId: number
+  readonly state: 'completed' | 'failed' | 'cancelled'
+  readonly complete: boolean
+  readonly offers: readonly ResultAssetOffer[]
 }
 
 const decodeExecutionSubmitter = (value: unknown): ExecutionSubmitter | undefined => {
@@ -1080,6 +1093,33 @@ export interface AssetUploadDestination {
   readonly folder?: string
 }
 
+/** Ingest history is advisory metadata, not authority to resolve a location. */
+export interface AssetObservation {
+  readonly id: string
+  readonly asset: MediaAssetRef
+  readonly originalName: string
+  readonly kind: string
+  readonly origin: Readonly<Record<string, string>>
+  readonly project: string
+  readonly created: number
+}
+
+export interface LocalAssetCatalogEntry {
+  readonly asset: MediaAssetRef
+  readonly aliases: readonly string[]
+  readonly observations: readonly AssetObservation[]
+}
+
+export interface LocalAssetCatalogPage {
+  readonly assets: readonly LocalAssetCatalogEntry[]
+  readonly cursor?: string
+}
+
+export interface AssetAvailability {
+  readonly digest: string
+  readonly status: 'available' | 'missing'
+}
+
 const uploadedAssetRef = (payload: unknown, kind: string | undefined, endpoint: string): MediaAssetRef => {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
     throw new Error(`${endpoint}: malformed response`)
@@ -1187,6 +1227,69 @@ export function parseAssetsMissingRejection(value: unknown): AssetsMissingReject
 // ---------------------------------------------------------------------------
 // Workflow library wire (POST /api/assets + /api/library, additive d41fbd3)
 // ---------------------------------------------------------------------------
+
+export interface RetainedAssetOwner {
+  readonly scope: string
+  readonly ownerKind: 'document' | 'history' | 'shown-result' | 'preview'
+  readonly ownerId: string
+}
+
+export interface RetainedAssets extends RetainedAssetOwner {
+  readonly revision: number
+  readonly digests: readonly string[]
+  readonly complete: boolean
+  readonly sourceToken?: string
+}
+
+export type RetainedAssetDeclaration = Pick<RetainedAssets, 'revision' | 'digests' | 'complete'>
+
+export interface LibraryStorage {
+  readonly temporaryBytes: number | null
+  readonly vaultBytes: number | null
+  readonly adoptedBytes: number | null
+  readonly reclaimableBytes: number | null
+  readonly collectionEnabled: boolean
+  readonly blocked: readonly string[]
+  readonly policyAvailable: boolean
+  readonly limitBytes: number | null
+}
+
+function libraryStorage(value: unknown): LibraryStorage {
+  if (!record(value) ||
+    !['temporaryBytes', 'vaultBytes', 'adoptedBytes', 'reclaimableBytes', 'limitBytes'].every((key) =>
+      value[key] === null || (typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && value[key] >= 0)) ||
+    typeof value['collectionEnabled'] !== 'boolean' || typeof value['policyAvailable'] !== 'boolean' ||
+    !Array.isArray(value['blocked']) || !value['blocked'].every((reason: unknown) => typeof reason === 'string') ||
+    (value['limitBytes'] === 0) || (!value['policyAvailable'] && value['limitBytes'] !== null)) {
+    throw new Error('Library storage response is malformed')
+  }
+  return value as unknown as LibraryStorage
+}
+
+function retainedAssetRoute(owner: RetainedAssetOwner): string {
+  if (owner.ownerId.length === 0 || [...owner.ownerId].length > 512) {
+    throw new Error('Retained asset owner ID must contain 1 to 512 characters')
+  }
+  return `/api/library/retentions/${owner.ownerKind}/${encodeURIComponent(owner.ownerId)}?scope=${encodeURIComponent(owner.scope)}`
+}
+
+export function retainedAssetAcknowledgment(value: unknown, owner: RetainedAssetOwner): RetainedAssets {
+  if (!record(value) || value['scope'] !== owner.scope || value['ownerKind'] !== owner.ownerKind ||
+    value['ownerId'] !== owner.ownerId || typeof value['revision'] !== 'number' ||
+    !Number.isSafeInteger(value['revision']) || value['revision'] < 1 ||
+    (value['sourceToken'] !== undefined &&
+      (typeof value['sourceToken'] !== 'string' || value['sourceToken'].length !== 32 || !/^[0-9a-f]{32}$/.test(value['sourceToken']))) ||
+    typeof value['complete'] !== 'boolean' || !Array.isArray(value['digests']) ||
+    value['digests'].length > 4096 || !value['digests'].every((digest: unknown, index: number, digests: unknown[]) =>
+      typeof digest === 'string' && JOB_ARTIFACT_DIGEST.test(digest) &&
+      (index === 0 || (digests[index - 1] as string) < digest))) {
+    throw new Error('Retained asset acknowledgment is malformed or belongs to another owner')
+  }
+  return {
+    ...owner, revision: value['revision'], digests: value['digests'] as string[], complete: value['complete'],
+    ...(value['sourceToken'] === undefined ? {} : { sourceToken: value['sourceToken'] as string }),
+  }
+}
 
 /**
  * One scoped library record: mutable browse metadata (name/labels/folder)
@@ -1675,6 +1778,7 @@ export class DinksterConnection {
   private readonly fetchFn: FetchLike
   private readonly registryFetchFn: FetchLike
   private readonly registryStaticUrl: () => string
+  private readonly admitValuePeek: ValuePeekAdmission | undefined
   private readonly normalizer: DinksterNormalizer
   private readonly extensionSnapshots = new Map<string, EffectiveExtensionSnapshot>()
   private readonly listeners = new Set<(e: NormalizedEvent) => void>()
@@ -1719,6 +1823,7 @@ export class DinksterConnection {
     this.baseUrl = config.baseUrl
     this.clientId = config.clientId
     this.project = config.project
+    this.admitValuePeek = config.admitValuePeek
     const fetchFn = config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
     this.registryFetchFn = fetchFn
     this.registryStaticUrl = config.registryStaticUrl ?? (() => '')
@@ -2537,6 +2642,154 @@ export class DinksterConnection {
 
   // -- Workflow library (POST /api/assets + /api/library) --------------------
 
+  async fetchLibraryStorage(signal?: AbortSignal): Promise<LibraryStorage> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/library/storage`, {
+      method: 'GET', cache: 'no-store', ...(signal !== undefined ? { signal } : {}),
+    })
+    if (!res.ok) throw new Error(`GET library storage failed: ${res.status}`)
+    return libraryStorage(await res.json())
+  }
+
+  async updateLibraryStorageLimit(limitBytes: number | null): Promise<void> {
+    if (limitBytes !== null && (!Number.isSafeInteger(limitBytes) || limitBytes <= 0)) {
+      throw new Error('Storage limit must be a positive safe integer or null')
+    }
+    const res = await this.fetchFn(`${this.baseUrl}/api/library/storage/policy`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limitBytes }),
+    })
+    if (!res.ok) throw new Error(`PUT library storage policy failed: ${res.status}`)
+    const value: unknown = await res.json()
+    if (!record(value) || value['limitBytes'] !== limitBytes || value['collectionEnabled'] !== false) {
+      throw new Error('Storage policy acknowledgment differs from the requested limit')
+    }
+  }
+
+  async fetchResultAssetOffer(scope: string, token: string, signal?: AbortSignal): Promise<ResultAssetOffer | undefined> {
+    if (token.length !== 32 || !/^[0-9a-f]{32}$/.test(token)) throw new Error('Invalid result offer token')
+    const res = await this.fetchFn(`${this.baseUrl}/api/library/result-offers/${token}?scope=${encodeURIComponent(scope)}`, {
+      method: 'GET', cache: 'no-store', ...(signal !== undefined ? { signal } : {}),
+    })
+    if (res.status === 404) return undefined
+    if (!res.ok) throw new Error(`GET result asset offer failed: ${res.status}`)
+    const offer = parseResultAssetOffer(await res.json())
+    if (offer === undefined || offer.scope !== scope || offer.token !== token) {
+      throw new Error('Result asset offer is malformed or belongs to another source')
+    }
+    return offer
+  }
+
+  /** Sealed publication authority is independent of queue history and cache eviction. */
+  async fetchTerminalResultAssets(jobRef: string, jobId: string, scope = 'local'): Promise<TerminalResultAssets | undefined> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/library/terminal-results/${encodeURIComponent(jobRef)}?scope=${encodeURIComponent(scope)}`, {
+      method: 'GET', cache: 'no-store',
+    })
+    if (res.status === 404) return undefined
+    if (!res.ok) throw new Error(`GET terminal result assets failed: ${res.status}`)
+    const value: unknown = await res.json()
+    const invalid = (): never => { throw new Error('Terminal result assets are malformed or belong to another source') }
+    if (!record(value) || value['scope'] !== scope || value['jobRef'] !== jobRef ||
+      !Number.isSafeInteger(value['attemptId']) || (value['attemptId'] as number) < 1 ||
+      !['completed', 'failed', 'cancelled'].includes(value['state'] as string) || typeof value['complete'] !== 'boolean' ||
+      !record(value['identity']) || value['identity']['clientId'] !== this.clientId || value['identity']['jobId'] !== jobId ||
+      !record(value['resultOffers']) || (value['artifacts'] !== null && !Array.isArray(value['artifacts']))) return invalid()
+    const offers: ResultAssetOffer[] = []
+    const tokens = new Set<string>()
+    const add = (raw: unknown): ResultAssetOffer => {
+      const offer = parseResultAssetOffer(raw)
+      if (offer === undefined || offer.scope !== scope || offer.jobRef !== jobRef || offer.attemptId !== value['attemptId'] ||
+        tokens.has(offer.token) || (value['complete'] && !offer.complete)) return invalid()
+      tokens.add(offer.token)
+      offers.push(offer)
+      return offer
+    }
+    for (const [nodeId, outputs] of Object.entries(value['resultOffers'])) {
+      if (!record(outputs)) return invalid()
+      for (const [outputId, raw] of Object.entries(outputs)) {
+        const offer = add(raw)
+        if (offer.nodeId !== nodeId || offer.outputId !== outputId) return invalid()
+      }
+    }
+    if (value['artifacts'] === null) {
+      if (value['complete']) return invalid()
+    } else {
+      for (const [index, raw] of value['artifacts'].entries()) {
+        if (add(raw).artifact?.index !== index) return invalid()
+      }
+    }
+    if (value['complete'] && value['state'] !== 'completed') return invalid()
+    return { scope, jobRef, attemptId: value['attemptId'] as number,
+      state: value['state'] as TerminalResultAssets['state'], complete: value['complete'], offers }
+  }
+
+  async fetchRetainedAssets(owner: RetainedAssetOwner, signal?: AbortSignal): Promise<RetainedAssets | undefined> {
+    const res = await this.fetchFn(`${this.baseUrl}${retainedAssetRoute(owner)}`, {
+      method: 'GET', cache: 'no-store', ...(signal !== undefined ? { signal } : {}),
+    })
+    if (res.status === 404) return undefined
+    if (!res.ok) throw new Error(`GET retained assets failed: ${res.status}`)
+    return retainedAssetAcknowledgment(await res.json(), owner)
+  }
+
+  retainAssets(owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration, signal?: AbortSignal): Promise<RetainedAssets> {
+    return this.mutateRetainedAssets(owner, 'PUT', declaration, signal)
+  }
+
+  async claimResultAssets(owner: RetainedAssetOwner, sourceToken: string, signal?: AbortSignal): Promise<RetainedAssets> {
+    if ((owner.ownerKind !== 'shown-result' && owner.ownerKind !== 'preview') || sourceToken.length !== 32 || !/^[0-9a-f]{32}$/.test(sourceToken)) {
+      throw new Error('Invalid result asset claim')
+    }
+    const res = await this.fetchFn(`${this.baseUrl}${retainedAssetRoute(owner)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision: 0, sourceToken }),
+      ...(signal !== undefined ? { signal } : {}),
+    })
+    // A source claim is never replayed: GET reconciles a lost response against
+    // the persisted offer before the owning caller exposes its value.
+    if (!res.ok) throw new Error(`PUT result asset claim failed: ${res.status}`)
+    const acknowledged = retainedAssetAcknowledgment(await res.json(), owner)
+    if (acknowledged.revision !== 1 || acknowledged.sourceToken !== sourceToken) {
+      throw new Error('Retained asset acknowledgment differs from the requested source')
+    }
+    return acknowledged
+  }
+
+  releaseRetainedAssets(owner: RetainedAssetOwner, revision: number, signal?: AbortSignal): Promise<RetainedAssets> {
+    return this.mutateRetainedAssets(owner, 'DELETE', { revision, digests: [], complete: true }, signal)
+  }
+
+  private async mutateRetainedAssets(
+    owner: RetainedAssetOwner,
+    method: 'PUT' | 'DELETE',
+    declaration: RetainedAssetDeclaration,
+    signal?: AbortSignal,
+  ): Promise<RetainedAssets> {
+    const { revision, complete } = declaration
+    const digests = [...new Set(declaration.digests)].sort()
+    if (!Number.isSafeInteger(revision) || revision < (method === 'DELETE' ? 1 : 0) ||
+      revision >= Number.MAX_SAFE_INTEGER || typeof complete !== 'boolean' || digests.length > 4096 ||
+      !digests.every((digest) => typeof digest === 'string' && JOB_ARTIFACT_DIGEST.test(digest))) {
+      throw new Error('Invalid retained asset declaration')
+    }
+    const route = `${retainedAssetRoute(owner)}${method === 'DELETE' ? `&revision=${revision}` : ''}`
+    const res = await this.fetchFn(`${this.baseUrl}${route}`, {
+      method,
+      ...(method === 'PUT' ? {
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision, digests, complete }),
+      } : {}),
+      ...(signal !== undefined ? { signal } : {}),
+    })
+    // A failed or lost response can still have committed. Reconciliation is
+    // an owner decision; never replay a write or adopt a conflict's revision.
+    if (!res.ok) throw new Error(`${method} retained assets failed: ${res.status}`)
+    const acknowledged = retainedAssetAcknowledgment(await res.json(), owner)
+    if (acknowledged.sourceToken !== undefined || acknowledged.revision !== revision + 1 || acknowledged.complete !== complete ||
+      acknowledged.digests.length !== digests.length || acknowledged.digests.some((digest, index) => digest !== digests[index])) {
+      throw new Error('Retained asset acknowledgment differs from the requested declaration')
+    }
+    return acknowledged
+  }
+
   /**
    * Upload opaque bytes to the content-addressed vault. Idempotent (201 new,
    * 200 already-held). Returns the canonical "blake3:<64 hex>" digest.
@@ -2559,6 +2812,89 @@ export class DinksterConnection {
     const payload = (await res.json()) as { digest?: unknown }
     if (typeof payload.digest !== 'string') throw new Error('POST /api/assets: malformed response')
     return payload.digest
+  }
+
+  /** Browse recorded content identities in this connection's project. */
+  async listLocalAssets(options: {
+    readonly scope: string
+    readonly q?: string
+    readonly kind?: string
+    readonly origin?: string
+    readonly since?: number
+    readonly until?: number
+    readonly limit?: number
+    readonly cursor?: string
+    readonly signal?: AbortSignal
+  }): Promise<LocalAssetCatalogPage> {
+    const endpoint = 'GET /api/assets/catalog'
+    const project = this.project ?? 'default'
+    const query = new URLSearchParams({ scope: options.scope, project })
+    for (const field of ['q', 'kind', 'origin', 'since', 'until', 'limit', 'cursor'] as const) {
+      if (options[field] !== undefined) query.set(field, String(options[field]))
+    }
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/catalog?${query}`, {
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
+    })
+    if (!res.ok) throw new Error(`${endpoint} failed: ${res.status}`)
+    const payload = await res.json() as { assets?: unknown; cursor?: unknown } | null
+    if (!payload || !Array.isArray(payload.assets) ||
+        (payload.cursor !== undefined && (typeof payload.cursor !== 'string' || payload.cursor === ''))) {
+      throw new Error(`${endpoint}: malformed response`)
+    }
+    const assets = payload.assets.map((raw): LocalAssetCatalogEntry => {
+      const asset = uploadedAssetRef(raw, undefined, endpoint)
+      const row = raw as Record<string, unknown>
+      if (!Array.isArray(row['aliases']) || !row['aliases'].every((alias) => typeof alias === 'string') ||
+          !Array.isArray(row['observations'])) throw new Error(`${endpoint}: malformed response`)
+      const observations = row['observations'].map((value): AssetObservation => {
+        const ref = uploadedAssetRef(value, undefined, endpoint)
+        const observation = value as Record<string, unknown>
+        const origin = observation['origin']
+        if (ref.digest !== asset.digest || typeof observation['id'] !== 'string' ||
+            typeof observation['originalName'] !== 'string' || typeof observation['kind'] !== 'string' ||
+            observation['project'] !== project || typeof observation['created'] !== 'number' ||
+            !Number.isFinite(observation['created']) || observation['created'] < 0 ||
+            typeof origin !== 'object' || origin === null || Array.isArray(origin) ||
+            !Object.values(origin).every((field) => typeof field === 'string')) {
+          throw new Error(`${endpoint}: malformed observation`)
+        }
+        return {
+          id: observation['id'], asset: ref, originalName: observation['originalName'], kind: observation['kind'],
+          origin: { ...origin } as Record<string, string>, project, created: observation['created'],
+        }
+      })
+      return { asset, aliases: [...row['aliases']] as string[], observations }
+    })
+    return { assets, ...(typeof payload.cursor === 'string' ? { cursor: payload.cursor } : {}) }
+  }
+
+  /** Read local byte presence by exact identity, without acquisition or catalog recovery. */
+  async checkAssetAvailability(
+    digests: readonly string[],
+    options: { readonly scope: string; readonly signal?: AbortSignal },
+  ): Promise<readonly AssetAvailability[]> {
+    const requested = [...new Set(digests)]
+    if (requested.length === 0) return []
+    const endpoint = 'GET /api/assets/availability'
+    const query = new URLSearchParams({ scope: options.scope })
+    for (const digest of requested) query.append('digest', digest)
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/availability?${query}`, {
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
+    })
+    if (!res.ok) throw new Error(`${endpoint} failed: ${res.status}`)
+    const payload = await res.json() as { assets?: unknown } | null
+    if (!payload || !Array.isArray(payload.assets)) throw new Error(`${endpoint}: malformed response`)
+    const assets = new Map<string, AssetAvailability>()
+    for (const value of payload.assets) {
+      const row = value as Record<string, unknown> | null
+      if (!row || typeof row['digest'] !== 'string' || !requested.includes(row['digest']) ||
+          assets.has(row['digest']) || (row['status'] !== 'available' && row['status'] !== 'missing')) {
+        throw new Error(`${endpoint}: malformed response`)
+      }
+      assets.set(row['digest'], { digest: row['digest'], status: row['status'] })
+    }
+    if (assets.size !== requested.length) throw new Error(`${endpoint}: incomplete response`)
+    return requested.map((digest) => assets.get(digest)!)
   }
 
   /** Import a named file into the current project's writable folder, not the workflow vault. */
@@ -2886,8 +3222,8 @@ export class DinksterConnection {
   }
 
   /** Fetch opaque asset bytes without corrupting images through text decoding. */
-  async fetchAssetBytes(digest: string): Promise<ArrayBuffer | undefined> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`)
+  async fetchAssetBytes(digest: string, signal?: AbortSignal): Promise<ArrayBuffer | undefined> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`, signal ? { signal } : undefined)
     if (res.status === 404 || res.status === 410) return undefined
     if (!res.ok) throw new Error(`GET /api/assets/${digest} failed: ${res.status}`)
     return res.arrayBuffer()
@@ -2978,9 +3314,9 @@ export class DinksterConnection {
     }
   }
 
-  async fetchAssetLocations(digest: string): Promise<readonly string[]> {
+  async fetchAssetLocations(digest: string, signal?: AbortSignal): Promise<readonly string[]> {
     const query = new URLSearchParams({ digest, scope: 'local', project: this.project ?? 'default' })
-    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/locations?${query}`)
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/locations?${query}`, signal === undefined ? undefined : { signal })
     if (!res.ok) throw new Error(`GET asset locations failed: ${res.status}`)
     const payload = await res.json() as { locations?: unknown }
     if (!Array.isArray(payload.locations)) throw new Error('GET asset locations: malformed response')
@@ -3468,6 +3804,7 @@ export class DinksterConnection {
       baseUrl: this.baseUrl,
       clientId: this.clientId,
       fetchFn: this.fetchFn,
+      ...(this.admitValuePeek === undefined ? {} : { admitPeek: this.admitValuePeek }),
     })
     return this.valuesClient
   }

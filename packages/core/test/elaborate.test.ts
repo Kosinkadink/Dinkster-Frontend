@@ -5,7 +5,7 @@
  * local combo values, non-destructive slot hiding, and input/output symmetry.
  * Elaboration never sees solved types - nothing here constructs any.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 import type { GraphDef } from '../src/format/document.js'
 import { asDynamicMemberId, asNodeId } from '../src/ids.js'
 import {
@@ -169,6 +169,34 @@ describe('static schemas', () => {
     expect(strength.spec).toBe(schema.items[3]) // no cloning on the static path
   })
 
+  it('censuses every wire15 combo branch at its stored path without changing the active interface', () => {
+    const schema = schemaOf([{
+      kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+        { key: 'a', inputs: [socketInput('file', 'IMAGE')] },
+        { key: 'b', inputs: [socketInput('file', 'MASK'), socketInput('other', 'AUDIO')] },
+      ] },
+    }])
+    const node = { values: {}, dynamic: { mode: { selected: 'a' } } }
+    const active = elaborateInterface(schema, node)
+    expect(active.diagnostics).toEqual([])
+    expect(elabInputsOf(active).map((input) => input.spec.id)).toEqual(['mode', 'mode.file'])
+    const stored = elaborateInterface(schema, node, EMPTY_CONNECTIVITY, { includeDormant: true })
+    expect(stored.diagnostics).toEqual([])
+    expect(elabInputsOf(stored).map((input) => [input.spec.id, input.spec.type, input.apiName])).toEqual([
+      ['mode.file', { kind: 'concrete', name: 'IMAGE' }, undefined],
+      ['mode.file', { kind: 'concrete', name: 'MASK' }, undefined],
+      ['mode.other', { kind: 'concrete', name: 'AUDIO' }, undefined],
+    ])
+    expect(elaborateInterface(schema, node)).toEqual(active)
+    const duplicate = { ...schema, items: [{ ...schema.items[0]!, dynamic: {
+      kind: 'dynamicCombo' as const, materialization: 'wire15' as const,
+      options: [{ key: 'a', inputs: [socketInput('file'), socketInput('file')] }],
+    } }] } as NodeSchema
+    expect(elaborateInterface(duplicate, node, EMPTY_CONNECTIVITY, { includeDormant: true }).diagnostics)
+      .toContainEqual(expect.objectContaining({ code: 'elab.projectedNamespaceCollision' }))
+  })
+
   it('warns on schema ids containing reserved path characters', () => {
     const e = elaborateInterface(schemaOf([socketInput('a.b')]), noState)
     expect(e.diagnostics.some((d) => d.code === 'elab.id.reserved')).toBe(true)
@@ -233,6 +261,38 @@ describe('autogrow', () => {
       address: { port: 'items.m0.mode' },
       materialize: [{ construct: 'items', members: ['m0'] }],
     })
+  })
+
+  it('discovers dynamic-only wire15 members inside a native combo branch', () => {
+    const family: InputSpec = {
+      ...autogrowFamily('items', { min: 0, max: 4 }),
+      dynamic: { kind: 'autogrow', materialization: 'wire15',
+        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
+        template: [{ ...comboConstruct('choice', []), dynamic: {
+          kind: 'dynamicCombo', materialization: 'wire15', options: [
+            { key: 'first', inputs: [] }, { key: 'second', inputs: [] },
+          ],
+        } }],
+      },
+    }
+    const schema = schemaOf([comboConstruct('mode', [{ key: 'active', inputs: [family] }])])
+    const node = { values: {}, dynamic: {
+      mode: { selected: 'active' }, 'mode.[active].items.m7.choice': { selected: 'second' },
+    } }
+    const result = elaborateInterface(schema, node)
+    expect(result.diagnostics).toEqual([])
+    expect(elabInputsOf(result).find((input) => input.address.port === 'mode.[active].items.m7.choice'))
+      .toMatchObject({ apiName: 'mode.items.item0.choice', derivedValue: 'second', origin: { kind: 'selector' } })
+    const atLimit = { ...node, dynamic: { ...node.dynamic,
+      ...Object.fromEntries(Array.from({ length: 6 }, (_, index) => [`unread${index}`, { selected: 'unused' }])),
+    } }
+    expect(elaborateInterface(schema, atLimit, EMPTY_CONNECTIVITY, { budget: { maxItems: 8 } }).diagnostics).toEqual([])
+    const overLimit = { ...atLimit, dynamic: { ...atLimit.dynamic, overflow: { selected: 'unused' } } }
+    for (const includeDormant of [false, true]) {
+      const over = elaborateInterface(schema, overLimit, EMPTY_CONNECTIVITY, { includeDormant, budget: { maxItems: 8 } })
+      expect(over.items).toEqual([])
+      expect(over.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['elab.budget.items'])
+    }
   })
 
   it('keeps structural wire-15 interface order independent of source mode', () => {
@@ -1588,6 +1648,47 @@ describe('unknown dynamic kinds', () => {
     })
     expect(e.diagnostics).toEqual([])
     expect(elabInputsOf(e)[0]!.spec.type).toEqual({ kind: 'concrete', name: 'HOLO' })
+  })
+
+  it('verifies custom handler reads without verifying an unread sibling state table', () => {
+    const custom: DynamicKindHandler = {
+      kind: 'holographic',
+      elaborateInput(ctx, item, _dyn, scope) {
+        expectTypeOf(ctx).not.toHaveProperty('dynamicState')
+        if (ctx.includeDormant) {
+          ctx.report('error', 'elab.dormant.unsupported', 'Dormant custom inputs are unsupported', item.id)
+          return
+        }
+        const root = ctx.stateOf(item.id)
+        expectTypeOf<NonNullable<typeof root>>().not.toHaveProperty('memberState')
+        if (root?.selected !== 'on') return
+        const member = ctx.memberScope(scope, {
+          construct: item.id, member: asDynamicMemberId('m0'), ordinal: 0,
+        }, { valuePrefix: item.id, apiPrefix: item.id })
+        const mode = member.stateOf('future.mode')
+        if (typeof mode?.selected !== 'string') return
+        ctx.emit({ kind: 'input', address: { port: item.id }, apiName: item.id,
+          spec: { kind: 'input', id: item.id, type: { kind: 'concrete', name: mode.selected }, optional: true },
+          origin: { kind: 'static' } }, scope)
+      },
+    }
+    const schema = schemaOf([{
+      kind: 'input', id: 'future', type: { kind: 'wildcard' }, optional: false,
+      dynamic: { kind: 'holographic' } as never,
+    }])
+    const node = { values: {}, dynamic: { future: { selected: 'on', memberState: {
+      m0: { 'future.mode': { selected: 'IMAGE' } },
+    } } } }
+    const handlers = { ...defaultDynamicHandlers, holographic: custom }
+    expect(elabInputsOf(elaborateInterface(schema, node, EMPTY_CONNECTIVITY, { handlers }))[0]!.spec.type)
+      .toEqual({ kind: 'concrete', name: 'IMAGE' })
+    expect(elaborateInterface(schema, node, EMPTY_CONNECTIVITY, { handlers, includeDormant: true }).diagnostics
+      .map((diagnostic) => diagnostic.code)).toEqual(['elab.dormant.unsupported'])
+    const unreadSibling = { ...node, dynamic: { future: { ...node.dynamic.future, memberState: {
+      ...node.dynamic.future.memberState, m1: { 'future.mode': { selected: 'MASK' } },
+    } } } }
+    expect(elaborateInterface(schema, unreadSibling, EMPTY_CONNECTIVITY, { handlers, includeDormant: true }).diagnostics
+      .map((diagnostic) => diagnostic.code)).toEqual(['elab.dormant.unsupported', 'elab.dynamic.unknownState'])
   })
 })
 

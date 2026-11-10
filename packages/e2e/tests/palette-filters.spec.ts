@@ -52,15 +52,20 @@ nativeTest('long node names do not overlap their pack badge', async ({ page }) =
   await openPalette(page)
   await page.getByTestId('palette-search').fill('CLIP Text Encode (SDXL Refiner)')
   const row = page.locator('[data-node-type="CLIPTextEncodeSDXLRefiner"]')
-  const name = row.locator('.search-result-row-title')
   const pack = row.locator('.search-result-row-badge')
   await expect(row).toBeVisible()
   await expect(pack).toHaveText('dinkster-nodes-comfy')
 
-  const [nameBox, packBox] = await Promise.all([name.boundingBox(), pack.boundingBox()])
-  expect(nameBox).not.toBeNull()
-  expect(packBox).not.toBeNull()
-  expect(nameBox!.x + nameBox!.width).toBeLessThanOrEqual(packBox!.x)
+  // Catalog refresh can replace a result between separate browser geometry reads.
+  await expect.poll(() => row.evaluate((element) => {
+    const name = element.querySelector('.search-result-row-title')?.getBoundingClientRect()
+    const badge = element.querySelector('.search-result-row-badge')?.getBoundingClientRect()
+    return {
+      nameVisible: name !== undefined && name.width > 0 && name.height > 0,
+      packVisible: badge !== undefined && badge.width > 0 && badge.height > 0,
+      separated: name !== undefined && badge !== undefined && name.right <= badge.left,
+    }
+  })).toEqual({ nameVisible: true, packVisible: true, separated: true })
 })
 
 test('out: filters match subgraphs through their boundary-derived schema', async ({ page }) => {

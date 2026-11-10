@@ -9,7 +9,7 @@ import {
   type WorkspaceCompileArtifact,
   type WorkspaceProvenance,
 } from '@dinkster/core'
-import type { ExecutionArtifact, ExecutionState, ExecutionSubmitter } from '@dinkster/client'
+import { retainedAssetAcknowledgment, type ExecutionArtifact, type ExecutionState, type ExecutionSubmitter, type RetainedAssets } from '@dinkster/client'
 import { scopedStorageKey } from './projects.js'
 
 export const EXECUTION_RESULTS_STORAGE_KEY = 'dinkster.executionResults'
@@ -47,6 +47,7 @@ export interface PersistedExecutionResult {
   readonly nodes: Readonly<Record<string, NodeProgress>>
   readonly outputs: Readonly<Record<string, Readonly<Record<string, unknown>>>>
   readonly artifacts: readonly ExecutionArtifact[]
+  readonly assetRetentions?: readonly RetainedAssets[]
   readonly submittedBy?: ExecutionSubmitter
   readonly queuedAt: number
   readonly endedAt: number
@@ -159,7 +160,24 @@ function decodeResult(value: unknown): PersistedExecutionResult | undefined {
     !record(proof['prompt']) || !record(proof['provenance']) || !record(proof['scope']) ||
     !record(submittedBy) || !string(submittedBy['principalId']) ||
     (submittedBy['kind'] !== 'human' && submittedBy['kind'] !== 'agent')) return undefined
-  return value as unknown as PersistedExecutionResult
+  let assetRetentions: RetainedAssets[] | undefined
+  if (value['assetRetentions'] !== undefined) {
+    if (!Array.isArray(value['assetRetentions'])) return undefined
+    assetRetentions = []
+    try {
+      for (const receipt of value['assetRetentions']) {
+        if (!record(receipt) || receipt['scope'] !== 'local' || receipt['ownerKind'] !== 'shown-result' ||
+          !string(receipt['ownerId']) || !/^execution-result:[a-zA-Z0-9-]+$/.test(receipt['ownerId']) ||
+          receipt['ownerId'].length > 512) return undefined
+        assetRetentions.push(retainedAssetAcknowledgment(receipt, {
+          scope: receipt['scope'], ownerKind: receipt['ownerKind'], ownerId: receipt['ownerId'],
+        }))
+      }
+    } catch {
+      return undefined
+    }
+  }
+  return { ...value, ...(assetRetentions === undefined ? {} : { assetRetentions }) } as unknown as PersistedExecutionResult
 }
 
 function readEnvelope(): ExecutionResultsEnvelope {
@@ -216,6 +234,7 @@ export function saveExecutionResult(
     nodes: persistedNodes(execution.nodes),
     outputs: persistedOutputs(execution.outputs),
     artifacts: execution.artifacts.map((artifact) => ({ ...artifact })),
+    ...(execution.assetRetentions === undefined ? {} : { assetRetentions: execution.assetRetentions }),
     ...(execution.submittedBy === undefined ? {} : { submittedBy: execution.submittedBy }),
     queuedAt: execution.queuedAt,
     endedAt: execution.endedAt,
@@ -253,4 +272,24 @@ export function clearExecutionResultJobRef(connection: ConnectionId, jobRef: str
 export function clearExecutionResults(connection?: ConnectionId): void {
   if (connection === undefined) writeResults([])
   else writeResults(readEnvelope().results.filter((result) => result.backend.connection !== connection))
+}
+
+/** Corrupt or unreadable persistence cannot authorize retiring an owner. */
+export function persistedResultOwnerIds(): ReadonlySet<string> | undefined {
+  try {
+    const raw = globalThis.localStorage.getItem(storageKey())
+    if (raw === null) return new Set()
+    if (bytesOf(raw) > MAX_PERSISTED_EXECUTION_BYTES) return undefined
+    const parsed: unknown = JSON.parse(raw)
+    if (!record(parsed) || parsed['v'] !== 1 || !Array.isArray(parsed['results'])) return undefined
+    const owners = new Set<string>()
+    for (const value of parsed['results']) {
+      const result = decodeResult(value)
+      if (result === undefined) return undefined
+      for (const receipt of result.assetRetentions ?? []) owners.add(receipt.ownerId)
+    }
+    return owners
+  } catch {
+    return undefined
+  }
 }

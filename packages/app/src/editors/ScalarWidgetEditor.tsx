@@ -29,7 +29,7 @@ import {
   type WidgetEditorProps,
   type WidgetEditorState,
 } from '../WidgetEditorController.js'
-import { ProductActionFooter, ProductField, productFieldIds } from '../ProductForm.js'
+import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from '../ProductForm.js'
 import { Icon } from '../Icon.js'
 import {
   createSuggestionInteraction,
@@ -92,7 +92,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
   onCleanup(() => { live = false })
 
   const commitTarget = (value: Json): void => {
-    if (!live) return
+    if (!live || props.commitPending()) return
     if (text && typeof value === 'string' && ed.target.kind === 'input') {
       const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
       const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
@@ -101,8 +101,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
       const resolution = resolveTextCommit(ed.initial, value, current)
       if (resolution.kind === 'none') { props.close(); return }
       if (resolution.kind === 'splice') {
-        props.close()
-        host.app.dispatchTo(ed.tab, { command: 'text.splice', params: { graphId, nodeId, inputId, ...resolution.splice } })
+        void props.commitCommand({ command: 'text.splice', params: { graphId, nodeId, inputId, ...resolution.splice } })
         return
       }
     }
@@ -142,7 +141,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
   }
 
   const commit = (raw: string, closeOnInvalid = false, skipUnchanged = false): void => {
-    if (!live) return
+    if (!live || props.commitPending()) return
     setError(undefined)
     const value = parse(raw)
     if (value === undefined) { if (closeOnInvalid) props.close(); return }
@@ -276,6 +275,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
         <textarea aria-label={`Edit ${ed.label}`} aria-autocomplete="list" aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={open() ? interaction.statusId : undefined} aria-expanded={open()} aria-activedescendant={interaction.activeOptionId(entries())} ref={(el) => { completionAnchor = el; queueMicrotask(() => el.focus()) }} value={String(ed.initial ?? '')} style={{ 'font-family': defaultTokens.fontFamily, 'font-size': `${defaultTokens.multilineText.fontSize * scale()}px`, 'line-height': `${defaultTokens.multilineText.lineHeight * scale()}px`, padding: `${defaultTokens.multilineText.padding * scale()}px`, width: `calc(100% - ${defaultTokens.multilineText.scrollbarInset * scale()}px)`, 'align-self': 'flex-start', 'scrollbar-gutter': 'stable', '--multiline-scrollbar-width': `${defaultTokens.multilineText.scrollbarWidth * scale()}px` }} onInput={(event) => completionHandlers.input(event as InputEvent & { currentTarget: TextControl })} onClick={(event) => requestCompletions(event.currentTarget, '')} onKeyUp={(event) => { if (entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onBlur={(event) => event.currentTarget.value === String(ed.initial ?? '') ? props.close() : commit(event.currentTarget.value)} onKeyDown={(event) => { if (!event.isComposing && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); commit(event.currentTarget.value); return } completionKeyDown(event) }} />
         <Suggestions />
       </div>
+      <Show when={props.commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
     </div>
   }
 

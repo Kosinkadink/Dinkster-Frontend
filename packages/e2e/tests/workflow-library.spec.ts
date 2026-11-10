@@ -47,6 +47,7 @@ async function openNamedCopy(page: Page, title: string): Promise<void> {
     return diagnostics
   }, title)
   expect(failures).toEqual([])
+  await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
 }
 
 async function waitForDocumentToSettle(page: Page): Promise<void> {
@@ -68,7 +69,7 @@ async function openWorkflows(page: Page): Promise<void> {
 }
 
 function workflowRow(page: Page, title: string) {
-  return page.getByTestId('collection-entry').filter({ hasText: title })
+  return page.getByTestId('library-overlay').getByTestId('collection-entry').filter({ hasText: title })
 }
 
 async function targetNativeBackend(page: Page): Promise<void> {

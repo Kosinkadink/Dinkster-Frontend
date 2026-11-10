@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CollectionEntry, CollectionPageRequest, CollectionSource } from '@dinkster/core'
@@ -17,6 +18,38 @@ afterEach(() => {
   document.body.replaceChildren()
   vi.restoreAllMocks()
   setLocale('en')
+})
+
+it.each(['close', 'refresh'] as const)('cancels pending thumbnail entry on %s without cancelling current entries', async (action) => {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const reads: string[] = []
+  const pending: Promise<string>[] = []
+  const old: CollectionEntry = {
+    id: 'old', title: 'Old model',
+    thumbRender: (signal?: AbortSignal) => {
+      const request = gate.then(() => { signal?.throwIfAborted(); reads.push('old'); return 'blob:old' })
+      pending.push(request)
+      return request
+    },
+  }
+  const current: CollectionEntry = { id: 'current', title: 'Current model', thumbRender: async () => { reads.push('current'); return 'blob:current' } }
+  const [tick, setTick] = createSignal(0)
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <CollectionPanel sources={[{
+    id: 'models', label: 'Models', page: async () => ({ items: [tick() === 0 ? old : current] }),
+  }]} refreshTick={tick} />, root)
+  try {
+    await vi.waitFor(() => expect(pending).toHaveLength(1))
+    if (action === 'close') dispose()
+    else {
+      setTick(1)
+      await vi.waitFor(() => expect(root.querySelector('img')?.getAttribute('src')).toBe('blob:current'))
+    }
+    release()
+    await Promise.allSettled(pending)
+    expect(reads).toEqual(action === 'close' ? [] : ['current'])
+  } finally { release(); if (action !== 'close') dispose() }
 })
 
 describe('CollectionPanel folder navigation', () => {

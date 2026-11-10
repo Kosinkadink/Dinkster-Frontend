@@ -6,6 +6,8 @@ that owns the current tab and shows its exact protocol and connection state.
 Search, filters, paging, grid/list preference, and row keyboard navigation use
 the shared `CollectionPanel` contract; each source remains responsible for
 server-side ranking and cursor semantics.
+In shared grid views, selected metadata and actions stay below the preview
+inside their tile rather than wrapping into a second column.
 
 Packs, Templates, and Workflows use the Library content language. Rows expose
 readable names and badges without hiding exact identifiers or provenance.
@@ -17,6 +19,23 @@ hides rows from the previous source while the replacement page loads. Backend
 status updates preserve the active source and its browsing context. ComfyUI
 backends identify saved workflows as unavailable instead of suggesting an
 unsupported save.
+
+Persisted native execution results keep their acknowledged asset-owner IDs,
+revisions, source bindings and complete digest sets separately from bounded
+display descriptors. Restore checks each recorded owner against the same
+backend before exposing the result. A missing, changed or unreachable owner
+leaves the record unresolved; it does not authorize release or a replayed
+write. Legacy records without owner metadata do not certify completeness.
+Restore admits an independent owner for the full saved roots, including roots
+omitted from display descriptors, rather than adopting another window's owner.
+Its pre-publication value reads require the validated job identity and the
+unchanged backend lifetime; ordinary reads still require a live result owner.
+Clearing history does not release results still present in the execution store
+or pinned by a frozen view. Once neither a live result nor a persisted record
+holds a locally admitted owner, the admitting application retires its captured
+revision. Disconnected lifetimes and unreadable persistence remain blocked;
+restart and backend removal do not authorize release. Lost release responses
+reconcile only the exact next-revision tombstone, without repeating DELETE.
 
 Host-owned source controls, search labels, detail headings, confirmations, and
 loading, failure, and empty-state copy follow the active application locale and

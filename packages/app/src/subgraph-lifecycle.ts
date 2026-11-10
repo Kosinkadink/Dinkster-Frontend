@@ -29,13 +29,13 @@ export type ExtractCommit =
   | { readonly status: 'committed'; readonly selectedNodeIds: readonly string[]; readonly outcome: Extract<CommandOutcome, { ok: true }> }
 
 /** Commit one already validated extraction plan with its default name. */
-export function commitExtract(args: {
+export async function commitExtract(args: {
   readonly invocation: CommandInvocation
   readonly beforeNodeIds: ReadonlySet<string>
   readonly graphId: string
-  readonly dispatch: (invocation: CommandInvocation) => CommandOutcome
-}): ExtractCommit {
-  const outcome = args.dispatch(args.invocation)
+  readonly dispatch: (invocation: CommandInvocation) => CommandOutcome | Promise<CommandOutcome>
+}): Promise<ExtractCommit> {
+  const outcome = await args.dispatch(args.invocation)
   if (!outcome.ok) return { status: 'refused', selectedNodeIds: [] }
   return {
     status: 'committed',

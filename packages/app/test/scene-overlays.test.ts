@@ -415,7 +415,7 @@ describe('executed image paging overlay', () => {
       loader: { ...noLoader, sourceFor, resolve: () => decoded },
     })
 
-    expect(sourceFor).toHaveBeenCalledWith(expect.anything(), ['saved'], false, undefined)
+    expect(sourceFor).toHaveBeenCalledWith(expect.anything(), ['saved'], false, undefined, undefined)
     expect(model.previews.saved).toEqual(decoded)
     expect(model.previewSources.saved).toBe(source)
   })
@@ -442,7 +442,7 @@ describe('executed image paging overlay', () => {
     expect(model.executedImages.n1).toMatchObject({ images, index: 1, count: 2 })
     expect(model.executedImages.n1?.key).toContain('document\u0000run\u0000g0\u0000[]\u0000n1')
     expect(model.previews.n1).toEqual({ status: 'loading', count: 2, index: 1 })
-    expect(sourceFor).toHaveBeenCalledWith(expect.anything(), ['n1'], false, 1)
+    expect(sourceFor).toHaveBeenCalledWith(expect.anything(), ['n1'], false, 1, undefined)
 
     const live = deriveSceneOverlays({
       ...base,
@@ -714,6 +714,8 @@ describe('retainProvenExecution', () => {
     expect(retained.execution.nodes.b).toBe(current.nodes.b)
     expect(retained.execution.outputs.b).toBe(current.outputs.b)
     expect(retained.retainedRuntimeIds).toEqual(new Set(['a']))
+    expect(retained.executionOwners?.get('a')).toBe(newer)
+    expect(retained.executionOwners?.get('b')).toBe(current)
   })
 
   it.each([

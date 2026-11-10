@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_SEARCH_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -43,6 +43,7 @@ test('node search ghost appears at the selection cursor with zero movement and E
   await page.goto('/')
   // Placement needs the app bridge and node schemas; wait for readiness.
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
     type: 'KSampler', displayName: 'KSampler', category: 'sampling', source: 'e2e', isOutputNode: false, items: [],
   }]))
@@ -361,6 +362,7 @@ test('manifest-gated extension providers use host groups, previews, actions, and
 test('Search Dinkster keeps the node title center under the placement click at every canvas zoom', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'auditSearchPlacementTest', displayName: 'audit Search Node', category: 'test', source: 'v3', isOutputNode: false,

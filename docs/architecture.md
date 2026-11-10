@@ -25,6 +25,500 @@ and Apply action; when there are no writable folders, it directs the operator
 to add one in Project folders. Policy-disabled configuration stays read-only.
 Selecting an explicit save target does not require a configured default.
 
+## Retained asset wire contract
+
+`DinksterConnection` reads and writes scoped manifests at
+`/api/library/retentions/{ownerKind}/{ownerId}?scope=`. Owner kinds are
+`document`, `history`, `shown-result` and `preview`; independent retained
+generations use distinct IDs. PUT sends `{revision, digests, complete}` with
+canonical, sorted, deduplicated `blake3:` identities (at most 4096). Unknown or
+opaque typed values require incomplete ownership, not an empty complete set.
+The transport rejects oversized declarations rather than truncating them.
+Ownership admission refuses error-severity elaboration diagnostics. Warning
+and info diagnostics remain visible without making known roots incomplete;
+generated boundary IDs containing reserved characters are one such warning.
+
+An acknowledgment must match the exact scope, owner kind and ID. Mutations
+also require the requested canonical set, completeness and next revision.
+GET 404 means absent; conflicts, unavailable storage and malformed responses
+are errors, not successful release. No mutation is automatically retried:
+a lost response requires GET reconciliation against the entire expected set,
+completeness and revision before publication or a subsequent mutation.
+DELETE requires the acknowledged positive revision and returns a complete
+empty manifest at the next revision, preserving the durable tombstone.
+Restart, disconnection and view unmount do not authorize release.
+
+`claimResultAssets` claims a server-created source token for a fresh
+`shown-result` or `preview` owner with PUT `{revision: 0, sourceToken}`.
+Caller-supplied roots are not sent: the backend selects the offer's roots and
+completeness. The acknowledgment must name the same token and revision 1;
+GET preserves that binding for explicit lost-response reconciliation against
+the original offer. An unavailable source or reused owner is an error, never
+an empty complete manifest. Claims do not retry or release older owners.
+Ordinary manifest replacement and DELETE acknowledgments must clear the source
+binding. This transport contract alone does not certify holder completeness.
+
+`fetchResultAssetOffer` reads the immutable offer by scoped token without
+caching, validating its canonical full roots and exact source identity.
+Terminal artifact offers include the saved file and its optional preview;
+their roots must match both descriptors. Unknown or malformed offers are not
+substituted with an empty complete manifest.
+
+Terminal hydration reads the sealed `/api/library/terminal-results/{jobRef}`
+manifest without caching. Client, job, attempt, runtime output and artifact
+index identities must agree; duplicate tokens or contradictory completeness
+are refused. Reconnect, completion and cached-output hydration claim every
+sealed offer before publishing descriptors or artifacts. A changed backend,
+registry or stored execution closes publication even after acknowledgment.
+Missing sealed authority refuses terminal hydration. The offer keys must cover
+every fetched output key and every saved artifact by index and value. Sealed
+intermediate outputs may be absent from the fetched display inventory; their
+sources are still claimed before publication. Partial source authority cannot
+authorize unoffered results. These claims do not certify the execution's full
+holder set.
+
+Value discovery carries the parent output's offer even for a nested-element
+peek. Discovery is uncached and validates the runtime node and output before
+admission. The application binds the offer to the stored execution's jobRef,
+journals its source token and full roots, and claims those roots before returning
+the value descriptor or admitting rendition reads. Lost-response recovery checks
+the exact token, roots, completeness and revision. Discovery without an offer
+uses explicitly incomplete ownership; a malformed present offer is refused.
+
+Shared asset-browser model thumbnails acknowledge independent incomplete
+`preview` ownership before entering the poster queue/cache. The project,
+connection and browser/picker lifetime must still match before publication.
+Cancellation does not settle pending native rendering or encoding; the read
+spans actual poster completion. Preview intents use the same durable journal
+and exact GET reconciliation as workflow/result intents, without assigning
+arbitrary catalog entries to a workflow. These conservative owners are not
+released by thumbnail disposal.
+
+Asset image thumbnails and selection-detail images use that independent
+preview admission through the complete response body. Their native image
+source is then a self-contained Blob URL, not a CAS URL; decode and display
+no longer borrow backend bytes. Closing or replacing the image aborts its
+loader and revokes its local URL. A cancellation-ignoring body remains owned
+until settlement and cannot create or publish a late URL. The detail rail
+uses the same loader as cards, without an unadmitted digest-URL fallback.
+
+Library workflows and recorded-run workflows admit their source-document
+digest through independent preview ownership before fetching or parsing the
+payload. The captured backend and open intent must remain current through
+body settlement. Parsed local data then enters workflow-root admission;
+publishing the new tab is separate from the payload read it supersedes.
+Only a successfully admitted destination workflow authorizes retiring that
+source-read owner, at its captured revision. Failed or superseded opens keep
+the source owner. Release intent and acknowledgment remain journaled; lost
+responses reconcile the exact empty complete tombstone at the next revision,
+without repeating DELETE or adopting another generation's revision. A failed
+retirement does not roll back a workflow with independent acknowledged roots.
+
+Startup restoration of persisted results also admits source-workflow bytes
+before parsing or compiling their proof. The original backend, registry and
+connection lifetime must remain current. Refused or stale reads preserve the
+saved result for retry; malformed or absent source documents remain invalid.
+The source owner survives proof validation, output discovery and reconciliation
+of every saved receipt. Only publication with independent acknowledged
+shown-result ownership permits its revision-bound retirement. A reused execution
+key, refused admission or changed registry keeps the source owner protected.
+
+Retained previews carry the original stored execution for each runtime
+occurrence, including when a partial run displays outputs from several runs.
+The composite overlay is presentation data, not an ownership record. Recorded
+asset reads admit the original execution and keep its replacement and connection
+lifetime guards through decode and download in both graph and App views.
+
+These manifests do not enumerate all frontend holders or enable collection.
+Bounded output descriptors, rendition fingerprints and cache keys are not
+complete typed asset-reference sets. The backend source gate
+`FRONTEND_RETENTION_COMPLETE` remains false; no HTTP flag enables deletion.
+
+Application-owned value peeks retain descriptor roots with incomplete
+shown-result ownership before returning the descriptor or announcing rendition
+identity, including opaque descriptors with no known digest. An empty known
+root set does not establish completeness. Refusal keeps the descriptor
+unpublished and permits a later read to retry. Reads stay on the original live
+or retired backend; removing a backend
+does not redirect historical results. Application disposal or caller cancellation
+prevents late publication. Each application descriptor captures its acknowledged
+receipt and backend-affine reader. Rendition callers pass that exact descriptor,
+including lazy audio/video and image-batch reads. Another client's descriptor,
+a copied descriptor, a mismatched query or missing admission refuses before
+network or cache access. Later peeks cannot substitute their selectors or reader
+for an earlier descriptor. Managed cache hits use the same reader boundary.
+Readers capture the observed connection lifetime at ownership admission. A later
+connection transition refuses pending admission, lazy/cache reads and late byte
+publication from that lifetime; a new peek must obtain acknowledged ownership
+again. This does not identify a server restart before an observed transition or
+settle independent native-media and viewer consumers.
+Application disposal closes admission for active value readers; their pending
+bodies remain tracked until settlement, and late publication is refused.
+This boundary does not settle model viewers, shared poster queues or durable
+recovery references, and does not release any retained owner. Standalone values
+clients without an admission policy keep their transport behavior and bounded
+byte cache.
+
+Canvas input-image and model-poster sources capture their document session, revision, registry,
+backend and observed connection lifetime before loading. The document and its
+history roots receive acknowledged ownership before native image decode or model
+poster work begins, including time waiting in the shared renderer queue.
+Only identities present in that captured census can use the reader. Decoded
+cache keys are partitioned by the captured owner, and changed documents, closed
+tabs, backend switches or connection transitions refuse stale reads and cache
+publication. A failed ownership request permits a later attempt; it is not a
+permanent missing-image result. Input-model sources also carry that reader into
+the orbit overlay. Its independent read covers pending mount and the mounted
+handle until disposal; closing during mount waits for actual mount completion
+and disposes the late handle. A different captured owner closes the old viewer
+even when its URL is unchanged. Direct input-audio sources carry their document
+reader into the native transport. Admission precedes assigning the audio source;
+the independent read spans native resource reset on replacement or unmount.
+A replacement waits for the old element's emptied event unless it was already
+empty. This does not cover result orbit viewers, cached picker/collection posters,
+native result audio/video handles, recovery references or retirement.
+No retained owner is released when a source becomes obsolete.
+
+App-view input previews use the same captured document/history reader as canvas
+previews. Exposed input-image and model-poster loads cannot bypass admission or
+publish after their document becomes stale. App preview audio surfaces carry
+their source reader into the shared native transport, including same-URL owner
+replacement; surfaces with no source reader retain their existing behavior.
+
+Native asset-picker image byte reads use the admitted selection's captured
+reader. Closing or replacing the preview does not settle a still-pending byte
+fetch; that read remains tracked until its body settles. Refused reads never
+fetch bytes, and stale selection readers or changed backend/project targets
+cannot publish object URLs. This byte-read boundary does not cover image decode
+or native video/model resource lifetimes and does not release retained owners.
+
+Picker model posters independently borrow the captured selection reader across
+the shared render queue, model load, render and poster encoding. Closing or
+replacing the selection keeps started work tracked until settlement; refused or
+expired readers cannot start loading, and obsolete work cannot publish its
+poster. Local-file posters keep their separate path. This does not certify
+collection thumbnails, native asynchronous teardown or retained-owner release.
+
+Native picker video assigns its source only inside the captured selection
+reader. Closing, failure or replacement resets the native resource; the read
+stays active until `emptied` (or an already-empty resource) confirms the reset,
+and a replacement waits for that reset before attaching. Refused or expired
+admission cannot assign a source. Local-file previews remain separate. This
+does not certify other native handles or release retained owners.
+
+Recorded FILE_3D original and sidecar digest reads acknowledge their newly
+revealed identities as incomplete shown-result roots on the original live or
+retired backend before fetching bytes. The captured result and observed
+connection lifetime guard admission and pending bodies; replacement, disconnect,
+disposal or caller cancellation refuses late bytes. A held body stays tracked
+until settlement. Granted local bindings keep their separate read path. This
+does not cover model decode, viewer handles, complete dependencies or retirement.
+
+Load3d producer manifests and camera/model JSON fetch and decode inside the
+captured native value reader. Refused or expired admission cannot publish
+metadata; closing, editing or replacing the execution refuses stale work before
+fetch and publication. Original model resources and viewer handles have separate
+lifetimes and are not covered by this metadata boundary.
+
+Load3d original model and sidecar reads selected from producer outputs use the
+captured execution's original-byte reader. A stored manifest remains the source
+even when other inputs have producers. Stored and literal digest resources use
+the captured document/history reader; missing, refused or expired admission
+cannot publish object URLs or enable Apply. Closing aborts the read and stale
+source state cannot publish object URLs. Local grants keep their separate path.
+Load3d also borrows the captured owner independently across model decode, mount
+and the mounted viewer. Closing while mount is pending keeps its read and object
+URLs alive until the late handle is disposed. Closing a mounted viewer disposes
+the handle promptly but waits for any pending capture encoding before settling
+that borrow and revoking object URLs. Expired viewer ownership refuses capture,
+and expiration during capture or upload prevents late publication. Producer
+models acknowledge the selected primary and sidecar digest union as incomplete
+shown-result roots for this lifetime. Recording also retains the mounted borrow
+until MediaRecorder delivers its final stop event, including close or error
+while final data is pending. Tracks and the viewer stop promptly; failed,
+expired or obsolete recordings cannot publish a captured video. A failed start
+settles without waiting for an event from a recorder that never started.
+This does not certify local bindings, other native asynchronous teardown,
+complete dependencies or retained-owner retirement.
+
+Live and mirrored structured outputs and preview records also await incomplete
+shown-result ownership, including records with no known digest. Later events
+for that execution wait for admission so completion cannot overtake the held
+payload. Refusal withholds that payload without blocking unrelated executions.
+If submit registration overtakes live-event admission, the event retains roots
+again under that first registered owner before publication. A replacement,
+disconnect or registry change still invalidates the pending event.
+Self-contained Blob and ArrayBuffer preview bytes need no additional ownership
+request, but still follow any pending event from the same execution.
+
+## Staged document commands
+
+`DocumentStore.prepareDispatch()` evaluates and validates a command without
+changing the document, revision, undo/redo stacks or observers. A successful
+candidate exposes frozen current and proposed documents and history snapshots.
+The proposed history includes the new forward/inverse record, undo-depth
+trimming and redo-branch removal. Callers can retain both snapshots while
+awaiting external admission; preparation itself is not an acknowledgment.
+
+`commit()` publishes the candidate once. It refuses a consumed candidate or
+one whose captured document, revision or history has changed, including an
+edit followed by undo and a history-only clear. Refusal leaves current state
+untouched. Ordinary `dispatch()` immediately prepares and commits, preserving
+its synchronous final-outcome contract. A prepared command does not certify
+typed asset completeness or register a frontend holder.
+
+The app-level `AppState.dispatchTo()` contract permits either a final outcome
+or a promise of one. Callers that inspect the outcome or depend on publication
+must await it. Asset-neutral commands can finish synchronously; native
+candidates that introduce known asset identities or lose census completeness
+await retained admission before publication.
+
+Shared sessions stage the actor-stamped, shared-replay-prepared invocation once.
+Their candidates include the participant's undo/redo history and confirmed and
+pending documents. Commit refuses a changed confirmed baseline, rebuilt store,
+history or connection status before optimistic publication and submission. The
+candidate's history record is installed before document observers run.
+
+Image apply and image-document export commands use an awaited retained
+dispatch path. Native commands through `AppState.dispatchTo` also use that path
+when the candidate introduces a known asset digest. Existing malformed identities
+and census uncertainty alone do not delay asset-neutral commands or migrations.
+The selection compares the captured current and candidate
+documents; admission includes their history and shared pending roots. Direct
+session dispatch is not covered by this application-level selection.
+The retained path journals the exact backend, owner, root union and document
+lineage/revision before requesting ownership; workflow contents remain in their
+separate persistence path rather than being duplicated in each retention intent.
+Successful local command commits replace the editing session's acknowledged
+document/history receipt, including a receipt admitted during startup or import.
+The previous complete receipt retires only after the new complete inventory is
+acknowledged and committed on the same backend connection generation. Unknown
+inventories, failed candidates and superseded sessions keep their protection;
+another session's receipt is independent even when it holds the same digests.
+Superseded receipts also protect roots still named by canonical tab snapshots,
+workspace candidates, document recovery slots and operation-journal additions.
+If the replacement no longer covers a root, retirement waits for a complete
+durable-source census that no longer names it. Persistence compaction retries
+that check; unreadable, corrupt or unknown sources keep protection. Crash-safe
+staging stays synchronous, and disconnect or session displacement never grants
+release authority over a pending receipt.
+The asset census recognizes the mask command's exact source-association marker
+on mask-paint nodes: a string node ID and the fixed mask output ID contain no
+asset identity. Extra marker fields, other metadata and unknown schemas remain
+incomplete. Known canonical references in opaque stored values are retained, but
+the owner explicitly declares `complete: false`, even for an empty known set.
+Unresolved filename strings in asset widgets also keep ownership incomplete,
+so resolving an imported filename can preserve its undo state without inventing
+a digest. Unmarked asset filename strings and malformed AssetRef objects still refuse.
+This conservative document owner blocks collection; it does not certify byte
+availability or global retention completeness. Malformed identities, invalid
+dynamic identities and stale history replay still refuse publication.
+History array additions insert before occupied entries without overwriting them;
+object additions still require an absent key, and replacements and removals
+still require their recorded value.
+Document admission and execution permit the dormant census diagnostic
+`elab.dormant.unsupported` when active elaboration is valid. Opening, restoring,
+promoting, editing (including fresh palette nodes) and reading retain known active roots with
+`complete: false`; the durable intent preserves the node-qualified diagnostic
+and its severity in `incompleteDiagnostics`. Problems keeps an ownership-unconfirmed
+warning naming the node and reason, and the workspace tab may be shared.
+Publication remains the strict default: library save requires a complete census
+of the current snapshot it uploads; collaboration sharing requires a complete
+census of the whole session, including undo and redo history. Saving a complete
+snapshot does not certify opaque history, change its retention declaration,
+clear its ownership warning or make the session cleanup-eligible. An incomplete
+snapshot still refuses library save. Local download is not publication: admitted documents export
+losslessly with opaque data and ownership warnings preserved, without posting a
+retention declaration. Malformed or invalid identities still refuse export.
+The stored-state census also records actual state reads from active elaboration.
+A key read from its exact state table is verified even when the dormant walk
+stops before it. Keys read by neither walk remain unknown-state errors; dormant
+diagnostics still make ownership incomplete. Active elaboration errors still
+refuse admission, and no dormant branch identities are resolved or guessed.
+Custom dynamic handlers read root constructs through `ctx.stateOf` and nested
+constructs through `ctx.memberScope(...).stateOf`; raw state-table access is not
+part of the handler context. Enumerating input evidence does not verify a key.
+An incomplete document is never evidence of cleanup eligibility for anything it
+references: a collector must retain those assets or defer collection until the
+roots are complete. No collector runs on the strength of this record.
+App View layout, exposed controls and exposed previews contribute no roots only
+when their core parsers and serializers reproduce every stored field exactly.
+Unknown fields and malformed entries remain opaque, contribute any known asset
+roots and keep the document incomplete.
+The union includes current, undo, redo, proposed and shared pending roots.
+The journal includes the exact completeness declaration. Exact acknowledgment or
+exact owner reconciliation, including completeness and the new revision, precedes
+publication. Reconciliation GET bypasses the HTTP cache, including against servers
+without retention response cache headers. A changed destination or stale
+candidate is refused. Editor projection changes preserve admission when the live
+tab keeps the same document session, backend and registry. Closing the tab or
+replacing its session still refuses the candidate, even with the same tab ID.
+Connection lifecycle changes, backend removal and application disposal also
+refuse publication after acknowledgment.
+Native backend connect/reconnect also checks existing candidate journals in the
+current project against that connection with cache-bypassing GETs. Stored
+endpoints never route requests. Only the exact owner, revision 1, canonical
+root union and completeness declaration resolve an observation. Missing,
+malformed, changed or unavailable observations produce a backend-owned Problems
+warning. Disconnect, removal and disposal cancel stale observations. All journals
+remain unchanged; recovery never replays a command, retries PUT, releases an
+owner, or certifies other holders or global completeness.
+Asynchronous native file imports and library/template/run workflow opens also
+stage their loaded snapshot before publishing a tab. They use the same durable
+owner protocol, preserving existing tabs on refusal or an uncertain response.
+Unknown schemas retain known roots with explicit incomplete ownership. A newer
+open, changed tab/session/history/target, changed registry or connection, caller
+cancellation or disposal prevents a late open from publishing. Library/template/run
+tabs publish with their source backend already selected. Local file imports keep
+their existing untargeted semantics: legacy translation uses the chosen source
+schemas, but ownership is requested from the default destination backend.
+Frozen execution opens also await snapshot ownership on the execution's original
+live or retired backend, never the default backend. Root discovery uses the
+exact compile-time registry; unavailable historical schemas remain incomplete.
+A temporary in-memory execution pin prevents eviction during acknowledgment;
+success transfers the pin to the frozen tab, while failed or stale attempts
+drop only that temporary pin. Existing frozen tabs focus without another PUT.
+Each published frozen tab captures its independent acknowledged owner and
+connection lifetime. Explicit close retires that exact revision after the tab
+is removed; other views of the same digest and later reopenings keep their own
+owners. Lost release responses reconcile by GET against the exact tombstone,
+never another revision. Same-id replacement without an acknowledged handoff,
+disconnect and application disposal keep the old protection journaled.
+Read-only inspection and close/displacement execution-pin balancing stay unchanged.
+Initial collaboration adoption (Share, Join and reload rejoin) also retains the
+session snapshot and any adopted local history on the session's source backend
+before publishing its tab. Failed or stale acknowledgments keep the existing
+tab and close only the unadopted transport. Reload failures preserve pending
+membership for retry; metadata-only editor switches survive adoption. The
+source target is installed before tab publication. SharedWorker canonical
+session promotion retains its snapshot and adopted history on the local tab's
+original backend before swapping stores. A refused or stale acknowledgment
+keeps the local store; metadata-only changes survive the swap. Incoming workspace
+inventories retain newly received native tab snapshots before publishing tabs or
+displacing local views. Refusal or a changed local inventory, document, backend,
+registry, connection or workspace authority keeps local tabs. Newer shared
+inventories supersede outstanding acknowledgments. Existing-tab metadata updates
+do not wait for another ownership request. Subsequent ordered shared documents and
+resync snapshots await ownership before confirmed-ground publication; this does not
+certify every optimistic rebase result. Bootstrap also confirms restored tabs and
+all valid canonical, workspace-candidate, document-recovery and operation-journal
+addition snapshots captured by the constructor, including losing versions and
+closed-lineage recovery slots. Journal additions are confirmed before worker replay.
+Those sources stay captured even if local compaction retires them before the
+acknowledgment. Recovery documents use the same-origin backend, matching restored
+tabs' default target; session-only targets do not persist. Registry loading and
+the first local frame do not wait for ownership or shared-workspace promotion.
+Refused, unavailable or stale startup acknowledgments leave ownership unconfirmed
+in Problems and prevent shared promotion without discarding saved documents.
+Asset publication still requires its exact acknowledgment; an unavailable
+retention route never implies an empty complete set. Restoration
+and crash-safe local writes remain synchronous; newly created durable holders and
+the synchronous `openDocument` API are not certified by this startup check.
+Ordinary native dispatch selects admission from its candidate; complete
+frontend retention and collection remain disabled. The legacy bridge keeps
+its existing non-retained opening behavior.
+Unsupported schemas, opaque dynamic state and unrecognized extension
+records are incomplete, not empty root sets. Core session dispatch remains synchronous.
+Schema defaults contribute roots only when the node has no stored override.
+The parser's exact scalar `schema.ext.dinkster` execution metadata is asset-free;
+unknown keys or non-scalar fields still refuse certification. Non-widget input
+`ext.default` values are collected through their declared types when effective,
+including historical snapshots. That exception applies only to schema inputs,
+not arbitrary extension records or dormant branch defaults.
+Concrete nodes use occurrence-aware schemas, including a region's list-valued
+element inputs; definition-only boundary types do not describe those values.
+Standard NUMBER widgets are asset-free metadata; unknown widget kinds still
+make the census incomplete.
+Dynamic inputs use canonical elaborated identities: stored inactive combo branches,
+disconnected slot dependents and persisted family members contribute roots, while
+defaults come only from the active interface. Historical connectivity changes
+recheck dynamic nodes even when their objects are shared. Dynamic metadata must
+have the known asset-free shape, and every stored state key must be read in its
+canonical construct/member scope. Unknown stored keys, elaboration diagnostics or
+budget exhaustion, and unsupported dormant wire-15 slots remain incomplete.
+The wire-15 DynamicCombo census visits every branch at its direct stored path,
+without changing the active interface or inventing branch-local storage keys.
+Projected names may recur across branches but not within one branch. A stored
+untyped value with conflicting branch types stays incomplete and names the input
+in its diagnostic; a typed literal supplies its own exact type. Only effective
+defaults contribute roots, while stored values from all branches are retained.
+Missing node or input schemas, unsupported value types, malformed containers and
+unresolved selection names identify the exact stored input (or effective default)
+in ownership diagnostics. A failed list element does not stop enumeration of later
+elements. Known identities remain retained even when another input is unresolved;
+an unresolved selection name is incomplete, not an asset identity.
+Untyped literal producers use every connected static consumer's input type;
+unconnected producers, unknown ports and unsupported consumer types remain
+incomplete. Their roots are rechecked against each historical document's
+consumer schemas, even when the literal object itself is unchanged.
+
+Delayed blueprint, clipboard, image-drop and latent-drop insertion await their
+owner-routed dispatch result before announcing inserted ids or completing the
+gesture. Both synchronous and asynchronous final results are supported; a
+pending result is not success. Their canvas adapters await the result before
+reading `ok`. Native ordinary dispatch selects retained admission for newly
+introduced known identities; it does not certify unknown holders. Existing
+malformed identities and census uncertainty alone do not delay asset-neutral
+commands or migrations.
+
+App-owned local sessions also validate at the store's synchronous publication
+boundary, including exposed prepared commits and history replay. A new known
+identity absent from the current document and history refuses direct publication;
+the application route grants only its exact candidate a transient commit permit
+after admission. Refusal preserves document, revision, history and persistence.
+The optional core policy does not change default session behavior. Shared local
+public dispatch and prepared commits use the same application policy before
+optimistic document/history publication or transport submission. Both network
+collaboration and SharedWorker sessions install it. The shared session's
+optional commit policy also validates undo/redo against the current document
+and both history stacks before removing the replayed record. A policy refusal
+keeps the record retryable; stale recorded-value conflicts still discard it.
+Rebased intentions validate their newly computed candidate before committing;
+refused intentions drop their history record and report a rebase conflict.
+Remote confirmed documents await ownership of the incoming document, current
+document, history, confirmed baseline and every pending patch prefix, including
+when local history is disabled or cleared. Editing during that wait confirms a
+fresh snapshot before adoption. Rebase also supplies the pre-rebase held
+snapshots to the policy so previously admitted pending identities remain known
+after history is cleared. Unknown holders are not certified by these local
+commit policies.
+
+Curve, Compositor and GLSL Apply, and unused-definition cleanup, also await
+the final command result. Pending actions disable duplicate submission and
+editor mutation; refused edits remain open. A completion cannot close or add
+errors to a replacement editor or modal. These callers use ordinary dispatch;
+the application selects retention when the candidate requires it.
+
+Ordinary dispatch also confirms ownership when a complete root census becomes
+incomplete, even if no new digest is visible. For example, adding a node with an
+opaque default requires an incomplete owner before publication. Refusal keeps
+the existing document and history; direct store commits cannot bypass this
+admission. These owners do not certify opaque dependencies or enable cleanup.
+
+Shared rebase validates each rebuilt pending prefix against the retained old
+optimistic documents, not undo patches rooted at the old full document.
+Pending intentions keep their acknowledged roots without replaying history
+against a prefix where its nodes do not yet exist.
+
+Canvas gesture dispatch accepts asynchronous outcomes; the host owns final
+diagnostics, while the controller drops only its transient gesture overlay.
+Selection deletion waits for acceptance before clearing selection. Refusal
+preserves selection, and delayed completion cannot clear a newer selection
+or report a refusal toast into another tab, session, navigation or canvas.
+Occurrence-local deletion uses the same rule after atomic planner dispatch.
+These gestures use ordinary dispatch and its candidate-based retention selection.
+
+Each admission shares its census across snapshots. Replayed node-only changes
+visit changed nodes when no subgraph instances are present; structural changes
+and subgraph instances require the full snapshot schema context. Object reuse
+is local to that census and node checks are keyed by resolved schema as well as
+node identity. Proposed history adds the captured current state and trims prior
+records, so it does not require replaying the same historical documents twice.
+
+Candidate owners remain retained and journaled, including after uncertain writes
+or failed publication. This path does not automatically release them or certify
+other workflow holders, restored sessions or collection safety.
+
 ## Goals
 
 - Performant node-graph editor for ComfyUI, local-first (no cloud/API-node concerns for now).
@@ -153,6 +647,11 @@ preserves authored classes and topology; its class/version widget upgrade table
 is separate from native document migrations.
 On opening a native document, the app applies all applicable rule plans as one
 undo step, including lossy plans. Opening never waits for migration review.
+Replacement and legacy-boolean completion notices wait for final command
+acceptance and never target a closed or replaced store. A replacement notice
+is omitted if intervening history makes its undo record ambiguous. Explicit
+Apply Replacement keeps its popover open on refusal and deduplicates pending
+application; old completion cannot dismiss a replacement popover.
 Selected rule hops are planned against the preceding hop's result so shared
 link, tap and named-net removals do not leave stale peer plans. Composition
 validates the original chains first, then preserves each selected case even
@@ -429,6 +928,78 @@ Custom packs like VideoHelperSuite have to fight the current frontend to show li
 
 **Peek backend contracts (SHIPPED, Dinkster commit a58cdb6).** The frontend side of peek is pure document+snapshot computation; payload access rides two native-protocol capabilities: (1) `GET /api/values?clientId&jobId&nodeId&outputId` - runtime node ids verbatim (region paths included), optional `element=i,j` list descent, optional `rendition=<kind>`; JSON descriptor + declared rendition list without a rendition, raw bytes with one (`ETag "<fingerprint>/<kind>"`, immutable - cache client-side forever, conditional GET honored). Lookup identity is job/node/output - fingerprint is ONLY the cache-validation tag, never a fetch key. Refusals are structured and distinct (`unknown-*`, `not-retained`, `not-complete`, `evicted`, `no-rendition`) - an evicted value can never silently resolve to a newer one, which is the property peek's "never silently wrong" story rests on. Rendition kinds are registry-extensible per type (packs register through the same TypeRegistry door as atoms), so negotiation is generic over the declared list, never hardcoded to PNG. (2) **Inline small scalars**: completed-job descriptors AND `node_finished`/`node_cached` per-output summaries carry optional `value` for registry-approved JSON scalars (strings capped, lists never inline at top level, absence never inlines; omission means "not inline", never null) - int/string/bool peeks need zero round trips, including mid-run intermediates. Retention: bounded server job history + cache residency for intermediates; leaving history is a clean `unknown-job`. Which execution peek resolves against is the section-8 overlay binding (follow-latest or pinned) - no new selection machinery.
 
+**Local asset catalog transport.** `DinksterConnection.listLocalAssets` reads
+`GET /api/assets/catalog` with scope and the immutable connection project.
+Pages preserve server-authored five-field references, aliases, ingest origins
+and timestamps; cursors stay bound to the query. Observations describe history,
+not authority to resolve their locations. `checkAssetAvailability` reads
+`GET /api/assets/availability` using scope and repeated exact digest fields;
+this endpoint does not accept a project parameter. It checks local byte
+presence without acquisition or catalog recovery. Missing bytes are explicit
+`missing` rows, never inferred from a malformed, incomplete or failed response.
+Both methods pass cancellation signals through to the transport.
+
+The Assets dock's All assets source combines recorded local assets, readable
+mounts and the configured federated catalog. Local assets remain available as
+a separate source, including when no filesystem mount exists. Recorded rows
+show aliases, dates and ingest provenance in the existing Details disclosure.
+The selected available asset also names its backend machine and offers exact
+operator locations through Copy server path. A capable Desktop shell adds
+Show file on this computer using digest, scope and project, never a renderer
+path. Missing rows expose no location actions. Connection and project changes
+invalidate the old selection's actions. The dock keys its body on the active
+backend, clearing selection and disposing pending location reads when a tab
+switches backend; switching panels alone preserves the body.
+All assets groups equal digests across sources and pages, retaining observed
+names, virtual locations and provenance in Details. Different bytes remain
+separate even when their names match; a live location can satisfy an older
+missing observation. Later pages update existing row identities in place.
+Exact byte availability is checked before presenting local results: missing
+rows remain inspectable but cannot be picked and never request thumbnails or
+model metadata. Compatible ASSET pickers share this adapter; directory, pair
+and literal selectors do not use it. A failed source is reported independently
+without hiding successful local or remote results. Model scans preserve
+healthy sources when another source fails and cancel paging when the editor
+closes or a refresh replaces the scan. Mount-discovery errors appear in source
+health without removing the independent local or federated catalogs. Compatible
+non-model ASSET pickers combine federated entries with local and mounted rows;
+only locally available, non-refused candidates with complete canonical refs
+can be picked. Remote-only or incompatible candidates cannot trigger byte
+reads or implicit acquisition.
+
+Live workflow tabs check their stored scalar and list AssetRefs against the
+selected native backend on open, edits, reconnect and target changes. Problems
+identifies missing exact digests by filename, backend, graph, node and input
+index. Failed or offline checks report unknown presence, not missing bytes.
+These checks never acquire files, resolve filenames or rewrite stored refs;
+late results from replaced checks, closed tabs and old targets are discarded.
+Successful current operator location reads are held as session observations.
+Save/download captures the submitted document before waiting for its current
+presence and location lookup (up to five seconds total for that lookup).
+Edits or target/session changes cancel the wait; failed or timed-out optional
+reads do not block saving or replace existing hints. The synchronous
+`exportDocument` snapshot includes only already completed observations.
+Save/download stamps observations into `meta.ext.dinkster.assetLocations`
+with a version, exact digest, machine label, physical paths and graph/node/input
+occurrence. Other extension data is preserved; the live document and its undo
+history are unchanged. Reopened missing-asset details show matching last-known
+machine/path hints without reading them. Hints with a different digest or input
+occurrence are ignored; permission failures preserve previous hints rather than
+inventing a location or inferring byte presence.
+The ownership census recognizes exact version-1 location observations as hints,
+not malformed five-field AssetRefs. Their extension still makes the census
+incomplete; malformed or extended observations retain the conservative checks.
+
+Missing-asset Problems rows offer **Locate or replace** for reachable node
+definitions. The action navigates to the input and opens its ordinary compatible
+ASSET picker; shared definitions use their first reachable instance. Browsing
+and cancellation do not edit the workflow. Explicit Apply uses the existing
+undoable widget command, including list and materialized-family behavior.
+Same-name files are never automatic repairs, and recorded physical paths are
+not read. Frozen or wire-driven inputs remain read-only. A stored input without
+a currently exposed editable ASSET row reports that replacement is unavailable
+instead of silently focusing the node; its stored value is preserved.
+
 **Filesystem mounts backend contract (SHIPPED, Dinkster commit ddb4729).** The multi-directory replacement for ComfyUI's one-input/one-output-dir model; this is the surface a file-picker / mount-browser UX builds on. Read surface (always on when the backend serves with `--library-root`): `GET /api/mounts` -> `{"mounts": [{id, path, mode, source, state, entryCount?, error?}]}` with `state` pending|scanning|ready|failed, `mode` read|readwrite, `source` config|derived - real filesystem paths appear ONLY here (operator surface); documents never see them. `GET /api/mounts/{id}/list?path=<rel>` returns one level (`{"folders", "entries"}`) for folder navigation; `GET /api/mounts/{id}/entries?q=&cursor=&limit=` is the query-first cursor-paged catalog under the standing collection contract (cursor query-bound, 400 on mismatch, limit 1..500 default 100). Entry rows are EXACTLY the upload path's AssetRef fields plus `virtualPath` (`mounts/<id>/<relpath>`): `{virtualPath, name, digest, size, mediaType}` - so a browsed entry commits as a widget value through the existing ASSET path with zero decoder change. Previews: `GET /api/assets/{digest}` falls through from the upload vault to ready mounts (streamed, same ETag/immutable-cache contract) - no upload/copy needed. Mutation is policy-gated, not absent: `POST /api/mounts {id, path, mode?}` -> 201 descriptor, `DELETE /api/mounts/{id}`; without `--allow-mount-changes` both answer 403 `{"error": "mount-changes-disabled"}` (machine-readable, engine-not-ready mold - distinguish policy from missing endpoint and hide/disable the grant UI accordingly). Grants are durable immediately (mounts.toml), visible as a pending row at once, scanned in background; derived mounts (comfy-input read-only, comfy-output readwrite, auto-derived from `--comfy-root`) refuse runtime deletion with 409. Event: every mutation and finished scan publishes non-droppable `{"type": "mounts_changed"}` - a refetch ping for `GET /api/mounts`, never a diff (no epoch; the list is tiny). Workers resolve mounted digests live via an engine-republished snapshot file - no restart. Writes use the separate filename prefix and mount inputs described below.
 
 **Save mount presentation.** Save declarations retain `filename_prefix: STRING` and append an optional `mount: STRING` with the closed widget descriptor `{"type":"MOUNT"}`. Null or omitted mount selects the backend snapshot's default output mount. No combined destination object, helper node, prefix-derived authority or socket type bridge is introduced. The widget kind validates mount-id grammar; the backend remains authoritative for paths and execution. Choices come from `GET /api/mounts` rows with `mode === "readwrite"` and `state === "ready"`, fetched on editor open. A stored unavailable mount remains visible rather than silently changing. Schema `adjacentTo` is presentation-only and never reorders interface declarations or positional workflow values. The canonical MOUNT kind, compact view and editor share the ordinary widget registry; `e2e/save-mount.spec.ts` exercises representative schema-backed controls, default selection, explicit selection, undo and nested presentation. Native save-node acceptance requires the actual registered native schemas in addition to this fixture contract.
@@ -485,6 +1056,7 @@ and route semantics remain outside the frontend contract.
 
 - `drawCompact` renders within the widget's row and truncates *honestly* (ellipsis/fade affordance signals hidden content) - it never dictates how much content the user can see.
 - Activating a widget (click/Enter) opens its `editorUi` tree in a **core-owned overlay anchored to the widget but sized independently of the node**. The view declares sizing preferences; core owns placement, focus, dismissal, rendering, and command invocation.
+- Scene-driven dismissal of a focused non-ASSET editor restores canvas focus in the same graph, including when an accepted commit invalidates its own draft. It does not take focus from another control or a replacement editor.
 - The same path works **read-only**: on frozen views and locked documents, activation opens the editor in inspect mode (select/copy enabled, commit disabled). Reading a long prompt on a frozen snapshot requires zero layout changes.
 - Expansion is transient UI state - not view state, not semantic state. Nothing serializes; the node's layout is untouched. Manual node resizing remains available as a *layout* preference (how much space you want a node to occupy in the composition), but is never the price of legibility.
 
@@ -703,6 +1275,10 @@ not hide or disable valid actions.
 ### 18. Multi-window and multi-user readiness
 
 **Multi-window (one app, several OS windows, shared state).** A same-origin SharedWorker owns each live document's canonical snapshot, revision, and ordered patch log. Windows dispatch serializable commands and receive patches while derived state (elaboration, typing, layout) recomputes locally, so the render hot path never crosses IPC. Selection, viewport, and frozen execution-tab focus remain per-window view state; shared workspace focus always names a live tab. All windows use one durable `client_id` per backend connection, and normalized execution registrations and events are mirrored across the workspace so every view observes live runs. Electron main owns native-window assignment and durable bounds; browser-only launchers coordinate equivalent pop-out assignments over a same-origin channel.
+
+Remote document admission confirms ownership against the receiving tab's current
+backend, including after retargeting. A store or destination change while that
+acknowledgment is pending refuses the stale admission.
 
 **Multi-user (real-time collaboration on one workflow) - significant but additive, not a rewrite.** The classic rewrite-forcers are already absent by design: no shared mutable object graph, no positional arrays, no index-based links, no side-channel mutations. Stable UUIDs, ID-keyed values, and discrete commands with patches are the prerequisites for any sync scheme. The pragmatic path is a server-ordered command log (Figma-style: optimistic local apply, rebase to canonical order, last-writer-wins per property), which the per-entity/per-property document shape suits. Genuinely remaining work: selective per-user undo (the hard classic collab problem), a sync/presence/permissions server, and conflict UX. The execution model cooperates as-is: runs are snapshot-anchored objects keyed by `prompt_id`, so concurrent users queueing from one evolving document just produce independent frozen views.
 
