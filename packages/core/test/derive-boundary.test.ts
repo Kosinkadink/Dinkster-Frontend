@@ -404,6 +404,10 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
     expect(schema!.emitsPreviews).toBeUndefined()
   })
 
+  it('omits mayExpandGraph when no inner node declares it', () => {
+    expect(schema!.mayExpandGraph).toBeUndefined()
+  })
+
   it('aggregates emitsPreviews from any inner node, nested instances included', () => {
     const flagged: SchemaResolver = (type) =>
       type === 'KSampler' ? { ...innerSchemas['KSampler']!, emitsPreviews: true } : innerSchemas[type]
@@ -421,6 +425,25 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
     const nested = deriveBoundarySchema(outer, (type) => type === '#g1' ? direct.schema : flagged(type))
     expect(nested.schema!.emitsPreviews).toBe(true)
     expect(deriveBoundarySchema(outer, (type) => type === '#g1' ? schema : resolve(type)).schema!.emitsPreviews)
+      .toBeUndefined()
+  })
+
+  it('aggregates mayExpandGraph from nested instances', () => {
+    const flagged: SchemaResolver = (type) =>
+      type === 'KSampler' ? { ...innerSchemas['KSampler']!, mayExpandGraph: true } : innerSchemas[type]
+    const direct = deriveBoundarySchema(def, flagged)
+    expect(direct.schema!.mayExpandGraph).toBe(true)
+
+    const outer = asDef({
+      id: 'g2',
+      name: 'outer',
+      nodes: { inst: { id: 'inst', type: '#g1', values: {} } },
+      links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+      boundary: { inputs: [], outputs: [] },
+    })
+    const nested = deriveBoundarySchema(outer, (type) => type === '#g1' ? direct.schema : flagged(type))
+    expect(nested.schema!.mayExpandGraph).toBe(true)
+    expect(deriveBoundarySchema(outer, (type) => type === '#g1' ? schema : resolve(type)).schema!.mayExpandGraph)
       .toBeUndefined()
   })
 })

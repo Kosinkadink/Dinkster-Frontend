@@ -4,7 +4,8 @@ Dinkster translates maintained ComfyUI classes through `dinkster-comfy-alias/1`
 registries delivered by installed native packs. Each record identifies one
 ComfyUI source class and snapshot, its native carrier, a declarative
 replacement rule, and either op-level or family-level confidence evidence.
-Core records are pinned to ComfyUI revision `b78cec87`.
+Core records are pinned to ComfyUI revision
+`b5cc8830279eae909a59de030af1e50761c36751`.
 
 Record IDs use the dedicated `comfy_alias:<pack>/<class>` namespace. Their
 source snapshots retain compatibility types such as `comfy.ImageScale`, but
@@ -90,6 +91,49 @@ The format reference is Comfy-Org/ComfyUI_frontend revision
 official nested workflows, drills through both boundaries, and saves/reopens
 native documents. Fixture provenance is in
 `packages/core/fixtures/workflows/official-subgraphs/README.md`.
+
+## Generic Loops
+
+Maintained ComfyUI `StartLoop` and `EndLoop` pairs import as explicit fold
+regions. Simple, For, and List iteration preserve binding order, carried state,
+first and last flags, accumulated scalar or output-list results, final-only
+results, termination targets, nesting, and iteration cache policy. A loop with
+no carried state remains a fold because ComfyUI executes iterations in order.
+Compatible lazy switches lower to Dinkster's native selector inside the region,
+so each iteration executes only its selected branch.
+
+The importer pairs boundaries from the authored topology and refuses the whole
+import when pairing is ambiguous or malformed, a body escapes its End Loop, a
+carry cannot keep one stable type, output cardinality is unknown, or topology
+sugar prevents an exact rewrite. Linked `accumulate` controls are also refused:
+Dinkster output roles are static, while changing `accumulate` at execution time
+would change the output contract. Linked Simple or For range controls feed a
+generated integer-range node, so upstream batch sizes and computed bounds remain
+live inputs. Static `accumulate=false` uses a `last` output, which yields typed
+absence for zero iterations. `cache_iterations=true` maps to `reuse`; false or
+omitted maps to `rerun`.
+
+Loop bodies containing a schema flagged `mayExpandGraph` refuse with
+`import.loop.runtimeExpansionUnsupported`; derived subgraph schemas propagate
+the flag from their descendants. Nested Start/End boundaries are consumed
+before the enclosing body is checked. V3 flags exactly
+`enable_expand=True`. V1 flags direct dict-literal expansion returns and the
+enumerated core expanders at the pinned revision. Delegated, dynamic, and custom
+V1 returns remain unclassified and rely on Dinkster's loud runtime refusal
+before output.
+
+The structural reference and CPU acceptance corpus are pinned to ComfyUI
+`b5cc8830279eae909a59de030af1e50761c36751`. The corpus covers 23 openable
+workflows, including empty, carried, lazy, output-list, nested, and repeated
+cache cases.
+
+### Conversion limits
+
+| Source behavior | Imported behavior |
+| --- | --- |
+| A nested cache-enabled loop runs a non-idempotent outer probe with `outer_probe_calls=[1,2,2]` over two runs because `StartLoop` contributes a NaN fingerprint to one expanded occurrence's cache ancestry. | Dinkster keeps occurrence reuse and produces `outer_probe_calls=[1,2]`. The ComfyUI rerun is a cache-key artifact that contradicts its single-loop cache contract. Idempotent nodes retain identical outputs; non-idempotent nodes expose the execution-count difference. The importer does not suppress observations, gate conversion, or refuse this case. |
+
+![Completed imported map region](assets/generic-loop-import/map-gather-completed.png)
 
 ### Coverage report
 

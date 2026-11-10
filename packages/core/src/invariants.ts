@@ -877,7 +877,6 @@ function checkRegion(
     if (region.continueOutput !== undefined) report('error', 'doc.region.continueForbidden', 'map cannot declare continueOutput')
   } else if (region.kind === 'fold') {
     if (elements.size === 0) report('error', 'doc.region.foldElementRequired', 'fold requires at least one element port')
-    if (states.size === 0) report('error', 'doc.region.foldStateRequired', 'fold requires at least one state port')
     if (region.continueOutput !== undefined) report('error', 'doc.region.continueForbidden', 'fold cannot declare continueOutput')
   } else {
     if (elements.size > 0) report('error', 'doc.region.whileElementForbidden', 'while cannot declare element ports')

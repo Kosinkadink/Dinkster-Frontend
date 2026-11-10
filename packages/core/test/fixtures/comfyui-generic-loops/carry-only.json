@@ -1,0 +1,223 @@
+{
+  "config": {},
+  "extra": {
+    "issue408": {
+      "api_prompt": {
+        "close": {
+          "class_type": "EndLoop",
+          "inputs": {
+            "accumulate": false,
+            "next_iteration_value": [
+              "increment",
+              0
+            ]
+          }
+        },
+        "increment": {
+          "class_type": "Issue408Increment",
+          "inputs": {
+            "value": [
+              "loop",
+              0
+            ]
+          }
+        },
+        "loop": {
+          "class_type": "StartLoop",
+          "inputs": {
+            "mode": "simple",
+            "mode.num_iterations": 2
+          }
+        }
+      },
+      "outputs": [
+        "close"
+      ],
+      "recorded_cpu_result": {
+        "observed": {
+          "increment_calls": [
+            1,
+            2
+          ]
+        },
+        "progress": [
+          [
+            "Iteration 0 / 2",
+            "loop"
+          ],
+          [
+            "Iteration 1 / 2",
+            "loop"
+          ],
+          [
+            "Iteration 2 / 2",
+            "loop"
+          ]
+        ],
+        "runs": 1
+      }
+    }
+  },
+  "groups": [],
+  "last_link_id": 2,
+  "last_node_id": 3,
+  "links": [
+    [
+      1,
+      1,
+      0,
+      2,
+      0,
+      "*"
+    ],
+    [
+      2,
+      2,
+      0,
+      3,
+      0,
+      "*"
+    ]
+  ],
+  "nodes": [
+    {
+      "flags": {},
+      "id": 1,
+      "inputs": [
+        {
+          "link": null,
+          "name": "mode",
+          "type": "*"
+        },
+        {
+          "link": null,
+          "name": "mode.num_iterations",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 0,
+      "outputs": [
+        {
+          "links": [
+            1
+          ],
+          "name": "output_0",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_1",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_2",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_3",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_4",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        80,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "StartLoop"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "StartLoop",
+      "widgets_values": {
+        "mode": "simple",
+        "mode.num_iterations": 2
+      }
+    },
+    {
+      "flags": {},
+      "id": 2,
+      "inputs": [
+        {
+          "link": 1,
+          "name": "value",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 1,
+      "outputs": [
+        {
+          "links": [
+            2
+          ],
+          "name": "output_0",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        390,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "Issue408Increment"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "Issue408Increment",
+      "widgets_values": {}
+    },
+    {
+      "flags": {},
+      "id": 3,
+      "inputs": [
+        {
+          "link": 2,
+          "name": "next_iteration_value",
+          "type": "*"
+        },
+        {
+          "link": null,
+          "name": "accumulate",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 2,
+      "outputs": [
+        {
+          "links": null,
+          "name": "output_0",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        700,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "EndLoop"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "EndLoop",
+      "widgets_values": {
+        "accumulate": false
+      }
+    }
+  ],
+  "version": 0.4
+}

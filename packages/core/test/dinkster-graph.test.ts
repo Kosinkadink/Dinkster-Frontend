@@ -200,7 +200,7 @@ describe('validateDinksterGraph', () => {
     expect(validateDinksterGraph(graphWith(region as unknown as DinksterRegionWire))).toContainEqual(
       expect.objectContaining({
         code: 'dinksterGraph.regionShape',
-        message: "region 'r': output 'results' has unknown mode 'scatter'; expected gather, compact, state, or flatten",
+        message: "region 'r': output 'results' has unknown mode 'scatter'; expected gather, compact, state, flatten, or last",
         data: { nodeId: 'r', inputId: 'results' },
       }),
     )
@@ -281,7 +281,7 @@ describe('validateDinksterGraph', () => {
     expect(validateDinksterGraph(typed, context)).toEqual([])
   })
 
-  it('refuses schema selectors in nested region bodies but does not treat lazy inputs as selectors', () => {
+  it('accepts schema selectors in nested region bodies', () => {
     const graph = graphWith(mapRegion())
     const ordinary = validationContext({
       r: { outputs: { results: { kind: 'concrete', name: 'core.int' } } },
@@ -293,11 +293,7 @@ describe('validateDinksterGraph', () => {
       r: { outputs: { results: { kind: 'concrete', name: 'core.int' } } },
       'r/add': { outputs: { out: { kind: 'concrete', name: 'core.int' } }, selector: true },
     })
-    expect(validateDinksterGraph(graph, selector)).toContainEqual(expect.objectContaining({
-      code: 'dinksterGraph.selectorInRegion',
-      data: { nodeId: 'r/add' },
-      anchor: { occurrence: { instancePath: ['r'], node: 'add' } },
-    }))
+    expect(validateDinksterGraph(graph, selector)).toEqual([])
   })
 
   it("rejects an unknown binding with the complete expected set", () => {

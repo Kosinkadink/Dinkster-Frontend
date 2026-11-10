@@ -7,7 +7,7 @@ import {
 } from './dinkster-wire.js'
 import type { NodeSchema } from './model.js'
 
-export const COMFY_CORE_REVISION = 'b78cec87'
+export const COMFY_CORE_REVISION = 'b5cc8830279eae909a59de030af1e50761c36751'
 
 export type ComfyMappingKind = 'op' | 'family'
 export type ComfyConfidenceTier = 'exact' | 'parametric' | 'equivalent' | 'grouped'

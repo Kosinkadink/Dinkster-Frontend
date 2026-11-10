@@ -1204,16 +1204,17 @@ export function deriveBoundarySchema(
 
   // Output-node status: any inner node whose schema is an output node makes
   // the instance one (partial-execution scoping descends through instances).
-  // Preview capability aggregates the same way: an instance emits previews
-  // iff any inner node's schema does (nested subgraphs compose because inner
-  // instances resolve to derived schemas).
+  // Runtime capabilities aggregate the same way. Nested subgraphs compose
+  // because inner instances resolve to derived schemas.
   let isOutputNode = false
   let emitsPreviews = false
+  let mayExpandGraph = false
   for (const node of Object.values(def.nodes)) {
     const schema = resolveNode(node)
     if (schema?.isOutputNode) isOutputNode = true
     if (schema?.emitsPreviews) emitsPreviews = true
-    if (isOutputNode && emitsPreviews) break
+    if (schema?.mayExpandGraph) mayExpandGraph = true
+    if (isOutputNode && emitsPreviews && mayExpandGraph) break
     if (!schema && subgraphDefIdOf(node.type) === undefined) {
       diags.push(
         diag('warning', 'schema', 'boundary.innerUnresolved', `[${def.id}] inner node '${node.id}' type '${node.type}' is unresolvable; derived capabilities may be understated`),
@@ -1273,6 +1274,12 @@ export function deriveBoundarySchema(
           const { isList: _isList, ...withoutLegacyList } = item
           projected.push({ ...withoutLegacyList, type: sourceType })
         }
+      } else if (role.kind === 'last') {
+        if (canonicalTypeIdOf(sourceType) === undefined) {
+          diags.push(diag('warning', 'schema', 'doc.region.lastNonConcrete', `[${def.id}] region last output '${item.id}' is not statically runtime-resolvable`))
+        }
+        const { isList: _isList, ...withoutLegacyList } = item
+        projected.push({ ...withoutLegacyList, type: sourceType })
       } else {
         const carriedType = stateInputTypes.get(role.statePort)
         const severity = carriedType === undefined ? undefined : regionSourceMismatch(sourceType, carriedType)
@@ -1298,6 +1305,7 @@ export function deriveBoundarySchema(
       items: derivedItems,
       isOutputNode,
       ...(emitsPreviews ? { emitsPreviews: true } : {}),
+      ...(mayExpandGraph ? { mayExpandGraph: true } : {}),
     },
     diagnostics: diags,
   }

@@ -916,6 +916,8 @@ export interface NodeSchema {
    * affordances available rather than hide them all).
    */
   readonly emitsPreviews?: boolean
+  /** Execution may request unsupported runtime graph expansion (wire 46). */
+  readonly mayExpandGraph?: boolean
   /** Full help content is available from the paged docs catalog (wire 42). */
   readonly hasDocs?: boolean
   /**
@@ -1031,9 +1033,12 @@ export const outputSchemaInputsOf = (s: NodeSchema): readonly string[] =>
 export const isComboWidgetInput = (spec: InputSpec): boolean =>
   spec.widget?.widgetType === 'COMBO'
 
+export const isAssetWidgetInput = (spec: InputSpec): boolean =>
+  spec.widget?.widgetType === 'ASSET'
+
 export const isImageAssetInput = (spec: InputSpec): boolean => {
   const type = canonicalTypeIdOf(spec.type)
-  return spec.hidden !== true && spec.widget?.widgetType === 'ASSET' &&
+  return spec.hidden !== true && isAssetWidgetInput(spec) &&
     (type === 'asset<comfy.IMAGE>' || type === 'asset<dinkster.image>')
 }
 

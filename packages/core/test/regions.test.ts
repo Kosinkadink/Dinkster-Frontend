@@ -173,7 +173,7 @@ describe('region document format and invariants', () => {
 
     raw.graphs.root.nodes.n0.region.outputRoles.items.kind = 'scatter'
     expect(validateDocumentShape(raw)).toContainEqual(expect.objectContaining({
-      message: expect.stringContaining("expected 'gather', 'compact', 'state', or 'flatten'"),
+      message: expect.stringContaining("expected 'gather', 'compact', 'state', 'flatten', or 'last'"),
     }))
   })
 
@@ -215,7 +215,7 @@ describe('region document format and invariants', () => {
     ]))
     expect(codes(documentWith({ kind: 'map' }))).toContain('doc.region.mapElementRequired')
     expect(codes(documentWith({ kind: 'fold' }))).toEqual(expect.arrayContaining([
-      'doc.region.foldElementRequired', 'doc.region.foldStateRequired',
+      'doc.region.foldElementRequired',
     ]))
     expect(codes(documentWith({ kind: 'while', statePorts: ['state'], outputRoles: { result: { kind: 'state', statePort: 'state' } } }))).toEqual(expect.arrayContaining([
       'doc.region.whileContinueRequired', 'doc.region.whileMaxIterationsRequired',
@@ -836,7 +836,7 @@ describe('region compile lowering', () => {
     })
   })
 
-  it('refuses backend admission type and selector failures at authored occurrences', () => {
+  it('refuses backend admission type failures at authored occurrences', () => {
     const compileWithBodySchema = (schema: NodeSchema, document = documentWith({
       kind: 'map',
       elementPorts: ['item'],
@@ -881,18 +881,6 @@ describe('region compile lowering', () => {
     const typedDocument = structuredClone(documentWith({ kind: 'map', elementPorts: ['item'] }))
     ;(typedDocument.graphs.root!.nodes.n0!.values as Record<string, Json>).other = { $typed: { type: 'core.float', value: 0 } }
     expect(compileWithBodySchema(nonConcreteInput, typedDocument).ok).toBe(true)
-
-    const selectorSchema: NodeSchema = {
-      ...bodySchema,
-      selector: { input: 'in_state', branches: { false: 'in_item', true: 'in_other' } },
-    }
-    const selector = compileWithBodySchema(selectorSchema)
-    expect(selector.ok).toBe(false)
-    if (!selector.ok) expect(selector.diagnostics).toContainEqual(expect.objectContaining({
-      code: 'dinksterGraph.selectorInRegion',
-      data: { nodeId: 'n0/n0' },
-      anchor: { occurrence: { instancePath: ['n0'], node: 'n0' } },
-    }))
 
     const lazyInputSchema: NodeSchema = {
       ...bodySchema,

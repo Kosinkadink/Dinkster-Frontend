@@ -1,0 +1,271 @@
+{
+  "config": {},
+  "extra": {
+    "issue408": {
+      "api_prompt": {
+        "capture": {
+          "class_type": "Issue408Capture",
+          "inputs": {
+            "value": [
+              "close",
+              0
+            ]
+          }
+        },
+        "close": {
+          "class_type": "EndLoop",
+          "inputs": {
+            "accumulate": true,
+            "output_value": [
+              "pair",
+              0
+            ]
+          }
+        },
+        "loop": {
+          "class_type": "StartLoop",
+          "inputs": {
+            "mode": "simple",
+            "mode.num_iterations": 2
+          }
+        },
+        "pair": {
+          "class_type": "Issue408Pair",
+          "inputs": {
+            "value": [
+              "loop",
+              0
+            ]
+          }
+        }
+      },
+      "outputs": [
+        "capture"
+      ],
+      "recorded_cpu_result": {
+        "observed": {
+          "capture_values": [
+            0,
+            "0",
+            1,
+            "1"
+          ]
+        },
+        "progress": [
+          [
+            "Iteration 0 / 2",
+            "loop"
+          ],
+          [
+            "Iteration 1 / 2",
+            "loop"
+          ],
+          [
+            "Iteration 2 / 2",
+            "loop"
+          ]
+        ],
+        "runs": 1
+      }
+    }
+  },
+  "groups": [],
+  "last_link_id": 3,
+  "last_node_id": 4,
+  "links": [
+    [
+      1,
+      1,
+      0,
+      2,
+      0,
+      "*"
+    ],
+    [
+      2,
+      2,
+      0,
+      3,
+      0,
+      "*"
+    ],
+    [
+      3,
+      3,
+      0,
+      4,
+      0,
+      "*"
+    ]
+  ],
+  "nodes": [
+    {
+      "flags": {},
+      "id": 1,
+      "inputs": [
+        {
+          "link": null,
+          "name": "mode",
+          "type": "*"
+        },
+        {
+          "link": null,
+          "name": "mode.num_iterations",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 0,
+      "outputs": [
+        {
+          "links": [
+            1
+          ],
+          "name": "output_0",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_1",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_2",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_3",
+          "type": "*"
+        },
+        {
+          "links": null,
+          "name": "output_4",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        80,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "StartLoop"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "StartLoop",
+      "widgets_values": {
+        "mode": "simple",
+        "mode.num_iterations": 2
+      }
+    },
+    {
+      "flags": {},
+      "id": 2,
+      "inputs": [
+        {
+          "link": 1,
+          "name": "value",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 1,
+      "outputs": [
+        {
+          "links": [
+            2
+          ],
+          "name": "output_0",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        390,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "Issue408Pair"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "Issue408Pair",
+      "widgets_values": {}
+    },
+    {
+      "flags": {},
+      "id": 3,
+      "inputs": [
+        {
+          "link": 2,
+          "name": "output_value",
+          "type": "*"
+        },
+        {
+          "link": null,
+          "name": "accumulate",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 2,
+      "outputs": [
+        {
+          "links": [
+            3
+          ],
+          "name": "output_0",
+          "type": "*"
+        }
+      ],
+      "pos": [
+        700,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "EndLoop"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "EndLoop",
+      "widgets_values": {
+        "accumulate": true
+      }
+    },
+    {
+      "flags": {},
+      "id": 4,
+      "inputs": [
+        {
+          "link": 3,
+          "name": "value",
+          "type": "*"
+        }
+      ],
+      "mode": 0,
+      "order": 3,
+      "outputs": [],
+      "pos": [
+        1010,
+        80
+      ],
+      "properties": {
+        "Node name for S&R": "Issue408Capture"
+      },
+      "size": [
+        260,
+        150
+      ],
+      "type": "Issue408Capture",
+      "widgets_values": {}
+    }
+  ],
+  "version": 0.4
+}

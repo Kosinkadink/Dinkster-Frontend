@@ -210,12 +210,14 @@ export interface RegionContract {
     | { readonly kind: 'gather' }
     | { readonly kind: 'compact' }
     | { readonly kind: 'flatten' }
+    | { readonly kind: 'last' }
     | { readonly kind: 'state'; readonly statePort: string }
   >>
   /** Boundary output consumed as the while continuation condition. */
   readonly continueOutput?: string
   readonly binding?: 'zip' | 'cross' | 'broadcast'
   readonly maxIterations?: number
+  readonly cachePolicy?: 'reuse' | 'rerun'
 }
 
 export interface RegionShapeProblem {
@@ -230,7 +232,7 @@ export function regionContractShapeProblems(value: unknown): readonly RegionShap
   }
   const region = value as Record<string, unknown>
   const problems: RegionShapeProblem[] = []
-  const known = new Set(['kind', 'elementPorts', 'statePorts', 'outputRoles', 'continueOutput', 'binding', 'maxIterations'])
+  const known = new Set(['kind', 'elementPorts', 'statePorts', 'outputRoles', 'continueOutput', 'binding', 'maxIterations', 'cachePolicy'])
   for (const key of Object.keys(region)) {
     if (!known.has(key)) problems.push({ field: `.${key}`, message: 'unknown region property' })
   }
@@ -267,7 +269,7 @@ export function regionContractShapeProblems(value: unknown): readonly RegionShap
         }
         const fields = Object.keys(role)
         const kind = (role as Record<string, unknown>).kind
-        if (kind === 'gather' || kind === 'compact' || kind === 'flatten') {
+        if (kind === 'gather' || kind === 'compact' || kind === 'flatten' || kind === 'last') {
           if (fields.some((field) => field !== 'kind')) {
             problems.push({ field: `.outputRoles.${id}`, message: `${kind} role accepts only 'kind'` })
           }
@@ -280,7 +282,7 @@ export function regionContractShapeProblems(value: unknown): readonly RegionShap
             problems.push({ field: `.outputRoles.${id}.statePort`, message: 'expected a non-empty string' })
           }
         } else {
-          problems.push({ field: `.outputRoles.${id}.kind`, message: "expected 'gather', 'compact', 'state', or 'flatten'" })
+          problems.push({ field: `.outputRoles.${id}.kind`, message: "expected 'gather', 'compact', 'state', 'flatten', or 'last'" })
         }
       }
     }
@@ -294,6 +296,9 @@ export function regionContractShapeProblems(value: unknown): readonly RegionShap
   if (region.maxIterations !== undefined &&
       (typeof region.maxIterations !== 'number' || !Number.isSafeInteger(region.maxIterations) || region.maxIterations < 0)) {
     problems.push({ field: '.maxIterations', message: 'expected a safe integer >= 0' })
+  }
+  if (region.cachePolicy !== undefined && region.cachePolicy !== 'reuse' && region.cachePolicy !== 'rerun') {
+    problems.push({ field: '.cachePolicy', message: "expected 'reuse' or 'rerun'" })
   }
   return problems
 }
