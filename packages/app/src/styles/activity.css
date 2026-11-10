@@ -204,41 +204,6 @@
   user-select: text;
 }
 
-.imported-packs-report p {
-  color: var(--dinkster-text-secondary);
-  margin: 8px 6px;
-}
-
-.imported-packs-report h3 {
-  margin: 4px 0;
-  font-size: inherit;
-  overflow-wrap: anywhere;
-}
-
-.imported-packs-report ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.imported-packs-report li {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  margin: 6px 0;
-  overflow-wrap: anywhere;
-}
-
-.imported-packs-report li > span:first-child {
-  flex-basis: 100%;
-}
-
-.imported-pack-status,
-.imported-packs-report code {
-  color: var(--dinkster-text-secondary);
-  font-size: 11px;
-}
-
 .problems-group-header,
 .problem-show-on-canvas {
   user-select: none;

@@ -5,7 +5,7 @@
 
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { BrandMark } from './BrandMark.js'
-import { activeLocale, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, resolveImportedNodePacks, sha256Hex, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup } from '@dinkster/core'
+import { activeLocale, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, sha256Hex, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup } from '@dinkster/core'
 import type { AssetDtoV1WireContract, ExecutionState } from '@dinkster/client'
 import Database from 'lucide-solid/icons/database'
 import FolderOpen from 'lucide-solid/icons/folder-open'
@@ -1383,22 +1383,14 @@ export function App(props: {
       ...(execution?.errors ?? []),
     ]
   }
-  const importedNodes = () => {
-    boundaryStateTick()
-    backendsTick()
-    const tab = activeTab()
-    if (tab === undefined || tab.execution || tab.store.doc.ext?.['importer.comfyWorkflow'] === undefined) return []
-    return resolveImportedNodePacks(tab.store.doc, app.registryForTab(tab)?.resolve ?? (() => undefined))
-  }
   const problemsIndicator = (): PanelIndicator | undefined => {
     const list = problemDiagnostics()
     const notice = migrationNotices().get(activeTabId())
-    const missingPackCount = new Set(importedNodes().filter((node) => node.status === 'installable').map((node) => node.pack)).size
-    if (list.length === 0 && notice === undefined && missingPackCount === 0) return undefined
+    if (list.length === 0 && notice === undefined) return undefined
     const severity = list.some((d) => d.severity === 'error')
       ? 'error'
-      : missingPackCount > 0 || list.some((d) => d.severity === 'warning') || notice?.entries.some((d) => d.severity === 'warning') ? 'warning' : 'info'
-    const count = list.length + (notice === undefined ? 0 : 1) + missingPackCount
+      : list.some((d) => d.severity === 'warning') || notice?.entries.some((d) => d.severity === 'warning') ? 'warning' : 'info'
+    const count = list.length + (notice === undefined ? 0 : 1)
     return {
       count,
       severity,
@@ -1541,7 +1533,6 @@ export function App(props: {
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 60,
       indicator: problemsIndicator,
       component: () => <ProblemsPanel app={app} diagnostics={problemDiagnostics}
-        importedNodes={importedNodes}
         migrationNotice={() => migrationNotices().get(activeTabId())}
         compatSkips={() => activeBackend().compatSkips.get()}
         packInferenceUnavailable={() => activeBackend().packInferenceUnavailable.get()}

@@ -61,10 +61,6 @@ The native client ignores pack-level alias/group catalogs: they supply neither
 registry entries nor extra carrier search terms. Native schema resolution uses
 only exact registered node IDs; historical node alias metadata is not a lookup
 path. Search terms remain presentation-only properties of the schema.
-Replacement mappings retain exact declared static port IDs, including dotted
-model-merge input names such as `time_embed.` and `input_blocks.0.`. Punctuation
-does not turn a declared static port into a dynamic member path; undeclared
-member paths still require the corresponding family mapping.
 The importer also requires a supplied schema's ID to equal the requested class:
 a custom resolver cannot rename a node by returning another class's schema.
 Mismatched results are treated as missing, retaining authored widget values and
