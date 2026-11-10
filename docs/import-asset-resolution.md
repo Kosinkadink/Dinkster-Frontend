@@ -2,21 +2,96 @@
 
 Dinkster translates legacy ComfyUI LiteGraph workflows when `AppState.openDocument` receives their JSON. Widget arrays are mapped to schema input IDs. Legacy ASSET widget values remain strings until the user decides whether to replace them.
 
+The core importer also accepts first-party replacement rules with import-only
+node interfaces. These interfaces decode positional widgets without installing
+the owning packs and never join the executable schema registry. Conversion
+uses the ordinary replacement planner and preserves the source class, owning
+pack and version on each translated node. Unknown classes keep their original
+values for review. Versioned widget-stream upgrades run before conversion.
+Conversion follows chained rules and newly created helper nodes, including
+inside subgraph definitions, before resolving packs. A repeated source type
+in a primary/helper ancestry stops that branch with a nonblocking diagnostic;
+a same-type rule runs once. The final pack is reported while the original
+source class remains available for review.
+Repeated helper-local names receive deterministic unused names for each import
+hop, with their port, family and construct addresses renamed together. Existing
+helpers and the ordinary replacement command's collision checks stay intact.
+
+Pack resolution is separate from conversion: translated nodes are installed
+only when their exact native type exists in the selected backend registry,
+otherwise installable from their recorded pack. Nodes with neither a schema
+nor translation remain unknown. Recomputing resolution after a registry change
+does not re-import or modify the document. The application import path still
+uses its installed catalog unless translation records are supplied to the
+selected backend's import catalog. With supplied records, opening does not
+require the translated nodes' packs to be installed, but the executable schema
+registry must be loaded. Import-only records do not bypass the application's
+pre-schema refusal. The Problems panel groups installable nodes
+by first-party pack name and shows each source class and graph/node identity.
+This report is advisory: the document remains editable, unknown classes keep
+their own diagnostics, and registry changes recompute the report without
+replacing the document or its undo history.
+
+Installed node schemas supply their ordinary replacement rules directly at
+import time, even when no registry metadata is available. These rules take
+precedence over fetched records for the same source class. Installed local
+packs do not need a release version; absent pack/version provenance stays
+absent rather than becoming a fabricated installation pin. Historical
+Dinkster-document migrations remain separate from ComfyUI conversion.
+
+Backend startup, schema changes and reconnects read `replacements/index.json`
+under the Node catalog static prefix setting (`search.registryUrl`, default
+`https://registry.dinkster.org/static`). Per-pack
+`packs/<pack>/<version>/schemas.json` supplies import-only interfaces, including
+conditional targets and helpers. These public reads omit backend credentials.
+Conditional reads revalidate the connection-local index ETag and re-read pack
+interfaces; a failed read never falls back to a stale or shipped catalog.
+Duplicate-source index rows are invalid. Multiple candidates for one source
+remain ambiguous placeholders with a named Problems entry rather than choosing
+a pack silently. Alias discovery names use the unchanged canonical rule's
+conversion with the authored source identity.
+
+Successful refreshes publish the import catalog before the executable registry;
+responses from an earlier server life and their failure warnings are discarded.
+When the registry cannot be reached, missing-pack nodes keep their original
+values and editable placeholders, with `import.registry.unreachable` naming
+each class in Problems. Installed schema rules still convert normally. Clearing
+the static prefix disables remote lookup and uses the same installed-only path.
+There is no backend translation snapshot route or offline shipped copy.
+
 The shared `DinksterConnection` client exposes `planPackInstall` for exact
 pack/version selections and `applyPackInstall` for the server-held confirmation
-token. Planning returns the manager's review text and does not install.
-Both methods accept an optional AbortSignal. Planning has the ordinary
-30-second metadata deadline. Cancelling an apply stops the caller's wait,
-not the backend mutation; its outcome requires installed-catalog reconciliation.
-The plan member is an opaque JSON object owned by the host: managed roots use
-an installer plan and Desktop uses its project software plan. The renderer
-does not interpret that payload or send it back for execution.
+token. Planning returns review text and does not install.
+Both methods accept an optional `AbortSignal`; planning also has the ordinary
+30-second metadata deadline. Cancelling an apply stops the caller's wait, not
+the backend mutation, so its outcome requires installed-catalog reconciliation.
+A managed bare-host
+plan returns a nonempty `commands` string array instead of `confirmation`;
+the Problems panel shows and copies these exact host-supplied commands, without
+an HTTP confirmation button. Run them in a terminal on the backend host to
+plan and apply the managed generation. After activation and reconnect, the
+existing document re-resolves against the newly installed schemas.
+Desktop gateway plans return `confirmation` instead of `commands` and retain
+the explicit HTTP confirmation flow. A response with both execution modes,
+neither mode, or malformed commands is rejected. The `plan` member is an opaque
+JSON object owned by the host; the renderer does not interpret that payload,
+execute terminal commands, or send the plan back for execution.
 Applying never retries automatically: a transport failure may have happened
 after the host changed its installation. HTTP failures retain their status and
 structured body as `PackInstallError`; absent opt-in routes remain unavailable.
 Only a validated successful activation counts as completion. Callers refresh
 the same backend's installed registry afterward; the client does not rewrite
 the document or assume a topology-specific Desktop install path.
+
+The Problems report offers review for one pack or all missing packs. The
+backend's exact plan is shown before the terminal commands or gateway
+confirmation; Cancel makes no installation request. Clipboard failures leave
+the command text available for manual selection. Editing or replacing the document, switching tabs or
+changing its selected backend invalidates the pending confirmation. Applying
+uses the captured backend and refreshes that backend's schemas after successful
+activation, without re-importing. Host refusals (including disabled routes),
+expired plans and installation failures remain visible in the report; apply
+is never retried automatically. The document stays editable during requests.
 
 An empty string in an optional file widget omits that input while consuming its
 original widget position. Required file widgets, nonempty filenames and named

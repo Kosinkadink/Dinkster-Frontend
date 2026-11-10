@@ -1,6 +1,6 @@
 {
   "search.registryUrl.name": "Node catalog static prefix",
-  "search.registryUrl.description": "Registry or static mirror prefix for first-party node search. Clear to search installed nodes only.",
+  "search.registryUrl.description": "Registry or static mirror prefix for first-party node search and ComfyUI imports. Clear to use installed nodes only.",
   "search.notInstalled": "Not installed",
   "search.previewUnavailable": "The node preview could not be rendered.",
   "search.installTitle": "Install node pack",

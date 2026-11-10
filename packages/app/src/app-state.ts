@@ -54,6 +54,7 @@ import {
   stampEnvironment,
   t,
   importLitegraph,
+  type ComfyTranslation,
   isExecutionEvent,
   isIntegerWidgetValue,
   isValueDiagnostic,
@@ -2300,6 +2301,8 @@ interface BackendBase {
   readonly label: string
   readonly baseUrl: string
   readonly registry: Signal<SchemaRegistry | undefined>
+  readonly comfyTranslations: Signal<readonly ComfyTranslation[]>
+  readonly comfyTranslationsUnavailable: Signal<boolean>
   /** Execution locations advertised by the current native server life. */
   readonly workerCatalog: Signal<WorkerCatalogState>
   readonly templatesEnabled: Signal<boolean>
@@ -4357,6 +4360,8 @@ export class AppState {
       label,
       baseUrl,
       registry,
+      comfyTranslations: createSignal<readonly ComfyTranslation[]>([]),
+      comfyTranslationsUnavailable: createSignal(true),
       workerCatalog,
       templatesEnabled: createSignal(false),
       schemaState: createSignal<
@@ -4459,6 +4464,7 @@ export class AppState {
     {
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
       const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId(),
+        registryStaticUrl: () => this.settings.get<string>('search.registryUrl'),
         admitValuePeek: async (query, descriptor, offer) => {
           const ref = { connection: id, prompt: asPromptId(query.jobId) }
           const key = executionKey(ref)
@@ -4546,7 +4552,17 @@ export class AppState {
             const goal = targetEpoch
             const gen = staleGen // a fetch issued now observes this server life
             attemptGen = gen
-            const fresh = await connection.fetchSchemas()
+            const [fresh, translations] = await Promise.all([
+              connection.fetchSchemas(),
+              connection.fetchComfyTranslations().catch((error: unknown) => {
+                if (gen === staleGen) {
+                  base.comfyTranslations.set([])
+                  base.comfyTranslationsUnavailable.set(true)
+                  this.log('warn', label, `ComfyUI translation index unavailable: ${String(error)}`)
+                }
+                return undefined
+              }),
+            ])
             // A reconnect landed mid-fetch: this response may belong to the
             // PREVIOUS server life. Never commit it - committing would
             // restore capabilities the strip below just invalidated - loop
@@ -4558,6 +4574,8 @@ export class AppState {
               continue
             }
             const layered = this.layerExtraSchemas(fresh)
+            base.comfyTranslationsUnavailable.set(translations === undefined)
+            base.comfyTranslations.set(translations ?? [])
             registry.set(layered)
             base.invalidateRemoteChoices()
             this.refreshWorkerCatalog(nativeBackend, layered)
@@ -4672,6 +4690,17 @@ export class AppState {
         handleStatusChange,
       )
       const disposeMountHealth = connection.mountError.subscribe(() => this.backendsTick.update((v) => v + 1))
+      let catalogPrefix = this.settings.get<string>('search.registryUrl')
+      const disposeCatalogSetting = this.settings.changed.subscribe(() => {
+        const prefix = this.settings.get<string>('search.registryUrl')
+        if (prefix === catalogPrefix) return
+        catalogPrefix = prefix
+        staleGen += 1
+        base.comfyTranslations.set([])
+        base.comfyTranslationsUnavailable.set(true)
+        if (registry.get() !== undefined) startRefresh('registry static prefix changed')
+        else void this.loadBackendSchemas(nativeBackend)
+      })
       const disposeCompletionHydration = connection.onLiveCompletion((ref) => {
         hydrateDinksterCompletedExecution(connection, this.store, ref, prepareHydration).catch((error: unknown) => {
           this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
@@ -4692,6 +4721,7 @@ export class AppState {
         dispose: () => {
           compositionRequest += 1
           this.clearProblems(packProblemsOwner)
+          disposeCatalogSetting()
           this.workflowRetentionRecoveries.get(connection)?.abort()
           this.workflowRetentionRecoveries.delete(connection)
           this.clearProblems(retentionProblemsOwner)
@@ -5275,6 +5305,9 @@ export class AppState {
       if (
         node.type.startsWith('#') ||
         (node.virtual === true && this.virtualNodeSchema(node.type)?.virtual === true) ||
+        // Translated nodes use the live missing-pack report, not a warning
+        // captured before installation that would survive registry refresh.
+        node.ext?.['importer.comfyTranslation'] !== undefined ||
         registry.resolve(node.type)
       )
         continue
@@ -7038,7 +7071,7 @@ export class AppState {
       ? importVia ?? (active !== undefined ? this.backendForTab(active) : this.backends.get()[0])
       : undefined
     const importRegistry = importBackend?.registry.get()
-    const legacyLoaded = legacy ? this.importLegacy(json, importRegistry) : undefined
+    const legacyLoaded = legacy ? this.importLegacy(json, importRegistry, importBackend?.comfyTranslations.get(), importBackend?.comfyTranslationsUnavailable.get()) : undefined
     const loaded = legacyLoaded ?? loadDocument(json)
     if (!loaded.document) {
       // No tab exists to own a failed load; the errors are app-scoped
@@ -7993,7 +8026,7 @@ export class AppState {
     this.reportProblems(tab.id, drift)
   }
 
-  private importLegacy(json: unknown, registry = this.registry.get()): {
+  private importLegacy(json: unknown, registry: SchemaRegistry | undefined, translations: readonly ComfyTranslation[] = [], unavailable = false): {
     readonly document?: WorkflowDocument
     readonly diagnostics: readonly Diagnostic[]
   } {
@@ -8004,7 +8037,22 @@ export class AppState {
         ],
       }
     }
-    return importLitegraph(json as JsonObject, registry.resolve)
+    const installed = [...registry.schemas.values()].flatMap((schema): ComfyTranslation[] => {
+      const version = schema.pack === undefined ? undefined : registry.packs?.get(schema.pack)?.version
+      return (schema.replacements ?? []).filter((rule) => rule.migration === undefined).map((rule) => ({
+        schema, rule,
+        ...(schema.pack !== undefined ? { pack: schema.pack } : {}),
+        ...(version !== undefined ? { version } : {}),
+      }))
+    })
+    const installedSources = new Set(installed.map((record) => record.rule.from))
+    const result = importLitegraph(json as JsonObject, registry.resolve, undefined, [
+      ...translations.filter((record) => !installedSources.has(record.source ?? record.rule.from)), ...installed,
+    ])
+    if (!unavailable) return result
+    return { ...result, diagnostics: result.diagnostics.map((entry) => entry.code === 'import.schema.missing'
+      ? { ...entry, code: 'import.registry.unreachable', message: `registry could not be reached; ${entry.message}`, data: { detail: entry.message } }
+      : entry) }
   }
 
   /**
@@ -8327,17 +8375,31 @@ export class AppState {
    * (and retries on ready) instead of a scary fetch-failed problem. */
   private async loadBackendSchemas(backend: Backend): Promise<void> {
     const request = {}
+    const catalogPrefix = this.settings.get<string>('search.registryUrl')
     this.schemaRequests.set(backend, request)
     this.invalidateWorkerCatalog(backend)
     backend.schemaState.set({ status: 'loading' })
     const current = (): boolean =>
-      this.backends.get().includes(backend) && this.schemaRequests.get(backend) === request
+      this.backends.get().includes(backend) && this.schemaRequests.get(backend) === request &&
+      this.settings.get<string>('search.registryUrl') === catalogPrefix
     try {
-      const registry = await backend.connection.fetchSchemas()
+      const [registry, translations] = await Promise.all([
+        backend.connection.fetchSchemas(),
+        backend.connection.fetchComfyTranslations().catch((error: unknown) => {
+          if (current()) {
+            backend.comfyTranslations.set([])
+            backend.comfyTranslationsUnavailable.set(true)
+            this.log('warn', backend.label, `ComfyUI translation index unavailable: ${String(error)}`)
+          }
+          return undefined
+        }),
+      ])
       if (!current()) return
       await this.prepareExtensionWorld(backend, registry)
       if (!current()) return
       const layered = this.layerExtraSchemas(registry)
+      backend.comfyTranslationsUnavailable.set(translations === undefined)
+      backend.comfyTranslations.set(translations ?? [])
       backend.registry.set(layered)
       backend.schemaState.set({ status: 'ready' })
       backend.invalidateRemoteChoices()

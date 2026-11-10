@@ -1,6 +1,6 @@
 {
   "search.registryUrl.name": "节点目录静态前缀",
-  "search.registryUrl.description": "用于搜索第一方节点的注册表或静态镜像前缀。清空后仅搜索已安装节点。",
+  "search.registryUrl.description": "用于搜索第一方节点和导入 ComfyUI 的注册表或静态镜像前缀。清空后仅使用已安装节点。",
   "search.notInstalled": "未安装",
   "search.previewUnavailable": "无法渲染节点预览。",
   "search.installTitle": "安装节点包",
