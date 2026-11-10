@@ -4551,11 +4551,18 @@ export class AppState {
       const startRefresh = (why: string): void => {
         if (refreshing) return
         refreshing = true
+        let request: object
+        const current = (): boolean =>
+          !this.disposed && this.backends.get().includes(nativeBackend) &&
+          this.schemaRequests.get(nativeBackend) === request
         const run = async (): Promise<number> => {
           for (;;) {
             const goal = targetEpoch
             const gen = staleGen // a fetch issued now observes this server life
             attemptGen = gen
+            request = {}
+            this.schemaRequests.set(nativeBackend, request)
+            base.schemaState.set({ status: 'loading' })
             this.loadComfyTranslations(nativeBackend, () => gen === staleGen)
             const fresh = await connection.fetchSchemas()
             // A reconnect landed mid-fetch: this response may belong to the
@@ -4563,13 +4570,19 @@ export class AppState {
             // restore capabilities the strip below just invalidated - loop
             // and refetch under the current generation instead.
             if (gen < staleGen) continue
+            if (!current()) return targetEpoch
             await this.prepareExtensionWorld(nativeBackend, fresh)
             if (gen < staleGen) {
               this.pruneExtensionWorlds()
               continue
             }
+            if (!current()) {
+              this.pruneExtensionWorlds()
+              return targetEpoch
+            }
             const layered = this.layerExtraSchemas(fresh)
             registry.set(layered)
+            base.schemaState.set({ status: 'ready' })
             base.invalidateRemoteChoices()
             this.refreshWorkerCatalog(nativeBackend, layered)
             void this.refreshPackLocaleOverlay(nativeBackend, fresh)
@@ -4601,17 +4614,21 @@ export class AppState {
             // the failure belongs to the previous server life and the new
             // life still owes its unconditional fetch. Exactly one follow-up
             // (a follow-up failing under the current life never retries).
+            if (this.disposed || !this.backends.get().includes(nativeBackend)) return
             if (attemptGen < staleGen) {
               startRefresh('reconnect')
               return
             }
+            if (!current()) return
             if (e instanceof EngineNotReadyError) {
               // Supervisor-managed restart: the poll narrates the wait, and
               // the ready transition's composition ping refetches (gate
               // bypassed), mirroring the startup 503 gate.
+              base.schemaState.set({ status: 'waiting' })
               this.log('info', label, `engine not ready (${e.state}); deferring /api/nodes refresh`)
               return
             }
+            base.schemaState.set({ status: 'error', message: e instanceof Error ? e.message : String(e) })
             this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
               diag('error', 'schema', 'schema.refreshFailed', `[${label}] failed to refresh /api/nodes after ${why}: ${e instanceof Error ? e.message : String(e)}`),
             ])
@@ -4631,6 +4648,9 @@ export class AppState {
       }
       const refreshOnConnect = (): void => {
         staleGen += 1
+        // Retire startup/manual results even when a coalesced refresh is
+        // already in flight; its next loop owns the new server's health.
+        this.schemaRequests.delete(nativeBackend)
         base.templatesEnabled.set(false)
         requestCurrentDiagnostics(staleGen)
         // graphFeatures and the extension snapshot pair are load-bearing and
