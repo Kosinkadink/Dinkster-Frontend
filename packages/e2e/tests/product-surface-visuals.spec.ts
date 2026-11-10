@@ -191,7 +191,7 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
     await route.fulfill({ json: { records: [] } })
   } else if (path.endsWith('/api/workflows/plan')) {
     await route.fulfill({ json: { packs: [], assets: [], errors: [] } })
-  } else if (path.includes('/api/library/retentions/document/')) {
+  } else if (path.includes('/api/library/retentions/document/') || path.includes('/api/library/retentions/preview/')) {
     await route.fallback()
   } else {
     await route.fulfill({ status: 502, body: 'visual fixture unavailable' })
