@@ -30,7 +30,7 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
   await expect(page.getByTestId('status-bar')).toContainText('0 node schemas', { timeout: 15_000 })
   await waitForStartupOwnership(page)
-  await page.evaluate(async (mode) => {
+  const diagnostics = await page.evaluate(async (mode) => {
     const profile = mode === true
     const fixedIds = mode !== false
     const choices = profile
@@ -50,13 +50,15 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
         { kind: 'output', id: 'entries', type: choices[0]!.type, outputDescriptors: { input: 'entries', choices, minEntries: profile ? 1 : 0, maxEntries: profile ? 3 : 32, fixedIds, ...(profile ? { probe: { input: 'checkpoint', kind: 'model' as const, revision: '1' } } : {}) } },
       ],
     }])
-    await window.__dinksterTest!.app.openDocument({
+    const diagnostics = await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'descriptor-browser', root: 'root',
       graphs: { root: { id: 'root', name: 'Descriptor editor', nodes: { n: { id: 'n', type: nodeType, values: { entries: source, ...(profile ? { checkpoint: { digest: `blake3:${'1'.repeat(64)}`, name: 'model.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } } : {}) } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10 } },
       view: { graphs: { root: { nodes: { n: { position: { x: 130, y: 100 }, size: { width: 350, height: 190 } } } } } },
     }, 'Output descriptors')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    return diagnostics
   }, mode)
+  expect(diagnostics).toEqual([])
 }
 
 const stored = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.nodes.n!.values.entries as string)
@@ -350,15 +352,17 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
     assetDigest: digest,
     detectorRevision: '1',
   })
-  await page.evaluate(async ({ digest, profile }) => {
+  const diagnostics = await page.evaluate(async ({ digest, profile }) => {
     const app = window.__dinksterTest!.app
+    await (app as unknown as { enableWorkspaceAuthority(): Promise<void> }).enableWorkspaceAuthority()
+    await (app as unknown as { workspaceOperationSubmission: Promise<unknown> }).workspaceOperationSubmission
     const sink = (type: string, input: string) => ({
       type, displayName: type, category: 'test', source: 'v3' as const, isOutputNode: true,
       items: [{ kind: 'input' as const, id: input, type: { kind: 'concrete' as const, name: input.toUpperCase() }, optional: false }],
     })
     app.registerSchemas([sink('ModelSink', 'model'), sink('ClipSink', 'clip'), sink('VaeSink', 'vae')])
     const original = app.activeTab()!.store.doc
-    await app.openDocument({
+    const diagnostics = await app.openDocument({
       ...original,
       lineage: 'saved-checkpoint-profile-links',
       graphs: { root: {
@@ -383,7 +387,9 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
       } } } },
     }, 'Saved checkpoint profile links')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    return diagnostics
   }, { digest, profile })
+  expect(diagnostics).toEqual([])
 
   expect(await pins(page)).toEqual(['model', 'vae'])
   expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.links))).toEqual(['modelLink', 'clipLink', 'vaeLink'])
