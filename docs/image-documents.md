@@ -362,7 +362,9 @@ check. Concurrent local changes require a fresh proposal and admission; a
 refused admission or changed connection preserves the last published state.
 Closing prevents pending admissions from publishing. Events received during
 initial admission are caught up through the same boundary. The hook itself
-does not acquire or release backend owners. Retained digests remain conservative.
+does not acquire or release backend owners. It may return a callback that runs
+only after its admitted document commits. Superseded or refused proposals never
+run that callback. Retained digests remain conservative.
 
 The workspace waits for backend admission before exposing a recovered,
 imported, or shared session. Local external rasters are verified against staged
@@ -376,9 +378,14 @@ reconciled by reading that owner, without replaying its write. Refusal, reuse,
 disconnection, or a changed project/backend/session prevents publication.
 Unavailable backends leave recovered drafts blocked, not visible without
 ownership. Closing the workspace waits for pending admissions but does not
-release their durable owners. These session owners remain held conservatively;
-generation-bound session retirement and renderer-cache lifetime ownership are
-separate from admission.
+release their durable owners. After a replacement publishes, its complete
+acknowledged owner can retire the previous session owner in the same live
+project, backend, and session lifetime. Retirement verifies the exact durable
+journal and revision before releasing; a lost response is reconciled by reading
+that owner, never replaying the release. A stale admission, disconnection,
+changed destination, or foreign journal grants no release authority. Closing
+waits for already-started retirements but never releases the current owner.
+Independent session and staged-raster owners remain separate and held.
 
 ## Shared editing
 

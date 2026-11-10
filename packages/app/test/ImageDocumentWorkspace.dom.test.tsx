@@ -69,11 +69,14 @@ describe('ImageDocumentWorkspace', () => {
       let acknowledge!: () => void
       let entered = false
       let observed: Awaited<ReturnType<DinksterConnection['retainAssets']>> | undefined
-      const release = vi.fn()
+      const owners: RetainedAssetOwner[] = []
+      const release = vi.fn(async (owner: RetainedAssetOwner, revision: number) =>
+        ({ ...owner, revision: revision + 1, complete: true, digests: [] }))
       const connection = {
         ...imageRetention,
         retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
           if (!owner.ownerId.startsWith('workflow-candidate:')) return { ...owner, ...declaration, revision: 1 }
+          owners.push(owner)
           entered = true
           observed = { ...owner, ...declaration, revision: scenario === 'reused' ? 3 : 1 }
           await new Promise<void>((resolve) => { acknowledge = resolve })
@@ -109,6 +112,7 @@ describe('ImageDocumentWorkspace', () => {
           await vi.waitFor(() => expect(entered).toBe(true))
           expect((await store.recoverDraft(draft.document.lineage))!.document.layers.l1!.opacity).toBe(IMAGE_OPACITY_MAX)
           expect(root.querySelector('.image-document-properties output')?.textContent).toBe('100%')
+          expect(release).not.toHaveBeenCalled()
           acknowledge()
           await vi.waitFor(async () => expect((await store.recoverDraft(draft.document.lineage))!.document.layers.l1!.opacity).toBe(0))
         } else {
@@ -118,7 +122,9 @@ describe('ImageDocumentWorkspace', () => {
           expect(root.querySelector('[role="tab"]')).toBeNull()
         }
       }
-      expect(release).not.toHaveBeenCalled()
+      expect(release.mock.calls.map(([owner]) => owner.ownerId)).toEqual(
+        scenario === 'accepted' || scenario === 'lost' ? [owners[0]!.ownerId] : [],
+      )
       if (scenario !== 'dispose') dispose()
       await store.close()
     },
@@ -154,9 +160,12 @@ describe('ImageDocumentWorkspace', () => {
       let entered = false
       let acknowledge!: () => void
       let observed: Awaited<ReturnType<DinksterConnection['retainAssets']>> | undefined
-      const release = vi.fn()
+      const owners: RetainedAssetOwner[] = []
+      const release = vi.fn(async (owner: RetainedAssetOwner, revision: number) =>
+        ({ ...owner, revision: revision + 1, complete: true, digests: [] }))
       const assetConnection = { ...imageRetention,
         retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
+          if (owner.ownerId.startsWith('workflow-candidate:')) owners.push(owner)
           const receipt = { ...owner, ...declaration, revision: scenario === 'reused' ? 3 : 1 }
           if (!hold || !owner.ownerId.startsWith('workflow-candidate:')) return { ...receipt, revision: 1 }
           observed = receipt
@@ -191,6 +200,7 @@ describe('ImageDocumentWorkspace', () => {
         await vi.waitFor(() => expect(entered).toBe(true))
         expect(root.querySelector('.image-document-properties output')?.textContent).toBe('100%')
         expect(log).toEqual([])
+        expect(release).not.toHaveBeenCalled()
         hold = false
         acknowledge()
         await vi.waitFor(() => expect(root.querySelector('.image-document-properties output')?.textContent).toBe('0%'))
@@ -200,7 +210,9 @@ describe('ImageDocumentWorkspace', () => {
         expect(root.querySelector('.image-document-shared-status')).toBeNull()
         expect(log).toEqual([])
       }
-      expect(release).not.toHaveBeenCalled()
+      expect(release.mock.calls.map(([owner]) => owner.ownerId)).toEqual(
+        scenario === 'accepted' || scenario === 'lost' ? owners.slice(0, -1).map((owner) => owner.ownerId) : [],
+      )
       if (scenario !== 'dispose') dispose()
       await store.close()
     },

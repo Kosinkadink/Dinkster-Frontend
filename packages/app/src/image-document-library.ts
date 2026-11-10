@@ -32,7 +32,8 @@ import {
   type ImageLibraryLink,
   type StagedImageResource,
 } from './image-document-local.js'
-import { retainWorkflowAssets } from './workflow-asset-retention.js'
+import { activeProjectId } from './projects.js'
+import { retainWorkflowAssets, retireAssetOwner } from './workflow-asset-retention.js'
 
 export const IMAGE_DOCUMENT_LIBRARY_LABEL = 'image-document'
 
@@ -64,11 +65,17 @@ export async function createRetainedSharedImageDocumentSession(
   isCurrent: () => boolean,
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
 ): Promise<RetainedImageDocumentSession<SharedImageDocumentSession>> {
+  let disconnected = false
+  const stop = transport.onEvent((event) => {
+    if (event.kind === 'disconnected' || event.kind === 'session-closed') disconnected = true
+  })
   try {
-    return await createRetainedImageDocumentSession(connection, store,
+    const retained = await createRetainedImageDocumentSession(connection, store,
       (admission) => connectSharedImageDocumentSession(transport, descriptor, { ...options, ...admission }),
-      isCurrent, storage, descriptor.scope)
+      () => !disconnected && isCurrent(), storage, descriptor.scope)
+    return { ...retained, close: async () => { stop(); await retained.close() } }
   } catch (cause) {
+    stop()
     transport.close()
     throw cause
   }
@@ -83,11 +90,12 @@ async function createRetainedImageDocumentSession<S extends ReturnType<typeof cr
   remoteScope?: string,
 ) {
   const assetBaseUrl = connection.assetUrl('')
+  const project = activeProjectId()
   let closed = false
   let connectionChanged = false
   const unsubscribe = connection.status.subscribe(() => { connectionChanged = true })
   const assertCurrent = (): void => {
-    if (closed || connectionChanged || connection.status.get() !== 'connected' ||
+    if (closed || connectionChanged || activeProjectId() !== project || connection.status.get() !== 'connected' ||
       connection.assetUrl('') !== assetBaseUrl || !isCurrent()) {
       throw new Error('ImageDocument destination changed during asset admission')
     }
@@ -96,9 +104,29 @@ async function createRetainedImageDocumentSession<S extends ReturnType<typeof cr
   let admitted: ImageDocument | undefined
   let stopSession = (): void => undefined
   const pending = new Set<Promise<unknown>>()
+  let session: S | undefined
+  let owner: RetainedAssets | undefined
+  const superseded = new Set<RetainedAssets>()
+  const installOwner = (retained: RetainedAssets): void => {
+    try { assertCurrent() } catch { return }
+    const previous = owner
+    owner = retained
+    if (previous === undefined || !previous.complete || !retained.complete) return
+    superseded.add(previous)
+    queueMicrotask(() => {
+      try { assertCurrent() } catch { return }
+      if (owner !== retained || storage !== globalThis.localStorage) return
+      for (const previous of superseded) {
+        superseded.delete(previous)
+        const task = retireAssetOwner(connection, previous)
+        pending.add(task)
+        void task.finally(() => pending.delete(task)).catch(() => undefined)
+      }
+    })
+  }
   try {
     assertCurrent()
-    const session = await createSession({
+    session = await createSession({
       validateCommit: (_current, candidate) => {
         if (initializing) return []
         if (admitted === candidate) { admitted = undefined; return [] }
@@ -106,15 +134,19 @@ async function createRetainedImageDocumentSession<S extends ReturnType<typeof cr
       },
       ...(remoteScope === undefined ? {} : {
         beforeRemoteDocument: (document, revision, _current, digests, snapshots) => {
-          const task = (async (): Promise<void> => {
+          const task = (async () => {
             assertCurrent()
             for (const snapshot of snapshots) {
               await hydrateImageDocumentResources(connection, store, snapshot, remoteScope, assertCurrent)
             }
             assertCurrent()
-            await retainWorkflowAssets(connection, document.lineage, revision,
+            const retained = await retainWorkflowAssets(connection, document.lineage, revision,
               { complete: true, digests }, storage)
             assertCurrent()
+            return () => {
+              if (session !== undefined && session.doc !== document) return
+              installOwner(retained)
+            }
           })()
           pending.add(task)
           void task.finally(() => pending.delete(task)).catch(() => undefined)
@@ -122,7 +154,8 @@ async function createRetainedImageDocumentSession<S extends ReturnType<typeof cr
         },
       } satisfies Pick<SharedImageDocumentSessionOptions, 'beforeRemoteDocument'>),
     })
-    stopSession = (): void => { if ('close' in session) session.close() }
+    const admittedSession = session
+    stopSession = (): void => { if ('close' in admittedSession) admittedSession.close() }
     initializing = false
     const uploaded = new Set<string>()
     const uploadResources = async (snapshot: ImageDocument): Promise<void> => {
@@ -141,21 +174,26 @@ async function createRetainedImageDocumentSession<S extends ReturnType<typeof cr
     if (remoteScope === undefined) {
       await uploadResources(session.doc)
       assertCurrent()
-      await retainWorkflowAssets(connection, session.doc.lineage, session.revision,
+      const retained = await retainWorkflowAssets(connection, session.doc.lineage, session.revision,
         { complete: true, digests: [...session.retainedResourceDigests()].sort() }, storage)
+      installOwner(retained)
     }
     assertCurrent()
     const commit = (prepared: PreparedImageDocumentDispatch): Promise<ImageDocumentDispatchOutcome> => {
-      const revision = session.revision + 1
+      const revision = admittedSession.revision + 1
       const task = (async (): Promise<ImageDocumentDispatchOutcome> => {
         assertCurrent()
         if (!prepared.ok) return prepared
         await uploadResources(prepared.document)
-        await retainWorkflowAssets(connection, prepared.document.lineage, revision,
+        const retained = await retainWorkflowAssets(connection, prepared.document.lineage, revision,
           { complete: true, digests: prepared.resourceDigests }, storage)
         assertCurrent()
         admitted = prepared.document
-        try { return prepared.commit() } finally { admitted = undefined }
+        try {
+          const outcome = prepared.commit()
+          if (outcome.ok && admittedSession.doc === outcome.document && admittedSession.revision === outcome.revision) installOwner(retained)
+          return outcome
+        } finally { admitted = undefined }
       })()
       pending.add(task)
       void task.finally(() => pending.delete(task)).catch(() => undefined)
@@ -163,9 +201,9 @@ async function createRetainedImageDocumentSession<S extends ReturnType<typeof cr
     }
     return {
       session,
-      dispatch: (invocation: ImageDocumentCommandInvocation) => commit(session.prepareDispatch(invocation)),
-      undo: () => commit(session.prepareUndo()),
-      redo: () => commit(session.prepareRedo()),
+      dispatch: (invocation: ImageDocumentCommandInvocation) => commit(admittedSession.prepareDispatch(invocation)),
+      undo: () => commit(admittedSession.prepareUndo()),
+      redo: () => commit(admittedSession.prepareRedo()),
       close: async (): Promise<void> => {
         closed = true
         unsubscribe()

@@ -54,7 +54,7 @@ export interface SharedImageDocumentSessionOptions {
     currentDocument: ImageDocument,
     resourceDigests: readonly string[],
     retainedDocuments: readonly ImageDocument[],
-  ) => Promise<void>
+  ) => Promise<void | (() => void)>
 }
 
 interface HistoryRecord {
@@ -740,13 +740,15 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
     while (this.statusSignal.get() === 'catching-up' && !this.resyncRequested) {
       this.assertRemoteConnection(connectionGeneration)
       const prepared = this.prepareRemote(document, revision, operation)
-      if (this.beforeRemoteDocument !== undefined) {
-        await this.beforeRemoteDocument(prepared.document, revision, this.optimistic,
+      const committed = this.beforeRemoteDocument === undefined ? undefined
+        : await this.beforeRemoteDocument(prepared.document, revision, this.optimistic,
           prepared.resourceDigests, prepared.retainedDocuments)
-      }
       if (this.statusSignal.get() !== 'catching-up' || this.resyncRequested) return false
       this.assertRemoteConnection(connectionGeneration)
-      if (prepared.commit()) return true
+      if (prepared.commit()) {
+        committed?.()
+        return true
+      }
     }
     return false
   }
@@ -798,7 +800,7 @@ export async function connectSharedImageDocumentSession(
     const snapshot = await connection.fetchSnapshot()
     if (!isValidCollabRevision(snapshot.revision)) throw new Error('invalid ImageDocument snapshot revision')
     const document = loadedDocument(snapshot.document, 'collab snapshot')
-    await options?.beforeRemoteDocument?.(document, snapshot.revision, document,
+    const committed = await options?.beforeRemoteDocument?.(document, snapshot.revision, document,
       Object.freeze([...resourceDigests(document)].sort()), Object.freeze([document]))
     if (invalidated) throw new Error('ImageDocument connection changed during initial admission')
     const session = new SharedImageDocumentSession(connection, document, snapshot.revision, options,
@@ -807,6 +809,7 @@ export async function connectSharedImageDocumentSession(
       session.close()
       throw new Error('ImageDocument connection changed during initial admission')
     }
+    committed?.()
     return session
   } finally {
     stop()

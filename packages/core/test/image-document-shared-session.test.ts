@@ -168,6 +168,7 @@ describe('SharedImageDocumentSession', () => {
     const gate = new Promise<void>((resolve) => { complete = resolve })
     let proposed: ImageDocument | undefined
     let exposed = false
+    const committed: number[] = []
     const options = { beforeRemoteDocument: async (document: ImageDocument, revision: number,
       current: ImageDocument, digests: readonly string[]) => {
       expect(revision).toBe(0)
@@ -176,6 +177,7 @@ describe('SharedImageDocumentSession', () => {
       proposed = document
       await gate
       if (outcome === 'refuse') throw new Error('Ownership refused')
+      return () => { committed.push(revision) }
     } }
     expect(() => new SharedImageDocumentSession(connection, server.document, 0, options))
       .toThrow('requires connectSharedImageDocumentSession')
@@ -188,9 +190,11 @@ describe('SharedImageDocumentSession', () => {
     if (outcome === 'admit') {
       const session = await pending
       expect(session.doc).toEqual(proposed)
+      expect(committed).toEqual([0])
       session.close()
     } else {
       await expect(pending).rejects.toThrow(outcome === 'refuse' ? 'Ownership refused' : 'connection changed')
+      expect(committed).toEqual([])
     }
     expect(server.log).toEqual([])
   })
@@ -225,10 +229,17 @@ describe('SharedImageDocumentSession', () => {
     let complete!: () => void
     const gate = new Promise<void>((resolve) => { complete = resolve })
     const proposals: number[] = []
+    const committed: number[] = []
     const session = await connectSharedImageDocumentSession(server.connect(), server.descriptor, {
       beforeRemoteDocument: async (_document, revision) => {
         proposals.push(revision)
         if (revision === 1) await gate
+        if (revision > 0) return () => {
+          expect(session.revision).toBe(revision)
+          expect(operations.at(-1)).toBe(revision)
+          expect(visible.at(-1)).toBe(session.doc)
+          committed.push(revision)
+        }
       },
     })
     const current = session.doc
@@ -250,6 +261,7 @@ describe('SharedImageDocumentSession', () => {
     await session.settle()
     expect(proposals).toEqual([0, 1, 2])
     expect(operations).toEqual([1, 2])
+    expect(committed).toEqual([1, 2])
     expect(visible.map((document) => document.layers['l1'])).toMatchObject([
       { name: 'Remote', opacity: IMAGE_OPACITY_MAX }, { name: 'Remote', opacity: 23_456 },
     ])
@@ -264,12 +276,14 @@ describe('SharedImageDocumentSession', () => {
     let complete!: () => void
     const gate = new Promise<void>((resolve) => { complete = resolve })
     let waiting = false
+    const committed: number[] = []
     const session = await connectSharedImageDocumentSession(connection, server.descriptor, {
       beforeRemoteDocument: async (_document, revision) => {
         if (revision === 0) return
         waiting = true
         await gate
         if (outcome === 'refuse') throw new Error('Ownership refused')
+        return () => { committed.push(revision) }
       },
     })
     const current = session.doc
@@ -287,6 +301,7 @@ describe('SharedImageDocumentSession', () => {
     expect(session.doc).toBe(current)
     expect(session.revision).toBe(0)
     expect(visible).toEqual([])
+    expect(committed).toEqual([])
     session.close()
     remote.close()
   })
@@ -297,10 +312,12 @@ describe('SharedImageDocumentSession', () => {
     let complete!: () => void
     const gate = new Promise<void>((resolve) => { complete = resolve })
     const revisions: number[] = []
+    const committed: number[] = []
     const session = await connectSharedImageDocumentSession(connection, server.descriptor, {
       beforeRemoteDocument: async (_document, revision) => {
         revisions.push(revision)
         if (revision === 1) await gate
+        return () => { committed.push(revision) }
       },
     })
     const names: string[] = []
@@ -318,6 +335,7 @@ describe('SharedImageDocumentSession', () => {
     complete()
     await session.settle()
     expect(revisions).toEqual([0, 1, 2])
+    expect(committed).toEqual([0, 2])
     expect(names).toEqual(['Replacement'])
     expect(session.revision).toBe(2)
     session.close()
