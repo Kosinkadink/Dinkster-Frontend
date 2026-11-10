@@ -427,7 +427,7 @@ describe('ImageDocument local persistence', () => {
     }
   })
 
-  it('keeps unconfirmed release journaled without blocking future local-only hydration on the backend', async () => {
+  it('keeps unconfirmed release journaled when cached hydration cannot readmit its staged owner', async () => {
     const factory = new FakeIDBFactory()
     const source = new ImageDocumentLocalStore('release-source', factory)
     const target = new ImageDocumentLocalStore('release-target', factory)
@@ -444,7 +444,9 @@ describe('ImageDocument local persistence', () => {
       expect((await target.getResource(resource.digest))?.bytes).toEqual(bytes)
       remote.methods.retainAssets.mockRejectedValue(new Error('backend unavailable'))
       remote.methods.fetchAssetBytes.mockRejectedValue(new Error('backend unavailable'))
-      await hydrateImageDocumentResources(remote.connection, target, draft.document, 'local')
+      await expect(hydrateImageDocumentResources(remote.connection, target, draft.document, 'local'))
+        .rejects.toThrow('backend unavailable')
+      expect((await target.getResource(resource.digest))?.bytes).toEqual(bytes)
       expect(await target.resourceReads()).toEqual(pending)
       expect(remote.methods.releaseRetainedAssets).toHaveBeenCalledTimes(1)
     } finally {
@@ -452,6 +454,67 @@ describe('ImageDocument local persistence', () => {
       await target.close()
     }
   })
+
+  it.each(['acknowledged', 'lost', 'refused', 'reused', 'superseded'] as const)(
+    'holds library opening behind ownership of legacy cached raster bytes: %s', async (scenario) => {
+      const store = new ImageDocumentLocalStore('legacy-cached-raster', new FakeIDBFactory())
+      const gate = deferred<void>()
+      try {
+        const draft = await imported(store)
+        const resource = draft.document.resources.r0!
+        const bytes = (await store.getResource(resource.digest))!.bytes
+        expect(await store.stagedResourceRetentions()).toEqual([])
+        const remote = connectionFor(draft.document, bytes)
+        const retain = remote.methods.retainAssets.getMockImplementation()!
+        const fetch = remote.methods.fetchRetainedAssets.getMockImplementation()!
+        const independent = await remote.connection.retainAssets(
+          { scope: 'local', ownerKind: 'document', ownerId: 'independent-cached-holder' },
+          { revision: 0, complete: true, digests: [resource.digest] },
+        )
+        const requested = deferred<RetainedAssetOwner>()
+        let current = true
+        let published = false
+        remote.methods.retainAssets.mockImplementation(async (owner, declaration) => {
+          if (owner.ownerKind !== 'document') return retain(owner, declaration)
+          expect(declaration).toEqual({ revision: 0, complete: true, digests: [resource.digest] })
+          requested.resolve(owner)
+          await gate.promise
+          if (scenario === 'refused') throw new Error('cached owner refused')
+          const receipt = await retain(owner, declaration)
+          if (scenario === 'lost') throw new Error('cached response lost')
+          return scenario === 'reused' ? { ...receipt, revision: 9 } : receipt
+        })
+        remote.methods.fetchRetainedAssets.mockImplementation(async (owner) => {
+          const receipt = await fetch(owner)
+          return scenario === 'reused' && owner.ownerId !== independent.ownerId && receipt
+            ? { ...receipt, revision: 9 } : receipt
+        })
+        const operation = openImageDocumentFromLibrary(remote.connection, store, remote.library.id, 'local', 'backend-a', () => {
+          if (!current) throw new Error('cached destination changed')
+        }).then((opened) => { published = true; return opened }, () => undefined)
+        const owner = await Promise.race([requested.promise, operation.then(() => undefined)])
+        expect(owner).toBeDefined()
+        if (owner === undefined) return
+        expect(owner.ownerId).not.toBe(independent.ownerId)
+        expect(published).toBe(false)
+        expect((await store.recoverDraft(draft.document.lineage))?.library).toBeUndefined()
+        expect(await store.stagedResourceRetentions()).toMatchObject([{ owner, digests: [resource.digest] }])
+        expect(remote.methods.fetchAssetBytes).not.toHaveBeenCalled()
+        if (scenario === 'superseded') current = false
+        gate.resolve()
+        const accepted = scenario === 'acknowledged' || scenario === 'lost'
+        const opened = await operation
+        expect(published).toBe(accepted)
+        expect(opened?.library?.recordId).toBe(accepted ? remote.library.id : undefined)
+        expect((await store.recoverDraft(draft.document.lineage))?.library?.recordId)
+          .toBe(accepted ? remote.library.id : undefined)
+        expect((await store.getResource(resource.digest))?.bytes).toEqual(bytes)
+        expect(await remote.connection.fetchRetainedAssets(independent)).toEqual(independent)
+        expect(remote.methods.retainAssets.mock.calls.filter(([candidate]) => candidate.ownerId === owner.ownerId)).toHaveLength(1)
+        expect(remote.methods.releaseRetainedAssets.mock.calls.some(([released]) => released.ownerId === owner.ownerId)).toBe(false)
+      } finally { gate.resolve(); await store.close() }
+    },
+  )
 
   it.each([1, 2])('upgrades a version-%s database without losing raster bytes or read intents', async (version) => {
     const factory = new FakeIDBFactory()
@@ -580,6 +643,7 @@ describe('ImageDocument local persistence', () => {
       const opened = await openImageDocumentFromLibrary(inlineRemote.connection, target, inlineRemote.library.id, 'local', 'backend-a')
       expect(opened?.document).toEqual(document)
       expect(inlineRemote.methods.fetchAssetBytes).not.toHaveBeenCalled()
+      expect(await target.stagedResourceRetentions()).toEqual([])
       const opaque = { ...resource, alphaMode: 'opaque' as const }
       await expect(target.stageResource(opaque, bytes, 'same-bytes.png')).resolves.toMatchObject({ digest: resource.digest })
       await hydrateImageDocumentResources(remote.connection, target, { ...draft.document, resources: { r0: opaque } }, 'local')
@@ -654,6 +718,16 @@ describe('ImageDocument local persistence', () => {
       const remote = connectionFor(document, bytes)
       await hydrateImageDocumentResources(remote.connection, target, document, 'local')
       expect(remote.methods.fetchAssetBytes).toHaveBeenCalledTimes(1)
+      const first = await target.stagedResourceRetentions()
+      expect(first).toHaveLength(1)
+      await hydrateImageDocumentResources(remote.connection, target, document, 'shared')
+      const retained = await target.stagedResourceRetentions()
+      expect(retained).toHaveLength(2)
+      expect(retained).toEqual(expect.arrayContaining([...first]))
+      const next = retained.find((intent) => intent.owner.scope === 'shared')!
+      expect(next.owner.ownerId).not.toBe(first[0]!.owner.ownerId)
+      expect(next.digests).toEqual([resource.digest])
+      expect(next.acknowledgedRevision).toBe(1)
       const corrupt: ImageDocument = { ...document, resources: {
         ...document.resources, r2: { ...document.resources.r2!, width: resource.width + 1 },
       } }

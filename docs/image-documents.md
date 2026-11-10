@@ -204,6 +204,12 @@ is journaled and acknowledged for that exact digest and scope. Uploading a stage
 raster likewise confirms its independent staged owner before returning it to
 the caller. A refused or mismatched acknowledgment blocks staging/publication;
 a lost response requires an exact owner/revision readback, not a repeated write.
+Hydration also admits a fresh staged owner for already-cached external bytes,
+including legacy entries without receipts, before library opening returns or
+saves its local link. Cached bytes are not evidence of backend ownership or
+scope authority. Refused admission leaves those bytes and earlier owners intact;
+inline resources need no external owner. Repeated descriptors of the same
+external digest share one fresh owner within that hydration.
 Staged owners and unresolved intents survive store closure and restart. Read
 completion releases only the read owner, never the staged owner. Staged ownership
 is conservative: replacing an image, closing its editor or disconnecting does

@@ -199,12 +199,18 @@ export async function hydrateImageDocumentResources(
   }
   await withImageResourceRead(connection, store, scope, [...missing].sort(), async () => {
     assertCurrent()
+    const retained = new Set<string>()
     for (const resource of resources) {
       const local = await store.getResource(resource.digest)
       assertCurrent()
       if (local !== undefined) {
         if (!stagedMatches(resource, local)) {
           throw new Error(`local ImageDocument resource does not match its descriptor: ${resource.id}`)
+        }
+        if (resource.inline === undefined && !retained.has(resource.digest)) {
+          await retainStagedImageResource(connection, store, scope, resource.digest)
+          retained.add(resource.digest)
+          assertCurrent()
         }
       } else {
         const fetched = resource.inline === undefined
@@ -220,6 +226,7 @@ export async function hydrateImageDocumentResources(
         }
         if (resource.inline === undefined) {
           await retainStagedImageResource(connection, store, scope, resource.digest)
+          retained.add(resource.digest)
           assertCurrent()
         }
         await store.stageResource(

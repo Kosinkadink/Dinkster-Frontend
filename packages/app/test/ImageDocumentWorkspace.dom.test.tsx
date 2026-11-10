@@ -571,7 +571,7 @@ describe('ImageDocumentWorkspace', () => {
       const held = new Promise<void>((resolve, reject) => { finish = resolve; fail = reject })
       let entered = false
       let backend = { id: 'end-owner', protocol: 'dinkster', baseUrl: membership.baseUrl,
-        connection: {} as DinksterConnection }
+        connection: { ...imageRetention } as unknown as DinksterConnection }
       const app = { libraryBackend: () => undefined, collabBackend: () => backend,
         backends: { get: () => [backend] }, collabActorId: 'alice',
         collabTransport: { get: async () => descriptor, connect: () => connection,
@@ -652,7 +652,7 @@ describe('ImageDocumentWorkspace', () => {
         close: () => undefined,
       } as unknown as CollabConnection
       let backend = { id: 'leave-owner', protocol: 'dinkster', baseUrl: membership.baseUrl,
-        connection: {} as DinksterConnection }
+        connection: { ...imageRetention } as unknown as DinksterConnection }
       const app = { libraryBackend: () => undefined, collabBackend: () => backend,
         backends: { get: () => [backend] }, collabActorId: 'alice',
         collabTransport: { get: async () => descriptor, connect: () => connection }, showTransientStatus: vi.fn(),
@@ -869,7 +869,7 @@ describe('ImageDocumentWorkspace', () => {
         close: () => { sessionClosed = true },
       } as unknown as CollabConnection
       let backend = { id: 'join-owner', protocol: 'dinkster', baseUrl: 'http://join.test',
-        connection: {} as DinksterConnection }
+        connection: { ...imageRetention } as unknown as DinksterConnection }
       const app = { libraryBackend: () => undefined, collabBackend: () => backend,
         backends: { get: () => [backend] }, collabActorId: 'alice',
         collabTransport: { list: async () => [descriptor], connect: () => connection },
@@ -1044,7 +1044,7 @@ describe('ImageDocumentWorkspace', () => {
         close: () => { closed = true },
       } as unknown as CollabConnection
       let backend = { id: 'recovery-owner', protocol: 'dinkster', baseUrl,
-        connection: {} as DinksterConnection }
+        connection: { ...imageRetention } as unknown as DinksterConnection }
       const app = { libraryBackend: () => undefined, collabBackend: () => backend,
         backends: { get: () => [backend] }, collabActorId: 'alice',
         collabTransport: {
