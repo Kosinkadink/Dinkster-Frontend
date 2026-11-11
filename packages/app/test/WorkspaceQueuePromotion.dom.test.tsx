@@ -1,3 +1,4 @@
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 // @vitest-environment happy-dom
 
 import {
@@ -20,7 +21,7 @@ import { WorkflowQueueControl } from '../src/WorkflowQueueControl.js'
 class MemoryPort implements WorkerPortLike {
   peer: MemoryPort | undefined
   paused = false
-  private readonly queued: unknown[] = []
+  readonly queued: unknown[] = []
   private readonly listeners = new Set<(event: MessageEvent<unknown>) => void>()
 
   postMessage(message: unknown): void {
@@ -102,7 +103,7 @@ const workspaceApp = async (): Promise<{
   readonly promotionPorts: MemoryPort[]
   pausePromotions(): void
 }> => {
-  const app = new AppState()
+  const app = prepareWorkflowApp(new AppState())
   vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
     ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   const schemas = new Map([[outputSchema.type, outputSchema]])
@@ -137,7 +138,7 @@ describe('workspace promotion queueing', () => {
   it('preserves an actual Queue control action until the replacement store is live', async () => {
     const { app, promotionPorts, pausePromotions } = await workspaceApp()
     pausePromotions()
-    app.openDocument(workflow(), 'Workspace queue')
+    await app.openDocument(workflow(), 'Workspace queue')
     const tab = app.activeTab()!
     const submit = vi.spyOn(app.connection, 'submit').mockResolvedValue({ ok: false, diagnostics: [] })
     await vi.waitFor(() => expect(promotionPorts).toHaveLength(1))
@@ -175,18 +176,22 @@ describe('workspace promotion queueing', () => {
   it('does not retarget an accepted request to an independently replaced same-lineage document', async () => {
     const { app, promotionPorts, pausePromotions } = await workspaceApp()
     pausePromotions()
-    app.openDocument(workflow(), 'Original workspace queue')
+    await app.openDocument(workflow(), 'Original workspace queue')
     const original = app.activeTab()!
     const submit = vi.spyOn(app.connection, 'submit').mockResolvedValue({ ok: false, diagnostics: [] })
     await vi.waitFor(() => expect(promotionPorts).toHaveLength(1))
     const queueing = app.queue(original)
+    await vi.waitFor(() => {
+      expect(promotionPorts[0]!.paused).toBe(true)
+      expect(promotionPorts[0]!.queued.length).toBeGreaterThan(0)
+    })
 
     const initial = workflow()
     const replacement: WorkflowDocument = {
       ...initial,
       graphs: { ...initial.graphs, g0: { ...initial.graphs.g0!, name: 'replacement' } },
     }
-    app.openDocument(replacement, 'Replacement workspace queue')
+    expect(await app.openDocument(replacement, 'Replacement workspace queue')).toEqual([])
     await vi.waitFor(() => expect(promotionPorts).toHaveLength(2))
     promotionPorts[1]!.release()
     await vi.waitFor(() => {
@@ -204,7 +209,7 @@ describe('workspace promotion queueing', () => {
   it('drops an accepted request when its exact document closes during promotion', async () => {
     const { app, promotionPorts, pausePromotions } = await workspaceApp()
     pausePromotions()
-    app.openDocument(workflow(), 'Closing workspace queue')
+    await app.openDocument(workflow(), 'Closing workspace queue')
     const tab = app.activeTab()!
     const submit = vi.spyOn(app.connection, 'submit').mockResolvedValue({ ok: false, diagnostics: [] })
     await vi.waitFor(() => expect(promotionPorts).toHaveLength(1))
@@ -221,7 +226,7 @@ describe('workspace promotion queueing', () => {
   it('queues against the still-live local document when promotion fails', async () => {
     const { app, promotionPorts, pausePromotions } = await workspaceApp()
     pausePromotions()
-    app.openDocument(workflow(), 'Failed workspace promotion')
+    await app.openDocument(workflow(), 'Failed workspace promotion')
     const tab = app.activeTab()!
     const submit = vi.spyOn(app.connection, 'submit').mockResolvedValue({ ok: false, diagnostics: [] })
     await vi.waitFor(() => expect(promotionPorts).toHaveLength(1))

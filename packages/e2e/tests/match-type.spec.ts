@@ -61,7 +61,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const concrete = (name: string) => ({ kind: 'concrete', name })
     // One template shared by two inputs and the output: resolving any one
     // endpoint must resolve them all.
@@ -120,7 +120,7 @@ test.beforeEach(async ({ page }) => {
         items: [{ kind: 'input', id: 'value', type: fourTypes, optional: false }],
       },
     ])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'match-type-e2e', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         image: { id: 'image', type: 'ImageProducerE2E', values: {} },
@@ -284,7 +284,7 @@ test('wildcard Any accepts independently without capturing or propagating a type
 })
 
 test('drilled input-family MatchType resolves each occurrence independently and reverts on disconnect', async ({ page }) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const variable = { kind: 'variable', templateId: 'T' }
     window.__dinksterTest!.app.registerSchemas([
       {
@@ -306,7 +306,7 @@ test('drilled input-family MatchType resolves each occurrence independently and 
         items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'LATENT' } }],
       },
     ])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'boundary-match-e2e', root: 'g0',
       graphs: {
         g0: { id: 'g0', name: 'root', nodes: {

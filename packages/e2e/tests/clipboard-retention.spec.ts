@@ -24,7 +24,7 @@ for (const mode of ['system', 'fallback', 'refused'] as const) {
     await page.route('/supervisor/status', (route) => route.fulfill({ status: 502 }))
     await page.goto('/')
     await waitForStartupOwnership(page)
-    await page.evaluate((denied) => {
+    await page.evaluate(async (denied) => {
       let copied: string | undefined
       Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
         writeText: async (text: string) => { copied = text; if (denied) throw new Error('denied') },
@@ -43,7 +43,7 @@ for (const mode of ['system', 'fallback', 'refused'] as const) {
       app.registerSchemas([schema])
       const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.bin`,
         size: 7, mediaType: 'application/octet-stream', virtualPath: '' })
-      app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'clipboard-source', root: 'g0',
+      await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'clipboard-source', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'Root', nodes: {
           n0: { id: 'n0', type: schema.type, values: { file: asset('a') } },
           n1: { id: 'n1', type: schema.type, values: { file: asset('b') } },

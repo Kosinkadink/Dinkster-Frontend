@@ -96,7 +96,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ status: 502, body: 'no v1 backend' }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const textRepresentations = (defaultView: 'single-line' | 'multiline') => ({
       default: defaultView,
       userSwitchable: true,
@@ -142,7 +142,7 @@ test.beforeEach(async ({ page }) => {
         items: [textInput(true)],
       },
     ])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'text-completion-proof',
@@ -225,9 +225,9 @@ test('ordinary Text uses a compact editor and switches views only from its conte
     return row.kind === 'widget' ? row.representationId : undefined
   })).toBe('single-line')
   await page.keyboard.press('Control+y')
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    app.openDocument(structuredClone(app.activeTab()!.store.doc), 'Reopened Text')
+    await app.openDocument(structuredClone(app.activeTab()!.store.doc), 'Reopened Text')
   })
   await expect.poll(() => page.evaluate(() => {
     const row = window.__dinksterTest!.renderer!.getScene().nodes[0]!.layout.rows.find((candidate) => candidate.kind === 'widget')!
@@ -236,7 +236,7 @@ test('ordinary Text uses a compact editor and switches views only from its conte
 })
 
 test('Math Expression saves invalid text and reports the error in its accessible preview', async ({ page }) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'dinkster.math.expression',
       displayName: 'Math Expression',
@@ -275,7 +275,7 @@ test('Math Expression saves invalid text and reports the error in its accessible
         { kind: 'output', id: 'boolean', type: { kind: 'concrete', name: 'BOOLEAN' } },
       ],
     }])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'math-text-completion', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',

@@ -85,9 +85,9 @@ const menuItem = (page: Page, id: string) => page.locator(`[data-item-id="${id}"
  * is a concrete IMAGE.
  */
 async function openRerouteWorkflow(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    const failures = app.openDocument(
+    const failures = (await app.openDocument(
       {
         format: 'dinkster-workflow',
         formatVersion: 1,
@@ -137,7 +137,7 @@ async function openRerouteWorkflow(page: Page): Promise<void> {
         },
       },
       'Reroutes',
-    )
+    ))
     if (failures.length > 0) throw new Error(`openDocument failed: ${JSON.stringify(failures)}`)
   })
   await identityViewport(page)

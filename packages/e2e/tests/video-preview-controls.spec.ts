@@ -67,7 +67,7 @@ async function install(
     }
     return canvas.toDataURL('image/png').split(',')[1]!
   }), 'base64')
-  await page.evaluate((meta) => {
+  await page.evaluate(async (meta) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'VideoControlsTest', displayName: 'Video inspection', category: 'test', source: 'v3', isOutputNode: true,
@@ -76,7 +76,7 @@ async function install(
         { kind: 'output', id: 'other', type: { kind: 'concrete', name: 'VIDEO' }, preview: true },
       ],
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'video-controls', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Video controls', nodes: { video: { id: 'video', type: 'VideoControlsTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { video: { position: { x: 80, y: 80 }, size: { width: 640, height: 440 } } } } } },
@@ -182,7 +182,7 @@ for (const appView of [false, true]) test(`VIDEO scrub, frames, outputs and pers
   expect(requests.every((url) => url.searchParams.get('jobId') === 'video-controls-run' && url.searchParams.has('clientId') &&
     [null, 'preview', 'poster', 'frame', 'thumbs'].includes(url.searchParams.get('rendition')))).toBe(true)
   const stored = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
-  await page.evaluate((stored) => window.__dinksterTest!.app.openDocument(JSON.parse(stored), 'Reopened video'), stored)
+  await page.evaluate(async (stored) => (await window.__dinksterTest!.app.openDocument(JSON.parse(stored), 'Reopened video')), stored)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.view.graphs.g0!.nodes.video!.video)).toEqual({ loop: false, muted: false, autoplay: false })
   expect(errors).toEqual([])
 })
@@ -372,14 +372,14 @@ test('selected cloud-only VIDEO input explicitly waits for a bounded route in Ca
     originals.push(route.request().url())
     return route.fulfill({ status: 404, body: 'Original video must not be read' })
   })
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'VideoInputTest', displayName: 'Cloud video input', category: 'test', source: 'v3',
       items: [{ kind: 'input', id: 'asset', type: { kind: 'asset', element: { kind: 'concrete', name: 'VIDEO' } },
         widget: { widgetType: 'ASSET', options: { accept: ['video/*'] }, default: null } }],
     }])
-    app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'video-input', root: 'g0',
+    await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'video-input', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Video input', nodes: { input: { id: 'input', type: 'VideoInputTest', values: {
         asset: { digest: `blake3:${'a'.repeat(64)}`, name: 'cloud-only.mkv', mediaType: 'video/x-matroska', size: 1234, virtualPath: 'cloud/opaque-video' },
       } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },

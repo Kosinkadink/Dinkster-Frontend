@@ -242,7 +242,7 @@ afterEach(() => {
 })
 
 const makeApp = (server: FakeCollabServer, withBackend = true): AppState => {
-  const app = new AppState({ collabTransport: server.transport })
+  const app = prepareWorkflowApp(new AppState({ collabTransport: server.transport }))
   editableApps.push(app)
   if (withBackend) {
     const backend = app.backends.get().find((candidate) => candidate.baseUrl === 'http://collab') ??
@@ -688,7 +688,7 @@ describe('share', () => {
     const run = async (shared: boolean): Promise<void> => {
       const app = makeApp(server)
       installSeedFlattenRegistry(app)
-      expect(app.openDocument(structuredClone(seedSubgraph), shared ? 'Shared flatten' : 'Local flatten')).toEqual([])
+      expect((await app.openDocument(structuredClone(seedSubgraph), shared ? 'Shared flatten' : 'Local flatten'))).toEqual([])
       if (shared) expect(await app.shareActiveTab()).toBeUndefined()
       const tab = activeTab(app)
       const invocation = planSeedFlatten(app, tab)
@@ -709,7 +709,7 @@ describe('share', () => {
   it('commits a shared palette link-drop batch against the predicted node id and selects it', async () => {
     const server = new FakeCollabServer()
     const app = makeApp(server)
-    expect(app.openDocument(structuredClone(seedBasic), 'Link-drop source')).toEqual([])
+    expect((await app.openDocument(structuredClone(seedBasic), 'Link-drop source'))).toEqual([])
     expect(await app.shareActiveTab()).toBeUndefined()
     const tab = activeTab(app)
     const graphId = tab.store.doc.root
@@ -1019,7 +1019,7 @@ describe('leave, end, and disposal', () => {
     const serverSession = [...server.sessions.values()][0]!
     expect(serverSession.connections.size).toBe(1)
     // Re-open the same document (same lineage) as a plain local tab.
-    const diags = app.openDocument(JSON.parse(JSON.stringify(tab.store.doc)), tab.title)
+    const diags = (await app.openDocument(JSON.parse(JSON.stringify(tab.store.doc)), tab.title))
     expect(diags).toEqual([])
     expect(serverSession.connections.size).toBe(0)
     expect(app.collabFor(tab.id)).toBeUndefined()
@@ -1154,7 +1154,7 @@ describe('lifecycle races', () => {
     const postGate = gate()
     let holdPosts = false
     let heldPosts = 0
-    const appA = new AppState({
+    const appA = prepareWorkflowApp(new AppState({
       collabTransport: {
         ...server.transport,
         connect: (config) => {
@@ -1177,11 +1177,11 @@ describe('lifecycle races', () => {
           }
         },
       },
-    })
+    }))
     appA.addBackend('http://collab', 'collab', false, 'dinkster')
     const backendA = installSharedCountRegistry(appA)
     editableApps.push(prepareWorkflowApp(appA))
-    expect(appA.openDocument(sharedCountDocument(), 'Shared count edit')).toEqual([])
+    expect((await appA.openDocument(sharedCountDocument(), 'Shared count edit'))).toEqual([])
     appA.setTabTarget(activeTab(appA).id, backendA.id)
     expect(await appA.shareActiveTab()).toBeUndefined()
     const tabA = activeTab(appA)
@@ -1222,7 +1222,7 @@ describe('lifecycle races', () => {
     const server = new FakeCollabServer()
     let holdPosts = false
     const heldPost = new Promise<PostOpOutcome>(() => undefined)
-    const appA = new AppState({
+    const appA = prepareWorkflowApp(new AppState({
       collabTransport: {
         ...server.transport,
         connect: (config) => {
@@ -1239,14 +1239,14 @@ describe('lifecycle races', () => {
           }
         },
       },
-    })
+    }))
     const backendA = appA.addBackend('http://collab', 'collab', false, 'dinkster')
     if (!backendA || backendA.protocol !== 'dinkster') throw new Error('native backend setup failed')
     for (const backend of appA.backends.get()) {
       backend.registry.set(buildDinksterRegistry(asConnectionId(backend.id), nodesPayload))
     }
     const appB = makeApp(server)
-    expect(appA.openDocument({
+    expect((await appA.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'collab-queue-identity',
@@ -1261,7 +1261,7 @@ describe('lifecycle races', () => {
         nets: {}, reroutes: {}, nextOrdinal: 3,
       } },
       view: { graphs: { g0: { nodes: {} } } },
-    }, 'collab queue identity')).toEqual([])
+    }, 'collab queue identity'))).toEqual([])
     expect(await appA.shareActiveTab()).toBeUndefined()
     const tabA = activeTab(appA)
     appA.setTabTarget(tabA.id, backendA.id)
@@ -1330,7 +1330,7 @@ describe('lifecycle races', () => {
   it('a share overtaken by a local edit aborts and ends the orphan session', async () => {
     const server = new FakeCollabServer()
     const createGate = gate()
-    const app = new AppState({
+    const app = prepareWorkflowApp(new AppState({
       collabTransport: {
         ...server.transport,
         create: async (baseUrl, args) => {
@@ -1338,7 +1338,7 @@ describe('lifecycle races', () => {
           return server.transport.create(baseUrl, args)
         },
       },
-    })
+    }))
     app.addBackend('http://collab', 'collab', false, 'dinkster')
     const tab = activeTab(app)
     const localStore = tab.store
@@ -1357,7 +1357,7 @@ describe('lifecycle races', () => {
   it('a share overtaken by closing the tab aborts without resurrecting it', async () => {
     const server = new FakeCollabServer()
     const createGate = gate()
-    const app = new AppState({
+    const app = prepareWorkflowApp(new AppState({
       collabTransport: {
         ...server.transport,
         create: async (baseUrl, args) => {
@@ -1365,7 +1365,7 @@ describe('lifecycle races', () => {
           return server.transport.create(baseUrl, args)
         },
       },
-    })
+    }))
     app.addBackend('http://collab', 'collab', false, 'dinkster')
     const tab = activeTab(app)
 
@@ -1409,7 +1409,7 @@ describe('lifecycle races', () => {
   it('a stale end completion does not tear down a newer membership', async () => {
     const server = new FakeCollabServer()
     const endGate = gate()
-    const app = new AppState({
+    const app = prepareWorkflowApp(new AppState({
       collabTransport: {
         ...server.transport,
         end: async (baseUrl, sessionId) => {
@@ -1417,7 +1417,7 @@ describe('lifecycle races', () => {
           return server.transport.end(baseUrl, sessionId)
         },
       },
-    })
+    }))
     app.addBackend('http://collab', 'collab', false, 'dinkster')
     expect(await app.shareActiveTab()).toBeUndefined()
     const tabId = activeTab(app).id
@@ -1449,7 +1449,7 @@ describe('lifecycle races', () => {
     // stale base (the fake's synchronous fan-out otherwise lets the client
     // rebase preemptively, and the server-side 409 path is never exercised).
     const hold = { held: false, buffer: [] as (() => void)[] }
-    const appB = new AppState({
+    const appB = prepareWorkflowApp(new AppState({
       collabTransport: {
         ...server.transport,
         connect: (config) => {
@@ -1470,7 +1470,7 @@ describe('lifecycle races', () => {
           }
         },
       },
-    })
+    }))
     appB.addBackend('http://collab', 'collab', false, 'dinkster')
     expect(await appA.shareActiveTab()).toBeUndefined()
     const tabA = activeTab(appA)
@@ -1509,9 +1509,9 @@ describe('lifecycle races', () => {
   it('shares the complete App View layout and rebases concurrent layout edits', async () => {
     const server = new FakeCollabServer()
     const appA = makeApp(server)
-    expect(appA.openDocument(structuredClone(seedBasic), 'App View source')).toEqual([])
+    expect((await appA.openDocument(structuredClone(seedBasic), 'App View source'))).toEqual([])
     const hold = { held: false, buffer: [] as (() => void)[] }
-    const appB = new AppState({
+    const appB = prepareWorkflowApp(new AppState({
       collabTransport: {
         ...server.transport,
         connect: (config) => {
@@ -1531,7 +1531,7 @@ describe('lifecycle races', () => {
           }
         },
       },
-    })
+    }))
     appB.addBackend('http://collab', 'collab', false, 'dinkster')
     const local = activeTab(appA)
     const graphId = local.store.doc.root
@@ -1607,7 +1607,7 @@ describe('lifecycle races', () => {
     const appA = makeApp(server)
     editableApps.push(prepareWorkflowApp(appA))
     const hold = { held: false, buffer: [] as (() => void)[] }
-    const appB = new AppState({
+    const appB = prepareWorkflowApp(new AppState({
       collabTransport: {
         ...server.transport,
         connect: (config) => {
@@ -1630,7 +1630,7 @@ describe('lifecycle races', () => {
           }
         },
       },
-    })
+    }))
     appB.addBackend('http://collab', 'collab', false, 'dinkster')
     editableApps.push(prepareWorkflowApp(appB))
     expect(await appA.shareActiveTab()).toBeUndefined()
@@ -1785,7 +1785,7 @@ describe('reload rejoin', () => {
     expect(await app1.shareActiveTab()).toBeUndefined()
 
     const connections: FakeConn[] = []
-    const app2 = new AppState({
+    const app2 = prepareWorkflowApp(new AppState({
       collabTransport: {
         ...server.transport,
         connect: (args) => {
@@ -1807,7 +1807,7 @@ describe('reload rejoin', () => {
           }
         },
       },
-    })
+    }))
     app2.addBackend('http://collab', 'collab', false, 'dinkster')
     await app2.rejoinCollabSessions()
     expect(app2.tabs.get().every((t) => app2.collabFor(t.id) === undefined)).toBe(true)
@@ -1822,9 +1822,9 @@ describe('reload rejoin', () => {
     expect(await app1.shareActiveTab()).toBeUndefined()
     const sessionId = app1.collabFor(activeTab(app1).id)!.descriptor.sessionId
 
-    const app2 = new AppState({
+    const app2 = prepareWorkflowApp(new AppState({
       collabTransport: { ...server.transport, get: () => Promise.reject(new Error('backend unreachable')) },
-    })
+    }))
     await app2.rejoinCollabSessions()
     expect(app2.tabs.get().every((t) => app2.collabFor(t.id) === undefined)).toBe(true)
     expect(storedSessions()).toMatchObject([{ sessionId }])
@@ -1872,7 +1872,7 @@ describe('reload rejoin', () => {
     const sessionId = app1.collabFor(tab1.id)!.descriptor.sessionId
 
     const gated = gatedTransport(server)
-    const app2 = new AppState({ collabTransport: gated.transport })
+    const app2 = prepareWorkflowApp(new AppState({ collabTransport: gated.transport }))
     app2.addBackend('http://collab', 'collab', false, 'dinkster')
     const rejoin = app2.rejoinCollabSessions()
     app2.closeTab(tab1.id) // user closes the restored tab while the probe hangs
@@ -1893,12 +1893,12 @@ describe('reload rejoin', () => {
     const sessionId = app1.collabFor(tab1.id)!.descriptor.sessionId
 
     const gated = gatedTransport(server)
-    const app2 = new AppState({ collabTransport: gated.transport })
+    const app2 = prepareWorkflowApp(new AppState({ collabTransport: gated.transport }))
     app2.addBackend('http://collab', 'collab', false, 'dinkster')
     const rejoin = app2.rejoinCollabSessions()
     // Replace the restored tab in place (same lineage) with a fresh open of
     // the same seed document it was restored from.
-    expect(app2.openDocument(structuredClone(seedBasic), 'Replaced')).toEqual([])
+    expect((await app2.openDocument(structuredClone(seedBasic), 'Replaced'))).toEqual([])
     const replacement = app2.tabs.get().find((t) => t.id === tab1.id)!
     gated.release()
     await rejoin
@@ -1916,7 +1916,7 @@ describe('reload rejoin', () => {
     const tab1 = activeTab(app1)
 
     const gated = gatedTransport(server)
-    const app2 = new AppState({ collabTransport: gated.transport })
+    const app2 = prepareWorkflowApp(new AppState({ collabTransport: gated.transport }))
     app2.addBackend('http://collab', 'collab', false, 'dinkster')
     const rejoin = app2.rejoinCollabSessions()
     app2.closeTab(tab1.id) // closed while the probe hangs...
@@ -1934,10 +1934,10 @@ describe('reload rejoin', () => {
     const tab1 = activeTab(app1)
 
     const gated = gatedTransport(server)
-    const app2 = new AppState({ collabTransport: gated.transport })
+    const app2 = prepareWorkflowApp(new AppState({ collabTransport: gated.transport }))
     app2.addBackend('http://collab', 'collab', false, 'dinkster')
     const rejoin = app2.rejoinCollabSessions()
-    expect(app2.openDocument(structuredClone(seedBasic), 'Replaced')).toEqual([]) // same lineage
+    expect((await app2.openDocument(structuredClone(seedBasic), 'Replaced'))).toEqual([]) // same lineage
     gated.fail(new Error('backend died'))
     await rejoin
     expect(storedSessions()).toEqual([])
@@ -1952,7 +1952,7 @@ describe('reload rejoin', () => {
     const sessionId = app1.collabFor(tab1.id)!.descriptor.sessionId
 
     const gated = gatedTransport(server)
-    const app2 = new AppState({ collabTransport: gated.transport })
+    const app2 = prepareWorkflowApp(new AppState({ collabTransport: gated.transport }))
     app2.addBackend('http://collab', 'collab', false, 'dinkster')
     const rejoin = app2.rejoinCollabSessions()
     // A second rejoin while the first is in flight single-flights per
@@ -1974,7 +1974,7 @@ describe('reload rejoin', () => {
     const tab1 = activeTab(app1)
 
     const gated = gatedTransport(server)
-    const app2 = new AppState({ collabTransport: gated.transport })
+    const app2 = prepareWorkflowApp(new AppState({ collabTransport: gated.transport }))
     app2.settings.set('features.appView.enabled', true)
     app2.addBackend('http://collab', 'collab', false, 'dinkster')
     const rejoin = app2.rejoinCollabSessions()
@@ -1993,9 +1993,9 @@ describe('reload rejoin', () => {
     expect(await app1.shareActiveTab()).toBeUndefined()
     const tab1 = activeTab(app1)
 
-    const app2 = new AppState({
+    const app2 = prepareWorkflowApp(new AppState({
       collabTransport: { ...server.transport, get: () => Promise.reject(new Error('backend unreachable')) },
-    })
+    }))
     await app2.rejoinCollabSessions()
     expect(storedSessions()).toHaveLength(1) // pending: would retry next reload
     app2.closeTab(tab1.id)
@@ -2037,13 +2037,13 @@ describe('reload rejoin', () => {
     stored.sessions.push({ sessionId, baseUrl: 'http://other', documentId: otherTab.id, title: 'Elsewhere' })
     g.localStorage!.setItem(COLLAB_SESSIONS_KEY, JSON.stringify(stored))
 
-    const app2 = new AppState({
+    const app2 = prepareWorkflowApp(new AppState({
       collabTransport: {
         ...server.transport,
         get: (baseUrl: string, id: string) =>
           baseUrl === 'http://other' ? Promise.reject(new Error('unreachable')) : server.transport.get(baseUrl, id),
       },
-    })
+    }))
     app2.addBackend('http://collab', 'collab', false, 'dinkster')
     await app2.rejoinCollabSessions()
     // The live rejoin on http://collab must not swallow the still-pending

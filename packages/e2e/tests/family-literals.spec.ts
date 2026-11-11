@@ -10,7 +10,7 @@ for (const named of [false, true]) {
     await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
     await page.goto('/')
     await page.waitForFunction(() => window.__dinksterTest !== undefined)
-    await page.evaluate(({ names, named }) => {
+    await page.evaluate(async ({ names, named }) => {
       const app = window.__dinksterTest!.app
       app.registerSchemas([{
         type: 'CanonicalProof', displayName: 'Forwarded weights', category: 'proof', source: 'v3', isOutputNode: false,
@@ -28,7 +28,7 @@ for (const named of [false, true]) {
       const graph = (id: string, nodes: unknown, boundary?: unknown) => ({
         id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 3, ...(boundary ? { boundary } : {}),
       })
-      const diagnostics = app.openDocument({
+      const diagnostics = (await app.openDocument({
         format: 'dinkster-workflow', formatVersion: 1, lineage: 'canonical-drilled-proof', root: 'g0',
         graphs: {
           g0: graph('g0', { instance: { id: 'instance', type: '#sub', values: { [`forwarded.${names[1]}`]: 22 }, dynamic: { forwarded: { members: [names[1]] } } } }),
@@ -41,7 +41,7 @@ for (const named of [false, true]) {
         view: { graphs: { g0: { nodes: { instance: { position: { x: 250, y: 160 } } } }, sub: { nodes: {
           n: { position: { x: 250, y: 160 } }, source: { position: { x: 50, y: 360 } },
         } } } },
-      } as never, 'Canonical family proof')
+      } as never, 'Canonical family proof'))
       if (diagnostics.length) throw new Error(JSON.stringify(diagnostics))
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     }, { names, named })
@@ -142,7 +142,7 @@ test('legacy named family literal editing advances the ghost through compaction'
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const scalar = { kind: 'union', names: ['FLOAT', 'INT', 'BOOLEAN'] }
     app.registerSchemas([
@@ -174,7 +174,7 @@ test('legacy named family literal editing advances the ghost through compaction'
         items: [{ kind: 'output', id: 'value', type: { kind: 'concrete', name: 'FLOAT' } }],
       },
     ] as never)
-    const diagnostics = app.openDocument({
+    const diagnostics = (await app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'family-literal-proof',
@@ -202,7 +202,7 @@ test('legacy named family literal editing advances the ghost through compaction'
         source: { position: { x: 100, y: 180 } },
         math: { position: { x: 480, y: 140 } },
       } } } },
-    }, 'Family literal proof')
+    }, 'Family literal proof'))
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
     window.__dinksterTest!.renderer!.setViewport({ x: 20, y: 20, scale: 1.5 })
   })
@@ -273,10 +273,10 @@ test('legacy named family literal editing advances the ghost through compaction'
     ],
   })
 
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const serialized = JSON.parse(JSON.stringify(app.activeTab()!.store.doc))
-    app.openDocument(serialized, 'Reloaded family literal proof')
+    await app.openDocument(serialized, 'Reloaded family literal proof')
     window.__dinksterTest!.renderer!.setViewport({ x: 20, y: 20, scale: 1.5 })
   })
   const reloaded = await page.evaluate(() => {

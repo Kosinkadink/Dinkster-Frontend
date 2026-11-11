@@ -65,7 +65,7 @@ async function capture(page: Page, name: string, projectName: string, outputPath
 }
 
 async function openProof(page: Page) {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const image = { kind: 'concrete', name: 'IMAGE' } as const
     window.__dinksterTest!.app.registerSchemas([
       {
@@ -86,7 +86,7 @@ async function openProof(page: Page) {
         items: [{ kind: 'input', id: 'image', type: image, optional: false }],
       },
     ] as never)
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'minimized-nodes-proof', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
@@ -228,10 +228,10 @@ test('toolbar, title, shortcut, context menu, save, and clipboard preserve minim
 
   await page.evaluate(() => window.__dinksterTest!.controller!.setSelection(['target']))
   await page.keyboard.press('Alt+c')
-  const reopened = await page.evaluate(() => {
+  const reopened = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const exported = app.exportDocument(app.activeTab()!.id)!
-    const failures = app.openDocument(JSON.parse(JSON.stringify(exported)), 'Minimized nodes reopened')
+    const failures = (await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Minimized nodes reopened'))
     return { failures, view: app.activeTab()!.store.doc.view.graphs.g0!.nodes.target }
   })
   expect(reopened.failures).toEqual([])
@@ -282,12 +282,12 @@ test('minimized aggregate proxies are not link sources and compact body drops st
 })
 
 test('ComfyUI flags.collapsed imports as minimized state and survives export and reopen', async ({ page }, testInfo) => {
-  const result = await page.evaluate((json) => {
+  const result = await page.evaluate(async (json) => {
     const app = window.__dinksterTest!.app
-    const failures = app.openDocument(json, 'Collapsed ComfyUI import')
+    const failures = (await app.openDocument(json, 'Collapsed ComfyUI import'))
     const tab = app.activeTab()!
     const exported = app.exportDocument(tab.id)!
-    const reopenFailures = app.openDocument(JSON.parse(JSON.stringify(exported)), 'Collapsed import reopened')
+    const reopenFailures = (await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Collapsed import reopened'))
     return { failures, reopenFailures, view: app.activeTab()!.store.doc.view.graphs.g0!.nodes,
       nodes: app.activeTab()!.store.doc.graphs.g0!.nodes }
   }, {
