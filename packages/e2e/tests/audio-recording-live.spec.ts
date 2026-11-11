@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 import { selectProductOption } from './fixtures.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const PHYSICAL_MICROPHONE = process.env['DINKSTER_PHYSICAL_MICROPHONE']
@@ -70,7 +71,7 @@ test.beforeEach(async ({ page, context }, testInfo) => {
     if (response.ok) nodes = (await response.json() as { nodes?: Record<string, unknown> }).nodes
   } catch { /* skip below */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
-  test.skip(!('dinkster.load_audio' in nodes!), 'native backend lacks load audio')
+  requireBackendNodes(nodes!, ['dinkster.audio.load_audio'], testInfo)
   await page.addInitScript(({ synthetic }) => {
     const captures: Promise<readonly number[]>[] = []
     Object.defineProperty(window, '__dinksterRecordedAudioChunks', { value: captures })
@@ -117,7 +118,7 @@ test(PHYSICAL_MICROPHONE
       graphs: { g0: {
         id: 'g0', name: 'Audio recording',
         nodes: {
-          load: { id: 'load', type: 'dinkster.load_audio', values: {} },
+          load: { id: 'load', type: 'dinkster.audio.load_audio', values: {} },
         },
         links: {},
         nets: {}, reroutes: {}, nextOrdinal: 1,
@@ -230,10 +231,10 @@ test(PHYSICAL_MICROPHONE
   expect(receipt).toMatchObject({ state: 'completed', cacheEnabled: false, executed: expect.arrayContaining(['load']) })
 
   const descriptorQuery = new URLSearchParams({
-    clientId: submitted.clientId, jobId: submitted.jobId, nodeId: 'load', outputId: 'audio',
+    clientId: submitted.clientId, jobId: submitted.jobId, nodeId: 'load', outputId: 'AUDIO',
   })
   const windowQuery = new URLSearchParams({
-    clientId: submitted.clientId, jobId: submitted.jobId, nodeId: 'load', outputId: 'audio',
+    clientId: submitted.clientId, jobId: submitted.jobId, nodeId: 'load', outputId: 'AUDIO',
     rendition: 'window', batch: '0', window: '0,3',
   })
   const descriptorResponse = await request.get(`${NATIVE_BACKEND}/api/values?${descriptorQuery}`)

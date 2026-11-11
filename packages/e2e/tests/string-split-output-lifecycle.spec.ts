@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { waitForStartupOwnership } from './fixtures.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -84,7 +85,7 @@ const splitState = (page: Page) => page.evaluate(() => {
   }
 })
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   test.skip(process.env['DINKSTER_NATIVE_BACKEND'] === undefined,
     'set DINKSTER_NATIVE_BACKEND to an isolated backend serving the dinkster-nodes-dev pack')
   const errors: BrowserErrors = { page: [], console: [], responses: [] }
@@ -104,8 +105,7 @@ test.beforeEach(async ({ page }) => {
     if (response.ok) nodes = (await response.json() as { nodes: Record<string, unknown> }).nodes
   } catch { /* handled by the skip below */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
-  test.skip(!('std.string.split' in nodes! && 'std.string.concat' in nodes!),
-    'native backend lacks the string output-family scaffolding nodes')
+  requireBackendNodes(nodes!, ['std.string.split', 'std.string.concat'], testInfo)
 
   await page.goto('/')
   await expect.poll(() => {
