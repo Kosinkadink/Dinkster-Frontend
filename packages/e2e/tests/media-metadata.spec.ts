@@ -114,9 +114,8 @@ test('inspects every media kind through the owning value API without mutating th
   await page.evaluate(() => window.__dinksterTest!.app.flushPersistTabs())
   await expect.poll(() => page.evaluate(() => {
     const snapshot = JSON.parse(localStorage.getItem('dinkster.openTabs') ?? 'null')
-    return snapshot?.assetRetention?.acknowledged === true &&
-      !Object.keys(localStorage).some((key) => key.startsWith('dinkster.openTabsCandidate.') ||
-        key.startsWith('dinkster.openTabsDocumentCandidate.'))
+    return snapshot?.v === 1 &&
+      !Object.keys(localStorage).some((key) => key.startsWith('dinkster.openTabsCandidate.'))
   })).toBe(true)
   const beforeLocaleRequests = [...backendRequests]
   const beforeLocaleValueRequests = requests.length

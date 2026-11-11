@@ -89,10 +89,8 @@ test('mounted Activity chrome localizes without changing raw events or reader st
   await page.evaluate(() => window.__dinksterTest!.app.flushPersistTabs())
   await expect.poll(() => page.evaluate(() => {
     const snapshot = JSON.parse(localStorage.getItem('dinkster.openTabs') ?? 'null')
-    return snapshot?.assetRetention?.acknowledged === true &&
-      Object.keys(localStorage).filter((key) => key.startsWith('dinkster.openTabsCandidate.') ||
-        key.startsWith('dinkster.openTabsDocumentCandidate.')).every((key) =>
-        JSON.parse(localStorage.getItem(key) ?? 'null')?.assetRetention?.acknowledged === true)
+    return snapshot?.v === 1 &&
+      !Object.keys(localStorage).some((key) => key.startsWith('dinkster.openTabsCandidate.'))
   })).toBe(true)
   await page.clock.install()
   await page.clock.pauseAt(new Date())
