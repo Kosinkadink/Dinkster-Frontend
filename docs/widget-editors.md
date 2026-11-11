@@ -65,16 +65,6 @@ continues independently; closing one selection does not cancel other borrowers.
 
 ## Descriptor fields
 
-The AUDIO_RECORD input on Record Audio opens the recording editor. Recording
-and applying a clip stores its audio asset on the node for the next run.
-The LOAD_3D input opens the 3D viewport on Load 3D, Load 3D Advanced, and the
-advanced mesh, gaussian-splat and point-cloud preview/save nodes. Preview Point
-Cloud and Save Point Cloud use point rendering rather than mesh surfaces.
-Stored model inputs retain their concrete typed-literal envelopes when the
-input accepts several file formats; the viewport reads the enclosed model.
-Applying the viewport retains the node's camera and model state; Load 3D also
-captures its image, mask and normal assets.
-
 The WEBCAM row opens a camera capture dialog. Capture frame requests browser
 camera permission, takes one PNG resized to the node's width and height, stages
 it on the node's native backend, and releases the camera tracks. A zero width
