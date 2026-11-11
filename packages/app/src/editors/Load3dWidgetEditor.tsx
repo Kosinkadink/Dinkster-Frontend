@@ -1,4 +1,4 @@
-import { asPortId, buildRerouteIndex, companionSourcesOf, defaultValuesOf, occurrencesForView, parseAssetTypeId, portRefKey, type ExecutionRef, type Json } from '@dinkster/core'
+import { asPortId, buildRerouteIndex, companionSourcesOf, defaultValuesOf, inputsOf, occurrencesForView, parseAssetTypeId, portRefKey, type ExecutionRef, type Json } from '@dinkster/core'
 import { createSignal, For, onCleanup, onMount, Show, type Component } from 'solid-js'
 import { viewInstancePath } from '../app-state.js'
 import { liveExactnessFor } from '../companion-display.js'
@@ -244,8 +244,11 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       if (assets.length && !reader) throw unavailable()
       const mount = async () => {
         if (!live || !sourcesCurrent() || reader?.current() === false) throw unavailable()
+        const schema = node === undefined ? undefined : resolveSchema?.(node.type)
+        const pointCloud = schema !== undefined && inputsOf(schema).some((input) =>
+          input.id === 'model_3d' && input.type.kind === 'concrete' && input.type.name === 'FILE_3D_POINT_CLOUD_ANY')
         const mounted = await mountModel3dViewer(viewport, primary.url, mime, { resources,
-          ...(format ? { format } : {}), pointCloud: node?.type === 'PreviewPointCloud' })
+          ...(format ? { format } : {}), pointCloud })
         if (!live || !sourcesCurrent() || reader?.current() === false) { mounted.dispose(); return }
         viewer = mounted
         viewerCurrent = () => reader?.current() !== false
