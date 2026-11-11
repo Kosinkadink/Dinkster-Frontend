@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import type { Diagnostic } from '@dinkster/core'
 import { expect, nativeTest as test, type Page } from './fixtures.js'
 
 test.use({ retentionApi: false })
@@ -53,7 +54,7 @@ test('required served slot can be cleared, reselected and execute a connected va
   expect(await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const compiled = app.compileTab(app.activeTab()!)
-    return compiled !== undefined && !compiled.ok ? compiled.diagnostics.map((diagnostic) => diagnostic.code) : []
+    return compiled !== undefined && !compiled.ok ? (compiled.diagnostics as readonly Diagnostic[]).map((diagnostic) => diagnostic.code) : []
   }))
     .toContain('prompt.missing_dynamic_choice')
 
