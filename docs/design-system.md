@@ -89,12 +89,6 @@ The Focused panel uses ProductEmptyState for an absent document and a context
 without problems. Context selection, problem filtering and canvas navigation
 remain independent of the empty presentation.
 
-Control surfaces use ProductEmptyState for absent panels, empty bindings,
-unsupported surface types and malformed configurations. Malformed configuration
-is an alert; unsupported surfaces remain inert and removable. Bindings use
-ProductListRow inside list items, retaining removal actions and warning details
-for unresolved bindings without changing bulk mode commands.
-
 Badge popovers use ProductEmptyState when error, log or problem details are
 absent and when subgraph or replacement data is unavailable. These are missing
 detail messages, not new runtime alerts; popover focus and existing actions

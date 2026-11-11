@@ -1,9 +1,9 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 170,
+    "rawControl": 165,
     "inlineStyle": 64,
-    "cssLiteral": 67
+    "cssLiteral": 66
   },
   "entries": [
     {
@@ -289,12 +289,6 @@
       "issue": 382
     },
     {
-      "kind": "rawControl",
-      "path": "packages/app/src/SurfacePanel.tsx",
-      "count": 5,
-      "issue": 382
-    },
-    {
       "kind": "inlineStyle",
       "path": "packages/app/src/TabDragGhost.tsx",
       "count": 1,
@@ -423,7 +417,7 @@
     {
       "kind": "cssLiteral",
       "path": "packages/app/src/styles.css",
-      "count": 67,
+      "count": 66,
       "issue": 382
     }
   ]

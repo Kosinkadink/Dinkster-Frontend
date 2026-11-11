@@ -26,11 +26,9 @@ import {
   createReplacementRegistry,
   createSearchRegistry,
   createSignal,
-  createSurfaceRegistry,
   effectiveOccurrenceTopology,
   effectiveTopologyDrivesPort,
   effectiveWidgetDefault,
-  modePanelSurface,
   detectFormat,
   diag,
   createLocalSession,
@@ -2577,8 +2575,6 @@ export class AppState {
   readonly transientStatus = createSignal<string | undefined>(undefined)
   private transientStatusTimer: ReturnType<typeof setTimeout> | undefined
   readonly settingsOpenRequest = createSignal<{ readonly category: string; readonly id: string } | undefined>(undefined)
-  /** Control-surface types; extensions register through the same public API. */
-  readonly surfaceRegistry = createSurfaceRegistry([modePanelSurface])
   /**
    * Shell panels are descriptors (identity, placement, component), and the
    * shell renders from them. The built-in shell registers panel descriptors
@@ -3098,7 +3094,6 @@ export class AppState {
     this.settings.register({ id: 'canvas.minimap.errors', get name() { return t('settings.canvas.minimap.errors') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.namedNets.enabled', get name() { return t('settings.features.namedNets') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.seedController.enabled', get name() { return t('settings.features.seedController') }, type: 'boolean', defaultValue: true })
-    this.settings.register({ id: 'features.controlSurfaces.enabled', get name() { return t('settings.features.controlSurfaces') }, type: 'boolean', defaultValue: false })
     this.settings.register({ id: 'features.appView.enabled', get name() { return t('settings.features.appView') }, type: 'boolean', defaultValue: false })
     this.settings.register({ id: 'tooltips.delayMs', get name() { return t('settings.tooltips.delayMs') }, type: 'number', defaultValue: 500, min: 0, max: 5000, step: 50 })
     this.settings.register({

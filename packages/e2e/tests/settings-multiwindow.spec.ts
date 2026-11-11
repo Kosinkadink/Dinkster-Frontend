@@ -8,6 +8,22 @@ async function mockEmptyNativeCatalog(page: Page): Promise<void> {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
 }
 
+async function registerConditionalPanel(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.panels.register({
+      id: 'conditional-test', title: 'Conditional panel', placement: 'rail',
+      allowedPlacements: ['rail', 'window'], order: 50,
+      when: () => app.settings.get<boolean>('features.appView.enabled'),
+      component: () => document.createElement('div'),
+    })
+    app.settings.changed.subscribe(() => {
+      const changed = app.panels.changed
+      changed.set(changed.get() + 1)
+    })
+  })
+}
+
 async function expectInteractiveReturnButton(page: Page, state: Locator): Promise<void> {
   const button = state.getByRole('button', { name: 'Move back to main window', exact: true })
   await expect(button).toBeVisible()
@@ -28,19 +44,21 @@ async function expectInteractiveReturnButton(page: Page, state: Locator): Promis
 test('settings changes reach an already-open panel window', async ({ page, context }, info) => {
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
+  await registerConditionalPanel(page)
   const setGate = (enabled: boolean) => page.evaluate((value) => {
     const app = window.__dinksterTest!.app as unknown as {
       settings: { set(id: string, next: boolean): void }
     }
-    app.settings.set('features.controlSurfaces.enabled', value)
+    app.settings.set('features.appView.enabled', value)
   }, enabled)
   await setGate(true)
 
   const panel = await context.newPage()
   await mockEmptyNativeCatalog(panel)
-  await panel.goto('/?dinksterWindow=browser-panel-surfaces&dinksterWindowKind=panel&dinksterPanel=surfaces&dinksterPanelReturn=rail')
+  await panel.goto('/?dinksterWindow=browser-panel-conditional&dinksterWindowKind=panel&dinksterPanel=conditional-test&dinksterPanelReturn=rail')
   await panel.waitForFunction(() => window.__dinksterTest !== undefined)
-  await expect(panel.locator('[data-testid="native-panel-window"][data-panel="surfaces"]')).toBeVisible()
+  await registerConditionalPanel(panel)
+  await expect(panel.locator('[data-testid="native-panel-window"][data-panel="conditional-test"]')).toBeVisible()
 
   await setGate(false)
   await expect(panel.getByTestId('native-panel-window-missing')).toBeVisible()

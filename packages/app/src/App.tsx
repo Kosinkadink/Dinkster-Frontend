@@ -45,7 +45,6 @@ import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
-import { SurfacePanel } from './SurfacePanel.js'
 import { TemplateGallery } from './TemplateGallery.js'
 import { useSignal } from './solid-adapter.js'
 import { comboFromEvent, isNativeTextScopeTarget, shortcutSuppressed, type CommandRegistry, type KeybindingRegistry } from './settings.js'
@@ -460,10 +459,6 @@ export function App(props: {
   const searchShortcut = (): string | undefined => {
     settingsTick()
     return app.keybindings.combo('search.open')
-  }
-  const controlSurfacesEnabled = (): boolean => {
-    settingsTick()
-    return app.settings.get<boolean>('features.controlSurfaces.enabled')
   }
   const appViewEnabled = createMemo((): boolean => {
     settingsTick()
@@ -1503,14 +1498,6 @@ export function App(props: {
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 40,
       indicator: boundaryIndicator,
       component: () => <BoundaryPanel app={app} />,
-    }),
-    // Control surfaces are parked in the rework queue (rgthree-like
-    // controls); hidden by default so they are not mistaken for a settled
-    // feature. See docs/rework-queue.md.
-    registerBuiltinPanel({
-      id: 'surfaces', get title() { return message('shell.panel.controlSurfaces.title') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 50,
-      when: controlSurfacesEnabled, component: () => <SurfacePanel app={app} />,
     }),
     // The Focused tab shows the focused entity and only its problems
     // (docs/problem-surfaces.md); the Problems tab remains the whole-document

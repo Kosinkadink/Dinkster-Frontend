@@ -860,6 +860,11 @@ The old ecosystem's "widget as output" requests dead-ended because node definiti
 
 ### 6. Graph control: mode flags, control surfaces, and selectors
 
+The control-surface design below is parked on the branch recorded in
+`rework-queue.md`. Main retains saved surface data and binding lifecycle
+protection, but no panel, setting, registry or surface commands. App View,
+ordinary node mode commands and selectors remain separate working features.
+
 rgthree's Fast Muter/Bypasser, Fast Groups Muter, Node Mode Relay/Repeater, and Random Unmuter prove real demand for controlling the graph (mute/bypass, group toggles, randomized branch selection) without server involvement. Their current embodiment is everything this architecture bans: virtual nodes with `*` control links masquerading as dataflow, group targeting by re-scanning geometry every 500ms, procedural `node.mode` assignment with no command boundaries (bulk toggles are not atomic undo steps), a monkey-patched mode setter, and Random Unmuter temporarily mutating live graph state around the prompt-compile call. The demand decomposes onto three contracts this design already has - **no second category of "node" is needed**:
 
 1. **Mute/bypass are document mode flags** on any node or subgraph instance, changed only through commands - so a bulk toggle is one atomic, undoable transaction, whoever initiates it. Compiler semantics are specified, not incidental: *bypass* lowers to a type-matched passthrough (same-slot-index preferred, then exact type match, using solved types - the current frontend's DTO heuristic, made deterministic and testable); *mute* drops the node's contribution and surfaces "required input now unsatisfied" as a **compile diagnostic before submit** instead of a server round-trip error. Subgraph instances mute/bypass at their boundary NodeSchema; flattening respects the flag - no recursive descendant-poking (rgthree needed a depth-first hack for exactly this).

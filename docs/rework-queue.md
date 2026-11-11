@@ -80,11 +80,12 @@ user's manual testing pass.
 
 ## Control surfaces (mode panels)
 
-- What it is: The right-rail "Control surfaces" panel - mode panels that bind nodes/groups and fire bulk active/mute/bypass changes; the sanctioned form of rgthree's Fast Muter / Fast Groups Muter (architecture section 6, SurfacePanel.tsx).
-- Why deferred: Same rgthree-like control family as the seed controller; the user wants these reworked together after feedback, and hidden so they are not mistaken for something else.
-- Disabled: The panel is not rendered by default, gated by `features.controlSurfaces.enabled`.
-- Still active: Surface data serializes with the workflow and loads intact; `surface.*` commands remain registered; core and E2E tests remain (the E2E suite enables the flag).
-- Re-enable: Set `features.controlSurfaces.enabled` to `true` in Settings.
+- What and purpose: The right-rail "Control surfaces" panel creates mode panels bound to nodes/groups and applies bulk Active, Mute or Bypass changes as one undoable edit, without adding compute nodes.
+- Why parked: The user wants these controls reworked before they return to main. The panel, `features.controlSurfaces.enabled`, `surface.{add,update,remove,mode.apply}` and `view.moveSurface` are removed, rather than hidden behind a setting. App View and ordinary node mode commands stay.
+- Kept code: [draft-frontend-features-before-removal-776](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-frontend-features-before-removal-776), commit `c80ca840af27f81d2166a28138fc72d924bf9d46`. Main paths: `packages/app/src/{SurfacePanel.tsx,App.tsx,app-state.ts,styles/control-surfaces.css}`, `packages/core/src/{commands/surface-commands.ts,surfaces/contract.ts,surfaces/mode-panel.ts}`. Tests: `packages/core/test/surfaces.test.ts`, `packages/app/test/SurfacePanel.dom.test.tsx`, `packages/e2e/tests/surfaces.spec.ts` and control-surface cases in App View, dock/settings and product screenshots.
+- Still active: Stored `surfaces`, `surfaceSeq` and `view.surfaces` round-trip without an editor. Binding decoding, group-id allocation floors and subgraph lifecycle handling remain to protect saved data during ordinary edits. Unknown surface/config/binding data stays intact. No command can create or apply a panel.
+- Backend needed: None. This is document-owned frontend command/UI behavior; no node ids, editor roles, routes, server flags or backend draft branch are required.
+- Return and hand test: Restore the panel, commands, registry and setting together after agreeing on the revised controls. Open a workflow with known and unknown bindings, add a panel, bind selected nodes and a group, apply each mode and Undo/Redo. Move a node outside the group and verify the next apply uses current membership. Verify pending/refused binding changes, save/reopen and unknown-data preservation, and confirm App View works independently.
 
 ## E2E backend-serial two-lane split (dev tooling)
 
