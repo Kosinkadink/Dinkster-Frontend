@@ -729,7 +729,7 @@ describe('retained app dispatch', () => {
     })
   })
 
-  it.each(['active', 'dormant', 'invalid', 'dormant-invalid', 'unknown'] as const)('classifies %s nested wire15 state without certifying opaque values', (variant) => {
+  it.each(['active', 'dormant', 'shared', 'invalid', 'dormant-invalid', 'unknown'] as const)('classifies %s nested wire15 state without certifying opaque values', (variant) => {
     const codec: NodeSchema['items'][number] = {
       kind: 'input', id: 'codec', optional: false, type: { kind: 'concrete', name: 'STRING' },
       dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'auto', inputs: [] }] },
@@ -738,7 +738,9 @@ describe('retained app dispatch', () => {
       kind: 'input', id: 'format', optional: false, type: { kind: 'concrete', name: 'STRING' },
       dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
         { key: 'auto', inputs: variant === 'dormant' || variant === 'dormant-invalid' ? [] : [codec] },
-        { key: 'other', inputs: variant === 'dormant' || variant === 'dormant-invalid' ? [codec] : [] },
+        { key: 'other', inputs: variant === 'shared' ? [{ ...codec, dynamic: {
+          kind: 'dynamicCombo', materialization: 'wire15', options: [{ key: 'other', inputs: [] }],
+        } }] : variant === 'dormant' || variant === 'dormant-invalid' ? [codec] : [] },
       ] },
     }] }
     const local = session()
@@ -754,8 +756,8 @@ describe('retained app dispatch', () => {
     const roots = workflowAssetRoots(document, history, () => dynamic, [], 'admission')
     expect(roots.complete).toBe(false)
     expect(roots.digests).toEqual([asset('a').digest])
-    expect(roots.refusal).toBe(variant === 'active' || variant === 'dormant' ? undefined : 'Workflow dynamic identities are invalid')
-    if (variant === 'active' || variant === 'dormant') {
+    expect(roots.refusal).toBe(variant === 'active' || variant === 'dormant' || variant === 'shared' ? undefined : 'Workflow dynamic identities are invalid')
+    if (variant === 'active' || variant === 'dormant' || variant === 'shared') {
       const stored = elaborateInterface(dynamic, document.graphs.g0!.nodes.n0!, EMPTY_CONNECTIVITY, { includeDormant: true })
       expect(stored.diagnostics).toEqual([])
       expect(roots.incompleteDiagnostics).toEqual([expect.objectContaining({
@@ -763,7 +765,7 @@ describe('retained app dispatch', () => {
       })])
     }
     expect(workflowAssetRoots(document, history, () => dynamic).refusal)
-      .toBe(variant === 'active' || variant === 'dormant' ? undefined : 'Workflow dynamic identities are invalid')
+      .toBe(variant === 'active' || variant === 'dormant' || variant === 'shared' ? undefined : 'Workflow dynamic identities are invalid')
   })
 
   it.each(['artifact', 'associated', 'output', 'model3d', 'retained'] as const)(

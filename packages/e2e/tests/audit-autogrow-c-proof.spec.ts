@@ -1,5 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
-import { openRailPanel } from './fixtures.js'
+import { expect, nativeTest as test, openRailPanel, waitForStartupOwnership, type Page } from './fixtures.js'
 
 interface Point {
   readonly x: number
@@ -132,6 +131,7 @@ test('outside per-family ghost growth advances, persists, drills, and refuses fa
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get().length ?? 0)).toBe(1)
+  await waitForStartupOwnership(page)
   await openWorkflow(page)
   await expect.poll(() => page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()

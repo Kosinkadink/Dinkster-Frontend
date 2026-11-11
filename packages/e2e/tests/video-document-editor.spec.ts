@@ -1,4 +1,5 @@
-import { expect, test, type Page, type TestInfo } from '@playwright/test'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
+import type { TestInfo } from '@playwright/test'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const commands = [
@@ -46,7 +47,7 @@ const catalog = {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.route('/api/**', (route) => route.fulfill({ status: 404, json: { error: 'Isolated fixture' } }))
+  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 404, json: { error: 'Isolated fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: catalog }))

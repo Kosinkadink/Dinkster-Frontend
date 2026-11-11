@@ -31,7 +31,7 @@ for (const accepted of [true, false]) {
         return output.stream
       } })
     })
-    await page.route('/api/**', (route) => route.fulfill({ status: 503 }))
+    await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 503 }))
     await page.route('/api/nodes*', (route) => route.fulfill({ json: {
       schemaVersion: 1, epoch: 1, dinkster: { version: 'recording-ownership', schemaWire: 1 },
       nodes: { Recorder: { schemaVersion: 1, displayName: 'Audio recording', interface: [

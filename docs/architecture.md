@@ -345,7 +345,11 @@ losslessly with opaque data and ownership warnings preserved, without posting a
 retention declaration. Malformed or invalid identities still refuse export.
 The stored-state census also records actual state reads from active elaboration.
 A key read from its exact state table is verified even when the dormant walk
-stops before it. Keys read by neither walk remain unknown-state errors; dormant
+stops before it. Wire-15 sibling branches can share a stored selector path:
+a choice validated by the active branch is not rejected against a dormant
+sibling's different option set. That exception is bound to the same state
+object and construct; invalid active choices and unvalidated dormant choices
+still refuse. Keys read by neither walk remain unknown-state errors; dormant
 diagnostics still make ownership incomplete. Active elaboration errors still
 refuse admission, and no dormant branch identities are resolved or guessed.
 Custom dynamic handlers read root constructs through `ctx.stateOf` and nested

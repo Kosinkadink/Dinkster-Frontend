@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/audit-integration-proof'
 
@@ -37,6 +37,7 @@ test('production planner commits a drilled occurrence ghost connect without any 
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get().length ?? 0)).toBe(1)
+  await waitForStartupOwnership(page)
 
   await page.evaluate(async () => {
     const test = window.__dinksterTest!

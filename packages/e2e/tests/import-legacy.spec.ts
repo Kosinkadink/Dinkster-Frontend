@@ -382,14 +382,15 @@ test('native import retains authored classes and links through badges, save/reop
   const imported = await page.evaluate(async ({ workflow }) => {
     const app = window.__dinksterTest!.app
     const backend = app.backends.get().find((candidate) => candidate.protocol === 'dinkster')!
-    const booleanControllers = [false, true].map(async (control) => {
+    const booleanControllers = []
+    for (const control of [false, true]) {
       const failures = (await app.openDocument({ ...workflow, nodes: workflow.nodes.map((node) => node.id === 5
         ? { ...node, widgets_values: [13, control, 29, 6.5, 'heun', 'karras', 0.45] }
         : node) }, 'Legacy boolean controller'))
       const node = app.activeTab()!.store.doc.graphs.g0!.nodes.n5!
-      return { failures, values: node.values, controllers: node.controllers }
-    })
-    const failures = (app.openDocument as unknown as (...args: unknown[]) => readonly unknown[])(
+      booleanControllers.push({ failures, values: node.values, controllers: node.controllers })
+    }
+    const failures = await app.openDocument(
       workflow,
       'SD1.5 native contract',
       backend,
@@ -475,10 +476,10 @@ test('audit SD1.5 workflow import preserves canonical combos without false error
     return backend?.registry.get() !== undefined
   })
 
-  const nativeCombo = await page.evaluate(() => {
+  const nativeCombo = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const backend = app.backends.get().find((candidate) => candidate.protocol === 'dinkster')!
-    const failures = (app.openDocument as unknown as (...args: unknown[]) => readonly unknown[])(
+    const failures = await app.openDocument(
       {
         version: 0.4,
         nodes: [{
@@ -509,10 +510,10 @@ test('audit SD1.5 workflow import preserves canonical combos without false error
     scheduler: 'normal',
   })
 
-  const imported = await page.evaluate((workflow) => {
+  const imported = await page.evaluate(async (workflow) => {
     const app = window.__dinksterTest!.app
     const backend = app.backends.get().find((candidate) => candidate.protocol === 'dinkster')!
-    const failures = (app.openDocument as unknown as (...args: unknown[]) => readonly unknown[])(
+    const failures = await app.openDocument(
       workflow,
       'Default SD1.5 workflow',
       backend,
