@@ -184,6 +184,13 @@ export async function checkExtensionLiterals(
       a.column - b.column ||
       a.symbol.localeCompare(b.symbol),
   )
+  const counts = Object.fromEntries(
+    expectedKinds.map((kind) => [
+      kind,
+      scannedSites.filter((site) => site.kind === kind).length,
+    ]),
+  )
+
   let allowlist
   try {
     allowlist = JSON.parse(await readFile(allowlistPath, 'utf8'))
@@ -192,20 +199,6 @@ export async function checkExtensionLiterals(
       `Cannot read extension literal allowlist: ${error instanceof Error ? error.message : String(error)}`,
     )
   }
-
-  const { sites: exceptions, unowned: nodeSites } = attachOwningIssues(
-    scannedSites.filter((site) => site.kind === 'nodeIdLiteral'),
-    allowlist.nodeIdExceptions ?? [],
-  )
-  const countedSites = scannedSites.filter(
-    (site) => site.kind !== 'nodeIdLiteral' || nodeSites.includes(site),
-  )
-  const counts = Object.fromEntries(
-    expectedKinds.map((kind) => [
-      kind,
-      countedSites.filter((site) => site.kind === kind).length,
-    ]),
-  )
 
   let baselineCeilings
   try {
@@ -269,7 +262,7 @@ export async function checkExtensionLiterals(
   }
 
   const { sites, unowned } = attachOwningIssues(
-    countedSites,
+    scannedSites,
     allowlist.sites ?? [],
   )
   if (unowned.length > 0) {
@@ -309,14 +302,7 @@ export async function checkExtensionLiterals(
         Math.min(allowlist.ceilings[kind], counts[kind]),
       ]),
     )
-    const snapshot = {
-      ceilings,
-      slack: allowlist.slack,
-      sites,
-      ...(allowlist.nodeIdExceptions !== undefined
-        ? { nodeIdExceptions: exceptions }
-        : {}),
-    }
+    const snapshot = { ceilings, slack: allowlist.slack, sites }
     await mkdir(dirname(allowlistPath), { recursive: true })
     await writeFile(allowlistPath, `${JSON.stringify(snapshot, null, 2)}\n`)
     return
@@ -341,9 +327,7 @@ export async function checkExtensionLiterals(
   })
   if (
     ceilingProblems.length > 0 ||
-    JSON.stringify(sites) !== JSON.stringify(allowlist.sites) ||
-    JSON.stringify(exceptions) !==
-      JSON.stringify(allowlist.nodeIdExceptions ?? [])
+    JSON.stringify(sites) !== JSON.stringify(allowlist.sites)
   ) {
     problems.push(
       'Extension literal sites differ from scripts/extension-literal-allowlist.json:',
@@ -357,13 +341,6 @@ export async function checkExtensionLiterals(
       if (!allowed.has(site)) problems.push(`  unlisted ${site}`)
     for (const site of allowed)
       if (!current.has(site)) problems.push(`  stale ${site}`)
-    if (
-      JSON.stringify(exceptions) !==
-      JSON.stringify(allowlist.nodeIdExceptions ?? [])
-    )
-      problems.push(
-        '  stale or moved node ID exceptions; refresh their exact file and ID entries',
-      )
     problems.push(
       'Replace a literal with an extension door, or refresh an intentional site with an owning issue while keeping the ceiling exact.',
     )
