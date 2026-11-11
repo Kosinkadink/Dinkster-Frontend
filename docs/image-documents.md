@@ -328,6 +328,10 @@ workflow document store. Commands atomically update raster layers, their tree
 order, transforms, opacity, blend mode, and raster masks. Every result passes
 the same loader and invariant checks as an imported document.
 
+Crop, resize and output controls wait for pending retained commands to settle.
+Rendering and editable recipe export also wait, so a following action cannot
+capture the document before the preceding edit is admitted.
+
 Undo and redo replay immutable patches. Allocation cursors never rewind, so an
 id is not reused after undo. The history reports every external raster digest
 that its undo or redo stack can restore; inline bytes travel inside the document.

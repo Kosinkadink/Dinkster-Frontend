@@ -454,6 +454,9 @@ Invalid or linked stored output counts remain openable for correction with
 incomplete ownership. Their known asset roots are retained, but compilation and
 publication remain refused until the output contract is repaired. Invalid stored
 dynamic member and choice identities still refuse admission.
+Document opening tolerates replacement of a registry by identical schema and
+capability content while ownership is pending. Changed schemas, capabilities,
+connection lifetimes, documents and open intents still invalidate that admission.
 Ordinary native dispatch selects admission from its candidate; complete
 frontend retention and collection remain disabled. The legacy bridge keeps
 its existing non-retained opening behavior.

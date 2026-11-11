@@ -65,6 +65,7 @@ test('a pack-declared custom widget uses its extension kind and reports the raw 
   await page.evaluate(() => {
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
+  await page.waitForFunction(() => window.__dinksterTest?.renderer?.getScene().nodes.some((node) => node.id === 'blob'))
   await page.getByTestId('graph-canvas').click({ position: await widgetPoint(page) })
   await expect(page.getByTestId('widget-editor')).toHaveAttribute('data-editor-mode', 'raw')
   await expect(page.getByTestId('widget-editor').locator('textarea')).toHaveValue('8')

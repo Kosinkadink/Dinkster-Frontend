@@ -174,11 +174,26 @@ test('opens exact graph document bytes and matches the live flatten image and tr
   await workspace.screenshot({ animations: 'disabled', path: pngScreenshotPath })
   await testInfo.attach('png-quality-disabled', { path: pngScreenshotPath, contentType: 'image/png' })
 
+  let delayedCrop = false
+  let releaseCrop!: () => void
+  const cropAcknowledgment = new Promise<void>((resolve) => { releaseCrop = resolve })
+  await page.route('**/api/library/retentions/document/*?scope=*', async (route) => {
+    if (!delayedCrop && route.request().method() === 'PUT') {
+      delayedCrop = true
+      await cropAcknowledgment
+    }
+    await route.fallback()
+  })
   await workspace.getByRole('spinbutton', { name: 'Crop x' }).fill('1')
   await workspace.getByRole('spinbutton', { name: 'Crop y' }).fill('1')
   await workspace.getByRole('spinbutton', { name: 'Crop width' }).fill('3')
   await workspace.getByRole('spinbutton', { name: 'Crop height' }).fill('2')
   await workspace.getByRole('button', { name: 'Apply crop' }).click()
+  await expect.poll(() => delayedCrop).toBe(true)
+  await expect(workspace.getByRole('spinbutton', { name: 'Resize width' })).toBeDisabled()
+  await expect(workspace.getByRole('combobox', { name: 'Output format' })).toBeDisabled()
+  await workspace.screenshot({ path: testInfo.outputPath('image-document-crop-pending.png') })
+  releaseCrop()
   await workspace.getByRole('spinbutton', { name: 'Resize width' }).fill('6')
   await workspace.getByRole('spinbutton', { name: 'Resize height' }).fill('4')
   await workspace.getByRole('button', { name: 'Apply resize' }).click()

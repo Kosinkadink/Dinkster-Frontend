@@ -7334,6 +7334,14 @@ export class AppState {
     const registry = backend.registry.get()
     const destination = target ?? this.backends.get()[0]!
     const destinationRegistry = destination.registry.get()
+    const registryUnchanged = (before: SchemaRegistry | undefined, after: SchemaRegistry | undefined): boolean => {
+      if (before === after) return true
+      if (before === undefined || after === undefined) return false
+      // A refetch can replace the registry without changing its admission contract.
+      const content = (value: SchemaRegistry) => ({ ...value, resolve: undefined,
+        schemas: Object.fromEntries(value.schemas), packs: value.packs && Object.fromEntries(value.packs) })
+      return canonicalJson(content(before)) === canonicalJson(content(after))
+    }
     const project = activeProjectId()
     const generation = this.assetConnectionGenerations.get(destination.connection)
     let connectionChanged = false
@@ -7344,8 +7352,8 @@ export class AppState {
         this.resolverWithVirtualNodes(destinationRegistry?.resolve ?? (() => undefined)), [], 'admission')
       const retained = await retainWorkflowAssets(destination.connection, prepared.document.lineage, 0, roots)
       if (this.disposed || !stillWanted() || !this.backends.get().includes(backend) ||
-        !this.backends.get().includes(destination) || backend.registry.get() !== registry ||
-        destination.registry.get() !== destinationRegistry || connectionChanged) return undefined
+        !this.backends.get().includes(destination) || !registryUnchanged(registry, backend.registry.get()) ||
+        !registryUnchanged(destinationRegistry, destination.registry.get()) || connectionChanged) return undefined
       const tab = prepared.publish(target ?? undefined)
       this.replaceWorkflowAssetOwner(tab.store, destination, retained, project, generation)
       this.reportIncompleteOwnership(tab.id, roots)
@@ -7354,7 +7362,7 @@ export class AppState {
       const intent = this.workflowOpenIntent
       if (this.workspaceAuthorityEnabled) await this.startWorkspaceTabPromotion(tab)
       if (this.disposed || intent !== this.workflowOpenIntent || connectionChanged ||
-        !this.backends.get().includes(destination) || destination.registry.get() !== destinationRegistry) return undefined
+        !this.backends.get().includes(destination) || !registryUnchanged(destinationRegistry, destination.registry.get())) return undefined
       const current = this.liveTabContinuing(tab.store)
       return current && this.backendForTab(current) === destination ? current : undefined
     } catch {
@@ -10221,7 +10229,7 @@ export class AppState {
    * after a store swap landed while a plan was in flight. Callers
    * re-validate per-step against the found tab's current document.
    */
-  private liveTabContinuing(session: DocumentSession): Tab | undefined {
+  liveTabContinuing(session: DocumentSession): Tab | undefined {
     let current = session
     for (let next = this.sessionContinuations.get(current); next; next = this.sessionContinuations.get(current)) {
       current = next

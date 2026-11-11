@@ -2503,7 +2503,7 @@ describe('retained workflow opens', () => {
   })
 
   it.each((['file', 'direct'] as const).flatMap((kind) =>
-    (['accepted', 'view', 'lost', 'refused', 'edited', 'closed', 'replacement', 'registry', 'target', 'canceled', 'disposed'] as const)
+    (['accepted', 'view', 'lost', 'refreshed-registry', 'changed-schema', 'changed-capabilities', 'refused', 'edited', 'closed', 'replacement', 'registry', 'target', 'canceled', 'disposed'] as const)
       .map((scenario) => [kind, scenario] as const)))(
     'keeps the existing tab until a current %s-open acknowledgment: %s', async (kind, scenario) => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
@@ -2541,6 +2541,13 @@ describe('retained workflow opens', () => {
       if (scenario === 'closed') app.closeTab(previous.id)
       if (scenario === 'replacement') await app.openDocument(session([asset('b')]).doc, 'Replacement')
       if (scenario === 'registry') app.registry.set(undefined)
+      if (scenario === 'refreshed-registry' || scenario === 'changed-schema' || scenario === 'changed-capabilities') {
+        const registry = app.registry.get()!
+        const schemas = new Map([...registry.schemas].map(([type, schema]) => [type, structuredClone(schema)]))
+        if (scenario === 'changed-schema') schemas.set(schema.type, { ...schema, items: [] })
+        app.registry.set({ ...registry, schemas, resolve: (type) => schemas.get(type),
+          ...(scenario === 'changed-capabilities' ? { graphFeatures: ['typedLiteral'] } : {}) })
+      }
       if (scenario === 'target') app.setTabTarget(previous.id, app.addBackend('http://other:8000', 'Other', false)!.id)
       if (scenario === 'canceled') {
         wanted = false
@@ -2548,8 +2555,9 @@ describe('retained workflow opens', () => {
       }
       if (scenario === 'disposed') app.dispose()
       response.resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
-      expect(await operation).toBe(scenario === 'accepted' || scenario === 'view' || scenario === 'lost')
-      expect(app.tabs.get().some((tab) => tab.id === 'incoming')).toBe(scenario === 'accepted' || scenario === 'view' || scenario === 'lost')
+      const accepted = scenario === 'accepted' || scenario === 'view' || scenario === 'lost' || scenario === 'refreshed-registry'
+      expect(await operation).toBe(accepted)
+      expect(app.tabs.get().some((tab) => tab.id === 'incoming')).toBe(accepted)
       if (scenario === 'view') expect(app.tabs.get().find((tab) => tab.id === previous.id)?.store).toBe(previous.store)
       else if (scenario !== 'closed' && scenario !== 'replacement') expect(app.tabs.get()).toContain(previous)
       expect(previous.store.doc.graphs.g0!.nodes.n0!.values.files).toEqual([asset(scenario === 'edited' ? 'b' : 'a')])

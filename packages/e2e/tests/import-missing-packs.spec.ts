@@ -151,6 +151,12 @@ test('reports missing packs and preserves edits as the active registry gains the
   await expect(report.getByTestId('pack-install-review')).toContainText('Install dinkster-image@0.0.1')
   await expect(report.getByRole('button', { name: 'Confirm installation' })).toHaveCount(0)
   await expect(report.getByTestId('pack-install-review')).toContainText(commands[1]!)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const view = app as unknown as { setTabAppArrange(id: string, arrange: boolean): void }
+    view.setTabAppArrange(app.activeTab()!.id, true)
+  })
+  await expect(report.getByTestId('pack-install-review')).toContainText(commands[1]!)
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.evaluate(() => Object.defineProperty(navigator.clipboard, 'writeText', {
     configurable: true, value: async () => { throw new Error('Clipboard denied') },

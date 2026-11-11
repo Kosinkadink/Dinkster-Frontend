@@ -149,6 +149,8 @@ function ImageDocumentEditor(props: {
   const [cropHeight, setCropHeight] = createSignal(documentValue().canvas.height)
   const [resizeWidth, setResizeWidth] = createSignal(documentValue().canvas.width)
   const [resizeHeight, setResizeHeight] = createSignal(documentValue().canvas.height)
+  const [pendingCommands, setPendingCommands] = createSignal(0)
+  const commandPending = () => pendingCommands() > 0
   const renderer = new ImageDocumentPreviewRenderer(props.entry.retained)
   let preview!: HTMLCanvasElement
   let layerInput!: HTMLInputElement
@@ -216,6 +218,7 @@ function ImageDocumentEditor(props: {
   const dispatchCommand = (invocation: ImageDocumentCommandInvocation) => props.entry.retained.dispatch(invocation)
   const dispatch = async (invocation: ImageDocumentCommandInvocation): Promise<boolean> => {
     if (props.editingBlocked()) return false
+    setPendingCommands((count) => count + 1)
     try {
       const outcome = await dispatchCommand(invocation)
       if (!rendererLive) return false
@@ -226,6 +229,8 @@ function ImageDocumentEditor(props: {
       props.onError(outcome.diagnostics[0]?.message ?? message('imageDocument.editor.error.editRefused'))
     } catch (cause) {
       if (rendererLive) props.onError(messageOf(cause))
+    } finally {
+      setPendingCommands((count) => count - 1)
     }
     return false
   }
@@ -418,7 +423,7 @@ function ImageDocumentEditor(props: {
           <ProductButton size="compact" type="button" disabled={props.busy()} onClick={() => void props.onSave()}>{message('imageDocument.editor.action.saveDraft')}</ProductButton>
           <ProductButton size="compact" type="button" disabled={props.busy()} onClick={() => void props.onExport()}>{message('imageDocument.editor.action.exportSnapshot')}</ProductButton>
           <Show when={props.onExportRecipe} keyed>{(exportRecipe) =>
-            <ProductButton size="compact" type="button" disabled={props.busy()} onClick={() => void exportRecipe()}>{message('imageDocument.editor.action.exportRecipe')}</ProductButton>
+            <ProductButton size="compact" type="button" disabled={props.busy() || commandPending()} onClick={() => void exportRecipe()}>{message('imageDocument.editor.action.exportRecipe')}</ProductButton>
           }</Show>
           <ProductButton size="compact" type="button" variant="primary" disabled={props.busy()} onClick={() => void props.onPublish()}>
             {props.busy()
@@ -507,7 +512,7 @@ function ImageDocumentEditor(props: {
                   type="button"
                   size="compact"
                   variant="primary"
-                  disabled={authoritativeBusy() || props.busy()}
+                  disabled={authoritativeBusy() || props.busy() || commandPending()}
                   onClick={() => void renderAuthoritative()}
                 >{authoritativeBusy()
                     ? message('imageDocument.editor.action.rendering')
@@ -566,7 +571,7 @@ function ImageDocumentEditor(props: {
               } })}
             /> {message('imageDocument.editor.field.linearColor')}</label>
           </fieldset>
-          <fieldset data-testid="image-document-crop-controls">
+          <fieldset data-testid="image-document-crop-controls" disabled={commandPending()}>
             <legend>{message('imageDocument.editor.title.crop')}</legend>
             <div class="image-document-field-grid">
               <For each={[
@@ -591,7 +596,7 @@ function ImageDocumentEditor(props: {
               }
             }}>{message('imageDocument.editor.action.applyCrop')}</ProductButton>
           </fieldset>
-          <fieldset data-testid="image-document-resize-controls">
+          <fieldset data-testid="image-document-resize-controls" disabled={commandPending()}>
             <legend>{message('imageDocument.editor.title.resize')}</legend>
             <div class="image-document-field-grid">
               <label>{message('imageDocument.editor.field.width')}<ProductNumberInput ariaLabel={message('imageDocument.editor.aria.resize.width')} integer min={1} max={MAX_IMAGE_CANVAS_DIMENSION}
@@ -606,7 +611,7 @@ function ImageDocumentEditor(props: {
               }
             }}>{message('imageDocument.editor.action.applyResize')}</ProductButton>
           </fieldset>
-          <fieldset data-testid="image-document-output-controls">
+          <fieldset data-testid="image-document-output-controls" disabled={commandPending()}>
             <legend>{message('imageDocument.editor.title.output')}</legend>
             <label>{message('imageDocument.editor.field.format')}<ProductSelect
               ariaLabel={message('imageDocument.editor.aria.outputFormat')}
