@@ -1,6 +1,5 @@
 import { defaultValuesOf, type AssetRef, type CommandInvocation, type Json, type JsonObject, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import { readLatentMetadata, type LatentMetadata } from './latent-metadata.js'
-import { mediaAcceptsFile } from './asset-browser/helpers.js'
 
 const MAX_FILE_BYTES = 64 * 1024 * 1024
 const MAX_LATENT_FILE_BYTES = 1024 * 1024 * 1024
@@ -232,20 +231,20 @@ export type LatentInsertOutcome = ImageInsertOutcome
 const loaderForMediaType = (
   schemas: Iterable<NodeSchema>,
   mediaType: string,
-  name: string,
 ): { readonly schema: NodeSchema; readonly input: Extract<NodeSchema['items'][number], { kind: 'input' }> } | undefined => {
+  const wildcard = `${mediaType.slice(0, mediaType.indexOf('/'))}/*`
   let fallback: { readonly schema: NodeSchema; readonly input: Extract<NodeSchema['items'][number], { kind: 'input' }> } | undefined
   for (const schema of schemas) {
     const matching = schema.items.filter((item): item is Extract<NodeSchema['items'][number], { kind: 'input' }> => {
       if (item.kind !== 'input' || item.hidden === true || item.widget?.widgetType !== 'ASSET') return false
       const accept = item.widget.options['accept']
       return Array.isArray(accept) && accept.every((value) => typeof value === 'string') &&
-        mediaAcceptsFile(accept, mediaType, name)
+        (accept.includes(mediaType) || accept.includes(wildcard) || accept.includes('*/*'))
     })
     if (matching.length !== 1) continue
     const candidate = { schema, input: matching[0]! }
     const accept = matching[0]!.widget!.options['accept'] as readonly string[]
-    if (mediaAcceptsFile(accept.filter((pattern) => !pattern.endsWith('/*')), mediaType, name)) return candidate
+    if (accept.includes(mediaType)) return candidate
     fallback ??= candidate
   }
   return fallback
@@ -281,7 +280,7 @@ export async function insertDroppedImage(p: {
     !Number.isSafeInteger(asset.size) || asset.size < 0 || asset.mediaType !== p.mediaType ||
     typeof asset.virtualPath !== 'string') return 'invalid-asset'
   const schemas = p.schemas()
-  const loader = schemas === undefined ? undefined : loaderForMediaType(schemas, p.mediaType, asset.name)
+  const loader = schemas === undefined ? undefined : loaderForMediaType(schemas, p.mediaType)
   if (loader === undefined) return 'schema-missing'
   const { schema, input: assetInput } = loader
   const nodeId = p.predictedNodeId()
@@ -328,7 +327,7 @@ export async function insertDroppedLatent(p: {
   if (p.frozen()) return 'frozen'
   if (!validLatentAsset(asset)) return 'invalid-asset'
   const schemas = p.schemas()
-  const loader = schemas === undefined ? undefined : loaderForMediaType(schemas, asset.mediaType, asset.name)
+  const loader = schemas === undefined ? undefined : loaderForMediaType(schemas, asset.mediaType)
   if (loader === undefined) return 'schema-missing'
   const { schema, input: assetInput } = loader
   const nodeId = p.predictedNodeId()

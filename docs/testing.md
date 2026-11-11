@@ -15,18 +15,13 @@ This command runs `check-extension-literals`, `check-ui-strings`, and
 `typecheck` (the latter also runs `check-path-case`) and a fixed unit subset.
 The extension check pins every intentional backend node-id literal and widget
 type comparison to an exact source location, owning issue, and non-increasing
-ceiling. The committed ceilings are zero node-id literals and 85 widget-type
+ceiling. The committed ceilings are zero node-id literals and 93 widget-type
 comparisons. Both have zero slack, so each ceiling must equal its measured
 count, and the fast check rejects any increase from the merge base even when
 the allowlist is edited to match. New and stale entries also fail. After merging main, run
 `node scripts/check-extension-literals.mjs --write`, review that only expected
 line or column coordinates changed and no ceiling changed, then run
-`pnpm ci:fast`. The six region starter occurrences have separate
-`nodeIdExceptions` entries naming their exact file, node ID and owning
-[issue 813](https://github.com/Kosinkadink/comfy-vibe-station/issues/813).
-They do not raise the zero node-ID ceiling: an additional occurrence, another
-ID or the same ID in another file still fails. `--write` refreshes locations,
-not the permitted file, ID or number of occurrences. The Prettier check is limited
+`pnpm ci:fast`. The Prettier check is limited
 to `scripts/ci-fast.mjs` and
 `packages/e2e/test/ci-workflow.test.ts`; it does not impose formatting
 on existing application files. There is no repository-wide formatter or

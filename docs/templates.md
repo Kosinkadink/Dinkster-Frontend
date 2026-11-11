@@ -23,9 +23,9 @@ Opening a template fits and centers its graph. When the complete graph fits at t
 
 ## Remote catalog
 
-When templates are enabled, set **Template registry URL** in Settings to combine templates from a registry with the installed templates. The registry response is unversioned; the frontend's private offline cache has its own version:
+When templates are enabled, set **Template registry URL** in Settings to combine templates from a registry with the installed templates. The frontend consumes catalog version 1:
 
-- `GET /index/templates?limit=200` - an object with a `templates` array and an optional string `cursor`, with no required `catalogVersion`. Follow nonempty cursors by passing `cursor` to the next request. Descriptors from each pack's latest release carry `pack`, `version`, workflow digest, family, models, and optional thumbnail metadata.
+- `GET /index/templates` - descriptors from each pack's latest release. Descriptors carry `pack`, `version`, workflow digest, family, models, and optional thumbnail metadata.
 - `GET /index/packs/{pack}/versions/{version}/templates/{id}` - template body verified against the descriptor's SHA-256 digest before it is opened.
 - `GET /index/packs/{pack}/versions/{version}/templates/{id}/thumbnail` - immutable thumbnail bytes.
 

@@ -29,9 +29,9 @@ when its candidate requires it.
 
 The starter body is valid immediately:
 
-- Map passes each element through the served Float primitive and gathers its output.
-- Fold adds each element to the integer state using the served Math Expression node (`a + b`, integer output).
-- While passes its state through the served Float primitive. Its Boolean primitive starts false, so an untouched body terminates rather than looping indefinitely.
+- Map has one element input and one gathered output.
+- Fold has element and state inputs with a state output.
+- While has a state input/output and a real boolean continuation output.
 
 ## Edit roles and configuration
 
