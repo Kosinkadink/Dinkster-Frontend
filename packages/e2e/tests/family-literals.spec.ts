@@ -9,7 +9,7 @@ for (const named of [false, true]) {
     } }))
     await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
     await page.goto('/')
-    await page.waitForFunction(() => window.__dinksterTest !== undefined)
+    await waitForStartupOwnership(page)
     await page.evaluate(async ({ names, named }) => {
       const app = window.__dinksterTest!.app
       app.registerSchemas([{
