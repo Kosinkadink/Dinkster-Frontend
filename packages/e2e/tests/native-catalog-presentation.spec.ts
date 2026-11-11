@@ -69,7 +69,7 @@ test('native universal search lists the canonical node', async ({ page }) => {
 
   const group = page.locator('[data-provider="core.nodes"]')
   const native = group.getByRole('option', {
-    name: /Preview as Text dinkster-utilities/,
+    name: /Preview as Text dinkster-utilities - utilities - dinkster\.utilities\.preview_any$/,
   })
   await expect(native).toBeVisible()
   await expect(native).toHaveAccessibleName(/Preview as Text/)
