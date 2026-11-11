@@ -156,14 +156,14 @@ nativeTest('image editor keeps mask edits local until one guarded AssetRef apply
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest!.app.backends.get()[0]?.registry.get() !== undefined,
   ), { timeout: 15_000 }).toBe(true)
-  await page.evaluate(async ({ source, pngSize }) => {
+  await page.evaluate(({ source, pngSize }) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'ImageEditorAssetTest', displayName: 'Load Image', category: 'test', source: 'v3', isOutputNode: false,
       items: [{ kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.IMAGE' } }, optional: false,
         widget: { widgetType: 'ASSET', kind: 'image', options: { accept: ['image/png'] } } }],
     }])
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'image-editor-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { asset: { id: 'asset', type: 'ImageEditorAssetTest', values: {
         image: { digest: source, name: 'source.png', size: pngSize, mediaType: 'image/png', virtualPath: '' },

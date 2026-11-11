@@ -73,11 +73,9 @@ it('stages capture, preserves the saved frame on cancel or device failure, and a
   const tab = { store } as unknown as Tab
   const registry = createWidgetRegistry()
   const upload = vi.fn().mockResolvedValue(captured)
-  const backend = { protocol: 'dinkster', connection: { uploadMediaAsset: upload } }
   const app = {
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
-    backendForTab: () => backend,
-    retainPickerAssets: async () => ({ current: () => true }),
+    backendForTab: () => ({ protocol: 'dinkster', connection: { uploadMediaAsset: upload } }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
@@ -137,126 +135,6 @@ async function queueSetup(captureOnQueue = true) {
   return { app, backend, tab, saved, captured, upload, sourceUpload, submit, queue }
 }
 
-it.each(['accepted', 'refused', 'reused', 'lost', 'closed', 'removed', 'disconnected'] as const)(
-  'admits webcam drafts before preview publication and preserves the saved frame: %s', async (action) => {
-    camera()
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:camera')
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-    const state = await queueSetup(false)
-    let accept!: () => void
-    const acknowledgment = new Promise<void>((resolve) => { accept = resolve })
-    let receipt: Awaited<ReturnType<typeof state.backend.connection.retainAssets>> | undefined
-    vi.mocked(state.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
-      const held = { ...owner, ...declaration, revision: declaration.revision + 1 }
-      if (declaration.digests.includes(state.captured.digest)) {
-        receipt = held
-        await acknowledgment
-        if (action === 'refused' || action === 'lost') throw new Error('Camera admission unavailable')
-        if (action === 'reused') return { ...held, revision: held.revision + 1 }
-      }
-      return held
-    })
-    vi.spyOn(state.backend.connection, 'fetchRetainedAssets').mockImplementation(async () => action === 'lost' ? receipt : undefined)
-    const schema = state.backend.registry.get()!.resolve('dinkster.image.webcam_capture')!
-    const root = document.createElement('div'); document.body.append(root)
-    const dispose = render(() => <WidgetEditor app={state.app} ed={{
-      tab: state.tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'image' }, label: 'Camera frame',
-      spec: inputsOf(schema)[0]!.widget, declaredType: inputsOf(schema)[0]!.type,
-      multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial: state.saved,
-    }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-    const button = (label: string) => Array.from(root.querySelectorAll('button')).find((element) => element.textContent === label)!
-    try {
-      button('Capture frame').click()
-      await vi.waitFor(() => expect(receipt).toBeDefined())
-      expect(root.querySelector('img')).toBeNull()
-      expect(root.textContent).toContain('saved.png')
-      expect(button('Use frame').disabled).toBe(true)
-      expect(state.tab.store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(state.saved)
-      if (action === 'closed') dispose()
-      if (action === 'removed') state.app.closeTab(state.tab.id)
-      if (action === 'disconnected') {
-        ;(state.backend.connection.status as unknown as { set(value: string): void }).set('connecting')
-      }
-      accept()
-      if (action === 'accepted' || action === 'lost') {
-        await vi.waitFor(() => expect(root.querySelector('img')?.getAttribute('src')).toBe('blob:camera'))
-        expect(root.textContent).toContain('webcam.png')
-        expect(button('Use frame').disabled).toBe(false)
-        expect(state.tab.store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(state.saved)
-        button('Use frame').click()
-        await vi.waitFor(() => expect(state.tab.store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(state.captured))
-      } else {
-        if (action !== 'closed') await vi.waitFor(() => expect(button('Capture frame').disabled).toBe(false))
-        expect(root.querySelector('img')).toBeNull()
-        expect(state.tab.store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(state.saved)
-      }
-    } finally { accept(); dispose(); state.app.dispose() }
-  },
-)
-
-it.each(['accepted', 'refused', 'same-digest'] as const)('keeps a published webcam draft through replacement admission: %s', async (action) => {
-  camera()
-  vi.spyOn(URL, 'createObjectURL').mockReturnValueOnce('blob:first').mockReturnValueOnce('blob:replacement')
-  const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-  const state = await queueSetup(false)
-  const replacement = { ...state.captured, name: 'replacement.png',
-    digest: action === 'same-digest' ? state.captured.digest : `blake3:${'c'.repeat(64)}` }
-  state.upload.mockResolvedValueOnce(state.captured).mockResolvedValueOnce(replacement)
-  const release = vi.spyOn(state.backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) =>
-    ({ ...owner, revision: revision + 1, complete: true, digests: [] }))
-  const retained: Awaited<ReturnType<typeof state.backend.connection.retainAssets>>[] = []
-  vi.mocked(state.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
-    const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
-    retained.push(receipt)
-    return receipt
-  })
-  const schema = state.backend.registry.get()!.resolve('dinkster.image.webcam_capture')!
-  const root = document.createElement('div'); document.body.append(root)
-  const dispose = render(() => <WidgetEditor app={state.app} ed={{
-    tab: state.tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'image' }, label: 'Camera frame',
-    spec: inputsOf(schema)[0]!.widget, declaredType: inputsOf(schema)[0]!.type,
-    multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial: state.saved,
-  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-  const button = (label: string) => Array.from(root.querySelectorAll('button')).find((element) => element.textContent === label)!
-  let accept!: () => void
-  try {
-    button('Capture frame').click()
-    await vi.waitFor(() => expect(root.querySelector('img')?.getAttribute('src')).toBe('blob:first'))
-    const first = retained.find((receipt) => receipt.digests.includes(state.captured.digest))!
-    const acknowledgment = new Promise<void>((resolve) => { accept = resolve })
-    let next: typeof first | undefined
-    vi.mocked(state.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
-      next = { ...owner, ...declaration, revision: declaration.revision + 1 }
-      await acknowledgment
-      if (action === 'refused') throw new Error('Camera admission refused')
-      return next
-    })
-    vi.spyOn(state.backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-    const releasedBefore = release.mock.calls.length
-    button('Capture frame').click()
-    await vi.waitFor(() => expect(next).toBeDefined())
-    expect(next!.ownerId).not.toBe(first.ownerId)
-    expect(next!.digests).toEqual([replacement.digest])
-    expect(root.querySelector('img')?.getAttribute('src')).toBe('blob:first')
-    expect(root.textContent).toContain('webcam.png')
-    expect(release.mock.calls).toHaveLength(releasedBefore)
-    expect(revoke).not.toHaveBeenCalledWith('blob:first')
-    accept()
-    await vi.waitFor(() => expect(button('Capture frame').disabled).toBe(false))
-    expect(root.querySelector('img')?.getAttribute('src')).toBe(action === 'refused' ? 'blob:first' : 'blob:replacement')
-    if (action === 'refused') {
-      expect(root.textContent).toContain('webcam.png')
-      expect(release.mock.calls).toHaveLength(releasedBefore)
-      expect(revoke).not.toHaveBeenCalledWith('blob:first')
-    } else {
-      expect(root.textContent).toContain('replacement.png')
-      expect(release.mock.calls.slice(releasedBefore)).toEqual([[first, first.revision]])
-      expect(revoke).toHaveBeenCalledWith('blob:first')
-    }
-    expect(state.tab.store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(state.saved)
-  } finally { accept?.(); dispose(); state.app.dispose() }
-})
-
 it('queues a fresh scoped frame and a matching snapshot, while disabled capture reuses the saved asset', async () => {
   const device = camera()
   for (const enabled of [true, false]) {
@@ -312,7 +190,7 @@ it('does not replace connected literal camera inputs with unused captures', asyn
       const document = state.tab.store.doc
       const graph = document.graphs.g0!
       const connected = { ...state.saved, digest: `blake3:${'d'.repeat(64)}`, name: 'connected.png' }
-      expect((await state.app.openDocument({ ...document, graphs: { ...document.graphs, g0: {
+      expect(state.app.openDocument({ ...document, graphs: { ...document.graphs, g0: {
         ...graph,
         nodes: { ...graph.nodes, n2: kind === 'net'
           ? { ...graph.nodes.n2!, type: 'test.frame', values: {} }
@@ -322,7 +200,7 @@ it('does not replace connected literal camera inputs with unused captures', asyn
           id: 'l0', from: kind === 'tap' ? { node: 'n2', tap: 'image' } : { valueSource: 'v0' }, to: { node: 'n1', port: 'image' },
         } },
         nets: kind === 'net' ? { net0: { id: 'net0', name: 'camera', source: { node: 'n2', port: 'frame' }, sinks: [{ node: 'n1', port: 'image' }] } } : {},
-      } } }, 'Connected camera'))).toEqual([])
+      } } }, 'Connected camera')).toEqual([])
       const tab = state.app.activeTab()!
       await state.app.queue(tab, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('n1') }] })
       expect(state.submit, JSON.stringify(state.app.problems.get())).toHaveBeenCalledOnce()
@@ -364,7 +242,7 @@ it('saves a nested camera on its promoted owner and preserves a connected bounda
       const document = state.tab.store.doc
       const root = document.graphs.g0!
       const frame = { ...state.saved, digest: `blake3:${'e'.repeat(64)}`, name: 'boundary.png' }
-      expect((await state.app.openDocument({ ...document, graphs: {
+      expect(state.app.openDocument({ ...document, graphs: {
         g0: { ...root, nodes: { n1: { id: 'n1', type: '#camera', values: { frame: state.saved } } },
           valueSources: { v0: { id: 'v0', value: frame, type: { kind: 'concrete', types: ['WEBCAM'] } } },
           links: connected ? { l0: { id: 'l0', from: { valueSource: 'v0' }, to: { node: 'n1', port: 'frame' } } } : {},
@@ -376,7 +254,7 @@ it('saves a nested camera on its promoted owner and preserves a connected bounda
             outputs: [{ id: 'result', binds: { kind: 'port', node: 'inner', port: 'image' } }],
           },
         },
-      } }, 'Nested camera'))).toEqual([])
+      } }, 'Nested camera')).toEqual([])
       const tab = state.app.activeTab()!
       await state.app.queue(tab, { kind: 'partial', targets: [{ instancePath: [asNodeId('n1')], node: asNodeId('inner') }] })
       expect(state.submit, JSON.stringify(state.app.problems.get())).toHaveBeenCalledOnce()
@@ -410,7 +288,7 @@ it.each([false, true])('validates shared-frame dimensions with native sizing %s'
   try {
     const document = state.tab.store.doc
     const root = document.graphs.g0!
-    expect((await state.app.openDocument({ ...document, graphs: {
+    expect(state.app.openDocument({ ...document, graphs: {
       g0: { ...root, nodes: {
         n1: { id: 'n1', type: '#camera', values: { width: native ? 0 : 640, height: 180 } },
         n2: { id: 'n2', type: '#camera', values: { width: native ? 0 : 320, height: 240 } },
@@ -422,7 +300,7 @@ it.each([false, true])('validates shared-frame dimensions with native sizing %s'
           outputs: [{ id: 'result', binds: { kind: 'port', node: 'inner', port: 'image' } }],
         },
       },
-    } }, 'Shared camera'))).toEqual([])
+    } }, 'Shared camera')).toEqual([])
     const tab = state.app.activeTab()!
     await state.app.queue(tab, { kind: 'partial', targets: ['n1', 'n2'].map((id) => ({ instancePath: [asNodeId(id)], node: asNodeId('inner') })) })
     if (native) {

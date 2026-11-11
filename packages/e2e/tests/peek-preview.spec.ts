@@ -54,8 +54,8 @@ async function addNativeBackend(page: Page): Promise<void> {
  */
 async function openGradientDoc(page: Page): Promise<void> {
   await waitForStartupOwnership(page)
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'peek-preview-e2e', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',

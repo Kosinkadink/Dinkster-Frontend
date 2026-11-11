@@ -82,7 +82,7 @@ async function openBlankCanvas(page: Page): Promise<void> {
   } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('0 node schemas', { timeout: 15_000 })
-  expect(await page.evaluate(async (workflow) => (await window.__dinksterTest!.app.openDocument(workflow, 'Canvas handoff')), blankWorkflow)).toEqual([])
+  expect(await page.evaluate((workflow) => window.__dinksterTest!.app.openDocument(workflow, 'Canvas handoff'), blankWorkflow)).toEqual([])
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer?.getScene().graphId)).toBe('g0')
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
 }

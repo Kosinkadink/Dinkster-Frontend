@@ -37,28 +37,6 @@ revision. Disconnected lifetimes and unreadable persistence remain blocked;
 restart and backend removal do not authorize release. Lost release responses
 reconcile only the exact next-revision tombstone, without repeating DELETE.
 
-Shared-workspace operation recovery is written synchronously as unacknowledged
-staging. Each added native document has a separate durable receipt, bound to
-the staged content, backend and generation, before its operation is submitted
-to the SharedWorker. Lost acknowledgments reconcile the exact receipt; refusal,
-replacement or a changed backend/catalog leaves the staged entry unresolved.
-Admissions settling out of order do not reorder the actor's operations. A
-failed admission blocks that operation, not subsequent independent admissions;
-storage recovery does not require a SharedWorker reconnect. A
-reconnect admits fresh owners instead of trusting stored receipt metadata.
-Journal removal, disconnect and application exit do not release these owners.
-
-Canonical workspace snapshots, each window's recovery candidate, and each
-document's recovery slot also admit separate owners for their exact saved
-documents, without undo/redo roots belonging only to the live editor. Recovery
-bytes are written synchronously, explicitly unacknowledged until admission
-settles. A changed slot or catalog cannot inherit a stale acknowledgment.
-Only a complete acknowledgment for the current canonical generation permits
-removing unchanged covered workspace candidates and operation entries. Network
-admission does not hold the cross-window persistence lock. Removing a source
-does not itself release its durable owners. Malformed replacement candidates
-remain untouched and do not block cleanup of other covered sources.
-
 Host-owned source controls, search labels, detail headings, confirmations, and
 loading, failure, and empty-state copy follow the active application locale and
 update while the Library remains open. Backend labels and status, protocol

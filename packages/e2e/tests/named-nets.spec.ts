@@ -134,7 +134,7 @@ const menuItem = (page: Page, id: string) => page.locator(`[data-item-id="${id}"
 
 /** One producer feeding nothing yet + two consumers; nets start empty. */
 async function openNetWorkflow(page: Page): Promise<void> {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([
       {
@@ -154,7 +154,7 @@ async function openNetWorkflow(page: Page): Promise<void> {
         items: [{ kind: 'input', id: 'in0', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
       },
     ])
-    await app.openDocument(
+    app.openDocument(
       {
         format: 'dinkster-workflow',
         formatVersion: 1,
@@ -316,7 +316,7 @@ test('full net lifecycle: promote, connect, collapse, disconnect, rename, expand
 })
 
 test('collapsed mismatch tags keep the solver error visible beside a healthy delivery', async ({ page }) => {
-  const diagnostics = await page.evaluate(async () => {
+  const diagnostics = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'NetImageConsumer',
@@ -337,7 +337,7 @@ test('collapsed mismatch tags keep the solver error visible beside a healthy del
     }
     doc.graphs['g0']!.nextOrdinal = 101
     doc.view.graphs['g0']!.collapsedNets = ['net100']
-    return (await app.openDocument(doc, 'Collapsed mismatch'))
+    return app.openDocument(doc, 'Collapsed mismatch')
   })
   expect(diagnostics).toEqual([])
   await expect.poll(() => page.evaluate(() =>
@@ -408,11 +408,11 @@ test('Get/Set views move atomically and advisory geometry survives export/reopen
   await page.keyboard.press('Control+Shift+z')
   expect((await activeDoc(page)).ext?.['dinkster.netViews']).toBeDefined()
 
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     const exported = app.exportDocument(tab.id)
-    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Nets reopened')
+    app.openDocument(JSON.parse(JSON.stringify(exported)), 'Nets reopened')
   })
   await identityViewport(page)
   const reopened = await page.evaluate(() => {
@@ -535,8 +535,8 @@ test('legacy absolute tag geometry loads without a jump and then follows the nod
   // A document saved before offsets existed carries a world point. Loading
   // canonicalizes it to a node-relative offset that renders at exactly the
   // same spot, and the tag follows the node from then on.
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument(
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument(
       {
         format: 'dinkster-workflow',
         formatVersion: 1,
@@ -642,9 +642,9 @@ test('escape dismisses the name prompt without committing anything', async ({ pa
 
 test('nets never cross subgraph boundaries: inner pins see no parent nets', async ({ page }) => {
   // Rebuild the doc with a subgraph instance + a parent-level net.
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    await app.openDocument(
+    app.openDocument(
       {
         format: 'dinkster-workflow',
         formatVersion: 1,
@@ -946,8 +946,8 @@ test('a collapsed net stays a real connection: hidden scene link, and dragging t
 })
 
 test('Shift-dragging the net source pin onto another producer re-points the whole net', async ({ page }) => {
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument(
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument(
       {
         format: 'dinkster-workflow',
         formatVersion: 1,

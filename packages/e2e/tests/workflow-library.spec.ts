@@ -17,7 +17,7 @@ const uniqueName = (label: string): string =>
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
 async function openNamedCopy(page: Page, title: string): Promise<void> {
-  const failures = await page.evaluate(async (name) => {
+  const failures = await page.evaluate((name) => {
     const app = window.__dinksterTest!.app
     const source = app.activeTab()!
     const owner = app.backendForTab(source)
@@ -39,7 +39,7 @@ async function openNamedCopy(page: Page, title: string): Promise<void> {
       values: { width: 8, height: 8 },
     }
     doc.view.graphs[doc.root]!.nodes.n0 ??= { position: { x: 120, y: 120 } }
-    const diagnostics = (await app.openDocument(doc, name))
+    const diagnostics = app.openDocument(doc, name)
     const opened = app.activeTab()
     if (diagnostics.length === 0 && opened !== undefined) {
       app.setTabTarget(opened.id, owner.id)

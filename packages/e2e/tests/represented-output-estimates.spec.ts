@@ -86,13 +86,13 @@ test('an uploaded selected asset estimates its represented output before executi
       diagnostics: registry.diagnostics.map((diagnostic) => diagnostic.code),
     }
   })).toEqual({ schemas: ['dinkster.image.load_image'], diagnostics: [] })
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as {
       settings: { set(id: string, value: unknown): void }
       openDocument(document: unknown, title: string): void
     }
     app.settings.set('execution.mirrorPreviews', true)
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'represented-output-proof',
