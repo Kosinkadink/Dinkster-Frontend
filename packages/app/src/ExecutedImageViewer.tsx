@@ -91,8 +91,10 @@ export function ExecutedImageFacts(props: {
   return (
     <dl class="output-facts">
       <div><dt>Runtime node</dt><dd>{props.image.runtimeId}</dd></div>
-      <div><dt>Output ID</dt><dd>{props.image.outputId}</dd></div>
-      <div><dt>Descriptor</dt><dd>{props.image.descriptorIndex + 1}</dd></div>
+      <Show when={props.image.kind !== 'artifact'}><div><dt>Output ID</dt><dd>{props.image.outputId}</dd></div></Show>
+      <Show when={props.image.kind === 'artifact'} fallback={<div><dt>Descriptor</dt><dd>{props.image.descriptorIndex + 1}</dd></div>}>
+        <div><dt>{message('outputFile.file')}</dt><dd>{props.image.descriptorIndex + 1}</dd></div>
+      </Show>
       <div><dt>Source</dt><dd>{props.image.kind === 'rendition' ? 'Server rendition (display only)' : 'Content-addressed asset'}</dd></div>
       <div><dt>Media kind</dt><dd>Image</dd></div>
       <div><dt>Media type</dt><dd>{props.image.mediaType}</dd></div>

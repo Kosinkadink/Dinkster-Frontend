@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 import { selectProductOption } from './fixtures.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const PHYSICAL_MICROPHONE = process.env['DINKSTER_PHYSICAL_MICROPHONE']
@@ -72,8 +73,7 @@ test.beforeEach(async ({ page, context }, testInfo) => {
     if (response.ok) nodes = (await response.json() as { nodes?: Record<string, unknown> }).nodes
   } catch { /* skip below */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
-  test.skip(!('dinkster.load_audio' in nodes! && 'dinkster.audio.envelope' in nodes! && 'dinkster.curve.editor' in nodes!),
-    'native backend lacks load audio, audio envelope, or curve editor')
+  requireBackendNodes(nodes!, ['dinkster.audio.load_audio', 'dinkster.audio.envelope', 'dinkster.curve.editor'], testInfo)
   await page.addInitScript(({ synthetic }) => {
     const captures: Promise<readonly number[]>[] = []
     Object.defineProperty(window, '__dinksterRecordedAudioChunks', { value: captures })
@@ -120,7 +120,7 @@ test(PHYSICAL_MICROPHONE
       graphs: { g0: {
         id: 'g0', name: 'Audio recording',
         nodes: {
-          load: { id: 'load', type: 'dinkster.load_audio', values: {} },
+          load: { id: 'load', type: 'dinkster.audio.load_audio', values: {} },
           envelope: { id: 'envelope', type: 'dinkster.audio.envelope', values: { frames_per_second: 7 } },
           editor: { id: 'editor', type: 'dinkster.curve.editor', values: {} },
         },

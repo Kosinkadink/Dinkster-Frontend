@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const EXAMPLES_ROOT = fileURLToPath(new URL('../../../docs/examples/loops-and-subgraphs/', import.meta.url))
@@ -85,7 +86,7 @@ async function executeRegion(page: Page): Promise<{
   }, prompt)
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   test.skip(process.env['DINKSTER_NATIVE_BACKEND'] === undefined,
     'set DINKSTER_NATIVE_BACKEND so the Vite same-origin proxy targets this native backend')
   let graphFeatures: readonly string[] | undefined
@@ -103,10 +104,7 @@ test.beforeEach(async ({ page }) => {
   } catch { /* unreachable backend stays unavailable */ }
   test.skip(!graphFeatures?.includes('regions'),
     `native backend at ${NATIVE_BACKEND} does not advertise region graphs`)
-  for (const nodeType of ['std.math.add_ints', 'std.list.length', 'dinkster.value.compare', 'dinkster.int', 'dinkster.route.gate']) {
-    test.skip(nodes?.[nodeType] === undefined,
-      `native backend at ${NATIVE_BACKEND} lacks example node ${nodeType}`)
-  }
+  requireBackendNodes(nodes ?? {}, ['std.math.add_ints', 'std.list.length', 'dinkster.value.compare', 'dinkster.int', 'dinkster.route.gate'], testInfo)
 
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })

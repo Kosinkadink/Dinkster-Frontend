@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 import { waitForStartupOwnership } from './fixtures.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const histogramShape = Array.from({ length: 256 }, (_value, index) =>
@@ -80,7 +81,7 @@ async function drag(page: Page, from: Point, to: Point): Promise<void> {
 const storedCurve = (page: Page) => page.evaluate(() =>
   window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.editor!.values.curve)
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   test.skip(process.env['DINKSTER_E2E_USE_NATIVE'] !== '1' || process.env['DINKSTER_NATIVE_BACKEND'] === undefined,
     'set DINKSTER_E2E_USE_NATIVE=1 and DINKSTER_NATIVE_BACKEND to an isolated Dinkster backend')
 
@@ -106,8 +107,7 @@ test.beforeEach(async ({ page }) => {
   } catch { /* handled by the skip below */ }
   test.skip(table?.schemaVersion !== 1, `no current native Dinkster backend reachable at ${NATIVE_BACKEND}`)
   const nodes = table!.nodes ?? {}
-  test.skip(!('dinkster.curve.editor' in nodes && 'dinkster.curve.evaluate' in nodes),
-    'native backend lacks the Curve Editor and Evaluate Curve nodes')
+  requireBackendNodes(nodes, ['dinkster.curve.editor', 'dinkster.curve.evaluate'], testInfo)
 
   const editorWire = nodes['dinkster.curve.editor'] as {
     readonly schemaVersion?: number

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -17,13 +18,13 @@ async function openLayerGraph(page: Page, asset: UploadedAsset): Promise<void> {
       graphs: { g0: {
         id: 'g0', name: 'root',
         nodes: {
-          load: { id: 'load', type: 'dinkster.load_image', values: { image: source } },
+          load: { id: 'load', type: 'dinkster.image.load_image', values: { image: source } },
           layers: { id: 'layers', type: 'dinkster.layers.add', values: { name: 'Transparent source' } },
           flatten: { id: 'flatten', type: 'dinkster.layers.flatten', values: { selector: 'composite' } },
         },
         links: {
-          image: { id: 'image', from: { node: 'load', port: 'image' }, to: { node: 'layers', port: 'image' } },
-          mask: { id: 'mask', from: { node: 'load', port: 'mask' }, to: { node: 'layers', port: 'mask' } },
+          image: { id: 'image', from: { node: 'load', port: 'IMAGE' }, to: { node: 'layers', port: 'image' } },
+          mask: { id: 'mask', from: { node: 'load', port: 'MASK' }, to: { node: 'layers', port: 'mask' } },
           document: { id: 'document', from: { node: 'layers', port: 'layers' }, to: { node: 'flatten', port: 'layers' } },
         },
         nets: {}, reroutes: {}, nextOrdinal: 4,
@@ -68,7 +69,7 @@ async function decodeImage(page: Page, bytes: Buffer, mediaType: string): Promis
   }, { values: [...bytes], type: mediaType })
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   test.skip(process.env['DINKSTER_NATIVE_BACKEND'] === undefined,
     'set DINKSTER_NATIVE_BACKEND to an isolated Dinkster backend')
   let nodes: Record<string, unknown> | undefined
@@ -77,9 +78,7 @@ test.beforeEach(async ({ page }) => {
     if (response.ok) nodes = (await response.json() as { nodes?: Record<string, unknown> }).nodes
   } catch { /* skip below */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
-  test.skip(!['dinkster.load_image', 'dinkster.layers.add', 'dinkster.layers.edit', 'dinkster.layers.flatten', 'dinkster.save_image']
-    .every((id) => id in nodes!),
-    'native backend lacks the media and layer nodes required by this acceptance')
+  requireBackendNodes(nodes!, ['dinkster.image.load_image', 'dinkster.layers.add', 'dinkster.layers.edit', 'dinkster.layers.flatten', 'dinkster.image.save_image'], testInfo)
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 15_000 })
 })
@@ -193,7 +192,7 @@ test('opens exact graph document bytes and matches the live flatten image and tr
     const tab = app.activeTab()!
     const graph = tab.store.doc.graphs.g0!
     const edit = Object.values(graph.nodes).find((node) => node.type === 'dinkster.layers.edit')!
-    const save = Object.values(graph.nodes).find((node) => node.type === 'dinkster.save_image')!
+    const save = Object.values(graph.nodes).find((node) => node.type === 'dinkster.image.save_image')!
     await app.queueSelection(tab, [save.id])
     return { editId: edit.id, saveId: save.id, saveValues: save.values }
   })

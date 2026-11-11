@@ -58,6 +58,7 @@ const BACKEND_SERIAL_SPECS = [
   'image-document-graph-live.spec.ts',
   'lora-conditioning-scheduling-live.spec.ts',
   'image-upload-byte-proof.spec.ts',
+  'midgraph-preview-live.spec.ts',
   'gallery-live.spec.ts',
   'starter-templates-live.spec.ts',
   'collab-noodle-presence.spec.ts',

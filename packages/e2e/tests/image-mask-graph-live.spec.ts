@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -110,7 +111,7 @@ async function queueFlatten(page: Page): Promise<SubmittedJob> {
   return submitted
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   test.skip(process.env['DINKSTER_NATIVE_BACKEND'] === undefined,
     'set DINKSTER_NATIVE_BACKEND to an isolated Dinkster backend')
   let nodes: Record<string, unknown> | undefined
@@ -119,8 +120,7 @@ test.beforeEach(async ({ page }) => {
     if (response.ok) nodes = (await response.json() as { nodes?: Record<string, unknown> }).nodes
   } catch { /* skip below */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
-  test.skip(!['dinkster.load_image', 'dinkster.mask.paint', 'dinkster.layers.add', 'dinkster.layers.flatten']
-    .every((id) => id in nodes!), 'native backend lacks the graph mask and layer nodes required by this acceptance')
+  requireBackendNodes(nodes!, ['dinkster.image.load_image', 'dinkster.mask.paint', 'dinkster.layers.add', 'dinkster.layers.flatten'], testInfo)
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 15_000 })
 })
@@ -159,14 +159,14 @@ test('graph mask edits execute visibly and match an explicit baked asset', async
       graphs: { g0: {
         id: 'g0', name: 'root',
         nodes: {
-          graphLoad: { id: 'graphLoad', type: 'dinkster.load_image', values: { image: source } },
-          bakeLoad: { id: 'bakeLoad', type: 'dinkster.load_image', values: { image: source } },
+          graphLoad: { id: 'graphLoad', type: 'dinkster.image.load_image', values: { image: source } },
+          bakeLoad: { id: 'bakeLoad', type: 'dinkster.image.load_image', values: { image: source } },
           layers: { id: 'layers', type: 'dinkster.layers.add', values: { name: 'Edited transparency' } },
           flatten: { id: 'flatten', type: 'dinkster.layers.flatten', values: { selector: 'composite' } },
         },
         links: {
-          image: { id: 'image', from: { node: 'graphLoad', port: 'image' }, to: { node: 'layers', port: 'image' } },
-          mask: { id: 'mask', from: { node: 'graphLoad', port: 'mask' }, to: { node: 'layers', port: 'mask' } },
+          image: { id: 'image', from: { node: 'graphLoad', port: 'IMAGE' }, to: { node: 'layers', port: 'image' } },
+          mask: { id: 'mask', from: { node: 'graphLoad', port: 'MASK' }, to: { node: 'layers', port: 'mask' } },
           document: { id: 'document', from: { node: 'layers', port: 'layers' }, to: { node: 'flatten', port: 'layers' } },
         },
         nets: {}, reroutes: {}, nextOrdinal: 5,
