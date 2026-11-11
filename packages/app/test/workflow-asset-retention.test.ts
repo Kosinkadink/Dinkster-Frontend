@@ -602,7 +602,7 @@ describe('retained app dispatch', () => {
     }
   })
 
-  it.each(['cleared', 'invalid-variant', 'unknown-state', 'malformed-asset'] as const)(
+  it.each(['cleared', 'invalid-variant', 'unknown-state', 'malformed-asset', 'opaque-asset'] as const)(
     'admits correction of a missing required slot without certifying invalid roots: %s', (scenario) => {
       const slot: NodeSchema = { ...schema, items: [{
         kind: 'input', id: 'source', optional: false, type: { kind: 'union', names: ['STRING', 'INT'] },
@@ -617,7 +617,7 @@ describe('retained app dispatch', () => {
       const base = session().doc
       const document: WorkflowDocument = { ...base, graphs: { g0: { ...base.graphs.g0!, nodes: {
         n0: { id: asNodeId('n0'), type: 'Loader',
-          values: { source: scenario === 'malformed-asset' ? { digest: 'broken' } : 7 },
+          values: { source: scenario === 'malformed-asset' ? { digest: 'broken' } : scenario === 'opaque-asset' ? asset('a') : 7 },
           dynamic: { source: scenario === 'invalid-variant' ? { selected: 'missing' } : {},
             ...(scenario === 'unknown-state' ? { unknown: {} } : {}),
           },
@@ -626,8 +626,8 @@ describe('retained app dispatch', () => {
       const history = { revision: 0, undo: [], redo: [] }
       const admitted = workflowAssetRoots(document, history, () => slot, [], 'admission')
       expect(admitted.complete).toBe(false)
-      expect(admitted.digests).toEqual([])
-      expect(admitted.refusal).toBe(scenario === 'cleared' ? undefined
+      expect(admitted.digests).toEqual(scenario === 'opaque-asset' ? [asset('a').digest] : [])
+      expect(admitted.refusal).toBe(scenario === 'cleared' || scenario === 'opaque-asset' ? undefined
         : scenario === 'malformed-asset' ? 'Workflow asset identity is malformed' : 'Workflow dynamic identities are invalid')
       if (scenario === 'cleared') expect(admitted.incompleteDiagnostics).toContainEqual(expect.objectContaining({
         severity: 'error', code: 'prompt.missing_dynamic_choice',
