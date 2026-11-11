@@ -19,13 +19,13 @@ async function openLayerGraph(page: Page, asset: UploadedAsset): Promise<void> {
         id: 'g0', name: 'root',
         nodes: {
           load: { id: 'load', type: 'dinkster.image.load_image', values: { image: source } },
-          layers: { id: 'layers', type: 'dinkster.layers.add', values: { name: 'Transparent source' } },
+          layers: { id: 'layers', type: 'dinkster.image.add_layer', values: { name: 'Transparent source' } },
           flatten: { id: 'flatten', type: 'dinkster.layers.flatten', values: { selector: 'composite' } },
         },
         links: {
           image: { id: 'image', from: { node: 'load', port: 'IMAGE' }, to: { node: 'layers', port: 'image' } },
           mask: { id: 'mask', from: { node: 'load', port: 'MASK' }, to: { node: 'layers', port: 'mask' } },
-          document: { id: 'document', from: { node: 'layers', port: 'layers' }, to: { node: 'flatten', port: 'layers' } },
+          document: { id: 'document', from: { node: 'layers', port: 'LAYERS' }, to: { node: 'flatten', port: 'layers' } },
         },
         nets: {}, reroutes: {}, nextOrdinal: 4,
       } },
@@ -78,7 +78,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     if (response.ok) nodes = (await response.json() as { nodes?: Record<string, unknown> }).nodes
   } catch { /* skip below */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
-  requireBackendNodes(nodes!, ['dinkster.image.load_image', 'dinkster.layers.add', 'dinkster.layers.edit', 'dinkster.layers.flatten', 'dinkster.image.save_image'], testInfo)
+  requireBackendNodes(nodes!, ['dinkster.image.load_image', 'dinkster.image.add_layer', 'dinkster.layers.edit', 'dinkster.layers.flatten', 'dinkster.image.save_image'], testInfo)
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 15_000 })
 })

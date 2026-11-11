@@ -367,7 +367,7 @@ adoption, render and asset endpoints to cover graph opening, crop, resize,
 format/quality editing, guarded editable-recipe export, explicit snapshot
 export, grouping, clipping refusal, and draft recovery after reload.
 `packages/e2e/tests/image-document-graph-live.spec.ts` separately runs
-a transparent `dinkster.image.load_image` -> `dinkster.layers.add` ->
+a transparent `dinkster.image.load_image` -> `dinkster.image.add_layer` ->
 `dinkster.layers.flatten` graph against a live Dinkster backend. It proves the
 workspace's Render API PNG is byte-identical to the flatten image rendition and
 that its decoded alpha matches the flatten transparency mask.

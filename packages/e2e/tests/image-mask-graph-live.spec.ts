@@ -120,7 +120,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     if (response.ok) nodes = (await response.json() as { nodes?: Record<string, unknown> }).nodes
   } catch { /* skip below */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
-  requireBackendNodes(nodes!, ['dinkster.image.load_image', 'dinkster.mask.paint', 'dinkster.layers.add', 'dinkster.layers.flatten'], testInfo)
+  requireBackendNodes(nodes!, ['dinkster.image.load_image', 'dinkster.mask.paint', 'dinkster.image.add_layer', 'dinkster.layers.flatten'], testInfo)
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 15_000 })
 })
@@ -161,13 +161,13 @@ test('graph mask edits execute visibly and match an explicit baked asset', async
         nodes: {
           graphLoad: { id: 'graphLoad', type: 'dinkster.image.load_image', values: { image: source } },
           bakeLoad: { id: 'bakeLoad', type: 'dinkster.image.load_image', values: { image: source } },
-          layers: { id: 'layers', type: 'dinkster.layers.add', values: { name: 'Edited transparency' } },
+          layers: { id: 'layers', type: 'dinkster.image.add_layer', values: { name: 'Edited transparency' } },
           flatten: { id: 'flatten', type: 'dinkster.layers.flatten', values: { selector: 'composite' } },
         },
         links: {
           image: { id: 'image', from: { node: 'graphLoad', port: 'IMAGE' }, to: { node: 'layers', port: 'image' } },
           mask: { id: 'mask', from: { node: 'graphLoad', port: 'MASK' }, to: { node: 'layers', port: 'mask' } },
-          document: { id: 'document', from: { node: 'layers', port: 'layers' }, to: { node: 'flatten', port: 'layers' } },
+          document: { id: 'document', from: { node: 'layers', port: 'LAYERS' }, to: { node: 'flatten', port: 'layers' } },
         },
         nets: {}, reroutes: {}, nextOrdinal: 5,
       } },

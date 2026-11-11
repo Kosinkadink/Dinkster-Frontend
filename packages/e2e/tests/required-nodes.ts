@@ -6,7 +6,6 @@ const withdrawnDraftNodes: ReadonlySet<string> = new Set([
   'dinkster.audio.envelope',
   'dinkster.curve.evaluate',
   'dinkster.int',
-  'dinkster.layers.add',
   'dinkster.layers.edit',
   'dinkster.layers.flatten',
   'dinkster.layers.load',
