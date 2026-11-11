@@ -12,8 +12,8 @@
  * uses native same-origin startup so browser requests and event sockets both
  * exercise Vite's DINKSTER_NATIVE_BACKEND proxy without requiring backend CORS.
  *
- * Skips loudly without a reachable native backend (DINKSTER_NATIVE_BACKEND,
- * default http://127.0.0.1:8765) serving the comfy pack ports.
+ * Requires a reachable native backend serving the current image, text and
+ * primitive contracts.
  */
 import { deflateSync } from 'node:zlib'
 import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
@@ -70,10 +70,10 @@ async function openImageryDoc(page: Page, asset: UploadedAsset): Promise<void> {
       graphs: { g0: {
         id: 'g0', name: 'root',
         nodes: {
-          li: { id: 'li', type: 'LoadImage', values: { image: asset } },
-          si: { id: 'si', type: 'SaveImage', values: {} },
-          li2: { id: 'li2', type: 'LoadImage', values: { image: asset } },
-          si2: { id: 'si2', type: 'SaveImage', values: {} },
+          li: { id: 'li', type: 'dinkster.image.load_image', values: { image: asset } },
+          si: { id: 'si', type: 'dinkster.image.save_image', values: {} },
+          li2: { id: 'li2', type: 'dinkster.image.load_image', values: { image: asset } },
+          si2: { id: 'si2', type: 'dinkster.image.save_image', values: {} },
         },
         links: {
           l1: { id: 'l1', from: { node: 'li', port: 'IMAGE' }, to: { node: 'si', port: 'images' } },
@@ -101,10 +101,10 @@ async function openNumericBranches(page: Page): Promise<void> {
       graphs: { g0: {
         id: 'g0', name: 'root',
         nodes: {
-          source1: { id: 'source1', type: 'dinkster.string.length', values: { text: 'one' } },
-          sink1: { id: 'sink1', type: 'dinkster.int', values: { value: 8 } },
-          source2: { id: 'source2', type: 'dinkster.string.length', values: { text: 'three' } },
-          sink2: { id: 'sink2', type: 'dinkster.int', values: { value: 9 } },
+          source1: { id: 'source1', type: 'dinkster.text.string_length', values: { string: 'one' } },
+          sink1: { id: 'sink1', type: 'dinkster.utilities.primitive_int', values: { value: 8 } },
+          source2: { id: 'source2', type: 'dinkster.text.string_length', values: { string: 'three' } },
+          sink2: { id: 'sink2', type: 'dinkster.utilities.primitive_int', values: { value: 9 } },
         },
         links: {
           branch1: { id: 'branch1', from: { node: 'source1', port: 'length' }, to: { node: 'sink1', port: 'value' } },
@@ -138,18 +138,13 @@ async function queueSelection(page: Page, nodeIds: readonly string[]): Promise<v
 }
 
 test.beforeEach(async ({ page }) => {
-  // Probe outside the skip calls: test.skip signals by throwing, so a skip
-  // raised inside the try would be swallowed and remapped to 'unreachable'.
-  test.skip(process.env['DINKSTER_NATIVE_BACKEND'] === undefined,
-    'set DINKSTER_NATIVE_BACKEND so the Vite same-origin proxy targets this native backend')
-  let served: Record<string, unknown> | null = null
-  try {
-    const probe = await fetch(`${NATIVE_BACKEND}/api/nodes`, { signal: AbortSignal.timeout(2000) })
-    if (probe.ok) served = (await probe.json() as { nodes?: Record<string, unknown> }).nodes ?? {}
-  } catch { /* unreachable -> served stays null */ }
-  test.skip(served === null, `no native Dinkster backend reachable at ${NATIVE_BACKEND} (set DINKSTER_NATIVE_BACKEND)`)
-  expect(served, 'native catalog must register canonical LoadImage').toHaveProperty('LoadImage')
-  expect(served, 'native catalog must register canonical SaveImage').toHaveProperty('SaveImage')
+  const probe = await fetch(`${NATIVE_BACKEND}/api/nodes`, { signal: AbortSignal.timeout(2000) })
+  expect(probe.ok, `native catalog at ${NATIVE_BACKEND}`).toBe(true)
+  const served = (await probe.json() as { nodes: Record<string, unknown> }).nodes
+  for (const type of ['dinkster.image.load_image', 'dinkster.image.save_image',
+    'dinkster.text.string_length', 'dinkster.utilities.primitive_int']) {
+    expect(served, `native catalog must register ${type}`).toHaveProperty([type])
+  }
 
   await page.setViewportSize({ width: 1440, height: 1100 })
   await page.goto('/')
@@ -190,7 +185,7 @@ test('a disjoint native partial run retains only the omitted numeric branch as l
   expect(await geometry()).toEqual(currentGeometry)
 
   const retained = page.getByTestId('canvas-widget-a11y')
-    .filter({ has: page.getByText('Int, Value', { exact: true }) })
+    .filter({ has: page.getByText('Int, value', { exact: true }) })
     .first()
   await retained.focus()
   await expect(page.getByTestId('app-tooltip')).toContainText('Retained last-resolved value: 3')
