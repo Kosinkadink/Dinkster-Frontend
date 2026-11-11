@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DINKSTER_REF: 9454699a70f9b5aef08f917da37da01303d5fdfa
+  DINKSTER_REF: 1fccc1312615be00e101cfdf14baeed3fbbabfa9
 
 jobs:
   validation-plan:
@@ -104,16 +104,12 @@ jobs:
       - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
       - name: Install checkout pack sources
         run: |
+          packs=()
+          for pack in .ci/Dinkster/packages/dinkster-nodes-*; do
+            packs+=(-e "$pack")
+          done
           uv pip install --python .ci/Dinkster/.venv/bin/python --no-deps --no-sources \
-            -e .ci/Dinkster/packages/dinkster-nodes-foundation \
-            -e .ci/Dinkster/packages/dinkster-nodes-image \
-            -e .ci/Dinkster/packages/dinkster-nodes-audio \
-            -e .ci/Dinkster/packages/dinkster-nodes-3d \
-            -e .ci/Dinkster/packages/dinkster-nodes-media-io \
-            -e .ci/Dinkster/packages/dinkster-nodes-remote \
-            -e .ci/Dinkster/packages/dinkster-nodes-comfy \
-            -e .ci/Dinkster/packages/dinkster-nodes-dev \
-            -e .ci/Dinkster/packages/dinkster-nodes-vision
+            "${packs[@]}"
       - name: Verify generated fixtures are current
         env:
           DINKSTER_SOURCE_ROOT: ${{ github.workspace }}/.ci/Dinkster
@@ -199,16 +195,12 @@ jobs:
       - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
       - name: Install checkout pack sources
         run: |
+          packs=()
+          for pack in .ci/Dinkster/packages/dinkster-nodes-*; do
+            packs+=(-e "$pack")
+          done
           uv pip install --python .ci/Dinkster/.venv/bin/python --no-deps --no-sources \
-            -e .ci/Dinkster/packages/dinkster-nodes-foundation \
-            -e .ci/Dinkster/packages/dinkster-nodes-image \
-            -e .ci/Dinkster/packages/dinkster-nodes-audio \
-            -e .ci/Dinkster/packages/dinkster-nodes-3d \
-            -e .ci/Dinkster/packages/dinkster-nodes-media-io \
-            -e .ci/Dinkster/packages/dinkster-nodes-remote \
-            -e .ci/Dinkster/packages/dinkster-nodes-comfy \
-            -e .ci/Dinkster/packages/dinkster-nodes-dev \
-            -e .ci/Dinkster/packages/dinkster-nodes-vision
+            "${packs[@]}"
       - name: Install hosted compatibility dependencies
         run: |
           uv venv --python 3.12 .ci/Dinkster/.venv-torch
