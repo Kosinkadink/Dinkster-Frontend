@@ -114,7 +114,8 @@ test('browses a fallback guide in place and opens its exact template', async ({ 
 })
 
 nativeTest('Learn appears for a real pack guide and reads its immutable page', async ({ page }, testInfo) => {
-  const catalog = await page.request.get('/api/docs?kind=guide&pack=guide-fixture')
+  const guideBackend = process.env['DINKSTER_E2E_GUIDE_BACKEND'] ?? process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
+  const catalog = await page.request.get(`${guideBackend}/api/docs?kind=guide&pack=guide-fixture`)
   expect(catalog.ok()).toBe(true)
   expect((await catalog.json()).docs).toEqual([expect.objectContaining({
     pack: 'guide-fixture', kind: 'guide', id: 'read-a-guide',
@@ -127,7 +128,7 @@ nativeTest('Learn appears for a real pack guide and reads its immutable page', a
     const backend = window.__dinksterTest!.app.addBackend(url, 'Guide server', true, 'dinkster', false)
     if (!backend) throw new Error('Guide server was not added')
     return backend.id
-  }, process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765')
+  }, guideBackend)
   await expect(page.getByTestId('learn-toggle')).toBeVisible()
   await page.getByTestId('learn-toggle').click()
   const panel = page.getByTestId('learn-panel')
