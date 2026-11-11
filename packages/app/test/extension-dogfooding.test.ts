@@ -51,6 +51,7 @@ describe('core extension door dogfooding', () => {
       'AUDIO_RECORD',
       'WEBCAM',
       'BOUNDING_BOX',
+      'IMAGECOMPARE',
     ])
   })
 

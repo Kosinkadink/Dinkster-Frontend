@@ -6,6 +6,7 @@ import { ColorWidgetEditor } from './ColorWidgetEditor.js'
 import { ColorsWidgetEditor } from './ColorsWidgetEditor.js'
 import { ComboWidgetEditor } from './ComboWidgetEditor.js'
 import { Load3dWidgetEditor } from './Load3dWidgetEditor.js'
+import { ImageCompareWidgetEditor } from './ImageCompareWidgetEditor.js'
 import { MultiComboWidgetEditor } from './MultiComboWidgetEditor.js'
 import { MarkdownWidgetEditor } from './MarkdownWidgetEditor.js'
 import { MountWidgetEditor } from './MountWidgetEditor.js'
@@ -30,6 +31,7 @@ const coreWidgetEditors = new Map<string, unknown>([
   ['MOUNT', MountWidgetEditor],
   ['VIDEO_EDIT', VideoEditWidgetEditor],
   ['BOUNDING_BOX', BoundingBoxWidgetEditor],
+  ['IMAGECOMPARE', ImageCompareWidgetEditor],
 ])
 
 export const coreEditorFor = (widgetType: string): unknown => coreWidgetEditors.get(widgetType)
