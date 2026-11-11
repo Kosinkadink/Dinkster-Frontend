@@ -57,7 +57,7 @@ Codec parameters are removed from the upload MIME. Chromium audio-only WebM
 remains `audio/webm`; browser MP4 recording is outside this acceptance boundary.
 
 The curve editor follows audio only for the exact typed graph relation
-`dinkster.audio.envelope.curve -> dinkster.curve.editor.curve`. Direct links and named
+`dinkster.audio.envelope.curve -> dinkster.utilities.curve_editor.curve`. Direct links and named
 nets preserve that relation. After an exact completed run, the editor displays
 the retained envelope's authoritative `curve-points` rendition on a seconds
 axis and remains read-only; it never copies computed points into graph state or

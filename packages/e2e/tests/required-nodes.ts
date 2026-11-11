@@ -4,7 +4,6 @@ import { expect, type TestInfo } from '@playwright/test'
 // https://github.com/Kosinkadink/comfy-vibe-station/issues/661
 const withdrawnDraftNodes: ReadonlySet<string> = new Set([
   'dinkster.audio.envelope',
-  'dinkster.curve.editor',
   'dinkster.curve.evaluate',
   'dinkster.int',
   'dinkster.layers.add',

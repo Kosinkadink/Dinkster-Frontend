@@ -410,7 +410,7 @@ for (const opaqueMetadata of [false, true]) test(opaqueMetadata
     })
     app.registerSchemas([
       {
-        type: 'dinkster.load_image', editorRole: 'image-source', displayName: 'Load Image', category: 'test', source: 'v3', isOutputNode: false,
+        type: 'dinkster.image.load_image', editorRole: 'image-source', displayName: 'Load Image', category: 'test', source: 'v3', isOutputNode: false,
         items: [
           { kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } }, optional: false, widget: { widgetType: 'ASSET', kind: 'image', options: { accept: ['image/png'] } } },
           { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
@@ -433,7 +433,7 @@ for (const opaqueMetadata of [false, true]) test(opaqueMetadata
     await nativeApp.openRetainedDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'graph-mask-paint', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
-        loader: { id: 'loader', type: 'dinkster.load_image', values: { image: { digest: source, name: 'source.png', size: pngSize, mediaType: 'image/png', virtualPath: '' } } },
+        loader: { id: 'loader', type: 'dinkster.image.load_image', values: { image: { digest: source, name: 'source.png', size: pngSize, mediaType: 'image/png', virtualPath: '' } } },
         consumer: { id: 'consumer', type: 'MaskConsumer', values: {} },
       }, links: { mask: { id: 'mask', from: { node: 'loader', port: 'mask' }, to: { node: 'consumer', port: 'mask' }, ...(opaqueMetadata ? { ext: { retained: true } } : {}) } }, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { g0: { nodes: { loader: { position: { x: 100, y: 100 } }, consumer: { position: { x: 700, y: 100 } } } } } },

@@ -19,15 +19,15 @@ const STARTUP_CATALOG = {
   dinkster: { version: 'latent-file-drop-proof', schemaWire: 1 },
   packs: {},
   nodes: {
-    'dinkster.load_image': {
-      schemaVersion: 1, nodeType: 'dinkster.load_image', displayName: 'Load Image', category: 'image',
+    'dinkster.image.load_image': {
+      schemaVersion: 1, nodeType: 'dinkster.image.load_image', displayName: 'Load Image', category: 'image',
       interface: [
         { role: 'input', id: 'image', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['comfy.IMAGE'] } }, widget: { type: 'ASSET', accept: ['image/*'], kind: 'media/image' } },
         { role: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } },
       ],
     },
-    'dinkster.load_latent': {
-      schemaVersion: 1, nodeType: 'dinkster.load_latent', displayName: 'Load Latent', category: 'latent',
+    'dinkster.latent.load_latent': {
+      schemaVersion: 1, nodeType: 'dinkster.latent.load_latent', displayName: 'Load Latent', category: 'latent',
       interface: [
         { role: 'input', id: 'latent', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['comfy.LATENT'] } }, widget: { type: 'ASSET', accept: ['application/x-comfy-latent'], kind: 'data/latent' } },
         { role: 'output', id: 'samples', type: { kind: 'concrete', types: ['comfy.LATENT'] } },
@@ -211,8 +211,8 @@ test.beforeEach(async ({ page }) => {
         kind: string; widget?: { widgetType: string; kind?: string }
       }[] } | undefined } | undefined
     }).registryForTab(app.activeTab()!)
-    const loadImage = registry?.resolve('dinkster.load_image')
-    const loadLatent = registry?.resolve('dinkster.load_latent')
+    const loadImage = registry?.resolve('dinkster.image.load_image')
+    const loadLatent = registry?.resolve('dinkster.latent.load_latent')
     return (loadImage?.items.some((item) => item.kind === 'input' && item.widget?.widgetType === 'ASSET') ?? false) &&
       (loadLatent?.items.some((item) => item.kind === 'input' && item.widget?.kind === 'data/latent') ?? false)
   })).toBe(true)
@@ -261,7 +261,7 @@ test('plain image preserves the canonical AssetRef at drop coordinates and undo 
     const document = window.__dinksterTest!.app.activeTab()!.store.doc
     return Object.values(document.graphs[document.root]!.nodes)[0]
   })
-  expect(inserted).toMatchObject({ type: 'dinkster.load_image', values: { image: {
+  expect(inserted).toMatchObject({ type: 'dinkster.image.load_image', values: { image: {
     digest, name: 'canonical-image-2.png', mediaType: 'image/png', virtualPath: 'imports/canonical-image-2.png',
   } } })
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
@@ -386,8 +386,8 @@ test('native image and latent references bypass browser byte reads and ignore la
     const doc = window.__dinksterTest!.app.activeTab()!.store.doc
     return Object.values(doc.graphs[doc.root]!.nodes).map((node) => ({ type: node.type, values: node.values }))
   })).toEqual([
-    { type: 'dinkster.load_image', values: { image: { digest: `blake3:${'3'.repeat(64)}`, name: 'verified.png', size: 123, mediaType: 'image/png', virtualPath: 'mounts/plates/nested/verified.png' } } },
-    { type: 'dinkster.load_latent', values: { latent: { digest: `blake3:${'2'.repeat(64)}`, name: 'verified.latent', size: 456, mediaType: 'application/x-comfy-latent', virtualPath: 'mounts/plates/nested/verified.latent' } } },
+    { type: 'dinkster.image.load_image', values: { image: { digest: `blake3:${'3'.repeat(64)}`, name: 'verified.png', size: 123, mediaType: 'image/png', virtualPath: 'mounts/plates/nested/verified.png' } } },
+    { type: 'dinkster.latent.load_latent', values: { latent: { digest: `blake3:${'2'.repeat(64)}`, name: 'verified.latent', size: 456, mediaType: 'application/x-comfy-latent', virtualPath: 'mounts/plates/nested/verified.latent' } } },
   ])
   expect(await uploadPreferences(page)).toEqual(preferences)
   await page.screenshot({ path: testInfo.outputPath('native-latent-no-copy.png') })
@@ -584,7 +584,7 @@ test('embedded Load image consumes the choice without cancelling its own upload'
     const document = window.__dinksterTest!.app.activeTab()!.store.doc
     return Object.values(document.graphs[document.root]!.nodes)[0]
   })).toMatchObject({
-    type: 'dinkster.load_image', values: { image: { digest, name: 'canonical-image-2.png' } },
+    type: 'dinkster.image.load_image', values: { image: { digest, name: 'canonical-image-2.png' } },
   })
 })
 
@@ -712,7 +712,7 @@ test('latent without a valid workflow uploads canonically and inserts Load Laten
   expect(await page.evaluate(() => {
     const document = window.__dinksterTest!.app.activeTab()!.store.doc
     return Object.values(document.graphs[document.root]!.nodes)[0]
-  })).toMatchObject({ type: 'dinkster.load_latent', values: { latent: {
+  })).toMatchObject({ type: 'dinkster.latent.load_latent', values: { latent: {
     digest: `blake3:${'e'.repeat(64)}`, name: 'canonical.latent', size: 128,
     mediaType: 'application/x-comfy-latent', virtualPath: '',
   } } })
@@ -837,7 +837,7 @@ test('pasted clipboard image inserts Load Image with the pasted asset name and u
   expect(await page.evaluate(() => {
     const document = window.__dinksterTest!.app.activeTab()!.store.doc
     return Object.values(document.graphs[document.root]!.nodes)[0]
-  })).toMatchObject({ type: 'dinkster.load_image', values: { image: {
+  })).toMatchObject({ type: 'dinkster.image.load_image', values: { image: {
     digest, name: 'canonical-image-2.png', mediaType: 'image/png', virtualPath: 'imports/canonical-image-2.png',
   } } })
   await expect(page.getByTestId('canvas-file-drop-surface')).toContainText('Image added')
@@ -874,7 +874,7 @@ test('a clipboard holding both external text and an image pastes the image, not 
   expect(await page.evaluate(() => {
     const document = window.__dinksterTest!.app.activeTab()!.store.doc
     return Object.values(document.graphs[document.root]!.nodes)[0]
-  })).toMatchObject({ type: 'dinkster.load_image', values: { image: { digest, name: 'canonical-image-2.png' } } })
+  })).toMatchObject({ type: 'dinkster.image.load_image', values: { image: { digest, name: 'canonical-image-2.png' } } })
 })
 
 test('a clipboard image read that resolves after a tab switch does not paste', async ({ page }) => {

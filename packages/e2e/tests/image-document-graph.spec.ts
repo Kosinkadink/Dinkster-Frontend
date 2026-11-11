@@ -129,7 +129,7 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
         { kind: 'input', id: 'commands', type: { kind: 'concrete', name: 'STRING' }, optional: false,
           widget: { widgetType: 'STRING', options: { multiline: true } } },
         { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' } }] },
-      { type: 'dinkster.save_image', editorRole: 'image-save', displayName: 'Save Image', category: 'image', source: 'v3', isOutputNode: true,
+      { type: 'dinkster.image.save_image', editorRole: 'image-save', displayName: 'Save Image', category: 'image', source: 'v3', isOutputNode: true,
         items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
         { kind: 'input', id: 'format', type: { kind: 'concrete', name: 'COMBO' }, optional: true,
           widget: { widgetType: 'COMBO', options: { options: ['png', 'jpeg', 'webp'] }, default: 'png' } },
@@ -186,7 +186,7 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
   await expect(page.getByTestId('status-bar')).toContainText('Exported editable image recipe')
   const recipeGraph = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!)
   const editor = Object.values(recipeGraph.nodes).find((node) => node.type === 'dinkster.layers.edit')!
-  const saver = Object.values(recipeGraph.nodes).find((node) => node.type === 'dinkster.save_image')!
+  const saver = Object.values(recipeGraph.nodes).find((node) => node.type === 'dinkster.image.save_image')!
   expect(JSON.parse(String(editor.values.commands))).toEqual([
     { changes: { height: 200, width: 320 }, op: 'canvas' },
     { changes: { transform: { a: 666667, b: 0, c: 0, d: 714286, tx: -53333333, ty: -28571429 } }, id: 'l1', op: 'layer' },

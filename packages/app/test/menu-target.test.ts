@@ -144,12 +144,12 @@ describe('widgetRepresentationMenuGroup', () => {
 
 describe('previewCapabilityOf', () => {
   const resolve = (nodeType: string) =>
-    nodeType === 'dinkster.ksampler' ? { emitsPreviews: true } : nodeType === 'dinkster.load_image' ? {} : undefined
+    nodeType === 'dinkster.ksampler' ? { emitsPreviews: true } : nodeType === 'dinkster.image.load_image' ? {} : undefined
 
   it('answers per node type from the current schema catalog', () => {
     const capable = previewCapabilityOf(resolve)!
     expect(capable('dinkster.ksampler')).toBe(true)
-    expect(capable('dinkster.load_image')).toBe(false)
+    expect(capable('dinkster.image.load_image')).toBe(false)
     expect(capable('unknown.type')).toBe(false)
   })
 

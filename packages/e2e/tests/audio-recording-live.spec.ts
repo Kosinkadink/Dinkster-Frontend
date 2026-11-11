@@ -73,7 +73,7 @@ test.beforeEach(async ({ page, context }, testInfo) => {
     if (response.ok) nodes = (await response.json() as { nodes?: Record<string, unknown> }).nodes
   } catch { /* skip below */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
-  requireBackendNodes(nodes!, ['dinkster.audio.load_audio', 'dinkster.audio.envelope', 'dinkster.curve.editor'], testInfo)
+  requireBackendNodes(nodes!, ['dinkster.audio.load_audio', 'dinkster.audio.envelope', 'dinkster.utilities.curve_editor'], testInfo)
   await page.addInitScript(({ synthetic }) => {
     const captures: Promise<readonly number[]>[] = []
     Object.defineProperty(window, '__dinksterRecordedAudioChunks', { value: captures })
@@ -122,10 +122,10 @@ test(PHYSICAL_MICROPHONE
         nodes: {
           load: { id: 'load', type: 'dinkster.audio.load_audio', values: {} },
           envelope: { id: 'envelope', type: 'dinkster.audio.envelope', values: { frames_per_second: 7 } },
-          editor: { id: 'editor', type: 'dinkster.curve.editor', values: {} },
+          editor: { id: 'editor', type: 'dinkster.utilities.curve_editor', values: {} },
         },
         links: {
-          audioEnvelope: { id: 'audioEnvelope', from: { node: 'load', port: 'audio' }, to: { node: 'envelope', port: 'audio' } },
+          audioEnvelope: { id: 'audioEnvelope', from: { node: 'load', port: 'AUDIO' }, to: { node: 'envelope', port: 'audio' } },
           envelopeCurve: { id: 'envelopeCurve', from: { node: 'envelope', port: 'curve' }, to: { node: 'editor', port: 'curve' } },
         },
         nets: {}, reroutes: {}, nextOrdinal: 4,

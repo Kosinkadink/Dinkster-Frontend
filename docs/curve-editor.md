@@ -5,7 +5,7 @@ Inputs declared as concrete `CURVE` with the `CURVE` widget render a compact cur
 Double-click the graph to add a point, drag points to change position and value, and select a point before deleting it. At least one point is retained. Position and value are clamped to 0..1 while editing, and positions stay strictly increasing. Choose Linear or Monotone cubic interpolation, then Apply to create one undoable document command. Legacy values without `interpolation` open as Linear; Apply always stores it explicitly.
 
 Linked inputs are read-only and normally do not open. The exact typed relation
-`dinkster.audio.envelope.curve -> dinkster.curve.editor.curve` opens a read-only view
+`dinkster.audio.envelope.curve -> dinkster.utilities.curve_editor.curve` opens a read-only view
 of the completed run's bounded, authoritative `curve-points` rendition. Its
 position axis uses seconds, and only the AUDIO source feeding that envelope can
 supply its preview playhead. It does not store the computed curve or mutate

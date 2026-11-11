@@ -329,7 +329,7 @@ describe('dropped image insertion', () => {
   const digest = `blake3:${'a'.repeat(64)}`
   const asset: AssetRef = { digest, name: 'server-name-2.png', size: 73, mediaType: 'image/png', virtualPath: 'imports/scene/server-name-2.png' }
   const schema = {
-    type: 'dinkster.load_image', displayName: 'Load Image', category: 'image', source: { kind: 'dinkster' }, isOutputNode: false,
+    type: 'dinkster.image.load_image', displayName: 'Load Image', category: 'image', source: { kind: 'dinkster' }, isOutputNode: false,
     items: [{ kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.IMAGE' } }, required: true, widget: { widgetType: 'ASSET', options: { accept: ['image/*'] } } }],
   } as unknown as NodeSchema
   const document = { graphs: { g0: { nodes: {} } } } as unknown as WorkflowDocument
@@ -357,7 +357,7 @@ describe('dropped image insertion', () => {
     await expect(pending).resolves.toBe('inserted')
     expect(p.dispatch).toHaveBeenCalledOnce()
     expect(p.dispatch.mock.calls[0]![0]).toMatchObject({ command: 'batch', params: { invocations: [{
-      command: 'node.add', params: { graphId: 'g0', type: 'dinkster.load_image', position: { x: 12, y: 34 }, values: { image: {
+      command: 'node.add', params: { graphId: 'g0', type: 'dinkster.image.load_image', position: { x: 12, y: 34 }, values: { image: {
         digest, name: 'server-name-2.png', size: 73, mediaType: 'image/png', virtualPath: 'imports/scene/server-name-2.png',
       } } },
     }] } })
@@ -451,7 +451,7 @@ describe('dropped latent insertion', () => {
     digest, name: 'canonical.latent', size: 123, mediaType: 'application/x-comfy-latent', virtualPath: '',
   }
   const schema = {
-    type: 'dinkster.load_latent', displayName: 'Load Latent', category: 'latent', source: { kind: 'dinkster' }, isOutputNode: false,
+    type: 'dinkster.latent.load_latent', displayName: 'Load Latent', category: 'latent', source: { kind: 'dinkster' }, isOutputNode: false,
     items: [{ kind: 'input', id: 'latent', type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.LATENT' } }, required: true, widget: { widgetType: 'ASSET', options: { accept: ['application/x-comfy-latent'] }, kind: 'data/latent' } }],
   } as unknown as NodeSchema
   const document = { graphs: { g0: { nodes: {} } } } as unknown as WorkflowDocument
@@ -468,7 +468,7 @@ describe('dropped latent insertion', () => {
     expect(p.upload).toHaveBeenCalledWith(p.file)
     expect(p.dispatch).toHaveBeenCalledOnce()
     expect(p.dispatch.mock.calls[0]![0]).toMatchObject({ command: 'batch', params: { invocations: [{
-      command: 'node.add', params: { graphId: 'g0', type: 'dinkster.load_latent', position: { x: 40, y: 60 }, values: { latent: asset } },
+      command: 'node.add', params: { graphId: 'g0', type: 'dinkster.latent.load_latent', position: { x: 40, y: 60 }, values: { latent: asset } },
     }] } })
   })
 

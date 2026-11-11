@@ -76,7 +76,7 @@ const curveFollowPayload = (): DinksterNodesPayload => ({
         { role: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } },
       ],
     },
-    'dinkster.curve.editor': {
+    'dinkster.utilities.curve_editor': {
       schemaVersion: 1, displayName: 'Curve editor', category: 'curve', idempotent: true, editorRole: 'curve',
       interface: [
         {
@@ -418,8 +418,8 @@ describe('Tab editorKind', () => {
         nodes: {
           audio: { id: 'audio', type: 'AudioSource', values: {} },
           envelope: { id: 'envelope', type: 'dinkster.audio.envelope', values: {} },
-          editor: { id: 'editor', type: 'dinkster.curve.editor', values: {} },
-          invalidEditor: { id: 'invalidEditor', type: 'dinkster.curve.editor', values: {} },
+          editor: { id: 'editor', type: 'dinkster.utilities.curve_editor', values: {} },
+          invalidEditor: { id: 'invalidEditor', type: 'dinkster.utilities.curve_editor', values: {} },
           other: { id: 'other', type: 'OtherCurve', values: {} },
         },
         links: {

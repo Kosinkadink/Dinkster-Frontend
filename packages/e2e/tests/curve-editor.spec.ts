@@ -107,9 +107,9 @@ test.beforeEach(async ({ page }, testInfo) => {
   } catch { /* handled by the skip below */ }
   test.skip(table?.schemaVersion !== 1, `no current native Dinkster backend reachable at ${NATIVE_BACKEND}`)
   const nodes = table!.nodes ?? {}
-  requireBackendNodes(nodes, ['dinkster.curve.editor', 'dinkster.curve.evaluate'], testInfo)
+  requireBackendNodes(nodes, ['dinkster.utilities.curve_editor', 'dinkster.curve.evaluate'], testInfo)
 
-  const editorWire = nodes['dinkster.curve.editor'] as {
+  const editorWire = nodes['dinkster.utilities.curve_editor'] as {
     readonly schemaVersion?: number
     readonly interface?: readonly { readonly id?: string; readonly widget?: unknown }[]
   }
@@ -127,7 +127,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => {
     const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas
-    return schemas?.has('dinkster.curve.editor') === true && schemas.has('dinkster.curve.evaluate')
+    return schemas?.has('dinkster.utilities.curve_editor') === true && schemas.has('dinkster.curve.evaluate')
   }), { timeout: 15_000 }).toBe(true)
   await waitForStartupOwnership(page)
 
@@ -139,14 +139,14 @@ test.beforeEach(async ({ page }, testInfo) => {
           id: 'g0', name: 'root',
           nodes: {
             editor: {
-              id: 'editor', type: 'dinkster.curve.editor',
+              id: 'editor', type: 'dinkster.utilities.curve_editor',
               values: { histogram },
             },
             evaluate: {
               id: 'evaluate', type: 'dinkster.curve.evaluate', values: { position: 0.3 },
             },
             linked: {
-              id: 'linked', type: 'dinkster.curve.editor', values: {},
+              id: 'linked', type: 'dinkster.utilities.curve_editor', values: {},
             },
           },
           links: {
@@ -339,7 +339,7 @@ test('edits, executes, reloads, previews a histogram, and refuses a linked curve
       .find((execution) => execution.ref.prompt === target)?.status, prompt),
   { timeout: 30_000 }).toBe('completed')
   expect(submitted?.graph.nodes.editor).toEqual({
-    nodeType: 'dinkster.curve.editor',
+    nodeType: 'dinkster.utilities.curve_editor',
     inputs: { curve: expectedCurve, histogram },
   })
   expect(submitted?.graph.nodes.evaluate?.nodeType).toBe('dinkster.curve.evaluate')
