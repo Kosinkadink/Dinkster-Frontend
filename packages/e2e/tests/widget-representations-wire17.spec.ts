@@ -82,8 +82,8 @@ test.beforeEach(async ({ page, request }) => {
     const tab = app.activeTab()
     return tab === undefined ? undefined : app.backendForTab(tab).workerCatalog.get().status
   })).toBe('ready')
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'wire17-representations', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
@@ -136,9 +136,9 @@ test('schema default and user switch persist as view state without changing the 
   await page.keyboard.press('Control+y')
   await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('single-line')
 
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const current = structuredClone(window.__dinksterTest!.app.activeTab()!.store.doc)
-    await window.__dinksterTest!.app.openDocument(current, 'Wire 17 Reopened')
+    window.__dinksterTest!.app.openDocument(current, 'Wire 17 Reopened')
   })
   await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('single-line')
   state = await page.evaluate(() => {
@@ -218,7 +218,7 @@ test('schema default and user switch persist as view state without changing the 
     links['l_value'] = {
       id: 'l_value', from: { node: 'clip', port: 'value' }, to: { node: 'sink', port: 'source' },
     }
-    await app.openDocument(current, 'Wire 17 Submission')
+    app.openDocument(current, 'Wire 17 Submission')
     await app.queue(app.activeTab()!)
   })
   expect(submitted).toBeDefined()
@@ -341,7 +341,7 @@ test('multiline preview expands with node height while representation, editor, a
     }
     graph.nextOrdinal += 1
     exported.view.graphs.g0!.nodes.sink = { position: { x: 500, y: 300 } }
-    await app.openDocument(exported, 'Multiline Layout Reopened')
+    app.openDocument(exported, 'Multiline Layout Reopened')
     const reopened = app.activeTab()!
     const compiled = app.compileTab(reopened)
     if (!compiled?.ok) throw new Error('reopened multiline document did not compile')

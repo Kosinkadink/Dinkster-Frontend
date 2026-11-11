@@ -106,8 +106,8 @@ test('wire-34 primitive identity declarations show typed values before execution
     { type: 'e2e.identity.text', knownValue: { input: 'source' } },
     { type: 'e2e.identity.flag', knownValue: { input: 'source' } },
   ])
-  const loadDiagnostics = await page.evaluate(async () => {
-    const diagnostics = (await window.__dinksterTest!.app.openDocument({
+  const loadDiagnostics = await page.evaluate(() => {
+    const diagnostics = window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'primitive-known-values-proof',
@@ -140,7 +140,7 @@ test('wire-34 primitive identity declarations show typed values before execution
         flag: { position: { x: 60, y: 580 } },
         sink: { position: { x: 600, y: 200 } },
       } } } },
-    } as never, 'Primitive known values'))
+    } as never, 'Primitive known values')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     return diagnostics
   })

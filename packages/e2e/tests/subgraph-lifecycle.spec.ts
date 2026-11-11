@@ -19,9 +19,9 @@ test('canvas deletion awaits acceptance and preserves newer selection', async ({
   await page.routeWebSocket('**/api/events?*', () => {})
   await ready(page)
   await waitForStartupOwnership(page)
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'delayed-delete', root: 'root',
       graphs: { root: {
         id: 'root', name: 'Root', nodes: {
@@ -165,8 +165,8 @@ test('creates an empty subgraph from universal search and drills into it', async
 test('previews and removes root-unreachable subgraph definitions', async ({ page }, testInfo) => {
   await ready(page, true)
   await waitForStartupOwnership(page)
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'subgraph-cleanup-e2e', root: 'root',
       graphs: {
         root: {
@@ -341,13 +341,13 @@ test('previews and removes root-unreachable subgraph definitions', async ({ page
 
 test('extract commits immediately with deterministic collision-safe names and undoable selection', async ({ page }) => {
   await ready(page, true)
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'SubgraphLifecycleE2E', displayName: 'Subgraph Lifecycle', category: 'test', source: 'v3', isOutputNode: false,
       items: [],
     }])
-    await test.app.openDocument({
+    test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'subgraph-lifecycle-e2e', root: 'root',
       graphs: { root: {
         id: 'root', name: 'Root',
@@ -396,7 +396,7 @@ test('extract commits immediately with deterministic collision-safe names and un
 
 test('extracts an Int widget-output fan-out and flattens it back to exact taps', async ({ page }, testInfo) => {
   await ready(page, true)
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'LifecycleInt', displayName: 'Int', category: 'test', source: 'v3', isOutputNode: false,
@@ -412,7 +412,7 @@ test('extracts an Int widget-output fan-out and flattens it back to exact taps',
         { kind: 'input', id: 'b', displayName: 'B', type: { kind: 'concrete', name: 'INT' }, optional: false },
       ],
     }])
-    await test.app.openDocument({
+    test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'widget-output-extract-e2e', root: 'root',
       graphs: { root: {
         id: 'root', name: 'Root',
@@ -600,7 +600,7 @@ test('flatten is one undoable and redoable operation', async ({ page }) => {
 
 test('region occurrence flatten refusal is displayed with its code and anchor', async ({ page }) => {
   await ready(page, true)
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'RegionLifecycleE2E', displayName: 'Region lifecycle', category: 'test', source: 'v3', isOutputNode: false,
@@ -609,7 +609,7 @@ test('region occurrence flatten refusal is displayed with its code and anchor', 
         { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'FLOAT' }, list: false },
       ],
     }])
-    await test.app.openDocument({
+    test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'region-flatten-refusal', root: 'root',
       graphs: { root: {
         id: 'root', name: 'Root',

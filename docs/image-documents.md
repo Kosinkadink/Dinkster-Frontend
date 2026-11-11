@@ -199,21 +199,6 @@ External raster hydration first journals a fresh scoped read owner in IndexedDB
 and obtains an exact retained-asset acknowledgment before fetching bytes. The
 owner protects missing external resources through digest verification and local
 durable staging; inline and already-staged resources need no server read owner.
-Before verified external bytes enter durable staging, a separate document owner
-is journaled and acknowledged for that exact digest and scope. Uploading a staged
-raster likewise confirms its independent staged owner before returning it to
-the caller. A refused or mismatched acknowledgment blocks staging/publication;
-a lost response requires an exact owner/revision readback, not a repeated write.
-Hydration also admits a fresh staged owner for already-cached external bytes,
-including legacy entries without receipts, before library opening returns or
-saves its local link. Cached bytes are not evidence of backend ownership or
-scope authority. Refused admission leaves those bytes and earlier owners intact;
-inline resources need no external owner. Repeated descriptors of the same
-external digest share one fresh owner within that hydration.
-Staged owners and unresolved intents survive store closure and restart. Read
-completion releases only the read owner, never the staged owner. Staged ownership
-is conservative: replacing an image, closing its editor or disconnecting does
-not release its durable raster protection.
 Release happens only after those reads settle. Lost registration or release
 responses reconcile by the exact owner and revision without replaying writes.
 Unconfirmed owners remain journaled across restart; closing an editor or local
@@ -251,10 +236,6 @@ and rewires only that loader's current mask consumers. The original image
 AssetRef remains unchanged, so the edit is visible and repeatable in execution.
 Pending mask edits and undo history survive layout refreshes while the same
 tab and image target remain active.
-Decoded mask-editor pixels remain unpublished until an independent editor owner
-acknowledges the source digest. The workflow read stays owned through that
-admission; refused or obsolete editor admissions cannot enable editing or draw
-pixels into a closed or replaced session.
 The live acceptance executes paint, layer, and flatten nodes and checks every
 decoded transparency-mask sample against the identically edited explicit bake.
 For other eligible inputs, **Bake to asset** explicitly replaces the input
@@ -329,75 +310,9 @@ order, transforms, opacity, blend mode, and raster masks. Every result passes
 the same loader and invariant checks as an imported document.
 
 Undo and redo replay immutable patches. Allocation cursors never rewind, so an
-id is not reused after undo. The history reports every external raster digest
-that its undo or redo stack can restore; inline bytes travel inside the document.
-Local resource cleanup must retain external bytes until the corresponding
-history entry is evicted or cleared.
-
-The local core session exposes `prepareDispatch`, `prepareUndo`, and
-`prepareRedo` for callers that must await ownership before publication. Preparing
-does not change the document, revision, history, signal, or operation stream. A
-candidate carries the current external-resource inventory and the proposed
-document/history inventory, including unused resources. Its one-use `commit`
-refuses an intervening document or history change. An optional synchronous
-`validateCommit` policy guards initial construction and every command/history
-commit, including direct synchronous calls. A refused policy leaves the existing
-document and history unchanged. These core APIs do not themselves perform
-backend admission.
-
-The shared core also exposes one-use prepared command, undo, and redo
-candidates. Their external inventory includes the confirmed ground, unused
-resources, pending edits, and retained history. Its optional `validateCommit`
-policy guards initial construction and local commits. Ordered remote ingest,
-starting catch-up or resync, disconnect, close, history clearing, and intervening local commits
-invalidate previously prepared candidates. A refused or stale history replay
-leaves its history record intact; synchronous undo/redo still reports replay
-conflicts. This synchronous policy guards local changes, not remote publication.
-
-An optional asynchronous `beforeRemoteDocument` hook guards shared initial,
-ordered-operation, rebase, and resync publication. Callers supplying it must use
-`connectSharedImageDocumentSession`; direct construction cannot bypass initial
-admission. The hook receives the proposed optimistic document, server revision,
-current document, complete conservative external inventory, and immutable
-confirmed/current/intermediate snapshots. Rebase planning copies pending edits
-and history without changing live state. Signals, operations, history changes,
-and confirmed ground publish only after admission and a current-generation
-check. Concurrent local changes require a fresh proposal and admission; a
-refused admission or changed connection preserves the last published state.
-Closing prevents pending admissions from publishing. Events received during
-initial admission are caught up through the same boundary. The hook itself
-does not acquire or release backend owners. It may return a callback that runs
-only after its admitted document commits. Superseded or refused proposals never
-run that callback. Retained digests remain conservative.
-
-The workspace waits for backend admission before exposing a recovered,
-imported, or shared session. Local external rasters are verified against staged
-bytes and uploaded before a fresh document owner is journaled and acknowledged.
-Shared initial, ordered, rebase, and resync admission hydrates and verifies
-confirmed/current/intermediate snapshots before acknowledging an independent
-document owner for the complete inventory. Shared and local commands, undo,
-and redo prepare their complete proposed document/history
-inventory and await an exact acknowledgment before commit. A lost response is
-reconciled by reading that owner, without replaying its write. Refusal, reuse,
-disconnection, or a changed project/backend/session prevents publication.
-Unavailable backends leave recovered drafts blocked, not visible without
-ownership. Closing the workspace waits for pending admissions but does not
-release their durable owners. After a replacement publishes, its complete
-acknowledged owner can retire the previous session owner in the same live
-project, backend, and session lifetime. Retirement verifies the exact durable
-journal and revision before releasing; a lost response is reconciled by reading
-that owner, never replaying the release. A stale admission, disconnection,
-changed destination, or foreign journal grants no release authority. Closing
-waits for already-started retirements but never releases the current owner.
-Independent session and staged-raster owners remain separate and held.
-
-Each preview renderer admits independent, scoped owners for its raster bitmap
-cache before decoding or drawing staged bytes. Cache hits recheck the captured
-project, backend, connection, and session lifetime; descriptor changes require
-a new owner. Lost acknowledgments reconcile by exact owner readback, without
-replaying a write. Closing waits for pending decoding and closes bitmaps, but
-does not release cache owners or their durable read intents. Session replacement
-cannot retire a renderer's independent owner, even for the same digest.
+id is not reused after undo. The history reports every raster digest that its
+undo or redo stack can restore; local resource cleanup must retain those bytes
+until the corresponding history entry is evicted or cleared.
 
 ## Shared editing
 

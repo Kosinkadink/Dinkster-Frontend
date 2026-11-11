@@ -162,7 +162,7 @@ test('node-body hover snaps the noodle and release connects the ranked input', a
 nativeTest('quantized socket-lane boundaries refuse body autosnap while the interior still previews and connects', {
   tag: '@native-catalog',
 }, async ({ page }) => {
-  const failures = await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
+  const failures = await page.evaluate(() => window.__dinksterTest!.app.openDocument({
     format: 'dinkster-workflow', formatVersion: 1, lineage: 'socket-lane-drop', root: 'g0',
     graphs: { g0: { id: 'g0', name: 'root', nodes: {
       source: { id: 'source', type: 'CheckpointLoaderSimple', values: {} },
@@ -172,7 +172,7 @@ nativeTest('quantized socket-lane boundaries refuse body autosnap while the inte
       source: { position: { x: 100, y: 150 } },
       target: { position: { x: 500, y: 150 } },
     } } } },
-  }, 'Socket lane drop')))
+  }, 'Socket lane drop'))
   expect(failures).toEqual([])
   await identityViewport(page)
 
@@ -351,13 +351,13 @@ nativeTest('native typed Autogrow families filter in both directions and generic
   tag: '@native-catalog',
 }, async ({ page }) => {
   const openSingleNode = async (type: string, title: string): Promise<void> => {
-    const failures = await page.evaluate(async ({ type, title }) => (await window.__dinksterTest!.app.openDocument({
+    const failures = await page.evaluate(({ type, title }) => window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: title, root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         n0: { id: 'n0', type, values: {} },
       }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { g0: { nodes: { n0: { position: { x: 100, y: 150 } } } } } },
-    }, title)), { type, title })
+    }, title), { type, title })
     expect(failures).toEqual([])
     await identityViewport(page)
   }

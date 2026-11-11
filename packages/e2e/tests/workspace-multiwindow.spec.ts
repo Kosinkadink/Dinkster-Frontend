@@ -45,7 +45,7 @@ for (const accepted of [true, false]) {
     await page.route('**/api/assets/**', (route) => route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64') }))
     await page.goto('/')
     await waitForStartupOwnership(page)
-    await page.evaluate(async () => {
+    await page.evaluate(() => {
       const app = window.__dinksterTest!.app
       const schema: NodeSchema = {
         type: 'ImageLoader', displayName: 'Image Loader', category: 'test', source: 'v3', isOutputNode: false,
@@ -54,7 +54,7 @@ for (const accepted of [true, false]) {
           widget: { widgetType: 'ASSET', options: { accept: ['image/png'] } } }],
       }
       app.registerSchemas([schema])
-      await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'editor-assets', root: 'g0',
+      app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'editor-assets', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'Root', nodes: { n0: { id: 'n0', type: 'ImageLoader', values: {
           image: { digest: `blake3:${'a'.repeat(64)}`, name: 'source.png', size: 100,
             mediaType: 'image/png', virtualPath: '' },
@@ -100,7 +100,7 @@ for (const accepted of [true, false]) {
     await disableSupervisorDiscovery(page)
     await page.goto('/')
     await waitForStartupOwnership(page)
-    await page.evaluate(async () => {
+    await page.evaluate(() => {
       const app = window.__dinksterTest!.app
       const schema: NodeSchema = {
         type: 'AssetLoader', displayName: 'Asset Loader', category: 'test', source: 'v3', isOutputNode: false,
@@ -108,7 +108,7 @@ for (const accepted of [true, false]) {
           type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } }],
       }
       app.registerSchemas([schema])
-      await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'ordinary-assets', root: 'g0',
+      app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'ordinary-assets', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'Root', nodes: { n0: { id: 'n0', type: 'AssetLoader', values: {
           file: { digest: `blake3:${'a'.repeat(64)}`, name: 'before.bin', size: 7,
             mediaType: 'application/octet-stream', virtualPath: '' },
@@ -550,7 +550,7 @@ test('concurrent dirty pagehide candidates are all reconciled before restart', a
   })
 
   const edit = async (current: Page, name: string): Promise<void> => {
-    await current.evaluate(async ({ id, graphName }) => {
+    await current.evaluate(({ id, graphName }) => {
       const app = window.__dinksterTest!.app as unknown as {
         disableWorkspaceAuthority(keepLocalTabs: boolean): void
         openDocument(document: unknown, title: string): readonly unknown[]
@@ -560,7 +560,7 @@ test('concurrent dirty pagehide candidates are all reconciled before restart', a
       const tab = app.tabs.get().find((entry) => entry.id === id)!
       const replacement = structuredClone(tab.store.doc)
       replacement.graphs[replacement.root]!.name = graphName
-      await app.openDocument(replacement, graphName)
+      app.openDocument(replacement, graphName)
     }, { id: lineage, graphName: name })
   }
   await edit(later, 'actual-later-A')

@@ -45,43 +45,26 @@ export function ViewerImage(props: {
   readonly onLoad: (element: HTMLImageElement) => void
   readonly onError: (message?: string) => void
 }) {
-  const [url, setUrl] = createSolidSignal(props.image.load === undefined && props.image.assetReader === undefined ? props.image.url : '')
+  const [url, setUrl] = createSolidSignal(props.image.url)
   const [color, setColor] = createSolidSignal<string>()
   createEffect(() => {
     const image = props.image
-    if (image.load === undefined && image.assetReader === undefined) { setUrl(image.url); return }
+    if (image.load === undefined) { setUrl(image.url); return }
     const controller = new AbortController()
-    const reader = image.assetReader?.(controller.signal)
     let ownedUrl: string | undefined
     setUrl('')
     setColor(undefined)
-    const current = () => !controller.signal.aborted && reader?.current() !== false
-    const load = async () => {
-      if (image.assetReader !== undefined && reader === undefined) throw new Error('Image ownership unavailable')
-      if (!current()) return
-      const result = image.load === undefined
-        ? await fetch(image.url, { signal: controller.signal }).then(async (response) => {
-            if (!response.ok) throw new Error(`Image unavailable: ${response.status}`)
-            return { available: true as const, bytes: await response.arrayBuffer(), mime: response.headers.get('content-type') ?? image.mediaType }
-          })
-        : await image.load(controller.signal)
-      if (!current()) return
+    void image.load(controller.signal).then((result) => {
+      if (controller.signal.aborted) return
       if (!result.available) { props.onError(`${result.reason}: ${result.error}`); return }
       if (!result.mime.startsWith('image/') || result.bytes.byteLength > 64 * 1024 * 1024) {
         props.onError('Image rendition exceeds the preview budget or is not an image.')
         return
       }
       ownedUrl = URL.createObjectURL(new Blob([result.bytes], { type: result.mime }))
-      if (reader !== undefined) {
-        const decoded = new Image()
-        decoded.src = ownedUrl
-        await decoded.decode()
-        if (!current()) return
-      }
-      setColor('colorTransform' in result ? result.colorTransform : undefined)
+      setColor(result.colorTransform)
       setUrl(ownedUrl)
-    }
-    void (reader === undefined ? load() : reader.read(load)).catch((error: unknown) => {
+    }).catch((error: unknown) => {
       if (!controller.signal.aborted) props.onError(error instanceof Error ? error.message : 'Image unavailable')
     })
     onCleanup(() => {

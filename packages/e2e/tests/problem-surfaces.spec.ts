@@ -65,7 +65,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForStartupOwnership(page)
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'ProofNode', displayName: 'Proof Node', category: 'test', source: 'v3', isOutputNode: false,
@@ -74,7 +74,7 @@ test.beforeEach(async ({ page }) => {
     ])
     // Two disconnected nodes: no links, so the solver contributes no
     // diagnostics and the spec fully controls the problem population.
-    await window.__dinksterTest!.app.openDocument({
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'problem-surfaces', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         source: { id: 'source', type: 'ProofNode', title: 'Source proof', values: { steps: 4 } },

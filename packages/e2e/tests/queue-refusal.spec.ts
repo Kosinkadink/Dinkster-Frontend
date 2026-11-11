@@ -13,10 +13,10 @@ for (const width of [1440, 900]) {
     await page.routeWebSocket('**/api/events?*', () => {})
     await page.goto('/')
     await expect(page.getByTestId('status-bar')).toContainText('node schemas')
-    await page.evaluate(async (doc) => {
+    await page.evaluate((doc) => {
       const app = window.__dinksterTest!.app
       ;(app as unknown as { templateGalleryOpen: { set(value: boolean): void } }).templateGalleryOpen.set(false)
-      await app.openDocument(doc, 'Blocked workflow')
+      app.openDocument(doc, 'Blocked workflow')
       app.dock.setOpen('right', false)
     }, workflow)
     await expect(page.getByTestId('queue-refusal-toast')).toBeHidden()

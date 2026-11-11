@@ -165,13 +165,13 @@ test.beforeEach(async ({ page }) => {
   await page.getByTestId('backend-url-input').fill(MOCK)
   await page.getByTestId('backend-add').click()
   await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'AssetBrowserTest', displayName: 'Asset Browser', category: 'test', source: 'v3', isOutputNode: false,
       items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
         widget: { widgetType: 'ASSET', options: { accept: ['image/png', 'application/x-safetensors'] }, default: null } }],
     }])
-    await window.__dinksterTest!.app.openDocument({
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'asset-browser', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { asset: { id: 'asset', type: 'AssetBrowserTest', values: { image: null } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { asset: { position: { x: 100, y: 100 } } } } } },
@@ -374,8 +374,8 @@ test('selected image assets preview immediately inside the node and follow impor
   }
 
   const imported = [assetRef(entries[0]!), assetRef(entries[3]!)]
-  await page.evaluate(async (images) => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate((images) => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'asset-browser-import', root: 'g0',
       graphs: {
         g0: { id: 'g0', name: 'root', nodes: {

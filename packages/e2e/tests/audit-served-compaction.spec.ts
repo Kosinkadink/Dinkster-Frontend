@@ -112,7 +112,7 @@ test('served app compacts a UI occurrence disconnect atomically and survives rel
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get().length ?? 0), { timeout: 20_000 }).toBeGreaterThanOrEqual(1)
 
-  await page.evaluate(async (doc) => {
+  await page.evaluate((doc) => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([
       {
@@ -130,7 +130,7 @@ test('served app compacts a UI occurrence disconnect atomically and survives rel
         }],
       },
     ])
-    await test.app.openDocument(doc as never, 'audit served compaction proof')
+    test.app.openDocument(doc as never, 'audit served compaction proof')
   }, proofDocument())
   await drillIntoOccurrence(page)
   const baseline = await state(page)
@@ -188,8 +188,8 @@ test('served app compacts a UI occurrence disconnect atomically and survives rel
   // Save/reload round trip preserves the compacted state.
   const saved = await page.evaluate(() =>
     JSON.parse(JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc)))
-  await page.evaluate(async (doc) => {
-    await window.__dinksterTest!.app.openDocument(doc as never, 'audit served compaction reloaded')
+  await page.evaluate((doc) => {
+    window.__dinksterTest!.app.openDocument(doc as never, 'audit served compaction reloaded')
   }, saved)
   await drillIntoOccurrence(page)
   await expect.poll(() => state(page)).toEqual({

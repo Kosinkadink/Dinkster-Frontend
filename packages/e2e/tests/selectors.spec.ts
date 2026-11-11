@@ -102,7 +102,7 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForStartupOwnership(page)
-  const failures = await page.evaluate(async (json) => (await window.__dinksterTest!.app.openDocument(json, 'Selectors')), fixture)
+  const failures = await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Selectors'), fixture)
   expect(failures).toEqual([])
   await page.waitForFunction(() => {
     const tab = window.__dinksterTest!.app.activeTab()
