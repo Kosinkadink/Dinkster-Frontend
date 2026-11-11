@@ -65,7 +65,7 @@ async function returnToRoot(page: Page): Promise<void> {
 }
 
 async function openCoexistenceWorkflow(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const IMAGE = { kind: 'concrete', name: 'IMAGE' }
     const FLOAT = { kind: 'concrete', name: 'FLOAT' }
     const input = (id: string, extra: Record<string, unknown> = {}) =>
@@ -111,7 +111,7 @@ async function openCoexistenceWorkflow(page: Page): Promise<void> {
       ]),
       schemaOf('CoexSinkTest', [input('in')]),
     ] as never)
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'coexistence-e2e', root: 'g0',
       graphs: {
         g0: {

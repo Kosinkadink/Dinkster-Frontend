@@ -110,7 +110,7 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
       }),
     } })
   })
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([
       { type: 'LayerDocumentTest', displayName: 'Layer document', category: 'test', source: 'v3', isOutputNode: true,
@@ -137,7 +137,7 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
           widget: { widgetType: 'INT', options: { min: 0, max: 100, step: 1 }, default: 90 } },
         { kind: 'output', id: 'assets', type: { kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } } } }] },
     ])
-    app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'graph-layer-workflow', root: 'g0',
+    await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'graph-layer-workflow', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Layers', nodes: { source: { id: 'source', type: 'LayerDocumentTest', values: {} } },
         links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } }, view: { graphs: {} },
     }, 'Layer workflow')
@@ -351,14 +351,14 @@ test('mask editing offers explicit bake and cancel without silently modifying th
     return canvas.toDataURL('image/png').split(',')[1]!
   })
   await page.route('**/api/assets/**', (route) => route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64') }))
-  await page.evaluate((size) => {
+  await page.evaluate(async (size) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'MaskAssetTest', displayName: 'Load Image', category: 'test', source: 'v3', isOutputNode: false,
       items: [{ kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } }, optional: false,
         widget: { widgetType: 'ASSET', kind: 'image', options: { accept: ['image/png'] } } }],
     }])
-    app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'explicit-mask-bake', root: 'g0',
+    await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'explicit-mask-bake', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Mask', nodes: { source: { id: 'source', type: 'MaskAssetTest', values: {
         image: { digest: `blake3:${'1'.repeat(64)}`, name: 'source.png', size, mediaType: 'image/png', virtualPath: '' },
       } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } }, view: { graphs: {} },

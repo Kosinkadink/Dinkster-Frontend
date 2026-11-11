@@ -16,7 +16,7 @@ const proofDir = '/tmp/audit-live-proof'
 const ADD_SLOT = '__add__'
 
 async function openFixture(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([{
       type: 'TapWidget', displayName: 'Tap Widget', category: 'test', source: 'v3', isOutputNode: false,
@@ -29,7 +29,7 @@ async function openFixture(page: Page): Promise<void> {
       type: 'FloatSink', displayName: 'Float Sink', category: 'test', source: 'v3', isOutputNode: false,
       items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false }],
     }])
-    const failures = bridge.app.openDocument({
+    const failures = (await bridge.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-live-proof', root: 'g0',
       graphs: {
         g0: { id: 'g0', name: 'root', nodes: {
@@ -54,7 +54,7 @@ async function openFixture(page: Page): Promise<void> {
           src: { position: { x: 80, y: 420 } },
         } },
       } },
-    }, 'audit live proof')
+    }, 'audit live proof'))
     if (failures.length > 0) throw new Error(`openDocument failed: ${JSON.stringify(failures)}`)
     bridge.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })

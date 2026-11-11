@@ -39,14 +39,14 @@ test('reopened workflow checks exact asset presence without acquiring or rewriti
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
   await waitForStartupOwnership(page)
-  await page.evaluate(({ available, missing }) => {
+  await page.evaluate(async ({ available, missing }) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'WorkflowAssetPresence', displayName: 'Workflow asset presence', category: 'test', source: 'v3', isOutputNode: false,
       items: [{ kind: 'input', id: 'file', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
         widget: { widgetType: 'ASSET', kind: 'asset/file', options: {}, default: null } }],
     }])
-    app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'workflow-asset-presence', root: 'g0',
+    await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'workflow-asset-presence', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         existing: { id: 'existing', type: 'WorkflowAssetPresence', values: { file: available } },
         absent: { id: 'absent', type: 'WorkflowAssetPresence', values: { file: missing } },
@@ -114,7 +114,7 @@ for (const state of ['retired', 'inactive', 'linked'] as const) {
     await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
     await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.schemaState.get().status)).toBe('ready')
     await waitForStartupOwnership(page)
-    await page.evaluate((state) => {
+    await page.evaluate(async (state) => {
       const app = window.__dinksterTest!.app
       const assetType = { kind: 'concrete', name: 'ASSET' } as const
       const file = { kind: 'input', id: 'file#name', type: assetType, optional: false,
@@ -132,7 +132,7 @@ for (const state of ['retired', 'inactive', 'linked'] as const) {
         items: [{ kind: 'output', id: 'out', type: assetType }],
       }])
       const key = state === 'retired' ? 'file#name' : 'choice.[file].file%23name'
-      app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: `unavailable-asset-${state}`, root: 'g0',
+      await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: `unavailable-asset-${state}`, root: 'g0',
         graphs: { g0: { id: 'g0', name: 'root', nodes: {
           target: { id: 'target', type: 'UnavailableAssetInput', values: { [key]: {
             digest: 'blake3:' + '0'.repeat(64), name: 'missing.bin', size: 12,
@@ -220,14 +220,14 @@ for (const fixture of [
     }
     await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.protocol)).toBe('dinkster')
     await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
-    await page.evaluate(({ kind, mime }) => {
+    await page.evaluate(async ({ kind, mime }) => {
       const app = window.__dinksterTest!.app
       app.registerSchemas([{
         type: 'LocalCatalogProof', displayName: 'Local catalog proof', category: 'test', source: 'v3', isOutputNode: false,
         items: [{ kind: 'input', id: 'file', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
           widget: { widgetType: 'ASSET', kind, options: { accept: [mime] }, default: null } }],
       }])
-      app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'local-catalog-proof', root: 'g0',
+      await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'local-catalog-proof', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'root', nodes: { asset: { id: 'asset', type: 'LocalCatalogProof', values: {} } },
           links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
         view: { graphs: { g0: { nodes: { asset: { position: { x: 100, y: 100 } } } } } },

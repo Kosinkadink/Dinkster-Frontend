@@ -18,8 +18,8 @@ test('an App View partial queue button completes against the native backend', as
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined),
     { timeout: 15_000 }).toBe(true)
 
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-view-native-queue', root: 'root',
       graphs: {
         root: {

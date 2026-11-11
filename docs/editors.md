@@ -34,12 +34,21 @@ rewrites or bolted-on views.
 Opening an image or compositor editor still selects its target synchronously.
 Decoded image sessions and compositor drafts wait for independent journaled
 ownership of their known source and resource digests before becoming editable.
-Declarations use the existing document-owner protocol with incomplete roots;
-they do not certify opaque resources or enable collection. Refusal keeps the
-session or draft unavailable and uses the existing editor error surface.
+Compositor admission validates the full ImageDocument and declares its source
+document plus every external resource, including hidden layers, masks and unused
+resource records, as a complete editor inventory. Inline resources travel inside
+the document and do not require separate server identities. Invalid resources
+refuse admission rather than producing a complete empty inventory. These
+document-owner declarations do not certify other holders or enable collection.
+Refusal keeps the session or draft unavailable and uses the existing editor
+error surface.
 Closing or replacing the target, changing its source/backend/registry or
 connection lifetime, or disposing the app prevents late admission. Component
 unmount and superseded runtime frames also prevent draft publication.
+Only publication of an acknowledged replacement on the same target, project,
+backend and catalog lifetime retires that target's captured predecessor revision.
+Canceled or out-of-order admission and unmount do not release owners. Receipts
+from another target or recovered from storage are not adopted for retirement.
 
 ## EditorRegistry
 

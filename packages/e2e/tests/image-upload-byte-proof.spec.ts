@@ -103,8 +103,8 @@ async function assertUploadAndVault(
 }
 
 async function openDocument(page: Page, lineage: string, includeOutput: boolean, includeLoad = true): Promise<void> {
-  await page.evaluate(({ lineage, includeOutput, includeLoad }) => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async ({ lineage, includeOutput, includeLoad }) => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage, root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
@@ -165,17 +165,17 @@ async function assertExportReopen(page: Page): Promise<void> {
     const exported = app.exportDocument(app.activeTab()!.id) as WorkflowDocument | undefined
     return exported?.meta?.ext?.['dinkster.assetLocations'] !== undefined
   })).toBe(true)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const exported = app.exportDocument(app.activeTab()!.id)
     if (exported === undefined) throw new Error('image byte proof export failed')
-    app.openDocument(JSON.parse(JSON.stringify(exported)), 'Reopened image byte proof')
+    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Reopened image byte proof')
   })
   expect(await assetRef(page)).toEqual(before)
 }
 
 async function connectOutputAndRun(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const tab = window.__dinksterTest!.app.activeTab()!
     const reopened = JSON.parse(JSON.stringify(tab.store.doc))
     const graph = reopened.graphs[reopened.root]
@@ -185,7 +185,7 @@ async function connectOutputAndRun(page: Page): Promise<void> {
     graph.links.image = { id: 'image', from: { node: load.id, port: 'IMAGE' }, to: { node: 'output', port: 'images' } }
     graph.nextOrdinal += 1
     reopened.view.graphs[reopened.root].nodes.output = { position: { x: 500, y: 100 } }
-    window.__dinksterTest!.app.openDocument(reopened, 'Runnable image byte proof')
+    await window.__dinksterTest!.app.openDocument(reopened, 'Runnable image byte proof')
   })
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   await page.getByTestId('queue-button').click()
