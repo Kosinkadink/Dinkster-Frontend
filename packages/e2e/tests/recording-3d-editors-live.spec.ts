@@ -50,8 +50,9 @@ async function run(page: Page): Promise<{ clientId: string; jobId: string }> {
     await app.queueSelection(app.activeTab()!, ['target'])
   })
   const request = await submitted
-  await expect(page.getByTestId('execution-row').first().locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })
   const { clientId, jobId } = request.postDataJSON() as { clientId: string; jobId: string }
+  const row = page.getByTestId('execution-row').filter({ has: page.locator('.execution-id', { hasText: jobId }) })
+  await expect(row.locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })
   return { clientId, jobId }
 }
 
