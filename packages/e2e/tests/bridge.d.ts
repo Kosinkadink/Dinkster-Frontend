@@ -341,7 +341,7 @@ interface DinksterTestBridge {
       | { ok: boolean; diagnostics?: readonly unknown[] }
       | Promise<{ ok: boolean; diagnostics?: readonly unknown[] }>
     /** Queue a tab against its target backend (same path as the queue button). */
-    queue(tab: DinksterBridgeTab): Promise<void>
+    queue(tab: DinksterBridgeTab, scope?: import('@dinkster/core').ExecutionScope): Promise<void>
     queueSelection(tab: DinksterBridgeTab, nodeIds: readonly string[]): Promise<void>
     exportDocument(tabId: string): unknown
     exportWorkflow(tabId: string): Promise<boolean>

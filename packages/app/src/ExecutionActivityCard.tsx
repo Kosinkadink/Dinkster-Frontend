@@ -2,6 +2,8 @@ import { For, Show } from 'solid-js'
 import type { ExecutionState } from '@dinkster/client'
 import { isDinksterRegionEntry, type DinksterGraphWire } from '@dinkster/core'
 import { runAttributionLabel } from './run-attribution.js'
+import type { JSX } from 'solid-js'
+import { t } from '@dinkster/core'
 
 export type ExecutionActivityRelation = 'latest' | 'pinned'
 
@@ -11,9 +13,11 @@ const STATUS_LABELS: Readonly<Record<ExecutionState['status'], string>> = {
   completed: 'Completed',
   error: 'Failed',
   interrupted: 'Interrupted',
+  cancelled: 'Cancelled',
 }
 
-export const executionStatusLabel = (status: ExecutionState['status']): string => STATUS_LABELS[status]
+export const executionStatusLabel = (status: ExecutionState['status']): string =>
+  status === 'cancelled' ? t('execution.cancel.cancelled') : STATUS_LABELS[status]
 
 export interface ExecutionProgress {
   readonly finished: number
@@ -124,6 +128,7 @@ export function ExecutionActivityCard(props: {
   readonly compact?: boolean | undefined
   readonly onOpen?: (() => void) | undefined
   readonly onPin?: (() => void) | undefined
+  readonly cancelControl?: JSX.Element
 }) {
   const status = () => executionStatusLabel(props.entry.status)
   const progress = () => executionProgress(props.entry)
@@ -206,6 +211,7 @@ export function ExecutionActivityCard(props: {
         </div>
       </Show>
       <div class="execution-activity-actions">
+        {props.cancelControl}
         <button
           type="button"
           class="execution-open"

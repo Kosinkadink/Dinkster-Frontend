@@ -1,4 +1,11 @@
 {
+  "command.workflow.cancel": "Cancel current run",
+  "execution.cancel.action": "Cancel run",
+  "execution.cancel.pending": "Cancelling...",
+  "execution.cancel.cancelled": "Cancelled",
+  "execution.cancel.requested": "Cancellation requested. Waiting for the run to stop.",
+  "execution.cancel.finished": "This run has already finished and cannot be cancelled.",
+  "execution.cancel.unavailable": "Could not cancel the run. The backend may be unavailable or the job is no longer accessible. Reconnect and check its state.",
   "search.registryUrl.name": "Node catalog static prefix",
   "search.registryUrl.description": "Registry or static mirror prefix for first-party node search and ComfyUI imports. Clear to use installed nodes only.",
   "search.notInstalled": "Not installed",

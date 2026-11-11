@@ -66,6 +66,7 @@ import { isTextTarget } from './settings.js'
 import { parseNumericCommit, parsePrimitiveListCommit, widgetCommitError } from './widget-commit.js'
 import { Icon } from './Icon.js'
 import { ProductButton, ProductCheckbox, ProductTextArea, ProductTextInput } from './ProductControls.js'
+import { CancelExecutionButton } from './CancelExecutionButton.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect, type ProductSelectOption } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
@@ -1459,11 +1460,11 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     const execution = createMemo(() => {
       executions()
       const tab = activeTab()
-      return tab === undefined
-        ? undefined
-        : props.app.executionsForTab(tab).find((candidate) =>
-            candidate.artifact?.scope.kind === 'partial' &&
-            scopeKey(candidate.artifact.scope) === scopeKey(resolved().scope))
+      const candidates = tab === undefined ? [] : props.app.executionsForTab(tab).filter((candidate) =>
+        candidate.artifact?.scope.kind === 'partial' &&
+        scopeKey(candidate.artifact.scope) === scopeKey(resolved().scope))
+      return candidates.find((candidate) => candidate.status === 'running') ??
+        candidates.find((candidate) => candidate.status === 'queued') ?? candidates[0]
     })
     const state = (): string => {
       if (pendingQueues().has(queueKey())) return message('appView.queue.state.submitting')
@@ -1471,6 +1472,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       if (status === 'queued') return message('appView.queue.state.queued')
       if (status === 'running') return message('appView.queue.state.running')
       if (status === 'completed') return message('appView.queue.state.completed')
+      if (status === 'cancelled') return message('execution.cancel.cancelled')
       if (status === 'error' || status === 'interrupted') return message('appView.queue.state.failed')
       if (resolved().scope === undefined) return message('appView.queue.state.unavailable')
       return message('appView.queue.state.ready')
@@ -1558,6 +1560,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         >
           <Icon icon={Play} /> {queueProps.flow.item.label}
         </ProductButton>
+        <CancelExecutionButton app={props.app} execution={execution()} />
         <span id={stateId} class="app-layout-queue-state" data-testid="app-layout-queue-state" role="status" aria-live="polite">{state()}</span>
       </div>
     )
@@ -2504,6 +2507,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             <Icon icon={Play} /> {message('appView.queue')}
           </ProductButton>
         </Show>
+        <CancelExecutionButton app={props.app} execution={(executions(), props.app.currentCancellableExecution())} />
       </header>
       <Show when={arrange() && gestureEdit.refusal()}>
         {(text) => <ProductNotice tone="error" testId="app-layout-gesture-error">{text()}</ProductNotice>}

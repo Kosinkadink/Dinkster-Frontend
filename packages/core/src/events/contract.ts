@@ -338,7 +338,7 @@ export type NormalizedEvent =
       readonly runtimeNodeId?: string
       readonly detail: RuntimeErrorDetail
     }
-  | { readonly kind: 'interrupted'; readonly execution: ExecutionRef; readonly timestamp: number }
+  | { readonly kind: 'interrupted' | 'cancelled'; readonly execution: ExecutionRef; readonly timestamp: number }
   | { readonly kind: 'completed'; readonly execution: ExecutionRef; readonly timestamp: number }
   | {
       /** Queue/history bookkeeping not tied to one node. */
