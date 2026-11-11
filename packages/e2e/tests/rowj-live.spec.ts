@@ -95,8 +95,8 @@ test('live current-wire row J acceptance proof', async ({ page, request }, testI
   expect(wires).toContain(DINKSTER_SCHEMA_WIRE_VERSION)
   await waitForStartupOwnership(page)
 
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'rowj-live', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         sampler: { id: 'sampler', type: 'KSampler', values: { seed: 7, steps: 20, cfg: 8, sampler_name: 'euler', scheduler: 'simple', denoise: 1 }, controllers: { seed: 'fixed' } },

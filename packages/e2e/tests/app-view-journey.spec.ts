@@ -21,8 +21,8 @@ async function registerSchema(page: Page): Promise<void> {
 }
 
 async function openJourneyDocument(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-view-complete-journey', root: 'g0',
       meta: { title: 'Portrait Studio', description: 'Create a finished portrait without opening the graph.' },
       graphs: { g0: {

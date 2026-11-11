@@ -1,3 +1,4 @@
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { buildDinksterRegistry, type DinksterSubmitResult } from '@dinkster/client'
@@ -66,8 +67,8 @@ const extensionEvent = (seq: number): ExtensionEvent => ({
   extensionSnapshotDigest: digest, event: 'demo.event', pack: 'demo', schemaVersion: 1, data: { value: seq }, seq,
 })
 
-function openNativeFixture(app: AppState): Tab {
-  expect(app.openDocument({
+async function openNativeFixture(app: AppState): Promise<Tab> {
+  expect((await app.openDocument({
     format: 'dinkster-workflow', formatVersion: 1, lineage: 'extension-world-native', root: 'g0',
     graphs: { g0: {
       id: 'g0', name: 'root', nextOrdinal: 3,
@@ -79,7 +80,7 @@ function openNativeFixture(app: AppState): Tab {
       nets: {}, reroutes: {},
     } },
     view: { graphs: {} },
-  }, 'Native extension fixture')).toEqual([])
+  }, 'Native extension fixture'))).toEqual([])
   return app.activeTab()!
 }
 
@@ -202,7 +203,7 @@ describe('connection extension worlds', () => {
 
   it('rejects a virtual node kind that is already registered', () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     try {
       const kind = app.virtualNodeKinds.get('dinkster.note')!
       const register = (app as unknown as {
@@ -408,7 +409,7 @@ describe('connection extension worlds', () => {
 
   it('selects the paired connection world when a live tab changes backend', async () => {
     ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     try {
       const tab = app.tabs.get()[0]!
       const a = app.addBackend('/a', 'A', false, 'dinkster')!
@@ -444,7 +445,7 @@ describe('connection extension worlds', () => {
     ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
     const app = createWorkflowApp(null)
     try {
-      const tab = openNativeFixture(app)
+      const tab = (await openNativeFixture(app))
       const backend = app.addBackend('/frozen', 'Frozen', false, 'dinkster')!
       vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
         ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
@@ -633,7 +634,7 @@ describe('submission-owned extension world lifetime', () => {
     vi.spyOn(backend, 'refreshDiagnostics').mockImplementation(() => {})
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:source')
     await refresh('a')
-    tab = openNativeFixture(app)
+    tab = (await openNativeFixture(app))
     app.setTabTarget(tab.id, backend.id)
     oldHost = app.extensions
     oldWidgets = app.widgetRegistryForTab(tab)
@@ -709,7 +710,7 @@ describe('submission-owned extension world lifetime', () => {
     expect(disposed).not.toHaveBeenCalled()
     if (action === 'cancel') app.assetConsent.set(undefined)
     else if (action === 'close tab') app.closeTab(tab.id)
-    else if (action === 'replace tab') app.openDocument(tab.store.doc, 'Replacement')
+    else if (action === 'replace tab') await app.openDocument(tab.store.doc, 'Replacement')
     else if (action === 'deny') await request.retry([])
     else app.dispose()
     expect(app.assetConsent.get()).toBeUndefined()

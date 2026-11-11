@@ -19,19 +19,21 @@ import {
 import { encodePng, type ImageRaster } from './image-png.js'
 
 const DATABASE_NAME = 'dinkster.image-documents'
-const DATABASE_VERSION = 2
+const DATABASE_VERSION = 3
 const RESOURCES = 'resources'
 const DRAFTS = 'drafts'
 const RESOURCE_READS = 'resourceReads'
+const RESOURCE_RETENTIONS = 'resourceRetentions'
 const BY_PROJECT = 'byProject'
 
-export interface ImageResourceRead {
+export interface ImageResourceRetention {
   readonly key: string
   readonly projectId: string
   readonly connectionId: string
   readonly assetBaseUrl: string
   readonly owner: RetainedAssetOwner
   readonly digests: readonly string[]
+  readonly acknowledgedRevision?: number
 }
 
 export interface StagedImageResource {
@@ -128,6 +130,10 @@ function openDatabase(factory: IDBFactory): Promise<IDBDatabase> {
       const reads = database.createObjectStore(RESOURCE_READS, { keyPath: 'key' })
       reads.createIndex(BY_PROJECT, 'projectId')
     }
+    if (!database.objectStoreNames.contains(RESOURCE_RETENTIONS)) {
+      const retentions = database.createObjectStore(RESOURCE_RETENTIONS, { keyPath: 'key' })
+      retentions.createIndex(BY_PROJECT, 'projectId')
+    }
   }
   return requestResult(request).then((database) => {
     database.onversionchange = () => database.close()
@@ -220,11 +226,11 @@ export class ImageDocumentLocalStore {
     assetBaseUrl: string,
     scope: string,
     digests: readonly string[],
-  ): Promise<ImageResourceRead> {
+  ): Promise<ImageResourceRetention> {
     const owner: RetainedAssetOwner = {
       scope, ownerKind: 'preview', ownerId: `image-resource-read:${uuidv4()}`,
     }
-    const read: ImageResourceRead = {
+    const read: ImageResourceRetention = {
       key: owner.ownerId, projectId: this.projectId, connectionId, assetBaseUrl,
       owner, digests: [...new Set(digests)].sort(),
     }
@@ -236,17 +242,17 @@ export class ImageDocumentLocalStore {
     return read
   }
 
-  async resourceReads(): Promise<readonly ImageResourceRead[]> {
+  async resourceReads(): Promise<readonly ImageResourceRetention[]> {
     const database = await this.database
     const transaction = database.transaction(RESOURCE_READS, 'readonly')
     const done = transactionDone(transaction)
     const reads = await requestResult(transaction.objectStore(RESOURCE_READS)
-      .index(BY_PROJECT).getAll(this.projectId) as IDBRequest<ImageResourceRead[]>)
+      .index(BY_PROJECT).getAll(this.projectId) as IDBRequest<ImageResourceRetention[]>)
     await done
     return reads
   }
 
-  async finishResourceRead(read: ImageResourceRead): Promise<void> {
+  async finishResourceRead(read: ImageResourceRetention): Promise<void> {
     if (read.projectId !== this.projectId || read.key !== read.owner.ownerId) {
       throw new Error('resource read belongs to another local store')
     }
@@ -254,6 +260,54 @@ export class ImageDocumentLocalStore {
     const transaction = database.transaction(RESOURCE_READS, 'readwrite')
     const done = transactionDone(transaction)
     transaction.objectStore(RESOURCE_READS).delete(read.key)
+    await done
+  }
+
+  async beginStagedResourceRetention(
+    connectionId: string,
+    assetBaseUrl: string,
+    scope: string,
+    digest: string,
+  ): Promise<ImageResourceRetention> {
+    const owner: RetainedAssetOwner = {
+      scope, ownerKind: 'document', ownerId: `image-staged-resource:${uuidv4()}`,
+    }
+    const retention: ImageResourceRetention = {
+      key: owner.ownerId, projectId: this.projectId, connectionId, assetBaseUrl, owner, digests: [digest],
+    }
+    const database = await this.database
+    const transaction = database.transaction(RESOURCE_RETENTIONS, 'readwrite')
+    const done = transactionDone(transaction)
+    transaction.objectStore(RESOURCE_RETENTIONS).add(retention)
+    await done
+    return retention
+  }
+
+  async stagedResourceRetentions(): Promise<readonly ImageResourceRetention[]> {
+    const database = await this.database
+    const transaction = database.transaction(RESOURCE_RETENTIONS, 'readonly')
+    const done = transactionDone(transaction)
+    const retentions = await requestResult(transaction.objectStore(RESOURCE_RETENTIONS)
+      .index(BY_PROJECT).getAll(this.projectId) as IDBRequest<ImageResourceRetention[]>)
+    await done
+    return retentions
+  }
+
+  async confirmStagedResourceRetention(retention: ImageResourceRetention): Promise<void> {
+    if (retention.projectId !== this.projectId || retention.key !== retention.owner.ownerId) {
+      throw new Error('staged resource owner belongs to another local store')
+    }
+    const database = await this.database
+    const transaction = database.transaction(RESOURCE_RETENTIONS, 'readwrite')
+    const done = transactionDone(transaction)
+    const store = transaction.objectStore(RESOURCE_RETENTIONS)
+    const current = await requestResult(store.get(retention.key) as IDBRequest<ImageResourceRetention | undefined>)
+    if (current === undefined || canonicalJson(current) !== canonicalJson(retention)) {
+      transaction.abort()
+      await done.catch(() => undefined)
+      throw new Error('staged resource intent changed during admission')
+    }
+    store.put({ ...retention, acknowledgedRevision: 1 })
     await done
   }
 

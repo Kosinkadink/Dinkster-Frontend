@@ -4,7 +4,7 @@ import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, EMPTY_COMPOSITOR_RECIPE, registerCatalog, setLocale, type DinksterNodesPayload, type Json } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
-import { AppState } from '../src/app-state.js'
+import { AppState, isCompositorEditorTarget } from '../src/app-state.js'
 import { CompositorEditor } from '../src/CompositorEditor.js'
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 
@@ -55,7 +55,7 @@ const payload = {
 
 async function mount(options: {
   readonly storedValue?: Json
-  readonly previewState?: typeof state
+  readonly previewState?: Readonly<Record<string, unknown>>
   readonly holdOwnership?: boolean
 } = {}) {
   const app = prepareWorkflowApp(new AppState())
@@ -119,14 +119,18 @@ afterEach(() => {
 describe('CompositorEditor', () => {
   it.each(['accepted', 'refused'] as const)('waits for independent editor ownership: %s', async (mode) => {
     const resourceDigest = `blake3:${'b'.repeat(64)}`
+    const unusedDigest = `blake3:${'c'.repeat(64)}`
     const mounted = await mount({ holdOwnership: true, previewState: { ...state, document: {
-      ...imageDocument, resources: { ...imageDocument.resources,
-        r3: { ...imageDocument.resources.r3, digest: resourceDigest } },
+      ...imageDocument, allocation: { nextOrdinal: 5 },
+      layers: { ...imageDocument.layers, l2: { ...imageDocument.layers.l2, visible: false } },
+      resources: { ...imageDocument.resources,
+        r3: { ...imageDocument.resources.r3, digest: resourceDigest },
+        r4: { ...imageDocument.resources.r3, id: 'r4', digest: unusedDigest } },
     } } })
     try {
       await vi.waitFor(() => expect(mounted.app.connection.retainAssets).toHaveBeenCalledOnce())
       expect(vi.mocked(mounted.app.connection.retainAssets).mock.calls[0]![1])
-        .toMatchObject({ complete: false, digests: [assetDigest, resourceDigest] })
+        .toEqual({ revision: 0, complete: true, digests: [assetDigest, resourceDigest, unusedDigest] })
       expect(mounted.root.querySelectorAll('.compositor-layer-row')).toHaveLength(0)
       if (mode === 'refused') mounted.refuse()
       else mounted.accept()
@@ -136,6 +140,97 @@ describe('CompositorEditor', () => {
         await vi.waitFor(() => expect(mounted.root.textContent).toContain('Editor ownership refused'))
         expect(mounted.root.querySelectorAll('.compositor-layer-row')).toHaveLength(0)
       }
+    } finally { mounted.dispose() }
+  })
+
+  it.each(['acknowledged', 'lost', 'refused', 'canceled', 'closed', 'registry', 'disconnected', 'disposed', 'out-of-order'] as const)(
+    'retires only a published same-lifetime editor predecessor: %s', async (mode) => {
+      const mounted = await mount()
+      try {
+        const { app, tab } = mounted
+        const target = app.imageEditorTarget.get()!
+        if (!isCompositorEditorTarget(target)) throw new Error('Expected compositor target')
+        const backend = app.backendForTab(tab)
+        const admitted = vi.mocked(app.connection.retainAssets).mock
+        const index = admitted.calls.map((call, index) => ({ call, index })).reverse().find(({ call: [, declaration] }) => declaration.complete &&
+          declaration.digests.length === 1 && declaration.digests[0] === assetDigest)!.index
+        expect(index).toBeGreaterThanOrEqual(0)
+        const previous = await admitted.results[index]!.value
+        const independent = { ...previous, ownerId: 'independent-editor' }
+        const owners = new Map([[previous.ownerId, previous], [independent.ownerId, independent]])
+        const release = vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+          const current = owners.get(owner.ownerId)!
+          expect(current.revision).toBe(revision)
+          const released = { ...current, revision: revision + 1, complete: true, digests: [] }
+          owners.set(owner.ownerId, released)
+          return released
+        })
+        vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
+        let acknowledge!: () => void
+        const pending = new Promise<void>((resolve) => { acknowledge = resolve })
+        let entered!: () => void
+        const requested = new Promise<void>((resolve) => { entered = resolve })
+        const retain = vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+          entered()
+          await pending
+          if (mode === 'refused') throw new Error('refused')
+          const receipt = { ...owner, ...declaration, revision: 1 }
+          owners.set(owner.ownerId, receipt)
+          if (mode === 'lost') throw new Error('lost response')
+          return receipt
+        })
+        const nextDigest = `blake3:${'d'.repeat(64)}`
+        const publish = vi.fn(() => mode !== 'canceled')
+        const operation = app.retainEditorAssets(target, backend, { ...state, documentDigest: nextDigest }, publish)
+          .then(() => true, () => false)
+        await requested
+        expect(owners.get(previous.ownerId)).toEqual(previous)
+        expect(publish).not.toHaveBeenCalled()
+        expect(release).not.toHaveBeenCalled()
+        if (mode === 'closed') app.closeImageEditor(target)
+        if (mode === 'registry') backend.registry.set(undefined)
+        if (mode === 'disconnected') {
+          vi.stubGlobal('WebSocket', class { close() {} })
+          try { backend.connection.connect(); backend.connection.disconnect() } finally { vi.unstubAllGlobals() }
+        }
+        if (mode === 'disposed') app.dispose()
+        if (mode === 'out-of-order') {
+          retain.mockImplementation(async (owner, declaration) => {
+            const receipt = { ...owner, ...declaration, revision: 1 }
+            owners.set(owner.ownerId, receipt)
+            return receipt
+          })
+          await app.retainEditorAssets(target, backend, { ...state, documentDigest: `blake3:${'e'.repeat(64)}` }, () => true)
+        }
+        acknowledge()
+        const succeeds = ['acknowledged', 'lost', 'canceled'].includes(mode)
+        expect(await operation).toBe(succeeds)
+        expect(publish).toHaveBeenCalledTimes(succeeds ? 1 : 0)
+        const replaced = ['acknowledged', 'lost', 'out-of-order'].includes(mode)
+        expect(release).toHaveBeenCalledTimes(replaced ? 1 : 0)
+        expect(owners.get(previous.ownerId)?.digests).toEqual(replaced ? [] : previous.digests)
+        expect(owners.get(independent.ownerId)).toEqual(independent)
+        for (const [id, owner] of owners) if (id !== previous.ownerId) expect(owner.revision).toBe(1)
+        mounted.dispose()
+        expect(release).toHaveBeenCalledTimes(replaced ? 1 : 0)
+      } finally { mounted.dispose() }
+    },
+  )
+
+  it('refuses malformed editor resources without claiming a complete empty inventory', async () => {
+    const mounted = await mount()
+    try {
+      const target = mounted.app.imageEditorTarget.get()!
+      if (!isCompositorEditorTarget(target)) throw new Error('Expected compositor target')
+      const retain = vi.mocked(mounted.app.connection.retainAssets)
+      retain.mockClear()
+      const publish = vi.fn(() => true)
+      await expect(mounted.app.retainEditorAssets(target, mounted.app.backendForTab(mounted.tab), {
+        ...state, document: { ...imageDocument, resources: { ...imageDocument.resources,
+          r3: { ...imageDocument.resources.r3, digest: 'invalid' } } },
+      }, publish)).rejects.toThrow('Editor resource inventory is invalid')
+      expect(retain).not.toHaveBeenCalled()
+      expect(publish).not.toHaveBeenCalled()
     } finally { mounted.dispose() }
   })
 

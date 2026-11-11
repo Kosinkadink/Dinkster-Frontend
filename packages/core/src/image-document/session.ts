@@ -4,8 +4,10 @@ import { isValidActorId } from '../ids.js'
 import type { ImageDocumentCommandInvocation } from './commands.js'
 import {
   ImageDocumentStore,
+  type ImageDocumentCommitPolicy,
   type ImageDocumentDispatchOutcome,
   type ImageDocumentTransaction,
+  type PreparedImageDocumentDispatch,
 } from './store.js'
 import type { ImageDocument } from './model.js'
 
@@ -31,6 +33,9 @@ export interface ImageDocumentSession {
   readonly canRedo: boolean
   readonly actorId: string
   dispatch(invocation: ImageDocumentCommandInvocation): ImageDocumentDispatchOutcome
+  prepareDispatch?(invocation: ImageDocumentCommandInvocation): PreparedImageDocumentDispatch
+  prepareUndo?(): PreparedImageDocumentDispatch
+  prepareRedo?(): PreparedImageDocumentDispatch
   undo(): boolean
   redo(): boolean
   clearHistory(): void
@@ -51,11 +56,11 @@ class LocalImageDocumentSession implements ImageDocumentSession {
 
   constructor(
     initial: ImageDocument,
-    options?: { readonly actorId?: string; readonly maxUndo?: number; readonly clock?: () => number },
+    options?: { readonly actorId?: string; readonly maxUndo?: number; readonly clock?: () => number; readonly validateCommit?: ImageDocumentCommitPolicy },
   ) {
     this.actorId = options?.actorId ?? 'local'
     if (!isValidActorId(this.actorId)) throw new Error('invalid ImageDocument session actor id')
-    this.store = new ImageDocumentStore(initial, options?.maxUndo, options?.clock)
+    this.store = new ImageDocumentStore(initial, options?.maxUndo, options?.clock, options?.validateCommit)
     this.store.onTransaction((transaction) => this.publish(transaction))
   }
 
@@ -69,6 +74,12 @@ class LocalImageDocumentSession implements ImageDocumentSession {
     return this.store.dispatch(invocation)
   }
 
+  prepareDispatch(invocation: ImageDocumentCommandInvocation): PreparedImageDocumentDispatch {
+    return this.store.prepareDispatch(invocation)
+  }
+
+  prepareUndo(): PreparedImageDocumentDispatch { return this.store.prepareUndo() }
+  prepareRedo(): PreparedImageDocumentDispatch { return this.store.prepareRedo() }
   undo(): boolean { return this.store.undo() }
   redo(): boolean { return this.store.redo() }
   clearHistory(): void { this.store.clearHistory() }
@@ -102,7 +113,7 @@ class LocalImageDocumentSession implements ImageDocumentSession {
 
 export function createLocalImageDocumentSession(
   initial: ImageDocument,
-  options?: { readonly actorId?: string; readonly maxUndo?: number; readonly clock?: () => number },
-): ImageDocumentSession {
+  options?: { readonly actorId?: string; readonly maxUndo?: number; readonly clock?: () => number; readonly validateCommit?: ImageDocumentCommitPolicy },
+): LocalImageDocumentSession {
   return new LocalImageDocumentSession(initial, options)
 }

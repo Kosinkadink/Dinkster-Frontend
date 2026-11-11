@@ -14,8 +14,8 @@ test('mixed scalar COMBO keeps typed native choices through dropdown edits', asy
   } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({ nodes: [{ id: 1, type: 'ScalarCombo', widgets_values: ['auto', true] }], links: [] }, 'Mixed scalar choices')
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({ nodes: [{ id: 1, type: 'ScalarCombo', widgets_values: ['auto', true] }], links: [] }, 'Mixed scalar choices')
     window.__dinksterTest!.renderer!.setViewport({ x: 100, y: 100, scale: 1 })
   })
   const point = await nodeRowPoint(page, 'n1', 'bit_depth')
@@ -47,8 +47,8 @@ test('socketless native color keeps its editor and neighboring input socket', as
   } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({ nodes: [{ id: 1, type: 'SocketlessFixture', widgets_values: ['solid', 'color', '#abcdef', 19] }], links: [] }, 'Socketless fixture')
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({ nodes: [{ id: 1, type: 'SocketlessFixture', widgets_values: ['solid', 'color', '#abcdef', 19] }], links: [] }, 'Socketless fixture')
     window.__dinksterTest!.renderer!.setViewport({ x: 100, y: 100, scale: 1 })
   })
   await expect.poll(() => page.evaluate(() => {
@@ -166,7 +166,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForStartupOwnership(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue },
@@ -191,7 +191,7 @@ test.beforeEach(async ({ page }) => {
         { ...widget('strict_duration', 'BOOLEAN', false), type: { kind: 'concrete', name: 'BOOLEAN' } },
       ],
     }])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'widget-editors', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         widgets: { id: 'widgets', type: 'WidgetEditorsTest', values: {
@@ -210,6 +210,10 @@ test.beforeEach(async ({ page }) => {
       } } } },
     }, 'Widget Editors')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
+  await page.evaluate(async () => {
+    await (window.__dinksterTest!.app.activeTab()!.store as unknown as { settle(): Promise<void> }).settle()
   })
 })
 
@@ -235,7 +239,7 @@ test('AUDIO_RECORD captures only on request and stages canonical uploads with re
     }
   })
   await page.route('**/api/assets/blake3*', (route) => route.fulfill({ contentType: 'audio/webm', body: uploaded }))
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const state = window as unknown as { audioDenied: boolean; audioOpens: number; audioStops: number }
     state.audioDenied = true; state.audioOpens = 0; state.audioStops = 0
     Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async () => {
@@ -257,7 +261,7 @@ test('AUDIO_RECORD captures only on request and stages canonical uploads with re
       items: [{ kind: 'input', id: 'recording', type: { kind: 'asset', element: { kind: 'concrete', name: 'AUDIO' } }, optional: false,
         widget: { widgetType: 'AUDIO_RECORD', options: {} } }],
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audio-record-widget', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Recording', nodes: { widgets: { id: 'widgets', type: 'AudioRecordWidgetTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
@@ -339,7 +343,7 @@ test('AUDIO_RECORD captures only on request and stages canonical uploads with re
 
 test('COLORS stages exact ordered palettes with add, remove, reorder and one undoable commit', async ({ page }, testInfo) => {
   const initial = ['#A1B2C3dd', '#f00', '#A1B2C3dd']
-  await page.evaluate((initial) => {
+  await page.evaluate(async (initial) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'ColorsWidgetTest', displayName: 'Palette', category: 'test', source: 'v3', isOutputNode: false,
@@ -350,7 +354,7 @@ test('COLORS stages exact ordered palettes with add, remove, reorder and one und
           widget: { widgetType: 'COLOR', default: '#11223380', options: {} } },
       ],
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'colors-widget', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Palette', nodes: { widgets: { id: 'widgets', type: 'ColorsWidgetTest', values: { palette: initial } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
@@ -416,7 +420,7 @@ test('COLORS stages exact ordered palettes with add, remove, reorder and one und
 
 test('MARKDOWN previews safely and edits one undoable source string', async ({ page }, testInfo) => {
   const source = '## Workflow notes\n\n**Keep** the source and `code`.\n\n- First item\n- Second item\n\n[Safe](https://example.com) [Unsafe](javascript:alert(1))\n\n<script>alert(1)</script>\n\n![Remote](https://example.com/image.png)'
-  await page.evaluate((source) => {
+  await page.evaluate(async (source) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'MarkdownWidgetTest', displayName: 'Workflow notes', category: 'test', source: 'v3', isOutputNode: false,
@@ -427,7 +431,7 @@ test('MARKDOWN previews safely and edits one undoable source string', async ({ p
           widget: { widgetType: 'STRING', default: 'Unchanged text', options: {} } },
       ],
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'markdown-widget', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Notes', nodes: { widgets: { id: 'widgets', type: 'MarkdownWidgetTest', values: { notes: source } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
@@ -490,7 +494,7 @@ test('MARKDOWN previews safely and edits one undoable source string', async ({ p
 })
 
 test('BUTTON actions invoke registered commands without changing widget values', async ({ page }, testInfo) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.commands.register({ id: 'fixture.capture', label: 'Capture frame', run: (payload) => {
       const calls = JSON.parse(document.body.dataset.buttonCalls ?? '[]')
@@ -513,7 +517,7 @@ test('BUTTON actions invoke registered commands without changing widget values',
           widget: { widgetType: 'STRING', default: 'Unchanged text', options: {} } },
       ],
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'button-widget', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Capture', nodes: { widgets: { id: 'widgets', type: 'ButtonWidgetTest', values: { capture: null } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
@@ -616,10 +620,10 @@ test('numeric union uses FLOAT editing in canvas and exposed AppView without cha
   } }))
   await page.reload()
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.settings.set('features.appView.enabled', true)
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'numeric-union-editors', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Frame rate', nodes: { widgets: { id: 'widgets', type: 'test.numeric_union', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
@@ -648,7 +652,7 @@ test('numeric union uses FLOAT editing in canvas and exposed AppView without cha
 })
 
 test('primitive list edits preserve arrays in canvas and exposed AppView controls', async ({ page }, testInfo) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.settings.set('features.appView.enabled', true)
     app.registerSchemas([{
@@ -659,7 +663,7 @@ test('primitive list edits preserve arrays in canvas and exposed AppView control
         widget: { widgetType: 'LIST', options: {}, element: { widgetType: 'STRING', options: { multiline: false } }, default: ['red', 'blue'] },
       }],
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'primitive-list-editors', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Text list', nodes: { widgets: { id: 'widgets', type: 'PrimitiveListEditorTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
@@ -772,7 +776,7 @@ test('INT commits exact integers, rejects malformed text, and does not clamp or 
 })
 
 test('uint64 INT values edit, step, reload, and compile without precision loss', async ({ page }, testInfo) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'ExactSeedE2E', displayName: 'Exact Seed', category: 'test', source: 'v3', isOutputNode: true,
@@ -786,7 +790,7 @@ test('uint64 INT values edit, step, reload, and compile without precision loss',
         },
       }],
     }])
-    test.app.openDocument({
+    await test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'exact-seed-e2e', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         widgets: { id: 'widgets', type: 'ExactSeedE2E', values: { seed: '18446744073709551614' } },
@@ -814,10 +818,10 @@ test('uint64 INT values edit, step, reload, and compile without precision loss',
   await testInfo.attach('uint64-exact-integer-editor', { path: screenshotPath, contentType: 'image/png' })
   await page.keyboard.press('Escape')
 
-  const proof = await page.evaluate(() => {
+  const proof = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app as any
     const exported = JSON.stringify(app.activeTab()!.store.doc)
-    app.openDocument(JSON.parse(exported), 'Reloaded Exact Seed')
+    await app.openDocument(JSON.parse(exported), 'Reloaded Exact Seed')
     const tab = app.activeTab()!
     const result = app.compileTab(tab)
     if (result === undefined || !result.ok) throw new Error(`compile failed: ${JSON.stringify(result?.diagnostics)}`)
@@ -833,7 +837,7 @@ test('uint64 INT values edit, step, reload, and compile without precision loss',
 })
 
 test('unbounded INT stepping crosses the JavaScript safe-integer boundary exactly', async ({ page }) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'UnboundedIntE2E', displayName: 'Unbounded Integer', category: 'test', source: 'v3', isOutputNode: false,
@@ -842,7 +846,7 @@ test('unbounded INT stepping crosses the JavaScript safe-integer boundary exactl
         widget: { widgetType: 'INT', options: {}, default: 0 },
       }],
     }])
-    test.app.openDocument({
+    await test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'unbounded-int-e2e', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         widgets: { id: 'widgets', type: 'UnboundedIntE2E', values: { seed: Number.MAX_SAFE_INTEGER } },
@@ -1341,7 +1345,7 @@ test('numeric row edge steppers use schema defaults and bounds; each click is on
 })
 
 test('numeric edge controls step an intrinsic default while body activation remains deliberate', async ({ page }) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'IntrinsicNumericTest', displayName: 'Intrinsic Numeric', category: 'test', source: 'v3', isOutputNode: false,
       items: [{
@@ -1349,7 +1353,7 @@ test('numeric edge controls step an intrinsic default while body activation rema
         widget: { widgetType: 'FLOAT', options: { min: 2, max: 4, step: 0.5 } },
       }],
     }])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'intrinsic-numeric', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { widgets: { id: 'widgets', type: 'IntrinsicNumericTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
@@ -1372,7 +1376,7 @@ test('numeric edge controls step an intrinsic default while body activation rema
 test('tap companions keep INT and STRING defaults, edits, and dormant sink values in the same neutral presentation', async ({ page }) => {
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const widget = (id: string, widgetType: string, defaultValue: unknown) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,
       widget: { widgetType, options: {}, default: defaultValue },
@@ -1388,7 +1392,7 @@ test('tap companions keep INT and STRING defaults, edits, and dormant sink value
         },
       ],
     }])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'pass-through', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
@@ -1484,10 +1488,10 @@ test('tap companions keep INT and STRING defaults, edits, and dormant sink value
     path: screenshotPath,
     contentType: 'image/png',
   })
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const doc = structuredClone(app.activeTab()!.store.doc)
-    app.openDocument({ ...doc, lineage: 'pass-through-other' }, 'Other Pass Through')
+    await app.openDocument({ ...doc, lineage: 'pass-through-other' }, 'Other Pass Through')
   })
   await expect(proxy).not.toBeFocused()
   await expect(page.getByTestId('app-tooltip')).toHaveCount(0)
@@ -1502,7 +1506,7 @@ test('a changed producer exposes stale/unproven companion wording while styling 
     width: 1440, height: 900, deviceScaleFactor: 2, mobile: false,
   })
   expect(await page.evaluate(() => window.devicePixelRatio)).toBe(2)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const concreteInt = { kind: 'concrete', name: 'INT' } as const
     window.__dinksterTest!.app.registerSchemas([{
       type: 'UnprovenSourceTest', displayName: 'Unproven Source', category: 'test', source: 'v3', isOutputNode: false,
@@ -1517,7 +1521,7 @@ test('a changed producer exposes stale/unproven companion wording while styling 
         widget: { widgetType: 'INT', options: {}, default: 512 },
       }],
     }])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'unproven-companion', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
@@ -1806,7 +1810,7 @@ test('ASSET dedicated editor uses the shared modal header', async ({ page }) => 
 })
 
 test('huge COMBO lists render a capped window with paging rows and still commit from the full list', async ({ page }, testInfo) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'HugeComboTest', displayName: 'Huge Combo', category: 'test', source: 'v3', isOutputNode: false,
       items: [{
@@ -1818,7 +1822,7 @@ test('huge COMBO lists render a capped window with paging rows and still commit 
         },
       }],
     }])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'huge-combo', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         huge: { id: 'huge', type: 'HugeComboTest', values: {} },

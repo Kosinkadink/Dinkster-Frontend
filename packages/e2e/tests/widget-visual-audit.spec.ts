@@ -62,7 +62,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await page.addStyleTag({ content: '*, *::before, *::after { animation: none !important; transition: none !important; }' })
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const widget = (
       id: string,
       widgetType: string,
@@ -84,7 +84,7 @@ test.beforeEach(async ({ page }) => {
         widget('color', 'COLOR', '#3366cc80'),
       ],
     }])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'widget-visual-audit', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         'visual-widgets': { id: 'visual-widgets', type: 'WidgetVisualAudit', values: {} },
@@ -125,7 +125,7 @@ test.describe('single-line STRING device-pixel layout', () => {
 
   test('CLIP Text Encode keeps a long single-line text value in its own zone', async ({ page }) => {
   const long = 'beautiful scenery nature glass bottle landscape, '.repeat(40)
-  await page.evaluate((value) => {
+  await page.evaluate(async (value) => {
     const string = { kind: 'concrete', name: 'STRING' }
     window.__dinksterTest!.app.registerSchemas([{
       type: 'CLIPTextEncodeLayoutProof',
@@ -142,7 +142,7 @@ test.describe('single-line STRING device-pixel layout', () => {
         { kind: 'output', id: 'conditioning', type: { kind: 'concrete', name: 'CONDITIONING' } },
       ],
     }])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'clip-text-layout-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         clip: { id: 'clip', type: 'CLIPTextEncodeLayoutProof', values: { text: value } },
@@ -220,11 +220,11 @@ test.describe('single-line STRING device-pixel layout', () => {
     })
   }
 
-  const exported = await page.evaluate(() => {
+  const exported = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     const document = app.exportDocument(tab.id)
-    app.openDocument(document, 'CLIP Text Encode Reopened')
+    await app.openDocument(document, 'CLIP Text Encode Reopened')
     return document
   })
   expect((exported as { graphs: { g0: { nodes: { clip: { values: { text: string } } } } } })

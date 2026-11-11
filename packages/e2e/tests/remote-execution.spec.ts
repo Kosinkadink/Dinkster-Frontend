@@ -114,8 +114,8 @@ test('runs selected root nodes on an explicitly chosen machine without changing 
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.workerCatalog.get().status,
   )).toBe('ready')
-  await page.evaluate((document) => {
-    window.__dinksterTest!.app.openDocument(document as never, 'Remote execution')
+  await page.evaluate(async (document) => {
+    await window.__dinksterTest!.app.openDocument(document as never, 'Remote execution')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   }, workflow)
   const before = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
