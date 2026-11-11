@@ -68,7 +68,7 @@ connection as a named, project-local image. The classifier's MIME type replaces
 an incorrect browser MIME claim without changing the file bytes. The response
 must contain the canonical five-field AssetRef. The canvas then
 scans that tab's current catalog for a node with one visible ASSET input that
-accepts the image MIME type or the server-authored filename's extension. Exact MIME and extension matches win over wildcard matches;
+accepts the image MIME type. An exact MIME match wins over wildcard matches;
 ties retain catalog order. The canvas dispatches one atomic batch containing
 that node with the server-returned AssetRef, preserving the final filename,
 size, media type and virtualPath, including collision-adjusted names. Host
@@ -137,8 +137,8 @@ A valid embedded latent workflow goes through the same schema-aware workflow
 import, validation, and missing-node diagnostics as JSON and PNG workflows. A
 missing or invalid workflow instead uploads the original File through
 `POST /api/assets/latent` and inserts the first catalog node whose single visible
-ASSET input accepts `application/x-comfy-latent` or the server-authored filename's extension (such as `.latent`), preferring these matches over
-wildcards. Filename extension matching is case-insensitive and shared with ASSET uploads and picker filtering; it does not replace byte validation. The inserted input receives the server-authored `AssetRef`; no local
+ASSET input accepts `application/x-comfy-latent`, preferring an exact match over
+wildcards. The inserted input receives the server-authored `AssetRef`; no local
 path enters the document.
 
 Admission matches the backend parser: native Dinkster v1 requires exact
