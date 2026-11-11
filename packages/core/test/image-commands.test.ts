@@ -274,7 +274,7 @@ describe('image.applyMaskPaint', () => {
 })
 
 const compositorSchema: NodeSchema = {
-  type: 'CreateLayeredImage',
+  type: 'dinkster.image.image_compositor',
   displayName: 'Create Layered Image',
   category: 'test',
   source: 'v3',
@@ -300,7 +300,7 @@ const compositorGraph = (value?: unknown): GraphDef => ({
   nodes: {
     compositor: {
       id: asNodeId('compositor'),
-      type: 'CreateLayeredImage',
+      type: 'dinkster.image.image_compositor',
       values: value === undefined ? {} : { compositor: value as never },
     },
     source: { id: asNodeId('source'), type: 'Source', values: {} },

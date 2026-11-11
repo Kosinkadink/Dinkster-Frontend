@@ -844,6 +844,10 @@ value sources also use the raw JSON fallback. An unavailable-kind draft
 survives scene refreshes while its document and declared row contract remain
 unchanged; document, schema, target, or extension changes still invalidate it.
 
+Compositor Apply resolves the schema's `compositor` editor role. Resolvers
+without editor-role lookup use the current `dinkster.image.image_compositor`
+node ID; recipe validation and atomic undo remain the same.
+
 ## COMBO editor
 
 The COMBO editor keeps its search field focused while ArrowUp, ArrowDown,
