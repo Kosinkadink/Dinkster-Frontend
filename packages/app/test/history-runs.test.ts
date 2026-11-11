@@ -1,3 +1,4 @@
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 /**
  * Durable run history orchestration: the runs collection source maps the
  * search box onto the server's EXACT filter vocabulary (never filtering a
@@ -78,13 +79,14 @@ afterEach(() => {
 })
 
 /** A native backend with live schemas and an open tab targeted at it. */
-function nativeSetup(): { backend: Extract<Backend, { protocol: 'dinkster' }>; tab: Tab } {
+async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'dinkster' }>; tab: Tab }> {
   const added = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
   if (!added || added.protocol !== 'dinkster') throw new Error('addBackend rejected')
   added.registry.set(buildDinksterRegistry(added.id, nodesPayload))
+  app.registry.set(buildDinksterRegistry(app.connection.id, nodesPayload))
   vi.spyOn(added.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
     ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
-  expect(app.openDocument(CHAIN_DOC, 'Chain')).toEqual([])
+  expect((await app.openDocument(CHAIN_DOC, 'Chain'))).toEqual([])
   const tab = app.activeTab()!
   app.setTabTarget(tab.id, added.id)
   return { backend: added, tab }
@@ -192,7 +194,7 @@ describe('groupNoOpHistoryRuns', () => {
 
 describe('runsSource', () => {
   it('pages /api/history with the mapped filter and maps records to entries', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     const list = vi.spyOn(backend.connection, 'listHistory').mockResolvedValue({
       records: [
         run({ principalId: 'queue-agent', principalKind: 'agent', nodeReceipts: [
@@ -248,7 +250,7 @@ describe('runsSource', () => {
   })
 
   it('projects a collapsed no-op row with a count and expandable individual entries', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'listHistory').mockResolvedValue({
       records: [
         run({ runId: 'run-new', jobId: 'job-new', finishedAt: 30, executed: 0, cached: 2 }),
@@ -265,7 +267,7 @@ describe('runsSource', () => {
   })
 
   it('renders interrupted records with phase text and a stamped-only Resubmit action', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'listHistory').mockResolvedValue({
       records: [
         run({
@@ -296,14 +298,14 @@ describe('runsSource', () => {
   })
 
   it('an unmatchable query returns empty WITHOUT calling the server', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     const list = vi.spyOn(backend.connection, 'listHistory')
     expect(await runsSource(app).page({ query: 'xyz', limit: 24 })).toEqual({ owner: backend.id, items: [], total: 0 })
     expect(list).not.toHaveBeenCalled()
   })
 
   it('renders the empty state when no native backend is active', async () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     app.backends.set([])
     expect(await runsSource(app).page({ query: '', limit: 24 })).toEqual({ items: [], total: 0 })
   })
@@ -311,7 +313,7 @@ describe('runsSource', () => {
 
 describe('openRunWorkflow', () => {
   it('fetches the exact source document and opens it targeted at the run backend', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'getHistoryRun').mockResolvedValue(run())
     const fetchAsset = vi
       .spyOn(backend.connection, 'fetchAssetText')
@@ -325,7 +327,7 @@ describe('openRunWorkflow', () => {
   })
 
   it('an unstamped run surfaces a visible problem instead of silently doing nothing', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'getHistoryRun').mockResolvedValue(unstamped())
     const fetchAsset = vi.spyOn(backend.connection, 'fetchAssetText')
     expect(await app.openRunWorkflow('run-1', backend.id)).toBe(false)
@@ -334,7 +336,7 @@ describe('openRunWorkflow', () => {
   })
 
   it('a missing run or missing bytes returns false without a crash', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'getHistoryRun').mockResolvedValue(undefined)
     expect(await app.openRunWorkflow('run-x', backend.id)).toBe(false)
 
@@ -344,7 +346,7 @@ describe('openRunWorkflow', () => {
   })
 
   it('transport failures land in Problems', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'getHistoryRun').mockRejectedValue(new Error('boom'))
     expect(await app.openRunWorkflow('run-1', backend.id)).toBe(false)
     expect(app.problems.get().some((d) => d.code === 'history.openFailed')).toBe(true)
@@ -360,7 +362,7 @@ describe('resubmitRunWorkflow', () => {
     })
 
   it('reopens the producing document and queues a FRESH submission through the normal pipeline', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'getHistoryRun').mockResolvedValue(interrupted())
     vi.spyOn(backend.connection, 'fetchAssetText').mockResolvedValue(JSON.stringify(CHAIN_DOC))
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'c'.repeat(64))
@@ -374,7 +376,7 @@ describe('resubmitRunWorkflow', () => {
   })
 
   it('a compile refusal keeps the reopened tab and its problems without submitting', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     // The producing document opens cleanly but its executed output depends
     // on a node type this backend does not resolve, so the queue refuses.
     const comfyPayload = JSON.parse(readFileSync(
@@ -397,7 +399,7 @@ describe('resubmitRunWorkflow', () => {
   })
 
   it('an unstamped interrupted run refuses with the visible unstamped problem and never submits', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'getHistoryRun').mockResolvedValue(
       unstamped({ state: 'interrupted', executed: 0, cached: 0 }),
     )
@@ -408,7 +410,7 @@ describe('resubmitRunWorkflow', () => {
   })
 
   it('a failed open (missing run) never submits', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'getHistoryRun').mockResolvedValue(undefined)
     const submit = vi.spyOn(backend.connection, 'submit')
     expect(await app.resubmitRunWorkflow('run-x', backend.id)).toBe(false)
@@ -418,7 +420,7 @@ describe('resubmitRunWorkflow', () => {
 
 describe('delete and clear', () => {
   it('deleteHistoryRun removes the record and re-pages open collections', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'deleteHistoryRun').mockResolvedValue(true)
     const before = app.backendsTick.get()
     expect(await app.deleteHistoryRun('run-1', backend.id)).toBe(true)
@@ -426,7 +428,7 @@ describe('delete and clear', () => {
   })
 
   it('an already-gone record is not an error and does not re-page', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'deleteHistoryRun').mockResolvedValue(false)
     const before = app.backendsTick.get()
     expect(await app.deleteHistoryRun('run-1', backend.id)).toBe(false)
@@ -435,14 +437,14 @@ describe('delete and clear', () => {
   })
 
   it('delete failures land in Problems', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'deleteHistoryRun').mockRejectedValue(new Error('boom'))
     expect(await app.deleteHistoryRun('run-1', backend.id)).toBe(false)
     expect(app.problems.get().some((d) => d.code === 'history.deleteFailed')).toBe(true)
   })
 
   it('clearRunHistory clears the whole scope and returns the count', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     const clear = vi.spyOn(backend.connection, 'clearHistory').mockResolvedValue(7)
     const before = app.backendsTick.get()
     expect(await app.clearRunHistory(backend.id)).toBe(7)
@@ -451,7 +453,7 @@ describe('delete and clear', () => {
   })
 
   it('clear failures land in Problems and report zero', async () => {
-    const { backend } = nativeSetup()
+    const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'clearHistory').mockRejectedValue(new Error('boom'))
     expect(await app.clearRunHistory(backend.id)).toBe(0)
     expect(app.problems.get().some((d) => d.code === 'history.clearFailed')).toBe(true)

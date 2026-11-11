@@ -27,9 +27,9 @@ test('review-mode native deprecation badges show guidance without an executable 
   await expect(page.getByTestId('status-bar')).toContainText(/3 node schemas/, { timeout: 30_000 })
   await waitForStartupOwnership(page)
   await page.evaluate(() => window.__dinksterTest!.app.reviewReplacements.set(true))
-  expect(await page.evaluate(() => window.__dinksterTest!.app.openDocument({
+  expect(await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
     nodes: [{ id: 1, type: 'AuthoredNode', pos: [120, 120] }, { id: 2, type: 'NoSuccessor', pos: [450, 120] }], links: [],
-  }, 'Deprecation guidance'))).toEqual([])
+  }, 'Deprecation guidance')))).toEqual([])
   // The workspace handoff dismisses popovers attached to the local session.
   await expect.poll(() => page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()
@@ -79,7 +79,7 @@ async function migrationCatalog(page: Page): Promise<void> {
 }
 
 async function openMigration(page: Page, lineage: string): Promise<void> {
-  expect(await page.evaluate((lineage) => window.__dinksterTest!.app.openDocument({
+  expect(await page.evaluate(async (lineage) => (await window.__dinksterTest!.app.openDocument({
     format: 'dinkster-workflow', formatVersion: 1, lineage, root: 'g0',
     graphs: { g0: { id: 'g0', name: 'root', nextOrdinal: 2, nets: {}, reroutes: {},
       nodes: {
@@ -91,7 +91,7 @@ async function openMigration(page: Page, lineage: string): Promise<void> {
     view: { graphs: { g0: { nodes: {
       first: { position: { x: 120, y: 120 } }, second: { position: { x: 450, y: 150 } },
     } } } },
-  }, lineage), lineage)).toEqual([])
+  }, lineage)), lineage)).toEqual([])
   await expect.poll(() => page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()
     return tab !== undefined && 'status' in tab.store
@@ -173,7 +173,7 @@ test('migration notices dismiss, clear on save or close, and never persist', asy
   })
   expect(uploaded).not.toContain('replace.applied')
   expect(uploaded).not.toContain('will be removed')
-  expect(await page.evaluate((saved) => window.__dinksterTest!.app.openDocument(JSON.parse(saved), 'Saved migration'), uploaded)).toEqual([])
+  expect(await page.evaluate(async (saved) => (await window.__dinksterTest!.app.openDocument(JSON.parse(saved), 'Saved migration')), uploaded)).toEqual([])
   await expect(notice).toHaveCount(0)
   await openMigration(page, 'close-migration')
   await expect(notice).toHaveCount(1)
@@ -204,13 +204,13 @@ test('deprecated resize imports its authored size and undoes from the migration 
   } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
-  expect(await page.evaluate(() => window.__dinksterTest!.app.openDocument({
+  expect(await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
     nodes: [{ id: 1, type: 'ResizeImagesByLongerEdge', pos: [170, 140],
       properties: { ver: '0.5.1' }, widgets_values: [1536],
       inputs: [{ name: 'images' }, { name: 'longer_edge', widget: { name: 'longer_edge' } }],
       outputs: [{ name: 'images' }],
     }], links: [],
-  }, 'Imported resize'))).toEqual([])
+  }, 'Imported resize')))).toEqual([])
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.map((node) => node.id)))
     .toEqual(['n1'])
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))

@@ -7,6 +7,57 @@ import { encodePng } from '../src/image-png.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+it.each(['accepted', 'refused', 'close', 'session', 'owner', 'dispose'] as const)('waits for independent mask session ownership before publishing decoded pixels: %s', async (action) => {
+  vi.stubGlobal('ImageData', class {
+    constructor(readonly data: Uint8ClampedArray, readonly width: number, readonly height: number) {}
+  })
+  const draw = vi.fn()
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ putImageData: draw } as unknown as CanvasRenderingContext2D)
+  const source = { digest: `blake3:${'a'.repeat(64)}`, name: 'owned.png', size: 3, mediaType: 'image/png', virtualPath: '' }
+  const target: ImageEditorTarget = { tabId: 'first', graphId: 'g0', nodeId: 'n0', inputId: 'image', sourceRef: source }
+  const imageEditorTarget = createSignal<ImageEditorTarget | undefined>(target)
+  let admit!: () => void
+  const admission = new Promise<void>((resolve) => { admit = resolve })
+  let ownerCurrent = true
+  const retainEditorAssets = vi.fn(async (_target: unknown, _backend: unknown, _value: unknown, publish: () => boolean) => {
+    await admission
+    if (action === 'refused') throw new Error('Editor ownership refused')
+    publish()
+  })
+  const bytes = await encodePng(2, 1, new Uint8ClampedArray([1, 7, 3, 255, 4, 8, 2, 0]))
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, status: 200, arrayBuffer: async () => new Uint8Array(bytes).buffer } as Response)
+  const app = {
+    imageEditorTarget, activeTabId: createSignal('first'), tabs: createSignal([{ id: 'first', store: {} } as Tab]),
+    backendForTab: () => ({ protocol: 'dinkster', connection: { assetUrl: () => '/api/assets/source' } }),
+    closeImageEditor: () => imageEditorTarget.set(undefined), retainEditorAssets,
+    workflowAssetReader: () => ({ current: () => ownerCurrent, read: async <T,>(consume: () => Promise<T>) => consume() }),
+  } as unknown as AppState
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <ImageEditor app={app} />, root)
+  const apply = () => Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === 'Bake to asset')
+  try {
+    await vi.waitFor(() => expect(retainEditorAssets).toHaveBeenCalledTimes(1))
+    expect(draw).not.toHaveBeenCalled()
+    expect(apply()?.disabled).toBe(true)
+    if (action === 'close') imageEditorTarget.set(undefined)
+    if (action === 'session') app.tabs.set([])
+    if (action === 'owner') ownerCurrent = false
+    if (action === 'dispose') dispose()
+    admit()
+    await vi.waitFor(() => expect(retainEditorAssets.mock.settledResults[0]?.type).toBe(action === 'refused' ? 'rejected' : 'fulfilled'))
+    if (action === 'accepted') {
+      await vi.waitFor(() => expect(apply()?.disabled).toBe(false))
+      expect(root.querySelector('canvas')?.width).toBe(2)
+      expect(root.querySelector('canvas')?.height).toBe(1)
+      expect(draw).toHaveBeenCalled()
+    } else {
+      expect(draw).not.toHaveBeenCalled()
+      expect(apply()?.disabled ?? true).toBe(true)
+    }
+    if (action === 'refused') expect(root.querySelector('[role="alert"]')?.textContent).toContain('Editor ownership refused')
+  } finally { admit(); dispose() }
+})
+
 it.each(['close', 'replace', 'session', 'tab', 'dispose'] as const)('settles obsolete mask source bodies on %s without cancelling a replacement', async (action) => {
   vi.stubGlobal('ImageData', class {
     constructor(readonly data: Uint8ClampedArray, readonly width: number, readonly height: number) {}
@@ -33,7 +84,8 @@ it.each(['close', 'replace', 'session', 'tab', 'dispose'] as const)('settles obs
   const app = {
     imageEditorTarget, activeTabId, tabs: createSignal([{ id: 'first', store: {} } as Tab]),
     backendForTab: () => ({ protocol: 'dinkster', connection: { assetUrl: (digest: string) => `/api/assets/${digest}` } }),
-    closeImageEditor: () => imageEditorTarget.set(undefined), retainEditorAssets: async () => {},
+    closeImageEditor: () => imageEditorTarget.set(undefined),
+    retainEditorAssets: async (_target: unknown, _backend: unknown, _value: unknown, publish: () => boolean) => { publish() },
     workflowAssetReader: () => ({ current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
@@ -105,7 +157,8 @@ it.each(['accepted', 'refused', 'expired', 'close-before-admission', 'owner-befo
     const app = {
       imageEditorTarget, activeTabId: createSignal('first'), tabs: createSignal([{ id: 'first' } as Tab]),
       backendForTab: () => backend, closeImageEditor: () => imageEditorTarget.set(undefined),
-      retainEditorAssets: async () => {}, workflowAssetReader: () => reader,
+      retainEditorAssets: async (_target: unknown, _backend: unknown, _value: unknown, publish: () => boolean) => { publish() },
+      workflowAssetReader: () => reader,
     } as unknown as AppState
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <ImageEditor app={app} />, root)

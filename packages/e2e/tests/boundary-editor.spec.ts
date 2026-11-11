@@ -94,7 +94,7 @@ async function drillIntoOccurrence(page: Page): Promise<void> {
  */
 async function openBoundaryWorkflow(page: Page): Promise<void> {
   await waitForStartupOwnership(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const socket = (id: string, optional: boolean) => ({
       kind: 'input',
@@ -156,7 +156,7 @@ async function openBoundaryWorkflow(page: Page): Promise<void> {
         ],
       },
     ])
-    app.openDocument(
+    await app.openDocument(
       {
         format: 'dinkster-workflow',
         formatVersion: 1,
@@ -472,11 +472,11 @@ test('generated names and custom names round-trip through document persistence',
   await expect(itemName(firstMask)).toHaveText('Subject mask')
 
   await page.getByTestId('graph-breadcrumb').locator('.crumb').first().click()
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const doc = structuredClone(app.activeTab()!.store.doc)
     doc.lineage = 'lineage-boundary-editor-name-roundtrip'
-    const diagnostics = app.openDocument(doc, 'Boundary name round-trip')
+    const diagnostics = (await app.openDocument(doc, 'Boundary name round-trip'))
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
   })
   await page.waitForFunction(() => {
@@ -596,7 +596,7 @@ test('empty and frozen states preserve inspection semantics', async ({ page }) =
 
 test('region roles and continuation settings remain occurrence-owned', async ({ page }) => {
   await page.getByTestId('graph-breadcrumb').locator('.crumb').first().click()
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const doc = structuredClone(app.activeTab()!.store.doc)
     const occurrence = doc.graphs.g0!.nodes.i0! as unknown as { region?: unknown; values: Record<string, unknown> }
@@ -613,7 +613,7 @@ test('region roles and continuation settings remain occurrence-owned', async ({ 
     ;(sibling as unknown as { region?: unknown }).region = structuredClone(occurrence.region)
     doc.graphs.g0!.nodes.i1 = sibling
     doc.view!.graphs.g0!.nodes.i1 = { position: { x: 500, y: 120 } }
-    const diagnostics = app.openDocument(doc, 'Boundary region proof')
+    const diagnostics = (await app.openDocument(doc, 'Boundary region proof'))
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
   })
   await drillIntoOccurrence(page)
@@ -666,14 +666,14 @@ test('region roles and continuation settings remain occurrence-owned', async ({ 
     await compact.locator('xpath=ancestor::*[@data-testid="boundary-item"]')
       .screenshot({ path: join(proofDir, 'boundary-region-compact-output.png'), animations: 'disabled' })
   }
-  expect(await page.evaluate(() => {
+  expect(await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     const exported = app.exportDocument(tab.id) as typeof tab.store.doc
     const role = (exported.graphs.g0!.nodes.i0 as unknown as {
       region: { outputRoles: Record<string, unknown> }
     }).region.outputRoles.image
-    const diagnostics = app.openDocument(exported, 'Compact region round-trip')
+    const diagnostics = (await app.openDocument(exported, 'Compact region round-trip'))
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
     const reopened = app.activeTab()!.store.doc
     return {

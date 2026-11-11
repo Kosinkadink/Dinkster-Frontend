@@ -156,7 +156,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
     }
     const abort = new AbortController()
     onCleanup(() => abort.abort())
-    const reader = props.app.workflowAssetReader(resolved.tab, request.sourceRef.digest)
+    const reader = props.app.workflowAssetReader(resolved.tab, request.sourceRef.digest, abort.signal)
     const current = (): boolean => live && !abort.signal.aborted && generation === loadGeneration &&
       target() === request && reader?.current() === true
     void (async () => {
@@ -171,10 +171,15 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
         if (!current()) return
         const created = createImageSession(decoded)
         const existingOperations = request.maskPaint?.expectedPaintOperations
-        loadedTarget = request
-        setSession(existingOperations === undefined || existingOperations === null
+        const editing = existingOperations === undefined || existingOperations === null
           ? created
-          : restoreMaskPaintSession(created, existingOperations, request.sourceRef.digest))
+          : restoreMaskPaintSession(created, existingOperations, request.sourceRef.digest)
+        await props.app.retainEditorAssets(request, backend, request.sourceRef, () => {
+          if (!current()) return false
+          loadedTarget = request
+          setSession(editing)
+          return true
+        })
       })
     })().catch((cause) => {
       if (live && !abort.signal.aborted && generation === loadGeneration) setError(cause instanceof Error ? cause.message : String(cause))

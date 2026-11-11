@@ -55,7 +55,7 @@ async function growthRowPoint(page: Page, construct: string): Promise<{ x: numbe
 }
 
 async function openGrowthWorkflow(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const IMAGE = { kind: 'concrete', name: 'IMAGE' }
     // Three-level nested-only Autogrow: items > sub > leaf, every level
     // min-0 with no static slot until the innermost template ('s'). A fresh
@@ -107,7 +107,7 @@ async function openGrowthWorkflow(page: Page): Promise<void> {
         ],
       },
     ] as never)
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'growth-e2e', root: 'g0',
       graphs: {
         g0: {

@@ -39,7 +39,7 @@ async function activeSnapshot(page: Page) {
 }
 
 async function openAssetEditor(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'DialogSeamProof', displayName: 'Dialog seam proof', category: 'proof', source: 'v3', isOutputNode: false,
@@ -49,7 +49,7 @@ async function openAssetEditor(page: Page): Promise<void> {
         optional: false, widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: [] },
       }],
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'dialog-seam-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { asset: { id: 'asset', type: 'DialogSeamProof', values: { images: [] } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { asset: { position: { x: 100, y: 100 } } } } } },
@@ -181,9 +181,9 @@ test('a pending close decision does not transfer to a same-id replacement docume
     graphs: { g0: { id: 'g0', name: title, nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
     view: { graphs: { g0: { nodes: {} } } },
   })
-  const first = await page.evaluate((doc) => {
+  const first = await page.evaluate(async (doc) => {
     const app = window.__dinksterTest!.app as any
-    app.openDocument(doc, 'Replace proof')
+    await app.openDocument(doc, 'Replace proof')
     const tab = app.activeTab()!
     return { id: tab.id, title: tab.title }
   }, workflow('original'))
@@ -204,8 +204,8 @@ test('a pending close decision does not transfer to a same-id replacement docume
   }, first.id)
   await expect(dialog).toBeVisible()
 
-  await page.evaluate((doc) => {
-    window.__dinksterTest!.app.openDocument(doc, 'Replacement document')
+  await page.evaluate(async (doc) => {
+    await window.__dinksterTest!.app.openDocument(doc, 'Replacement document')
   }, workflow('replacement'))
   await expect(page.locator('dialog[data-modal="close-tab"]')).toHaveCount(0)
   const survivor = page.locator(`.tab[data-tab-id="${first.id}"]`)

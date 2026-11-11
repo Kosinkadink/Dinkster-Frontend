@@ -22,9 +22,9 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await page.evaluate(
-    ({ schemas, workflow }) => {
+    async ({ schemas, workflow }) => {
       window.__dinksterTest!.app.registerSchemas(schemas as never)
-      const diags = window.__dinksterTest!.app.openDocument(workflow, 'Widget & Socket Gallery')
+      const diags = (await window.__dinksterTest!.app.openDocument(workflow, 'Widget & Socket Gallery'))
       if (diags.length > 0) throw new Error(`gallery failed to open: ${JSON.stringify(diags)}`)
       window.__dinksterTest!.renderer!.setViewport({ x: 20, y: 20, scale: 0.85 })
     },

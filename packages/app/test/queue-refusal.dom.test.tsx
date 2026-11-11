@@ -1,3 +1,4 @@
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { render } from 'solid-js/web'
@@ -20,8 +21,8 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function fixture(clean = false) {
-  const app = new AppState()
+async function fixture(clean = false) {
+  const app = prepareWorkflowApp(new AppState())
   const backend = app.backends.get()[0]!
   const payload: DinksterNodesPayload = {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'queue-test', schemaWire: 1 },
@@ -48,7 +49,7 @@ function fixture(clean = false) {
     delete doc.graphs.g0.links.l1
     doc.graphs.g0.links.l0.to = { node: 'n2', port: 'images' }
   }
-  app.openDocument(doc, 'Queue feedback')
+  await app.openDocument(doc, 'Queue feedback')
   const root = document.createElement('div')
   document.body.append(root)
   dispose = render(() => <App app={app} />, root)
@@ -58,7 +59,7 @@ function fixture(clean = false) {
 }
 
 it('pressing Queue on an invalid graph shows the Problems summary and opens its hidden panel', async () => {
-  const { app, root, queue } = fixture()
+  const { app, root, queue } = (await fixture())
   app.dock.setOpen('right', false)
   app.reportProblems(GLOBAL_PROBLEMS_OWNER, [
     diag('warning', 'validation', 'warning.one', 'First advisory'),
@@ -85,7 +86,7 @@ it('pressing Queue on an invalid graph shows the Problems summary and opens its 
 })
 
 it('pressing Queue on a clean graph submits without a refusal toast', async () => {
-  const { app, backend, root, queue } = fixture(true)
+  const { app, backend, root, queue } = (await fixture(true))
   app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('warning', 'validation', 'advisory', 'Not a queue blocker')])
   const tab = app.activeTab()!
   expect(app.compileTab(tab)?.ok).toBe(true)
