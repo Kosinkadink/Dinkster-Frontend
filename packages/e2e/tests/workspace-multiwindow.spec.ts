@@ -315,40 +315,50 @@ for (const accepted of [true, false]) {
 }
 
 test('workspace promotion preserves a local edit while ownership acknowledgment is pending', async ({ page }, info) => {
+  await page.clock.install()
   await page.goto('/')
   await waitForStartupOwnership(page)
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000))
   await page.screenshot({ path: info.outputPath('workspace-default.png') })
-  let acknowledge!: () => Promise<void>
+  let created!: (id: string) => void
+  const lineage = new Promise<string>((resolve) => { created = resolve })
+  const acknowledgments: (() => void)[] = []
+  let targetRequests = 0
   let requested!: () => void
   const request = new Promise<void>((resolve) => { requested = resolve })
   await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
+    const id = await lineage
+    const ownerId = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!)
+    const documentLineage = await page.evaluate((owner) =>
+      JSON.parse(localStorage.getItem(`dinkster.workflow-retentions.${owner}`)!).documentLineage as string, ownerId)
     const declaration = route.request().postDataJSON()
-    await new Promise<void>((done) => {
-      acknowledge = async () => {
-        await route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
-          ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: 1 } })
-        done()
-      }
+    // Journal admission precedes promotion; paused timers exclude persistence debounce requests.
+    if (documentLineage === id && ++targetRequests > 1) await new Promise<void>((resolve) => {
+      acknowledgments.push(resolve)
       requested()
     })
+    await route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document', ownerId, revision: 1 } })
   })
   const id = await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as { createWorkflow(): { id: string } }
     return app.createWorkflow().id
   })
+  created(id)
   await request
   const shared = () => page.evaluate((id) => {
     const tab = window.__dinksterTest!.app.tabs.get().find((candidate) => candidate.id === id)!
     return 'status' in tab.store
   }, id)
   expect(await shared()).toBe(false)
+  await page.clock.runFor(16)
   await page.screenshot({ path: info.outputPath('workspace-pending.png') })
   await page.evaluate((id) => {
     const tab = window.__dinksterTest!.app.tabs.get().find((candidate) => candidate.id === id)!
     tab.store.dispatch({ command: 'node.add', params: { graphId: tab.store.doc.root,
       type: 'NewLocalNode', position: { x: 20, y: 40 } } })
   }, id)
-  await acknowledge()
+  acknowledgments.shift()!()
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.problems.get().some(
     (problem) => problem.message.includes('ownership was being confirmed')))).toBe(true)
   expect(await shared()).toBe(false)
@@ -356,13 +366,16 @@ test('workspace promotion preserves a local edit while ownership acknowledgment 
     const tab = window.__dinksterTest!.app.tabs.get().find((candidate) => candidate.id === id)!
     return Object.values(tab.store.doc.graphs[tab.store.doc.root]!.nodes).map((node) => node.type)
   }, id)).toEqual(['NewLocalNode'])
+  await page.clock.runFor(16)
   await page.screenshot({ path: info.outputPath('workspace-stale.png') })
+  for (const acknowledge of acknowledgments) acknowledge()
   await page.unroute('**/api/library/retentions/document/*?scope=local')
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app as unknown as { enableWorkspaceAuthority(): Promise<void> }
     await app.enableWorkspaceAuthority()
   })
   await expect.poll(shared).toBe(true)
+  await page.clock.runFor(16)
   await page.screenshot({ path: info.outputPath('workspace-accepted.png') })
 })
 
