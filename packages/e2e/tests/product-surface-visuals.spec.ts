@@ -191,7 +191,7 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
     await route.fulfill({ json: { records: [] } })
   } else if (path.endsWith('/api/workflows/plan')) {
     await route.fulfill({ json: { packs: [], assets: [], errors: [] } })
-  } else if (path.includes('/api/library/retentions/document/')) {
+  } else if (path.includes('/api/library/retentions/document/') || path.includes('/api/library/retentions/preview/')) {
     await route.fallback()
   } else {
     await route.fulfill({ status: 502, body: 'visual fixture unavailable' })
@@ -270,17 +270,17 @@ test('populated output viewer in single, grid and compare modes', async ({ page 
   }))
   await boot(page)
   await closeGallery(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'OutputVisual', displayName: 'Image output', category: 'test', source: 'v3', isOutputNode: true,
       items: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: 'IMAGE' } }],
     }])
-    const diagnostics = app.openDocument({
+    const diagnostics = (await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'output-visual', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Image output', nodes: { save: { id: 'save', type: 'OutputVisual', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { g0: { nodes: { save: { position: { x: 120, y: 100 } } } } } },
-    }, 'Image output')
+    }, 'Image output'))
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
     const compiled = app.compileTab(app.activeTab()!)
     if (!compiled?.ok) throw new Error(JSON.stringify(compiled?.diagnostics))
@@ -319,18 +319,18 @@ test('populated output viewer in single, grid and compare modes', async ({ page 
 test('populated compositor controls at desktop and compact widths', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'CompositorVisual', displayName: 'Create Layered Image', category: 'test', source: 'v3', isOutputNode: true, editorRole: 'compositor',
       items: [{ kind: 'input', id: 'recipe', optional: true, type: { kind: 'concrete', name: 'COMPOSITOR' },
         widget: { widgetType: 'COMPOSITOR', options: {}, default: { version: 2, documentDigest: null, commands: [] } } }],
     }])
-    const diagnostics = app.openDocument({
+    const diagnostics = (await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'compositor-visual', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Compositor', nodes: { create: { id: 'create', type: 'CompositorVisual', values: { recipe: { version: 2, documentDigest: null, commands: [] } } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { g0: { nodes: { create: { position: { x: 120, y: 100 } } } } } },
-    }, 'Compositor')
+    }, 'Compositor'))
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
     const tab = app.activeTab()!
     const editorApp = app as unknown as {
@@ -404,6 +404,21 @@ test('populated image workspace at desktop and compact widths', async ({ page })
   await closeGallery(page)
   await page.getByTestId('image-documents-button').click()
   const workspace = page.getByTestId('image-document-workspace')
+  await page.route('/api/assets/media?*', async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    const digest = await request.headerValue('x-dinkster-digest')
+    const body = request.postDataBuffer()!
+    expect(request.method()).toBe('POST')
+    expect(url.searchParams.get('scope')).toBe('local')
+    expect(url.searchParams.get('kind')).toBe('media/image')
+    expect(digest).toMatch(/^blake3:[0-9a-f]{64}$/)
+    expect(body.length).toBeGreaterThan(0)
+    await route.fulfill({ status: 201, json: {
+      kind: 'media/image', asset: { digest, name: url.searchParams.get('name'),
+        size: body.length, mediaType: 'image/png', virtualPath: '' },
+    } })
+  })
   const bytes = await page.evaluate(async () => {
     const canvas = document.createElement('canvas')
     canvas.width = 640
@@ -477,7 +492,7 @@ test('shell and canvas visual matrix', async ({ page }) => {
   await screenshot(page, '04-canvas-toolbar')
   await page.keyboard.press('Escape')
   await expect(page.locator('.minimap-menu')).toBeHidden()
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([
       {
@@ -495,7 +510,7 @@ test('shell and canvas visual matrix', async ({ page }) => {
         ],
       },
     ])
-    bridge.app.openDocument(
+    await bridge.app.openDocument(
       bridge.syntheticWorkflow({ chains: 1, chainLength: 2, reroutes: false }),
       'Visual controls',
     )
@@ -529,7 +544,7 @@ test('App view validation and remote failures keep editable controls', async ({ 
   await boot(page)
   await closeGallery(page)
   await page.route('**/api/choices/panel-state-visual*', (route) => route.fulfill({ status: 503, body: 'visual source unavailable' }))
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'AppNoticeVisual', displayName: 'App feedback', category: 'test', source: 'visual', isOutputNode: true,
@@ -538,7 +553,7 @@ test('App view validation and remote failures keep editable controls', async ({ 
         { kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false, widget: { widgetType: 'COMBO', options: {}, default: 'old', remote: { route: '/api/choices/panel-state-visual', maxRetries: 0 } } },
       ],
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-notice-visual', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { n: { id: 'n', type: 'AppNoticeVisual', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { n: { position: { x: 100, y: 100 } } } } } },
@@ -710,7 +725,12 @@ test('Boundary prompt and definition empty states at desktop and compact widths'
     await expect(page.getByTestId('boundary-prompt')).toContainText('Open a subgraph definition')
     await expect(page.getByTestId('boundary-prompt').getByRole('button')).toHaveCount(0)
     await screenshot(page, `boundary-prompt-${width}`)
-    await page.evaluate(() => window.__dinksterTest!.app.openDocument({
+    expect(await page.evaluate(async () => {
+      const app = window.__dinksterTest!.app
+      // Blank workflow creation starts promotion without waiting for it.
+      // Opening the fixture must not race that session replacement.
+      await (app as unknown as { enableWorkspaceAuthority(): Promise<void> }).enableWorkspaceAuthority()
+      return app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'boundary-visual', root: 'root',
       graphs: {
         root: {
@@ -726,7 +746,8 @@ test('Boundary prompt and definition empty states at desktop and compact widths'
         root: { nodes: { occurrence: { position: { x: 200, y: 100 } } } },
         sub: { nodes: {} },
       } },
-    }, 'Boundary visual'))
+      }, 'Boundary visual')
+    })).toEqual([])
     const open = page.getByTestId('boundary-prompt').getByRole('button', { name: 'Open Nested workflow', exact: true })
     await expect(open).toBeEnabled()
     await screenshot(page, `boundary-open-definition-${width}`)
@@ -1007,8 +1028,8 @@ test('Collaboration discovery distinguishes unavailable loading empty and failed
 test('App view explains an empty flow and an empty arrangement group', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'empty-app-visual', root: 'root',
       graphs: { root: { id: 'root', name: 'Empty app', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { root: { nodes: {} } } },
@@ -1113,8 +1134,8 @@ test('Template gallery presents loading error retry and empty search states', as
 test('Focused panel explains an empty context and absent document', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'focused-empty', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: {} },
@@ -1141,7 +1162,7 @@ test('Focused panel explains an empty context and absent document', async ({ pag
 test('Badge popover empty and unavailable states preserve focus and actions', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([
       {
@@ -1159,7 +1180,7 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
         items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
       },
     ])
-    const diagnostics = bridge.app.openDocument({
+    const diagnostics = (await bridge.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'badge-background', root: 'root',
       graphs: { root: { id: 'root', name: 'Badge background', nodes: {
         source: { id: 'source', type: 'EmptyImage', values: { width: 64, height: 64, batch_size: 1, color: 0 } },
@@ -1168,7 +1189,7 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
       view: { graphs: { root: { nodes: {
         source: { position: { x: 80, y: 120 } }, preview: { position: { x: 300, y: 120 } },
       } } } },
-    }, 'Badge background')
+    }, 'Badge background'))
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
     bridge.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
@@ -1223,16 +1244,16 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
 test('Canvas badge popovers explain removed sources and selectors', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    const diagnostics = app.openDocument({
+    const diagnostics = (await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'missing-badge-visual', root: 'root',
       graphs: { root: { id: 'root', name: 'Badge targets', nodes: {}, links: {}, nets: {}, reroutes: {},
         valueSources: { source: { id: 'source', value: 12, spec: { widgetType: 'INT', options: {} } } },
         selectors: { selector: { id: 'selector', title: 'Choice', candidates: [{ id: 'first' }, { id: 'second' }], policy: { kind: 'fixed', candidate: 'first' } } },
         nextOrdinal: 4 } },
       view: { graphs: { root: { nodes: {}, valueSources: { source: { position: { x: 48, y: 80 } } }, selectors: { selector: { position: { x: 48, y: 180 } } } } } },
-    }, 'Badge targets')
+    }, 'Badge targets'))
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
@@ -1426,18 +1447,18 @@ test('Workflow queue empty popover preserves disclosure and Escape focus', async
 test('Compositor missing runtime state keeps its explanation and Cancel action', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'CompositorEmptyVisual', displayName: 'Create Layered Image', category: 'test', source: 'v3', isOutputNode: true, editorRole: 'compositor',
       items: [{ kind: 'input', id: 'recipe', optional: true, type: { kind: 'concrete', name: 'dinkster.compositor' },
         widget: { widgetType: 'COMPOSITOR', options: {}, default: { version: 2, documentDigest: null, commands: [] } } }],
     }])
-    const diagnostics = app.openDocument({
+    const diagnostics = (await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'compositor-empty-visual', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Compositor', nodes: { create: { id: 'create', type: 'CompositorEmptyVisual', values: { recipe: { version: 2, documentDigest: null, commands: [] } } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { g0: { nodes: { create: { position: { x: 120, y: 100 } } } } } },
-    }, 'Compositor')
+    }, 'Compositor'))
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
     const editorApp = app as unknown as {
       compositorTargetForInput(tab: unknown, graph: string, node: string, input: string): unknown
@@ -1726,18 +1747,18 @@ test('Search loading, empty and provider error states retain their explanations'
 test('GLSL editor missing-data and refused-preview states preserve editing and diagnostics', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'GlslEmptyVisual', displayName: 'GLSL Shader', category: 'test', source: 'v3', isOutputNode: true, editorRole: 'glsl',
       items: [{ kind: 'input', id: 'fragment_shader', optional: true, type: { kind: 'concrete', name: 'core.string' },
         widget: { widgetType: 'STRING', options: { multiline: true }, default: '#version 300 es\ninvalid shader' } }],
     }])
-    const diagnostics = app.openDocument({
+    const diagnostics = (await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'glsl-empty-visual', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'GLSL', nodes: { shader: { id: 'shader', type: 'GlslEmptyVisual', values: { fragment_shader: '#version 300 es\ninvalid shader' } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { g0: { nodes: { shader: { position: { x: 120, y: 100 } } } } } },
-    }, 'GLSL')
+    }, 'GLSL'))
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
     const editorApp = app as unknown as {
       glslTargetForInput(tab: unknown, graph: string, node: string, input: string): unknown
@@ -1916,7 +1937,7 @@ test('modal visual matrix', async ({ page }) => {
 test('populated app-view controls and arrange visuals', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const inputs = [
       { id: 'prompt', label: 'Prompt', widgetType: 'STRING', value: 'A quiet mountain lake' },
@@ -1931,7 +1952,7 @@ test('populated app-view controls and arrange visuals', async ({ page }) => {
         widget: { widgetType: input.widgetType, options: {}, default: input.value },
       })),
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-view-visual', root: 'g0',
       meta: { title: 'Landscape studio', description: 'Set the prompt and image controls, then queue the workflow.' },
       graphs: { g0: {

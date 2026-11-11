@@ -38,7 +38,7 @@ async function pinPoint(
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  const failures = await page.evaluate(() => {
+  const failures = await page.evaluate(async () => {
     const IMAGE = { kind: 'concrete', name: 'IMAGE' }
     const schemaOf = (type: string, items: unknown[]) =>
       ({ type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, items })
@@ -46,7 +46,7 @@ test.beforeEach(async ({ page }) => {
       schemaOf('RebuildSrcTest', [{ kind: 'output', id: 'out', type: IMAGE }]),
       schemaOf('RebuildSnkTest', [{ kind: 'input', id: 'in', type: IMAGE, optional: false }]),
     ] as never)
-    return window.__dinksterTest!.app.openDocument({
+    return (await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'scene-rebuild-drag', root: 'g0',
       graphs: {
         g0: {
@@ -77,7 +77,7 @@ test.beforeEach(async ({ page }) => {
         } },
         sub: { nodes: { inner: { position: { x: 50, y: 50 } } } },
       } },
-    }, 'Scene rebuild drag')
+    }, 'Scene rebuild drag'))
   })
   expect(failures).toEqual([])
   await identityViewport(page)
