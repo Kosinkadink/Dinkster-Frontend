@@ -31,8 +31,8 @@ test('wire 43 Route Switch by Name edits labels but stores stable member ids', a
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined,
   ), { timeout: 15_000 }).toBe(true)
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'wire43-input-family-combo', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',

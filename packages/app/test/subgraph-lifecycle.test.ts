@@ -1,3 +1,4 @@
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { describe, expect, it } from 'vitest'
 import { diag, documentResolver, occurrenceDynamicView, coreCommandRegistry, createLocalSession, type CommandOutcome, type Diagnostic, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import { buildScene, defaultTokens } from '@dinkster/canvas'
@@ -108,7 +109,7 @@ describe('subgraph lifecycle app plans', () => {
       diagnostics: [],
       resolve: (type) => type === schema.type ? schema : undefined,
     })
-    expect(app.openDocument(document(), 'Region bridge')).toEqual([])
+    expect((await app.openDocument(document(), 'Region bridge'))).toEqual([])
     const tab = app.activeTab()!
     const imported = tab.store.dispatch({
       command: 'subgraph.import',
@@ -426,7 +427,7 @@ describe('subgraph lifecycle app plans', () => {
     })
   })
 
-  it('exports, reopens, and drills through a grouped forwarded autogrow member without changing identity', () => {
+  it('exports, reopens, and drills through a grouped forwarded autogrow member without changing identity', async () => {
     const image = { kind: 'concrete', name: 'IMAGE' } as const
     const sourceSchema: NodeSchema = {
       type: 'Source', displayName: 'Source', category: 'test', source: 'v3', isOutputNode: false,
@@ -478,9 +479,9 @@ describe('subgraph lifecycle app plans', () => {
       view: { graphs: { root: { nodes: {} }, body: { nodes: {} } } },
     } as unknown as WorkflowDocument
 
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     configure(app)
-    expect(app.openDocument(doc, 'Autogrow export')).toEqual([])
+    expect((await app.openDocument(doc, 'Autogrow export'))).toEqual([])
     const tab = app.activeTab()!
     expect(tab.store.dispatch({
       command: 'batch',
@@ -500,9 +501,9 @@ describe('subgraph lifecycle app plans', () => {
     } as any).ok).toBe(true)
 
     const exported = app.exportDocument(tab.id)!
-    const reopenedApp = new AppState()
+    const reopenedApp = prepareWorkflowApp(new AppState())
     configure(reopenedApp)
-    expect(reopenedApp.openDocument(JSON.parse(JSON.stringify(exported)), 'Autogrow reopened')).toEqual([])
+    expect((await reopenedApp.openDocument(JSON.parse(JSON.stringify(exported)), 'Autogrow reopened'))).toEqual([])
     const reopened = reopenedApp.activeTab()!
     expect(reopened.store.doc.graphs.root!.nodes.occurrence!.dynamic).toEqual({
       forwarded: { members: ['m0'], seq: 1 },

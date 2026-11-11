@@ -38,7 +38,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
 
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const concrete = (name: string) => ({ kind: 'concrete', name })
     const variable = { kind: 'variable', templateId: 'item_type' }
     window.__dinksterTest!.app.registerSchemas([
@@ -96,7 +96,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
         items: [{ kind: 'input', id: 'value', type: variable, optional: false }],
       },
     ])
-    const failures = window.__dinksterTest!.app.openDocument({
+    const failures = (await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'advanced-prominence-e2e', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Advanced prominence', nodes: {
         source: { id: 'source', type: 'ImageSourceE2E', values: {} },
@@ -145,7 +145,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
         widget: { position: { x: 220, y: 430 }, size: { width: 220, height: 0 } },
         list: { position: { x: 610, y: 410 }, size: { width: 220, height: 0 } },
       } } } },
-    }, 'Advanced Prominence')
+    }, 'Advanced Prominence'))
     if (failures.length > 0) throw new Error(`openDocument failed: ${JSON.stringify(failures)}`)
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })

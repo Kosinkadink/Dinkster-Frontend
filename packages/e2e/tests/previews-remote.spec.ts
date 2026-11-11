@@ -155,7 +155,7 @@ const REMOTE_ROUTE = '/api/choices/dinkster-test-remote-options'
 
 /** Two nodes sharing one remote combo route, plus a static combo. */
 async function openRemoteWorkflow(page: Page): Promise<void> {
-  await page.evaluate((route) => {
+  await page.evaluate(async (route) => {
     const app = window.__dinksterTest!.app
     const remoteCombo = (id: string) => ({
       kind: 'input',
@@ -190,7 +190,7 @@ async function openRemoteWorkflow(page: Page): Promise<void> {
         ],
       },
     ])
-    app.openDocument(
+    await app.openDocument(
       {
         format: 'dinkster-workflow',
         formatVersion: 1,

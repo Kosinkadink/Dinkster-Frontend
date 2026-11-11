@@ -8,7 +8,7 @@ async function openDoc(page: Page): Promise<void> {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForStartupOwnership(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue },
@@ -17,7 +17,7 @@ async function openDoc(page: Page): Promise<void> {
       type: 'PreviewRetentionTest', displayName: 'Image Result', category: 'test', source: 'v3', isOutputNode: false,
       items: [widget('count', 'INT', 5, { min: 0, max: 100, step: 1 })],
     }])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'preview-retention', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',

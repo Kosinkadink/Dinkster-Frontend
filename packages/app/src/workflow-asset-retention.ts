@@ -10,6 +10,11 @@ import {
   appLayoutItemToJson,
   buildGraphConnectivity,
   canonicalJson,
+  COMPOSITOR_STATE_PREVIEW_CHANNEL,
+  compositorStateOf,
+  CURVE_HISTOGRAM_PREVIEW_CHANNEL,
+  GLSL_STATE_PREVIEW_CHANNEL,
+  glslShaderStateOf,
   documentNodeResolver,
   elabInputsOf,
   elaborateInterface,
@@ -22,6 +27,7 @@ import {
   isAssetWidgetInput,
   maskPaintSourceNodeId,
   parseTypedLiteralWire,
+  planReplacement,
   replayHistoryOps,
   typeExprFromTypeId,
   valueSourceConsumersOf,
@@ -30,6 +36,7 @@ import {
   type Diagnostic,
   type DocumentNodeResolver,
   type ExecutionRef,
+  type ExecutionEvent,
   type HistorySnapshot,
   type GraphDef,
   type InputSpec,
@@ -46,7 +53,11 @@ import { isAssetRef } from './image-editor.js'
 import { activeProjectId, scopedStorageKey } from './projects.js'
 
 const primitiveNames = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO'])
-const widgetTypes = new Set(['STRING', 'INT', 'FLOAT', 'NUMBER', 'BOOLEAN', 'COMBO', 'ASSET'])
+// Nullable scalar selections name their required socket type, not an asset.
+const widgetTypes = new Map<string, string | undefined>([
+  ['STRING', undefined], ['INT', undefined], ['FLOAT', undefined], ['NUMBER', undefined],
+  ['BOOLEAN', undefined], ['COMBO', undefined], ['ASSET', undefined], ['MOUNT', 'STRING'],
+])
 
 function assetFreeDynamicState(value: unknown, depth = 0): boolean {
   if (depth > MAX_DYNAMIC_STATE_DEPTH || typeof value !== 'object' || value === null || Array.isArray(value)) return false
@@ -102,7 +113,7 @@ export function workflowAssetRoots(
     if (type.kind === 'tuple') return type.elements.every(supported)
     return type.kind === 'concrete' && (type.name === 'ASSET' || primitiveNames.has(type.name))
   }
-  const valueRoots = (value: Json, type: TypeExpr, namedAsset = false): boolean => {
+  const valueRoots = (value: Json, type: TypeExpr, namedAsset = false, nullableScalar?: string): boolean => {
     // A cleared asset widget holds no identity; history still contributes its previous value.
     if (namedAsset && value === null) return true
     // Asset widgets can hold unresolved imported names, never a certified digest set.
@@ -115,7 +126,15 @@ export function workflowAssetRoots(
         refusal = 'Workflow typed literal is malformed'
         return false
       }
-      return valueRoots(typed.value, typeExprFromTypeId(typed.type))
+      return valueRoots(typed.value, typeExprFromTypeId(typed.type), false, nullableScalar)
+    } else if (nullableScalar !== undefined && (type.kind !== 'concrete' || type.name !== nullableScalar ||
+      (value !== null && typeof value !== 'string'))) {
+      complete = false
+      opaqueRoots(value)
+      return false
+    } else if (nullableScalar !== undefined && value === null) {
+      // The default output mount is a selection sentinel, not an asset identity.
+      return true
     } else if (!supported(type)) {
       complete = false
       opaqueRoots(value)
@@ -163,7 +182,7 @@ export function workflowAssetRoots(
       dynamic.variants?.forEach((variant) => variant.inputs.forEach(registerInputDefaults))
     }
   }
-  const visitNode = (node: NodeData, schemas: DocumentNodeResolver, graph: GraphDef): void => {
+  const visitNode = (node: NodeData, schemas: DocumentNodeResolver, graph: GraphDef, snapshot: WorkflowDocument): void => {
     if (node.type.startsWith('#')) hasContextualValues = true
     const schema = schemas(graph.id, node)
     const dynamic = schema?.items.some((item) => (item.kind === 'input' || item.kind === 'output') && item.dynamic !== undefined)
@@ -224,18 +243,41 @@ export function workflowAssetRoots(
       stored.diagnostics.some((diagnostic) => diagnostic.severity === 'error' &&
         (purpose === 'publication' || diagnostic.code !== 'elab.dormant.unsupported'))) {
       complete = false
-      refusal = 'Workflow dynamic identities are invalid'
+      const invalidIdentities = [...active.diagnostics, ...stored.diagnostics].some((diagnostic) =>
+        diagnostic.severity === 'error' && diagnostic.code !== 'elab.dormant.unsupported' &&
+        (purpose !== 'admission' || ![
+          'elab.outputDescriptors.invalid', 'elab.outputFamily.badCount',
+          'elab.outputFamily.linkedCount', 'elab.outputFamily.countOutOfRange',
+        ].includes(diagnostic.code)))
+      // A planned historical migration can consume state the current schema
+      // no longer describes. Retain its opaque roots, never certify it complete.
+      const migrates = purpose === 'admission' && [...active.diagnostics, ...stored.diagnostics]
+        .every((diagnostic) => diagnostic.severity !== 'error' || diagnostic.code === 'elab.dynamic.unknownState') && schema.replacements?.some((rule) => {
+        if (rule.migration === undefined) return false
+        const result = planReplacement(snapshot, graph.id, node.id, rule, resolve)
+        return result.plan !== undefined && !result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+      })
+      if (!migrates && (invalidIdentities || purpose !== 'admission')) refusal = 'Workflow dynamic identities are invalid'
     }
     const inputs = unsupportedDormant.length > 0 ? [...elabInputsOf(stored), ...elabInputsOf(active)] : elabInputsOf(stored)
-    for (const { spec } of inputs) {
+    for (const input of inputs) {
+      const { spec } = input
+      const nullableScalar = widgetTypes.get(spec.widget?.widgetType ?? '')
       if (spec.ext !== undefined && Object.keys(spec.ext).some((key) => key !== 'default')) complete = false
-      if (spec.widget !== undefined && !widgetTypes.has(spec.widget.widgetType)) complete = false
+      if (spec.widget !== undefined && (!widgetTypes.has(spec.widget.widgetType) ||
+        (nullableScalar !== undefined && (spec.type.kind !== 'concrete' || spec.type.name !== nullableScalar)))) {
+        complete = false
+        incompleteDiagnostics.push({ severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
+          refs: [{ graphId: graph.id, nodeId: node.id }],
+          message: `${node.title ?? node.type} (${node.id}): Declared input '${valueKeyOf(input)}' has an unsupported asset census widget binding '${spec.widget.widgetType}'`,
+        })
+      }
     }
     for (const input of elabInputsOf(active)) {
       if (input.ancestry?.some((ancestor) => ancestor.ghost)) continue
       const fallback = input.spec.widget?.default !== undefined ? input.spec.widget.default : input.spec.ext?.['default']
       if (!Object.hasOwn(node.values, valueKeyOf(input)) && fallback !== undefined) {
-        if (!valueRoots(fallback as Json, input.spec.type, isAssetWidgetInput(input.spec))) incompleteDiagnostics.push({
+        if (!valueRoots(fallback as Json, input.spec.type, isAssetWidgetInput(input.spec), widgetTypes.get(input.spec.widget?.widgetType ?? ''))) incompleteDiagnostics.push({
           severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
           refs: [{ graphId: graph.id, nodeId: node.id }],
           message: `${node.title ?? node.type} (${node.id}): Default input '${valueKeyOf(input)}' has unresolved asset identities`,
@@ -254,7 +296,7 @@ export function workflowAssetRoots(
           message: `${node.title ?? node.type} (${node.id}): Stored input '${input}' has conflicting dormant branch types`,
         })
       }
-      const resolved = matching.map((item) => valueRoots(value, item.spec.type, isAssetWidgetInput(item.spec)))
+      const resolved = matching.map((item) => valueRoots(value, item.spec.type, isAssetWidgetInput(item.spec), widgetTypes.get(item.spec.widget?.widgetType ?? '')))
       if (!ambiguous && (matching.length === 0 || resolved.some((result) => !result))) incompleteDiagnostics.push({
         severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
         refs: [{ graphId: graph.id, nodeId: node.id }],
@@ -291,12 +333,12 @@ export function workflowAssetRoots(
         return node === undefined ? [] : [[node, graph!] as const]
       }))
       if ([...nodes.keys()].every((node) => !node.type.startsWith('#'))) {
-        for (const [node, graph] of nodes) visitNode(node, schemas, graph)
+        for (const [node, graph] of nodes) visitNode(node, schemas, graph, snapshot)
         return
       }
     }
     for (const graph of Object.values(snapshot.graphs)) {
-      for (const node of Object.values(graph.nodes)) visitNode(node, schemas, graph)
+      for (const node of Object.values(graph.nodes)) visitNode(node, schemas, graph, snapshot)
       for (const source of Object.values(graph.valueSources ?? {})) {
         opaqueRoots(source.value)
         if (source.spec?.options !== undefined) complete = false
@@ -431,7 +473,7 @@ export async function reconcileWorkflowRetentions(
             Number.isSafeInteger(intent.documentRevision) && (intent.documentRevision as number) >= 0
           : owner?.ownerKind === 'preview'
             ? typeof owner.ownerId === 'string' && /^asset-preview:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
-              intent.preview === true && intent.complete === false
+              intent.preview === true
           : owner?.ownerKind === 'shown-result' && typeof owner.ownerId === 'string' &&
             /^execution-result:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
             typeof intent.executionKey === 'string' && intent.executionKey.length > 0
@@ -494,10 +536,34 @@ export async function retainExecutionAssets(
   return retainAssetRoots(connection, 'shown-result', { executionKey: executionKey(ref) }, roots, storage)
 }
 
+/** Only validated preview formats certify their entire external inventory. */
+export function previewAssetRoots(event: Extract<ExecutionEvent, { readonly kind: 'preview' }>): ReturnType<typeof workflowAssetRoots> {
+  if (event.payload instanceof Blob || event.payload instanceof ArrayBuffer) return { complete: true, digests: [] }
+  if (event.channel === GLSL_STATE_PREVIEW_CHANNEL && glslShaderStateOf(event.payload) !== undefined) return { complete: true, digests: [] }
+  const histogram = event.payload['histogram']
+  if (event.channel === CURVE_HISTOGRAM_PREVIEW_CHANNEL && Object.keys(event.payload).length === 1 &&
+    Array.isArray(histogram) && histogram.length === 256 && histogram.every((value) =>
+      typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)) return { complete: true, digests: [] }
+  const state = event.channel === COMPOSITOR_STATE_PREVIEW_CHANNEL ? compositorStateOf(event.payload) : undefined
+  if (state !== undefined && canonicalJson(state.document as unknown as Json) === canonicalJson(event.payload['document'] as Json)) {
+    return { complete: true, digests: [...new Set([state.documentDigest,
+    ...Object.values(state.document.resources).filter((resource) => resource.inline === undefined)
+      .map((resource) => resource.digest)])].sort() }
+  }
+  return executionAssetRoots({ outputs: { preview: { payload: event.payload } }, artifacts: [] }, () => undefined)
+}
+
+export async function retainPreviewAssets(
+  connection: DinksterConnection,
+  roots: ReturnType<typeof workflowAssetRoots>,
+): Promise<RetainedAssets> {
+  return retainAssetRoots(connection, 'preview', { preview: true }, roots, globalThis.localStorage)
+}
+
 /** Source payload reads have independent preview ownership, not workflow roots. */
 export async function readAssetPreview<T>(
   connection: DinksterConnection,
-  digest: string,
+  inventory: string | ReturnType<typeof workflowAssetRoots>,
   consume: () => Promise<T>,
   stillCurrent: () => boolean,
   handoff?: (value: T) => Promise<boolean>,
@@ -509,7 +575,8 @@ export async function readAssetPreview<T>(
   let reader: RetainedAssetReader | undefined
   try {
     if (!current()) throw new Error('Asset preview changed before admission')
-    const retained = await retainAssetRoots(connection, 'preview', { preview: true }, { complete: false, digests: [digest] }, globalThis.localStorage)
+    const retained = await retainPreviewAssets(connection, typeof inventory === 'string'
+      ? { complete: false, digests: [inventory] } : inventory)
     reader = new RetainedAssetReader(connection, retained, current)
     const value = await reader.read(consume)
     // Publishing a replacement can invalidate the open intent itself. Only the

@@ -47,7 +47,7 @@ async function touch(locator: Locator, page: Page): Promise<void> {
 }
 
 async function installProofSurfaces(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const choices = Array.from({ length: 6 }, (_, index) => `Interaction option ${index + 1}`)
     ;(window.__dinksterTest!.app as any).settings.register({
       id: 'proof.interaction-density',
@@ -78,7 +78,7 @@ async function installProofSurfaces(page: Page): Promise<void> {
         },
       }],
     }])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'interaction-accessibility-proof',

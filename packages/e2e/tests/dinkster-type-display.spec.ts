@@ -55,10 +55,10 @@ test.beforeEach(async ({ page }, testInfo) => {
   }
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  await page.evaluate(({ schema, doc }) => {
+  await page.evaluate(async ({ schema, doc }) => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([schema] as never)
-    const diags = test.app.openDocument(doc, 'Native dinkster type display')
+    const diags = (await test.app.openDocument(doc, 'Native dinkster type display'))
     if (diags.length > 0) throw new Error(`failed to open: ${JSON.stringify(diags)}`)
     test.renderer!.setViewport({ x: 40, y: 40, scale: 1 })
   }, { schema, doc: document_ })
@@ -205,17 +205,17 @@ async function imagePinPoint(page: Page, nodeId: string, direction: 'in' | 'out'
 }
 
 test('a native IMAGE output connects only to the canonical IMAGE input', async ({ page }, testInfo) => {
-  const diagnostics = await page.evaluate(({ schemas }) => {
+  const diagnostics = await page.evaluate(async ({ schemas }) => {
     const test = window.__dinksterTest!
     test.app.registerSchemas(schemas as never)
-    const diags = test.app.openDocument({
+    const diags = (await test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'dinkster-image-compat', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         src: { id: 'src', type: 'DinksterImageProducer', values: {} },
         sink: { id: 'sink', type: 'ComfyImageConsumer', values: {} },
       }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { src: { position: { x: 80, y: 160 } }, sink: { position: { x: 460, y: 160 } } } } } },
-    } as never, 'Dinkster image compat')
+    } as never, 'Dinkster image compat'))
     test.renderer!.setViewport({ x: 40, y: 40, scale: 1 })
     return diags
   }, { schemas: imageSchemas })
@@ -304,17 +304,17 @@ const maskSchemas = [
 ]
 
 test('a native MASK output connects only to the canonical MASK input', async ({ page }, testInfo) => {
-  const diagnostics = await page.evaluate(({ schemas }) => {
+  const diagnostics = await page.evaluate(async ({ schemas }) => {
     const test = window.__dinksterTest!
     test.app.registerSchemas(schemas as never)
-    const diags = test.app.openDocument({
+    const diags = (await test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'dinkster-mask-compat', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         src: { id: 'src', type: 'DinksterMaskProducer', values: {} },
         sink: { id: 'sink', type: 'ComfyMaskConsumer', values: {} },
       }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { src: { position: { x: 80, y: 160 } }, sink: { position: { x: 460, y: 160 } } } } } },
-    } as never, 'Dinkster mask compat')
+    } as never, 'Dinkster mask compat'))
     test.renderer!.setViewport({ x: 40, y: 40, scale: 1 })
     return diags
   }, { schemas: maskSchemas })

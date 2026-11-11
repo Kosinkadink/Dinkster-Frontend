@@ -130,7 +130,7 @@ export interface Model3dLoadOptions {
 /** Load a mesh or point cloud and frame its bounds in a lit scene. */
 const loadFramedScene = async (modules: ThreeModules, src: string, aspect: number, options: Model3dLoadOptions): Promise<FramedScene> => {
   const { THREE } = modules
-  const { resources, format = 'glb' } = options
+  const { resources = {}, format = 'glb' } = options
   const manager = new THREE.LoadingManager()
   let resourceError: Error | undefined
   let resourcesReady = Promise.resolve()
@@ -138,7 +138,7 @@ const loadFramedScene = async (modules: ThreeModules, src: string, aspect: numbe
   manager.onStart = () => { resourcesReady = new Promise((resolve) => { resourcesLoaded = resolve }) }
   manager.onLoad = () => resourcesLoaded()
   manager.onError = (url) => { resourceError = new Error(`3D resource failed to load: ${url}`) }
-  if (resources !== undefined) manager.setURLModifier((url) => {
+  manager.setURLModifier((url) => {
     if (url === src || url.startsWith('data:') || Object.values(resources).includes(url)) return url
     const key = decodeURIComponent(new URL(url, 'https://viewport.invalid/').pathname.slice(1))
     const granted = Object.hasOwn(resources, key) ? resources[key] : undefined
@@ -182,7 +182,7 @@ const loadFramedScene = async (modules: ThreeModules, src: string, aspect: numbe
       : new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: colors, color: colors ? 0xffffff : 0x808080, side: THREE.DoubleSide, roughness: 0.8, metalness: 0.1 }))
   } else if (format === 'glb' || format === 'gltf') {
     const loader = new modules.GLTFLoader(manager)
-    if (resources !== undefined) loader.setResourcePath('https://viewport.invalid/')
+    loader.setResourcePath('https://viewport.invalid/')
     loader.register((parser) => {
       const loadImageSource = parser.loadImageSource.bind(parser)
       parser.loadImageSource = (index, imageLoader) => {

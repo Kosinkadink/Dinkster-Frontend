@@ -1,4 +1,5 @@
 import type { Json } from '../format/document.js'
+import { diag } from '../diagnostics.js'
 import { isValidActorId } from '../ids.js'
 import { createSignal, type ReadonlySignal, type Signal } from '../reactive/signal.js'
 import {
@@ -24,9 +25,15 @@ import type {
   ImageDocumentSession,
   ImageDocumentSessionOp,
 } from './session.js'
-import type { ImageDocumentDispatchOutcome } from './store.js'
+import type {
+  ImageDocumentCommitPolicy,
+  ImageDocumentDispatchOutcome,
+  PreparedImageDocumentDispatch,
+} from './store.js'
 
 export type SharedImageDocumentStatus = 'live' | 'catching-up' | 'closed' | 'error'
+
+const initialAdmission = Symbol('ImageDocument initial admission')
 
 export interface SharedImageDocumentConflict {
   readonly origin: string
@@ -40,11 +47,20 @@ export interface SharedImageDocumentSessionOptions {
   readonly retryDelay?: () => Promise<void>
   readonly onConflict?: (conflict: SharedImageDocumentConflict) => void
   readonly onError?: (message: string) => void
+  readonly validateCommit?: ImageDocumentCommitPolicy
+  readonly beforeRemoteDocument?: (
+    document: ImageDocument,
+    revision: number,
+    currentDocument: ImageDocument,
+    resourceDigests: readonly string[],
+    retainedDocuments: readonly ImageDocument[],
+  ) => Promise<void | (() => void)>
 }
 
 interface HistoryRecord {
   forward: readonly PatchOp[]
   inverse: readonly PatchOp[]
+  resources: ReadonlySet<string>
 }
 
 interface Attempt {
@@ -82,9 +98,14 @@ function applyWire(document: ImageDocument, patch: CollabServerOp['patch'], cont
   return loadedDocument(applyOps(document as unknown as Json, patch), context)
 }
 
+function resourceDigests(document: ImageDocument): Set<string> {
+  return new Set(Object.values(document.resources)
+    .filter((resource) => resource.inline === undefined).map((resource) => resource.digest))
+}
+
 function changedResourceDigests(before: ImageDocument, after: ImageDocument): Set<string> {
-  const left = new Set(Object.values(before.resources).map((resource) => resource.digest))
-  const right = new Set(Object.values(after.resources).map((resource) => resource.digest))
+  const left = resourceDigests(before)
+  const right = resourceDigests(after)
   return new Set([...left].filter((digest) => !right.has(digest)).concat(
     [...right].filter((digest) => !left.has(digest)),
   ))
@@ -117,6 +138,8 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
   private readonly retryDelay: () => Promise<void>
   private readonly onConflict: ((conflict: SharedImageDocumentConflict) => void) | undefined
   private readonly onError: ((message: string) => void) | undefined
+  private readonly validateCommit: ImageDocumentCommitPolicy | undefined
+  private readonly beforeRemoteDocument: SharedImageDocumentSessionOptions['beforeRemoteDocument']
   private readonly maxUndo: number
   private readonly documentSignal: Signal<ImageDocument>
   private readonly statusSignal: Signal<SharedImageDocumentStatus>
@@ -131,6 +154,8 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
   private readonly undoStack: HistoryRecord[] = []
   private readonly redoStack: HistoryRecord[] = []
   private readonly retained = new Set<string>()
+  private generation = 0
+  private connectionGeneration = 0
   private opCounter = 0
   private readonly opNonce = `${Date.now().toString(36)}${Math.floor(Math.random() * 0xffffff).toString(36)}`
   private pumpPromise: Promise<void> | undefined
@@ -146,7 +171,11 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
     snapshot: ImageDocument,
     snapshotRevision: number,
     options?: SharedImageDocumentSessionOptions,
+    admission?: { readonly token: typeof initialAdmission; readonly revision: number },
   ) {
+    if (options?.beforeRemoteDocument !== undefined && admission?.token !== initialAdmission) {
+      throw new Error('ImageDocument remote admission requires connectSharedImageDocumentSession')
+    }
     this.connection = connection
     this.actorId = options?.actorId ?? defaultActorId()
     if (!isValidActorId(this.actorId)) throw new Error('invalid ImageDocument collaboration actor id')
@@ -155,9 +184,15 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
     this.retryDelay = options?.retryDelay ?? (() => new Promise((resolve) => setTimeout(resolve, 1000)))
     this.onConflict = options?.onConflict
     this.onError = options?.onError
+    this.validateCommit = options?.validateCommit
+    this.beforeRemoteDocument = options?.beforeRemoteDocument
     this.maxUndo = options?.maxUndo ?? 200
     if (!Number.isSafeInteger(this.maxUndo) || this.maxUndo < 0) throw new Error('maxUndo must be a non-negative safe integer')
     this.confirmed = loadedDocument(snapshot, 'collab snapshot')
+    const refusal = this.validateCommit?.(this.confirmed, this.confirmed,
+      Object.freeze([...resourceDigests(this.confirmed)].sort()))
+      .find((diagnostic) => diagnostic.severity === 'error')
+    if (refusal !== undefined) throw new Error(refusal.message)
     this.confirmedRevision = snapshotRevision
     this.optimistic = this.confirmed
     this.lastSnapshotRevision = snapshotRevision
@@ -170,6 +205,7 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
       this.unsubscribe = undefined
       unsubscribe()
     }
+    if (admission !== undefined && admission.revision > snapshotRevision) this.requestCatchUp(admission.revision)
   }
 
   get doc(): ImageDocument { return this.optimistic }
@@ -179,6 +215,11 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
   get canRedo(): boolean { return this.redoStack.length > 0 }
 
   dispatch(invocation: ImageDocumentCommandInvocation): ImageDocumentDispatchOutcome {
+    const prepared = this.prepareDispatch(invocation)
+    return prepared.ok ? prepared.commit() : prepared
+  }
+
+  prepareDispatch(invocation: ImageDocumentCommandInvocation): PreparedImageDocumentDispatch {
     const status = this.statusSignal.get()
     if (status === 'closed' || status === 'error') {
       return {
@@ -194,48 +235,44 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
     const stamped = { ...invocation, actor: this.actorId } as ImageDocumentCommandInvocation
     const result = planImageDocumentCommand(this.optimistic, stamped)
     if (!result.ok) return result
-    const record: HistoryRecord = { forward: result.plan.redo, inverse: result.plan.inverse }
-    this.retainedAdd(changedResourceDigests(this.optimistic, result.plan.document))
-    this.optimistic = result.plan.document
-    this.undoStack.push(record)
-    if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
-    this.redoStack.length = 0
-    this.enqueue(
-      { kind: 'command', invocation: result.plan.invocation },
-      result.plan,
-      result.plan.invocation.command,
-      record,
-    )
-    const transaction = {
-      revision: this.revision,
-      invocation: result.plan.invocation,
-      forward: result.plan.forward,
+    const record: HistoryRecord = {
+      forward: result.plan.redo,
       inverse: result.plan.inverse,
-      timestamp: this.clock(),
-    } as const
-    return {
-      ok: true,
-      document: this.optimistic,
-      revision: this.revision,
-      transaction,
-      ...(result.plan.created !== undefined ? { created: result.plan.created } : {}),
+      resources: changedResourceDigests(this.optimistic, result.plan.document),
     }
+    const undo = [...this.undoStack, record]
+    if (undo.length > this.maxUndo) undo.shift()
+    return this.prepare(result.plan.document, undo, [],
+      { kind: 'command', invocation: result.plan.invocation }, result.plan.invocation,
+      result.plan.forward, result.plan.inverse, record, result.plan.created)
   }
 
-  undo(): boolean { return this.replayHistory(this.undoStack, this.redoStack, 'undo') }
-  redo(): boolean { return this.replayHistory(this.redoStack, this.undoStack, 'redo') }
+  prepareUndo(): PreparedImageDocumentDispatch { return this.prepareHistory('undo') }
+  prepareRedo(): PreparedImageDocumentDispatch { return this.prepareHistory('redo') }
+  undo(): boolean {
+    const prepared = this.prepareUndo()
+    if (!prepared.ok && prepared.diagnostics[0]?.code === 'image.history.conflict') {
+      this.notifyConflict('image.undo', new Error(prepared.diagnostics[0].message))
+    }
+    return prepared.ok && prepared.commit().ok
+  }
+  redo(): boolean {
+    const prepared = this.prepareRedo()
+    if (!prepared.ok && prepared.diagnostics[0]?.code === 'image.history.conflict') {
+      this.notifyConflict('image.redo', new Error(prepared.diagnostics[0].message))
+    }
+    return prepared.ok && prepared.commit().ok
+  }
 
   clearHistory(): void {
+    this.generation += 1
     this.undoStack.length = 0
     this.redoStack.length = 0
     this.retained.clear()
   }
 
   retainedResourceDigests(): ReadonlySet<string> {
-    return new Set([
-      ...Object.values(this.optimistic.resources).map((resource) => resource.digest),
-      ...this.retained,
-    ])
+    return this.resources(this.optimistic, [...this.undoStack, ...this.redoStack])
   }
 
   onOp(listener: (operation: ImageDocumentSessionOp) => void): () => void {
@@ -257,6 +294,7 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
   }
 
   close(): void {
+    this.generation += 1
     const unsubscribe = this.unsubscribe
     this.unsubscribe = undefined
     unsubscribe?.()
@@ -268,54 +306,83 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
     this.statusSignal.set('closed')
   }
 
-  private replayHistory(
-    from: HistoryRecord[],
-    to: HistoryRecord[],
-    direction: 'undo' | 'redo',
-  ): boolean {
-    const record = from.pop()
-    if (record === undefined) return false
+  private prepareHistory(direction: 'undo' | 'redo'): PreparedImageDocumentDispatch {
+    const from = direction === 'undo' ? this.undoStack : this.redoStack
+    const to = direction === 'undo' ? this.redoStack : this.undoStack
+    const record = from.at(-1)
+    if (record === undefined) return { ok: false, diagnostics: [] }
     const operations = direction === 'undo' ? record.inverse : record.forward
     try {
       const replay = replayImageHistory(this.optimistic, operations)
       if (replay.stale !== undefined) throw new Error(`conflict at ${replay.stale.path.join('/')}`)
-      const next = replay.document
-      this.optimistic = next
-      const entry: PendingEntry = {
-        opId: this.mintOpId(),
-        intention: { kind: 'patch', operations },
-        origin: `image.${direction}`,
-        predicted: toWirePatch(replay.applied),
-        attempts: [],
-        record,
-      }
-      this.pending.push(entry)
-      to.push(record)
-      this.documentSignal.set(this.optimistic)
-      this.pump()
-      return true
+      const undo = direction === 'undo' ? from.slice(0, -1) : [...to, record]
+      const redo = direction === 'redo' ? from.slice(0, -1) : [...to, record]
+      return this.prepare(replay.document, undo, redo, { kind: 'patch', operations },
+        { command: `image.${direction}` }, replay.applied,
+        direction === 'undo' ? record.forward : record.inverse, record)
     } catch (error) {
-      this.notifyConflict(`image.${direction}`, error)
-      return false
+      return { ok: false, diagnostics: [diag('error', 'command', 'image.history.conflict',
+        error instanceof Error ? error.message : String(error))] }
     }
   }
 
-  private enqueue(
+  private resources(document: ImageDocument, history: readonly HistoryRecord[]): Set<string> {
+    const digests = new Set([...resourceDigests(document), ...resourceDigests(this.confirmed), ...this.retained])
+    for (const record of history) for (const digest of record.resources) digests.add(digest)
+    for (const entry of this.pending) {
+      if (entry.record !== undefined) for (const digest of entry.record.resources) digests.add(digest)
+    }
+    return digests
+  }
+
+  private prepare(
+    document: ImageDocument,
+    undo: readonly HistoryRecord[],
+    redo: readonly HistoryRecord[],
     intention: PendingIntention,
-    plan: ImageDocumentCommandPlan,
-    origin: string,
-    record?: HistoryRecord,
-  ): void {
-    this.pending.push({
-      opId: this.mintOpId(),
-      intention,
-      origin,
-      predicted: toWirePatch(plan.forward),
-      attempts: [],
-      ...(record !== undefined ? { record } : {}),
+    invocation: ImageDocumentCommandPlan['invocation'] | { readonly command: 'image.undo' | 'image.redo' },
+    forward: readonly PatchOp[],
+    inverse: readonly PatchOp[],
+    record: HistoryRecord,
+    created?: ImageDocumentCommandPlan['created'],
+  ): PreparedImageDocumentDispatch {
+    const generation = this.generation
+    const current = this.optimistic
+    const digests = Object.freeze([...this.resources(document, [...undo, ...redo])].sort())
+    let consumed = false
+    const stale = (): ImageDocumentDispatchOutcome => ({ ok: false, diagnostics: [diag(
+      'error', 'command', 'image.candidate.stale', 'Prepared ImageDocument change is stale or already consumed',
+    )] })
+    return Object.freeze({
+      ok: true,
+      currentDocument: current,
+      document,
+      currentResourceDigests: Object.freeze([...this.retainedResourceDigests()].sort()),
+      resourceDigests: digests,
+      commit: (): ImageDocumentDispatchOutcome => {
+        const status = this.statusSignal.get()
+        if (consumed || generation !== this.generation || status === 'closed' || status === 'error') return stale()
+        consumed = true
+        const diagnostics = this.validateCommit?.(current, document, digests) ?? []
+        if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return { ok: false, diagnostics }
+        if (generation !== this.generation) return stale()
+        this.generation += 1
+        this.retainedAdd(changedResourceDigests(current, document))
+        this.optimistic = document
+        this.undoStack.splice(0, this.undoStack.length, ...undo)
+        this.redoStack.splice(0, this.redoStack.length, ...redo)
+        this.pending.push({
+          opId: this.mintOpId(), intention, origin: invocation.command,
+          predicted: toWirePatch(forward), attempts: [], record,
+        })
+        const revision = this.revision
+        this.documentSignal.set(document)
+        this.pump()
+        return { ok: true, document, revision,
+          transaction: { revision, invocation, forward, inverse, timestamp: this.clock() },
+          ...(created !== undefined ? { created } : {}) }
+      },
     })
-    this.documentSignal.set(this.optimistic)
-    this.pump()
   }
 
   private mintOpId(): string {
@@ -419,6 +486,8 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
         return
       }
       case 'disconnected':
+        this.generation += 1
+        this.connectionGeneration += 1
         this.connected = false
         return
       case 'session-closed':
@@ -441,7 +510,7 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
 
   private handleServerOp(operation: CollabServerOp): void {
     if (operation.revision <= this.confirmedRevision) return
-    if (operation.revision > this.confirmedRevision + 1) {
+    if (this.beforeRemoteDocument !== undefined || operation.revision > this.confirmedRevision + 1) {
       this.requestCatchUp(operation.revision)
       return
     }
@@ -452,6 +521,10 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
       return
     }
     this.pump()
+    this.publishCheckpoint()
+  }
+
+  private publishCheckpoint(): void {
     if (this.confirmedRevision - this.lastSnapshotRevision >= 128 && this.pending.length === 0) {
       const revision = this.confirmedRevision
       void this.connection.putSnapshot(revision, this.confirmed).then((result) => {
@@ -467,32 +540,56 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
 
   private ingestOrdered(operation: CollabServerOp): void {
     if (operation.revision !== this.confirmedRevision + 1) throw new Error('collab operation is not contiguous')
-    const oldGround = this.confirmed
-    this.confirmed = applyWire(this.confirmed, operation.patch, 'collab operation')
-    this.confirmedRevision = operation.revision
-    let origin = 'remote'
-    const pendingIndex = this.pending.findIndex((entry) =>
-      entry.attempts.some((attempt) => attempt.opId === operation.opId &&
-        attempt.baseRevision === operation.baseRevision &&
-        jsonSameValue(attempt.patch as unknown as Json, operation.patch as unknown as Json)),
-    )
-    if (pendingIndex !== -1) {
-      const [confirmed] = this.pending.splice(pendingIndex, 1)
-      origin = confirmed!.origin
-      if (pendingIndex !== 0 && confirmed!.record !== undefined) this.removeHistory(confirmed!.record)
-    } else if (operation.actorId === this.actorId &&
-      this.pending.some((entry) => entry.attempts.some((attempt) => attempt.opId === operation.opId))) {
-      throw new Error('own collab operation payload changed')
-    }
-    this.rebase(oldGround)
-    this.emitOperation(operation, origin)
+    this.prepareRemote(applyWire(this.confirmed, operation.patch, 'collab operation'), operation.revision, operation).commit()
   }
 
-  private rebase(_oldGround: ImageDocument): void {
-    const entries = this.pending.splice(0)
+  private prepareRemote(document: ImageDocument, revision: number, operation?: CollabServerOp) {
+    const generation = this.generation
+    const records = new Map<HistoryRecord, HistoryRecord>()
+    const copyRecord = (record: HistoryRecord): HistoryRecord => {
+      let copy = records.get(record)
+      if (copy === undefined) {
+        copy = { ...record, resources: new Set(record.resources) }
+        records.set(record, copy)
+      }
+      return copy
+    }
+    let undo = this.undoStack.map(copyRecord)
+    let redo = this.redoStack.map(copyRecord)
+    let pending = this.pending.map((entry) => ({ ...entry, attempts: [...entry.attempts],
+      ...(entry.record !== undefined ? { record: copyRecord(entry.record) } : {}) }))
+    const conflicts: SharedImageDocumentConflict[] = []
+    const removeHistory = (record: HistoryRecord): void => {
+      undo = undo.filter((item) => item !== record)
+      redo = redo.filter((item) => item !== record)
+    }
+    let origin = 'remote'
+    if (operation !== undefined) {
+      const pendingIndex = pending.findIndex((entry) =>
+        entry.attempts.some((attempt) => attempt.opId === operation.opId &&
+          attempt.baseRevision === operation.baseRevision &&
+          jsonSameValue(attempt.patch as unknown as Json, operation.patch as unknown as Json)))
+      if (pendingIndex !== -1) {
+        const [confirmed] = pending.splice(pendingIndex, 1)
+        origin = confirmed!.origin
+        if (pendingIndex !== 0 && confirmed!.record !== undefined) removeHistory(confirmed!.record)
+      } else if (operation.actorId === this.actorId &&
+        pending.some((entry) => entry.attempts.some((attempt) => attempt.opId === operation.opId))) {
+        throw new Error('own collab operation payload changed')
+      }
+    } else {
+      pending = pending.filter((entry) => {
+        if (!entry.attempts.some((attempt) => attempt.baseRevision < revision)) return true
+        conflicts.push({ origin: entry.origin, message: 'a checkpoint may already contain this submitted edit' })
+        return false
+      })
+      undo = []
+      redo = []
+    }
     const survivors: PendingEntry[] = []
-    let cursor = this.confirmed
-    for (const entry of entries) {
+    const retainedDocuments = [this.confirmed, this.optimistic, document]
+    let cursor = document
+    for (const entry of pending) {
       try {
         let patch: readonly PatchOp[]
         let next: ImageDocument
@@ -511,20 +608,44 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
           patch = replay.applied
           next = replay.document
         }
-        entry.opId = this.mintOpId()
         entry.predicted = toWirePatch(patch)
         entry.attempts.splice(0, entry.attempts.length,
-          ...entry.attempts.filter((attempt) => attempt.baseRevision >= this.confirmedRevision))
+          ...entry.attempts.filter((attempt) => attempt.baseRevision >= revision))
+        if (entry.record !== undefined) {
+          entry.record.resources = new Set([...entry.record.resources, ...changedResourceDigests(cursor, next)])
+        }
         cursor = next
+        retainedDocuments.push(cursor)
         survivors.push(entry)
       } catch (error) {
-        if (entry.record !== undefined) this.removeHistory(entry.record)
-        this.notifyConflict(entry.origin, error)
+        if (entry.record !== undefined) removeHistory(entry.record)
+        conflicts.push({ origin: entry.origin, message: error instanceof Error ? error.message : String(error) })
       }
     }
-    this.pending.push(...survivors)
-    this.optimistic = cursor
-    this.documentSignal.set(cursor)
+    const digests = this.resources(cursor, [...undo, ...redo])
+    for (const retained of retainedDocuments) for (const digest of resourceDigests(retained)) digests.add(digest)
+    let consumed = false
+    return {
+      document: cursor,
+      resourceDigests: Object.freeze([...digests].sort()),
+      retainedDocuments: Object.freeze(retainedDocuments),
+      commit: (): boolean => {
+        if (consumed || generation !== this.generation || this.statusSignal.get() === 'closed' || this.statusSignal.get() === 'error') return false
+        consumed = true
+        this.generation += 1
+        this.confirmed = document
+        this.confirmedRevision = revision
+        for (const entry of survivors) entry.opId = this.mintOpId()
+        this.pending.splice(0, this.pending.length, ...survivors)
+        this.undoStack.splice(0, this.undoStack.length, ...undo)
+        this.redoStack.splice(0, this.redoStack.length, ...redo)
+        this.optimistic = cursor
+        this.documentSignal.set(cursor)
+        for (const conflict of conflicts) this.notifyConflict(conflict.origin, new Error(conflict.message))
+        if (operation !== undefined) this.emitOperation(operation, origin)
+        return true
+      },
+    }
   }
 
   private requestCatchUp(target: number): void {
@@ -533,6 +654,7 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
   }
 
   private requestResync(reason: string): void {
+    this.generation += 1
     this.notifyConflict('resync', new Error(reason))
     this.resyncRequested = true
     this.startSync()
@@ -540,6 +662,7 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
 
   private startSync(): void {
     if (this.syncing || this.statusSignal.get() === 'closed' || this.statusSignal.get() === 'error') return
+    this.generation += 1
     this.syncing = true
     this.statusSignal.set('catching-up')
     this.syncPromise = this.syncLoop().catch((error: unknown) => this.fail(
@@ -555,38 +678,34 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
   }
 
   private async syncLoop(): Promise<void> {
+    const connectionGeneration = this.connectionGeneration
     while (this.statusSignal.get() === 'catching-up') {
       if (this.resyncRequested) {
         this.resyncRequested = false
         const snapshot = await this.connection.fetchSnapshot()
+        if (this.statusSignal.get() !== 'catching-up') return
+        this.assertRemoteConnection(connectionGeneration)
+        if (this.resyncRequested) continue
         if (!isValidCollabRevision(snapshot.revision)) throw new Error('invalid ImageDocument snapshot revision')
         const document = loadedDocument(snapshot.document, 'ImageDocument resync')
         this.syncTarget = Math.max(this.syncTarget, this.confirmedRevision, snapshot.revision)
-        const ambiguous = new Set(this.pending.filter((entry) =>
-          entry.attempts.some((attempt) => attempt.baseRevision < snapshot.revision),
-        ))
-        for (const entry of ambiguous) {
-          if (entry.record !== undefined) this.removeHistory(entry.record)
-          this.notifyConflict(entry.origin, new Error('a checkpoint may already contain this submitted edit'))
+        if (await this.admitRemote(document, snapshot.revision)) {
+          this.lastSnapshotRevision = Math.max(this.lastSnapshotRevision, snapshot.revision)
         }
-        const oldGround = this.confirmed
-        this.confirmed = document
-        this.confirmedRevision = snapshot.revision
-        this.lastSnapshotRevision = Math.max(this.lastSnapshotRevision, snapshot.revision)
-        this.pending.splice(0, this.pending.length, ...this.pending.filter((entry) => !ambiguous.has(entry)))
-        this.undoStack.length = 0
-        this.redoStack.length = 0
-        this.rebase(oldGround)
         continue
       }
       if (this.confirmedRevision >= this.syncTarget) return
       const page = await this.connection.fetchOps(this.confirmedRevision)
+      if (this.statusSignal.get() !== 'catching-up') return
+      this.assertRemoteConnection(connectionGeneration)
+      if (this.resyncRequested) continue
       if (page.kind === 'resync-required') {
         this.resyncRequested = true
         continue
       }
       let progressed = false
       for (const operation of page.ops) {
+        if (this.statusSignal.get() !== 'catching-up' || this.resyncRequested) break
         const invalid = validateCollabServerOp(operation)
         if (invalid !== null) throw new Error(invalid)
         if (operation.revision <= this.confirmedRevision) continue
@@ -594,10 +713,12 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
           this.resyncRequested = true
           break
         }
-        this.ingestOrdered(operation)
+        const document = applyWire(this.confirmed, operation.patch, 'collab operation')
+        if (!await this.admitRemote(document, operation.revision, operation)) break
+        this.publishCheckpoint()
         progressed = true
       }
-      if (!progressed && !this.resyncRequested && this.confirmedRevision < this.syncTarget) {
+      if (this.statusSignal.get() === 'catching-up' && !progressed && !this.resyncRequested && this.confirmedRevision < this.syncTarget) {
         await this.retryDelay()
       }
     }
@@ -614,11 +735,28 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
     for (const digest of digests) this.retained.add(digest)
   }
 
-  private removeHistory(record: HistoryRecord): void {
-    const undo = this.undoStack.indexOf(record)
-    if (undo !== -1) this.undoStack.splice(undo, 1)
-    const redo = this.redoStack.indexOf(record)
-    if (redo !== -1) this.redoStack.splice(redo, 1)
+  private async admitRemote(document: ImageDocument, revision: number, operation?: CollabServerOp): Promise<boolean> {
+    const connectionGeneration = this.connectionGeneration
+    while (this.statusSignal.get() === 'catching-up' && !this.resyncRequested) {
+      this.assertRemoteConnection(connectionGeneration)
+      const prepared = this.prepareRemote(document, revision, operation)
+      const committed = this.beforeRemoteDocument === undefined ? undefined
+        : await this.beforeRemoteDocument(prepared.document, revision, this.optimistic,
+          prepared.resourceDigests, prepared.retainedDocuments)
+      if (this.statusSignal.get() !== 'catching-up' || this.resyncRequested) return false
+      this.assertRemoteConnection(connectionGeneration)
+      if (prepared.commit()) {
+        committed?.()
+        return true
+      }
+    }
+    return false
+  }
+
+  private assertRemoteConnection(generation: number): void {
+    if (this.beforeRemoteDocument !== undefined && (!this.connected || this.connectionGeneration !== generation)) {
+      throw new Error('ImageDocument connection changed during remote admission')
+    }
   }
 
   private notifyConflict(origin: string, error: unknown): void {
@@ -630,6 +768,7 @@ export class SharedImageDocumentSession implements ImageDocumentSession {
   private fail(message: string): void {
     const status = this.statusSignal.get()
     if (status === 'closed' || status === 'error') return
+    this.generation += 1
     this.statusSignal.set('error')
     this.connected = false
     try { this.onError?.(message) } catch { /* observers do not own session state */ }
@@ -644,12 +783,35 @@ export async function connectSharedImageDocumentSession(
   if ((descriptor.documentKind ?? 'workflow') !== 'image') {
     throw new Error('collaboration session is not an ImageDocument')
   }
-  const snapshot = await connection.fetchSnapshot()
-  if (!isValidCollabRevision(snapshot.revision)) throw new Error('invalid ImageDocument snapshot revision')
-  return new SharedImageDocumentSession(
-    connection,
-    loadedDocument(snapshot.document, 'collab snapshot'),
-    snapshot.revision,
-    options,
-  )
+  let invalidated = false
+  let announcedRevision = 0
+  const stop = options?.beforeRemoteDocument === undefined ? () => {} : connection.onEvent((event) => {
+    if (event.kind === 'disconnected' || event.kind === 'session-closed') invalidated = true
+    if (event.kind === 'op') {
+      if (validateCollabServerOp(event.op) !== null) invalidated = true
+      else announcedRevision = Math.max(announcedRevision, event.op.revision)
+    }
+    if (event.kind === 'connected') {
+      if (validateCollabDescriptor(event.descriptor, connection.sessionId, 'image') !== null) invalidated = true
+      else announcedRevision = Math.max(announcedRevision, event.descriptor.revision)
+    }
+  })
+  try {
+    const snapshot = await connection.fetchSnapshot()
+    if (!isValidCollabRevision(snapshot.revision)) throw new Error('invalid ImageDocument snapshot revision')
+    const document = loadedDocument(snapshot.document, 'collab snapshot')
+    const committed = await options?.beforeRemoteDocument?.(document, snapshot.revision, document,
+      Object.freeze([...resourceDigests(document)].sort()), Object.freeze([document]))
+    if (invalidated) throw new Error('ImageDocument connection changed during initial admission')
+    const session = new SharedImageDocumentSession(connection, document, snapshot.revision, options,
+      { token: initialAdmission, revision: announcedRevision })
+    if (invalidated) {
+      session.close()
+      throw new Error('ImageDocument connection changed during initial admission')
+    }
+    committed?.()
+    return session
+  } finally {
+    stop()
+  }
 }

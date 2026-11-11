@@ -20,13 +20,13 @@ describe('AppView document-owned previews', () => {
     app.widgetRegistry.registerPreviewRenderer({ id: 'test.image', canRender: (mime) => mime === 'image/png', mediaKind: 'image', drawCompact: () => {} })
     const asset = (letter: string) => ({ digest: `blake3:${letter.repeat(64)}`, name: `${letter}.png`, size: 7,
       mediaType: 'image/png', virtualPath: '' })
-    expect(app.openDocument({
+    expect((await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-reader', root: 'root',
       graphs: { root: { id: 'root', name: 'Workflow', links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
         nodes: { image: { id: 'image', type: 'ImageInput', values: { image: asset('a') } } } } },
       view: { graphs: { root: { nodes: {} } } },
       ext: { 'dinkster.exposedPreviews': [{ graphId: 'root', nodeId: 'image', label: 'Selected image' }] },
-    }, 'App reader')).toEqual([])
+    }, 'App reader'))).toEqual([])
     const tab = app.activeTab()!
     let acknowledge!: (receipt: RetainedAssets) => void
     const admission = new Promise<RetainedAssets>((resolve) => { acknowledge = resolve })
