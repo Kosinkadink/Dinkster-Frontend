@@ -110,6 +110,14 @@ test('inspects every media kind through the owning value API without mutating th
   const mountedInspector = page.locator('[data-mounted-identity="video-inspector"]')
   const mountedSummary = page.locator('[data-mounted-identity="video-summary"]')
   const mountedDiagnostics = page.locator('[data-mounted-identity="diagnostics"]')
+  // The fixture's viewport change persists independently of locale updates.
+  await page.evaluate(() => window.__dinksterTest!.app.flushPersistTabs())
+  await expect.poll(() => page.evaluate(() => {
+    const snapshot = JSON.parse(localStorage.getItem('dinkster.openTabs') ?? 'null')
+    return snapshot?.assetRetention?.acknowledged === true &&
+      !Object.keys(localStorage).some((key) => key.startsWith('dinkster.openTabsCandidate.') ||
+        key.startsWith('dinkster.openTabsDocumentCandidate.'))
+  })).toBe(true)
   const beforeLocaleRequests = [...backendRequests]
   const beforeLocaleValueRequests = requests.length
   const localeModule = await (await request.get('/src/locale.ts')).text()
@@ -165,6 +173,7 @@ test('inspects every media kind through the owning value API without mutating th
   await expect(mountedDiagnostics).toContainText('rgba')
   await expect(mountedDiagnostics).toContainText('coverage')
   await expect(mountedDiagnostics).toContainText('transparency')
+  await page.evaluate(() => window.__dinksterTest!.app.flushPersistTabs())
   expect(backendRequests).toEqual(beforeLocaleRequests)
   expect(requests).toHaveLength(beforeLocaleValueRequests)
   await page.getByTestId('outputs-panel').screenshot({ path: evidencePath('issue-457', 'media-inspector-i18n-de-DE.png') })
