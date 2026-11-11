@@ -32,7 +32,7 @@ import {
 } from '@dinkster/core'
 import type { RetainedAssets } from './dinkster-connection.js'
 
-export type ExecutionStatus = 'queued' | 'running' | 'completed' | 'error' | 'interrupted'
+export type ExecutionStatus = 'queued' | 'running' | 'completed' | 'error' | 'interrupted' | 'cancelled'
 
 export interface ExecutionSubmitter {
   readonly principalId: string
@@ -262,7 +262,7 @@ const previewBytesOf = (state: ExecutionState): number => {
 }
 
 const isTerminalStatus = (status: ExecutionStatus): boolean =>
-  status === 'completed' || status === 'error' || status === 'interrupted'
+  status === 'completed' || status === 'error' || status === 'interrupted' || status === 'cancelled'
 
 const stripPreviewFrames = (state: ExecutionState): ExecutionState => {
   const { lastPreview: _lastPreview, previewRings: _previewRings, ...rest } = state
@@ -505,6 +505,7 @@ export class ExecutionStore {
   }
 
   private applyToState(event: ExecutionEvent, state: ExecutionState): void {
+    if (state.status === 'cancelled' && event.kind !== 'log' && event.kind !== 'nodeOutput' && event.kind !== 'valueDiagnostics') return
     switch (event.kind) {
       case 'node.event':
         return
@@ -766,12 +767,17 @@ export class ExecutionStore {
         this.evictExecutionEntries(event.execution.connection)
         return
       }
+      case 'cancelled':
       case 'interrupted':
         if (this.isAuthoritativeTerminal(state)) return
         this.put({
           ...dropPreviewRings(state),
-          status: 'interrupted',
+          status: event.kind,
           endedAt: event.timestamp,
+          nodes: event.kind === 'cancelled'
+            ? Object.fromEntries(Object.entries(state.nodes).map(([id, node]) =>
+                [id, node.state === 'running' ? { state: 'skipped' as const } : node]))
+            : state.nodes,
           errors: this.provisionallyLost.delete(state.key) ? withoutLostDiagnostics(state.errors) : state.errors,
         })
         this.enforcePreviewBudget(event.execution.connection)
@@ -837,7 +843,7 @@ export class ExecutionStore {
    */
   markLost(ref: ExecutionRef, now: number = Date.now()): void {
     const state = this.map.get(executionKey(ref))
-    if (!state || state.status === 'completed' || state.status === 'error' || state.status === 'interrupted') return
+    if (!state || isTerminalStatus(state.status)) return
     this.provisionallyLost.add(state.key)
     this.put({
       ...dropPreviewRings(state),
@@ -897,7 +903,7 @@ export class ExecutionStore {
   }
 
   private isAuthoritativeTerminal(state: ExecutionState): boolean {
-    return (state.status === 'completed' || state.status === 'error' || state.status === 'interrupted') &&
+    return isTerminalStatus(state.status) &&
       !this.provisionallyLost.has(state.key)
   }
 
