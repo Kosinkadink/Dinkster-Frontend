@@ -138,6 +138,9 @@ Parallel-safe runs as six shards, backend-serial as two, and native startup
 as one isolated job. Every E2E lane installs
 and checks the software Vulkan driver selected by `VK_DRIVER_FILES`, including
 browser WebGL and native headless rendering.
+Both the server and Torch worker interpreters install the pinned checkout's
+first-party pack sources; catalog composition alone does not prove that the
+execution interpreter can import those packs.
 The product-surface visual matrix runs only in the fast visual job; its
 route-mocked screenshots do not require a second run against hosted backends.
 Synthetic noodle and boundary interaction proofs run only in parallel-safe.

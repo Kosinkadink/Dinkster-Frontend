@@ -583,6 +583,12 @@ describe('fast pull-request and full validation workflows', () => {
         expect(compatibilityInstall.run).toContain(
           'UV_PROJECT_ENVIRONMENT=.venv-torch uv sync --project .ci/Dinkster --python 3.12 --locked --package dinkster --no-dev',
         )
+        expect(compatibilityInstall.run).toContain(
+          'for pack in .ci/Dinkster/packages/dinkster-nodes-*; do',
+        )
+        expect(compatibilityInstall.run).toContain(
+          'uv pip install --python .ci/Dinkster/.venv-torch/bin/python --no-deps --no-sources \\\n  "${packs[@]}"',
+        )
         expect(compatibilityInstall.run).not.toContain(
           'uv pip install --python .ci/ComfyUI/venv/bin/python',
         )
