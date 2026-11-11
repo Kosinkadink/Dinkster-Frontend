@@ -2316,6 +2316,16 @@ describe('F0 atomic schema/snapshot pairing', () => {
 })
 
 describe('cancel ownership (CL7)', () => {
+  it.each(['running', 'cancelled', 'completed', 'failed'] as const)('returns the actual %s outcome instead of inventing cancellation', async (state) => {
+    const { conn } = submitHarness(() => jsonResponse(200, { jobId: 'j1', state, nodes: {} }))
+    const events: NormalizedEvent[] = []
+    conn.onEvent((event) => events.push(event))
+    await expect(conn.cancel(ref('j1'))).resolves.toBe(state)
+    expect(events.map((event) => event.kind)).toEqual(
+      state === 'running' ? [] : [state === 'failed' ? 'error' : state],
+    )
+  })
+
   it('rejects cancelling an execution owned by another connection without a request', async () => {
     const { conn, requests } = submitHarness(() => jsonResponse(200, {}))
     await expect(

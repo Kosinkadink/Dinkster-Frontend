@@ -33,6 +33,24 @@ const promptIdOf = (f: StreamFixture, i = 0): string =>
   f.submits[i]!.body['prompt_id'] as string
 
 describe('connection queue status', () => {
+  it('keeps cancellation distinct from failure and stops late node progress', () => {
+    const store = new ExecutionStore()
+    const connection = asConnectionId('local')
+    const execution = { connection, prompt: asPromptId('cancel-me') }
+    const normalizer = new DinksterNormalizer(connection)
+    store.apply({ kind: 'started', execution, timestamp: 1 })
+    store.apply({ kind: 'nodeStates', execution, timestamp: 2, nodes: {
+      active: { state: 'running', value: 0.35 }, finished: { state: 'done' },
+    } })
+    for (const event of normalizer.normalize({ type: 'job_state', jobId: 'cancel-me', state: 'cancelled' })) store.apply(event)
+    store.apply({ kind: 'nodeStates', execution, timestamp: 4, nodes: { active: { state: 'running', value: 0.9 } } })
+    store.markLost(execution)
+    expect(store.get(execution)).toMatchObject({
+      status: 'cancelled', nodes: { active: { state: 'skipped' }, finished: { state: 'done' } }, errors: [],
+    })
+    expect(store.isProvisionallyLost(execution)).toBe(false)
+  })
+
   it('keeps exact native queue counts per connection across empty and missing updates', () => {
     const store = new ExecutionStore()
     const first = asConnectionId('first')

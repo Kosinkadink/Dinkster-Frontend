@@ -5,6 +5,8 @@ import Play from 'lucide-solid/icons/play'
 import { ExecutionActivityCard, executionProgress } from './ExecutionActivityCard.js'
 import { Icon } from './Icon.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
+import type { AppState } from './app-state.js'
+import { CancelExecutionButton } from './CancelExecutionButton.js'
 
 export interface WorkflowQueueOwner {
   readonly id: string
@@ -13,6 +15,7 @@ export interface WorkflowQueueOwner {
 }
 
 export function WorkflowQueueControl(props: {
+  readonly app?: AppState
   readonly owner: WorkflowQueueOwner
   readonly executions: readonly ExecutionState[]
   readonly canQueue: boolean
@@ -165,6 +168,7 @@ export function WorkflowQueueControl(props: {
                     title={props.owner.title}
                     testId="workflow-queue-entry"
                     compact
+                    cancelControl={<Show when={props.app}>{(app) => <CancelExecutionButton app={app()} execution={entry} />}</Show>}
                     onOpen={() => props.onOpenExecution(entry.ref)}
                   />
                 )}

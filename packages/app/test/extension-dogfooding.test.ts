@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { asPromptId } from '@dinkster/core'
 import {
   registerCoreWidgets,
   type WidgetRegistrationDoors,
@@ -59,7 +60,7 @@ describe('core extension door dogfooding', () => {
       'region.createFold', 'region.createMap', 'region.createWhile', 'search.open', 'settings.open',
       'subgraph.createEmpty', 'subgraph.extract', 'subgraph.flatten', 'subgraph.manageDefinitions',
       'view.fitSelection', 'view.zoomIn', 'view.zoomOut',
-      'workflow.export', 'workflow.importFile', 'workflow.open', 'workflow.queue', 'workflow.save',
+      'workflow.cancel', 'workflow.export', 'workflow.importFile', 'workflow.open', 'workflow.queue', 'workflow.save',
     ])
     expect(app.keybindings.combo('search.open')).toBe('ctrl+k')
     expect(app.keybindings.combo('workflow.queue')).toBe('ctrl+enter')
@@ -72,6 +73,25 @@ describe('core extension door dogfooding', () => {
     expect(app.modalPanel.get()).toBe('settings')
     app.commands.get('layout.customize')!.run()
     expect(app.modalPanel.get()).toBe('customize-layout')
+  })
+
+  it('cancels window work through a bindable command even without an active workflow', async () => {
+    const backend = app.backends.get()[0]!
+    const ref = { connection: backend.id, prompt: asPromptId('background-run') }
+    const command = app.commands.get('workflow.cancel')!
+    expect(command.enabled?.()).toBe(false)
+    app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
+    expect(command.enabled?.()).toBe(true)
+    vi.spyOn(backend.connection, 'cancel').mockImplementation(async () => {
+      app.store.apply({ kind: 'cancelled', execution: ref, timestamp: 2 })
+      return 'cancelled'
+    })
+    app.keybindings.register({ command: 'workflow.cancel', combo: 'Ctrl+Escape' })
+    expect(app.keybindings.combo('workflow.cancel')).toBe('ctrl+escape')
+    command.run()
+    await vi.waitFor(() => expect(app.store.get(ref)?.status).toBe('cancelled'))
+    expect(command.enabled?.()).toBe(false)
+    expect(app.transientStatus.get()).toBe('Cancelled')
   })
 
   it('preserves live command properties through the public command door', () => {
