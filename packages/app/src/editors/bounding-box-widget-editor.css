@@ -1,0 +1,10 @@
+.bounding-box-preview {
+  display: none;
+  width: 100%;
+  min-height: 0;
+  max-height: 240px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  background: var(--dinkster-surface-canvas);
+}
+.bounding-box-preview.is-ready { display: block; }

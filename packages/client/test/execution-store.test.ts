@@ -208,6 +208,38 @@ describe('attributed previews', () => {
       expect(state.previewRings).toBeUndefined()
     })
 
+    it('retains independently indexed untimed image batches after completion, but releases timed animation', () => {
+      const store = storeWith(['p1'])
+      store.apply({ ...ringFrame('3', 11, { frameIndex: 0, frameCount: 2 }), stream: 'image_a' })
+      store.apply({ ...ringFrame('3', 12, { frameIndex: 1, frameCount: 2 }), stream: 'image_a' })
+      store.apply({ ...ringFrame('3', 21, { frameIndex: 0, frameCount: 3 }), stream: 'image_b' })
+      store.apply({ ...ringFrame('3', 99, { frameIndex: 0, frameCount: 4, fps: 16 }), stream: 'animation' })
+      store.apply({ kind: 'completed', execution: exec('p1'), timestamp: 2 })
+      store.apply({ ...ringFrame('3', 23, { frameIndex: 2, frameCount: 3 }, 3), stream: 'image_b' })
+      const streams = store.get(exec('p1'))!.previewRings!['3']!
+      expect(Object.keys(streams).sort()).toEqual(['image_a', 'image_b'])
+      expect(streams.image_a!.frameCount).toBe(2)
+      expect(Object.keys(streams.image_a!.frames)).toEqual(['0', '1'])
+      expect(streams.image_b!.frameCount).toBe(3)
+      expect(Object.keys(streams.image_b!.frames)).toEqual(['0', '2'])
+      expect(new Uint8Array(streams.image_a!.frames[0]!.payload as ArrayBuffer)[0]).toBe(11)
+      expect(new Uint8Array(streams.image_b!.frames[2]!.payload as ArrayBuffer)[0]).toBe(23)
+    })
+
+    it('evicts completed image batches under the preview budget without rebuilding them from late frames', () => {
+      const store = storeWith(['p1', 'p2', 'p3'])
+      for (const [index, prompt] of ['p1', 'p2', 'p3'].entries()) {
+        store.apply({ ...frame(prompt, '3', 1), stream: 'image_a', frameIndex: 0, frameCount: 2,
+          payload: new ArrayBuffer(32 * 1024 * 1024) })
+        store.apply({ kind: 'completed', execution: exec(prompt), timestamp: index + 2 })
+      }
+      expect(store.get(exec('p1'))!.previewRings).toBeUndefined()
+      expect(store.get(exec('p2'))!.previewRings!['3']!.image_a!.frameCount).toBe(2)
+      expect(store.get(exec('p3'))!.previewRings!['3']!.image_a!.frameCount).toBe(2)
+      store.apply({ ...frame('p1', '3', 2, 5), stream: 'image_a', frameIndex: 1, frameCount: 2 })
+      expect(store.get(exec('p1'))!.previewRings).toBeUndefined()
+    })
+
     it('a straggler ring frame after a terminal verdict never rebuilds a ring', () => {
       const store = storeWith(['p1'])
       store.markLost(exec('p1'), 1)

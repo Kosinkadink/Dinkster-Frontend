@@ -143,6 +143,33 @@ export const buttonKind: WidgetKind<null> = {
   defaultView: () => 'core.button',
 }
 
+export const imageCompareKind: WidgetKind<null> = {
+  type: 'IMAGECOMPARE',
+  valueSchema: { version: 1, validate: (value): value is null => value === null },
+  defaultValue: () => null,
+  validate: () => [],
+  defaultView: () => 'core.imageCompare',
+}
+
+export type BoundingBox = { x: number; y: number; width: number; height: number }
+
+export const boundingBoxKind: WidgetKind<BoundingBox> = {
+  type: 'BOUNDING_BOX',
+  valueSchema: {
+    version: 1,
+    validate: (value: unknown): value is BoundingBox => {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+      const box = value as Record<string, unknown>
+      return ['x', 'y', 'width', 'height'].every((key) => typeof box[key] === 'number' && Number.isFinite(box[key]))
+    },
+  },
+  defaultValue: (spec) => boundingBoxKind.valueSchema.validate(spec.default)
+    ? { ...spec.default } : { x: 0, y: 0, width: 512, height: 512 },
+  validate: (box) => Object.values(box).every(Number.isSafeInteger) && box.x >= 0 && box.y >= 0 && box.width > 0 && box.height > 0
+    ? [] : [diag('error', 'schema', 'widget.BOUNDING_BOX.invalid', t('boundingBoxWidget.invalid'))],
+  defaultView: () => 'core.boundingBox',
+}
+
 export const booleanKind: WidgetKind<boolean> = {
   type: 'BOOLEAN',
   valueSchema: booleanSchema,
@@ -862,6 +889,22 @@ export const load3dView: WidgetView<Json> = {
       '3D viewport', state, 'widget.edit')
   },
 }
+export const boundingBoxView: WidgetView<BoundingBox> = {
+  ...makeCompactView<BoundingBox>('core.boundingBox', 'BOUNDING_BOX'),
+  drawCompact(ctx, value, spec, state) {
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
+      boundingBoxKind.valueSchema.validate(value)
+        ? `${value.x}, ${value.y} / ${value.width} x ${value.height}` : t('boundingBoxWidget.invalid'),
+      state, 'widget.edit')
+  },
+}
+export const imageCompareView: WidgetView<null> = {
+  ...makeCompactView<null>('core.imageCompare', 'IMAGECOMPARE'),
+  drawCompact(ctx, _value, spec, state) {
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
+      t('imageCompareWidget.open'), state, 'widget.edit')
+  },
+}
 export const videoEditView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.videoEdit', 'VIDEO_EDIT'),
   drawCompact(ctx, value, spec, state) {
@@ -917,11 +960,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView]) {
+    multiSelectView, listView, colorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {
