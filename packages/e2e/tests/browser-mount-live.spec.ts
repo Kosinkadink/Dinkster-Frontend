@@ -326,7 +326,7 @@ test("a ComfyUI checkpoint filename binds through the real mount index on import
           window.__dinksterTest?.app.backends
             .get()
             .some((backend) =>
-              backend.registry.get()?.schemas.has("CheckpointLoaderSimple"),
+              backend.registry.get()?.schemas.has("dinkster.models.checkpoint_loader_simple"),
             ),
         ),
       )
@@ -368,7 +368,7 @@ test("a ComfyUI checkpoint filename binds through the real mount index on import
     );
     expect(
       Object.values(document.graphs.g0!.nodes).map((node) => node.type),
-    ).toEqual(["CheckpointLoaderSimple"]);
+    ).toEqual(["dinkster.models.checkpoint_loader_simple"]);
     expect(document.ext?.["importer.comfyWorkflow"]).toEqual(workflow);
   } finally {
     try {

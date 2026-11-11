@@ -3,22 +3,18 @@ import { expect, nativeTest as test, waitForStartupOwnership } from './fixtures.
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
 test.beforeEach(async ({ page }) => {
-  test.skip(process.env['DINKSTER_NATIVE_BACKEND'] === undefined,
-    'set DINKSTER_NATIVE_BACKEND to an isolated Dinkster backend')
-  let nodes: Record<string, unknown> | undefined
-  try {
-    const response = await fetch(`${NATIVE_BACKEND}/api/nodes`, {
-      signal: AbortSignal.timeout(2_000),
-    })
-    if (response.ok) nodes = (await response.json() as { nodes: Record<string, unknown> }).nodes
-  } catch { /* handled by the skip below */ }
-  test.skip(nodes === undefined, `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
-  expect(nodes, 'native backend must provide the canonical DynamicCombo nodes').toHaveProperty('EmptyImage')
-  expect(nodes).toHaveProperty('ResizeImageMaskNode')
+  const response = await fetch(`${NATIVE_BACKEND}/api/nodes`, {
+    signal: AbortSignal.timeout(2_000),
+  })
+  expect(response.ok).toBe(true)
+  const nodes = (await response.json() as { nodes: Record<string, unknown> }).nodes
+  expect(nodes, 'native backend must provide the canonical DynamicCombo nodes')
+    .toHaveProperty(['dinkster.image.empty_image'])
+  expect(nodes).toHaveProperty(['dinkster.image.resize_image_mask_node'])
 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('ResizeImageMaskNode') ?? false,
+    window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('dinkster.image.resize_image_mask_node') ?? false,
   ), { timeout: 15_000 }).toBe(true)
   await waitForStartupOwnership(page)
 })
@@ -42,11 +38,11 @@ test('ResizeImageMask DynamicCombo choice is accepted and completes on Dinkster'
         id: 'g0', name: 'root',
         nodes: {
           source: {
-            id: 'source', type: 'EmptyImage',
+            id: 'source', type: 'dinkster.image.empty_image',
             values: { width: 64, height: 48, batch_size: 1, color },
           },
           resize: {
-            id: 'resize', type: 'ResizeImageMaskNode',
+            id: 'resize', type: 'dinkster.image.resize_image_mask_node',
             values: {
               scale_method: 'bicubic',
               'resize_type.width': 32,
@@ -80,7 +76,7 @@ test('ResizeImageMask DynamicCombo choice is accepted and completes on Dinkster'
 
   expect(submitted).toBeDefined()
   expect(submitted!.graph.nodes.resize).toEqual({
-    nodeType: 'ResizeImageMaskNode',
+    nodeType: 'dinkster.image.resize_image_mask_node',
     inputs: {
       input: { $link: { node: 'source', output: 'IMAGE' } },
       scale_method: 'bicubic',
