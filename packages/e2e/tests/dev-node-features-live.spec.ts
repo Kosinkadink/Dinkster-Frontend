@@ -37,6 +37,17 @@ test('required served slot can be cleared, reselected and execute a connected va
   await page.locator('[data-item-id="core.slot.specialize.clear"]').click()
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes
     .find((node) => node.id === 'slot')!.layout.pins.some((pin) => pin.portId === 'source' && pin.direction === 'in'))).toBe(true)
+  await expect.poll(() => page.evaluate(() => {
+    const store = window.__dinksterTest!.app.activeTab()!.store
+    return 'status' in store ? (store.status as { get(): string }).get() : undefined
+  })).toBe('live')
+  expect(await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    return { shared: await app.shareActiveTab(), saved: await app.saveWorkflow(app.activeTab()!.id) }
+  })).toEqual({
+    shared: 'Workflow dynamic identities are invalid. Publication and sharing remain unavailable.',
+    saved: false,
+  })
   await test.info().attach('required-slot-cleared.png', {
     body: await page.screenshot({ ...(proofDir === undefined ? {} : { path: join(proofDir, 'required-slot-cleared.png') }) }),
     contentType: 'image/png',
