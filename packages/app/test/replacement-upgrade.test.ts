@@ -1,4 +1,3 @@
-import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildDinksterRegistry } from '@dinkster/client'
 import type { CommandOutcome, DinksterNodesPayload, JsonObject } from '@dinkster/core'
@@ -46,7 +45,7 @@ describe('native open-time replacement', () => {
   it.each([
     [false, false], [true, false], [false, true], [true, true],
   ])('imports the deprecated resize with size and image links intact, nested=%s, stale metadata=%s', async (nested, staleMetadata) => {
-    const resizeApp = prepareWorkflowApp(new AppState())
+    const resizeApp = new AppState()
     const backend = resizeApp.backends.get()[0]!
     backend.registry.set(buildDinksterRegistry(backend.id, { ...payload, nodes: {
       Source: { interface: [{ role: 'output', id: 'IMAGE', type: { kind: 'concrete', types: ['IMAGE'] } }] },
@@ -88,7 +87,7 @@ describe('native open-time replacement', () => {
       { ...graph, id: 'inner', name: 'inner', inputs: [], outputs: [] },
     ] } } : graph
     const original = JSON.stringify(source)
-    expect((await resizeApp.openDocument(source, 'Deprecated resize'))).toEqual([])
+    expect(resizeApp.openDocument(source, 'Deprecated resize')).toEqual([])
     const tab = resizeApp.activeTab()!
     const imported = tab.store.doc.graphs[nested ? 'inner' : 'g0']!
     expect(imported.nodes.n2!.type).toBe('ImageScaleToMaxDimension')
@@ -119,7 +118,7 @@ describe('native open-time replacement', () => {
     expect(app.registry.get()).toBeUndefined()
     if (available) loadSchemas(app)
     const original = document()
-    expect((await app.openDocument(original, 'Historical document'))).toEqual([])
+    expect(app.openDocument(original, 'Historical document')).toEqual([])
     const tab = app.activeTab()!
     if (!available) {
       expect(tab.store.doc.graphs.g0!.nodes.first!.type).toBe('Previous')
@@ -152,7 +151,7 @@ describe('native open-time replacement', () => {
   it('holds migrations only in opt-in review and applies through the existing command', async () => {
     loadSchemas(app)
     app.reviewReplacements.set(true)
-    expect((await app.openDocument(document(), 'Review'))).toEqual([])
+    expect(app.openDocument(document(), 'Review')).toEqual([])
     const tab = app.activeTab()!
     expect(tab.store.doc.graphs.g0!.nodes.first!.type).toBe('Previous')
     expect(app.migrationNotices.get().has(tab.id)).toBe(false)
@@ -167,7 +166,7 @@ describe('native open-time replacement', () => {
   it('undoes the upgrade batch from its notice without undoing later edits', async () => {
     loadSchemas(app)
     const original = document()
-    await app.openDocument(original, 'Historical document')
+    app.openDocument(original, 'Historical document')
     const tab = app.activeTab()!
     await vi.waitFor(() => expect(app.canUndoMigrationNotice(tab.id)).toBe(true))
     expect(app.canUndoMigrationNotice(tab.id)).toBe(true)
@@ -193,7 +192,7 @@ describe('native open-time replacement', () => {
 
   it('clears the transient notice on tab close', async () => {
     loadSchemas(app)
-    await app.openDocument(document(), 'Historical document')
+    app.openDocument(document(), 'Historical document')
     const tab = app.activeTab()!
     await vi.waitFor(() => expect(app.migrationNotices.get().has(tab.id)).toBe(true))
     expect(app.migrationNotices.get().has(tab.id)).toBe(true)
@@ -204,7 +203,7 @@ describe('native open-time replacement', () => {
   it.each([false, true])('waits for explicit replacement acceptance=%s', async (accepted) => {
     loadSchemas(app)
     app.reviewReplacements.set(true)
-    await app.openDocument(document(), 'Review')
+    app.openDocument(document(), 'Review')
     const tab = app.activeTab()!
     const dispatch = app.dispatchTo.bind(app)
     let finish!: () => void
@@ -223,7 +222,7 @@ describe('native open-time replacement', () => {
   })
 
   it.each(['refused', 'closed', 'replaced', 'later edit', 'accepted'])('publishes only the accepted live upgrade notice: %s', async (completion) => {
-    await app.openDocument(document(), 'Historical document')
+    app.openDocument(document(), 'Historical document')
     const tab = app.activeTab()!
     const dispatch = app.dispatchTo.bind(app)
     let finish!: () => Promise<void>
@@ -246,7 +245,7 @@ describe('native open-time replacement', () => {
     if (completion === 'closed') app.closeTab(tab.id)
     if (completion === 'replaced') {
       app.reviewReplacements.set(true)
-      await app.openDocument(document(), 'Replacement')
+      app.openDocument(document(), 'Replacement')
     }
     await finish()
     await delivered

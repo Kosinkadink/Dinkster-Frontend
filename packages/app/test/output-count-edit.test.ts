@@ -136,7 +136,7 @@ describe('AppState count-aware value edits', () => {
   afterEach(() => { app.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
   it('routes count widgets through the explicit preserving command while ordinary widgets stay generic', async () => {
-    expect((await app.openDocument(document(), 'Count edit'))).toEqual([])
+    expect(app.openDocument(document(), 'Count edit')).toEqual([])
     const tab = app.activeTab()!
     const origins: string[] = []
     tab.store.onOp((op) => origins.push(op.origin))
@@ -181,7 +181,7 @@ describe('AppState count-aware value edits', () => {
   })
 
   it('validates promoted count edits against the derived occurrence schema', async () => {
-    expect((await app.openDocument(subgraphDocument(), 'Promoted count edit'))).toEqual([])
+    expect(app.openDocument(subgraphDocument(), 'Promoted count edit')).toEqual([])
     const tab = app.activeTab()!
     const origins: string[] = []
     tab.store.onOp((op) => origins.push(op.origin))

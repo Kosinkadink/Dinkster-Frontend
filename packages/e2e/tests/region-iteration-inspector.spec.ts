@@ -34,7 +34,7 @@ test('inspects simple and nested region iterations by exact retained runtime ide
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
 
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const bridge = window.__dinksterTest!
     const app = bridge.app as typeof bridge.app & {
       registryForTab(tab: unknown): { readonly hash: string } | undefined
@@ -78,7 +78,7 @@ test('inspects simple and nested region iterations by exact retained runtime ide
         ] },
       { type: 'ProofSink', displayName: 'No-output step', category: 'proof', source: 'v3', isOutputNode: false, items: [] },
     ] as never)
-    const diagnostics = (await app.openDocument(workflow as never, 'Iteration inspector proof'))
+    const diagnostics = app.openDocument(workflow as never, 'Iteration inspector proof')
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
     const tab = app.activeTab()!
     const backend = (app as unknown as { backendForTab(tab: unknown): { id: string } }).backendForTab(tab)

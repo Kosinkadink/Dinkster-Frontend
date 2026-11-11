@@ -57,10 +57,10 @@ async function openCommand(page: Page, command: typeof commands[number], value?:
   const editable = command === 'import_otio' ? 'otio' : 'params'
   if (page.url() === 'about:blank') await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(commands.length)
-  await page.evaluate(async ({ command, value }) => {
+  await page.evaluate(({ command, value }) => {
     const inputId = command === 'import_otio' ? 'otio' : 'params'
     const needsDocument = !['make', 'import_otio'].includes(command)
-    await window.__dinksterTest!.app.openDocument({
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: `video-document-${command}`, root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Video document', nodes: {
         source: { id: 'source', type: 'dinkster.video_document.make', values: { params: '{}' } },
@@ -114,7 +114,7 @@ test('editor-authored parameters compile, save, reopen, import, and undo as ordi
     return { workflow: app.exportDocument(app.activeTab()!.id), prompt: result.artifact.prompt }
   })
   expect(compiled.prompt.edit!.inputs.params).toBe(expected)
-  expect(await page.evaluate(async (workflow) => (await window.__dinksterTest!.app.openDocument(workflow, 'Reopened', undefined, true)), compiled.workflow)).toEqual([])
+  expect(await page.evaluate((workflow) => window.__dinksterTest!.app.openDocument(workflow, 'Reopened', undefined, true), compiled.workflow)).toEqual([])
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.edit!.values.params)).toBe(expected)
 })
 
@@ -235,7 +235,7 @@ test('native execution matches editor-authored and literal values for every comm
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest!.app.backends.get()[0]?.registry.get()?.schemas.has('dinkster.video_document.make') ?? false,
   ), { timeout: 15_000 }).toBe(true)
-  const executionPairs = await page.evaluate(async ({ authored, params, otio }) => {
+  const executionPairs = await page.evaluate(({ authored, params, otio }) => {
     const nodes: Record<string, { id: string; type: string; values: Record<string, string> }> = {}
     const links: Record<string, { id: string; from: { node: string; port: string }; to: { node: string; port: string } }> = {}
     const positions: Record<string, { position: { x: number; y: number } }> = {}
@@ -277,7 +277,7 @@ test('native execution matches editor-authored and literal values for every comm
       addLink(`link-${command}-literal`, base, `literal-${command}`)
       addPair(command, command === 'render' ? 'video' : 'otio')
     }
-    await window.__dinksterTest!.app.openDocument({
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'video-document-native-parity', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Parity', nodes, links, nets: {}, reroutes: {}, nextOrdinal: ordinal } },
       view: { graphs: { g0: { nodes: positions } } },

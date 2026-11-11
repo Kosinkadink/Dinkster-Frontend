@@ -76,11 +76,11 @@ test('graph editor mounts once and never remounts across tab switches, registry 
   page,
 }) => {
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const document = structuredClone(app.activeTab()!.store.doc)
     document.lineage = 'editor-lifecycle-second-tab'
-    await app.openDocument(document, 'Second graph')
+    app.openDocument(document, 'Second graph')
   })
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(2)
 
@@ -145,9 +145,9 @@ test('unknown editor kind shows the loud missing-editor fallback, not blank spac
 })
 
 test('a synthetic node opens its editor from the schema role', async ({ page }) => {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    await app.openDocument(
+    app.openDocument(
       {
         format: 'dinkster-workflow',
         formatVersion: 1,

@@ -79,8 +79,8 @@ test('represented estimates propagate and recompute after connect and reconnect'
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(3)
-  await page.evaluate(async ({ first, second }) => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(({ first, second }) => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'mirror-propagation-proof',

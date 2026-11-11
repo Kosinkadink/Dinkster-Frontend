@@ -68,7 +68,7 @@ test('UI disconnect compacts an occurrence member atomically and survives reload
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get().length ?? 0)).toBe(1)
 
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([
       {
@@ -86,7 +86,7 @@ test('UI disconnect compacts an occurrence member atomically and survives reload
         }],
       },
     ])
-    await test.app.openDocument({
+    test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-t6a-proof', root: 'g0',
       graphs: {
         g0: {
@@ -164,10 +164,10 @@ test('UI disconnect compacts an occurrence member atomically and survives reload
   })
   await page.screenshot({ path: `${proofDir}/05-redo-compacted.png`, animations: 'disabled' })
 
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app as any
     const exported = app.exportDocument(app.activeTab()!.id)!
-    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'audit T6A reopened')
+    app.openDocument(JSON.parse(JSON.stringify(exported)), 'audit T6A reopened')
     const tab = app.activeTab()!
     tab.graphStack.set(['g0', 'sub'])
     tab.instancePath.set(['a'])

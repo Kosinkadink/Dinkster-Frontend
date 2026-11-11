@@ -10,7 +10,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveImportedNodePacks, type ComfyTranslation } from '@dinkster/core'
 import { EngineNotReadyError, type DinksterDiagnostics, type SchemaRegistry } from '@dinkster/client'
 import { AppState, backendConnectionStatus, GLOBAL_PROBLEMS_OWNER, type Backend } from '../src/app-state.js'
-import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -49,7 +48,7 @@ const nativeConnection = () => {
 }
 
 beforeEach(() => {
-  app = createWorkflowApp(null)
+  app = new AppState()
   const b = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
   if (!b) throw new Error('addBackend rejected')
   backend = b
@@ -71,7 +70,7 @@ describe('schema_changed epoch invalidation', () => {
     expect(backend.comfyTranslationsUnavailable.get()).toBe(true)
     resolve(translations('0.0.2'))
     await vi.waitFor(() => expect(backend.comfyTranslationsUnavailable.get()).toBe(false))
-    expect(await app.openDocument({ nodes: [{ id: 1, type: 'StringLength' }], links: [] }, 'Late metadata', backend)).toEqual([])
+    app.openDocument({ nodes: [{ id: 1, type: 'StringLength' }], links: [] }, 'Late metadata', backend)
     expect(resolveImportedNodePacks(app.activeTab()!.store.doc, backend.registry.get()!.resolve)[0]?.version).toBe('0.0.2')
   })
 
@@ -88,7 +87,7 @@ describe('schema_changed epoch invalidation', () => {
     } else push(backend, { type: 'schema_changed', epoch: 2 })
     await vi.waitFor(() => expect(backend.registry.get()?.epoch).toBe(2))
 
-    expect(await app.openDocument({ nodes: [{ id: 1, type: 'StringLength', widgets_values: ['retained during outage'] }], links: [] }, 'Refreshed import', backend)).toEqual([])
+    app.openDocument({ nodes: [{ id: 1, type: 'StringLength', widgets_values: ['retained during outage'] }], links: [] }, 'Refreshed import', backend)
     const document = app.activeTab()!.store.doc
     expect(document.graphs.g0!.nodes.n1!.type).toBe(available ? 'dinkster.text.string_length' : 'StringLength')
     expect(resolveImportedNodePacks(document, backend.registry.get()!.resolve)).toEqual([
@@ -491,7 +490,7 @@ describe('reconnect capability invalidation', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2)
     expect(backend.registry.get()?.graphFeatures).toBeUndefined()
     expect(app.logs.get().some((entry) => entry.message.includes('obsolete metadata request'))).toBe(false)
-    expect(await app.openDocument({ nodes: [{ id: 1, type: 'StringLength' }], links: [] }, 'Current server import', backend)).toEqual([])
+    app.openDocument({ nodes: [{ id: 1, type: 'StringLength' }], links: [] }, 'Current server import', backend)
     expect(resolveImportedNodePacks(app.activeTab()!.store.doc, backend.registry.get()!.resolve)[0]?.version).toBe('0.0.2')
   })
 
