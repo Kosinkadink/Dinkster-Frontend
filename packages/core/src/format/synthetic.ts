@@ -13,6 +13,8 @@
  * each flag adds a fixed, documented amount of extra structure per chain.
  */
 
+import { SYNTHETIC_IMAGE_NODES } from '../extensions/synthetic-nodes.js'
+
 export interface SyntheticWorkflowOptions {
   /** Number of independent EmptyImage -> scale... -> PreviewImage chains. */
   readonly chains: number
@@ -97,15 +99,15 @@ export function syntheticWorkflow(options: SyntheticWorkflowOptions): unknown {
         first = id
         nodes[id] = {
           id,
-          type: 'dinkster.image.empty_image',
+          type: SYNTHETIC_IMAGE_NODES.source,
           values: { width: 64, height: 64, batch_size: 1, color: (c * 7919) % 0xffffff },
         }
       } else if (i === chainLength - 1) {
-        nodes[id] = { id, type: 'dinkster.image.preview_image', values: {} }
+        nodes[id] = { id, type: SYNTHETIC_IMAGE_NODES.preview, values: {} }
       } else {
         nodes[id] = {
           id,
-          type: 'dinkster.image.image_scale_by',
+          type: SYNTHETIC_IMAGE_NODES.scale,
           values: { upscale_method: 'nearest-exact', scale_by: 1.0 },
         }
       }
@@ -263,8 +265,8 @@ function syntheticSubgraphWorkflow(options: SyntheticWorkflowOptions): unknown {
     const id = `n${ord++}`
     bodyNodes[id] =
       i === 0
-        ? { id, type: 'dinkster.image.empty_image', values: { width: 64, height: 64, batch_size: 1, color: 0 } }
-        : { id, type: 'dinkster.image.image_scale_by', values: { upscale_method: 'nearest-exact', scale_by: 1.0 } }
+        ? { id, type: SYNTHETIC_IMAGE_NODES.source, values: { width: 64, height: 64, batch_size: 1, color: 0 } }
+        : { id, type: SYNTHETIC_IMAGE_NODES.scale, values: { upscale_method: 'nearest-exact', scale_by: 1.0 } }
     if (i > 0) {
       const linkId = `l${ord++}`
       bodyLinks[linkId] = { id: linkId, from: { node: last, port: 'IMAGE' }, to: { node: id, port: 'image' } }
@@ -318,7 +320,7 @@ function syntheticSubgraphWorkflow(options: SyntheticWorkflowOptions): unknown {
     rootNodes[inst] = { id: inst, type: `#${innermost}`, values: { color: (c * 7919) % 0xffffff } }
     rootView[inst] = { position: { x: GRID.x0, y: GRID.y0 + c * GRID.rowY } }
     const preview = `n${rootOrd++}`
-    rootNodes[preview] = { id: preview, type: 'dinkster.image.preview_image', values: {} }
+    rootNodes[preview] = { id: preview, type: SYNTHETIC_IMAGE_NODES.preview, values: {} }
     rootView[preview] = { position: { x: GRID.x0 + GRID.colX, y: GRID.y0 + c * GRID.rowY } }
     const linkId = `l${rootOrd++}`
     rootLinks[linkId] = { id: linkId, from: { node: inst, port: 'image' }, to: { node: preview, port: 'images' } }

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const EXAMPLES_ROOT = fileURLToPath(new URL('../../../docs/examples/loops-and-subgraphs/', import.meta.url))
@@ -115,6 +116,15 @@ test.beforeEach(async ({ page }) => {
 
 for (const [file, expected] of Object.entries(expectedResults)) {
   test(`${file} imports and reaches its documented CPU result`, async ({ page }, testInfo) => {
+    const response = await fetch(`${NATIVE_BACKEND}/api/nodes?wire=45`)
+    expect(response.ok).toBe(true)
+    const { nodes } = await response.json() as { nodes: Readonly<Record<string, unknown>> }
+    const document = JSON.parse(await readFile(`${EXAMPLES_ROOT}${file}`, 'utf8')) as {
+      readonly graphs: Readonly<Record<string, { readonly nodes: Readonly<Record<string, { readonly type: string }>> }>>
+    }
+    requireBackendNodes(nodes, Object.values(document.graphs)
+      .flatMap((graph) => Object.values(graph.nodes).map((node) => node.type))
+      .filter((type) => !type.startsWith('#')), testInfo)
     await importExample(page, file)
     const execution = await executeRegion(page)
     expect(execution.status).toBe(expected.state)

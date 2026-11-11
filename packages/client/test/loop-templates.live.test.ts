@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   asConnectionId,
   compile,
@@ -8,6 +9,12 @@ import {
 import { DinksterConnection } from "../src/index.js";
 
 const LIVE_URL = process.env["DINKSTER_LIVE_URL"];
+const withdrawnDrafts = JSON.parse(
+  readFileSync(
+    new URL("../../e2e/tests/withdrawn-drafts.json", import.meta.url),
+    "utf8",
+  ),
+) as { readonly templates: Readonly<Record<string, readonly string[]>> };
 const TEMPLATE_IDS = [
   "loop-map-images",
   "loop-gather-image-batch",
@@ -17,38 +24,54 @@ const TEMPLATE_IDS = [
 ] as const;
 
 describe.skipIf(!LIVE_URL)("live production loop templates", () => {
-  it("discovers, loads, round-trips, compiles, executes, and replays every loop template", async () => {
-    const clientId = `loop-templates-${process.pid}`;
-    const connection = new DinksterConnection({
-      id: asConnectionId("loop-templates-live"),
-      baseUrl: LIVE_URL!,
-      clientId,
-    });
-    const registry = await connection.fetchSchemas();
-    expect(registry.graphFeatures).toContain("regions");
+  for (const entry of [...TEMPLATE_IDS, "loop-while-until-fixture"] as const) {
+    it(`${entry} loads, round-trips, compiles, executes, and replays`, async (context) => {
+      const fromFixture = entry === "loop-while-until-fixture";
+      const templateId = fromFixture ? "loop-while-until" : entry;
+      const clientId = `loop-templates-${process.pid}`;
+      const connection = new DinksterConnection({
+        id: asConnectionId("loop-templates-live"),
+        baseUrl: LIVE_URL!,
+        clientId,
+      });
+      const registry = await connection.fetchSchemas();
+      expect(registry.graphFeatures).toContain("regions");
 
-    const catalogResponse = await fetch(`${LIVE_URL}/api/templates`);
-    expect(catalogResponse.ok).toBe(true);
-    const catalog = (await catalogResponse.json()) as {
-      readonly templates: readonly {
-        readonly pack: string;
-        readonly id: string;
-      }[];
-    };
-    const available = new Set(
-      catalog.templates
-        .filter((row) => row.pack === "dinkster-nodes-foundation")
-        .map((row) => row.id),
-    );
-    for (const templateId of TEMPLATE_IDS)
-      expect(available.has(templateId)).toBe(true);
-
-    for (const templateId of TEMPLATE_IDS) {
-      const response = await fetch(
-        `${LIVE_URL}/api/packs/dinkster-nodes-foundation/templates/${templateId}`,
+      const catalogResponse = await fetch(`${LIVE_URL}/api/templates`);
+      expect(catalogResponse.ok).toBe(true);
+      const catalog = (await catalogResponse.json()) as {
+        readonly templates: readonly {
+          readonly pack: string;
+          readonly id: string;
+        }[];
+      };
+      const available = new Set(
+        catalog.templates
+          .filter((row) => row.pack === "dinkster-nodes-foundation")
+          .map((row) => row.id),
       );
-      expect(response.ok).toBe(true);
-      const source = await response.json();
+      if (!fromFixture && !available.has(templateId)) {
+        expect(Object.hasOwn(withdrawnDrafts.templates, templateId)).toBe(true);
+        context.skip(
+          `template withdrawn with the drafts, #661: ${templateId} (missing nodes: ${withdrawnDrafts.templates[templateId]?.join(", ") || "none"})`,
+        );
+      }
+
+      let source: unknown;
+      if (fromFixture) {
+        source = JSON.parse(
+          readFileSync(
+            new URL("./fixtures/loop-while-until.json", import.meta.url),
+            "utf8",
+          ),
+        );
+      } else {
+        const response = await fetch(
+          `${LIVE_URL}/api/packs/dinkster-nodes-foundation/templates/${templateId}`,
+        );
+        expect(response.ok).toBe(true);
+        source = await response.json();
+      }
       const loaded = loadDocument(source);
       expect(loaded.document, JSON.stringify(loaded.diagnostics)).toBeDefined();
       expect(
@@ -75,7 +98,7 @@ describe.skipIf(!LIVE_URL)("live production loop templates", () => {
         compiled.ok,
         JSON.stringify(!compiled.ok && compiled.diagnostics),
       ).toBe(true);
-      if (!compiled.ok) continue;
+      if (!compiled.ok) return;
       expect(compiled.artifact.dinksterGraph).toBeDefined();
 
       const submitted = await connection.submit(compiled.artifact);
@@ -83,7 +106,7 @@ describe.skipIf(!LIVE_URL)("live production loop templates", () => {
         submitted.ok,
         JSON.stringify(!submitted.ok && submitted.diagnostics),
       ).toBe(true);
-      if (!submitted.ok) continue;
+      if (!submitted.ok) return;
       const job = await waitForJob(connection, submitted.execution.prompt);
       expect(job["state"], JSON.stringify(job["error"])).toBe("completed");
       assertExpectedOutput(templateId, job);
@@ -124,8 +147,8 @@ describe.skipIf(!LIVE_URL)("live production loop templates", () => {
         submitted.execution.prompt,
         replay.events,
       );
-    }
-  }, 120_000);
+    }, 120_000);
+  }
 });
 
 const expectedIterations = (
@@ -141,7 +164,7 @@ function assertExpectedOutput(
     Record<string, Record<string, unknown>>
   >;
   if (templateId === "loop-while-until") {
-    expect(outputs["output"]?.["text"]?.["value"]).toBe("4");
+    expect(outputs["output"]?.["STRING"]?.["value"]).toBe("4");
     return;
   }
   expect(outputs["output"]?.["image_a"]?.["typeId"]).toBe("IMAGE");
@@ -172,7 +195,7 @@ async function assertDistinctIterationOutputs(
 ): Promise<void> {
   if (templateId === "loop-while-until") {
     const values = events.flatMap((event) => {
-      const value = event.detail?.outputs?.["sum"]?.value;
+      const value = event.detail?.outputs?.["INT"]?.value;
       return /loop\[\d+\]\/add$/.test(event.nodeId ?? "") &&
         typeof value === "number"
         ? [value]
