@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 for (const named of [false, true]) {
   test(`canonical forwarded family edits its instance in a drilled view (named=${named})`, async ({ page }, testInfo) => {
@@ -141,7 +141,7 @@ test('legacy named family literal editing advances the ghost through compaction'
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
-  await page.waitForFunction(() => window.__dinksterTest !== undefined)
+  await waitForStartupOwnership(page)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const scalar = { kind: 'union', names: ['FLOAT', 'INT', 'BOOLEAN'] }
