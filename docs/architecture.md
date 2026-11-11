@@ -305,7 +305,10 @@ release authority over a pending receipt.
 Canonical workspace snapshots, per-window candidates, per-lineage recovery
 documents and operation-journal additions each have independent saved-document
 owners. Exact complete acknowledgment precedes retiring covered candidate and
-operation slots. A local slot replacement retires its previous owners only after
+operation slots. A live window reconciles newly staged workspace candidates from
+its peers, retaining their captured roots before compaction. A disposed window
+only stages recovery data and cannot finish network admission or release owners.
+A local slot replacement retires its previous owners only after
 complete acknowledgment on the same backend/catalog lifetime; incomplete or
 refused replacements keep them. Cleanup releases only receipts admitted by this
 application for the removed generation and unchanged payload; retention metadata

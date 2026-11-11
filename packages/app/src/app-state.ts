@@ -2035,7 +2035,7 @@ function samePersistedWorkflowStage(stagedRaw: string, currentRaw: string): bool
 }
 
 function commitPersistedTabs(
-  state: PersistedTabs,
+  state: PersistedTabs | undefined,
   actorId: string,
   acknowledged: readonly { readonly opId: string; readonly revision: number }[],
   stage: (key: string, value: object, documents: readonly { readonly document: WorkflowDocument; readonly revision: number }[]) => Promise<string | undefined>,
@@ -2046,7 +2046,7 @@ function commitPersistedTabs(
   const storage = globalThis.localStorage
   if (!storage) return
   const project = activeProjectId()
-  try {
+  if (state !== undefined) try {
     // Each document's shared slot makes setItem itself the cross-renderer staging order.
     for (const tab of state.tabs) {
       const id = persistedTabId(tab)
@@ -3015,6 +3015,11 @@ export class AppState {
   private readonly receiveStorage = (event: StorageEvent): void => {
     this.settings.refreshFromStorage(event.key)
     this.retireUnusedResultOwners()
+    // A closed renderer leaves recovery data, not permission to finish its
+    // network work. A live peer admits the stored roots before compaction.
+    if (!this.disposed && event.newValue !== null && event.key?.startsWith(tabsCandidatePrefix())) {
+      this.reconcilePersistedTabs()
+    }
     if (event.key !== backendsKey()) return
     const incoming = decodePersistedBackends(event.newValue)
     if (!incoming) return
@@ -3774,6 +3779,8 @@ export class AppState {
   ): Promise<string | undefined> {
     const storage = globalThis.localStorage
     if (!storage) throw new Error('Workspace recovery storage is unavailable')
+    // A lock callback may outlive teardown and a peer's acknowledged handoff.
+    if (this.disposed && key === tabsKey()) return Promise.resolve(undefined)
     const project = activeProjectId()
     const stageId = randomWorkspaceId('stage')
     // Teardown cannot wait for the network. This generation is recovery data,
@@ -4424,6 +4431,10 @@ export class AppState {
           }
         }),
     }
+    this.reconcilePersistedTabs(state)
+  }
+
+  private reconcilePersistedTabs(state?: PersistedTabs): void {
     const acknowledged = [...this.workspaceAcknowledgedOperations].map(([opId, revision]) => ({ opId, revision }))
     commitPersistedTabs(state, this.workspaceActorId, acknowledged,
       (key, value, documents) => this.stagePersistedWorkflowSlot(key, value, documents), (committed) => {
