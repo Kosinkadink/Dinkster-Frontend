@@ -442,9 +442,24 @@ describe('addBackend / removeBackend', () => {
     const backend = nativeApp.addBackend('http://native:8000', 'Native', false, 'dinkster')
     if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')
 
+    nativeApp.setTabTarget(nativeApp.activeTab()!.id, backend.id)
+    let releaseRetention!: () => void
+    const retention = new Promise<void>((resolve) => { releaseRetention = resolve })
+    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      await retention
+      return { ...owner, ...declaration, revision: declaration.revision + 1 }
+    })
+    let admission: Promise<boolean> | undefined
+    const unsubscribe = backend.registry.subscribe(() => {
+      admission ??= nativeApp.confirmStartupOwnership().then(() => true, () => false)
+    })
     await nativeApp.refreshBackendSchemas(backend)
     await vi.waitFor(() => expect(backend.registry.get()?.resolve('demo.localized')?.displayName)
       .toBe('English pack node'))
+    releaseRetention()
+    expect(await admission).toBe(true)
+    unsubscribe()
     setLocale('de-DE')
     await vi.waitFor(() => expect(requests.some((url) => url.endsWith(encodeURIComponent(digest('b'))))).toBe(true))
     setLocale('fr-FR')

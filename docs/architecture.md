@@ -414,6 +414,9 @@ tabs' default target; session-only targets do not persist. Registry loading and
 the first local frame do not wait for ownership or shared-workspace promotion.
 Refused, unavailable or stale startup acknowledgments leave ownership unconfirmed
 in Problems and prevent shared promotion without discarding saved documents.
+Pack locale labels may arrive during confirmation without invalidating its schema
+snapshot. Real registry replacements still invalidate it, even with the same hash;
+startup does not wait for locale downloads.
 Asset publication still requires its exact acknowledgment; an unavailable
 retention route never implies an empty complete set. Restoration
 and crash-safe local writes remain synchronous; newly created durable holders and
