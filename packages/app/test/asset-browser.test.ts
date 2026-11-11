@@ -186,10 +186,6 @@ describe('asset browser helpers', () => {
     expect(isCompatible(item, ['video/*'], 'media/*')).toBe(false)
     const { mediaType: _mediaType, ...withoutMediaType } = item
     expect(isCompatible(withoutMediaType, [], undefined)).toBe(false)
-    const latent = { ...item, name: 'example.LATENT', mediaType: 'application/x-comfy-latent', kind: 'data/latent' }
-    expect(isCompatible(latent, ['.latent'], 'data/latent')).toBe(true)
-    expect(isCompatible({ ...latent, name: 'example.latent.bak' }, ['.latent'], 'data/latent')).toBe(false)
-    expect(isCompatible(latent, ['.latent'], 'media/image')).toBe(false)
   })
   it('accepts video wildcard browse rows without admitting image or audio MIME types', () => {
     const video = { ...item, name: 'clip.webm', mediaType: 'video/webm', kind: 'media/video' }

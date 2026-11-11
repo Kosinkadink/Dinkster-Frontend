@@ -3,7 +3,7 @@ import { assetMultiSelect, type CollectionEntry, type JsonObject } from '@dinkst
 import type { AssetGuessCandidate } from '@dinkster/client'
 import { Check, RotateCw, Upload, X } from 'lucide-solid'
 import { assetCollectionSource, assetEntryPickable, assetItemOf } from '../asset-browser/collection-adapter.js'
-import { assetSourcesStatus, committableAssetRef, formatSize, mediaAcceptsFile, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
+import { assetSourcesStatus, committableAssetRef, formatSize, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
 import { mountAssetSources } from '../asset-browser/mountAssetSource.js'
 import { localAssetSource } from '../asset-browser/localAssetSource.js'
 import { localMountScanAdapter } from '../asset-browser/local-mount-logical-model.js'
@@ -130,7 +130,10 @@ export function unresolvedAssetBasename(requested: string): string {
   return requested.split(/[\\/]/).filter(Boolean).at(-1) ?? requested
 }
 
-export { mediaAcceptsFile } from '../asset-browser/helpers.js'
+export function mediaAcceptsFile(accept: readonly string[], mediaType: string): boolean {
+  if (mediaType === '') return false
+  return accept.some((pattern) => pattern === mediaType || pattern === '*/*' || (pattern.endsWith('/*') && mediaType.startsWith(pattern.slice(0, -1))))
+}
 
 function assetPickerState(state: CollectionPanelState, vocabulary: AssetPickerVocabulary) {
   if (state.kind === 'loading') return <SearchState kind="loading" title={`Loading ${vocabulary.plural}`} detail={`Searching ${state.sourceLabel}.`} />
@@ -492,11 +495,11 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     try {
       const existing = await resolveDroppedAsset(backend.baseUrl, file, current)
       if (!current()) return false
-      if (existing && accept.length > 0 && !mediaAcceptsFile(accept, existing.mediaType, existing.name)) {
+      if (existing && accept.length > 0 && !mediaAcceptsFile(accept, existing.mediaType)) {
         setAssetError('The existing file is not compatible with this input. Nothing was uploaded.')
         return false
       }
-      if (!existing && accept.length > 0 && !mediaAcceptsFile(accept, effectiveType, file.name) && !(classifiedLatent && file.type === '')) {
+      if (!existing && accept.length > 0 && !mediaAcceptsFile(accept, effectiveType) && !(classifiedLatent && file.type === '')) {
         setAssetError(`Unsupported file type: ${effectiveType || 'unknown'}`)
         return false
       }

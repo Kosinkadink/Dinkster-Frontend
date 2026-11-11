@@ -720,45 +720,37 @@ const sharedBackendClientId = (): string => {
 
 const REGION_DEFINITIONS: Readonly<Record<RegionKind, FreshDefinitionInitializer>> = {
   map: {
-    nodes: { n0: { id: 'n0' as never, type: 'dinkster.utilities.primitive_float', values: {} } },
+    nodes: { n0: { id: 'n0' as never, type: 'dinkster.float', values: {} } },
     links: {}, nets: {}, reroutes: {},
     boundary: {
       inputs: [{ id: 'item' as never, displayName: 'Item', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
-      outputs: [{ id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'FLOAT' as never } }],
+      outputs: [{ id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
     },
     nextOrdinal: 1,
   },
   fold: {
-    nodes: {
-      n0: { id: 'n0' as never, type: 'dinkster.utilities.comfy_math_expression',
-        values: { expression: 'a + b' }, dynamic: { values: { members: ['a', 'b'] } } },
-      n1: { id: 'n1' as never, type: 'dinkster.utilities.primitive_int', values: {} },
-      n2: { id: 'n2' as never, type: 'dinkster.utilities.primitive_int', values: {} },
-    },
-    links: {
-      l3: { id: 'l3' as never, from: { node: 'n1' as never, port: 'INT' as never }, to: { node: 'n0' as never, port: 'values.a' as never } },
-      l4: { id: 'l4' as never, from: { node: 'n2' as never, port: 'INT' as never }, to: { node: 'n0' as never, port: 'values.b' as never } },
-    }, nets: {}, reroutes: {},
+    nodes: { n0: { id: 'n0' as never, type: 'std.math.add_ints', values: {} } },
+    links: {}, nets: {}, reroutes: {},
     boundary: {
       inputs: [
-        { id: 'item' as never, displayName: 'Item', binds: { kind: 'port', node: 'n1' as never, port: 'value' as never } },
-        { id: 'state' as never, displayName: 'State', binds: { kind: 'port', node: 'n2' as never, port: 'value' as never } },
+        { id: 'item' as never, displayName: 'Item', binds: { kind: 'port', node: 'n0' as never, port: 'a' as never } },
+        { id: 'state' as never, displayName: 'State', binds: { kind: 'port', node: 'n0' as never, port: 'b' as never } },
       ],
-      outputs: [{ id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'INT' as never } }],
+      outputs: [{ id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'sum' as never } }],
     },
-    nextOrdinal: 5,
+    nextOrdinal: 1,
   },
   while: {
     nodes: {
-      n0: { id: 'n0' as never, type: 'dinkster.utilities.primitive_float', values: {} },
-      n1: { id: 'n1' as never, type: 'dinkster.utilities.primitive_boolean', values: { value: false } },
+      n0: { id: 'n0' as never, type: 'dinkster.float', values: {} },
+      n1: { id: 'n1' as never, type: 'dinkster.boolean', values: { value: true } },
     },
     links: {}, nets: {}, reroutes: {},
     boundary: {
       inputs: [{ id: 'state' as never, displayName: 'State', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
       outputs: [
-        { id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'FLOAT' as never } },
-        { id: 'continue' as never, displayName: 'Continue', binds: { kind: 'port', node: 'n1' as never, port: 'BOOLEAN' as never } },
+        { id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } },
+        { id: 'continue' as never, displayName: 'Continue', binds: { kind: 'port', node: 'n1' as never, port: 'value' as never } },
       ],
     },
     nextOrdinal: 2,
@@ -767,7 +759,7 @@ const REGION_DEFINITIONS: Readonly<Record<RegionKind, FreshDefinitionInitializer
 
 const REGION_VIEWS = {
   map: { nodes: { n0: { position: { x: 80, y: 80 } } } },
-  fold: { nodes: { n0: { position: { x: 400, y: 80 } }, n1: { position: { x: 80, y: 80 } }, n2: { position: { x: 80, y: 260 } } } },
+  fold: { nodes: { n0: { position: { x: 80, y: 80 } } } },
   while: { nodes: { n0: { position: { x: 80, y: 80 } }, n1: { position: { x: 320, y: 80 } } } },
 } as const
 
