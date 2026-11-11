@@ -1,12 +1,12 @@
-import { expect, nativeTest as test, waitForStartupOwnership } from './fixtures.js'
+import { expect, nativeTest as test } from './fixtures.js'
 
 test.use({ retentionApi: false })
 
 for (const kind of ['map', 'fold', 'while'] as const) {
   test(`an untouched ${kind} starter runs with the served catalog`, async ({ page }, testInfo) => {
     await page.goto('/')
-    await waitForStartupOwnership(page)
     await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('dinkster.utilities.primitive_float'))).toBe(true)
+    await page.evaluate(() => window.__dinksterTest!.app.confirmStartupOwnership())
     const occurrenceId = await page.evaluate(async (kind) => {
       const app = window.__dinksterTest!.app
       const tab = app.createWorkflow()
@@ -47,8 +47,8 @@ for (const kind of ['map', 'fold', 'while'] as const) {
 
 test('dropping a latent uses the served extension-declared Load Latent input', async ({ page }, testInfo) => {
   await page.goto('/')
-  await waitForStartupOwnership(page)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('dinkster.latent.load_latent'))).toBe(true)
+  await page.evaluate(() => window.__dinksterTest!.app.confirmStartupOwnership())
   await page.evaluate(() => { window.__dinksterTest!.app.createWorkflow() })
   const uploaded = page.waitForResponse((response) => response.request().method() === 'POST' &&
     new URL(response.url()).pathname === '/api/assets/latent')

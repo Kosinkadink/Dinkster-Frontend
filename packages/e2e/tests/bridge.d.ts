@@ -333,6 +333,7 @@ interface DinksterTestBridge {
     }
     menuRegistry: import('@dinkster/core').MenuRegistry
     flushPersistTabs(forceStage?: boolean): void
+    confirmStartupOwnership(): Promise<void>
     activeTab(): DinksterBridgeTab | undefined
     createWorkflow(): DinksterBridgeTab
     createRegion(tab: DinksterBridgeTab, graphId: string, position: { x: number; y: number }, kind: 'map' | 'fold' | 'while'):
