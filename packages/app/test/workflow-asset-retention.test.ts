@@ -602,6 +602,43 @@ describe('retained app dispatch', () => {
     }
   })
 
+  it.each(['cleared', 'invalid-variant', 'unknown-state', 'malformed-asset'] as const)(
+    'admits correction of a missing required slot without certifying invalid roots: %s', (scenario) => {
+      const slot: NodeSchema = { ...schema, items: [{
+        kind: 'input', id: 'source', optional: false, type: { kind: 'union', names: ['STRING', 'INT'] },
+        dynamic: { kind: 'dynamicSlot', materialization: 'wire15',
+          slotType: { kind: 'union', names: ['STRING', 'INT'] }, inputs: [],
+          variants: [
+            { key: 'text', type: { kind: 'concrete', name: 'STRING' }, inputs: [] },
+            { key: 'integer', type: { kind: 'concrete', name: 'INT' }, inputs: [] },
+          ],
+        },
+      }] }
+      const base = session().doc
+      const document: WorkflowDocument = { ...base, graphs: { g0: { ...base.graphs.g0!, nodes: {
+        n0: { id: asNodeId('n0'), type: 'Loader',
+          values: { source: scenario === 'malformed-asset' ? { digest: 'broken' } : 7 },
+          dynamic: { source: scenario === 'invalid-variant' ? { selected: 'missing' } : {},
+            ...(scenario === 'unknown-state' ? { unknown: {} } : {}),
+          },
+        },
+      } } } }
+      const history = { revision: 0, undo: [], redo: [] }
+      const admitted = workflowAssetRoots(document, history, () => slot, [], 'admission')
+      expect(admitted.complete).toBe(false)
+      expect(admitted.digests).toEqual([])
+      expect(admitted.refusal).toBe(scenario === 'cleared' ? undefined
+        : scenario === 'malformed-asset' ? 'Workflow asset identity is malformed' : 'Workflow dynamic identities are invalid')
+      if (scenario === 'cleared') expect(admitted.incompleteDiagnostics).toContainEqual(expect.objectContaining({
+        severity: 'error', code: 'prompt.missing_dynamic_choice',
+      }))
+      for (const purpose of ['publication', 'execution'] as const) {
+        expect(workflowAssetRoots(document, history, () => slot, [], purpose))
+          .toMatchObject({ complete: false, refusal: 'Workflow dynamic identities are invalid' })
+      }
+    },
+  )
+
   it('opens and executes valid active roots but keeps unsupported dormant ownership ineligible and publication refused', async () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     const dynamic: NodeSchema = { ...schema, items: [{

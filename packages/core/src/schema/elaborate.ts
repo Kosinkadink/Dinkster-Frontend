@@ -1383,7 +1383,7 @@ const dynamicSlotHandler: DynamicKindHandler = {
           )
           ctx.report(
             'error',
-            'prompt.bad_dynamic_choice',
+            'prompt.missing_dynamic_choice',
             `${ctx.nodeType}.${construct}: required dynamic slot must name a declared variant`,
             construct,
           )

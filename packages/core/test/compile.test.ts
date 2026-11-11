@@ -1951,14 +1951,14 @@ describe('dynamic interfaces', () => {
 
     const full = dynCompile(doc)
     expect(full.ok).toBe(false)
-    if (!full.ok) expect(full.diagnostics.some((diagnostic) => diagnostic.code === 'prompt.bad_dynamic_choice')).toBe(true)
+    if (!full.ok) expect(full.diagnostics.some((diagnostic) => diagnostic.code === 'prompt.missing_dynamic_choice')).toBe(true)
 
     const selectedCrop = dynCompile(doc, {
       kind: 'partial',
       targets: [{ instancePath: [], node: asNodeId('invalidCrop') }],
     })
     expect(selectedCrop.ok).toBe(false)
-    if (!selectedCrop.ok) expect(selectedCrop.diagnostics.some((diagnostic) => diagnostic.code === 'prompt.bad_dynamic_choice')).toBe(true)
+    if (!selectedCrop.ok) expect(selectedCrop.diagnostics.some((diagnostic) => diagnostic.code === 'prompt.missing_dynamic_choice')).toBe(true)
   })
 
   it('keeps structural route errors that break an included partial path', () => {

@@ -1078,7 +1078,7 @@ describe('dynamicSlot', () => {
       ] },
     })
     expect(elabInputsOf(cleared)[0]!.apiName).toBeUndefined()
-    expect(cleared.diagnostics).toContainEqual(expect.objectContaining({ severity: 'error', code: 'prompt.bad_dynamic_choice' }))
+    expect(cleared.diagnostics).toContainEqual(expect.objectContaining({ severity: 'error', code: 'prompt.missing_dynamic_choice' }))
 
     const reselected = elaborateInterface(schemaOf([required]), { values: { source: 7 }, dynamic: { source: { selected: 'integer' } } })
     expect(reselected.diagnostics).toEqual([])
