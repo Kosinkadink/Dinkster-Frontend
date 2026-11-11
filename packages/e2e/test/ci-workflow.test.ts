@@ -467,7 +467,7 @@ describe('fast pull-request and full validation workflows', () => {
       expect(parallel.testIgnore).not.toContain(`tests/${file}`)
   })
 
-  it('runs the thirteen native live Vitest cases in the native startup server lifetime', async () => {
+  it('runs the current native live cases and checks only canonical withdrawals in the native startup server lifetime', async () => {
     const setup = await readFile(
       resolve(root, 'packages/e2e/hosted-live-vitest-setup.ts'),
       'utf8',
@@ -481,8 +481,10 @@ describe('fast pull-request and full validation workflows', () => {
       'regions-live.integration.test.ts',
     ])
       expect(setup).toContain(`test/${file}`)
-    expect(setup).toContain('count: 11')
-    expect(setup).toContain('count: 2')
+    expect(setup).toContain('count: 16')
+    expect(setup).toContain('count: 6')
+    expect(setup).toContain('tests/withdrawn-drafts.json')
+    expect(setup).toContain('allowedWithdrawals.has(test.fullName)')
     expect(setup).toContain("'--maxWorkers=1'")
     expect(setup).toContain("'--no-file-parallelism'")
     expect(setup).toContain("'--testNamePattern=^live '")

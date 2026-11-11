@@ -165,9 +165,13 @@ rootless native composition. It neither starts a stock ComfyUI server nor
 passes a ComfyUI root to Dinkster. The isolated library configures a read-only
 `checkpoints` mount with kind `model/checkpoint` for the missing-model picker
 fixture, alongside its writable `output` mount. The native startup
-job runs the 11 native client and two native app live Vitest cases once inside
+job runs the 16 native client and six native app live Vitest cases once inside
 its native server lifetime, serially, and retains their JSON reports with exact
-case-count and passed-status checks. Its contract proof separately starts Dinkster with
+case-count checks. Current cases must pass. A skipped case is accepted only when
+its required node or served template is absent and recorded in the single
+`packages/e2e/tests/withdrawn-drafts.json` list. The While / Until execution
+fixture remains mandatory even though its served template was withdrawn.
+Its contract proof separately starts Dinkster with
 `--no-default-packs --pack tests/fixtures/extension-contract-pack/dinkster-pack.toml`
 on ports 15420/15421, activates the fixture pack's immutable frontend module,
 renders two custom nodes linked through the pack's custom value type, executes
