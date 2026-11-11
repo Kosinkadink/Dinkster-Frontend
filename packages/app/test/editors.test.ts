@@ -444,7 +444,8 @@ describe('Tab editorKind', () => {
       }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } }, view: { graphs: {} },
     }, 'Image admission')).toEqual([])
     const tab = app.activeTab()!
-    expect(app.openImageEditor(app.imageTargetForInput(tab, 'g0', 'image', 'image')!)).toBe(true)
+    const target = app.imageTargetForInput(tab, 'g0', 'image', 'image')!
+    expect(app.openImageEditor(target)).toBe(true)
     const opened = app.imageEditorTarget.get()!
     let accept!: () => void
     const acknowledgment = new Promise<void>((resolve) => { accept = resolve })
@@ -452,7 +453,7 @@ describe('Tab editorKind', () => {
       await acknowledgment
       return { ...owner, ...declaration, revision: declaration.revision + 1 }
     })
-    const admission = app.retainEditorAssets(opened, app.backendForTab(tab), opened.sourceRef, () => true)
+    const admission = app.retainEditorAssets(opened, app.backendForTab(tab), target.sourceRef, () => true)
     const refused = expect(admission).rejects.toThrow('Editor source changed')
     app.closeImageEditor(opened)
     accept()
