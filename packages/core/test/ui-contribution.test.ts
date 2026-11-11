@@ -33,113 +33,6 @@ describe('HostUiContributionV1 decoding', () => {
     expect((decoded.contribution!.root as { children: readonly { text?: string }[] }).children[0]!.text).toBe('Text')
   })
 
-  it('owns the bounded asset editor presentation without assigning field or origin semantics', () => {
-    const input = contribution({
-      kind: 'asset-editor',
-      key: 'asset.editor',
-      presentation: {
-        heading: 'Portrait study',
-        description: 'Supplied presentation state',
-        viewport: { label: 'Image preview', state: 'ready', detail: '2048 x 2048' },
-        fields: [
-          {
-            key: 'field.prompt',
-            kind: 'display',
-            label: 'Prompt',
-            value: 'A portrait',
-            origin: { label: 'UI-authored', detail: 'Displayed origin only', tone: 'accent' },
-            capability: { kind: 'editable', label: 'Editable' },
-            validation: { key: 'field.prompt.validation', tone: 'warning', text: 'Review this value.' },
-            action: { key: 'field.prompt.action', label: 'Edit', command: 'demo.edit-prompt', state: 'enabled' },
-          },
-          {
-            key: 'field.future',
-            kind: 'future-control',
-            label: 'Future field',
-            value: '',
-            capability: { kind: 'future-capability' },
-          },
-        ],
-        messages: [{ key: 'notice.version', tone: 'info', text: 'Version supplied upstream.' }],
-        factGroups: [{
-          key: 'facts.source',
-          label: 'Source',
-          facts: [
-            { key: 'fact.source', label: 'Input', state: 'ready', value: 'source.png' },
-            { key: 'fact.pending', label: 'Metadata', state: 'pending', detail: 'Reading supplied facts' },
-          ],
-        }],
-        tools: [{
-          key: 'tool.timeline',
-          label: 'Timeline',
-          state: 'loading',
-          detail: 'Loading supplied tool state',
-          actions: [{ key: 'tool.timeline.cancel', label: 'Cancel', command: 'demo.cancel-tool', state: 'enabled' }],
-        }],
-        actions: [{
-          key: 'action.export',
-          label: 'Export',
-          command: 'demo.export',
-          state: 'pending',
-          detail: 'Exporting',
-        }],
-      },
-    })
-    const decoded = decodeHostUiContributionV1(input)
-    expect(decoded.diagnostics).toEqual([])
-    expect(decoded.contribution).toEqual(input)
-    const root = decoded.contribution!.root as { presentation: { fields: readonly { kind: string; value: string; capability: { kind: string } }[] } }
-    expect(root.presentation.fields[1]).toEqual(expect.objectContaining({ kind: 'future-control', capability: { kind: 'future-capability' } }))
-    expect(Object.isFrozen(root.presentation)).toBe(true)
-    expect(Object.isFrozen(root.presentation.fields)).toBe(true)
-    expect(Object.isFrozen(root.presentation.fields[0])).toBe(true)
-    expect(root.presentation.fields[1]?.value).toBe('')
-  })
-
-  it('keeps the asset editor root-only and rejects unbounded presentation properties', () => {
-    const presentation = {
-      heading: 'Asset',
-      viewport: { label: 'Preview', state: 'absent' },
-      fields: [],
-    }
-    expect(codes(contribution({
-      kind: 'group',
-      key: 'root',
-      direction: 'column',
-      children: [{ kind: 'asset-editor', key: 'nested', presentation }],
-    })).join('\n')).toContain('must be the root')
-    expect(codes(contribution({
-      kind: 'asset-editor',
-      key: 'asset.editor',
-      presentation: { ...presentation, route: '/api/assets' },
-    })).join('\n')).toContain('route')
-    expect(codes(contribution({
-      kind: 'asset-editor',
-      key: 'asset.editor',
-      presentation: {
-        ...presentation,
-        actions: [{
-          key: 'action.apply',
-          label: 'Apply',
-          command: 'demo.apply',
-          state: 'pending',
-          cancel: { label: 'Cancel', command: 'demo.cancel' },
-        }],
-      },
-    })).join('\n')).toContain('cancel')
-    expect(codes(contribution({
-      kind: 'asset-editor',
-      key: 'asset.editor',
-      presentation: {
-        ...presentation,
-        fields: [
-          { key: 'field.same', kind: 'display', label: 'First', value: '', capability: { kind: 'read-only' } },
-          { key: 'field.same', kind: 'display', label: 'Second', value: '', capability: { kind: 'read-only' } },
-        ],
-      },
-    })).join('\n')).toContain('$.root.presentation.fields[1].key')
-  })
-
   it.each([
     ['function', () => contribution({ kind: 'action', key: 'a', label: 'A', command: 'a.run', payload: { bad: () => {} } })],
     ['symbol', () => contribution({ kind: 'action', key: 'a', label: 'A', command: 'a.run', payload: Symbol('bad') })],
@@ -224,20 +117,6 @@ describe('HostUiContributionV1 decoding', () => {
     expect(codes(contribution(deep)).join('\n')).toContain('depth limit')
     const branches = Array.from({ length: 5 }, (_, branch) => ({ kind: 'group', key: `branch-${branch}`, direction: 'row', children: Array.from({ length: 32 }, (_, index) => text(`n-${branch}-${index}`)) }))
     expect(codes(contribution({ kind: 'group', key: 'root', direction: 'row', children: branches })).join('\n')).toContain(`${HOST_UI_MAX_NODES} node`)
-    const factGroups = Array.from({ length: 4 }, (_, group) => ({
-      key: `facts-${group}`,
-      label: `Facts ${group}`,
-      facts: Array.from({ length: HOST_UI_MAX_CHILDREN }, (_, fact) => ({
-        key: `fact-${group}-${fact}`,
-        label: `Fact ${fact}`,
-        state: 'ready',
-      })),
-    }))
-    expect(codes(contribution({
-      kind: 'asset-editor',
-      key: 'asset.editor',
-      presentation: { heading: 'Asset', viewport: { label: 'Preview', state: 'ready' }, fields: [], factGroups },
-    })).join('\n')).toContain('presentation value limit')
     expect(codes(contribution({ kind: 'text', key: 'a', text: 'x'.repeat(HOST_UI_MAX_VISIBLE_STRING_LENGTH + 1) })).join('\n')).toContain('character limit')
     expect(codes(contribution({ kind: 'text', key: 'x'.repeat(HOST_UI_MAX_ID_LENGTH + 1), text: 'x' })).join('\n')).toContain('character limit')
     expect(codes(contribution({ kind: 'action', key: 'a', label: 'A', command: 'a.run', payload: 'x'.repeat(HOST_UI_MAX_PAYLOAD_JSON_BYTES) })).join('\n')).toContain('byte JSON limit')

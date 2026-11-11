@@ -97,12 +97,6 @@
   "AssetConsentDialog.tsx": [
     "text:decisionEl) const request = useSignal(props.app.assetConsent) const [selected, setSelected] = createSignal"
   ],
-  "AssetEditorShell.tsx": [
-    "text:Asset editor",
-    "text:No editor tools were supplied.",
-    "text:No fields were supplied.",
-    "text:props.field.validation?.tone === 'warning' ? 'warning' as const : props.field.validation?.tone === 'info' || props.field.validation?.tone === 'status' ? 'status' as const : 'error' as const return ("
-  ],
   "AssetsBody.tsx": [
     "text:() const [mounts, setMounts] = createSignal",
     "text:() const [retryTick, setRetryTick] = createSignal(0) const [foldersOpen, setFoldersOpen] = createSignal(false) const [outputUnconfigured, setOutputUnconfigured] = createSignal(false) let folders: HTMLDetailsElement | undefined const [sourceFailures, setSourceFailures] = createSignal",

@@ -1,9 +1,9 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 158,
+    "rawControl": 156,
     "inlineStyle": 64,
-    "cssLiteral": 66
+    "cssLiteral": 65
   },
   "entries": [
     {
@@ -27,12 +27,6 @@
     {
       "kind": "rawControl",
       "path": "packages/app/src/AssetConsentDialog.tsx",
-      "count": 2,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/AssetEditorShell.tsx",
       "count": 2,
       "issue": 382
     },
@@ -411,7 +405,7 @@
     {
       "kind": "cssLiteral",
       "path": "packages/app/src/styles.css",
-      "count": 66,
+      "count": 65,
       "issue": 382
     }
   ]
