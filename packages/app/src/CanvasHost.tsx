@@ -6491,14 +6491,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           </Show>
         )
       }}</For>
-      <Show when={outputViewer()} keyed>
-        {(viewer) => <ExecutedImageViewer
-          images={viewer.preview.output.images}
-          batch={viewer.preview.output.batch}
-          initialIndex={viewer.preview.output.index}
-          provenance={viewer.provenance}
-          onRequestClose={closeOutputViewer}
-        />}
+      <Show when={outputViewerKey()} keyed>
+        {(_outputKey) => <Show when={outputViewer()}>
+          {(viewer) => <ExecutedImageViewer
+            images={viewer().preview.output.images}
+            batch={viewer().preview.output.batch}
+            initialIndex={viewer().preview.output.index}
+            provenance={viewer().provenance}
+            onRequestClose={closeOutputViewer}
+          />}
+        </Show>}
       </Show>
       <Show when={!editor() && !controllerMenu() && !linkDoubleClickMenu() && !menu() && !modalPanel()}>
         <div class="canvas-widget-a11y" role="group" aria-label="Canvas widget controls">
