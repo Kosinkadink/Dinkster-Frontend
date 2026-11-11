@@ -20,9 +20,10 @@ const library = resolve(frontendRoot, ".ci/native-library");
 const defaultOutput = resolve(library, "output");
 const alternateOutput = resolve(library, "renders");
 
-async function clearComfyUiPngs(directory: string): Promise<void> {
+async function clearProofPngs(directory: string): Promise<void> {
   for (const name of await readdir(directory)) {
-    if (/^ComfyUI_\d+\.png$/.test(name)) await unlink(resolve(directory, name));
+    if (/^output-mount-proof_\d+_\.png$/.test(name))
+      await unlink(resolve(directory, name));
   }
 }
 
@@ -79,15 +80,19 @@ async function openSaveImageWorkflow(
             nodes: {
               load: {
                 id: "load",
-                type: "dinkster.load_image",
+                type: "dinkster.image.load_image",
                 values: { image: source },
               },
-              save: { id: "save", type: "dinkster.save_image", values: {} },
+              save: {
+                id: "save",
+                type: "dinkster.image.save_image",
+                values: { filename_prefix: "output-mount-proof" },
+              },
             },
             links: {
               image: {
                 id: "image",
-                from: { node: "load", port: "image" },
+                from: { node: "load", port: "IMAGE" },
                 to: { node: "save", port: "images" },
               },
             },
@@ -132,8 +137,8 @@ test("Save Image publishes its mounted path and follows the persisted output mou
   await mkdir(evidenceGroupDir("issue-145"), { recursive: true });
   await mkdir(defaultOutput, { recursive: true });
   await mkdir(alternateOutput, { recursive: true });
-  await clearComfyUiPngs(defaultOutput);
-  await clearComfyUiPngs(alternateOutput);
+  await clearProofPngs(defaultOutput);
+  await clearProofPngs(alternateOutput);
   const added = await request.post(`${backend}/api/mounts`, {
     data: { id: "renders", path: alternateOutput, mode: "readwrite" },
   });
@@ -172,15 +177,15 @@ test("Save Image publishes its mounted path and follows the persisted output mou
   await queueAndWait(page, 0);
 
   await expect(page.getByTestId("assets-overlay")).toContainText(
-    "ComfyUI_00001.png",
+    "output-mount-proof_00001_.png",
     { timeout: 15_000 },
   );
   await page.getByRole("tab", { name: "Outputs" }).click();
   await page.getByTestId("rail-resize").press("End");
   await expect(page.getByTestId("outputs-panel")).toContainText(
-    "mounts/output/ComfyUI_00001.png",
+    "mounts/output/output-mount-proof_00001_.png",
   );
-  expect(await readdir(defaultOutput)).toContain("ComfyUI_00001.png");
+  expect(await readdir(defaultOutput)).toContain("output-mount-proof_00001_.png");
   await page.screenshot({
     path: evidencePath("issue-145", "default-output.png"),
     fullPage: true,
@@ -207,9 +212,9 @@ test("Save Image publishes its mounted path and follows the persisted output mou
   await queueAndWait(page, 1);
   await page.getByRole("tab", { name: "Outputs" }).click();
   await expect(page.getByTestId("outputs-panel")).toContainText(
-    "mounts/renders/ComfyUI_00001.png",
+    "mounts/renders/output-mount-proof_00001_.png",
   );
-  expect(await readdir(alternateOutput)).toContain("ComfyUI_00001.png");
+  expect(await readdir(alternateOutput)).toContain("output-mount-proof_00001_.png");
 
   await request.put(`${backend}/api/mounts/output`, { data: { id: "output" } });
   await request.delete(`${backend}/api/mounts/renders`);
