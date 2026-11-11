@@ -1,6 +1,7 @@
 import { render } from 'solid-js/web'
 import { afterEach, expect, it, vi } from 'vitest'
-import { createSignal, type SharedSessionStatus } from '@dinkster/core'
+import { createSignal, type SharedSessionStatus, type Signal } from '@dinkster/core'
+import type { ConnectionStatus, DocsPage } from '@dinkster/client'
 import { App } from '../src/App.js'
 import { AppState, type CollabTabState } from '../src/app-state.js'
 
@@ -118,6 +119,57 @@ it('does not register disabled template surfaces and withdraws enabled surfaces'
   expect(app.settings.list().some((setting) => setting.id === 'templates.registryUrl')).toBe(true)
   backend.templatesEnabled.set(false)
   await vi.waitFor(expectDisabled)
+})
+
+it('shows Learn for any connected guide catalog and rejects stale availability', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}', {
+    headers: { 'Content-Type': 'application/json' },
+  }))
+  app = new AppState()
+  const active = app.backends.get()[0]!
+  const guides = app.addBackend('http://guides.test:9000', 'Guide server', false)!
+  const guide = {
+    kind: 'guide' as const, pack: 'guide-pack', id: 'first-guide', defaultLocale: 'en',
+    locales: { en: { title: 'First guide', summary: 'Read this guide.', digest: `sha256:${'a'.repeat(64)}`, assets: {} } },
+  }
+  for (const backend of [active, guides]) {
+    vi.spyOn(backend.connection, 'fetchSchemas').mockResolvedValue({
+      connection: backend.id, hash: 'empty', schemas: new Map(), diagnostics: [], resolve: () => undefined,
+    })
+    vi.spyOn(backend.connection, 'listDocs').mockResolvedValue({ docs: [] })
+  }
+  const status = guides.connection.status as Signal<ConnectionStatus>
+  const host = document.createElement('div')
+  document.body.append(host)
+  dispose = render(() => <App app={app} />, host)
+  const toggle = () => host.querySelector<HTMLButtonElement>('[data-testid="learn-toggle"]')
+  expect(toggle()).toBeNull()
+  status.set('connected')
+  await vi.waitFor(() => expect(guides.schemaState.get().status).toBe('ready'))
+  expect(toggle()).toBeNull()
+  vi.mocked(guides.connection.listDocs).mockResolvedValue({ docs: [guide] })
+  guides.refreshDiagnostics()
+  await vi.waitFor(() => expect(toggle()).not.toBeNull())
+  expect(app.backendForTab(app.activeTab()!)).toBe(active)
+
+  let resolveOld!: (page: DocsPage) => void
+  vi.mocked(guides.connection.listDocs).mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
+  guides.refreshDiagnostics()
+  vi.mocked(guides.connection.listDocs).mockResolvedValue({ docs: [] })
+  guides.refreshDiagnostics()
+  await vi.waitFor(() => expect(toggle()).toBeNull())
+  resolveOld({ docs: [guide] })
+  await Promise.resolve()
+  expect(toggle()).toBeNull()
+
+  vi.mocked(guides.connection.listDocs).mockResolvedValue({ docs: [guide] })
+  guides.refreshDiagnostics()
+  await vi.waitFor(() => expect(toggle()).not.toBeNull())
+  guides.refreshDiagnostics()
+  status.set('disconnected')
+  await Promise.resolve()
+  expect(toggle()).toBeNull()
+  expect(guides.guidesAvailable.get()).toBe(false)
 })
 
 it('registers built-in editors at shell mount and withdraws the feature-gated App editor', async () => {

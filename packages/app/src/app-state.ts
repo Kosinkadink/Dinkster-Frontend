@@ -2280,6 +2280,7 @@ interface BackendBase {
   /** Execution locations advertised by the current native server life. */
   readonly workerCatalog: Signal<WorkerCatalogState>
   readonly templatesEnabled: Signal<boolean>
+  readonly guidesAvailable: Signal<boolean>
   /** Current schema request state for truthful backend-management feedback. */
   readonly schemaState: Signal<
     | { readonly status: 'idle' | 'loading' | 'waiting' | 'ready' }
@@ -4346,6 +4347,7 @@ export class AppState {
       comfyTranslationsUnavailable: createSignal(true),
       workerCatalog,
       templatesEnabled: createSignal(false),
+      guidesAvailable: createSignal(false),
       schemaState: createSignal<
         | { readonly status: 'idle' | 'loading' | 'waiting' | 'ready' }
         | { readonly status: 'error'; readonly message: string }
@@ -4439,6 +4441,7 @@ export class AppState {
         }),
         base.workerCatalog.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.templatesEnabled.subscribe(() => this.backendsTick.update((v) => v + 1)),
+        base.guidesAvailable.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.schemaState.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.replacementProblems.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.compatSkips.subscribe(() => this.backendsTick.update((v) => v + 1)),
@@ -4500,6 +4503,7 @@ export class AppState {
       let freshGen = 0 // server life the held registry is known to satisfy
       let attemptGen = 0 // server life the most recent fetch was issued under
       let diagnosticsRequest = 0
+      let guidesRequest = 0
       const requestDiagnostics = (gen: number): void => {
         const request = ++diagnosticsRequest
         void connection.fetchDiagnostics().then((diagnostics) => {
@@ -4524,6 +4528,15 @@ export class AppState {
       const requestCurrentDiagnostics = (gen: number): void => {
         requestDiagnostics(gen)
         requestCompositionProblems(gen)
+        const request = ++guidesRequest
+        const current = (): boolean =>
+          !this.disposed && this.backends.get().includes(nativeBackend) &&
+          connection.status.get() === 'connected' && gen === staleGen && request === guidesRequest
+        void connection.listDocs({ kind: 'guide', limit: 1 }).then((page) => {
+          if (current()) base.guidesAvailable.set(page.docs.some((doc) => doc.kind === 'guide'))
+        }).catch(() => {
+          if (current()) base.guidesAvailable.set(false)
+        })
         void connection.fetchRuntimeSettings().then((settings) => {
           if (gen !== staleGen) return
           base.templatesEnabled.set(settings.features?.templates?.enabled === true)
@@ -4634,6 +4647,7 @@ export class AppState {
         // already in flight; its next loop owns the new server's health.
         this.schemaRequests.delete(nativeBackend)
         base.templatesEnabled.set(false)
+        base.guidesAvailable.set(false)
         requestCurrentDiagnostics(staleGen)
         // graphFeatures and the extension snapshot pair are load-bearing and
         // belong to one server lifetime. Strip both from every observable
@@ -4674,6 +4688,7 @@ export class AppState {
         } else {
           staleGen += 1
           base.templatesEnabled.set(false)
+          base.guidesAvailable.set(false)
           this.invalidateWorkerCatalog(nativeBackend)
         }
       }

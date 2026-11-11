@@ -1,0 +1,16 @@
+[pack]
+name = "guide-fixture"
+version = "0.1.0"
+engine = ">=0.0.2.dev0,<0.1"
+requires = []
+
+[pack.contracts]
+host = "dinkster-pack-host/1"
+api = "dinkster-api/v1"
+
+[pack.entry]
+nodes = "guide_fixture:NODES"
+
+[pack.docs]
+dir = "docs"
+default_locale = "en"

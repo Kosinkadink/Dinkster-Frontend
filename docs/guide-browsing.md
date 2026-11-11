@@ -1,7 +1,10 @@
 # Guide browsing
 
-The Learn dock panel searches and pages the active Dinkster backend's guide
-descriptors. Selecting a guide fetches its immutable Markdown page by pack and
+The Learn icon is hidden until a connected backend serves at least one guide.
+The guide catalog is checked on connection and schema refresh, and a disconnected
+backend no longer makes Learn available. Learn searches and pages the active
+backend's guides when it has any, otherwise the first connected backend with
+guides. Selecting a guide fetches its immutable Markdown page by pack and
 digest. The host chooses the active application locale when available and
 shows an explicit notice when it falls back to the guide's default locale.
 Pack names, tags, and guide body content remain backend-owned data.

@@ -185,6 +185,11 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
     await route.fulfill({ json: { assets: [] } })
   } else if (path.endsWith('/api/templates')) {
     await route.fulfill({ json: { templates: [] } })
+  } else if (path.endsWith('/api/docs')) {
+    await route.fulfill({ json: { docs: [{
+      pack: 'guide-fixture', kind: 'guide', id: 'read-a-guide', defaultLocale: 'en',
+      locales: { en: { title: 'Read a guide', summary: 'Learn from a connected pack.', digest: `sha256:${'a'.repeat(64)}`, assets: {} } },
+    }] } })
   } else if (path.endsWith('/api/sessions')) {
     await route.fulfill({ json: { sessions: [] } })
   } else if (path.endsWith('/api/history/runs')) {
