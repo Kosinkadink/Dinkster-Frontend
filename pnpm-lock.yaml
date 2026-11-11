@@ -137,6 +137,9 @@ importers:
 
   packages/e2e:
     devDependencies:
+      '@dinkster/client':
+        specifier: workspace:*
+        version: link:../client
       '@dinkster/core':
         specifier: workspace:*
         version: link:../core

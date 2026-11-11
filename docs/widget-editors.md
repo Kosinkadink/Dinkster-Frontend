@@ -4,6 +4,10 @@ BOUNDING_BOX rows summarize X, Y, width and height in pixels. Opening the crop
 region shows four named fields; Apply crop stores the complete region as one
 undoable edit. Coordinates must be nonnegative whole pixels and dimensions
 must be positive whole pixels. Cancel or outside dismissal discards the draft.
+After running the connected image source, the editor shows its first frame
+with the selected crop outlined and the excluded area shaded. The outline
+matches the backend's edge clamping. An unavailable or stale source leaves
+the numeric controls usable without showing an unrelated image.
 
 Compact STRING and MARKDOWN views display non-string imported values using
 the shared value formatter (for example, null displays as `null`). Rendering

@@ -68,6 +68,7 @@ const BACKEND_SERIAL_SPECS = [
   'image-bake-live.spec.ts',
   'audio-recording-live.spec.ts',
   'painter-live.spec.ts',
+  'bounding-box-live.spec.ts',
   'video-edit.spec.ts',
   'glsl-shader.spec.ts',
   'executable-examples-live.spec.ts',

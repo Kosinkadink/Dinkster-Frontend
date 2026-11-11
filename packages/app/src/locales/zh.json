@@ -1,5 +1,8 @@
 {
   "boundingBoxWidget.title": "裁剪区域",
+  "boundingBoxWidget.preview": "源图像及所选裁剪区域",
+  "boundingBoxWidget.loading": "正在加载已执行的源图像...",
+  "boundingBoxWidget.sourceUnavailable": "运行已连接的图像源以预览裁剪区域。没有预览时仍可编辑像素字段。",
   "boundingBoxWidget.x": "X（像素）",
   "boundingBoxWidget.y": "Y（像素）",
   "boundingBoxWidget.width": "宽度（像素）",

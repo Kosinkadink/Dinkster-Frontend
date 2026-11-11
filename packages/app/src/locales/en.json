@@ -1,5 +1,8 @@
 {
   "boundingBoxWidget.title": "Crop region",
+  "boundingBoxWidget.preview": "Source image with selected crop region",
+  "boundingBoxWidget.loading": "Loading the executed source image...",
+  "boundingBoxWidget.sourceUnavailable": "Run the connected image source to preview the crop. Pixel fields remain editable without a preview.",
   "boundingBoxWidget.x": "X (pixels)",
   "boundingBoxWidget.y": "Y (pixels)",
   "boundingBoxWidget.width": "Width (pixels)",
