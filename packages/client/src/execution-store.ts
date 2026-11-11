@@ -505,7 +505,7 @@ export class ExecutionStore {
   }
 
   private applyToState(event: ExecutionEvent, state: ExecutionState): void {
-    if (state.status === 'cancelled') return
+    if (state.status === 'cancelled' && event.kind !== 'log' && event.kind !== 'nodeOutput' && event.kind !== 'valueDiagnostics') return
     switch (event.kind) {
       case 'node.event':
         return

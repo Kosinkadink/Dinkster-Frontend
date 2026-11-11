@@ -195,6 +195,9 @@
     "attribute:alt:Dinkster",
     "attribute:alt:Dinkster"
   ],
+  "CancelExecutionButton.tsx": [
+    "text:props.execution !== undefined && pending().has(executionKey(props.execution.ref)) return"
+  ],
   "CanvasHost.tsx": [
     "attribute:aria-label:Bookmarks. Show bookmark numbers on the minimap",
     "attribute:aria-label:Canvas view controls",

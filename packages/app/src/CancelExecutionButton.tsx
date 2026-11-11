@@ -6,7 +6,7 @@ import { ProductButton } from './ProductControls.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
 
-export function canCancelExecution(execution: ExecutionState | undefined): boolean {
+function canCancelExecution(execution: ExecutionState | undefined): boolean {
   return execution?.status === 'running' || execution?.status === 'queued'
 }
 

@@ -1460,11 +1460,11 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     const execution = createMemo(() => {
       executions()
       const tab = activeTab()
-      return tab === undefined
-        ? undefined
-        : props.app.executionsForTab(tab).find((candidate) =>
-            candidate.artifact?.scope.kind === 'partial' &&
-            scopeKey(candidate.artifact.scope) === scopeKey(resolved().scope))
+      const candidates = tab === undefined ? [] : props.app.executionsForTab(tab).filter((candidate) =>
+        candidate.artifact?.scope.kind === 'partial' &&
+        scopeKey(candidate.artifact.scope) === scopeKey(resolved().scope))
+      return candidates.find((candidate) => candidate.status === 'running') ??
+        candidates.find((candidate) => candidate.status === 'queued') ?? candidates[0]
     })
     const state = (): string => {
       if (pendingQueues().has(queueKey())) return message('appView.queue.state.submitting')
