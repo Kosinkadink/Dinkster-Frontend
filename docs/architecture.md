@@ -436,6 +436,11 @@ Asset publication still requires its exact acknowledgment; an unavailable
 retention route never implies an empty complete set. Restoration
 and crash-safe local writes remain synchronous; newly created durable holders
 are not certified by this startup check.
+
+Invalid or linked stored output counts remain openable for correction with
+incomplete ownership. Their known asset roots are retained, but compilation and
+publication remain refused until the output contract is repaired. Invalid stored
+dynamic member and choice identities still refuse admission.
 Ordinary native dispatch selects admission from its candidate; complete
 frontend retention and collection remain disabled. The legacy bridge keeps
 its existing non-retained opening behavior.

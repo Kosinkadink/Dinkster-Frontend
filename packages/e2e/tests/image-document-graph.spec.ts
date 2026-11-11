@@ -250,6 +250,12 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
 })
 
 test('layer rows and structural edits respect explicit z order', async ({ page }, testInfo) => {
+  await page.route('**/api/assets/media?*', async (route) => route.fulfill({ status: 201, json: {
+    kind: 'media/image', asset: {
+      digest: await route.request().headerValue('x-dinkster-digest'), name: 'Front.png',
+      size: route.request().postDataBuffer()!.length, mediaType: 'image/png', virtualPath: '',
+    },
+  } }))
   await page.evaluate(async () => {
     const localPath = '/src/image-document-local.ts'
     const projectPath = '/src/projects.ts'

@@ -211,6 +211,10 @@ test.beforeEach(async ({ page }) => {
     }, 'Widget Editors')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
+  await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
+  await page.evaluate(async () => {
+    await (window.__dinksterTest!.app.activeTab()!.store as unknown as { settle(): Promise<void> }).settle()
+  })
 })
 
 test('AUDIO_RECORD captures only on request and stages canonical uploads with retry, cancel and undo', async ({ page }, testInfo) => {

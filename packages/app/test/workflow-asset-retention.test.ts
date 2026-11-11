@@ -2465,6 +2465,41 @@ describe('retained workflow opens', () => {
     vi.unstubAllGlobals()
   })
 
+  it.each(['missing', 'out-of-range', 'linked'] as const)('opens a %s output count for repair without certifying its roots', async (variant) => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    const counted: NodeSchema = { ...schema, items: [...schema.items,
+      { kind: 'input', id: 'count', optional: false, type: { kind: 'concrete', name: 'INT' } },
+      { kind: 'output', id: 'count', type: { kind: 'concrete', name: 'INT' } },
+      { kind: 'output', id: 'outs', type: { kind: 'concrete', name: 'DATA' }, dynamic: {
+        kind: 'autogrow', materialization: 'wire15', count: { input: 'count', suffix: 'index' },
+        template: [{ kind: 'input', id: 'item', optional: false, type: { kind: 'concrete', name: 'DATA' } }],
+        naming: { kind: 'prefix', prefix: '', min: 1, max: 4 },
+      } },
+    ] }
+    const original = session().doc
+    const document: WorkflowDocument = { ...original, graphs: { g0: { ...original.graphs.g0!,
+      nodes: { n0: { ...original.graphs.g0!.nodes.n0!, values: {
+        files: [asset('a')], ...(variant === 'missing' ? {} : { count: variant === 'linked' ? 2 : 5 }),
+      } } },
+      links: variant === 'linked' ? { l0: { id: asLinkId('l0'),
+        from: { node: asNodeId('n0'), port: asPortId('count') },
+        to: { node: asNodeId('n0'), port: asPortId('count') },
+      } } : {},
+    } } }
+    app = createWorkflowApp([counted])
+    expect(await app.openDocument(document, 'Repair output count')).toEqual([])
+    const tab = app.activeTab()!
+    const roots = workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(), () => counted, [], 'admission')
+    expect(roots).toMatchObject({ complete: false, digests: [asset('a').digest] })
+    expect(roots.refusal).toBeUndefined()
+    expect(workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(), () => counted).refusal)
+      .toBe('Workflow dynamic identities are invalid')
+    expect(await app.saveWorkflow(tab.id)).toBe(false)
+    expect(app.connection.retainAssets).toHaveBeenCalledWith(expect.anything(), {
+      revision: 0, complete: false, digests: [asset('a').digest],
+    })
+  })
+
   it.each((['file', 'direct'] as const).flatMap((kind) =>
     (['accepted', 'view', 'lost', 'refused', 'edited', 'closed', 'replacement', 'registry', 'target', 'canceled', 'disposed'] as const)
       .map((scenario) => [kind, scenario] as const)))(

@@ -245,7 +245,10 @@ export function workflowAssetRoots(
       complete = false
       const invalidIdentities = [...active.diagnostics, ...stored.diagnostics].some((diagnostic) =>
         diagnostic.severity === 'error' && diagnostic.code !== 'elab.dormant.unsupported' &&
-        (purpose !== 'admission' || diagnostic.code !== 'elab.outputDescriptors.invalid'))
+        (purpose !== 'admission' || ![
+          'elab.outputDescriptors.invalid', 'elab.outputFamily.badCount',
+          'elab.outputFamily.linkedCount', 'elab.outputFamily.countOutOfRange',
+        ].includes(diagnostic.code)))
       // A planned historical migration can consume state the current schema
       // no longer describes. Retain its opaque roots, never certify it complete.
       const migrates = purpose === 'admission' && [...active.diagnostics, ...stored.diagnostics]
