@@ -4,7 +4,6 @@ import {
   EMPTY_CONNECTIVITY,
   EXPOSED_EXT_KEY,
   EXPOSED_PREVIEWS_EXT_KEY,
-  MASK_PAINT_SOURCE_EXT_KEY,
   MAX_DYNAMIC_STATE_DEPTH,
   appLayout,
   appLayoutItemToJson,
@@ -25,7 +24,6 @@ import {
   exposedToJson,
   isDinksterClipboardEnvelope,
   isAssetWidgetInput,
-  maskPaintSourceNodeId,
   parseTypedLiteralWire,
   planReplacement,
   replayHistoryOps,
@@ -195,10 +193,7 @@ export function workflowAssetRoots(
       checkedNodes.set(node, checkedSchemas)
     }
     checkedSchemas.add(schema)
-    // Only this node association has a known asset-free shape; nested metadata stays opaque.
-    if (node.ext !== undefined && Object.keys(node.ext).length > 0 &&
-      (schema?.editorRole !== 'mask-paint' || Object.keys(node.ext).length !== 1 ||
-        !Object.hasOwn(node.ext, MASK_PAINT_SOURCE_EXT_KEY) || maskPaintSourceNodeId(node) === undefined)) complete = false
+    if (node.ext !== undefined && Object.keys(node.ext).length > 0) complete = false
     checkedExtensions.add(node)
     for (const [key, value] of Object.entries(node)) if (key !== 'ext') checkExtensions(value as Json)
     for (const value of Object.values(node.values)) opaqueRoots(value)

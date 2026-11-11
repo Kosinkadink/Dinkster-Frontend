@@ -15,7 +15,6 @@ export const builtinEditorBindings: readonly EditorBinding[] = [
   { id: 'builtin.editor-role.video-trim', editor: GRAPH_EDITOR_KIND, match: { editorRole: 'video-trim' }, priority: 100 },
   { id: 'builtin.editor-role.video-crop', editor: GRAPH_EDITOR_KIND, match: { editorRole: 'video-crop' }, priority: 100 },
   { id: 'builtin.editor-role.image-source', editor: IMAGE_EDITOR_KIND, match: { editorRole: 'image-source' }, priority: 100 },
-  { id: 'builtin.editor-role.mask-paint', editor: IMAGE_EDITOR_KIND, match: { editorRole: 'mask-paint' }, priority: 100 },
   { id: 'builtin.editor-role.image-save', editor: IMAGE_EDITOR_KIND, match: { editorRole: 'image-save' }, priority: 100 },
   { id: 'builtin.editor-role.compositor', editor: IMAGE_EDITOR_KIND, match: { editorRole: 'compositor' }, priority: 100 },
   { id: 'builtin.editor-role.layers-load', editor: IMAGE_EDITOR_KIND, match: { editorRole: 'layers-load' }, priority: 100 },

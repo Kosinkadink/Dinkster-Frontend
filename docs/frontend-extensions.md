@@ -64,8 +64,8 @@ chrome, rendering, Problems reporting, gating, and cleanup. Packs supply no
 DOM, CSS, Solid components, or lifecycle callbacks through these doors.
 
 Node-specific editing commands use the same schema-owned roles. Core composes
-its generic commands with registered command extensions for mask paint, image
-documents, and compositing. Each extension owns its command ids, required
+its generic commands with registered command extensions for image documents
+and compositing. Each extension owns its command ids, required
 roles, schema capability checks, and compatibility node ids. When a schema
 resolver supports role lookup, that lookup is authoritative and a missing or
 ambiguous role fails closed. Node ids are consulted only for schema snapshots

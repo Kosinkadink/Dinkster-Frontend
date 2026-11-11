@@ -25,11 +25,6 @@ describe('registered command extensions', () => {
       })),
     ).toEqual([
       {
-        id: 'builtin.mask-paint',
-        roles: ['image-source', 'mask-paint'],
-        commands: ['image.applyMaskPaint'],
-      },
-      {
         id: 'builtin.image-document',
         roles: ['layers-load', 'layers-flatten', 'layers-edit', 'image-save'],
         commands: ['image.documentExport', 'image.documentRecipeExport'],
@@ -41,7 +36,6 @@ describe('registered command extensions', () => {
       },
     ])
     expect(registeredExtensionCommands().map((command) => command.id)).toEqual([
-      'image.applyMaskPaint',
       'image.documentExport',
       'image.documentRecipeExport',
       'image.compositorApply',

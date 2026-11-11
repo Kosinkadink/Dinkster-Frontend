@@ -318,12 +318,11 @@ application for the removed generation and unchanged payload; retention metadata
 updates do not change that identity or transfer release authority. Other windows'
 receipts and recovered receipts are observation-only, even when their digests match. Release remains
 revision-bound and uncertain responses stay journaled for observation, not replay.
-The asset census recognizes the mask command's exact source-association marker
-on mask-paint nodes: a string node ID and the fixed mask output ID contain no
-asset identity. A MOUNT widget binds a STRING mount ID or null for the default
+The asset census treats node extension metadata as opaque. A MOUNT widget
+binds a STRING mount ID or null for the default
 output mount; neither is an asset identity. Other value shapes or socket types
 remain incomplete, with any known embedded asset roots preserved.
-Extra marker fields, other metadata and unknown schemas remain
+Metadata and unknown schemas remain
 incomplete. Known canonical references in opaque stored values are retained, but
 the owner explicitly declares `complete: false`, even for an empty known set.
 Unresolved filename strings in asset widgets also keep ownership incomplete,

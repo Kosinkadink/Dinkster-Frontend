@@ -244,20 +244,13 @@ It checks component shape and bounds; exact component-to-affine agreement is
 validated by the backend on adoption. Editing affine fields drops components
 instead of preserving metadata that no longer agrees with the transform.
 
-For native `dinkster.load_image` mask outputs already consumed by the graph, the
-image mask editor offers **Apply mask to graph**. It inserts or updates one
-source-bound `dinkster.mask.paint` node, stores the serialized brush operations,
-and rewires only that loader's current mask consumers. The original image
-AssetRef remains unchanged, so the edit is visible and repeatable in execution.
 Pending mask edits and undo history survive layout refreshes while the same
 tab and image target remain active.
 Decoded mask-editor pixels remain unpublished until an independent editor owner
 acknowledges the source digest. The workflow read stays owned through that
 admission; refused or obsolete editor admissions cannot enable editing or draw
 pixels into a closed or replaced session.
-The live acceptance executes paint, layer, and flatten nodes and checks every
-decoded transparency-mask sample against the identically edited explicit bake.
-For other eligible inputs, **Bake to asset** explicitly replaces the input
+**Bake to asset** explicitly replaces the input
 asset; **Cancel** leaves the workflow unchanged. Typed PNG inputs use the same
 editor and command guard for `asset<IMAGE>`. Canonical `LoadImage` inputs also
 qualify through their declared `ASSET` carrier and `media/image` widget kind;
@@ -460,13 +453,10 @@ a transparent `dinkster.load_image` -> `dinkster.layers.add` ->
 `dinkster.layers.flatten` graph against a live Dinkster backend. It proves the
 workspace's Render API PNG is byte-identical to the flatten image rendition and
 that its decoded alpha matches the flatten transparency mask.
-`packages/e2e/tests/image-mask-graph-live.spec.ts` applies the same real brush
-stroke through graph-visible `dinkster.mask.paint` and explicit bake paths, then
-proves executed-node receipts, source AssetRef preservation, PNG alpha parity,
-transparency polarity, and authoritative document-render byte equality.
-The acceptance captures the [graph mask editor](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-400/graph-mask-editor.png),
-a [painted-mask detail](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-400/graph-mask-detail.png), and the
-[authoritative document](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-400/graph-mask-authoritative-document.png).
+`packages/e2e/tests/image-bake-live.spec.ts` checks Bake to asset through real
+asset routes with a registered typed image-input fixture. It verifies the
+decoded PNG RGB and alpha and the undoable input replacement. Graph-native
+mask recipes are parked in [the rework queue](rework-queue.md#mask-paint-applied-to-the-graph).
 Graph-opening unit tests cover exact value identity and bytes, missing headers
 and capabilities, stale fingerprints, adoption/render refusals, resource
 validation and protection of existing local edits. The route-mocked
