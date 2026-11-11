@@ -9,7 +9,6 @@ import {
 
 export * from './WidgetEditorController.js'
 export {
-  backendSupportsAssetAcquisition,
   mediaAcceptsFile,
   unresolvedAssetBasename,
 } from './editors/AssetWidgetEditor.js'

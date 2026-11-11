@@ -1,5 +1,12 @@
 # Rework Queue
 
+## Picker download-unavailable pane
+
+- What and purpose: an unavailable-download heading, backend acquisition-contract explanation and disabled Download button appeared in missing imported-model and logical-model variant details. It attempted to explain why the picker could not download immediately.
+- Why parked: downloading is offered by the pre-run approval dialog, not by the picker. The pane wrongly implied downloads could not work at all. Missing variants now say they are not on disk and explain when download is offered.
+- Kept code: [draft-frontend-download-pane-before-removal-778](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-frontend-download-pane-before-removal-778), commit `d1b699201fd3527695974f68c9f8e72f7526ef12`. Paths: `packages/app/src/editors/AssetWidgetEditor.tsx`, `packages/app/src/asset-browser/rail.tsx`, `packages/app/src/WidgetEditor.tsx`, `packages/app/src/styles/widget-assets.css`, `packages/app/src/locales/{en,zh}.json`, `packages/app/test/LogicalModelCollection.dom.test.tsx`, `packages/e2e/tests/missing-model-ux.spec.ts`.
+- Return conditions and hand test: only restore a picker download action if a real, supported backend acquisition contract makes it useful separately from run-time approval. Select a missing variant, verify truthful availability and usable selection, approve or reject a run-time download, and check Cancel, Undo and reopening. A disabled placeholder is not a reason to restore the pane.
+
 ## V1 MultiType comma-joined types reach the frontend as one bogus atom (FIXED, live-verified 2026-07-28)
 
 User-observed 2026-07-28: a V1 ComfyUI input declared as a comma-joined

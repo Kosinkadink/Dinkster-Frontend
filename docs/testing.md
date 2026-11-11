@@ -76,6 +76,11 @@ values select hosted images for main validation, schedules, and manual runs.
 
 ## Full validation
 
+The hosted browser backend also composes `packages/e2e/fixtures/guide-pack`,
+a node-free pack with one guide. `guide-browsing.spec.ts` checks Learn's
+availability with an empty primary catalog, reads the second backend's real
+immutable guide page, and withdraws Learn when that guide server disconnects.
+
 The App View queue fixture creates its submission-release promise before the
 request handler runs, so observing Submitting can release either an already
 waiting request or one that arrives afterward without losing the release.

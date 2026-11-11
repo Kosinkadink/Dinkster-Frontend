@@ -1406,6 +1406,13 @@ export function App(props: {
     const local = backend.baseUrl === '' || new URL(backend.baseUrl, window.location.href).origin === window.location.origin
     return backend.protocol === 'dinkster' && local ? backend.connection : undefined
   }
+  const learnBackend = createMemo<Backend | undefined>(() => {
+    backendsTick()
+    const available = (backend: Backend): boolean =>
+      backendConnectionStatus(backend) === 'connected' && backend.guidesAvailable.get()
+    const active = activeBackend()
+    return available(active) ? active : backends().find(available)
+  })
   const registerBuiltinPanel = (descriptor: import('./panels.js').PanelDescriptor): (() => void) =>
     app.frontendDoors.panel(descriptor.id, descriptor)
   const unregisterPanels = [
@@ -1419,12 +1426,12 @@ export function App(props: {
       id: 'learn', get title() { return message('learn.panel.title') }, icon: BookOpen,
       get description() { return message('learn.panel.description') }, get ariaLabel() { return message('learn.panel.ariaLabel') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 12,
+      when: () => learnBackend() !== undefined,
       toggleTestId: 'learn-toggle', component: () => {
-        const backend = activeBackend()
         return <LearnPanel
-          backend={backend.protocol === 'dinkster' ? { id: backend.id, connection: backend.connection } : undefined}
+          backend={learnBackend()}
           locale={locale().tag}
-          templatesEnabled={activeBackend().templatesEnabled.get()}
+          templatesEnabled={learnBackend()?.templatesEnabled.get() === true}
           onOpenTemplate={(pack, template, title, owner) => { void app.openTemplate(pack, template, title, owner) }}
         />
       },

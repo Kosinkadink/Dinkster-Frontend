@@ -1,7 +1,7 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 156,
+    "rawControl": 154,
     "inlineStyle": 64,
     "cssLiteral": 65
   },
@@ -339,13 +339,13 @@
     {
       "kind": "rawControl",
       "path": "packages/app/src/asset-browser/rail.tsx",
-      "count": 2,
+      "count": 1,
       "issue": 382
     },
     {
       "kind": "rawControl",
       "path": "packages/app/src/editors/AssetWidgetEditor.tsx",
-      "count": 10,
+      "count": 9,
       "issue": 382
     },
     {

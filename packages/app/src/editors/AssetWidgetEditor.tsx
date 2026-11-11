@@ -32,6 +32,7 @@ import { readUploadDestination, saveUploadDestination } from '../upload-destinat
 import { AssetFileLocation } from '../AssetFileLocation.js'
 import { resolveDroppedAsset } from '../desktop-bridge.js'
 import type { PreviewSource } from '../node-previews.js'
+import { useAppMessage } from '../locale.js'
 
 interface AssetRef extends JsonObject {
   readonly digest: string
@@ -148,8 +149,6 @@ function mediaUploadName(name: string): string {
   return bounded === '' || bounded === '.' || bounded === '..' ? 'upload' : bounded
 }
 
-export function backendSupportsAssetAcquisition(): boolean { return false }
-
 interface AssetImplementationProps extends WidgetEditorImplementationProps {
   setDismissBlocked: (blocked: () => boolean) => void
   setRequestClose: (handler: (close: () => void) => void) => void
@@ -157,6 +156,7 @@ interface AssetImplementationProps extends WidgetEditorImplementationProps {
 
 const AssetEditorImplementation: Component<AssetImplementationProps> = (implementationProps) => {
   const props = implementationProps.editor
+  const message = useAppMessage()
   const ed = props.ed
   const close = implementationProps.close
   const commitEditorValue = implementationProps.commitValue
@@ -810,15 +810,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                     )}
                   </For>
                 </div>
-                <section class="asset-acquisition" aria-label="Download provider">
-                  <Show when={!backendSupportsAssetAcquisition()}>
-                    <div>
-                      <h4>Download unavailable</h4>
-                      <p data-testid="asset-acquisition-unavailable">This backend provides no download source or acquisition contract.</p>
-                    </div>
-                    <button type="button" data-testid="asset-download" disabled>Download</button>
-                  </Show>
-                </section>
+                <ProductNotice tone="info" testId="asset-not-on-disk">{message('assets.logicalModel.notOnDisk')}</ProductNotice>
               </section>
             </Show>
             <Show when={assetError()}>{(message) => <ProductNotice tone="error" class="asset-error">{message()}</ProductNotice>}</Show>
@@ -975,7 +967,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 {(item) => <AssetSelectionDetails item={item} dimensions={assetPreviewDims()} adapters={assetSources() ?? []} backendId={String(props.app.backendForTab(ed.tab).id)} />}
               </Show>
               <Show when={selectionDetailModel()} keyed>
-                {(detail) => <LogicalModelVariantFacts detail={detail} acquisitionSupported={backendSupportsAssetAcquisition()} />}
+                {(detail) => <LogicalModelVariantFacts detail={detail} />}
               </Show>
               <Show when={assetSelection().length > 0 || selectedUncommittableModel() !== undefined}>
                 {/* Remove only stages an empty selection: nothing commits

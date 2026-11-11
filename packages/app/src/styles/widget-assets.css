@@ -268,9 +268,7 @@
   text-transform: uppercase;
 }
 .asset-section-heading > button,
-.asset-match-candidates button,
-.asset-acquisition button,
-.logical-model-download button {
+.asset-match-candidates button {
   display: inline-flex;
   min-height: var(--dinkster-control-compact-height);
   align-items: center;
@@ -285,16 +283,11 @@
   cursor: pointer;
 }
 .asset-section-heading > button:hover:not(:disabled),
-.asset-match-candidates button:hover:not(:disabled),
-.logical-model-download button:hover:not(:disabled) { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
+.asset-match-candidates button:hover:not(:disabled) { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 .asset-section-heading > button:focus-visible,
-.asset-match-candidates button:focus-visible,
-.asset-acquisition button:focus-visible,
-.logical-model-download button:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
+.asset-match-candidates button:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 .asset-section-heading > button:disabled,
-.asset-match-candidates button:disabled,
-.asset-acquisition button:disabled,
-.logical-model-download button:disabled { color: var(--dinkster-text-disabled); cursor: not-allowed; opacity: var(--dinkster-interaction-disabled-opacity); }
+.asset-match-candidates button:disabled { color: var(--dinkster-text-disabled); cursor: not-allowed; opacity: var(--dinkster-interaction-disabled-opacity); }
 .asset-selection-summary,
 .asset-unresolved-import,
 .asset-browser-section {
@@ -397,8 +390,7 @@
 .asset-selection-remove:hover:not(:disabled) { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); }
 .asset-error { margin: 0; }
 .asset-unresolved-import { display: grid; flex: none; gap: var(--dinkster-space-12); border-color: var(--dinkster-warning-border); }
-.asset-unresolved-import > p,
-.asset-acquisition p { margin: 0; color: var(--dinkster-text-secondary); }
+.asset-unresolved-import > p { margin: 0; color: var(--dinkster-text-secondary); }
 .asset-match-candidates { display: grid; gap: var(--dinkster-space-8); }
 .asset-match-candidates button {
   display: grid;
@@ -413,9 +405,6 @@
 .asset-match-candidate-size,
 .asset-match-candidates code { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); }
 .asset-match-candidates code { grid-column: 1 / -1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.asset-acquisition { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-12); padding-top: var(--dinkster-space-12); border-top: 1px solid var(--dinkster-border-subtle); }
-.asset-acquisition > div { display: grid; gap: var(--dinkster-space-4); }
-.asset-acquisition h4 { margin: 0; }
 .asset-browser-section {
   display: flex;
   min-height: 260px;
@@ -478,9 +467,6 @@
 .logical-model-providers span { padding: 0 var(--dinkster-space-8); color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border: 1px solid var(--dinkster-accent-border); border-radius: var(--dinkster-radius-capsule); font-size: var(--dinkster-type-metadata-size); }
 .logical-model-compatibility,
 .logical-model-conflict { margin: 0; }
-.logical-model-download { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-12); padding-top: var(--dinkster-space-8); border-top: 1px solid var(--dinkster-border-subtle); }
-.logical-model-download > div { display: grid; gap: var(--dinkster-space-4); }
-.logical-model-download p { margin: 0; color: var(--dinkster-text-secondary); }
 
 @media (max-height: 800px) {
   .modal-surface[data-modal='widget-asset'] .asset-selection-summary,
@@ -504,8 +490,6 @@
      sizes to content (its min-content would otherwise include the whole
      uncapped list). */
   .asset-editor .collection-items { max-height: 60vh; }
-  .asset-acquisition,
-  .logical-model-download { align-items: stretch; flex-direction: column; }
   .asset-match-candidates button { grid-template-columns: minmax(0, 1fr); }
   .asset-match-candidate-size,
   .asset-match-candidates code { grid-column: 1; }
