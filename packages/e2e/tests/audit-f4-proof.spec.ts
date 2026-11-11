@@ -12,7 +12,7 @@ const catalog = {
 
 async function installAssetDocument(page: Page, multi: boolean): Promise<void> {
   await waitForStartupOwnership(page)
-  await page.evaluate(async ({ multi }) => {
+  await page.evaluate(({ multi }) => {
     const app = window.__dinksterTest!.app
     const type = multi
       ? { kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.IMAGE' } } }
@@ -22,7 +22,7 @@ async function installAssetDocument(page: Page, multi: boolean): Promise<void> {
       items: [{ kind: 'input', id: 'image', type, optional: false,
         widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } }],
     }])
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: `file-proof-${multi ? 'multi' : 'scalar'}`, root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { asset: { id: 'asset', type: 'FileAcquisitionProof', values: { image: multi ? [] : null } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { asset: { position: { x: 100, y: 100 } } } } } },

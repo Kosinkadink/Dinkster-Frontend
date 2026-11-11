@@ -1,4 +1,11 @@
 {
+  "command.workflow.cancel": "取消当前运行",
+  "execution.cancel.action": "取消运行",
+  "execution.cancel.pending": "正在取消...",
+  "execution.cancel.cancelled": "已取消",
+  "execution.cancel.requested": "已请求取消。正在等待运行停止。",
+  "execution.cancel.finished": "此运行已结束，无法取消。",
+  "execution.cancel.unavailable": "无法取消运行。后端可能不可用，或任务已无法访问。请重新连接并检查任务状态。",
   "search.registryUrl.name": "节点目录静态前缀",
   "search.registryUrl.description": "用于第一方节点搜索和 ComfyUI 导入的注册表或静态镜像前缀。清空后仅使用已安装节点。",
   "search.notInstalled": "未安装",

@@ -48,11 +48,11 @@ test('native palette exposes canonical accessible identity', async ({ page }) =>
 })
 
 test('native universal search lists the canonical node', async ({ page }) => {
-  await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => window.__dinksterTest!.app.openDocument({
     format: 'dinkster-workflow', formatVersion: 1, lineage: 'native-search-display', root: 'g0',
     graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
     view: { graphs: { g0: { nodes: {} } } },
-  }, 'Native Search Display')))
+  }, 'Native Search Display'))
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('@ Preview as Text')
 

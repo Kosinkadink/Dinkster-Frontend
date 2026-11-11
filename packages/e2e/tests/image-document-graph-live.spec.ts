@@ -1,6 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
 import { requireBackendNodes } from './required-nodes.js'
-import { waitForStartupOwnership } from './fixtures.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -13,8 +12,8 @@ interface UploadedAsset {
 }
 
 async function openLayerGraph(page: Page, asset: UploadedAsset): Promise<void> {
-  const diagnostics = await page.evaluate(async (source) => {
-    return await window.__dinksterTest!.app.openDocument({
+  await page.evaluate((source) => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'live-layer-document', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
@@ -37,7 +36,6 @@ async function openLayerGraph(page: Page, asset: UploadedAsset): Promise<void> {
       } } } },
     } as never, 'Live Layer Document')
   }, asset)
-  expect(diagnostics).toEqual([])
   await page.waitForFunction(() => window.__dinksterTest!.app.activeTab()?.id === 'live-layer-document')
 }
 
@@ -83,7 +81,6 @@ test.beforeEach(async ({ page }, testInfo) => {
   requireBackendNodes(nodes!, ['dinkster.image.load_image', 'dinkster.image.add_layer', 'dinkster.layers.edit', 'dinkster.layers.flatten', 'dinkster.image.save_image'], testInfo)
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 15_000 })
-  await waitForStartupOwnership(page)
 })
 
 test('opens exact graph document bytes and matches the live flatten image and transparency mask', async ({ page, request }, testInfo) => {

@@ -131,8 +131,8 @@ test.beforeEach(async ({ page }, testInfo) => {
   }), { timeout: 15_000 }).toBe(true)
   await waitForStartupOwnership(page)
 
-  await page.evaluate(async ({ histogram }) => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(({ histogram }) => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'curve-editor-native-e2e', root: 'g0',
       graphs: {
         g0: {
@@ -300,11 +300,11 @@ test('edits, executes, reloads, previews a histogram, and refuses a linked curve
   await page.keyboard.press('Control+Shift+z')
   await expect.poll(() => storedCurve(page)).toEqual(expectedCurve)
 
-  const reopened = await page.evaluate(async () => {
+  const reopened = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const exported = app.exportDocument(app.activeTab()!.id)
     if (exported === undefined) throw new Error('curve document export failed')
-    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Native Curve Editor reopened')
+    app.openDocument(JSON.parse(JSON.stringify(exported)), 'Native Curve Editor reopened')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     return app.activeTab()!.store.doc.graphs.g0!.nodes.editor!.values.curve
   })

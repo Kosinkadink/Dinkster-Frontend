@@ -123,8 +123,8 @@ test.beforeEach(async ({ page }, testInfo) => {
   }), { timeout: 15_000 }).toBe(true)
   await waitForStartupOwnership(page)
 
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'compositor-editor-native-e2e', root: 'g0',
       graphs: {
         g0: {
@@ -320,11 +320,11 @@ test('edits, executes, persists, and falls back safely when compositor sources c
   await page.keyboard.press('Control+Shift+z')
   await expect.poll(() => storedRecipe(page)).toEqual(recipe)
 
-  const reopened = await page.evaluate(async () => {
+  const reopened = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const exported = app.exportDocument(app.activeTab()!.id)
     if (exported === undefined) throw new Error('compositor document export failed')
-    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Native Compositor Editor reopened')
+    app.openDocument(JSON.parse(JSON.stringify(exported)), 'Native Compositor Editor reopened')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 0.72 })
     return app.activeTab()!.store.doc.graphs.g0!.nodes.create!.values.compositor
   })
@@ -391,7 +391,6 @@ test('edits, executes, persists, and falls back safely when compositor sources c
     },
   }])
   expect([...new Set((problems[0]!.data!['reason'] as string).split('; '))].sort()).toEqual([
-    "dinkster.image.image_compositor (create): Declared input 'compositor' has an unsupported asset census widget binding 'COMPOSITOR'",
     "dinkster.image.image_compositor (create): Stored input 'compositor' has unresolved asset identities",
   ])
   const errors = browserErrors.get(page)

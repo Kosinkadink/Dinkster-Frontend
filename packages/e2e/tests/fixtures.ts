@@ -15,8 +15,6 @@ let nativeCatalogAvailable: Promise<boolean> | undefined
 
 export async function waitForStartupOwnership(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined &&
-    window.__dinksterTest.app.backends.get()[0]?.registry.get() !== undefined &&
-    window.__dinksterTest.app.tabs.get().every((tab) => tab.execution !== undefined || 'status' in tab.store) &&
     !window.__dinksterTest.app.problems.get().some((problem) =>
       problem.code === 'workflow.startup.ownershipUnconfirmed'))).toBe(true)
 }

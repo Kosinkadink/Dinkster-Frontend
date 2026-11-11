@@ -86,7 +86,7 @@ test.beforeEach(async ({ page }) => {
   await waitForStartupOwnership(page)
   const nativeFixture = structuredClone(fixture)
   nativeFixture.graphs.g0.links.l7.from.port = 'IMAGE'
-  const failures = await page.evaluate(async (json) => (await window.__dinksterTest!.app.openDocument(json, 'Values')), nativeFixture)
+  const failures = await page.evaluate((json) => window.__dinksterTest!.app.openDocument(json, 'Values'), nativeFixture)
   expect(failures).toEqual([])
   await identityViewport(page)
   await page.waitForFunction(() => {

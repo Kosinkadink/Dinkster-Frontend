@@ -93,17 +93,17 @@ async function installPaletteFixture(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined)).toBe(true)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
   await waitForStartupOwnership(page)
-  await page.evaluate(async (fixtureSchemas) => {
+  await page.evaluate((fixtureSchemas) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas(fixtureSchemas)
-    const diagnostics = (await app.openDocument({
+    const diagnostics = app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'node-palette-surface-proof',
       root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 } },
       view: { graphs: { g0: { nodes: {} } } },
-    }, 'Node palette surface proof'))
+    }, 'Node palette surface proof')
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
   }, schemas)
 }

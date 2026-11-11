@@ -75,6 +75,7 @@ const BACKEND_SERIAL_SPECS = [
   'glsl-shader.spec.ts',
   'executable-examples-live.spec.ts',
   'app-view-queue-buttons-native.spec.ts',
+  'cancel-execution-live.spec.ts',
   'output-mount-live.spec.ts',
   'browser-mount-live.spec.ts',
   'local-assets-live.spec.ts',
