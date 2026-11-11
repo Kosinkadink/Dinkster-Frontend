@@ -451,8 +451,8 @@ describe('dropped latent insertion', () => {
     digest, name: 'canonical.latent', size: 123, mediaType: 'application/x-comfy-latent', virtualPath: '',
   }
   const schema = {
-    type: 'dinkster.latent.load_latent', displayName: 'Load Latent', category: 'latent', source: { kind: 'dinkster' }, isOutputNode: false,
-    items: [{ kind: 'input', id: 'latent', type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.LATENT' } }, required: true, widget: { widgetType: 'ASSET', options: { accept: ['.latent'] }, kind: 'data/latent' } }],
+    type: 'dinkster.load_latent', displayName: 'Load Latent', category: 'latent', source: { kind: 'dinkster' }, isOutputNode: false,
+    items: [{ kind: 'input', id: 'latent', type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.LATENT' } }, required: true, widget: { widgetType: 'ASSET', options: { accept: ['application/x-comfy-latent'] }, kind: 'data/latent' } }],
   } as unknown as NodeSchema
   const document = { graphs: { g0: { nodes: {} } } } as unknown as WorkflowDocument
   const base = () => ({
@@ -468,7 +468,7 @@ describe('dropped latent insertion', () => {
     expect(p.upload).toHaveBeenCalledWith(p.file)
     expect(p.dispatch).toHaveBeenCalledOnce()
     expect(p.dispatch.mock.calls[0]![0]).toMatchObject({ command: 'batch', params: { invocations: [{
-      command: 'node.add', params: { graphId: 'g0', type: 'dinkster.latent.load_latent', position: { x: 40, y: 60 }, values: { latent: asset } },
+      command: 'node.add', params: { graphId: 'g0', type: 'dinkster.load_latent', position: { x: 40, y: 60 }, values: { latent: asset } },
     }] } })
   })
 

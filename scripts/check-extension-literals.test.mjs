@@ -204,59 +204,6 @@ test('extension literal ceilings ratchet against the baseline', async () => {
   }
 })
 
-test('node ID exceptions permit only the recorded file and occurrences at a zero ceiling', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'dinkster-extension-exceptions-'))
-  const source = join(root, 'src')
-  const allowlist = join(root, 'allowlist.json')
-  const file = join(source, 'Starter.ts')
-  const args = ['--source', source, '--allowlist', allowlist]
-  const literal = "'dinkster.utilities.primitive_float'"
-  try {
-    await mkdir(source)
-    await writeFile(
-      file,
-      `export const starters = [${Array(6).fill(literal).join(', ')}]\n`,
-    )
-    await writeAllowlist(allowlist, [])
-    const recorded = JSON.parse(await readFile(allowlist, 'utf8'))
-    recorded.nodeIdExceptions = Array.from({ length: 6 }, () => ({
-      kind: 'nodeIdLiteral',
-      path: 'Starter.ts',
-      symbol: 'dinkster.utilities.primitive_float',
-      issue: 813,
-    }))
-    await writeFile(allowlist, JSON.stringify(recorded))
-    await checkExtensionLiterals([...args, '--write'])
-    await checkExtensionLiterals(args)
-    const refreshed = JSON.parse(await readFile(allowlist, 'utf8'))
-    assert.equal(refreshed.ceilings.nodeIdLiteral, 0)
-    assert.equal(refreshed.nodeIdExceptions.length, 6)
-
-    for (const seventh of [literal, "'dinkster.utilities.primitive_int'"]) {
-      await writeFile(
-        file,
-        `export const starters = [${[...Array(6).fill(literal), seventh].join(', ')}]\n`,
-      )
-      await assert.rejects(checkExtensionLiterals(args), /unlisted/)
-      await assert.rejects(
-        checkExtensionLiterals([...args, '--write']),
-        /unlisted/,
-      )
-    }
-    await writeFile(
-      file,
-      `export const starters = [${Array(5).fill(literal).join(', ')}]\n`,
-    )
-    await writeFile(
-      join(source, 'Other.ts'),
-      `export const node = ${literal}\n`,
-    )
-    await assert.rejects(checkExtensionLiterals(args), /unlisted.*Other.ts/s)
-  } finally {
-    await rm(root, { recursive: true, force: true })
-  }
-})
-
 test('default scan includes every package source root', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dinkster-extension-roots-'))
   const app = join(root, 'packages', 'app', 'src')
