@@ -3,7 +3,7 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { assetDtoV1Contract, DinksterConnection, type RetainedAssetOwner, type RetainedAssetDeclaration } from '@dinkster/client'
+import { DinksterConnection, type RetainedAssetOwner, type RetainedAssetDeclaration } from '@dinkster/client'
 import { asConnectionId, registerCatalog, setLocale } from '@dinkster/core'
 import { AssetsBody } from '../src/AssetsBody.js'
 import type { DinksterDesktopBridge } from '../src/desktop-bridge.js'
@@ -240,65 +240,6 @@ describe('Assets dock body', () => {
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
     await vi.waitFor(() => expect(root.textContent).toContain('No assets yet'))
     expect(root.querySelector('[data-testid="collection-panel"]')).not.toBeNull()
-    dispose()
-  })
-
-  it('uses the injected federated contract alongside local assets and renders its human title', async () => {
-    registerCatalog('de-DE', {
-      'assets.details.title': '[Details DE]',
-      'assets.fact.source': '[Quelle DE]',
-      'assets.source.all': '[Alle Assets]',
-      'assets.source.federatedCatalog': '[Verbundkatalog]',
-    })
-    const digest = `blake3:${'a'.repeat(64)}`
-    const encodeRequest = vi.fn(() => ({ injected: true }))
-    const base = assetDtoV1Contract({ catalog: '/api/catalog', candidates: '/api/catalog/candidates' })
-    const contract = { ...base, catalog: { ...base.catalog, encodeRequest } }
-    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ contractVersion: 1, items: [{
-      logicalId: 'federated-alpha', family: 'flux', assetKind: 'model', variantId: 'fp16', dtype: 'fp16', quantization: 'none', format: 'safetensors', role: 'base',
-      requirements: { loaders: [], runtimes: [], hardware: [] }, digest,
-      availability: { status: 'local', reason: '' }, compatibility: { status: 'compatible', reason: '' },
-      providerSources: [{ source: { providerId: 'fixture-provider', sourceId: 'fixture-source' }, status: 'available', reason: '', requires: { credential: 'fixture-token' } }],
-      assetRef: { digest, name: 'Federated Alpha.safetensors', size: 12, mediaType: 'application/octet-stream', virtualPath: 'models/federated-alpha.safetensors' },
-    }] })))
-    vi.stubGlobal('fetch', fetchFn)
-    const connection = stubConnection({
-      listMounts: vi.fn().mockResolvedValue([{ id: 'local', mode: 'read', state: 'ready', entryCount: 1 }]),
-      listMountEntries: vi.fn().mockResolvedValue({ entries: [{ virtualPath: 'local.safetensors', name: 'local.safetensors', digest: `blake3:${'b'.repeat(64)}`, size: 10, mediaType: 'application/octet-stream' }] }),
-      assetUrl: vi.fn(),
-      fetchAssetMetadata: vi.fn(),
-    })
-    const root = document.createElement('div')
-    document.body.append(root)
-    const dispose = render(() => <AssetsBody connection={connection} backendId="native" baseUrl="https://backend.example" federatedContract={contract} />, root)
-    await vi.waitFor(() => expect(root.textContent).toContain('Federated Alpha.safetensors'))
-    expect(root.textContent).toContain('local.safetensors')
-    expect(root.querySelector('[data-testid="asset-source-select"]')?.getAttribute('data-selected-id')).toBe('all-assets')
-    expect(root.querySelector('[data-testid="collection-search"]')?.getAttribute('placeholder')).toBe('Search assets')
-    expect(root.querySelector('[data-testid="asset-entry-fallback"]')?.getAttribute('data-kind')).toBe('model')
-    const entry = root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!
-    expect(entry.querySelector('.collection-subtitle')).toBeNull()
-    expect([...entry.querySelectorAll('.collection-badge')].map((badge) => badge.textContent)).toEqual(['12 B'])
-    entry.click()
-    const selection = root.querySelector<HTMLElement>('[data-testid="asset-selection-summary"]')!
-    expect(selection.querySelector('h3')?.textContent).toBe('Federated Alpha.safetensors')
-    selection.querySelector<HTMLElement>('[data-testid="asset-rail-details"] summary')!.click()
-    expect(selection.textContent).toContain('Size12 B')
-    expect([...selection.querySelectorAll('dt')].filter((term) => term.textContent === 'Kind')).toHaveLength(1)
-    expect(selection.textContent).toContain('Kindmodel')
-    expect(selection.textContent).toContain('Virtual pathmodels/federated-alpha.safetensors')
-    expect(selection.querySelector('.asset-digest code')?.textContent).toBe('blake3:aaaaa...aaaaaaaa')
-    expect(selection.textContent).toContain('Providerfixture-provider')
-    expect(selection.textContent).toContain('Provider sourcefixture-source')
-    expect(selection.textContent).toContain('Provider statusavailable')
-    expect(selection.textContent).toContain('Requires credentialfixture-token')
-    expect(selection.textContent).toContain('Availabilitylocal:')
-    expect(selection.textContent).toContain('Compatibilitycompatible:')
-    setLocale('de-DE')
-    expect(selection.querySelector<HTMLDetailsElement>('[data-testid="asset-rail-details"]')?.open).toBe(true)
-    expect(selection.textContent).toContain('[Quelle DE][Verbundkatalog]')
-    expect(encodeRequest).toHaveBeenCalled()
-    expect(fetchFn).toHaveBeenCalledWith('https://backend.example/api/catalog', expect.anything())
     dispose()
   })
 

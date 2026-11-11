@@ -89,12 +89,6 @@ The Focused panel uses ProductEmptyState for an absent document and a context
 without problems. Context selection, problem filtering and canvas navigation
 remain independent of the empty presentation.
 
-Control surfaces use ProductEmptyState for absent panels, empty bindings,
-unsupported surface types and malformed configurations. Malformed configuration
-is an alert; unsupported surfaces remain inert and removable. Bindings use
-ProductListRow inside list items, retaining removal actions and warning details
-for unresolved bindings without changing bulk mode commands.
-
 Badge popovers use ProductEmptyState when error, log or problem details are
 absent and when subgraph or replacement data is unavailable. These are missing
 detail messages, not new runtime alerts; popover focus and existing actions
@@ -564,21 +558,13 @@ retain severity and code, and stable list positions preserve keyboard focus
 when a gate changes. The body owns contained scrolling and reachable tails at
 narrow widths and browser CSS zoom.
 
-## Asset Editor boundary
+## Extension asset editors
 
-Issue #32 owns Asset Editor host rendering and presentation only. Dinkster #119
-owns proxy and range behavior; authoritative output-fact schemas, content,
-and semantics; transform and operation-node semantics; media interaction;
-jobs; provenance; draft history; normalization; execution kernels; and
-Apply/Cancel behavior. All specification origins use the same frontend shell
-without private UI-only semantic state.
-
-The shared shell is the root-only `asset-editor` node on the existing
-`WidgetView.editorUi` path. It uses product tabs, fields, notices, and action
-footers for supplied display fields, origin labels, capabilities, facts, tool
-slots, and command states. Unknown field and capability kinds fail closed.
-Command slots are registered no-payload invocations; the shell does not author
-or reinterpret any state listed above as owned by #119.
+The specialized asset editor shell is parked in
+[the rework queue](rework-queue.md#extension-asset-editor-shell). Generic
+`WidgetView.editorUi` contributions still use bounded group, text, status
+and action nodes through the Host UI renderer. The ordinary builtin asset
+picker is independent and remains available.
 
 ## Replacement rule
 

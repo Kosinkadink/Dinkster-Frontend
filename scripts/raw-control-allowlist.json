@@ -1,9 +1,9 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 170,
+    "rawControl": 156,
     "inlineStyle": 64,
-    "cssLiteral": 67
+    "cssLiteral": 65
   },
   "entries": [
     {
@@ -27,12 +27,6 @@
     {
       "kind": "rawControl",
       "path": "packages/app/src/AssetConsentDialog.tsx",
-      "count": 2,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/AssetEditorShell.tsx",
       "count": 2,
       "issue": 382
     },
@@ -289,12 +283,6 @@
       "issue": 382
     },
     {
-      "kind": "rawControl",
-      "path": "packages/app/src/SurfacePanel.tsx",
-      "count": 5,
-      "issue": 382
-    },
-    {
       "kind": "inlineStyle",
       "path": "packages/app/src/TabDragGhost.tsx",
       "count": 1,
@@ -310,12 +298,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/UniversalSearch.tsx",
       "count": 2,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/VideoDocumentEditor.tsx",
-      "count": 7,
       "issue": 382
     },
     {
@@ -423,7 +405,7 @@
     {
       "kind": "cssLiteral",
       "path": "packages/app/src/styles.css",
-      "count": 67,
+      "count": 65,
       "issue": 382
     }
   ]

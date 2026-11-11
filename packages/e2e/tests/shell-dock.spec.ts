@@ -369,14 +369,14 @@ test('a panel floated and docked back finishes loading and keeps reacting', asyn
   await expect(docked.getByRole('option', { name: /amber\.png/ })).toBeVisible()
 })
 
-test('extensions, boundary, and control surfaces panels can float and move to a new window', async ({ page }) => {
-  // All three descriptors allow floating and window placement like every
+test('extensions and boundary panels can float and move to a new window', async ({ page }) => {
+  // Both descriptors allow floating and window placement like every
   // other zone-hosted panel.
   const allowed = await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as {
       panels: { all(): { id: string; allowedPlacements: readonly string[] }[] }
     }
-    const wanted = new Set(['extensions', 'boundary', 'surfaces'])
+    const wanted = new Set(['extensions', 'boundary'])
     return Object.fromEntries(app.panels.all()
       .filter((panel) => wanted.has(panel.id))
       .map((panel) => [panel.id, [...panel.allowedPlacements].sort().join(',')]))
@@ -384,7 +384,6 @@ test('extensions, boundary, and control surfaces panels can float and move to a 
   expect(allowed).toEqual({
     extensions: 'bottom,dock,floating,rail,window',
     boundary: 'bottom,dock,floating,rail,window',
-    surfaces: 'bottom,dock,floating,rail,window',
   })
 
   // Extensions floats through its tab context menu and docks back cleanly.
@@ -403,30 +402,39 @@ test('extensions, boundary, and control surfaces panels can float and move to a 
 })
 
 test('a floating when-gated panel hides while disabled and returns when re-enabled', async ({ page }) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    ;(window as any).__floatingPanelVisible = false
+    app.panels.register({
+      id: 'conditional-test', title: 'Conditional panel', placement: 'rail',
+      allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 50,
+      when: () => (window as any).__floatingPanelVisible,
+      component: () => document.createElement('div'),
+    })
+  })
   const setGate = (value: boolean) => page.evaluate((enabled) => {
-    const app = window.__dinksterTest!.app as unknown as {
-      settings: { set(id: string, value: boolean): void }
-    }
-    app.settings.set('features.controlSurfaces.enabled', enabled)
+    ;(window as any).__floatingPanelVisible = enabled
+    const changed = window.__dinksterTest!.app.panels.changed
+    changed.set(changed.get() + 1)
   }, value)
 
   await setGate(true)
   const zone = page.getByTestId('dock-zone-right')
   // Clipped tabs stay attached but display:none, which hides them from
   // role queries, so the attach wait uses a CSS locator.
-  const tab = zone.locator('[role="tab"][data-tab-id="surfaces"]')
+  const tab = zone.locator('[role="tab"][data-tab-id="conditional-test"]')
   await tab.waitFor({ state: 'attached' })
   // A full strip clips trailing tabs into the all-tabs overflow; activating
   // the panel there renders its tab in the strip.
   if (!await tab.isVisible()) {
     await zone.getByTestId('dock-zone-overflow-button').click()
     await zone.getByTestId('dock-zone-overflow-menu')
-      .getByRole('menuitemradio', { name: 'Control surfaces' }).click()
+      .getByRole('menuitemradio', { name: 'Conditional panel' }).click()
   }
   await expect(tab).toBeVisible()
   await tab.click({ button: 'right' })
   await page.getByTestId('context-menu').locator('[data-item-id="panel.float"]').click()
-  const floating = page.locator('[data-testid="floating-panel"][data-panel="surfaces"]')
+  const floating = page.locator('[data-testid="floating-panel"][data-panel="conditional-test"]')
   await expect(floating).toBeVisible()
 
   // Disabling the feature hides the floating overlay without dropping the

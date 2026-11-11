@@ -1213,17 +1213,7 @@ zoom clamps. The Canvas scroll behavior setting also applies inside Image:
 Zoom is cursor-anchored, while Pan uses both wheel axes and keeps Ctrl+wheel as
 cursor-anchored zoom.
 
-For a schema-verified `dinkster.load_image` whose `mask` output has consumers,
-Apply stores the cumulative edit recipe in one `dinkster.mask.paint` node and
-rewires only those mask consumers. The guarded command copies the complete
-loader AssetRef into `source`, preserves direct link identities and named nets,
-and updates the associated paint node on later edits instead of nesting nodes.
-It refuses changed source, topology, recipe, schema, and occurrence-local
-topology. Recipes are bounded to 4 MiB, 2,048 commands, 8,192 points per stroke,
-and 32,768 total points. Reopening the associated node restores its cumulative
-operations. One workflow undo/redo covers insertion or update and rewiring.
-
-Other admitted image inputs retain **Bake to asset**. Apply encodes one PNG
+Admitted image inputs offer **Bake to asset**. Apply encodes one PNG
 that preserves source RGB even under transparent pixels and writes the inverted
 mask in alpha. After `/api/assets` accepts the bytes, the editor creates a
 complete AssetRef and dispatches exactly one `image.applyAsset`. The command
@@ -1233,12 +1223,11 @@ source visible. A rejected command, deleted or changed destination, tab close
 during upload, or Cancel does not claim success or write the document.
 
 The editor remains a flat source plus mask operations. It does not define a
-layer stack or general operation-stack document. Graph persistence is limited
-to the published mask-paint recipe; other targets flatten to one AssetRef.
+layer stack or general operation-stack document. Applying flattens the local
+edits to one AssetRef. Graph-native mask recipes are parked in [the rework queue](rework-queue.md#mask-paint-applied-to-the-graph).
 The inspected before/after and mask-tool frames are under
 `dinkster-evidence/frontend/issue-310/`; pen/touch navigation frames are under
-`dinkster-evidence/frontend/issue-280/`; graph-native mask apply is under
-`dinkster-evidence/frontend/issue-400/`. The physical Huion Kamvas Pro 24 report and paired
+`dinkster-evidence/frontend/issue-280/`. The physical Huion Kamvas Pro 24 report and paired
 screenshots in that folder record pressure-responsive width and opacity,
 coalesced input, one-operation undo, capture-loss rollback, unchanged document
 revision, and the available pen capabilities. That device exposes no touch HID

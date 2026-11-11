@@ -23,18 +23,19 @@ const adapter = (id: string, page: AssetSourceAdapter['page']): AssetSourceAdapt
 })
 
 describe('All assets collection source', () => {
-  it('merges local and federated pages without hiding independent local results on remote failure', async () => {
+  it('merges local and mounted pages without hiding independent local results on mount failure', async () => {
     let fail = false
-    const source = allAssetsCollectionSource([adapter('local-assets', async () => ({ items: [asset('local', 'uploaded.png')] }))], [], undefined, {
-      additionalSources: [{ id: 'federated', label: 'Federated catalog', page: async () => {
-        if (fail) throw new Error('remote offline')
-        return { items: [{ id: 'remote', title: 'remote.png' }] }
-      } }],
-    })
-    expect((await source.page({ query: '', limit: 24 })).items.map((entry) => entry.title)).toEqual(['remote.png', 'uploaded.png'])
+    const source = allAssetsCollectionSource([
+      adapter('local-assets', async () => ({ items: [asset('local', 'uploaded.png')] })),
+      adapter('mount:pictures', async () => {
+        if (fail) throw new Error('mount offline')
+        return { items: [asset('mount:pictures', 'mounted.png')] }
+      }),
+    ])
+    expect((await source.page({ query: '', limit: 24 })).items.map((entry) => entry.title)).toEqual(['mounted.png', 'uploaded.png'])
     fail = true
     const partial = await source.page({ query: '', limit: 24 })
-    expect(partial.items.map((entry) => entry.title)).toEqual(['uploaded.png', 'Federated catalog unavailable'])
+    expect(partial.items.map((entry) => entry.title)).toEqual(['uploaded.png', 'mount:pictures unavailable'])
   })
 
   it('classifies only the shared trusted input and output presentation identities', () => {

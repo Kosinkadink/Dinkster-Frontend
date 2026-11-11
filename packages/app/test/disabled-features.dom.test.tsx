@@ -131,6 +131,8 @@ it('registers built-in editors at shell mount and withdraws the feature-gated Ap
   expect(app.editors.get('graph')?.title).toBe('Graph')
   expect(app.editors.get('image')?.title).toBe('Image editor')
   expect(host.querySelector('[data-testid="canvas-stub"]')).not.toBeNull()
+  expect(app.panels.get('surfaces')).toBeUndefined()
+  expect(app.settings.list().some((setting) => setting.id === 'features.controlSurfaces.enabled')).toBe(false)
 
   app.settings.set('features.appView.enabled', true)
   await vi.waitFor(() => expect(kinds()).toEqual(['app', 'curve', 'glsl', 'graph', 'image']))

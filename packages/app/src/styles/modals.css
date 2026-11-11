@@ -126,8 +126,6 @@
 .modal-surface[data-modal='widget-asset'] { width: min(1180px, calc(100vw - 16px)); max-height: min(820px, calc(100vh - 16px)); }
 .modal-surface[data-modal='widget-video-edit'] { width: min(760px, calc(100vw - 16px)); max-height: min(860px, calc(100vh - 16px)); }
 .modal-surface[data-modal='widget-video-edit'] .widget-modal-help { flex: none; padding: var(--dinkster-space-12) var(--dinkster-space-12) 0; }
-.modal-surface[data-modal='widget-video-document'] { width: min(780px, calc(100vw - 16px)); max-height: min(860px, calc(100vh - 16px)); }
-.modal-surface[data-modal='widget-video-document'] .widget-modal-help { flex: none; padding: var(--dinkster-space-12) var(--dinkster-space-12) 0; }
 .customize-layout { padding: 14px; }
 .customize-layout-intro { margin: 0 0 12px; color: var(--dinkster-text-secondary); }
 .customize-layout fieldset { margin: 0; padding: 0; border: 0; }

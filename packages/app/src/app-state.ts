@@ -25,11 +25,9 @@ import {
   createReplacementRegistry,
   createSearchRegistry,
   createSignal,
-  createSurfaceRegistry,
   effectiveOccurrenceTopology,
   effectiveTopologyDrivesPort,
   effectiveWidgetDefault,
-  modePanelSurface,
   detectFormat,
   diag,
   createLocalSession,
@@ -61,13 +59,11 @@ import {
   loadDocument,
   inputsOf,
   isPortEndpoint,
-  maskPaintSourceNodeId,
   nodeStatesFromDinksterJob,
   numericStepConstraints,
   outputCountInputsOf,
   outputsOf,
   occurrenceDynamicView,
-  parseMaskPaintRecipe,
   EMPTY_SUBGRAPH_DEFINITION,
   EMPTY_SUBGRAPH_VIEW,
   planFreshSubgraphCreate,
@@ -1289,12 +1285,6 @@ export interface ImageEditorTarget {
   readonly nodeId: string
   readonly inputId: string
   readonly sourceRef: AssetRef
-  readonly maskPaint?: {
-    readonly expectedMaskLinkIds: readonly string[]
-    readonly expectedMaskNetIds: readonly string[]
-    readonly paintNodeId: string | null
-    readonly expectedPaintOperations: string | null
-  }
 }
 
 export interface CurveEditorTarget {
@@ -1306,11 +1296,6 @@ export interface CurveEditorTarget {
   readonly openedStoredValue: Json | undefined
   readonly openedSchemaDefault: unknown
   readonly openedValue: CurveValue
-  readonly follow?: {
-    readonly envelopeNodeId: string
-    readonly audioNodeId: string
-    readonly audioOutputId: string
-  }
 }
 
 export interface GlslEditorTarget {
@@ -1338,18 +1323,6 @@ export interface CompositorEditorTarget {
 export const isCompositorEditorTarget = (
   target: ImageEditorTarget | CompositorEditorTarget,
 ): target is CompositorEditorTarget => 'mode' in target && target.mode === 'compositor'
-
-export const isMaskPaintEditorTarget = (target: ImageEditorTarget): boolean => target.maskPaint !== undefined
-
-const sameAssetRef = (left: AssetRef, right: AssetRef): boolean =>
-  left.digest === right.digest && left.name === right.name && left.size === right.size &&
-  left.mediaType === right.mediaType && left.virtualPath === right.virtualPath
-
-const schemaPortType = (schema: NodeSchema | undefined, kind: 'input' | 'output', id: string): string | undefined => {
-  if (!schema) return undefined
-  const item = (kind === 'input' ? inputsOf(schema) : outputsOf(schema)).find((candidate) => candidate.id === id)
-  return item ? canonicalTypeIdOf(item.type) : undefined
-}
 
 const isSessionOnlyEditorKind = (kind: string): boolean =>
   kind === IMAGE_EDITOR_KIND || kind === CURVE_EDITOR_KIND || kind === GLSL_EDITOR_KIND
@@ -2533,8 +2506,6 @@ export class AppState {
   readonly transientStatus = createSignal<string | undefined>(undefined)
   private transientStatusTimer: ReturnType<typeof setTimeout> | undefined
   readonly settingsOpenRequest = createSignal<{ readonly category: string; readonly id: string } | undefined>(undefined)
-  /** Control-surface types; extensions register through the same public API. */
-  readonly surfaceRegistry = createSurfaceRegistry([modePanelSurface])
   /**
    * Shell panels are descriptors (identity, placement, component), and the
    * shell renders from them. The built-in shell registers panel descriptors
@@ -3045,7 +3016,6 @@ export class AppState {
     this.settings.register({ id: 'canvas.minimap.errors', get name() { return t('settings.canvas.minimap.errors') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.namedNets.enabled', get name() { return t('settings.features.namedNets') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.seedController.enabled', get name() { return t('settings.features.seedController') }, type: 'boolean', defaultValue: true })
-    this.settings.register({ id: 'features.controlSurfaces.enabled', get name() { return t('settings.features.controlSurfaces') }, type: 'boolean', defaultValue: false })
     this.settings.register({ id: 'features.appView.enabled', get name() { return t('settings.features.appView') }, type: 'boolean', defaultValue: false })
     this.settings.register({ id: 'tooltips.delayMs', get name() { return t('settings.tooltips.delayMs') }, type: 'number', defaultValue: 500, min: 0, max: 5000, step: 50 })
     this.settings.register({
@@ -5520,10 +5490,6 @@ export class AppState {
     const node = graph?.nodes[selectedNodeIds[0]!]
     if (!graph || !node) return undefined
     const resolve = this.registryForTab(tab)?.resolve
-    if (resolve?.(node.type)?.editorRole === 'mask-paint') {
-      const loaderNodeId = maskPaintSourceNodeId(node)
-      return loaderNodeId ? this.imageTargetForInput(tab, graphId, loaderNodeId, 'image') : undefined
-    }
     const candidates = imageInputCandidates({
       schema: resolve?.(node.type),
       nodeId: node.id,
@@ -5536,51 +5502,7 @@ export class AppState {
       ]),
     })
     const candidate = candidates.length === 1 ? candidates[0] : undefined
-    return candidate ? this.maskPaintTarget(tab, graphId, candidate) : undefined
-  }
-
-  private maskPaintTarget(tab: Tab, graphId: string, candidate: ReturnType<typeof imageInputCandidates>[number]): ImageEditorTarget | undefined {
-    const base: ImageEditorTarget = { tabId: tab.id, graphId, ...candidate }
-    const graph = tab.store.doc.graphs[graphId]
-    const loader = graph?.nodes[candidate.nodeId]
-    const registry = this.registryForTab(tab)
-    const loaderSchema = loader ? registry?.resolve(loader.type) : undefined
-    const paintSchema = registry?.resolve.forEditorRole?.('mask-paint')
-    if (!graph) return base
-    const associated = Object.values(graph.nodes).filter((node) =>
-      registry?.resolve(node.type)?.editorRole === 'mask-paint' && maskPaintSourceNodeId(node) === candidate.nodeId)
-    if (associated.length > 1) return undefined
-    const paint = associated[0]
-    const paintSource = paint?.values.source
-    const paintRecipe = typeof paint?.values.operations === 'string' ? parseMaskPaintRecipe(paint.values.operations) : undefined
-    if (paint && (!isAssetRef(paintSource) || !sameAssetRef(paintSource, candidate.sourceRef) ||
-        !paintRecipe || paintRecipe.sourceDigest !== candidate.sourceRef.digest)) return undefined
-    const hasOccurrenceTopology = Object.values(tab.store.doc.occurrenceTopologies ?? {})
-      .some((topology) => topology.bodyGraph === graphId)
-    if (loaderSchema?.editorRole !== 'image-source' || candidate.inputId !== 'image' || hasOccurrenceTopology ||
-        schemaPortType(loaderSchema, 'input', 'image') !== 'asset<IMAGE>' ||
-        schemaPortType(loaderSchema, 'output', 'image') !== 'IMAGE' ||
-        schemaPortType(loaderSchema, 'output', 'mask') !== 'MASK' ||
-        schemaPortType(paintSchema, 'input', 'source') !== 'asset<IMAGE>' ||
-        schemaPortType(paintSchema, 'input', 'operations') !== 'STRING' ||
-        inputsOf(paintSchema!).find((input) => input.id === 'operations')?.widget?.widgetType !== 'STRING' ||
-        inputsOf(paintSchema!).find((input) => input.id === 'operations')?.widget?.options.multiline !== true ||
-        schemaPortType(paintSchema, 'output', 'mask') !== 'MASK') return paint ? undefined : base
-    const source = { node: candidate.nodeId, port: 'mask' }
-    const expectedMaskLinkIds = Object.values(graph.links).filter((link) =>
-      'node' in link.from && 'port' in link.from && link.from.node === source.node && link.from.port === source.port).map((link) => link.id).sort()
-    const expectedMaskNetIds = Object.values(graph.nets).filter((net) =>
-      net.source.node === source.node && net.source.port === source.port).map((net) => net.id).sort()
-    if (!paint && expectedMaskLinkIds.length === 0 && expectedMaskNetIds.length === 0) return base
-    return {
-      ...base,
-      maskPaint: {
-        expectedMaskLinkIds,
-        expectedMaskNetIds,
-        paintNodeId: paint?.id ?? null,
-        expectedPaintOperations: paint?.values.operations as string | undefined ?? null,
-      },
-    }
+    return candidate ? { tabId: tab.id, graphId, ...candidate } : undefined
   }
 
   /** Explicit image-ASSET row entry, revalidated against the current document and schema. */
@@ -5588,10 +5510,6 @@ export class AppState {
     if (tab.execution !== undefined) return undefined
     const graph = tab.store.doc.graphs[graphId]
     const node = graph?.nodes[nodeId]
-    if (node && this.registryForTab(tab)?.resolve(node.type)?.editorRole === 'mask-paint' && inputId === 'source') {
-      const loaderNodeId = maskPaintSourceNodeId(node)
-      return loaderNodeId ? this.imageTargetForInput(tab, graphId, loaderNodeId, 'image') : undefined
-    }
     const schema = node ? this.registryForTab(tab)?.resolve(node.type) : undefined
     const driven = graph && (Object.values(graph.links).some((link) =>
       'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
@@ -5599,7 +5517,7 @@ export class AppState {
     const candidate = node && !driven
       ? imageInputCandidates({ schema, nodeId, values: node.values }).find((item) => item.inputId === inputId)
       : undefined
-    return candidate ? this.maskPaintTarget(tab, graphId, candidate) : undefined
+    return candidate ? { tabId: tab.id, graphId, ...candidate } : undefined
   }
 
   /** Re-resolve a target against current schema, topology, and the complete source ref. */
@@ -5807,41 +5725,6 @@ export class AppState {
     const fallback = input?.kind === 'input' && input.widget ? effectiveWidgetDefault(input.widget) : undefined
     const value = isCurveValue(stored) ? stored : isCurveValue(fallback) ? fallback : undefined
     if (input?.kind !== 'input' || input.widget?.widgetType !== 'CURVE' || !value) return undefined
-    if (driven && graph && node && resolve?.(node.type)?.editorRole === 'curve') {
-      const sources = companionSourcesOf(graph, undefined, undefined, resolve)
-      const envelopeSource = sources.get(nodeId)?.get(inputId)
-      const envelope = envelopeSource?.kind === 'producer' && envelopeSource.output === 'curve'
-        ? graph.nodes[envelopeSource.node]
-        : undefined
-      const envelopeCurve = envelope && resolve?.(envelope.type)?.items.find((item) =>
-        item.kind === 'output' && item.id === 'curve' && item.type.kind === 'concrete' && item.type.name === 'CURVE')
-      const audioSource = envelope && resolve?.(envelope.type)?.editorRole === 'audio-envelope'
-        ? sources.get(envelope.id)?.get('audio')
-        : undefined
-      const audio = audioSource?.kind === 'producer' ? graph.nodes[audioSource.node] : undefined
-      const audioOutput = audio && audioSource?.kind === 'producer'
-        ? resolve?.(audio.type)?.items.find((item) =>
-            item.kind === 'output' && item.id === audioSource.output && item.type.kind === 'concrete' && item.type.name === 'AUDIO')
-        : undefined
-      if (envelopeCurve && audioSource?.kind === 'producer' && audioOutput) {
-        return {
-          tabId: tab.id,
-          graphId,
-          nodeId,
-          inputId,
-          instancePath: [...instancePath],
-          openedStoredValue: stored,
-          openedSchemaDefault: input.widget.default,
-          openedValue: value,
-          follow: {
-            envelopeNodeId: envelope.id,
-            audioNodeId: audioSource.node,
-            audioOutputId: audioSource.output,
-          },
-        }
-      }
-      return undefined
-    }
     return !driven
       ? {
           tabId: tab.id,

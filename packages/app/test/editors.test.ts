@@ -62,20 +62,9 @@ const compositorPayload = (): DinksterNodesPayload => ({
   },
 }) as unknown as DinksterNodesPayload
 
-const curveFollowPayload = (): DinksterNodesPayload => ({
+const curvePayload = (): DinksterNodesPayload => ({
   schemaVersion: 1,
   nodes: {
-    AudioSource: {
-      schemaVersion: 1, displayName: 'Audio source', category: 'test', idempotent: true,
-      interface: [{ role: 'output', id: 'audio', type: { kind: 'concrete', types: ['AUDIO'] } }],
-    },
-    'dinkster.audio.envelope': {
-      schemaVersion: 1, displayName: 'Audio envelope', category: 'audio', idempotent: true, editorRole: 'audio-envelope',
-      interface: [
-        { role: 'input', id: 'audio', required: true, type: { kind: 'concrete', types: ['AUDIO'] } },
-        { role: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } },
-      ],
-    },
     'dinkster.curve.editor': {
       schemaVersion: 1, displayName: 'Curve editor', category: 'curve', idempotent: true, editorRole: 'curve',
       interface: [
@@ -111,28 +100,6 @@ const glslPayload = (): DinksterNodesPayload => ({
           widget: { type: 'STRING', multiline: true },
         },
         { role: 'output', id: 'image0', type: { kind: 'concrete', types: ['IMAGE'] } },
-      ],
-    },
-  },
-}) as unknown as DinksterNodesPayload
-
-const maskPaintPayload = (): DinksterNodesPayload => ({
-  schemaVersion: 1,
-  nodes: {
-    'dinkster.load_image': {
-      schemaVersion: 1, displayName: 'Load Image', category: 'image', idempotent: true, editorRole: 'image-source',
-      interface: [
-        { role: 'input', id: 'image', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['IMAGE'] } }, widget: { type: 'ASSET', accept: ['image/png'] } },
-        { role: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
-        { role: 'output', id: 'mask', type: { kind: 'concrete', types: ['MASK'] } },
-      ],
-    },
-    'dinkster.mask.paint': {
-      schemaVersion: 1, displayName: 'Paint Mask', category: 'image', idempotent: true, editorRole: 'mask-paint',
-      interface: [
-        { role: 'input', id: 'source', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['IMAGE'] } }, widget: { type: 'ASSET', accept: ['image/png'] } },
-        { role: 'input', id: 'operations', required: true, type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'STRING', multiline: true } },
-        { role: 'output', id: 'mask', type: { kind: 'concrete', types: ['MASK'] } },
       ],
     },
   },
@@ -407,103 +374,72 @@ describe('Tab editorKind', () => {
     expect(app.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(GRAPH_EDITOR_KIND)
   })
 
-  it.each(['link', 'net'] as const)('admits only the exact envelope/audio provenance through a %s', (topology) => {
+  it.each(['link', 'net'] as const)('refuses editing a curve driven through a %s', (topology) => {
     const app = new AppState()
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), curveFollowPayload()))
-    const curveEdge = { from: { node: 'envelope', port: 'curve' }, to: { node: 'editor', port: 'curve' } }
+    app.registry.set(buildDinksterRegistry(asConnectionId('local'), curvePayload()))
+    const curveEdge = { from: { node: 'other', port: 'curve' }, to: { node: 'editor', port: 'curve' } }
     expect(app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: `curve-follow-${topology}`, root: 'g0',
+      format: 'dinkster-workflow', formatVersion: 1, lineage: `curve-driven-${topology}`, root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
         nodes: {
-          audio: { id: 'audio', type: 'AudioSource', values: {} },
-          envelope: { id: 'envelope', type: 'dinkster.audio.envelope', values: {} },
           editor: { id: 'editor', type: 'dinkster.curve.editor', values: {} },
-          invalidEditor: { id: 'invalidEditor', type: 'dinkster.curve.editor', values: {} },
+          editable: { id: 'editable', type: 'dinkster.curve.editor', values: {} },
           other: { id: 'other', type: 'OtherCurve', values: {} },
         },
         links: {
-          audioLink: { id: 'audioLink', from: { node: 'audio', port: 'audio' }, to: { node: 'envelope', port: 'audio' } },
           ...(topology === 'link' ? {
             curve: { id: 'curve', ...curveEdge },
-            invalidCurve: { id: 'invalidCurve', from: { node: 'other', port: 'curve' }, to: { node: 'invalidEditor', port: 'curve' } },
           } : {}),
         },
         nets: topology === 'net' ? {
-          curve: { id: 'curve', name: 'envelope curve', source: curveEdge.from, sinks: [curveEdge.to] },
-          invalidCurve: { id: 'invalidCurve', name: 'other curve', source: { node: 'other', port: 'curve' }, sinks: [{ node: 'invalidEditor', port: 'curve' }] },
+          curve: { id: 'curve', name: 'driven curve', source: curveEdge.from, sinks: [curveEdge.to] },
         } : {},
         reroutes: {}, nextOrdinal: 1,
       } },
       view: { graphs: {} },
-    }, 'Curve follow target')).toEqual([])
+    }, 'Curve target')).toEqual([])
     const tab = app.activeTab()!
-    expect(app.curveTargetForInput(tab, 'g0', 'editor', 'curve')).toMatchObject({
-      nodeId: 'editor', inputId: 'curve', instancePath: [],
-      follow: { envelopeNodeId: 'envelope', audioNodeId: 'audio', audioOutputId: 'audio' },
+    expect(app.curveTargetForInput(tab, 'g0', 'editable', 'curve')).toMatchObject({
+      nodeId: 'editable', inputId: 'curve', instancePath: [],
     })
-    expect(app.curveTargetForInput(tab, 'g0', 'invalidEditor', 'curve')).toBeUndefined()
+    expect(app.curveTargetForInput(tab, 'g0', 'editor', 'curve')).toBeUndefined()
     app.dispose()
   })
 
-  it('captures loader mask topology and redirects the associated paint source', async () => {
+  it('refuses pending image asset admission after closing the editor', async () => {
     const app = createWorkflowApp(null)
     retainedApps.push(app)
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), maskPaintPayload()))
+    app.registry.set(buildDinksterRegistry(asConnectionId('local'), {
+      schemaVersion: 1,
+      nodes: { ImageInput: {
+        schemaVersion: 1, displayName: 'Image input', category: 'test', idempotent: true,
+        interface: [{ role: 'input', id: 'image', required: true,
+          type: { kind: 'asset', element: { kind: 'concrete', types: ['IMAGE'] } },
+          widget: { type: 'ASSET', accept: ['image/png'] } }],
+      } },
+    } as unknown as DinksterNodesPayload))
     expect(app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'mask-paint-target', root: 'g0',
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'image-admission', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
-        loader: { id: 'loader', type: 'dinkster.load_image', values: { image: { digest: `blake3:${'a'.repeat(64)}`, name: 'a.png', size: 10, mediaType: 'image/png', virtualPath: '' } } },
-        sink: { id: 'sink', type: 'Sink', values: {} },
-      }, links: { mask: { id: 'mask', from: { node: 'loader', port: 'mask' }, to: { node: 'sink', port: 'mask' } } }, nets: {}, reroutes: {}, nextOrdinal: 1 } },
-      view: { graphs: {} },
-    }, 'Mask paint target')).toEqual([])
+        image: { id: 'image', type: 'ImageInput', values: { image: { digest: `blake3:${'a'.repeat(64)}`, name: 'a.png', size: 10, mediaType: 'image/png', virtualPath: '' } } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } }, view: { graphs: {} },
+    }, 'Image admission')).toEqual([])
     const tab = app.activeTab()!
-    const target = app.imageTargetForInput(tab, 'g0', 'loader', 'image')
-    expect(target?.maskPaint).toEqual({ expectedMaskLinkIds: ['mask'], expectedMaskNetIds: [], paintNodeId: null, expectedPaintOperations: null })
-
-    const source = target!.sourceRef
-    expect(app.openImageEditor(target!)).toBe(true)
+    const target = app.imageTargetForInput(tab, 'g0', 'image', 'image')!
+    expect(app.openImageEditor(target)).toBe(true)
     const opened = app.imageEditorTarget.get()!
     let accept!: () => void
     const acknowledgment = new Promise<void>((resolve) => { accept = resolve })
-    const retain = vi.mocked(app.connection.retainAssets)
-    retain.mockImplementationOnce(async (owner, declaration) => {
+    vi.mocked(app.connection.retainAssets).mockImplementationOnce(async (owner, declaration) => {
       await acknowledgment
       return { ...owner, ...declaration, revision: declaration.revision + 1 }
     })
-    const admission = app.retainEditorAssets(opened, app.backendForTab(tab), source)
+    const admission = app.retainEditorAssets(opened, app.backendForTab(tab), target.sourceRef)
     const refused = expect(admission).rejects.toThrow('Editor source changed')
     app.closeImageEditor(opened)
     accept()
     await refused
-    const operations = `{"version":1,"sourceDigest":"${source.digest}","width":2,"height":1,"commands":[]}`
-    expect((await app.dispatchTo(tab, { command: 'image.applyMaskPaint', params: {
-      graphId: 'g0', loaderNodeId: 'loader', inputId: 'image', expectedSource: source,
-      operations, paintNodeId: null, expectedPaintOperations: null,
-      expectedMaskLinkIds: ['mask'], expectedMaskNetIds: [],
-    } })).ok).toBe(true)
-    const paint = Object.values(tab.store.doc.graphs.g0!.nodes).find((node) => node.type === 'dinkster.mask.paint')!
-    expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
-      graphId: 'g0', nodeId: paint.id, inputId: 'operations',
-      value: `{"version":1,"version":1,"sourceDigest":"${source.digest}","width":2,"height":1,"commands":[]}`,
-    } })).ok).toBe(true)
-    expect(app.imageTargetForInput(tab, 'g0', 'loader', 'image')).toBeUndefined()
-    expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
-      graphId: 'g0', nodeId: paint.id, inputId: 'operations', value: `${operations}${' '.repeat(4_194_305)}`,
-    } })).ok).toBe(true)
-    expect(app.imageTargetForInput(tab, 'g0', 'loader', 'image')).toBeUndefined()
-    for (const value of [
-      operations.replace('"version":1', '"version":1.0'),
-      operations.replace('"version":1', '"version":1e0'),
-      operations.replace('"width":2', '"width":2.0'),
-      operations.replace('"height":1', '"height":1e0'),
-    ]) {
-      expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
-        graphId: 'g0', nodeId: paint.id, inputId: 'operations', value,
-      } })).ok).toBe(true)
-      expect(app.imageTargetForInput(tab, 'g0', 'loader', 'image')).toBeUndefined()
-    }
     app.dispose()
   })
 

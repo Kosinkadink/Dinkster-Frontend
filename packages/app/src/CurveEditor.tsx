@@ -1,11 +1,9 @@
 import { createEffect, createMemo, createSignal, Index, onCleanup, Show } from 'solid-js'
-import { asNodeId, canonicalJson, CURVE_HISTOGRAM_PREVIEW_CHANNEL, occurrenceKey, occurrencesForView, type Json } from '@dinkster/core'
+import { asNodeId, canonicalJson, CURVE_HISTOGRAM_PREVIEW_CHANNEL, occurrenceKey, type Json } from '@dinkster/core'
 import { curveInterpolator, isCurveValue, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import type { AppState } from './app-state.js'
 import type { EditorHostContext } from './editors.js'
 import { useSignal } from './solid-adapter.js'
-import { audioPlayhead } from './AudioTransport.js'
-import { liveExactnessFor } from './companion-display.js'
 import { useAppMessage } from './locale.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 
@@ -40,8 +38,6 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
   const activeTabId = (): string => props.host?.tabId() ?? globalActiveTabId()
   const [documentTick, setDocumentTick] = createSignal(0)
   const [draft, setDraft] = createSignal<CurveValue>()
-  const [computed, setComputed] = createSignal<CurveValue>()
-  const [computedStatus, setComputedStatus] = createSignal('')
   const [selected, setSelected] = createSignal<number>()
   const [error, setError] = createSignal<string>()
   const [applying, setApplying] = createSignal(false)
@@ -59,9 +55,7 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
     setSelected(undefined)
     setError(undefined)
     setApplying(false)
-    setComputed(undefined)
-    setComputedStatus('')
-    setDraft(request && request.tabId === active && request.follow === undefined ? copyCurve(request.openedValue) : undefined)
+    setDraft(request && request.tabId === active ? copyCurve(request.openedValue) : undefined)
   })
 
   createEffect(() => {
@@ -86,103 +80,13 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
         )
       : undefined
   }
-  const followContext = createMemo(() => {
-    executions()
-    const request = currentTarget()
-    if (!request?.follow) return undefined
-    const tab = tabs().find((candidate) => candidate.id === request.tabId)
-    const execution = tab ? props.app.executionForTab(tab) : undefined
-    const backend = execution && props.app.backendFor(execution.ref.connection)
-    if (!tab || !execution?.artifact || execution.status !== 'completed' || backend?.protocol !== 'dinkster') return undefined
-    const runtimeIds = new Set([...Object.keys(execution.nodes), ...Object.keys(execution.outputs)])
-    const occurrences = occurrencesForView({
-      instancePath: request.instancePath.map(asNodeId),
-      runtimeIds,
-      toSource: execution.artifact.provenance.toSource,
-    })
-    const envelopeRuntimeIds = occurrences.own.get(asNodeId(request.follow.envelopeNodeId)) ?? []
-    const audioRuntimeIds = occurrences.own.get(asNodeId(request.follow.audioNodeId)) ?? []
-    if (envelopeRuntimeIds.length !== 1 || audioRuntimeIds.length !== 1) return undefined
-    const envelopeRuntimeId = envelopeRuntimeIds[0]!
-    const audioRuntimeId = audioRuntimeIds[0]!
-    const compiled = props.app.compileTabCached(tab)
-    const exact = compiled?.ok && compiled.artifact.connection === execution.ref.connection
-      ? liveExactnessFor(compiled.artifact, execution.artifact)
-      : undefined
-    if (exact?.(envelopeRuntimeId) !== true || exact(audioRuntimeId) !== true) return undefined
-    const aliases = execution.artifact.provenance.outputAliases
-    const curveQuery = {
-      jobId: execution.ref.prompt,
-      nodeId: envelopeRuntimeId,
-      outputId: aliases?.[envelopeRuntimeId]?.['curve'] ?? 'curve',
-    }
-    const audioQuery = {
-      jobId: execution.ref.prompt,
-      nodeId: audioRuntimeId,
-      outputId: aliases?.[audioRuntimeId]?.[request.follow.audioOutputId] ?? request.follow.audioOutputId,
-    }
-    return { values: backend.connection.values(), curveQuery, audioIdentity: JSON.stringify(audioQuery) }
-  })
-  const matchingAudioPlayhead = createMemo(() => {
-    const context = followContext()
-    const playhead = audioPlayhead()
-    return context !== undefined && playhead?.identity === context.audioIdentity ? playhead : undefined
-  })
-  const displayedCurve = createMemo(() => currentTarget()?.follow === undefined ? draft() : computed())
-  const positionExtent = () => Math.max(1, matchingAudioPlayhead()?.duration ?? 0, displayedCurve()?.points.at(-1)?.position ?? 0)
+  const displayedCurve = draft
+  const positionExtent = () => Math.max(1, displayedCurve()?.points.at(-1)?.position ?? 0)
   const curveX = (position: number) => pointX(position / positionExtent())
-  const readonly = createMemo(() => applying() || currentTarget() === undefined || currentTarget()?.follow !== undefined)
+  const readonly = createMemo(() => applying() || currentTarget() === undefined)
   const selectedPoint = createMemo(() => {
     const index = selected()
     return index === undefined ? undefined : displayedCurve()?.points[index]
-  })
-
-  createEffect(() => {
-    const context = followContext()
-    setComputed(undefined)
-    if (currentTarget()?.follow === undefined) {
-      setComputedStatus('')
-      return
-    }
-    if (!context) {
-      setComputedStatus(appMessage('curveEditor.follow.exactRunRequired'))
-      return
-    }
-    const controller = new AbortController()
-    setComputedStatus(appMessage('curveEditor.follow.loading'))
-    void context.values.peek(context.curveQuery, { signal: controller.signal }).then(async (peek) => {
-      if (controller.signal.aborted) return
-      const info = peek.available ? peek.renditions.find((entry) =>
-        entry.kind === 'curve-points' && entry.mime === 'application/json' && entry.default === true &&
-        entry.cacheKey === 'curve-points' && entry.limits?.['points'] === 4096) : undefined
-      if (!peek.available || peek.descriptor.typeId !== 'CURVE' || info === undefined) {
-        setComputedStatus(peek.available
-          ? appMessage('curveEditor.follow.renditionMissing')
-          : `${peek.status} ${peek.reason}: ${peek.error}`)
-        return
-      }
-      const rendition = await context.values.rendition(context.curveQuery, info.kind, { signal: controller.signal, descriptor: peek.descriptor })
-      if (controller.signal.aborted) return
-      if (!rendition.available) {
-        setComputedStatus(`${rendition.status} ${rendition.reason}: ${rendition.error}`)
-        return
-      }
-      try {
-        if (rendition.typeId !== peek.descriptor.typeId || rendition.fingerprint !== peek.descriptor.fingerprint ||
-          rendition.reportedKind !== info.kind || rendition.mime !== info.mime) {
-          throw new Error(appMessage('curveEditor.follow.renditionMismatch'))
-        }
-        const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(rendition.bytes))
-        if (!isCurveValue(value)) throw new Error(appMessage('curveEditor.follow.payloadInvalid'))
-        setComputed(copyCurve(value))
-        setComputedStatus(appMessage('curveEditor.follow.active'))
-      } catch (reason) {
-        setComputedStatus(reason instanceof Error ? reason.message : String(reason))
-      }
-    }).catch((reason) => {
-      if (!controller.signal.aborted) setComputedStatus(reason instanceof Error ? reason.message : String(reason))
-    })
-    onCleanup(() => controller.abort())
   })
 
   const histogram = createMemo((): readonly number[] | undefined => {
@@ -372,23 +276,10 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
                 setSelected(undefined)
               }}
             >Delete point</button>
-            <Show when={currentTarget()?.follow} fallback={<p>Double-click the graph to add a point. Drag points to adjust them.</p>}>
-              <p>{appMessage('curveEditor.follow.readOnly')}</p>
-            </Show>
-            <p>{currentTarget()?.follow
-              ? appMessage('curveEditor.follow.axis', { extent: positionExtent().toFixed(2) })
-              : 'Position and value range from 0 to 1.'}</p>
-            <Show when={currentTarget()?.follow}>
-              <p role="status">{computedStatus()}</p>
-              <p>{matchingAudioPlayhead()
-                ? appMessage('curveEditor.follow.playhead', {
-                    time: matchingAudioPlayhead()!.time.toFixed(2),
-                    duration: matchingAudioPlayhead()!.duration.toFixed(2),
-                  })
-                : appMessage('curveEditor.follow.playLinkedAudio')}</p>
-            </Show>
+            <p>Double-click the graph to add a point. Drag points to adjust them.</p>
+            <p>Position and value range from 0 to 1.</p>
             <Show when={selectedPoint()}>{(point) => <dl class="curve-point-value" data-testid="curve-point-value">
-              <div><dt>{currentTarget()?.follow ? 'Position (s)' : 'Position'}</dt><dd>{point().position.toFixed(4)}</dd></div>
+              <div><dt>Position</dt><dd>{point().position.toFixed(4)}</dd></div>
               <div><dt>Value</dt><dd>{point().value.toFixed(4)}</dd></div>
             </dl>}</Show>
             <Show when={histogram()}><p data-testid="curve-histogram-status">Histogram from the selected run</p></Show>
@@ -403,9 +294,6 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
             <path class="curve-histogram" data-testid="curve-histogram" d={histogramPath()} />
             <path class="curve-grid" d="M0 150H1000M0 300H1000M0 450H1000M250 0V600M500 0V600M750 0V600" />
             <path class="curve-line" d={curvePath()} />
-            <Show when={(matchingAudioPlayhead()?.duration ?? 0) > 0}>
-              <rect data-testid="curve-audio-playhead" x={curveX(matchingAudioPlayhead()!.time) - 1.5} y="0" width="3" height="600" fill="var(--dinkster-border-focus)" pointer-events="none" />
-            </Show>
             <Index each={displayedCurve()?.points}>{(point, index) => <circle
               classList={{ selected: selected() === index }}
               aria-label={`Curve point ${index + 1}`}
@@ -424,7 +312,7 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
             />}</Index>
           </svg>
         </div>
-        <Show when={currentTarget() === undefined}><div class="curve-editor-error" role="alert">{appMessage('curveEditor.follow.relationUnavailable')}</div></Show>
+        <Show when={currentTarget() === undefined}><div class="curve-editor-error" role="alert">{appMessage('curveEditor.targetUnavailable')}</div></Show>
         <Show when={error()}>{(message) => <div class="curve-editor-error" role="alert">{message()}</div>}</Show>
       </>}
     </Show>

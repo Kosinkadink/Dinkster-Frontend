@@ -67,15 +67,14 @@ export function allAssetsCollectionSource(
     readonly fixedKind?: string
     readonly failWhenAllSourcesFail?: boolean
     readonly onSourceFailures?: (failures: readonly AssetSourceFailure[]) => void
-    readonly additionalSources?: readonly CollectionSource[]
     readonly previewOwner?: AssetPreviewOwner
   } = {},
 ): CollectionSource {
-  const sources = [...adapters.map((adapter) => assetCollectionSource(adapter, {
+  const sources = adapters.map((adapter) => assetCollectionSource(adapter, {
       ...(assetUrl ? { assetUrl } : {}),
       ...(options.fixedKind ? { fixedKind: options.fixedKind } : {}),
       ...(options.previewOwner ? { previewOwner: options.previewOwner } : {}),
-    })), ...(options.additionalSources ?? [])]
+    }))
   let generation = 0
   let activeSignature = ''
   const activeSourceFailures = new Map<string, AssetSourceFailure>()
@@ -84,7 +83,6 @@ export function allAssetsCollectionSource(
     id: options.id ?? 'all-assets',
     label: options.label ?? 'All assets',
     folders: true,
-    filters: (options.additionalSources ?? []).flatMap((source) => source.filters ?? []),
     page: async (req) => {
       const signature = requestSignature(req)
       const cursor = req.cursor === undefined ? undefined : decodeCursor(req.cursor, signature)

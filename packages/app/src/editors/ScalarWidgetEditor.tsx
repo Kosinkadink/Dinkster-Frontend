@@ -41,15 +41,8 @@ import { editorScreenAnchor } from '../widget-editor-position.js'
 import { parseNumericCommit, parsePrimitiveListCommit, resolveTextCommit, widgetCommitError } from '../widget-commit.js'
 
 export function isInNodeTextEditor(ed: WidgetEditorState): boolean {
-  if (ed.outputDescriptors !== undefined || ed.target.kind !== 'input' ||
-    ed.spec?.widgetType !== 'STRING' || !ed.multiline) return false
-  const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
-  const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
-  const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
-  const type = ed.tab.store?.doc?.graphs[graphId]?.nodes[nodeId]?.type
-  if (type === undefined || !type.startsWith('dinkster.video_document.')) return true
-  const command = type.slice('dinkster.video_document.'.length)
-  return !((inputId === 'params' && command !== 'import_otio') || (inputId === 'otio' && command === 'import_otio'))
+  return ed.outputDescriptors === undefined && ed.target.kind === 'input' &&
+    ed.spec?.widgetType === 'STRING' && ed.multiline
 }
 
 interface CompletionEntry extends SuggestionSurfaceItem {
