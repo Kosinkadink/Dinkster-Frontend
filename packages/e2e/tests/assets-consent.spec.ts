@@ -19,11 +19,11 @@ async function prepare(page: Page): Promise<void> {
   await page.route('**/api/assets', (route) => route.fulfill({ status: 404, body: 'source document storage unavailable in isolated proof' }))
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'AssetConsentOutput', displayName: 'Asset consent output', category: 'test', source: 'v3', isOutputNode: true, items: [],
     }])
-    await window.__dinksterTest!.app.openDocument({
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'asset-consent-e2e', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { output: { id: 'output', type: 'AssetConsentOutput', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { output: { position: { x: 100, y: 100 } } } } } },

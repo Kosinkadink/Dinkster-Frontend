@@ -130,15 +130,15 @@ test('a same-lineage tab replacement does not inherit the save press: no phantom
   // (which would delete the replacement's bookmark). The replacement doc
   // ships with slot 1 pre-saved so delete-vs-save is observable.
   const openReplaceable = () =>
-    page.evaluate(async () => {
-      const diagnostics = (await window.__dinksterTest!.app.openDocument({
+    page.evaluate(() => {
+      const diagnostics = window.__dinksterTest!.app.openDocument({
         format: 'dinkster-workflow', formatVersion: 1, lineage: 'bookmark-replace', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 } },
         view: {
           graphs: { g0: { nodes: {} } },
           bookmarks: { '1': { graphStack: ['g0'], instancePath: [], viewport: { x: 5, y: 6, scale: 1 } } },
         },
-      }, 'Bookmark Replace'))
+      }, 'Bookmark Replace')
       if (diagnostics.length > 0) throw new Error(`open failed: ${JSON.stringify(diagnostics)}`)
     })
 

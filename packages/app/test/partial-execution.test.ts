@@ -1,4 +1,3 @@
-import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -36,10 +35,10 @@ const scopeSchemas: readonly NodeSchema[] = [{
 let app: AppState
 let basic: Tab
 
-beforeEach(async () => {
-  app = prepareWorkflowApp(new AppState())
+beforeEach(() => {
+  app = new AppState()
   for (const name of ['basic', 'subgraph']) {
-    await app.openDocument(JSON.parse(readFileSync(join(coreRoot, `fixtures/workflows/seed-${name}.json`), 'utf8')), name)
+    app.openDocument(JSON.parse(readFileSync(join(coreRoot, `fixtures/workflows/seed-${name}.json`), 'utf8')), name)
   }
   basic = app.tabs.get().find((tab) => tab.id === 'lineage-seed-basic')!
   const backend = app.backends.get()[0]!
@@ -202,7 +201,7 @@ describe('directed partial-execution scopes', () => {
     expect(scopes.betweenReason).toBe('requires a contiguous multi-node selection')
   })
 
-  it('ignores registered virtual notes when deriving execution scopes', async () => {
+  it('ignores registered virtual notes when deriving execution scopes', () => {
     const document = structuredClone(basic.store.doc) as unknown as {
       graphs: Record<string, { nodes: Record<string, NodeData> }>
       root: string
@@ -213,7 +212,7 @@ describe('directed partial-execution scopes', () => {
       virtual: true,
       values: { text: 'not executable' },
     }
-    expect((await app.openDocument(document, 'Virtual selection'))).toEqual([])
+    expect(app.openDocument(document, 'Virtual selection')).toEqual([])
     const tab = app.activeTab()!
     const mixed = app.selectionExecutionScopes(tab, ['note', 'n0'])!
     expect([...mixed.analysis.selected]).toEqual(['n0'])
@@ -245,14 +244,14 @@ describe('directed partial-execution scopes', () => {
     })
   })
 
-  it('from-onwards expands subgraphs to backend outputs, not boundary-only producers', async () => {
+  it('from-onwards expands subgraphs to backend outputs, not boundary-only producers', () => {
     const source = app.tabs.get().find((tab) => tab.store.doc.graphs[tab.store.doc.root]?.nodes['n0']?.type === '#g1')!
     const doc = structuredClone(source.store.doc) as unknown as {
       graphs: { g1: { nodes: Record<string, unknown>; nextOrdinal: number } }
     }
     doc.graphs.g1.nodes['n1'] = { id: 'n1', type: 'PreviewImage', values: {} }
     doc.graphs.g1.nextOrdinal = 2
-    expect((await app.openDocument(doc, 'Mixed subgraph outputs'))).toEqual([])
+    expect(app.openDocument(doc, 'Mixed subgraph outputs')).toEqual([])
     const scopes = app.selectionExecutionScopes(app.activeTab()!, ['n0'])!
     expect(scopes.upTo).toEqual({
       kind: 'partial',
@@ -270,20 +269,20 @@ describe('directed partial-execution scopes', () => {
     })
   })
 
-  it('offers no from-onwards scope when no backend output is reachable', async () => {
+  it('offers no from-onwards scope when no backend output is reachable', () => {
     const doc = structuredClone(basic.store.doc) as unknown as {
       graphs: { g0: { nodes: Record<string, unknown>; links: Record<string, unknown> } }
     }
     delete doc.graphs.g0.nodes['n1']
     doc.graphs.g0.links = {}
-    expect((await app.openDocument(doc, 'No output'))).toEqual([])
+    expect(app.openDocument(doc, 'No output')).toEqual([])
     const scopes = app.selectionExecutionScopes(app.activeTab()!, ['n0'])!
     expect(scopes.upTo).toBeDefined()
     expect(scopes.fromOnwards).toBeUndefined()
     expect(scopes.fromOnwardsReason).toBe('no output node is downstream of the selection')
   })
 
-  it('keeps both executable scopes when an unrelated component is cyclic', async () => {
+  it('keeps both executable scopes when an unrelated component is cyclic', () => {
     const doc = structuredClone(basic.store.doc) as unknown as {
       graphs: { g0: { nodes: Record<string, unknown>; links: Record<string, unknown> } }
     }
@@ -291,14 +290,14 @@ describe('directed partial-execution scopes', () => {
     doc.graphs.g0.nodes['cycleB'] = { id: 'cycleB', type: 'ImageInvert', values: {} }
     doc.graphs.g0.links['cycleAB'] = { id: 'cycleAB', from: { node: 'cycleA', port: 'image' }, to: { node: 'cycleB', port: 'image' } }
     doc.graphs.g0.links['cycleBA'] = { id: 'cycleBA', from: { node: 'cycleB', port: 'image' }, to: { node: 'cycleA', port: 'image' } }
-    expect((await app.openDocument(doc, 'Unrelated cycle'))).toEqual([])
+    expect(app.openDocument(doc, 'Unrelated cycle')).toEqual([])
     const scopes = app.selectionExecutionScopes(app.activeTab()!, ['n0'])!
     expect([...scopes.analysis.cyclicNodes].sort()).toEqual(['cycleA', 'cycleB'])
     expect(scopes.upTo).toBeDefined()
     expect(scopes.fromOnwards).toBeDefined()
   })
 
-  it('disables up-to when the selection upstream closure contains a cycle', async () => {
+  it('disables up-to when the selection upstream closure contains a cycle', () => {
     const doc = structuredClone(basic.store.doc) as unknown as {
       graphs: { g0: { nodes: Record<string, unknown>; links: Record<string, unknown> } }
     }
@@ -308,13 +307,13 @@ describe('directed partial-execution scopes', () => {
     doc.graphs.g0.links['cycleBA'] = { id: 'cycleBA', from: { node: 'cycleB', port: 'image' }, to: { node: 'cycleA', port: 'image' } }
     delete doc.graphs.g0.links['l2']
     doc.graphs.g0.links['cycleToSelection'] = { id: 'cycleToSelection', from: { node: 'cycleA', port: 'image' }, to: { node: 'n1', port: 'images' } }
-    expect((await app.openDocument(doc, 'Upstream cycle'))).toEqual([])
+    expect(app.openDocument(doc, 'Upstream cycle')).toEqual([])
     const scopes = app.selectionExecutionScopes(app.activeTab()!, ['n1'])!
     expect(scopes.upTo).toBeUndefined()
     expect(scopes.upToReason).toBe('upstream of the selection contains a cycle')
   })
 
-  it('disables between with a cycle reason when selected nodes participate in a cycle', async () => {
+  it('disables between with a cycle reason when selected nodes participate in a cycle', () => {
     const doc = structuredClone(basic.store.doc) as unknown as {
       graphs: { g0: { nodes: Record<string, unknown>; links: Record<string, unknown> } }
     }
@@ -322,13 +321,13 @@ describe('directed partial-execution scopes', () => {
     doc.graphs.g0.nodes['cycleB'] = { id: 'cycleB', type: 'ImageInvert', values: {} }
     doc.graphs.g0.links['cycleAB'] = { id: 'cycleAB', from: { node: 'cycleA', port: 'image' }, to: { node: 'cycleB', port: 'image' } }
     doc.graphs.g0.links['cycleBA'] = { id: 'cycleBA', from: { node: 'cycleB', port: 'image' }, to: { node: 'cycleA', port: 'image' } }
-    expect((await app.openDocument(doc, 'Selected cycle'))).toEqual([])
+    expect(app.openDocument(doc, 'Selected cycle')).toEqual([])
     const scopes = app.selectionExecutionScopes(app.activeTab()!, ['cycleA', 'cycleB'])!
     expect(scopes.between).toBeUndefined()
     expect(scopes.betweenReason).toBe('the selected range execution closure contains a cycle')
   })
 
-  it('disables scopes whose nested subgraph instance occurrence participates in a cycle', async () => {
+  it('disables scopes whose nested subgraph instance occurrence participates in a cycle', () => {
     const source = app.tabs.get().find((tab) => tab.store.doc.graphs[tab.store.doc.root]?.nodes['n0']?.type === '#g1')!
     const doc = structuredClone(source.store.doc) as unknown as {
       graphs: {
@@ -367,24 +366,24 @@ describe('directed partial-execution scopes', () => {
       },
       nextOrdinal: 1,
     }
-    await app.openDocument(doc, 'Cyclic subgraph')
+    app.openDocument(doc, 'Cyclic subgraph')
     const scopes = app.selectionExecutionScopes(app.activeTab()!, ['n0'])!
     expect(scopes.upTo).toBeUndefined()
     expect(scopes.upToReason).toBe('upstream of the selection contains a cycle')
   })
 
-  it('disables a between target that cannot survive node-mode lowering', async () => {
+  it('disables a between target that cannot survive node-mode lowering', () => {
     const doc = structuredClone(basic.store.doc) as unknown as {
       graphs: { g0: { nodes: Record<string, { mode?: string }> } }
     }
     doc.graphs.g0.nodes['n1']!.mode = 'muted'
-    expect((await app.openDocument(doc, 'Muted between sink'))).toEqual([])
+    expect(app.openDocument(doc, 'Muted between sink')).toEqual([])
     const scopes = app.selectionExecutionScopes(app.activeTab()!, ['n0', 'n1'])!
     expect(scopes.between).toBeUndefined()
     expect(scopes.betweenReason).toBe('selection has no executable targets')
   })
 
-  it('disables from-onwards when an output plan closure contains a cycle', async () => {
+  it('disables from-onwards when an output plan closure contains a cycle', () => {
     const doc = structuredClone(basic.store.doc) as unknown as {
       graphs: { g0: { nodes: Record<string, unknown>; links: Record<string, unknown> } }
     }
@@ -395,7 +394,7 @@ describe('directed partial-execution scopes', () => {
     doc.graphs.g0.links['cycleBA'] = { id: 'cycleBA', from: { node: 'cycleB', port: 'image' }, to: { node: 'cycleA', port: 'image' } }
     doc.graphs.g0.links['selectedToOutput'] = { id: 'selectedToOutput', from: { node: 'n0', port: 'out0' }, to: { node: 'cycleOutput', port: 'main' } }
     doc.graphs.g0.links['cycleToOutput'] = { id: 'cycleToOutput', from: { node: 'cycleA', port: 'image' }, to: { node: 'cycleOutput', port: 'side' } }
-    expect((await app.openDocument(doc, 'Output closure cycle'))).toEqual([])
+    expect(app.openDocument(doc, 'Output closure cycle')).toEqual([])
     const scopes = app.selectionExecutionScopes(app.activeTab()!, ['n0'])!
     expect(scopes.fromOnwards).toBeUndefined()
     expect(scopes.fromOnwardsReason).toBe('the downstream output execution closure contains a cycle')

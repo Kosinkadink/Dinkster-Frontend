@@ -81,7 +81,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     })).toBe(true)
   }
   await waitForStartupOwnership(page)
-  await page.evaluate(async (remoteRoute) => {
+  await page.evaluate((remoteRoute) => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue },
@@ -101,7 +101,7 @@ test.beforeEach(async ({ page }, testInfo) => {
         widget('asset', 'ASSET', null, { accept: ['image/png'] }),
       ],
     }])
-    await window.__dinksterTest!.app.openDocument({
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-view-test', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { widgets: { id: 'widgets', type: 'AppViewTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
@@ -301,8 +301,8 @@ test('use mode is the default clean form; arrange mode reveals the row tools per
 
   // The mode is per tab: a second tab opens in use mode while the first
   // keeps arrange mode.
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-view-second', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: {} },
@@ -363,7 +363,7 @@ test('exposure lens marks the exposed set and toggles App view rows', async ({ p
 })
 
 test('custom WidgetView drawCompact renders in the graph and App view adapter', async ({ page }) => {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     ;(window as unknown as { __appViewDraws: number }).__appViewDraws = 0
     const app = window.__dinksterTest!.app
     const diagnostics = app.extensions.register({
@@ -398,7 +398,7 @@ test('custom WidgetView drawCompact renders in the graph and App view adapter', 
         widget: { widgetType: 'app-view-literal-proof.kind', options: {}, default: 7 },
       }],
     }])
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-view-literal-test', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { widgets: { id: 'widgets', type: 'AppViewLiteralTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },

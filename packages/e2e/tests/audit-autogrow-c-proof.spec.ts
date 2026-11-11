@@ -1,4 +1,5 @@
-import { expect, nativeTest as test, openRailPanel, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, type Page } from '@playwright/test'
+import { openRailPanel } from './fixtures.js'
 
 interface Point {
   readonly x: number
@@ -58,7 +59,7 @@ async function boundaryPoint(page: Page, item: string): Promise<Point> {
 }
 
 async function openWorkflow(page: Page): Promise<void> {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const image = { kind: 'concrete', name: 'IMAGE' }
     const family = {
       kind: 'input', id: 'pairs', type: image, optional: true,
@@ -81,7 +82,7 @@ async function openWorkflow(page: Page): Promise<void> {
         isOutputNode: false, items: [family],
       },
     ] as never)
-    await window.__dinksterTest!.app.openDocument({
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-autogrow-c', root: 'root',
       graphs: {
         root: {
@@ -131,7 +132,6 @@ test('outside per-family ghost growth advances, persists, drills, and refuses fa
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get().length ?? 0)).toBe(1)
-  await waitForStartupOwnership(page)
   await openWorkflow(page)
   await expect.poll(() => page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()
@@ -175,10 +175,10 @@ test('outside per-family ghost growth advances, persists, drills, and refuses fa
     return { dynamic: graph.nodes.occurrence!.dynamic, links: Object.keys(graph.links).length, ghosts }
   })).toEqual({ dynamic: { forwarded: { members: ['m1', 'm2'], seq: 3 } }, links: 2, ghosts: ['m3', 'm3'] })
 
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app as any
     const exported = app.exportDocument(app.activeTab()!.id)!
-    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Outside Autogrow Reopened')
+    app.openDocument(JSON.parse(JSON.stringify(exported)), 'Outside Autogrow Reopened')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
   await expect.poll(() => page.evaluate(() => {

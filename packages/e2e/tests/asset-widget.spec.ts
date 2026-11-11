@@ -525,11 +525,11 @@ test.describe('multi-select on list-of-asset declarations', () => {
           widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } }],
       }])
     })
-    await page.evaluate(async ([a, b]) => {
+    await page.evaluate(([a, b]) => {
       const app = window.__dinksterTest!.app
       const document = structuredClone(app.activeTab()!.store.doc)
       document.graphs.g0!.nodes.asset!.values.image = [a, b]
-      await app.openDocument(document, 'Asset Widget')
+      app.openDocument(document, 'Asset Widget')
     }, [ref(1), ref(2)] as const)
   })
 
@@ -646,7 +646,7 @@ test.describe('multi-select on list-of-asset declarations', () => {
   test('scalar asset declarations show no multi-select UI', async ({ page }) => {
     // The default beforeEach schema (concrete ASSET) governs here: re-register
     // it and confirm the editor keeps the single-pick surface.
-    await page.evaluate(async () => {
+    await page.evaluate(() => {
       const app = window.__dinksterTest!.app
       app.registerSchemas([{
         type: 'AssetWidgetTest', displayName: 'Asset Widget', category: 'test', source: 'v3', isOutputNode: false,
@@ -655,7 +655,7 @@ test.describe('multi-select on list-of-asset declarations', () => {
       }])
       const document = structuredClone(app.activeTab()!.store.doc)
       document.graphs.g0!.nodes.asset!.values.image = { digest: `blake3:${'b'.repeat(64)}`, name: 'old.png', size: 3, mediaType: 'image/png', virtualPath: '' }
-      await app.openDocument(document, 'Asset Widget')
+      app.openDocument(document, 'Asset Widget')
     })
     await openAsset(page)
     const editor = page.getByTestId('asset-editor')

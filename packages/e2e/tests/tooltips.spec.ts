@@ -251,7 +251,7 @@ test('canvas pin and widget hover identities follow the pointer and clear on lea
 
 test('mismatch noodle midpoint grab-dot tooltip shows the retained solver diagnostic', async ({ page }) => {
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  const point = await page.evaluate(async () => {
+  const point = await page.evaluate(() => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([
       {
@@ -263,7 +263,7 @@ test('mismatch noodle midpoint grab-dot tooltip shows the retained solver diagno
         items: [{ kind: 'input', id: 'input', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
       },
     ])
-    await test.app.openDocument({
+    test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'tooltip-mismatch', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         source: { id: 'source', type: 'TooltipImage', values: {} },

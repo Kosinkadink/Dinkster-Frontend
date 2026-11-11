@@ -58,13 +58,13 @@ const CHAIN_DOC = {
 }
 
 /** A native backend with live schemas, plus the CHAIN_DOC tab targeted at it. */
-async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'dinkster' }>; tab: Tab }> {
+function nativeSetup(): { backend: Extract<Backend, { protocol: 'dinkster' }>; tab: Tab } {
   const added = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
   if (!added || added.protocol !== 'dinkster') throw new Error('addBackend rejected')
   vi.spyOn(added.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
     ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   added.registry.set(buildDinksterRegistry(added.id, nodesPayload))
-  expect((await app.openDocument(CHAIN_DOC, 'Chain'))).toEqual([])
+  expect(app.openDocument(CHAIN_DOC, 'Chain')).toEqual([])
   const tab = app.activeTab()!
   app.setTabTarget(tab.id, added.id)
   return { backend: added, tab }
@@ -72,7 +72,7 @@ async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'd
 
 describe('live preview policy on submit', () => {
   it('queues a full workflow with transient placement for selected root nodes', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
     backend.registry.set({ ...backend.registry.get()!, graphFeatures: ['placement'] })
     backend.workerCatalog.set({
@@ -98,7 +98,7 @@ describe('live preview policy on submit', () => {
   })
 
   it('refuses placement when the worker catalog changes during the source-document upload', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
     backend.registry.set({ ...backend.registry.get()!, graphFeatures: ['placement'] })
     backend.workerCatalog.set({
@@ -125,7 +125,7 @@ describe('live preview policy on submit', () => {
   })
 
   it('refuses placement when the connection changes during the source-document upload', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     let connectionStatus = 'connected' as 'connected' | 'reconnecting'
     vi.spyOn(backend.connection.status, 'get').mockImplementation(() => connectionStatus)
     backend.registry.set({ ...backend.registry.get()!, graphFeatures: ['placement'] })
@@ -150,7 +150,7 @@ describe('live preview policy on submit', () => {
   })
 
   it('refuses an asset-consent retry after its selected worker becomes unavailable', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
     backend.registry.set({ ...backend.registry.get()!, graphFeatures: ['placement'] })
     backend.workerCatalog.set({
@@ -181,7 +181,7 @@ describe('live preview policy on submit', () => {
   })
 
   it('refuses a disconnected worker before compiling or submitting', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     backend.workerCatalog.set({
       status: 'ready',
       workers: [{ name: 'render-box', status: 'disconnected', routedNodeTypes: ['std.math.add_ints'], deviceQualifiers: [] }],
@@ -195,7 +195,7 @@ describe('live preview policy on submit', () => {
   })
 
   it('refuses inherited object names as selected nodes before submission', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     backend.workerCatalog.set({
       status: 'ready',
       workers: [{ name: 'local', status: 'connected', routedNodeTypes: [], deviceQualifiers: [] }],
@@ -210,7 +210,7 @@ describe('live preview policy on submit', () => {
   })
 
   it('sends the execution.previews setting as the previews mode', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'a'.repeat(64))
     const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
       ok: false,
@@ -229,7 +229,7 @@ describe('live preview policy on submit', () => {
   })
 
   it('a workflow document override replaces the global setting', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'a'.repeat(64))
     const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
       ok: false,
@@ -244,7 +244,7 @@ describe('live preview policy on submit', () => {
   })
 
   it('per-node overrides ride the nodes map keyed by runtime id', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     app.settings.set('execution.previews', 'cheap')
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'a'.repeat(64))
     const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({

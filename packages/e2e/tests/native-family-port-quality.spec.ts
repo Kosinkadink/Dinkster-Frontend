@@ -95,8 +95,8 @@ function requiredWire15State(
 }
 
 async function openBlank(page: Page, lineage: string): Promise<void> {
-  await page.evaluate(async (lineage) => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate((lineage) => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage, root: 'g0',
       graphs: {
         g0: {
@@ -235,9 +235,9 @@ test('every live wire-15 family node persists minimums and reloads with a growth
     expect(result.hasGrowthTarget, type).toBe(visibleGrowth)
     expect(result.underMinimum, type).toEqual([])
 
-    await page.evaluate(async ({ type }) => {
+    await page.evaluate(({ type }) => {
       const app = window.__dinksterTest!.app
-      await app.openDocument(structuredClone(app.activeTab()!.store.doc), `reloaded-${type}`)
+      app.openDocument(structuredClone(app.activeTab()!.store.doc), `reloaded-${type}`)
     }, { type })
     await expect.poll(() => page.evaluate((nodeId) => {
       const tab = window.__dinksterTest!.app.activeTab()
@@ -310,9 +310,9 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
   }, mathId)
   expect(state).toEqual({ members: ['a', 'b'], targets: ['values.a', 'values.b'] })
 
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    await app.openDocument(structuredClone(app.activeTab()!.store.doc), 'Reloaded Math family')
+    app.openDocument(structuredClone(app.activeTab()!.store.doc), 'Reloaded Math family')
   })
   await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
   const reloaded = await page.evaluate((mathId) => {

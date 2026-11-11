@@ -22,10 +22,10 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('semantic scene navigation stays virtual until focused and pans only on activation', async ({ page }, testInfo) => {
-  const diagnostics = await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument(
+  const diagnostics = await page.evaluate(() => window.__dinksterTest!.app.openDocument(
     window.__dinksterTest!.syntheticWorkflow({ chains: 4, chainLength: 10, reroutes: true }),
     'Semantic navigation proof',
-  )))
+  ))
   expect(diagnostics).toEqual([])
   await expect(page.getByTestId('tab-bar').locator('.tab', { hasText: 'Semantic navigation proof' })).toBeVisible()
   await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
