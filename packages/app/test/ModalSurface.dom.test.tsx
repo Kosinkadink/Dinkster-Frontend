@@ -1075,7 +1075,7 @@ describe('ASSET widget modal integration', () => {
     mounted.unmount()
   })
 
-  it('renders actionable unresolved-import details and an honest disabled download state', async () => {
+  it('renders actionable unresolved-import details and explains download approval at run time', async () => {
     const mounted = unresolvedAssetEditor()
     await new Promise<void>((resolve) => queueMicrotask(resolve))
 
@@ -1084,8 +1084,9 @@ describe('ASSET widget modal integration', () => {
     expect(details).toContain('missing-model.safetensors')
     expect(details).toContain('model/checkpoint')
     expect(details).toContain('application/x-safetensors, application/octet-stream')
-    expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-download"]')!.disabled).toBe(true)
-    expect(mounted.root.querySelector('[data-testid="asset-acquisition-unavailable"]')!.textContent).toContain('no download source or acquisition contract')
+    expect(mounted.root.querySelector('[data-testid="asset-download"]')).toBeNull()
+    expect(mounted.root.querySelector('[data-testid="asset-acquisition-unavailable"]')).toBeNull()
+    expect(mounted.root.querySelector('[data-testid="asset-not-on-disk"]')!.textContent).toBe('Not on disk. A download is offered when the workflow runs.')
     mounted.unmount()
   })
 
