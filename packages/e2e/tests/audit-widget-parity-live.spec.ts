@@ -7,7 +7,7 @@ import { selectProductOption, skipWithoutNativeCatalog } from './fixtures.js'
 
 // Exact native catalog of the backend pinned by the hosted workflows.
 const canonicalCatalogSha256 =
-  '4e92783d08de2cd477025dc22ce331c864459fa114fcd3848a0c66c2365a3c07'
+  'bfba257759a86ced2d989148aeb934c9e5e6a849e6cbf24b79b49c1f4a472d31'
 const nativeBackend =
   process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -160,7 +160,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
     .update(canonicalJson(stableCatalog))
     .digest('hex')
   expect(catalogDigest).toBe(canonicalCatalogSha256)
-  expect(Object.keys(catalog.nodes)).toHaveLength(889)
+  expect(Object.keys(catalog.nodes)).toHaveLength(690)
   const inputs = widgets(catalog)
   const descriptors = inputs.flatMap(({ input }) =>
     widgetDescriptors(input.widget),
@@ -172,7 +172,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   expect(roundInputs).toHaveLength(18)
   expect(roundInputs).toContainEqual(
     expect.objectContaining({
-      nodeType: 'DualModelGuider',
+      nodeType: 'dinkster.sampling.dual_model_guider',
       input: expect.objectContaining({
         id: 'cfg',
         widget: expect.objectContaining({ round: 0.01 }),
@@ -185,7 +185,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   expect(dynamicPromptInputs).toHaveLength(51)
   expect(
     dynamicPromptInputs.map(({ nodeType, input }) => `${nodeType}.${input.id}`),
-  ).toContain('CLIPTextEncode.text')
+  ).toContain('dinkster.conditioning.clip_text_encode.text')
   expect(
     inputs.filter(({ input }) =>
       Object.hasOwn(input.widget ?? {}, 'placeholder'),
@@ -194,8 +194,8 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   expect(
     inputs.find(
       ({ nodeType, input }) =>
-        nodeType === 'dinkster.render_image_document' &&
-        input.id === 'selector',
+        nodeType === 'dinkster.utilities.primitive_string_multiline' &&
+        input.id === 'value',
     )?.input.widget,
   ).toEqual({ type: 'STRING', multiline: true })
   expect(
@@ -210,10 +210,13 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   ).toHaveLength(0)
   expect(
     inputs.filter(({ input }) => input.widget?.['type'] === 'COLOR'),
-  ).toHaveLength(11)
+  ).toHaveLength(7)
   expect(Object.hasOwn(catalog.nodes, 'dinkster.ksampler_advanced')).toBe(false)
   expect(Object.hasOwn(catalog.nodes, 'comfy.KSamplerAdvanced')).toBe(false)
-  expect(Object.hasOwn(catalog.nodes, 'KSamplerAdvanced')).toBe(true)
+  expect(Object.hasOwn(catalog.nodes, 'KSamplerAdvanced')).toBe(false)
+  expect(
+    Object.hasOwn(catalog.nodes, 'dinkster.sampling.k_sampler_advanced'),
+  ).toBe(true)
 
   const remoteDescriptors = descriptors.filter(
     (widget) => typeof widget['remote'] === 'object',
@@ -257,97 +260,17 @@ test('hosted native stack proves live widget adoption and exact catalog absences
         refreshButton: true,
       },
       {
-        input: 'dinkster.detection.detect.provider',
-        route: '/api/choices/dinkster.detection.detect.providers',
-        refreshButton: null,
-      },
-      {
-        input: 'dinkster.detection.segment_text.provider',
-        route: '/api/choices/dinkster.detection.segment_text.providers',
-        refreshButton: null,
-      },
-      {
-        input: 'dinkster.detection.segment.provider',
-        route: '/api/choices/dinkster.detection.segment.providers',
-        refreshButton: null,
-      },
-      {
-        input: 'dinkster.detection.track.provider',
-        route: '/api/choices/dinkster.detection.track.providers',
-        refreshButton: null,
-      },
-      {
-        input: 'dinkster.image.matte.provider',
-        route: '/api/choices/dinkster.image.matte.providers',
-        refreshButton: null,
-      },
-      {
-        input: 'dinkster.image.upscale_model.provider',
-        route: '/api/choices/dinkster.image.upscale_model.providers',
-        refreshButton: null,
-      },
-      {
-        input: 'dinkster.preprocess.anyline.provider',
-        route: '/api/choices/dinkster.preprocess.anyline.providers',
-        refreshButton: null,
-      },
-      {
-        input: 'dinkster.preprocess.lineart_anime.provider',
-        route: '/api/choices/dinkster.preprocess.lineart_anime.providers',
-        refreshButton: null,
-      },
-      {
-        input: 'dinkster.preprocess.lineart_manga.provider',
-        route: '/api/choices/dinkster.preprocess.lineart_manga.providers',
-        refreshButton: null,
-      },
-      {
-        input: 'dinkster.preprocess.lineart_realistic.provider',
-        route: '/api/choices/dinkster.preprocess.lineart_realistic.providers',
-        refreshButton: null,
-      },
-      {
-        input: 'dinkster.preprocess.mlsd.provider',
-        route: '/api/choices/dinkster.preprocess.mlsd.providers',
-        refreshButton: null,
-      },
-      {
-        input: 'dinkster.preprocess.model_depth.provider',
-        route: '/api/choices/dinkster.preprocess.model_depth.providers',
-        refreshButton: null,
-      },
-      {
-        input: 'dinkster.preprocess.model_edges.provider',
-        route: '/api/choices/dinkster.preprocess.model_edges.providers',
-        refreshButton: null,
-      },
-      {
-        input: 'dinkster.preprocess.teed.provider',
-        route: '/api/choices/dinkster.preprocess.teed.providers',
-        refreshButton: null,
-      },
-      {
-        input: 'dinkster.record_audio.device',
-        route: '/api/choices/dinkster.devices.audio_inputs',
-        refreshButton: true,
-      },
-      {
-        input: 'dinkster.webcam_capture.device',
-        route: '/api/choices/dinkster.devices.video_inputs',
-        refreshButton: true,
-      },
-      {
-        input: 'SelectCLIPDevice.device',
+        input: 'dinkster.models.select_clip_device.device',
         route: '/api/choices/devices.gpu',
         refreshButton: null,
       },
       {
-        input: 'SelectModelDevice.device',
+        input: 'dinkster.models.select_model_device.device',
         route: '/api/choices/devices.gpu',
         refreshButton: null,
       },
       {
-        input: 'SelectVAEDevice.device',
+        input: 'dinkster.models.select_vae_device.device',
         route: '/api/choices/devices.vae',
         refreshButton: null,
       },
@@ -360,27 +283,18 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   expect(
     sourceInputs.map(({ nodeType, input }) => `${nodeType}.${input.id}`).sort(),
   ).toEqual([
-    'Load3D.model_file',
-    'Load3DAdvanced.model_file',
-    'LoadAudio.audio',
-    'LoadImage.image',
-    'LoadImageMask.image',
-    'LoadImageOutput.image',
-    'LoadLatent.latent',
-    'LoadVideo.file',
-    'Painter.mask',
-    'dinkster.load_audio.audio',
-    'dinkster.load_gaussian_splat.splat',
-    'dinkster.load_image.image',
-    'dinkster.load_image_output.image',
-    'dinkster.load_mask.mask',
-    'dinkster.load_model3d.model',
-    'dinkster.load_video.video',
-    'dinkster.load_video_value.video',
-    'dinkster.read_image_metadata.image',
+    'dinkster.3d.load3_d.model_file',
+    'dinkster.3d.load3_d_advanced.model_file',
+    'dinkster.audio.load_audio.audio',
+    'dinkster.image.load_image.image',
+    'dinkster.image.load_image_mask.image',
+    'dinkster.image.load_image_output.image',
+    'dinkster.image.painter.mask',
+    'dinkster.latent.load_latent.latent',
+    'dinkster.video.load_video.file',
   ])
   expect(sourceInputs).toContainEqual({
-    nodeType: 'LoadImageMask',
+    nodeType: 'dinkster.image.load_image_mask',
     input: expect.objectContaining({
       id: 'image',
       widget: expect.objectContaining({
@@ -415,7 +329,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
         ),
       { timeout: 20_000 },
     )
-    .toBe(889)
+    .toBe(690)
   await page.evaluate(() => {
     window.__dinksterTest!.app.openDocument(
       {
@@ -430,7 +344,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
             nodes: {
               round: {
                 id: 'round',
-                type: 'DualModelGuider',
+                type: 'dinkster.sampling.dual_model_guider',
                 values: { cfg: 8.0 },
               },
               checkpoint: {
@@ -440,13 +354,17 @@ test('hosted native stack proves live widget adoption and exact catalog absences
               },
               sampler: {
                 id: 'sampler',
-                type: 'KSamplerAdvanced',
+                type: 'dinkster.sampling.k_sampler_advanced',
                 values: {
                   sampler_name: 'euler',
                   scheduler: 'simple',
                 },
               },
-              media: { id: 'media', type: 'LoadImageMask', values: {} },
+              media: {
+                id: 'media',
+                type: 'dinkster.image.load_image_mask',
+                values: {},
+              },
             },
             links: {},
             nets: {},
@@ -635,7 +553,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
             nodes: {
               clip: {
                 id: 'clip',
-                type: 'CLIPLoader',
+                type: 'dinkster.models.clip_loader',
                 values: {
                   clip_name: clipAsset,
                   type: 'minimax',
@@ -644,7 +562,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
               },
               encode: {
                 id: 'encode',
-                type: 'CLIPTextEncode',
+                type: 'dinkster.conditioning.clip_text_encode',
                 values: { text: '{amber|violet} proof' },
               },
             },
@@ -753,7 +671,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
       const banner = document.createElement('pre')
       banner.style.cssText =
         'position:fixed;right:320px;top:150px;width:520px;white-space:pre-wrap;overflow-wrap:anywhere;z-index:10000;background:#102030;color:#e8f4ff;padding:16px;border:2px solid #60a5fa'
-      banner.textContent = `current canonical catalog SHA-256: ${catalogDigest}\nFLOAT commit: 8.129 -> 8.13\ncanonical sampler: KSamplerAdvanced\nremote COMBO routes refreshed: 1/1\nsource upload: audit-wpar-source.png\ndynamic POST: ${expanded}\nplaceholder declarers: 0\nMULTI_COMBO declarers: 0\nremote policy declarers: 0`
+      banner.textContent = `current canonical catalog SHA-256: ${catalogDigest}\nFLOAT commit: 8.129 -> 8.13\ncanonical sampler: dinkster.sampling.k_sampler_advanced\nremote COMBO routes refreshed: 1/1\nsource upload: audit-wpar-source.png\ndynamic POST: ${expanded}\nplaceholder declarers: 0\nMULTI_COMBO declarers: 0\nremote policy declarers: 0`
       document.body.appendChild(banner)
     },
     {
@@ -768,8 +686,8 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   console.log(
     JSON.stringify({
       canonicalCatalogSha256,
-      round: 'DualModelGuider.cfg 8.129 -> 8.13',
-      sampler: 'KSamplerAdvanced',
+      round: 'dinkster.sampling.dual_model_guider.cfg 8.129 -> 8.13',
+      sampler: 'dinkster.sampling.k_sampler_advanced',
       choiceRequests,
       mediaUpload: Object.fromEntries(mediaUrl.searchParams),
       dynamicPrompt: submitted!.graph.nodes.encode.inputs.text,
