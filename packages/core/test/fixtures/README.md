@@ -14,6 +14,7 @@ payloads separately; ordinary graph regressions do not need a legacy protocol
 parser to reconstruct their inputs.
 
 `synthetic-schemas.json` is the native interface subset for generated image
-workloads: `EmptyImage` and `ImageScaleBy` expose `IMAGE`, while `PreviewImage`
-exposes `images`. Core compiler and canvas performance tests share these records.
+workloads: `dinkster.image.empty_image` and `dinkster.image.image_scale_by`
+expose `IMAGE`, while `dinkster.image.preview_image` exposes `images`.
+Core compiler and canvas performance tests share these records.
 They model port contracts, not a complete catalog or runtime parity capture.

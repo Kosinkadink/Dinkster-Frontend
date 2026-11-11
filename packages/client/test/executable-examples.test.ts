@@ -59,17 +59,22 @@ const exampleNodes = {
   schemaVersion: 1,
   dinkster: { version: 'test', schemaWire: 1, graphFeatures: ['regions'] },
   nodes: {
-    'std.math.add_ints': schema('std.math.add_ints', [
-      input('a', int), input('b', int), output('sum', int),
+    'dinkster.utilities.primitive_int': schema('dinkster.utilities.primitive_int', [
+      input('value', int), output('INT', int),
     ]),
+    'dinkster.utilities.comfy_math_expression': schema('dinkster.utilities.comfy_math_expression', [
+      input('expression', concrete('STRING'), 'a + b'),
+      {
+        role: 'inputFamily', id: 'values', required: true, minMembers: 1,
+        optionalAfterMinimum: true, memberNames: [...'abcdefghijklmnopqrstuvwxyz'],
+        template: [input('value', { kind: 'union', types: ['FLOAT', 'INT', 'BOOLEAN'] })],
+      },
+      output('FLOAT', concrete('FLOAT')), output('INT', int), output('BOOL', boolean),
+    ]),
+    // Withdrawn nodes remain structural test inputs, not a served catalog.
     'std.list.length': schema('std.list.length', [
       input('list', list(int)), output('length', int),
     ]),
-    'dinkster.value.compare': schema('dinkster.value.compare', [
-      input('a', int), input('b', int), input('operation', concrete('STRING')),
-      input('epsilon', concrete('FLOAT')), output('result', boolean),
-    ]),
-    'dinkster.int': schema('dinkster.int', [input('value', int), output('value', int)]),
     'dinkster.route.gate': schema('dinkster.route.gate', [
       input('condition', boolean), input('value', int), output('value', int),
     ]),

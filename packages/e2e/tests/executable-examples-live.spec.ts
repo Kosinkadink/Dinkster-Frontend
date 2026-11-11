@@ -103,9 +103,8 @@ test.beforeEach(async ({ page }) => {
   } catch { /* unreachable backend stays unavailable */ }
   test.skip(!graphFeatures?.includes('regions'),
     `native backend at ${NATIVE_BACKEND} does not advertise region graphs`)
-  for (const nodeType of ['std.math.add_ints', 'std.list.length', 'dinkster.value.compare', 'dinkster.int', 'dinkster.route.gate']) {
-    test.skip(nodes?.[nodeType] === undefined,
-      `native backend at ${NATIVE_BACKEND} lacks example node ${nodeType}`)
+  for (const nodeType of ['dinkster.utilities.primitive_int', 'dinkster.utilities.comfy_math_expression']) {
+    expect(nodes?.[nodeType], `current example node ${nodeType}`).toBeDefined()
   }
 
   await page.goto('/')
