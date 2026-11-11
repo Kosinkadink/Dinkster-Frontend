@@ -164,7 +164,7 @@ test('checkboxes and radios preserve keyboard, disabled, focus, and mutation bou
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
 
   await page.keyboard.press('Escape')
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const socket = (id: string) => ({ kind: 'input', id, type: { kind: 'concrete', name: 'IMAGE' }, optional: true })
     app.registerSchemas([{
@@ -181,7 +181,7 @@ test('checkboxes and radios preserve keyboard, disabled, focus, and mutation bou
         },
       }],
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'toggle-proof', root: 'g0',
       graphs: {
         g0: { id: 'g0', name: 'root', nodes: { occurrence: { id: 'occurrence', type: '#subgraph', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 },

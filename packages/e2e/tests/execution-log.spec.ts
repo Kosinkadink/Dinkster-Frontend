@@ -24,7 +24,7 @@ async function seedRun(page: Page): Promise<Seed> {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForStartupOwnership(page)
-  const seed = await page.evaluate(() => {
+  const seed = await page.evaluate(async () => {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([
       {
@@ -43,10 +43,10 @@ async function seedRun(page: Page): Promise<Seed> {
         items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
       },
     ])
-    const diagnostics = bridge.app.openDocument(
+    const diagnostics = (await bridge.app.openDocument(
       bridge.syntheticWorkflow({ chains: 1, chainLength: 4, reroutes: false }),
       'Execution log proof',
-    )
+    ))
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
     const tab = bridge.app.activeTab()!
     const nodeIds = Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes)

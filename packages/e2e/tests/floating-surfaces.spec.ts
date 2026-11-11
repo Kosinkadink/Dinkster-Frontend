@@ -73,7 +73,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForStartupOwnership(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const longOptions = Array.from({ length: 14 }, (_, index) =>
       `Option ${index + 1} with a deliberately long label that must remain inside its floating surface`)
     window.__dinksterTest!.app.registerSchemas([{
@@ -99,7 +99,7 @@ test.beforeEach(async ({ page }) => {
       defaultValue: 'one',
       options: longOptions.map((label, index) => ({ value: String(index + 1), label })),
     })
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'floating-surface-proof',

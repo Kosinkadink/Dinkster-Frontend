@@ -330,8 +330,8 @@ test('hosted native stack proves live widget adoption and exact catalog absences
       { timeout: 20_000 },
     )
     .toBe(690)
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument(
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument(
       {
         format: 'dinkster-workflow',
         formatVersion: 1,
@@ -538,9 +538,9 @@ test('hosted native stack proves live widget adoption and exact catalog absences
       submitted = request.postDataJSON() as Record<string, any>
     }
   })
-  await page.evaluate((clipAsset) => {
+  await page.evaluate(async (clipAsset) => {
     const app = window.__dinksterTest!.app
-    app.openDocument(
+    await app.openDocument(
       {
         format: 'dinkster-workflow',
         formatVersion: 1,

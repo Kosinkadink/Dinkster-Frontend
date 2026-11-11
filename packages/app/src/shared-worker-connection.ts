@@ -58,6 +58,7 @@ export class SharedWorkerCollabConnection implements CollabConnection {
   private readonly bufferedEvents: CollabConnectionEvent[] = []
   private readonly heartbeat: ReturnType<typeof setInterval>
   private closed = false
+  private unsubscribeAbort: (() => void) | undefined
 
   private constructor(readonly sessionId: string, private readonly port: WorkerPortLike, private readonly actorId: string) {
     port.addEventListener('message', (event) => this.receive(event.data))
@@ -68,13 +69,18 @@ export class SharedWorkerCollabConnection implements CollabConnection {
     ;(this.heartbeat as ReturnType<typeof setInterval> & { unref?: () => void }).unref?.()
   }
 
-  static async open(sessionId: string, initial: WorkflowDocument, factory: SharedWorkerPortFactory = browserPortFactory, actorId = 'local'): Promise<SharedWorkerCollabConnection> {
+  static async open(sessionId: string, initial: WorkflowDocument, factory: SharedWorkerPortFactory = browserPortFactory, actorId = 'local', signal?: AbortSignal): Promise<SharedWorkerCollabConnection> {
+    signal?.throwIfAborted()
     const connection = new SharedWorkerCollabConnection(sessionId, factory(sessionId), actorId)
+    const abort = (): void => connection.close()
+    signal?.addEventListener('abort', abort, { once: true })
+    connection.unsubscribeAbort = () => signal?.removeEventListener('abort', abort)
     try {
       const opened = await connection.request({ kind: 'open', sessionId, document: initial }) as {
         descriptor: Extract<CollabConnectionEvent, { kind: 'connected' }>['descriptor']
         snapshot: { revision: number; document: unknown }
       }
+      signal?.throwIfAborted()
       connection.snapshot = opened.snapshot
       connection.emit({ kind: 'connected', descriptor: opened.descriptor })
       return connection
@@ -163,8 +169,10 @@ export class SharedWorkerCollabConnection implements CollabConnection {
   close(): void {
     if (this.closed) return
     this.closed = true
+    this.unsubscribeAbort?.()
+    this.unsubscribeAbort = undefined
     clearInterval(this.heartbeat)
-    void this.request({ kind: 'close' }).finally(() => this.port.close?.())
+    void this.request({ kind: 'close' }).catch(() => undefined).finally(() => this.port.close?.())
   }
 
   private request(request: RequestWithoutId): Promise<unknown> {
@@ -192,6 +200,8 @@ export class SharedWorkerCollabConnection implements CollabConnection {
   }
   private dispose(error: Error): void {
     this.closed = true
+    this.unsubscribeAbort?.()
+    this.unsubscribeAbort = undefined
     clearInterval(this.heartbeat)
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timeout)
@@ -217,25 +227,30 @@ export async function connectSharedWorkerSession(
   portFactory?: SharedWorkerPortFactory,
   latestInitial?: () => WorkflowDocument | undefined,
   replaceAuthoritative = false,
+  signal?: AbortSignal,
 ): Promise<SharedDocumentSession> {
-  const connection = await SharedWorkerCollabConnection.open(sessionId, initial, portFactory, options?.actorId)
-  let adopted = initial
-  if (replaceAuthoritative) {
-    const latest = latestInitial?.()
-    if (latestInitial === undefined || latest !== undefined) {
-      adopted = latest ?? initial
-      await connection.replaceAuthoritative(adopted)
+  const connection = await SharedWorkerCollabConnection.open(sessionId, initial, portFactory, options?.actorId, signal)
+  try {
+    let adopted = initial
+    if (replaceAuthoritative) {
+      const latest = latestInitial?.()
+      if (latestInitial === undefined || latest !== undefined) {
+        adopted = latest ?? initial
+        await connection.replaceAuthoritative(adopted)
+      }
     }
-  }
-  while (latestInitial) {
-    const latest = latestInitial()
-    if (latest === undefined || latest === adopted) break
-    if (replaceAuthoritative) await connection.replaceAuthoritative(latest)
-    else if (!await connection.adoptExclusive(latest)) {
-      connection.close()
-      throw new Error('the workflow changed while another window joined its workspace')
+    while (latestInitial) {
+      const latest = latestInitial()
+      if (latest === undefined || latest === adopted) break
+      if (replaceAuthoritative) await connection.replaceAuthoritative(latest)
+      else if (!await connection.adoptExclusive(latest)) {
+        throw new Error('the workflow changed while another window joined its workspace')
+      }
+      adopted = latest
     }
-    adopted = latest
+    return await connectSharedSession(connection, commands, options)
+  } catch (error) {
+    connection.close()
+    throw error
   }
-  return connectSharedSession(connection, commands, options)
 }

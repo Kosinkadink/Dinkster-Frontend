@@ -114,8 +114,8 @@ test.beforeEach(async ({ page, context }, testInfo) => {
 test(PHYSICAL_MICROPHONE
   ? 'physical microphone records, uploads, loads and renders as canonical audio'
   : 'browser Opus WebM records, uploads, loads and renders as canonical audio', async ({ page, request }, testInfo) => {
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audio-recording-live', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'Audio recording',
@@ -396,11 +396,11 @@ test(PHYSICAL_MICROPHONE
       },
     }, null, 2)}\n`)
   }
-  expect(await page.evaluate(() => {
+  expect(await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const exported = app.exportDocument(app.activeTab()!.id)
     if (!exported) throw new Error('Audio envelope workflow export failed')
-    app.openDocument(JSON.parse(JSON.stringify(exported)), 'Reopened Audio Recording')
+    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Reopened Audio Recording')
     const tab = app.activeTab()!
     const curves = app as unknown as {
       curveTargetForInput(tab: unknown, graphId: string, nodeId: string, inputId: string, instancePath: readonly string[]): { readonly follow?: unknown } | undefined

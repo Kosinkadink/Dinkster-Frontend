@@ -1,3 +1,4 @@
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 /**
  * Multi-backend tests: several ComfyUI servers behind ONE shared
  * ExecutionStore. Each backend owns its connection, schema registry, and
@@ -32,6 +33,7 @@ import { AppState, type Backend, type Tab } from '../src/app-state.js'
 import { historicalSchemas } from './historical-schemas.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { reconcileWorkflowRetentions } from '../src/workflow-asset-retention.js'
+import { scopedStorageKey } from '../src/projects.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -94,10 +96,10 @@ const foreignRun = (connection: string, prompt: string): ExecutionRef => {
   return ref
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   app = createWorkflowApp(null)
   for (const name of ['basic', 'subgraph']) {
-    app.openDocument(JSON.parse(readFileSync(join(root, `fixtures/workflows/seed-${name}.json`), 'utf8')), name)
+    await app.openDocument(JSON.parse(readFileSync(join(root, `fixtures/workflows/seed-${name}.json`), 'utf8')), name)
   }
   basic = app.tabs.get().find((tab) => tab.id === 'lineage-seed-basic')!
 })
@@ -272,11 +274,14 @@ describe('addBackend / removeBackend', () => {
       .mockResolvedValueOnce(olderTranslations)
       .mockResolvedValueOnce(newestTranslations)
     const importedVersions: (string | undefined)[] = []
+    const imports: Promise<void>[] = []
     backend.registry.subscribe(() => {
-      app.openDocument({ nodes: [{ id: 1, type: 'LegacyChoice' }], links: [] }, 'First open', backend)
-      const tab = app.activeTab()!
-      expect(tab.store.doc.graphs.g0!.nodes.n1!.type).toBe('Choice')
-      importedVersions.push(resolveImportedNodePacks(tab.store.doc, backend.registry.get()!.resolve)[0]?.version)
+      imports.push(app.openDocument({ nodes: [{ id: 1, type: 'LegacyChoice' }], links: [] }, 'First open', backend).then((diagnostics) => {
+        expect(diagnostics).toEqual([])
+        const tab = app.activeTab()!
+        expect(tab.store.doc.graphs.g0!.nodes.n1!.type).toBe('Choice')
+        importedVersions.push(resolveImportedNodePacks(tab.store.doc, backend.registry.get()!.resolve)[0]?.version)
+      }))
     })
 
     const first = app.refreshBackendSchemas(backend)
@@ -286,6 +291,7 @@ describe('addBackend / removeBackend', () => {
     await second
     resolveFirst(buildDinksterRegistry(backend.id, nodesPayload))
     await first
+    await Promise.all(imports)
 
     expect(backend.registry.get()).toBe(newest)
     expect(backend.schemaState.get()).toEqual({ status: 'ready' })
@@ -321,7 +327,7 @@ describe('addBackend / removeBackend', () => {
     expect(backend.registry.get()).toBe(registry)
     expect(backend.comfyTranslations.get()).toEqual(records)
     if (outcome === 'available') {
-      app.openDocument({ nodes: [{ id: 1, type: 'LegacyChoice' }], links: [] }, 'Late metadata', backend)
+      expect(await app.openDocument({ nodes: [{ id: 1, type: 'LegacyChoice' }], links: [] }, 'Late metadata', backend)).toEqual([])
       expect(app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.type).toBe('Choice')
     }
   })
@@ -335,7 +341,7 @@ describe('addBackend / removeBackend', () => {
     const backend = app.backends.get()[0]!
     const oldOptions = ['old-option']
     backend.registry.set(choiceRegistry(backend, oldOptions))
-    expect(app.openDocument({
+    expect((await app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'choice-refresh',
@@ -362,7 +368,7 @@ describe('addBackend / removeBackend', () => {
         },
       },
       view: { graphs: { root: { nodes: {} }, body: { nodes: {} } } },
-    }, 'Choice refresh')).toEqual([])
+    }, 'Choice refresh'))).toEqual([])
     const tab = app.activeTab()!
     const storedBefore = JSON.stringify(tab.store.doc)
     vi.spyOn(backend.connection, 'fetchSchemas').mockResolvedValue(choiceRegistry(backend, refreshedOptions))
@@ -438,7 +444,7 @@ describe('addBackend / removeBackend', () => {
       })
     })
     setLocale('en')
-    const nativeApp = new AppState()
+    const nativeApp = prepareWorkflowApp(new AppState())
     const backend = nativeApp.addBackend('http://native:8000', 'Native', false, 'dinkster')
     if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')
 
@@ -620,6 +626,8 @@ describe('backend protocols', () => {
       const backend = app.backends.get()[0]!
       const ownerBackend = scenario === 'removed' ? addOffline('http://native:8000', 'Native') : backend
       const ref: ExecutionRef = { connection: ownerBackend.id, prompt: asPromptId('held-cache') }
+      const previousOwners = await Promise.all(vi.mocked(ownerBackend.connection.retainAssets).mock.results
+        .map((result) => result.value as ReturnType<typeof ownerBackend.connection.retainAssets>))
       const digest = (letter: string) => `blake3:${letter.repeat(64)}`
       const outputs = { image: { result: { typeId: 'list<ASSET>', elementsTruncated: true,
         elements: [{ typeId: 'ASSET', meta: { digest: digest('e') } },
@@ -638,8 +646,9 @@ describe('backend protocols', () => {
           acknowledge = () => scenario === 'refused' ? reject(new Error('retention refused')) : resolve(acknowledgment)
         })
       })
-      vi.spyOn(ownerBackend.connection, 'fetchRetainedAssets').mockImplementation(async () =>
-        scenario === 'refused' ? undefined : acknowledgment)
+      vi.spyOn(ownerBackend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) =>
+        previousOwners.find((receipt) => receipt.ownerId === owner.ownerId) ??
+        (scenario === 'refused' ? undefined : acknowledgment))
       app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
       app.store.hydrateArtifacts(ref, [{ nodeId: 'image', digest: digest('a'), name: 'result.bin', size: 7,
         mediaType: 'application/octet-stream', virtualPath: '', preview: { digest: digest('c'), name: 'preview.png',
@@ -782,6 +791,116 @@ describe('backend protocols', () => {
       await new Promise<void>((resolve) => setImmediate(resolve))
       expect(app.store.get(ref)?.previews.image?.['']?.payload).toEqual(scenario === 'registered' ? payload : undefined)
       expect(app.store.get(ref)?.status).toBe(scenario === 'registered' ? 'completed' : 'running')
+    },
+  )
+
+  it.each(['accepted', 'refused', 'lost', 'reused', 'disconnected', 'same-digest', 'ring', 'lost-release', 'reused-release'] as const)(
+    'admits independent compositor preview generations and retires only replaced frames: %s', async (scenario) => {
+      let receive: ((event: MessageEvent<unknown>) => void) | undefined
+      if (scenario === 'ring') {
+        app.dispose()
+        app = prepareWorkflowApp(new AppState({ workspaceEvents: {
+          postMessage() {}, addEventListener(_type, listener) { receive = listener },
+        } }))
+      }
+      const backend = app.addBackend('http://native:8000', 'Native', false, 'dinkster')!
+      const ref = { connection: backend.id, prompt: asPromptId('preview-generations') }
+      const digest = (letter: string) => `blake3:${letter.repeat(64)}`
+      const preview = (letter: string) => ({ version: 2, documentDigest: digest(letter), stale: false, layerStreams: ['compositor.layer.0'],
+        document: { format: 'dinkster-image', formatVersion: 2, lineage: 'preview',
+          canvas: { width: 2, height: 3, colorSpace: 'srgb', channelDepth: 8, compositing: 'premultiplied-alpha' },
+          allocation: { nextOrdinal: 3 }, rootLayerIds: ['l0'], masks: {},
+          layers: { l0: { id: 'l0', kind: 'raster', name: 'Hidden', visible: false, opacity: 65535,
+            transform: { a: 1000000, b: 0, c: 0, d: 1000000, tx: 0, ty: 0,
+              components: { x: 0, y: 0, width: 2, height: 3, rotation: 0, flipHorizontal: false, flipVertical: false, sourceWidth: 2, sourceHeight: 3 } },
+            blendMode: 'normal', clipping: 'none', maskIds: [], resourceId: 'r1', sourceRect: { x: 0, y: 0, width: 2, height: 3 }, z_index: 0 } },
+          resources: Object.fromEntries(['r1', 'r2'].map((id) => [id, { id, kind: 'raster', digest: digest(id === 'r1' ? 'e' : 'f'),
+            byteSize: 1, mediaType: 'image/png', width: 2, height: 3, colorSpace: 'srgb', channelDepth: 8, alphaMode: 'straight' }])) } })
+      const requests: Array<{ receipt: import('@dinkster/client').RetainedAssets; accept: () => void }> = []
+      const release = vi.spyOn(backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+        if (scenario === 'lost-release') throw new Error('Release acknowledgment lost')
+        return { ...owner, revision: revision + (scenario === 'reused-release' ? 2 : 1), complete: true, digests: [] }
+      })
+      vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => {
+        const held = requests.find((request) => request.receipt.ownerId === owner.ownerId)?.receipt
+        if (scenario === 'lost-release' && held) return { ...held, revision: held.revision + 1, complete: true, digests: [] }
+        return scenario === 'lost' || scenario === 'reused-release' ? held : undefined
+      })
+      vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
+        const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
+        return new Promise((resolve, reject) => requests.push({ receipt, accept: () => {
+          if (requests.length > 1 && (scenario === 'refused' || scenario === 'lost')) reject(new Error('Preview acknowledgment unavailable'))
+          else resolve(requests.length > 1 && scenario === 'reused' ? { ...receipt, revision: receipt.revision + 1 } : receipt)
+        } }))
+      })
+      const deliver = (data: ReturnType<typeof preview>, timestamp: number, nodeId = 'image') => {
+        if (receive) receive({ data: { source: 'other-window', kind: 'event', event: {
+          kind: 'preview', execution: ref, timestamp, runtimeNodeId: nodeId,
+          channel: 'application/vnd.dinkster.compositor-state+json', stream: 'compositor-state', payload: data,
+          frameIndex: (timestamp - 1) % 2, frameCount: 2,
+        } } } as MessageEvent<unknown>)
+        else backend.connection.ingest({ type: 'node_event', event: 'dinkster.compositor.state', jobId: ref.prompt,
+          nodeId, data, timestamp })
+      }
+      backend.connection.ingest({ type: 'run_started', jobId: ref.prompt })
+      const first = preview('a')
+      deliver(first, 1)
+      await vi.waitFor(() => expect(requests).toHaveLength(1))
+      expect(requests[0]!.receipt).toMatchObject({ ownerKind: 'preview', complete: true, digests: [digest('a'), digest('e'), digest('f')] })
+      expect(app.store.get(ref)?.previews).toEqual({})
+      requests[0]!.accept()
+      await vi.waitFor(() => expect(app.store.get(ref)?.previews.image?.['compositor-state']).toBeDefined())
+      if (scenario === 'same-digest') {
+        deliver(first, 1, 'other')
+        await vi.waitFor(() => expect(requests).toHaveLength(2))
+        requests[1]!.accept()
+        await vi.waitFor(() => expect(app.store.get(ref)?.previews.other?.['compositor-state']).toBeDefined())
+      }
+      const next = preview(scenario === 'same-digest' ? 'a' : 'b')
+      deliver(next, 2)
+      await vi.waitFor(() => expect(requests).toHaveLength(scenario === 'same-digest' ? 3 : 2))
+      const replacement = requests.at(-1)!
+      expect(replacement.receipt.ownerId).not.toBe(requests[0]!.receipt.ownerId)
+      expect(app.store.get(ref)?.previews.image?.['compositor-state']?.payload).toMatchObject({ documentDigest: digest('a') })
+      expect(release).not.toHaveBeenCalled()
+      if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
+      if (scenario === 'ring') {
+        deliver(preview('c'), 3)
+        expect(requests).toHaveLength(2)
+        replacement.accept()
+        await vi.waitFor(() => expect(requests).toHaveLength(3))
+        expect(app.store.get(ref)?.previewRings?.image?.['compositor-state']?.frames[0]?.payload).toMatchObject({ documentDigest: digest('a') })
+        expect(release).not.toHaveBeenCalled()
+        backend.connection.ingest({ type: 'run_finished', jobId: ref.prompt })
+        expect(app.store.get(ref)?.status).toBe('running')
+        requests[2]!.accept()
+        await vi.waitFor(() => expect(app.store.get(ref)?.status).toBe('completed'))
+        await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(2))
+        expect(release.mock.calls).toEqual([[requests[0]!.receipt, 1], [requests[1]!.receipt, 1]])
+        expect(app.store.get(ref)?.previews.image?.['compositor-state']?.payload).toMatchObject({ documentDigest: digest('c') })
+        return
+      }
+      replacement.accept()
+      if (scenario === 'accepted' || scenario === 'lost' || scenario === 'same-digest' || scenario === 'lost-release' || scenario === 'reused-release') {
+        await vi.waitFor(() => expect(release).toHaveBeenCalledOnce())
+        expect(release.mock.calls).toEqual([[requests[0]!.receipt, 1]])
+        if (scenario === 'lost-release' || scenario === 'reused-release') {
+          const key = scopedStorageKey(`dinkster.workflow-retentions.${requests[0]!.receipt.ownerId}`)
+          await vi.waitFor(() => expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({
+            releaseRevision: 1, acknowledgedRevision: scenario === 'lost-release' ? 2 : 1,
+          }))
+        }
+        expect(app.store.get(ref)?.previews.image?.['compositor-state']?.payload).toMatchObject({ documentDigest: next.documentDigest })
+        backend.connection.ingest({ type: 'run_finished', jobId: ref.prompt })
+        expect(release).toHaveBeenCalledOnce()
+        if (scenario === 'same-digest') {
+          expect(app.store.get(ref)?.previews.other?.['compositor-state']?.payload).toMatchObject({ documentDigest: digest('a') })
+        }
+      } else {
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        expect(release).not.toHaveBeenCalled()
+        expect(app.store.get(ref)?.previews.image?.['compositor-state']?.payload).toMatchObject({ documentDigest: digest('a') })
+      }
     },
   )
 
@@ -928,13 +1047,13 @@ describe('per-tab backend targeting (view state)', () => {
     expect(app.backendForTab(frozen)).toBe(b)
   })
 
-  it('replacing a tab document clears its target', () => {
+  it('replacing a tab document clears its target', async () => {
     const b = addOffline('http://other:8188')
     app.setTabTarget(basic.id, b.id)
     const json = JSON.parse(
       readFileSync(join(root, 'fixtures/workflows/seed-basic.json'), 'utf8'),
     ) as unknown
-    expect(app.openDocument(json, 'Basic')).toEqual([])
+    expect((await app.openDocument(json, 'Basic'))).toEqual([])
     const replaced = app.tabs.get().find((t) => t.id === basic.id)!
     expect(app.backendForTab(replaced)).toBe(app.backends.get()[0])
     expect(app.tabTargets.get().has(basic.id)).toBe(false)
@@ -978,6 +1097,16 @@ describe('compile and registry routing', () => {
 })
 
 describe('execution output routing', () => {
+  it('refuses malformed or opaque model byte inventories without admitting a reader', () => {
+    const backend = addOffline('http://model-owner:8188')
+    const ref = foreignRun(String(backend.id), 'invalid-model-reader')
+    const digest = `blake3:${'a'.repeat(64)}`
+    for (const asset of [{ digest: 'blake3:bad' }, { digest, hidden: { digest: `blake3:${'b'.repeat(64)}` } },
+      { verification: 'unverified', localBinding: 'local-grant' }]) {
+      expect(app.file3dAssetReaderForExecution(ref, [asset])).toBeUndefined()
+    }
+  })
+
   it.each(['live', 'removed', 'replaced', 'disposed'] as const)('keeps model resources admitted through the %s viewer lifetime', async (mode) => {
     const backend = addOffline('http://model-owner:8188')
     const ref = foreignRun(String(backend.id), 'model-viewer')
@@ -1000,7 +1129,7 @@ describe('execution output routing', () => {
       .then((result) => { settled = true; return result }, () => { settled = true; return 'refused' })
     try {
       await vi.waitFor(() => expect(retain).toHaveBeenCalledOnce())
-      expect(retain.mock.calls[0]![1]).toEqual({ revision: 0, complete: false, digests })
+      expect(retain.mock.calls[0]![1]).toEqual({ revision: 0, complete: true, digests })
       expect(entered).toBe(false)
       admit()
       await vi.waitFor(() => expect(entered).toBe(true))
@@ -1040,8 +1169,8 @@ describe('execution output routing', () => {
       try {
         await vi.waitFor(() => expect(retain).toHaveBeenCalledOnce())
         expect(retain.mock.calls[0]).toEqual([
-          expect.objectContaining({ scope: 'local', ownerKind: 'shown-result' }),
-          { revision: 0, complete: false, digests: [digest] },
+          expect.objectContaining({ scope: 'local', ownerKind: 'preview' }),
+          { revision: 0, complete: true, digests: [digest] },
         ])
         expect(fetch).not.toHaveBeenCalled()
         expect(settled).toBe(false)

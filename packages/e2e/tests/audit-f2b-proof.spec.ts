@@ -79,7 +79,7 @@ test('surface group action restores focus, escapes without commit, resets, and r
   await page.goto('/')
   await expect(page.getByTestId('settings-button')).toBeVisible()
   await waitForStartupOwnership(page)
-  const diagnostics = await page.evaluate(() => window.__dinksterTest!.app.openDocument({
+  const diagnostics = await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
     format: 'dinkster-workflow',
     formatVersion: 1,
     lineage: 'select-proof',
@@ -98,7 +98,7 @@ test('surface group action restores focus, escapes without commit, resets, and r
       nodes: { n0: { position: { x: 50, y: 50 } }, n1: { position: { x: 500, y: 500 } } },
       groups: { group: { id: 'group', title: 'Proof group', bounds: { x: 0, y: 0, width: 400, height: 400 } } },
     } } },
-  } as never, 'Surface proof'))
+  } as never, 'Surface proof')))
   expect(diagnostics).toEqual([])
   await page.waitForFunction(() => {
     const tab = window.__dinksterTest!.app.activeTab()

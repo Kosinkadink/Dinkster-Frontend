@@ -116,7 +116,7 @@ async function serveValue(route: Route): Promise<void> {
 }
 
 async function installGraph(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const concrete = (name: string) => ({ kind: 'concrete', name } as const)
     const schema = (type: string, output: string, valueType: ReturnType<typeof concrete>, preview = true) => ({
       type,
@@ -155,7 +155,7 @@ async function installGraph(page: Page): Promise<void> {
       position: { x: 50 + index % 3 * 430, y: 60 + Math.floor(index / 3) * 390 },
       size: { width: 360, height: 320 },
     }]))
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'media-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 20 } },
       view: { graphs: { g0: { nodes: positions } } },
@@ -569,8 +569,8 @@ test('real media, controls, zoom transitions, forwarding, clipping, and cleanup'
   await audioElement.evaluate((node: HTMLAudioElement) => {
     (window as unknown as { proofAudio: HTMLAudioElement }).proofAudio = node
   })
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'media-proof-empty', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { g0: { nodes: {} } } },
@@ -584,7 +584,7 @@ test('real media, controls, zoom transitions, forwarding, clipping, and cleanup'
 })
 
 test('visible media DOM stays capped while focused, playing, and selected previews remain mounted', async ({ page }, testInfo) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const count = 30
     window.__dinksterTest!.app.registerSchemas([{
       type: 'ProofMp4', displayName: 'ProofMp4', category: 'proof', source: 'v3', isOutputNode: true,
@@ -599,7 +599,7 @@ test('visible media DOM stays capped while focused, playing, and selected previe
       size: { width: 400, height: 280 },
       video: { loop: true, muted: true, autoplay: false },
     }]))
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'dense-media-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 40 } },
       view: { graphs: { g0: { nodes: positions } } },
@@ -687,7 +687,7 @@ test('visible media DOM stays capped while focused, playing, and selected previe
 
 test('output pager cap retains focused, selected, and open-viewer roots without remounts or stale keys', async ({ page }) => {
   await page.route('**/api/assets/**', (route) => route.fulfill({ contentType: 'image/png', body: png }))
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const count = 30
     window.__dinksterTest!.app.registerSchemas([{
       type: 'ProofPagedImage', displayName: 'ProofPagedImage', category: 'test', source: 'v3', isOutputNode: true,
@@ -701,7 +701,7 @@ test('output pager cap retains focused, selected, and open-viewer roots without 
       position: { x: 10 + index % 6 * 12, y: 30 + Math.floor(index / 6) * 12 },
       size: { width: 520, height: 420 },
     }]))
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'dense-pager-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 40 } },
       view: { graphs: { g0: { nodes: positions } } },
