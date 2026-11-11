@@ -333,7 +333,11 @@ interface DinksterTestBridge {
     }
     menuRegistry: import('@dinkster/core').MenuRegistry
     flushPersistTabs(forceStage?: boolean): void
+    confirmStartupOwnership(): Promise<void>
     activeTab(): DinksterBridgeTab | undefined
+    createWorkflow(): DinksterBridgeTab
+    createRegion(tab: DinksterBridgeTab, graphId: string, position: { x: number; y: number }, kind: 'map' | 'fold' | 'while'):
+      Promise<{ ok: boolean; diagnostics: readonly unknown[] }>
     closeTab(id: string): void
     reviewReplacements: { set(enabled: boolean): void }
     migrationNotices: { get(): ReadonlyMap<string, unknown> }
@@ -349,7 +353,7 @@ interface DinksterTestBridge {
     saveWorkflow(tabId: string): Promise<boolean>
     importWorkflowFile(file: Pick<File, 'name' | 'text'>): Promise<boolean>
     /** Compile a tab against its target backend (undefined: no registry). */
-    compileTab(tab: DinksterBridgeTab):
+    compileTab(tab: DinksterBridgeTab, scope?: import('@dinkster/core').ExecutionScope):
       | { ok: true; artifact: DinksterBridgeCompileArtifact & { snapshot: DinksterBridgeTab['store']['doc']; revision: number } }
       | { ok: false; diagnostics: readonly unknown[] }
       | undefined
