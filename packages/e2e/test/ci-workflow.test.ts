@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
@@ -666,7 +667,40 @@ describe('fast pull-request and full validation workflows', () => {
     expect(hostedConfig).toContain(
       '`--allow-origin http://127.0.0.1:${nativeFrontendPort}`',
     )
-    expect(hostedConfig).not.toContain("'--no-default-packs'")
+    const servers = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          '--import',
+          'tsx',
+          '--input-type=module',
+          '-e',
+          "const { default: config } = await import('./packages/e2e/playwright.hosted.config.ts'); console.log(JSON.stringify(config.webServer.map(({ command, url }) => ({ command, url }))))",
+        ],
+        {
+          cwd: root,
+          env: {
+            ...process.env,
+            DINKSTER_E2E_DINKSTER_ROOT: root,
+            DINKSTER_E2E_PORT: '15410',
+            DINKSTER_E2E_NATIVE_PORT: '15412',
+            DINKSTER_E2E_NATIVE_FRONTEND_PORT: '15413',
+            DINKSTER_E2E_GUIDE_PORT: '15414',
+          },
+          encoding: 'utf8',
+        },
+      ),
+    ) as { command: string; url: string }[]
+    expect(servers[0]!.command).not.toContain('--no-default-packs')
+    expect(servers[0]!.command).not.toContain('guide-pack')
+    expect(servers[0]!.command).toContain('dinkster-nodes-dev')
+    expect(servers[1]!.command).toContain('--no-default-packs')
+    expect(servers[1]!.command).toContain('guide-pack')
+    expect(servers[1]!.command).toContain('.ci/guide-library')
+    expect(servers[0]!.command).toContain('.ci/native-library')
+    expect(
+      new Set(servers.map((server) => new URL(server.url).port)).size,
+    ).toBe(4)
     expect(hostedConfig).not.toContain('--comfy-root')
     expect(hostedConfig).not.toContain('DINKSTER_E2E_COMFY_ROOT')
     expect(hostedConfig).toContain('[mounts.checkpoints]')
