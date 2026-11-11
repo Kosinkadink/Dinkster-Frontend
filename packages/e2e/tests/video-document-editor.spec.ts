@@ -225,7 +225,7 @@ test('native execution matches editor-authored and literal values for every comm
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.edit!.values.otio as string)
   expect(authored['import_otio']).toBe(otio)
 
-  await page.unroute('/api/**')
+  await page.unroute(/\/api\/(?!library\/retentions\/)/)
   await page.unroute('/api/nodes*')
   const response = await fetch(`${NATIVE_BACKEND}/api/nodes`, { signal: AbortSignal.timeout(3_000) })
   expect(response.ok).toBe(true)

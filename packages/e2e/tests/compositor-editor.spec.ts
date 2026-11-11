@@ -402,7 +402,12 @@ test('edits, executes, persists, and falls back safely when compositor sources c
     },
   }])
   expect([...new Set((problems[0]!.data!['reason'] as string).split('; '))].sort()).toEqual([
+    "dinkster.image.create_layered (create): Declared input 'compositor' has an unsupported asset census widget binding 'COMPOSITOR'",
     "dinkster.image.create_layered (create): Stored input 'compositor' has unresolved asset identities",
+    "dinkster.image.generate (blue): Declared input 'color_source.color_a' has an unsupported asset census widget binding 'COLOR'",
+    "dinkster.image.generate (blue): Declared input 'operation.color_b' has an unsupported asset census widget binding 'COLOR'",
+    "dinkster.image.generate (red): Declared input 'color_source.color_a' has an unsupported asset census widget binding 'COLOR'",
+    "dinkster.image.generate (red): Declared input 'operation.color_b' has an unsupported asset census widget binding 'COLOR'",
   ])
   const errors = browserErrors.get(page)
   if (errors === undefined) throw new Error('browser error collector was not installed')
