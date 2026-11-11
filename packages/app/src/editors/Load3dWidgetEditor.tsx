@@ -1,4 +1,4 @@
-import { asPortId, buildRerouteIndex, companionSourcesOf, defaultValuesOf, inputsOf, occurrencesForView, parseAssetTypeId, portRefKey, type ExecutionRef, type Json } from '@dinkster/core'
+import { asPortId, buildRerouteIndex, companionSourcesOf, defaultValuesOf, inputsOf, occurrencesForView, parseAssetTypeId, parseTypedLiteralWire, portRefKey, type ExecutionRef, type Json } from '@dinkster/core'
 import { createSignal, For, onCleanup, onMount, Show, type Component } from 'solid-js'
 import { viewInstancePath } from '../app-state.js'
 import { liveExactnessFor } from '../companion-display.js'
@@ -32,12 +32,13 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
   const resolved = new Map<string, Json>()
   const inputValue = (inputId: string): Json | undefined => {
     const source = sources?.get(inputId)
-    if (source !== undefined) return source.kind === 'literal' ? source.value : resolved.get(inputId)
-    if (node !== undefined && index !== undefined) {
+    if (source === undefined && node !== undefined && index !== undefined) {
       const key = portRefKey({ node: node.id, port: asPortId(inputId) })
       if (index.inputDriverOf.has(key) || index.netSourceOf.has(key)) return undefined
     }
-    return node?.values[inputId]
+    const value = source === undefined ? node?.values[inputId] : source.kind === 'literal' ? source.value : resolved.get(inputId)
+    const typed = value === undefined ? undefined : parseTypedLiteralWire(value)
+    return typed === undefined ? value : typed.value
   }
   const initial = object(ed.initial === undefined ? ed.spec?.default : ed.initial)
   const metadataOnly = ed.target.kind === 'input' && (ed.target.familyOwner?.valueKey ?? ed.target.valueKey) === 'viewport_state'
@@ -246,7 +247,8 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         if (!live || !sourcesCurrent() || reader?.current() === false) throw unavailable()
         const schema = node === undefined ? undefined : resolveSchema?.(node.type)
         const pointCloud = schema !== undefined && inputsOf(schema).some((input) =>
-          input.id === 'model_3d' && input.type.kind === 'concrete' && input.type.name === 'FILE_3D_POINT_CLOUD_ANY')
+          input.id === 'model_3d' && (input.type.kind === 'concrete' ? input.type.name === 'FILE_3D_POINT_CLOUD_ANY'
+            : input.type.kind === 'union' && input.type.names.includes('FILE_3D_POINT_CLOUD_ANY')))
         const mounted = await mountModel3dViewer(viewport, primary.url, mime, { resources,
           ...(format ? { format } : {}), pointCloud })
         if (!live || !sourcesCurrent() || reader?.current() === false) { mounted.dispose(); return }
