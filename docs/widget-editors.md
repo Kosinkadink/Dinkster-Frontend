@@ -26,6 +26,11 @@ Refresh-controller completion forwards the document command outcome, including
 delayed acceptance or refusal. A transport rejection returns remote options to
 their prior stale state without closing the editor or replacing its draft.
 
+Pending remote choices remain valid when an unchanged editor moves from its
+local workflow session to the equivalent shared workspace session. Initial
+loads and explicit refreshes still publish their options without reopening
+the editor; retired editors and superseded or unauthorized responses do not.
+
 Output-descriptor Apply shows command refusals and transport errors above the
 draft, separately from descriptor validation and metadata-probe errors. The
 draft remains available for retry and closes only after command acceptance.

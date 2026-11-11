@@ -108,7 +108,6 @@ async function refreshCombo(
   await page.getByTestId('remote-refresh').click()
   const response = await responsePromise
   expect(response.ok()).toBe(true)
-  await response.finished()
   await expect
     .poll(() => previousOption!.evaluate((option) => option.isConnected))
     .toBe(false)

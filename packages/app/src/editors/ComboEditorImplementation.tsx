@@ -57,7 +57,6 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
   const load = (refresh = false): void => {
     const sourceSpec = spec.remote
     if (!sourceSpec || props.commitPending()) return
-    const store = ed.tab.store
     const token = ++requestToken
     requestAbort?.abort()
     const abort = new AbortController()
@@ -79,7 +78,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
     if (!refresh || (previous?.state !== 'ready' && previous?.state !== 'stale')) setRemoteState({ state: 'loading', source })
     client.remoteChoices(sourceSpec.route, { refresh, signal: abort.signal, ...(sourceSpec.timeoutMs === undefined ? {} : { timeoutMs: sourceSpec.timeoutMs }), ...(sourceSpec.maxRetries === undefined ? {} : { maxRetries: sourceSpec.maxRetries }), ...(sourceSpec.refreshMs === undefined ? {} : { refreshMs: sourceSpec.refreshMs }) })
       .then((result) => {
-        if (!live || ed.tab.store !== store || token !== requestToken || client.remoteChoiceAuthority() !== source.authority) return
+        if (!live || token !== requestToken || client.remoteChoiceAuthority() !== source.authority) return
         const options = result.map((value) => ({ value, label: value }))
         setRemoteState({ state: 'ready', source, options })
         if (control !== undefined && target && result.length > 0) {
