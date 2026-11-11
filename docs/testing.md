@@ -168,6 +168,10 @@ explicit per-test option, and spec-local routes take precedence over context
 routes. No standing development server is reused or stopped.
 Palette surface fixtures await startup ownership before publishing schemas or
 opening their document so they do not invalidate the restored inventory's acknowledgment.
+Remote combo refresh proof waits for the previous option to detach and the
+refreshed menu to be ready after a successful HTTP response. It does not wait
+for Playwright's transport-completion event: Chromium can report a streamed
+response as canceled after the application has consumed its complete body.
 Hosted native launches declare `--engine-variant linux-cpu`. After composition,
 global setup requires an empty workflow to return an empty requirement plan
 without a request variant. Mock-only native fixtures explicitly answer that
