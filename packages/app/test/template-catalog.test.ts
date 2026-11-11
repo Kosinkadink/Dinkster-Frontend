@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { sha256Hex } from "@dinkster/core";
 import {
   RemoteTemplateCatalog,
-  TEMPLATE_CATALOG_VERSION,
   type RemoteTemplateDescriptor,
 } from "../src/template-catalog.js";
 
@@ -50,12 +49,11 @@ const template = (
 });
 
 describe("RemoteTemplateCatalog", () => {
-  it("reads the versioned index and uses its persistent cache when offline", async () => {
+  it("reads the registry index without a wire version and uses its persistent cache when offline", async () => {
     const cache = storage();
     const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
         JSON.stringify({
-          catalogVersion: TEMPLATE_CATALOG_VERSION,
           templates: [template()],
         }),
         { status: 200 },
@@ -88,7 +86,6 @@ describe("RemoteTemplateCatalog", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            catalogVersion: TEMPLATE_CATALOG_VERSION,
             templates: [template()],
             cursor: "next page",
           }),
@@ -98,7 +95,6 @@ describe("RemoteTemplateCatalog", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            catalogVersion: TEMPLATE_CATALOG_VERSION,
             templates: [second],
           }),
           { status: 200 },
@@ -117,7 +113,7 @@ describe("RemoteTemplateCatalog", () => {
     );
   });
 
-  it("refuses an unknown catalog version rather than guessing", async () => {
+  it("refuses a malformed template list rather than guessing", async () => {
     const catalog = new RemoteTemplateCatalog(
       "https://registry.example",
       storage(),
@@ -125,7 +121,7 @@ describe("RemoteTemplateCatalog", () => {
         .fn<typeof fetch>()
         .mockResolvedValue(
           new Response(
-            JSON.stringify({ catalogVersion: 2, templates: [template()] }),
+            JSON.stringify({ templates: { starter: template() } }),
             { status: 200 },
           ),
         ),

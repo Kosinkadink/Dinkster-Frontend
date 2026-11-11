@@ -21,7 +21,7 @@ const regionProblems = (app: AppState) =>
     problem.code.startsWith('doc.region.') || problem.origin === 'invariant',
   )
 
-const sameIdPrimitive = (type: string, name: 'FLOAT' | 'BOOLEAN'): NodeSchema => ({
+const primitive = (type: string, name: 'FLOAT' | 'INT' | 'BOOLEAN', output = 'value'): NodeSchema => ({
   type,
   displayName: type,
   category: 'test',
@@ -35,18 +35,24 @@ const sameIdPrimitive = (type: string, name: 'FLOAT' | 'BOOLEAN'): NodeSchema =>
       optional: false,
       ...(name === 'FLOAT' ? { widget: { widgetType: 'NUMBER', options: { step: 0.1 }, default: 0 } } : {}),
     },
-    { kind: 'output', id: 'value', type: { kind: 'concrete', name } },
+    { kind: 'output', id: output, type: { kind: 'concrete', name } },
   ],
 })
 
 const regionSchemas: readonly NodeSchema[] = [
-  sameIdPrimitive('dinkster.float', 'FLOAT'),
-  sameIdPrimitive('dinkster.boolean', 'BOOLEAN'),
-  { type: 'std.math.add_ints', displayName: 'Add Ints', category: 'test', source: 'v3', isOutputNode: false,
+  primitive('dinkster.utilities.primitive_float', 'FLOAT', 'FLOAT'),
+  primitive('dinkster.utilities.primitive_boolean', 'BOOLEAN', 'BOOLEAN'),
+  primitive('dinkster.utilities.primitive_int', 'INT', 'INT'),
+  { type: 'dinkster.utilities.comfy_math_expression', displayName: 'Math Expression', category: 'utilities', source: 'v3', isOutputNode: false,
     items: [
-      { kind: 'input', id: 'a', type: { kind: 'concrete', name: 'INT' }, optional: false },
-      { kind: 'input', id: 'b', type: { kind: 'concrete', name: 'INT' }, optional: false },
-      { kind: 'output', id: 'sum', type: { kind: 'concrete', name: 'INT' } },
+      { kind: 'input', id: 'expression', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+        widget: { widgetType: 'STRING', options: { multiline: true }, default: 'a + b' } },
+      { kind: 'input', id: 'values', type: { kind: 'wildcard' }, optional: false, dynamic: {
+        kind: 'autogrow', naming: { kind: 'names', names: ['a', 'b', 'c'], min: 1 },
+        template: [{ kind: 'input', id: 'value', type: { kind: 'union', names: ['FLOAT', 'INT', 'BOOLEAN'] }, optional: false }],
+        optionalAfterMinimum: true, materialization: 'wire15',
+      } },
+      { kind: 'output', id: 'INT', type: { kind: 'concrete', name: 'INT' } },
     ] },
 ]
 
@@ -106,9 +112,9 @@ describe('region creation actions', () => {
   it('uses the real catalog primitive shapes for the map, fold, and while templates', async () => {
     const app = createWorkflowApp(regionSchemas)
     const expected = {
-      map: ['dinkster.float'],
-      fold: ['std.math.add_ints'],
-      while: ['dinkster.float', 'dinkster.boolean'],
+      map: ['dinkster.utilities.primitive_float'],
+      fold: ['dinkster.utilities.comfy_math_expression', 'dinkster.utilities.primitive_int', 'dinkster.utilities.primitive_int'],
+      while: ['dinkster.utilities.primitive_float', 'dinkster.utilities.primitive_boolean'],
     } as const
     for (const kind of ['map', 'fold', 'while'] as const) {
       const tab = app.createWorkflow()
@@ -120,7 +126,7 @@ describe('region creation actions', () => {
         const region = occurrence.region as RegionContract
         expect(region.continueOutput).toBe('continue')
         expect(definition.boundary!.outputs.find((item) => item.id === 'continue')?.binds).toMatchObject({
-          node: 'n1', port: 'value',
+          node: 'n1', port: 'BOOLEAN',
         })
       }
     }
@@ -129,8 +135,8 @@ describe('region creation actions', () => {
   it.each(['map', 'while'] as const)('derives and lowers a real %s region with same-id primitive ports', async (kind) => {
     const app = createWorkflowApp()
     const schemas = new Map([
-      ['dinkster.float', sameIdPrimitive('dinkster.float', 'FLOAT')],
-      ['dinkster.boolean', sameIdPrimitive('dinkster.boolean', 'BOOLEAN')],
+      ['dinkster.utilities.primitive_float', primitive('dinkster.utilities.primitive_float', 'FLOAT')],
+      ['dinkster.utilities.primitive_boolean', primitive('dinkster.utilities.primitive_boolean', 'BOOLEAN')],
     ])
     app.registry.set({
       connection: app.connection.id,
@@ -145,8 +151,13 @@ describe('region creation actions', () => {
     expect((await app.createRegion(tab, tab.store.doc.root, { x: 0, y: 0 }, kind)).ok).toBe(true)
     const occurrence = Object.values(tab.store.doc.graphs[tab.store.doc.root]!.nodes)[0]!
     const definition = tab.store.doc.graphs[occurrence.type.slice(1)]!
+    for (const [itemId, node] of kind === 'while' ? [['result', 'n0'], ['continue', 'n1']] : [['result', 'n0']]) {
+      expect(tab.store.dispatch({ command: 'boundary.setBinding', params: {
+        graphId: definition.id, side: 'outputs', itemId: itemId!, node: node!, port: 'value',
+      } }).ok).toBe(true)
+    }
     const resolve = documentResolver(tab.store.doc, (type) => schemas.get(type))
-    expect(deriveBoundarySchema(definition, resolve, occurrence.region).diagnostics).toEqual([])
+    expect(deriveBoundarySchema(tab.store.doc.graphs[definition.id]!, resolve, occurrence.region).diagnostics).toEqual([])
 
     const compiled = app.compileTab(tab)
     expect(compiled?.ok).toBe(true)

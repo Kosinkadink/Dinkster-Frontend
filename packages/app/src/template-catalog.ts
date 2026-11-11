@@ -1,7 +1,7 @@
 import { loadDocument, sha256Hex, type WorkflowDocument } from "@dinkster/core";
 import type { TemplateDescriptor } from "@dinkster/client";
 
-export const TEMPLATE_CATALOG_VERSION = 1;
+const CACHE_VERSION = 1;
 const CACHE_PREFIX = "dinkster.template-catalog.v1:";
 
 export interface RemoteTemplateDescriptor extends TemplateDescriptor {
@@ -91,7 +91,7 @@ export class RemoteTemplateCatalog {
         this.storage?.getItem(this.cacheKey()) ?? "null",
       ) as Partial<CachedCatalog> | null;
       if (
-        parsed?.version !== TEMPLATE_CATALOG_VERSION ||
+        parsed?.version !== CACHE_VERSION ||
         !Array.isArray(parsed.templates)
       )
         return [];
@@ -120,17 +120,11 @@ export class RemoteTemplateCatalog {
         if (!response.ok)
           throw new Error(`GET /index/templates failed: ${response.status}`);
         const payload = (await response.json()) as {
-          catalogVersion?: unknown;
           templates?: unknown;
           cursor?: unknown;
         };
-        if (
-          payload.catalogVersion !== TEMPLATE_CATALOG_VERSION ||
-          !Array.isArray(payload.templates)
-        ) {
-          throw new Error(
-            `unsupported template catalog version ${String(payload.catalogVersion)}`,
-          );
+        if (!Array.isArray(payload.templates)) {
+          throw new Error("template catalog returned an invalid template list");
         }
         templates.push(
           ...payload.templates
@@ -154,7 +148,7 @@ export class RemoteTemplateCatalog {
       try {
         this.storage?.setItem(
           this.cacheKey(),
-          JSON.stringify({ version: TEMPLATE_CATALOG_VERSION, templates }),
+          JSON.stringify({ version: CACHE_VERSION, templates }),
         );
       } catch {
         // A blocked cache does not invalidate a successful catalog response.
