@@ -58,9 +58,22 @@ test('crop fields submit exact pixels, preview the source and preserve undo', as
   await testInfo.attach('crop-source', { path: screenshot, contentType: 'image/png' })
   await page.locator('#bounding-box-width').fill('')
   await expect(page.getByRole('button', { name: 'Apply crop', exact: true })).toBeDisabled()
-  const invalid = testInfo.outputPath('crop-invalid.png')
-  await page.getByTestId('bounding-box-editor').screenshot({ path: invalid })
-  await testInfo.attach('crop-invalid', { path: invalid, contentType: 'image/png' })
+  const viewport = page.viewportSize()!
+  for (const height of [viewport.height, viewport.height - 100]) {
+    await page.setViewportSize({ ...viewport, height })
+    await expect.poll(() => page.getByTestId('bounding-box-editor').evaluate((editor) => {
+      const bounds = editor.getBoundingClientRect()
+      return [...editor.querySelectorAll('button')].every((button) => {
+        const rect = button.getBoundingClientRect()
+        return rect.top >= bounds.top && rect.bottom <= bounds.bottom
+      })
+    })).toBe(true)
+    const name = height === viewport.height ? 'crop-invalid' : 'crop-invalid-short'
+    const invalid = testInfo.outputPath(`${name}.png`)
+    await page.getByTestId('bounding-box-editor').screenshot({ path: invalid })
+    await testInfo.attach(name, { path: invalid, contentType: 'image/png' })
+  }
+  await page.setViewportSize(viewport)
   for (const [field, value] of Object.entries({ x: '61', y: '43', width: '12', height: '9' })) {
     await page.locator(`#bounding-box-${field}`).fill(value)
   }

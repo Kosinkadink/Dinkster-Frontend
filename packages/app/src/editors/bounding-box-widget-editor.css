@@ -1,6 +1,7 @@
 .bounding-box-preview {
   display: none;
   width: 100%;
+  min-height: 0;
   max-height: 240px;
   object-fit: contain;
   image-rendering: pixelated;
