@@ -182,8 +182,13 @@ describe('fast pull-request and full validation workflows', () => {
     expect(runs[3]).toBe(
       'uv sync --project .ci/Dinkster --locked --package dinkster --no-dev',
     )
+    expect(runs[4]).toContain(
+      'for pack in .ci/Dinkster/packages/dinkster-nodes-*; do',
+    )
+    expect(runs[4]).toContain('packs+=(-e "$pack")')
     expect(
       runs[4]!
+        .slice(runs[4]!.indexOf('uv pip install'))
         .trim()
         .split(/\s+/)
         .filter((part) => part !== '\\'),
@@ -195,20 +200,7 @@ describe('fast pull-request and full validation workflows', () => {
       '.ci/Dinkster/.venv/bin/python',
       '--no-deps',
       '--no-sources',
-      '-e',
-      '.ci/Dinkster/packages/dinkster-nodes-dev',
-      '-e',
-      '.ci/Dinkster/packages/dinkster-nodes-foundation',
-      '-e',
-      '.ci/Dinkster/packages/dinkster-nodes-image',
-      '-e',
-      '.ci/Dinkster/packages/dinkster-nodes-media-io',
-      '-e',
-      '.ci/Dinkster/packages/dinkster-nodes-remote',
-      '-e',
-      '.ci/Dinkster/packages/dinkster-nodes-comfy',
-      '-e',
-      '.ci/Dinkster/packages/dinkster-nodes-vision',
+      '"${packs[@]}"',
     ])
     expect(runs[5]).toBe(
       '.ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library',
