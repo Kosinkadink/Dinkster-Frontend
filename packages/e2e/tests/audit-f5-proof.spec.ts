@@ -19,6 +19,7 @@ async function prepare(page: Page): Promise<void> {
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.route('/api/composition', (route) => route.fulfill({ json: { packs: {} } }))
   await page.route('/api/mounts', (route) => route.fulfill({ json: { mounts: [] } }))
+  await page.route('/api/docs?kind=guide&limit=1', (route) => route.fulfill({ json: { docs: [] } }))
   await page.goto('/')
   await expect(page.getByTestId('settings-button')).toBeVisible()
   await page.waitForFunction(() => {
