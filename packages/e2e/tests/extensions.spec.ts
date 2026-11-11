@@ -204,9 +204,9 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForStartupOwnership(page)
   await registerExtensionSchema(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    const diagnostics = app.openDocument({
+    const diagnostics = (await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'extension-menu-test', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
@@ -214,7 +214,7 @@ test.beforeEach(async ({ page }) => {
         links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
       } },
       view: { graphs: { g0: { nodes: { n0: { position: { x: 180, y: 160 } } } } } },
-    }, 'Extension menu test')
+    }, 'Extension menu test'))
     if (diagnostics.length > 0) throw new Error(`extension fixture failed: ${JSON.stringify(diagnostics)}`)
   })
   await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)

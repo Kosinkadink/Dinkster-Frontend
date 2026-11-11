@@ -51,8 +51,8 @@ test('the full live catalog decodes without schema errors and dynamic families m
   if (registry.hasListMake) {
     // Dynamic input families must materialize members: a family that
     // elaborates zero members renders a node with no input pins at all.
-    await page.evaluate(() => {
-      window.__dinksterTest!.app.openDocument({
+    await page.evaluate(async () => {
+      await window.__dinksterTest!.app.openDocument({
         format: 'dinkster-workflow', formatVersion: 1, lineage: 'native-catalog-decode', root: 'g0',
         graphs: { g0: {
           id: 'g0', name: 'root',

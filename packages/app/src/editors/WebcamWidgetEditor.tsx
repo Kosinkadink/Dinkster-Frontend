@@ -4,6 +4,8 @@ import { ProductButton } from '../ProductControls.js'
 import { ProductActionFooter, ProductNotice } from '../ProductForm.js'
 import { useAppMessage } from '../locale.js'
 import { captureWebcamFrame, webcamError } from '../webcam.js'
+import { activeProjectId } from '../projects.js'
+import type { PreviewSource } from '../node-previews.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 import './webcam-widget-editor.css'
 
@@ -11,17 +13,22 @@ const WebcamImplementation: Component<WidgetEditorImplementationProps> = (props)
   const message = useAppMessage()
   const ed = props.editor.ed
   const backend = props.editor.app.backendForTab(ed.tab)
+  const project = activeProjectId()
   const [draft, setDraft] = createSignal(webcamKind.defaultValue({ ...ed.spec!, default: ed.initial }))
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal<string>()
   const [preview, setPreview] = createSignal<string>()
   const abort = new AbortController()
   let ownedUrl: string | undefined
+  let draftReader: PreviewSource['assetReader']
   onCleanup(() => { abort.abort(); if (ownedUrl) URL.revokeObjectURL(ownedUrl) })
   props.editor.bindClickAway?.(props.close)
   onCleanup(() => props.editor.bindClickAway?.(undefined))
   const capture = async () => {
     if (backend.protocol !== 'dinkster' || busy()) return
+    const session = ed.tab.store
+    const current = (): boolean => !abort.signal.aborted && ed.tab.store === session &&
+      props.editor.app.backendForTab(ed.tab) === backend && activeProjectId() === project
     setBusy(true)
     setError(undefined)
     try {
@@ -34,16 +41,27 @@ const WebcamImplementation: Component<WidgetEditorImplementationProps> = (props)
         width: typeof values?.['width'] === 'number' ? values['width'] : 0,
         height: typeof values?.['height'] === 'number' ? values['height'] : 0,
       }, abort.signal)
+      if (!current()) return
       const ref = await backend.connection.uploadMediaAsset(file, {
         scope: 'local', kind: 'media/image', name: file.name, signal: abort.signal,
       })
-      if (abort.signal.aborted) return
-      if (ownedUrl) URL.revokeObjectURL(ownedUrl)
-      ownedUrl = URL.createObjectURL(file)
-      setPreview(ownedUrl)
-      setDraft(ref)
+      if (!current()) return
+      const reader = await props.editor.app.retainPickerAssets(ed.tab, backend, ref)
+      if (!current()) return
+      const publish = (): boolean => {
+        if (!current() || !reader.current()) return false
+        const previousUrl = ownedUrl
+        ownedUrl = URL.createObjectURL(file)
+        draftReader = reader
+        setPreview(ownedUrl)
+        setDraft(ref)
+        if (previousUrl) URL.revokeObjectURL(previousUrl)
+        return true
+      }
+      if (draftReader) await props.editor.app.replacePickerAssets(draftReader, reader, publish)
+      else publish()
     } catch (reason) {
-      if (!abort.signal.aborted) setError(webcamError(reason))
+      if (current()) setError(webcamError(reason))
     } finally {
       if (!abort.signal.aborted) setBusy(false)
     }
