@@ -38,13 +38,15 @@ it.each(['dinkster.3d.preview_point_cloud', 'dinkster.3d.save_point_cloud'])('op
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:cloud')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const schema = parseDinksterSchema(type, { interface: [
-    { role: 'input', id: 'model_3d', type: { kind: 'concrete', types: ['FILE_3D_POINT_CLOUD_ANY'] } },
+    { role: 'input', id: 'model_3d', type: { kind: 'union', types: ['FILE_3D_POINT_CLOUD_ANY', 'FILE_3D_PLY'] } },
     { role: 'input', id: 'viewport_state', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
   ] }).schema!
   const model = { digest: `blake3:${'a'.repeat(64)}`, name: 'cloud.ply', size: 1, mediaType: 'application/octet-stream', virtualPath: 'cloud.ply' }
   const doc = importLitegraph({ nodes: [{ id: 1, type }], links: [] }, () => schema).document!
   const store = new DocumentStore(doc, coreCommandRegistry())
-  store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'model_3d', value: { format: 'ply', source: model, resources: {} } } })
+  const manifest = { format: 'ply', source: model, resources: {} }
+  const value = type.endsWith('save_point_cloud') ? { $typed: { type: 'FILE_3D_PLY', value: manifest } } : manifest
+  store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'model_3d', value } })
   const tab = { store } as unknown as Tab
   const registry = createWidgetRegistry()
   const connection = { fetchAssetBytes: async () => new Uint8Array([1]) }

@@ -68,6 +68,7 @@ const BACKEND_SERIAL_SPECS = [
   'compositor-editor.spec.ts',
   'image-bake-live.spec.ts',
   'audio-recording-live.spec.ts',
+  'recording-3d-editors-live.spec.ts',
   'painter-live.spec.ts',
   'bounding-box-live.spec.ts',
   'image-compare-live.spec.ts',

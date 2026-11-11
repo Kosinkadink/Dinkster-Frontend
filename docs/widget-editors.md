@@ -123,6 +123,8 @@ and applying a clip stores its audio asset on the node for the next run.
 The LOAD_3D input opens the 3D viewport on Load 3D, Load 3D Advanced, and the
 advanced mesh, gaussian-splat and point-cloud preview/save nodes. Preview Point
 Cloud and Save Point Cloud use point rendering rather than mesh surfaces.
+Stored model inputs retain their concrete typed-literal envelopes when the
+input accepts several file formats; the viewport reads the enclosed model.
 Applying the viewport retains the node's camera and model state; Load 3D also
 captures its image, mask and normal assets.
 
