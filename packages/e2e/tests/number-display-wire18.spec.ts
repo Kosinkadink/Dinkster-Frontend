@@ -1,6 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, test, type Page } from '@playwright/test'
-import { waitForStartupOwnership } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const PROOF_DIR = '/tmp/audit-ae-proof'
 const RANGE_FILL = '#343940'
@@ -109,6 +108,7 @@ async function rangePaint(page: Page) {
 test.beforeEach(async ({ page }) => {
   await mkdir(PROOF_DIR, { recursive: true })
   advertisedWires.length = 0
+  await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('**/supervisor/status', (route) =>
     route.fulfill({ status: 502, contentType: 'text/plain', body: 'isolated proof: no supervisor' }),
   )
