@@ -52,7 +52,7 @@ nativeTest('retains unattached typed boundary slots without phantom destinations
   } }))
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('Relay') ?? false)).toBe(true)
-  const failures = await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
+  const failures = await page.evaluate(() => window.__dinksterTest!.app.openDocument({
     nodes: [{ id: 10, type: 'unbound-body', pos: [100, 100],
       inputs: [{ name: 'unused' }, { name: 'value', widget: { name: 'value' } }],
       outputs: [{ name: 'unused' }, { name: 'result' }], widgets_values: [19] }], links: [],
@@ -62,7 +62,7 @@ nativeTest('retains unattached typed boundary slots without phantom destinations
       nodes: [{ id: 1, type: 'Relay', pos: [420, 180], inputs: [{ name: 'value', widget: { name: 'value' }, link: 1 }], outputs: [{ name: 'result' }], widgets_values: [7] }],
       links: [[1, -10, 1, 1, 0, 'INT'], [2, 1, 0, -20, 1, 'INT']],
     }] },
-  }, 'Unattached slots')))
+  }, 'Unattached slots'))
   expect(failures).toEqual([])
   const before = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
   await enterInstance(page, 'n10')
@@ -80,9 +80,9 @@ nativeTest('retains unattached typed boundary slots without phantom destinations
   await page.screenshot({ path: testInfo.outputPath('unattached-boundary.png'), animations: 'disabled' })
   const after = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
   expect(after).toEqual(before)
-  await page.evaluate(async (document) => {
+  await page.evaluate((document) => {
     const app = window.__dinksterTest!.app
-    const failures = (await app.openDocument(document, 'Reopened unattached slots'))
+    const failures = app.openDocument(document, 'Reopened unattached slots')
     if (failures.length) throw new Error(JSON.stringify(failures))
   }, after)
   await enterInstance(page, 'n10')
@@ -101,7 +101,7 @@ nativeTest('draws, rebinds, and extracts an imported input boundary with mixed d
   } }))
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('Relay') ?? false)).toBe(true)
-  const failures = await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
+  const failures = await page.evaluate(() => window.__dinksterTest!.app.openDocument({
     nodes: [{ id: 10, type: 'junction-body', pos: [100, 100],
       inputs: [{ name: 'value', widget: { name: 'value' } }], outputs: [{ name: 'result' }], widgets_values: [19] }], links: [],
     definitions: { subgraphs: [{ id: 'junction-body', name: 'Junction fanout', version: 1,
@@ -117,7 +117,7 @@ nativeTest('draws, rebinds, and extracts an imported input boundary with mixed d
       links: [[1, -10, 0, 3, 0, 'INT'], [2, 3, 0, 4, 0, 'INT'], [3, 4, 0, 1, 0, 'INT'],
         [4, 3, 0, 2, 0, 'INT'], [5, 2, 0, -20, 0, 'INT'], [6, -10, 0, 5, 0, 'INT']],
     }] },
-  }, 'Junction fanout')))
+  }, 'Junction fanout'))
   expect(failures).toEqual([])
   const before = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
   await enterInstance(page, 'n10')
@@ -204,9 +204,9 @@ nativeTest('draws, rebinds, and extracts an imported input boundary with mixed d
   await page.evaluate(() => window.__dinksterTest!.renderer!.fitToScene(140))
   await page.getByTestId('graph-canvas').screenshot({ path: testInfo.outputPath('junction-flattened.png') })
   const exported = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
-  const reopened = await page.evaluate(async (doc) => {
+  const reopened = await page.evaluate((doc) => {
     const app = window.__dinksterTest!.app
-    const failures = (await app.openDocument(doc, 'Extracted fanout'))
+    const failures = app.openDocument(doc, 'Extracted fanout')
     return { failures, exported: app.exportDocument(app.activeTab()!.id) }
   }, exported)
   expect(reopened.failures).toEqual([])
@@ -223,9 +223,9 @@ for (const name of templates) test(`imports and drills into official nested subg
   await page.goto('/')
   await expectSchemasReady(page)
   const workflow = readJson(`../../core/fixtures/workflows/official-subgraphs/${name}`)
-  const result = await page.evaluate(async ({ workflow, name }) => {
+  const result = await page.evaluate(({ workflow, name }) => {
     const app = window.__dinksterTest!.app
-    const failures = (await app.openDocument(workflow, name))
+    const failures = app.openDocument(workflow, name)
     const tab = app.activeTab()!
     const doc = tab.store.doc
     const root = doc.graphs[doc.root]!
@@ -261,9 +261,9 @@ for (const name of templates) test(`imports and drills into official nested subg
   await enterInstance(page, result.inner!)
   await expect(page.getByTestId('graph-breadcrumb').getByRole('button')).toHaveCount(3)
   await page.screenshot({ path: testInfo.outputPath('nested.png') })
-  const reopened = await page.evaluate(async (doc) => {
+  const reopened = await page.evaluate((doc) => {
     const app = window.__dinksterTest!.app
-    const failures = (await app.openDocument(doc, 'Reopened nested workflow'))
+    const failures = app.openDocument(doc, 'Reopened nested workflow')
     return { failures, doc: JSON.parse(JSON.stringify(app.activeTab()!.store.doc)) }
   }, result.doc)
   expect(reopened.failures).toEqual([])
@@ -331,9 +331,9 @@ nativeTest.describe('native structural output boundaries', () => {
     async ({ page }, testInfo) => {
       const errors: string[] = []
       page.on('pageerror', (error) => errors.push(error.message))
-      const result = await page.evaluate(async () => {
+      const result = await page.evaluate(() => {
         const app = window.__dinksterTest!.app
-        const failures = (await app.openDocument(
+        const failures = app.openDocument(
           {
             nodes: [
               ...[1, 2].map((id) => ({
@@ -394,12 +394,12 @@ nativeTest.describe('native structural output boundaries', () => {
             },
           },
           'Primitive output occurrences',
-        ))
+        )
         const exported = app.exportDocument(app.activeTab()!.id)!
-        const reopened = (await app.openDocument(
+        const reopened = app.openDocument(
           exported,
           'Reopened primitive output occurrences',
-        ))
+        )
         return {
           failures,
           reopened,
@@ -458,11 +458,11 @@ nativeTest.describe('native structural output boundaries', () => {
     async ({ page }) => {
       const errors: string[] = []
       page.on('pageerror', (error) => errors.push(error.message))
-      const result = await page.evaluate(async () => {
+      const result = await page.evaluate(() => {
         const app = window.__dinksterTest!.app
         const before = app.activeTab()!
         const document = app.exportDocument(before.id)
-        const failures = (await app.openDocument(
+        const failures = app.openDocument(
           {
             nodes: [
               {
@@ -505,7 +505,7 @@ nativeTest.describe('native structural output boundaries', () => {
             },
           },
           'Ambiguous output boundary',
-        ))
+        )
         return {
           failures: failures.map((failure: any) => ({
             code: failure.code,

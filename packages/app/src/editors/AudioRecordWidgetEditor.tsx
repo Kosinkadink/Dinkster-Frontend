@@ -38,13 +38,9 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
       if (!current()) return false
       const reader = await props.editor.app.retainPickerAssets(ed.tab, backend, ref)
       if (!current()) return false
-      const publish = (): boolean => {
-        if (!current() || !reader.current()) return false
-        draftReader = reader
-        setDraft(ref)
-        return true
-      }
-      return draftReader ? props.editor.app.replacePickerAssets(draftReader, reader, publish) : publish()
+      draftReader = reader
+      setDraft(ref)
+      return true
     } catch (reason) {
       if (live) setError(reason instanceof Error ? reason.message : String(reason))
       return false
@@ -63,7 +59,7 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
       let ownedUrl: string | undefined
       const previewAbort = new AbortController()
       const reader = ref === initial && backend.protocol === 'dinkster'
-        ? props.editor.app.workflowAssetReader(ed.tab, ref.digest, previewAbort.signal) : draftReader
+        ? props.editor.app.workflowAssetReader(ed.tab, ref.digest) : draftReader
       if (backend.protocol === 'dinkster') {
         const load = async () => {
           if (!current || reader?.current() !== true) return

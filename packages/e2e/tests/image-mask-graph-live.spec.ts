@@ -1,6 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { waitForStartupOwnership } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
@@ -124,7 +123,6 @@ test.beforeEach(async ({ page }) => {
     .every((id) => id in nodes!), 'native backend lacks the graph mask and layer nodes required by this acceptance')
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 15_000 })
-  await waitForStartupOwnership(page)
 })
 
 test('graph mask edits execute visibly and match an explicit baked asset', async ({ page, request }, testInfo) => {
@@ -155,8 +153,8 @@ test('graph mask edits execute visibly and match an explicit baked asset', async
   expect([200, 201]).toContain(upload.status())
   const { asset } = await upload.json() as { asset: UploadedAsset }
 
-  const diagnostics = await page.evaluate(async (source) => {
-    return await window.__dinksterTest!.app.openDocument({
+  await page.evaluate((source) => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'live-graph-mask', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
@@ -179,7 +177,6 @@ test('graph mask edits execute visibly and match an explicit baked asset', async
       } } } },
     } as never, 'Live Graph Mask')
   }, asset)
-  expect(diagnostics).toEqual([])
   await page.waitForFunction(() => window.__dinksterTest!.app.activeTab()?.id === 'live-graph-mask')
 
   await openEditor(page, 'graphLoad', 'Apply mask to graph')

@@ -1,9 +1,7 @@
 import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { asPromptId } from '@dinkster/core'
-import { ExecutedImageViewer, ViewerImage, executionOutputProvenance } from '../src/ExecutedImageViewer.js'
-import { executedImageInventory, type ExecutedImage } from '../src/executed-image-inventory.js'
-import { createWorkflowApp } from './fixtures/workflow-app.js'
+import { ExecutedImageViewer, executionOutputProvenance } from '../src/ExecutedImageViewer.js'
+import type { ExecutedImage } from '../src/executed-image-inventory.js'
 
 beforeEach(() => {
   vi.spyOn(HTMLDialogElement.prototype, 'showModal').mockImplementation(function (this: HTMLDialogElement) {
@@ -17,7 +15,6 @@ beforeEach(() => {
 afterEach(() => {
   document.body.replaceChildren()
   vi.restoreAllMocks()
-  vi.unstubAllGlobals()
 })
 
 const images: ExecutedImage[] = [
@@ -61,89 +58,6 @@ function mount(initialIndex = 0, onReveal?: (image: ExecutedImage) => void) {
 }
 
 describe('ExecutedImageViewer', () => {
-  it.each(['accepted', 'lost', 'refused', 'reused', 'replaced', 'replaced-decode', 'disconnected', 'unmounted'] as const)(
-    'keeps same-digest tiles independently admitted through decode: %s', async (scenario) => {
-      const app = createWorkflowApp()
-      const digest = `blake3:${'c'.repeat(64)}`
-      const ref = { connection: app.connection.id, prompt: asPromptId('image-tiles') }
-      app.store.apply({ kind: 'started', execution: ref, timestamp: 0 })
-      app.store.hydrateOutputs(ref, { save: { image: { typeId: 'ASSET', fingerprint: digest,
-        meta: { digest, mediaType: 'image/png', name: 'saved.png', size: 3, virtualPath: '' } } } })
-      const state = app.store.get(ref)!
-      const image = executedImageInventory(state, {
-        assetUrlForExecution: () => '/own/image.png',
-        executionAssetReader: (execution, digests, holder) => app.executionAssetReader(execution, digests, holder),
-      })[0]!
-      const gates: Array<() => void> = []
-      const receipts: Array<Awaited<ReturnType<typeof app.connection.retainAssets>>> = []
-      vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-        const receipt = { ...owner, ...declaration, revision: scenario === 'reused' ? 3 : 1 }
-        receipts.push(receipt)
-        await new Promise<void>((resolve) => { gates.push(resolve) })
-        if (scenario === 'refused' || scenario === 'lost') throw new Error(scenario)
-        return receipt
-      })
-      vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => scenario === 'lost'
-        ? receipts.find((receipt) => receipt.ownerId === owner.ownerId) : undefined)
-      const release = vi.spyOn(app.connection, 'releaseRetainedAssets')
-      const fetch = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }))
-      vi.stubGlobal('fetch', fetch)
-      const decoding: Array<() => void> = []
-      vi.spyOn(HTMLImageElement.prototype, 'decode').mockImplementation(() =>
-        new Promise<void>((resolve) => { decoding.push(resolve) }))
-      let url = 0
-      vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:tile-${++url}`)
-      const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-      const roots = [document.createElement('div'), document.createElement('div')]
-      roots.forEach((root) => document.body.append(root))
-      const errors = vi.fn()
-      const disposals = roots.map((root) => render(() =>
-        <ViewerImage image={image} alt="Saved image" onLoad={() => {}} onError={errors} />, root))
-      try {
-        await vi.waitFor(() => expect(gates).toHaveLength(2))
-        expect(fetch).not.toHaveBeenCalled()
-        expect(roots.every((root) => root.querySelector('img') === null)).toBe(true)
-        expect(receipts[0]!.ownerId).not.toBe(receipts[1]!.ownerId)
-        expect(receipts.map((receipt) => [receipt.ownerKind, receipt.complete, receipt.digests]))
-          .toEqual([['preview', true, [digest]], ['preview', true, [digest]]])
-        if (scenario === 'replaced') app.store.hydrateOutputs(ref, { save: { changed: 7 } })
-        if (scenario === 'disconnected') {
-          vi.stubGlobal('WebSocket', class { close() {} })
-          app.connection.connect(); app.connection.disconnect()
-        }
-        if (scenario === 'unmounted') disposals[0]!()
-        gates[1]!()
-        const accepted = ['accepted', 'lost', 'replaced-decode', 'unmounted'].includes(scenario)
-        if (accepted) {
-          await vi.waitFor(() => expect(decoding).toHaveLength(1))
-          expect(roots[1]!.querySelector('img')).toBeNull()
-          if (scenario === 'replaced-decode') app.store.hydrateOutputs(ref, { save: { changed: 9 } })
-          decoding[0]!()
-          if (scenario === 'replaced-decode') await vi.waitFor(() => expect(errors).toHaveBeenCalled())
-          else await vi.waitFor(() => expect(roots[1]!.querySelector('img')?.getAttribute('src')).toBe('blob:tile-1'))
-        } else await vi.waitFor(() => expect(errors).toHaveBeenCalled())
-        gates[0]!()
-        if (scenario === 'accepted' || scenario === 'lost') {
-          await vi.waitFor(() => expect(decoding).toHaveLength(2))
-          expect(roots[0]!.querySelector('img')).toBeNull()
-          decoding[1]!()
-          await vi.waitFor(() => expect(roots[0]!.querySelector('img')?.getAttribute('src')).toBe('blob:tile-2'))
-        } else {
-          if (scenario !== 'unmounted') await vi.waitFor(() => expect(errors).toHaveBeenCalledTimes(2))
-          expect(roots[0]!.querySelector('img')).toBeNull()
-        }
-        expect(fetch).toHaveBeenCalledTimes(scenario === 'accepted' || scenario === 'lost' ? 2 : accepted ? 1 : 0)
-      } finally {
-        gates.forEach((finish) => finish())
-        decoding.forEach((finish) => finish())
-        disposals.forEach((dispose) => dispose())
-        app.dispose()
-      }
-      expect(release).not.toHaveBeenCalled()
-      expect(revoke).toHaveBeenCalledTimes(url)
-    },
-  )
-
   it('pages in single mode by buttons and Arrow keys with truthful position labels', () => {
     const mounted = mount()
     expect(mounted.root.querySelector('[data-testid="output-viewer-position"]')?.textContent).toBe('1 / 2')

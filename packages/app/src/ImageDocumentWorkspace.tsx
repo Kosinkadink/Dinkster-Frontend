@@ -6,8 +6,9 @@ import {
   IMAGE_OPACITY_MAX,
   IMAGE_OUTPUT_FORMATS,
   MAX_IMAGE_CANVAS_DIMENSION,
-  asConnectionId,
   asImageResourceId,
+  connectSharedImageDocumentSession,
+  createLocalImageDocumentSession,
   formatNumber,
   imageOutputPolicyOf,
   orderedImageLayerIds,
@@ -37,10 +38,8 @@ import {
 } from './image-document-local.js'
 import {
   type VerifiedImageDocumentRender,
-  type RetainedImageDocumentSession,
   adoptImageDocumentForRender,
-  createRetainedLocalImageDocumentSession,
-  createRetainedSharedImageDocumentSession,
+  hydrateImageDocumentResources,
   openImageDocumentFromLibrary,
   renderAdoptedImageDocument,
   saveImageDocumentToLibrary,
@@ -68,12 +67,11 @@ const LIBRARY_SCOPE = 'local'
 
 interface OpenImageDocument {
   readonly session: ImageDocumentSession
-  readonly retained: RetainedImageDocumentSession
-  readonly publicationCurrent: () => boolean
   readonly stop: () => void
   name: string
   draft: ImageDocumentDraft
   persist: Promise<void>
+  hydrate: Promise<void>
   authoritative?: VerifiedImageDocumentRender
   origin?: ImageDocumentGraphOrigin
   readonly collaboration?: {
@@ -149,7 +147,7 @@ function ImageDocumentEditor(props: {
   const [cropHeight, setCropHeight] = createSignal(documentValue().canvas.height)
   const [resizeWidth, setResizeWidth] = createSignal(documentValue().canvas.width)
   const [resizeHeight, setResizeHeight] = createSignal(documentValue().canvas.height)
-  const renderer = new ImageDocumentPreviewRenderer(props.entry.retained)
+  const renderer = new ImageDocumentPreviewRenderer(props.store)
   let preview!: HTMLCanvasElement
   let layerInput!: HTMLInputElement
   let maskInput!: HTMLInputElement
@@ -159,7 +157,7 @@ function ImageDocumentEditor(props: {
   let receivedAuthoritative = props.entry.authoritative
   onCleanup(() => {
     rendererLive = false
-    void renderer.dispose()
+    renderer.dispose()
   })
 
   const entryName = (): string => { props.metadataTick(); return props.entry.name }
@@ -213,32 +211,15 @@ function ImageDocumentEditor(props: {
       if (rendererLive) setAuthoritativeBusy(false)
     }
   }
-  const dispatchCommand = (invocation: ImageDocumentCommandInvocation) => props.entry.retained.dispatch(invocation)
-  const dispatch = async (invocation: ImageDocumentCommandInvocation): Promise<boolean> => {
+  const dispatch = (invocation: ImageDocumentCommandInvocation): boolean => {
     if (props.editingBlocked()) return false
-    try {
-      const outcome = await dispatchCommand(invocation)
-      if (!rendererLive) return false
-      if (outcome.ok) {
-        props.onError(undefined)
-        return true
-      }
-      props.onError(outcome.diagnostics[0]?.message ?? message('imageDocument.editor.error.editRefused'))
-    } catch (cause) {
-      if (rendererLive) props.onError(messageOf(cause))
+    const outcome = props.entry.session.dispatch(invocation)
+    if (outcome.ok) {
+      props.onError(undefined)
+      return true
     }
+    props.onError(outcome.diagnostics[0]?.message ?? message('imageDocument.editor.error.editRefused'))
     return false
-  }
-  const history = async (direction: 'undo' | 'redo'): Promise<void> => {
-    if (props.editingBlocked()) return
-    try {
-      const outcome = await props.entry.retained[direction]()
-      if (rendererLive && !outcome.ok && outcome.diagnostics.length > 0) {
-        props.onError(outcome.diagnostics[0]!.message)
-      }
-    } catch (cause) {
-      if (rendererLive) props.onError(messageOf(cause))
-    }
   }
 
   const renderLatest = async (): Promise<void> => {
@@ -250,7 +231,7 @@ function ImageDocumentEditor(props: {
       const rendered = document.createElement('canvas')
       try {
         await renderer.draw(current, rendered)
-        if (!rendererLive || pendingRender !== undefined || !props.entry.retained.previewCurrent()) continue
+        if (!rendererLive || pendingRender !== undefined) continue
         preview.width = rendered.width
         preview.height = rendered.height
         preview.getContext('2d')?.drawImage(rendered, 0, 0)
@@ -283,10 +264,11 @@ function ImageDocumentEditor(props: {
     const key = event.key.toLowerCase()
     if (key === 'z') {
       event.preventDefault()
-      void history(event.shiftKey ? 'redo' : 'undo')
+      if (event.shiftKey) props.entry.session.redo()
+      else props.entry.session.undo()
     } else if (key === 'y') {
       event.preventDefault()
-      void history('redo')
+      props.entry.session.redo()
     } else if (key === 's') {
       event.preventDefault()
       void props.onSave()
@@ -322,23 +304,20 @@ function ImageDocumentEditor(props: {
       params: { layerId: row.layer.id, parentId: row.parentId, index: row.index + offset },
     })
   }
-  const groupSelected = async (): Promise<void> => {
+  const groupSelected = (): void => {
     const row = selectedRow()
     if (!row || props.editingBlocked()) return
     const siblings = layerRows(documentValue()).filter((candidate) => candidate.parentId === row.parentId)
     const below = siblings.find((candidate) => candidate.index === row.index - 1)
-    try {
-      const outcome = await dispatchCommand({ command: 'image.layer.group', params: {
-        layerIds: below === undefined ? [row.layer.id] : [below.layer.id, row.layer.id],
-        name: 'Group',
-      } })
-      if (!rendererLive) return
-      if (!outcome.ok) props.onError(outcome.diagnostics[0]?.message ?? message('imageDocument.editor.error.groupRefused'))
-      else {
-        props.onError(undefined)
-        if (outcome.created?.layerId) setSelectedLayerId(outcome.created.layerId)
-      }
-    } catch (cause) { if (rendererLive) props.onError(messageOf(cause)) }
+    const outcome = props.entry.session.dispatch({ command: 'image.layer.group', params: {
+      layerIds: below === undefined ? [row.layer.id] : [below.layer.id, row.layer.id],
+      name: 'Group',
+    } })
+    if (!outcome.ok) props.onError(outcome.diagnostics[0]?.message ?? message('imageDocument.editor.error.groupRefused'))
+    else {
+      props.onError(undefined)
+      if (outcome.created?.layerId) setSelectedLayerId(outcome.created.layerId)
+    }
   }
   const prepareAndStage = async (file: File) => {
     const prepared = await prepareImageRaster(file)
@@ -355,7 +334,7 @@ function ImageDocumentEditor(props: {
     try {
       const prepared = await prepareAndStage(file)
       if (props.editingBlocked()) return
-      const outcome = await dispatchCommand({
+      const outcome = props.entry.session.dispatch({
         command: 'image.layer.addRaster',
         params: {
           parentId: null,
@@ -381,7 +360,7 @@ function ImageDocumentEditor(props: {
     try {
       const prepared = await prepareAndStage(file)
       if (props.editingBlocked()) return
-      const outcome = await dispatchCommand({
+      const outcome = props.entry.session.dispatch({
         command: 'image.mask.addRaster',
         params: {
           ownerLayerId: layer.id,
@@ -413,8 +392,8 @@ function ImageDocumentEditor(props: {
           <Show when={libraryLink()}><span class="image-document-published">{message('imageDocument.editor.status.published')}</span></Show>
         </div>
         <div class="image-document-actions">
-          <ProductButton size="compact" type="button" disabled={props.busy() || props.editingBlocked() || !canUndo()} onClick={() => void history('undo')}>{message('imageDocument.editor.action.undo')}</ProductButton>
-          <ProductButton size="compact" type="button" disabled={props.busy() || props.editingBlocked() || !canRedo()} onClick={() => void history('redo')}>{message('imageDocument.editor.action.redo')}</ProductButton>
+          <ProductButton size="compact" type="button" disabled={props.busy() || props.editingBlocked() || !canUndo()} onClick={() => props.entry.session.undo()}>{message('imageDocument.editor.action.undo')}</ProductButton>
+          <ProductButton size="compact" type="button" disabled={props.busy() || props.editingBlocked() || !canRedo()} onClick={() => props.entry.session.redo()}>{message('imageDocument.editor.action.redo')}</ProductButton>
           <ProductButton size="compact" type="button" disabled={props.busy()} onClick={() => void props.onSave()}>{message('imageDocument.editor.action.saveDraft')}</ProductButton>
           <ProductButton size="compact" type="button" disabled={props.busy()} onClick={() => void props.onExport()}>{message('imageDocument.editor.action.exportSnapshot')}</ProductButton>
           <Show when={props.onExportRecipe} keyed>{(exportRecipe) =>
@@ -462,9 +441,9 @@ function ImageDocumentEditor(props: {
           <div class="image-document-layer-actions">
             <ProductButton size="compact" type="button" disabled={!selectedRow() || selectedRow()!.index >= selectedRow()!.siblingCount - 1} onClick={() => moveSelected(1)}>{message('imageDocument.editor.action.raise')}</ProductButton>
             <ProductButton size="compact" type="button" disabled={!selectedRow() || selectedRow()!.index === 0} onClick={() => moveSelected(-1)}>{message('imageDocument.editor.action.lower')}</ProductButton>
-            <ProductButton size="compact" type="button" variant="danger" disabled={!selected()} onClick={async () => {
+            <ProductButton size="compact" type="button" variant="danger" disabled={!selected()} onClick={() => {
               const layer = selected()
-              if (layer && await dispatch({ command: 'image.layer.remove', params: { layerId: layer.id } })) {
+              if (layer && dispatch({ command: 'image.layer.remove', params: { layerId: layer.id } })) {
                 setSelectedLayerId(documentValue().rootLayerIds.at(-1) ?? '')
               }
             }}>{message('imageDocument.editor.action.remove')}</ProductButton>
@@ -581,8 +560,8 @@ function ImageDocumentEditor(props: {
                 onInput={(raw) => field.set(Number(raw))}
               /></label>}</For>
             </div>
-            <ProductButton type="button" disabled={props.editingBlocked()} onClick={async () => {
-              if (await dispatch({ command: 'image.canvas.crop', params: {
+            <ProductButton type="button" disabled={props.editingBlocked()} onClick={() => {
+              if (dispatch({ command: 'image.canvas.crop', params: {
                 x: cropX(), y: cropY(), width: cropWidth(), height: cropHeight(),
               } })) {
                 setCropX(0); setCropY(0)
@@ -599,8 +578,8 @@ function ImageDocumentEditor(props: {
               <label>{message('imageDocument.editor.field.height')}<ProductNumberInput ariaLabel={message('imageDocument.editor.aria.resize.height')} integer min={1} max={MAX_IMAGE_CANVAS_DIMENSION}
                 step={1} value={resizeHeight()} onInput={(raw) => setResizeHeight(Number(raw))} /></label>
             </div>
-            <ProductButton type="button" disabled={props.editingBlocked()} onClick={async () => {
-              if (await dispatch({ command: 'image.canvas.resize', params: { width: resizeWidth(), height: resizeHeight() } })) {
+            <ProductButton type="button" disabled={props.editingBlocked()} onClick={() => {
+              if (dispatch({ command: 'image.canvas.resize', params: { width: resizeWidth(), height: resizeHeight() } })) {
                 setCropX(0); setCropY(0)
                 setCropWidth(documentValue().canvas.width); setCropHeight(documentValue().canvas.height)
               }
@@ -782,7 +761,6 @@ export function ImageDocumentWorkspace(props: {
   const pendingCollaborationShares = new Set<Promise<void>>()
   const pendingGraphOpens = new Set<Promise<void>>()
   const pendingImports = new Set<Promise<void>>()
-  const pendingAdmissions = new Set<Promise<void>>()
   const leaving = new Set<OpenImageDocument>()
   const pendingCollaborationLeaves = new Set<Promise<void>>()
   const pendingCollaborationEnds = new Set<Promise<void>>()
@@ -836,53 +814,42 @@ export function ImageDocumentWorkspace(props: {
       if (current()) setError(`Draft recovery save failed: ${messageOf(cause)}`)
     })
   }
-  const attach = async (
+  const scheduleHydrate = (entry: OpenImageDocument): void => {
+    const shared = entry.collaboration
+    const backend = shared === undefined ? undefined : backendForCollaboration(shared.baseUrl)
+    if (backend?.protocol !== 'dinkster') return
+    entry.hydrate = entry.hydrate.catch(() => undefined).then(() =>
+      hydrateImageDocumentResources(backend.connection, store, entry.session.doc, shared!.descriptor.scope),
+    ).then(() => {
+      if (live) setResourceTick((tick) => tick + 1)
+    }).catch((cause) => {
+      if (live) setError(`Shared image resource failed: ${messageOf(cause)}`)
+    })
+  }
+  const attach = (
     draft: ImageDocumentDraft,
-    shared?: { readonly descriptor: CollabSessionDescriptor; readonly baseUrl: string; readonly session: SharedImageDocumentSession;
-      readonly retained: Awaited<ReturnType<typeof createRetainedSharedImageDocumentSession>> },
+    shared?: { readonly descriptor: CollabSessionDescriptor; readonly baseUrl: string; readonly session: SharedImageDocumentSession },
     authoritative?: VerifiedImageDocumentRender,
     origin?: ImageDocumentGraphOrigin,
-    initialCurrent: () => boolean = () => true,
-  ): Promise<OpenImageDocument> => {
+  ): OpenImageDocument => {
+    const session = shared?.session ?? createLocalImageDocumentSession(draft.document)
     let entry!: OpenImageDocument
-    const ownerId = origin?.connectionId ?? draft.library?.connectionId
-    const backend = ownerId === undefined
-      ? props.app.libraryBackend() ?? backendForCollaboration()
-      : props.app.backendFor(asConnectionId(ownerId))
-    const connection = backend?.connection
-    const destinationCurrent = (): boolean => live && activeProjectId() === store.projectId &&
-      (ownerId === undefined
-        ? (props.app.libraryBackend() ?? backendForCollaboration()) === backend
-        : props.app.backendFor(asConnectionId(ownerId)) === backend) && backend?.connection === connection
-    const current = (): boolean => destinationCurrent() &&
-      (entry === undefined ? initialCurrent() : documents().includes(entry))
-    if (shared === undefined && (backend === undefined || connection === undefined || backend.protocol !== 'dinkster')) {
-      throw new Error(message('imageDocument.workspace.error.selectedOwnerUnavailable'))
-    }
-    const retained = shared === undefined
-      ? await createRetainedLocalImageDocumentSession(connection as DinksterConnection, store, draft.document, current)
-      : shared.retained
-    const session = retained.session
     const stopOperation = session.onOp(() => {
       queuePersist(entry)
-      setResourceTick((tick) => tick + 1)
+      scheduleHydrate(entry)
     })
     let stopStatus = (): void => undefined
     const stop = (): void => {
       stopOperation()
       stopStatus()
-      const task = retained.close()
-      pendingAdmissions.add(task)
-      void task.finally(() => pendingAdmissions.delete(task))
     }
     entry = {
       session,
       draft,
       name: draft.name,
       persist: Promise.resolve(),
+      hydrate: Promise.resolve(),
       stop,
-      publicationCurrent: () => destinationCurrent() && initialCurrent(),
-      retained,
       ...(authoritative !== undefined ? { authoritative } : {}),
       ...(origin !== undefined ? { origin } : {}),
       ...(shared !== undefined ? { collaboration: shared } : {}),
@@ -895,12 +862,11 @@ export function ImageDocumentWorkspace(props: {
     }
     return entry
   }
-  const openDraft = async (
+  const openDraft = (
     draft: ImageDocumentDraft,
     authoritative?: VerifiedImageDocumentRender,
     origin?: ImageDocumentGraphOrigin,
-    initialCurrent: () => boolean = () => true,
-  ): Promise<void> => {
+  ): void => {
     const existing = documents().find((entry) => entry.draft.document.lineage === draft.document.lineage)
     if (existing) {
       if (authoritative !== undefined) {
@@ -911,10 +877,7 @@ export function ImageDocumentWorkspace(props: {
       setActiveLineage(existing.draft.document.lineage)
       return
     }
-    const entry = await attach(draft, undefined, authoritative, origin, initialCurrent)
-    if (!entry.publicationCurrent()) { entry.stop(); return }
-    const concurrent = documents().find((value) => value.draft.document.lineage === draft.document.lineage)
-    if (concurrent !== undefined) { entry.stop(); setActiveLineage(draft.document.lineage); return }
+    const entry = attach(draft, undefined, authoritative, origin)
     setDocuments((current) => [...current, entry])
     setActiveLineage(draft.document.lineage)
   }
@@ -935,36 +898,29 @@ export function ImageDocumentWorkspace(props: {
     previous?: OpenImageDocument,
     isCurrent: () => boolean = () => true,
   ): Promise<OpenImageDocument> => {
-    const backend = backendForCollaboration(baseUrl)
-    if (backend?.protocol !== 'dinkster') throw new Error(message('imageDocument.workspace.error.collaborationBackendDisconnected'))
-    const assetConnection = backend.connection
-    let next: OpenImageDocument | undefined
-    const current = (): boolean => live && activeProjectId() === store.projectId &&
-      backendForCollaboration(baseUrl) === backend && backend.connection === assetConnection &&
-      (next === undefined ? isCurrent() : documents().includes(next))
     const assertCurrent = (): void => {
-      if (!current()) throw new Error('Shared image recovery is no longer current')
+      if (!isCurrent()) throw new Error('Shared image recovery is no longer current')
     }
     assertCurrent()
     if (descriptor.documentKind !== 'image') throw new Error('collaboration session is not an ImageDocument')
+    const backend = backendForCollaboration(baseUrl)
+    if (backend?.protocol !== 'dinkster') throw new Error(message('imageDocument.workspace.error.collaborationBackendDisconnected'))
     const connection = props.app.collabTransport.connect({
       baseUrl,
       sessionId: descriptor.sessionId,
       actorId: props.app.collabActorId,
     })
     let session: SharedImageDocumentSession | undefined
-    let retained: Awaited<ReturnType<typeof createRetainedSharedImageDocumentSession>> | undefined
     try {
-      retained = await createRetainedSharedImageDocumentSession(assetConnection, store, connection, descriptor, {
+      session = await connectSharedImageDocumentSession(connection, descriptor, {
         actorId: props.app.collabActorId,
         onConflict: (conflict) => {
-          if (current()) setLocalizedError('imageDocument.workspace.error.conflict', { reason: conflict.message })
+          if (live && isCurrent()) setLocalizedError('imageDocument.workspace.error.conflict', { reason: conflict.message })
         },
         onError: (reason) => {
-          if (current()) setLocalizedError('imageDocument.workspace.error.sessionFailed', { reason })
+          if (live && isCurrent()) setLocalizedError('imageDocument.workspace.error.sessionFailed', { reason })
         },
-      }, current)
-      session = retained.session
+      })
       assertCurrent()
       if (session.doc.lineage !== descriptor.documentId) {
         throw new Error('shared ImageDocument lineage does not match the session')
@@ -974,6 +930,8 @@ export function ImageDocumentWorkspace(props: {
       await session.settle()
       assertCurrent()
       const sharedDocument = session.doc
+      await hydrateImageDocumentResources(backend.connection, store, sharedDocument, descriptor.scope, assertCurrent)
+      assertCurrent()
       if (previous !== undefined &&
         serializeImageDocument(previous.session.doc) !== serializeImageDocument(sharedDocument)) {
         throw new Error('the local image differs from the shared session; publish or discard it before joining')
@@ -992,18 +950,17 @@ export function ImageDocumentWorkspace(props: {
         baseUrl,
       }, assertCurrent)
       assertCurrent()
-      next = await attach({ ...linked, document: sharedDocument, name: saved.name }, {
+      const next = attach({ ...linked, document: sharedDocument, name: saved.name }, {
         descriptor,
         baseUrl,
         session,
-        retained,
       })
       replaceEntry(previous, next)
       queuePersist(next, session.doc)
+      if (session.doc !== sharedDocument) scheduleHydrate(next)
       setResourceTick((tick) => tick + 1)
       return next
     } catch (cause) {
-      await retained?.close()
       if (session === undefined) connection.close()
       else session.close()
       throw cause
@@ -1103,8 +1060,7 @@ export function ImageDocumentWorkspace(props: {
         assertCurrent()
         const unlinked = await store.setCollaboration(documentSnapshot.lineage, undefined, assertCurrent)
         assertCurrent()
-        const local = await attach({ ...unlinked, document: documentSnapshot, name: entry.name }, undefined, undefined, undefined, current)
-        if (!current()) { local.stop(); return }
+        const local = attach({ ...unlinked, document: documentSnapshot, name: entry.name })
         replaceEntry(entry, local)
         setConfirmingEnd(false)
         props.app.showTransientStatus(message(remote
@@ -1250,12 +1206,9 @@ export function ImageDocumentWorkspace(props: {
     const current = (): boolean => live && activeProjectId() === store.projectId
     recovering = store.recoverDrafts().then(async (recovery) => {
       if (!current()) return
-      for (const draft of recovery.drafts) {
-        if (!current()) return
-        try { await openDraft(draft) } catch (cause) {
-          if (current()) setLocalizedError('imageDocument.workspace.error.recoveryFailed', { reason: messageOf(cause) })
-        }
-      }
+      const recovered = recovery.drafts.map((draft) => attach(draft))
+      setDocuments(recovered)
+      setActiveLineage(recovered.at(-1)?.draft.document.lineage ?? '')
       if (recovery.rejectedLineages.length > 0) {
         setLocalizedError('imageDocument.workspace.error.invalidDrafts', { count: recovery.rejectedLineages.length })
       }
@@ -1307,8 +1260,9 @@ export function ImageDocumentWorkspace(props: {
       entry.stop()
       entry.collaboration?.session.close()
     }
-    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingAdmissions, ...pendingRecipeExports, ...pendingSnapshotExports, ...[...pendingAuthoritativeRenders].map((task) => task.catch(() => undefined)), ...pendingPublications, ...pendingDraftSaves, ...pendingLibraryLists, ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
+    void Promise.all([recovering, openingLibrary?.catch(() => undefined), ...pendingRecipeExports, ...pendingSnapshotExports, ...[...pendingAuthoritativeRenders].map((task) => task.catch(() => undefined)), ...pendingPublications, ...pendingDraftSaves, ...pendingLibraryLists, ...pendingGraphOpens, ...pendingImports, ...pendingCollaborationLists, ...pendingCollaborationJoins, ...pendingCollaborationShares, ...pendingCollaborationLeaves, ...pendingCollaborationEnds, ...current.flatMap((entry) => [
       entry.persist.catch(() => undefined),
+      entry.hydrate.catch(() => undefined),
     ])]).finally(() => store.close())
   })
 
@@ -1319,8 +1273,8 @@ export function ImageDocumentWorkspace(props: {
     }
     setBusy(true)
     setError(undefined)
-    const task: Promise<void> = importSingleRaster(file, store, { assertCurrent }).then(async (draft) => {
-      if (current()) await openDraft(draft, undefined, undefined, current)
+    const task: Promise<void> = importSingleRaster(file, store, { assertCurrent }).then((draft) => {
+      if (current()) openDraft(draft)
     }).catch((cause) => {
       if (current()) setLocalizedError('imageDocument.workspace.error.imageImportFailed', { reason: messageOf(cause) })
     }).finally(() => {
@@ -1353,7 +1307,7 @@ export function ImageDocumentWorkspace(props: {
       await Promise.all(documents().map((entry) => entry.persist))
       assertCurrent()
       const opened = await openGraphImageDocument(backend.connection, store, request.query, assertCurrent)
-      if (current()) await openDraft(opened.draft, opened.render, {
+      if (current()) openDraft(opened.draft, opened.render, {
         connectionId: request.connectionId,
         sourceTabId: request.sourceTabId,
         graphId: request.graphId,
@@ -1361,7 +1315,7 @@ export function ImageDocumentWorkspace(props: {
         sourceOutputId: request.sourceOutputId,
         expectedGraphFingerprint: request.expectedGraphFingerprint,
         document: opened.document,
-      }, current)
+      })
     })().catch((cause) => {
       if (current()) setLocalizedError('imageDocument.workspace.error.graphOpenFailed', { reason: messageOf(cause) })
     }).finally(() => {
@@ -1587,7 +1541,7 @@ export function ImageDocumentWorkspace(props: {
       const draft = await task
       if (!currentLibraryIntent(intent, backend)) return
       if (draft === undefined) throw new Error(message('imageDocument.workspace.error.libraryRecordMissing'))
-      await openDraft(draft, undefined, undefined, () => currentLibraryIntent(intent, backend))
+      openDraft(draft)
       closeLibrary()
     } catch (cause) {
       if (currentLibraryIntent(intent, backend)) setLocalizedError('imageDocument.workspace.error.openImageFailed', { reason: messageOf(cause) })

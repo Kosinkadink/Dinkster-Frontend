@@ -55,7 +55,7 @@ async function installFixture(page: Page): Promise<void> {
 }
 
 async function seedExecutions(page: Page): Promise<void> {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const document = {
       format: 'dinkster-workflow', formatVersion: 1,
@@ -63,7 +63,7 @@ async function seedExecutions(page: Page): Promise<void> {
       graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { g0: { nodes: {} } } },
     }
-    await app.openDocument(document as never, 'Workflow with a deliberately long activity identity')
+    app.openDocument(document as never, 'Workflow with a deliberately long activity identity')
     const tab = app.activeTab()!
     const connection = (app as unknown as { backendForTab(tab: unknown): { id: string } }).backendForTab(tab).id
     const artifact = {

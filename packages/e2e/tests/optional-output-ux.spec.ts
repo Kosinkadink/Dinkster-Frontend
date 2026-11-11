@@ -13,7 +13,7 @@ test('optional and maybe-absent pins keep their hollow identity when connected',
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const scalar = { kind: 'concrete', name: 'FLOAT' }
     app.registerSchemas([
@@ -52,7 +52,7 @@ test('optional and maybe-absent pins keep their hollow identity when connected',
         }],
       },
     ] as never)
-    const diagnostics = (await app.openDocument({
+    const diagnostics = app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'optional-output-proof',
@@ -86,7 +86,7 @@ test('optional and maybe-absent pins keep their hollow identity when connected',
         optional: { position: { x: 480, y: 80 } },
         dynamic: { position: { x: 480, y: 250 } },
       } } } },
-    }, 'Optional output proof'))
+    }, 'Optional output proof')
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
     window.__dinksterTest!.renderer!.setViewport({ x: 20, y: 60, scale: 1.25 })
   })

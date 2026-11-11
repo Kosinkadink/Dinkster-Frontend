@@ -56,9 +56,9 @@ const frozenTab = (): Tab => {
   return tab
 }
 
-beforeEach(async () => {
+beforeEach(() => {
   app = createWorkflowApp(null)
-  await app.openDocument(JSON.parse(readFileSync(join(root, 'fixtures/workflows/seed-basic.json'), 'utf8')), 'Basic')
+  app.openDocument(JSON.parse(readFileSync(join(root, 'fixtures/workflows/seed-basic.json'), 'utf8')), 'Basic')
   basic = app.activeTab()!
 })
 
@@ -238,7 +238,7 @@ describe('frozen views pin their execution state', () => {
     // with the frozen tab id and displace the frozen view.
     const json = JSON.parse(readFileSync(join(root, 'fixtures/workflows/seed-basic.json'), 'utf8')) as { lineage: string }
     json.lineage = frozenId
-    expect((await app.openDocument(json, 'Impostor'))).toEqual([])
+    expect(app.openDocument(json, 'Impostor')).toEqual([])
     const replaced = app.tabs.get().filter((t) => t.id === frozenId)
     expect(replaced).toHaveLength(1)
     expect(replaced[0]!.execution).toBeUndefined()

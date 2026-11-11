@@ -118,8 +118,8 @@ test.beforeEach(async ({ page }) => {
     const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas
     return schemas?.has('dinkster.image.generate') === true && schemas.has('dinkster.image.glsl_shader')
   }), { timeout: 15_000 }).toBe(true)
-  await page.evaluate(async ({ shader, curve }) => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(({ shader, curve }) => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'glsl-shader-native-e2e', root: 'g0',
       graphs: {
         g0: {
@@ -249,11 +249,11 @@ test('executes, previews, diagnoses, applies, reloads, undoes, and refuses inval
   await page.keyboard.press('Control+Shift+z')
   await expect.poll(stored).toBe(APPLIED_SHADER)
 
-  const reopened = await page.evaluate(async () => {
+  const reopened = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const exported = app.exportDocument(app.activeTab()!.id)
     if (!exported) throw new Error('GLSL document export failed')
-    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Native GLSL Shader reopened')
+    app.openDocument(JSON.parse(JSON.stringify(exported)), 'Native GLSL Shader reopened')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 0.85 })
     return app.activeTab()!.store.doc.graphs.g0!.nodes.shader!.values.fragment_shader
   })

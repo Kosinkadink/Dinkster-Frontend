@@ -1,4 +1,5 @@
-import { expect, nativeTest as test, openRailPanel, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, type Page } from '@playwright/test'
+import { openRailPanel } from './fixtures.js'
 
 const catalog = {
   schemaVersion: 1,
@@ -151,8 +152,8 @@ test('node cards show intent controls without provider, arm, or pack leakage', a
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('dinkster.preprocess.model_depth') ?? false,
   )).toBe(true)
 
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'provider-ux-proof',
@@ -308,9 +309,8 @@ test('unavailable vision capability identifies and anchors Preprocess Realistic 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest !== undefined)).toBe(true)
 
-  await waitForStartupOwnership(page)
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'provider-capability-proof',

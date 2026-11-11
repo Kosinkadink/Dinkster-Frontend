@@ -367,61 +367,6 @@ describe('ASSET widget modal integration', () => {
     expect(encodeRequest).toHaveBeenCalledWith(expect.objectContaining({ assetKind: 'media/image' }))
   })
 
-  it('admits an empty picker replacement before clearing and retiring its previous selection', async () => {
-    const schema: NodeSchema = { type: 'PickerFixture', displayName: 'Picker', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'asset', optional: false, type: { kind: 'concrete', name: 'ASSET' },
-        widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] } } }],
-    }
-    const app = createWorkflowApp([schema])
-    const tab = app.activeTab()!
-    const ref = { digest: `blake3:${'c'.repeat(64)}`, name: 'chosen.safetensors', size: 12,
-      mediaType: 'application/x-safetensors', virtualPath: 'models/chosen.safetensors' }
-    vi.spyOn(app.connection, 'listMounts').mockResolvedValue([])
-    vi.spyOn(app.connection, 'fetchAssetLocations').mockResolvedValue([])
-    const receipts = new Map<string, Awaited<ReturnType<typeof app.connection.retainAssets>>>()
-    let acknowledge: (() => void) | undefined
-    let clearing = false
-    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
-      if (clearing) {
-        expect(declaration.digests).toEqual([])
-        expect(declaration.complete).toBe(true)
-        await new Promise<void>((resolve) => { acknowledge = resolve })
-      }
-      const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
-      receipts.set(owner.ownerId, receipt)
-      return receipt
-    })
-    vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
-    const release = vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
-      const receipt = { ...receipts.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
-      receipts.set(owner.ownerId, receipt)
-      return receipt
-    })
-    const root = document.createElement('div'); document.body.append(root)
-    const unmount = render(() => <WidgetEditor app={app} ed={{ tab, graphId: 'g0',
-      target: { kind: 'input', nodeId: 'n1', valueKey: 'asset' }, label: 'Model',
-      spec: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] } },
-      declaredType: { kind: 'concrete', name: 'ASSET' }, initial: ref,
-      multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 },
-    }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-    try {
-      const apply = () => root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!
-      await vi.waitFor(() => expect(apply().disabled).toBe(false))
-      const original = [...receipts.values()].find((receipt) => receipt.digests.includes(ref.digest))!
-      expect(original).toBeDefined()
-      clearing = true
-      root.querySelector<HTMLButtonElement>('[data-testid="asset-selection-remove"]')!.click()
-      await vi.waitFor(() => expect(acknowledge).toBeDefined())
-      expect(apply().disabled).toBe(true)
-      expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(ref.name)
-      expect(release).not.toHaveBeenCalled()
-      acknowledge!()
-      await vi.waitFor(() => expect(apply().disabled).toBe(false))
-      expect(root.querySelector('[data-testid="asset-selection-remove"]')).toBeNull()
-      expect(receipts.get(original.ownerId)).toEqual({ ...original, revision: original.revision + 1, digests: [] })
-    } finally { acknowledge?.(); unmount(); app.dispose() }
-  })
-
   const catalogAssetEditor = (
     kind: string,
     declaredType: WidgetEditorState['declaredType'] = { kind: 'concrete', name: 'ASSET' },
@@ -774,7 +719,7 @@ describe('ASSET widget modal integration', () => {
       }
       const doc = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [null] }], links: [] }, () => schema).document!
       const app = createWorkflowApp([schema])
-      expect((await app.openDocument(doc, 'Picker'))).toEqual([])
+      expect(app.openDocument(doc, 'Picker')).toEqual([])
       const tab = app.activeTab()!
       const ref = { digest: `blake3:${'c'.repeat(64)}`, name: 'chosen.safetensors', size: 12,
         mediaType: 'application/x-safetensors', virtualPath: 'models/chosen.safetensors' }
@@ -1854,7 +1799,7 @@ describe('registered interactive widget expanded-editor integration', () => {
       const ref = { digest: `blake3:${'a'.repeat(64)}`, name: 'saved.wav', size: 4, mediaType: 'audio/wav', virtualPath: '' }
       const doc = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [ref] }], links: [] }, () => schema).document!
       const app = createWorkflowApp([schema])
-      expect((await app.openDocument(doc, 'Recording'))).toEqual([])
+      expect(app.openDocument(doc, 'Recording')).toEqual([])
       const tab = app.activeTab()!
       let acknowledge!: () => void
       vi.mocked(app.connection.retainAssets).mockImplementationOnce((owner, declaration) => new Promise((resolve) => {

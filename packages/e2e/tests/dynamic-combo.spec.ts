@@ -55,7 +55,7 @@ const selectedOf = (page: Page): Promise<string | undefined> =>
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const concrete = (name: string) => ({ kind: 'concrete', name })
     const widget = (id: string, widgetType: string, defaultValue: number) => ({
       kind: 'input', id, type: concrete(widgetType), optional: true,
@@ -74,7 +74,7 @@ test.beforeEach(async ({ page }) => {
         },
       }],
     }])
-    await window.__dinksterTest!.app.openDocument({
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'dynamic-combo', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { sizer: { id: 'sizer', type: 'ComboNodeTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { sizer: { position: { x: 120, y: 120 } } } } } },
