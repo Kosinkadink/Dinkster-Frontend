@@ -1,42 +1,43 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Window } from 'happy-dom'
 import { DinksterConnection } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 
 const LIVE_URL = process.env['DINKSTER_LIVE_URL']
 
-beforeAll(() => {
-  Object.defineProperty(globalThis, 'location', { value: new URL('http://localhost/'), configurable: true })
+beforeEach(() => {
+  vi.stubGlobal('location', new URL('http://localhost/'))
+  vi.stubGlobal('localStorage', new Window().localStorage)
 })
+afterEach(() => vi.unstubAllGlobals())
 
 describe.skipIf(!LIVE_URL)('live native regions', () => {
   it.each([
+    { kind: 'map' as const, input: undefined, outputId: 'result', expected: [] },
+    { kind: 'fold' as const, input: undefined, outputId: 'state', expected: 0 },
+    { kind: 'while' as const, input: undefined, outputId: 'state', expected: 0 },
     { kind: 'map' as const, input: [1, 2, 3], outputId: 'result', expected: [1, 2, 3] },
+    { kind: 'fold' as const, input: [2, 5, -1], outputId: 'state', expected: 6 },
     { kind: 'while' as const, input: 7, outputId: 'state', expected: 7 },
   ])('authors, submits, and completes a $kind region through AppState', async ({ kind, input, outputId, expected }) => {
     const app = new AppState()
-    const connection = new DinksterConnection({
-      id: app.connection.id,
-      baseUrl: LIVE_URL!,
-      clientId: `audit-r3-${kind}-${Date.now()}`,
-    })
+    const backend = app.addBackend(LIVE_URL!, undefined, false)!
+    const connection = new DinksterConnection({ id: backend.id, baseUrl: LIVE_URL!, clientId: `regions-live-${kind}-${Date.now()}` })
     const registry = await connection.fetchSchemas()
     expect(registry.graphFeatures).toContain('regions')
-    app.registry.set(registry)
+    backend.registry.set(registry)
 
     const tab = app.createWorkflow()
+    app.setTabTarget(tab.id, backend.id)
     const root = tab.store.doc.root
-    expect((await app.createRegion(tab, root, { x: 0, y: 0 }, kind)).ok).toBe(true)
+    const created = await app.createRegion(tab, root, { x: 0, y: 0 }, kind)
+    expect(created.ok, JSON.stringify(created.diagnostics)).toBe(true)
     const occurrence = Object.values(tab.store.doc.graphs[root]!.nodes)[0]!
-    const inputId = kind === 'map' ? 'item' : 'state'
-    expect(tab.store.dispatch({
-      command: 'node.setValue',
-      params: { graphId: root, nodeId: occurrence.id, inputId, value: input },
-    }).ok).toBe(true)
-    if (kind === 'while') {
-      const bodyId = occurrence.type.slice(1)
+    const inputId = kind === 'while' ? 'state' : 'item'
+    if (input !== undefined) {
       expect(tab.store.dispatch({
         command: 'node.setValue',
-        params: { graphId: bodyId, nodeId: 'n1', inputId: 'value', value: false },
+        params: { graphId: root, nodeId: occurrence.id, inputId, value: input },
       }).ok).toBe(true)
     }
 
@@ -67,6 +68,7 @@ describe.skipIf(!LIVE_URL)('live native regions', () => {
     const actual = peek.descriptor.elements?.map((element) => element.value) ?? peek.descriptor.value
     console.log(`[regions-live] ${kind} output=${JSON.stringify(actual)}`)
     expect(actual).toEqual(expected)
+    app.dispose()
   }, 45_000)
 })
 

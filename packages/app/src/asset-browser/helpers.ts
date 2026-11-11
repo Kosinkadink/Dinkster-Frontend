@@ -12,8 +12,12 @@ export function isBrowserPreviewable(item: Pick<AssetBrowserItem, 'kind' | 'medi
   return item.kind === undefined || item.kind.startsWith('media/')
 }
 
-const mimeMatches = (mediaType: string, accept: string): boolean =>
-  accept === '*/*' || (accept.endsWith('/*') ? mediaType.startsWith(accept.slice(0, -1)) : mediaType === accept)
+export function mediaAcceptsFile(accept: readonly string[], mediaType: string, name = ''): boolean {
+  return accept.some((pattern) => pattern.startsWith('.')
+    ? name.toLowerCase().endsWith(pattern.toLowerCase())
+    : mediaType !== '' && (pattern === mediaType || pattern === '*/*' ||
+      (pattern.endsWith('/*') && mediaType.startsWith(pattern.slice(0, -1)))))
+}
 
 /** Semantic media scope implied by an unambiguous MIME accept list. */
 export function mediaKindForAccept(accept: readonly string[]): string | undefined {
@@ -25,7 +29,7 @@ export function mediaKindForAccept(accept: readonly string[]): string | undefine
 
 export function isCompatible(item: AssetBrowserItem, accept: readonly string[], kind?: string): boolean {
   if (item.folder || !item.digest || !item.mediaType) return false
-  if (accept.length > 0 && !accept.some((value) => mimeMatches(item.mediaType!, value))) return false
+  if (accept.length > 0 && !mediaAcceptsFile(accept, item.mediaType, item.name)) return false
   if (kind) {
     // Mounted image/audio/video rows currently carry mediaType but no kind.
     // Derive only the unambiguous media family needed by media/* widget
