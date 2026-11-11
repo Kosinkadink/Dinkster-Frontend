@@ -65,9 +65,9 @@ async function openDocument(page: Page, kind: 'trim' | 'crop' | 'both', values: 
     const tab = window.__dinksterTest!.app.activeTab()
     return tab !== undefined && 'status' in tab.store
   })).toBe(true)
-  await page.evaluate(async ({ kind, values, linked }) => {
+  await page.evaluate(({ kind, values, linked }) => {
     const app = window.__dinksterTest!.app
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'video-editor-test', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Video', nodes: {
         source: { id: 'source', type: 'test.video', values: {} },
@@ -151,7 +151,7 @@ async function retainRoundTrip(
   await download.saveAs(workflowPath)
   const savedText = await readFile(workflowPath, 'utf8')
   expect(JSON.parse(savedText)).toEqual(afterApply.workflow)
-  expect(await page.evaluate(async (text) => (await window.__dinksterTest!.app.openDocument(JSON.parse(text), 'Saved video reopened', undefined, true)), savedText)).toEqual([])
+  expect(await page.evaluate((text) => window.__dinksterTest!.app.openDocument(JSON.parse(text), 'Saved video reopened', undefined, true), savedText)).toEqual([])
   const afterSaveReload = await persistedState(page)
   const retainedImportOwners: string[] = []
   await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
@@ -417,9 +417,7 @@ test('changed source refuses stale preview and a concurrent edit cannot be overw
 test('execution snapshot ownership keeps the live view pending and refused before opening read-only', async ({ page }, info) => {
   await openDocument(page, 'trim')
   const replies: ((revision: number) => Promise<void>)[] = []
-  let openingOwner = Promise.resolve('')
   await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
-    if (decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!) !== await openingOwner) return route.fallback()
     if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
     expect(route.request().method()).toBe('PUT')
     expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
@@ -432,17 +430,11 @@ test('execution snapshot ownership keeps the live view pending and refused befor
       })
     })
   })
-  const begin = () => {
-    openingOwner = page.evaluate(() => {
-      const app = window.__dinksterTest!.app
-      const execution = [...app.store.executions.get().values()].find((item) => item.ref.prompt === 'video-editor-run')!
-      const before = new Set(Object.keys(localStorage))
-      ;(window as unknown as { frozenOpening: Promise<boolean> }).frozenOpening = app.openExecutionView(execution.ref)
-      const key = Object.keys(localStorage).find((key) => !before.has(key) && key.includes('dinkster.workflow-retentions.'))!
-      return JSON.parse(localStorage.getItem(key)!).owner.ownerId as string
-    })
-    return openingOwner
-  }
+  const begin = () => page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const execution = [...app.store.executions.get().values()].find((item) => item.ref.prompt === 'video-editor-run')!
+    ;(window as unknown as { frozenOpening: Promise<boolean> }).frozenOpening = app.openExecutionView(execution.ref)
+  })
   const result = () => page.evaluate(() => (window as unknown as { frozenOpening: Promise<boolean> }).frozenOpening)
   await page.screenshot({ path: info.outputPath('frozen-default.png') })
   await begin()
@@ -465,7 +457,6 @@ test('execution snapshot ownership keeps the live view pending and refused befor
 test('execution snapshots refuse VIDEO_EDIT writes and changing editor views', async ({ page }) => {
   await openDocument(page, 'trim')
   await page.route('**/api/library/retentions/document/*?scope=local', (route) => {
-    if (route.request().method() !== 'PUT' || route.request().postDataJSON().complete === true) return route.fallback()
     expect(route.request().method()).toBe('PUT')
     expect(route.request().postDataJSON()).toEqual({ revision: 0, complete: false, digests: [] })
     return route.fulfill({ json: { scope: 'local', ownerKind: 'document',
@@ -634,11 +625,11 @@ test('malformed numeric edits visibly refuse Apply and can be corrected without 
 
 test('VIDEO_EDIT value-source pills apply, undo and reopen without sibling writes', async ({ page }, info) => {
   await openDocument(page, 'trim')
-  await page.evaluate(async (value) => {
+  await page.evaluate((value) => {
     const app = window.__dinksterTest!.app
     const doc = app.activeTab()!.store.doc
     const graph = doc.graphs.g0!
-    await app.openDocument({ ...doc, lineage: 'video-edit-value-source', graphs: { ...doc.graphs, g0: {
+    app.openDocument({ ...doc, lineage: 'video-edit-value-source', graphs: { ...doc.graphs, g0: {
       ...graph, valueSources: { v0: { id: 'v0', value } }, links: { ...graph.links,
         literal: { id: 'literal', from: { valueSource: 'v0' }, to: { node: 'edit', port: 'video_edit' } },
       },
@@ -668,9 +659,9 @@ test('VIDEO_EDIT value-source pills apply, undo and reopen without sibling write
   expect(await value()).toEqual(imported)
   await page.keyboard.press('Control+Shift+z')
   expect(await value()).toEqual(expected)
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    await app.openDocument(app.exportDocument(app.activeTab()!.id), 'Reopened literal', undefined, true)
+    app.openDocument(app.exportDocument(app.activeTab()!.id), 'Reopened literal', undefined, true)
   })
   expect(await value()).toEqual(expected)
 })
@@ -687,7 +678,7 @@ test('SaveVideo v3 persists the migrated dynamic format as a static input', asyn
     }, links: { frames: { id: 'frames', from: { node: 'source', port: 'images' }, to: { node: 'edit', port: 'images' } } }, nets: {}, reroutes: {}, nextOrdinal: 3 } },
     view: { graphs: {} },
   }
-  expect(await page.evaluate(async (document) => (await window.__dinksterTest!.app.openDocument(document, 'Historical Save Video')), before)).toEqual([])
+  expect(await page.evaluate((document) => window.__dinksterTest!.app.openDocument(document, 'Historical Save Video'), before)).toEqual([])
   const expected = {
     target: { mount: 'comfy-output', prefix: 'saved-editor' },
     format: 'webm_vp9',

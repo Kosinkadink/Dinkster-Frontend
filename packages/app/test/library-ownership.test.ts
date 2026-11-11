@@ -94,11 +94,11 @@ afterEach(() => {
 })
 
 /** Two native backends plus an open tab targeted at A. */
-async function twoBackends(): Promise<{
+function twoBackends(): {
   a: Extract<Backend, { protocol: 'dinkster' }>
   b: Extract<Backend, { protocol: 'dinkster' }>
   tab: Tab
-}> {
+} {
   const a = app.addBackend('http://native-a:8000', 'A', false, 'dinkster')
   const b = app.addBackend('http://native-b:8000', 'B', false, 'dinkster')
   if (!a || a.protocol !== 'dinkster' || !b || b.protocol !== 'dinkster') throw new Error('addBackend rejected')
@@ -108,7 +108,7 @@ async function twoBackends(): Promise<{
   b.registry.set(buildDinksterRegistry(b.id, nodesPayload))
   for (const backend of [a, b]) vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
     ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
-  expect((await app.openDocument(DOC, 'Doc'))).toEqual([])
+  expect(app.openDocument(DOC, 'Doc')).toEqual([])
   const tab = app.activeTab()!
   app.setTabTarget(tab.id, a.id)
   return { a, b, tab }
@@ -116,7 +116,7 @@ async function twoBackends(): Promise<{
 
 describe('owned collection pages', () => {
   it('a continuation cursor minted by one backend is refused against another', async () => {
-    const { a, b, tab } = (await twoBackends())
+    const { a, b, tab } = twoBackends()
     const listA = vi
       .spyOn(a.connection, 'listLibrary')
       .mockResolvedValue({ records: [record()], cursor: 'pageA2' })
@@ -144,7 +144,7 @@ describe('owned collection pages', () => {
   })
 
   it('run and template entries AND their pages carry the serving backend as owner', async () => {
-    const { a } = (await twoBackends())
+    const { a } = twoBackends()
     vi.spyOn(a.connection, 'listHistory').mockResolvedValue({ records: [run()] })
     vi.spyOn(a.connection, 'listTemplates').mockResolvedValue({
       templates: [{ pack: 'core', id: 't1', name: 'Starter', digest: 'sha256:x' }],
@@ -172,7 +172,7 @@ describe('owned collection pages', () => {
 
 describe('owned entry actions', () => {
   it.each(['library', 'run'] as const)('hands off %s source ownership only after destination admission', async (source) => {
-    const { a, tab } = (await twoBackends())
+    const { a, tab } = twoBackends()
     vi.spyOn(a.connection, 'getLibraryRecord').mockResolvedValue(record())
     vi.spyOn(a.connection, 'getHistoryRun').mockResolvedValue(run())
     vi.spyOn(a.connection, 'fetchAssetText').mockResolvedValue(JSON.stringify({ ...DOC, lineage: 'handoff-opened' }))
@@ -225,7 +225,7 @@ describe('owned entry actions', () => {
   })
 
   it.each(['library', 'run'] as const)('admits %s payloads before reading and refuses obsolete publication', async (source) => {
-    const { a, tab } = (await twoBackends())
+    const { a, tab } = twoBackends()
     vi.spyOn(a.connection, 'getLibraryRecord').mockResolvedValue(record())
     vi.spyOn(a.connection, 'getHistoryRun').mockResolvedValue(run())
     let admit!: () => void
@@ -246,7 +246,7 @@ describe('owned entry actions', () => {
     expect(app.activeTab()).toBe(tab)
     admit()
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(DIGEST))
-    await app.openDocument({ ...DOC, lineage: 'newer-open' }, 'Newer document')
+    app.openDocument({ ...DOC, lineage: 'newer-open' }, 'Newer document')
     const newer = app.activeTab()
     await Promise.resolve()
     expect(settled).toBe(false)
@@ -259,7 +259,7 @@ describe('owned entry actions', () => {
 
   it.each(['library', 'run'].flatMap((source) => ['refused', 'mismatched', 'superseded', 'removed'].map((scenario) => ({ source, scenario }))))(
     'refuses $source payload bytes after $scenario admission', async ({ source, scenario }) => {
-      const { a, tab } = (await twoBackends())
+      const { a, tab } = twoBackends()
       vi.spyOn(a.connection, 'getLibraryRecord').mockResolvedValue(record())
       vi.spyOn(a.connection, 'getHistoryRun').mockResolvedValue(run())
       let admit!: () => void
@@ -273,7 +273,7 @@ describe('owned entry actions', () => {
       const fetch = vi.spyOn(a.connection, 'fetchAssetText').mockResolvedValue(JSON.stringify(DOC))
       const opening = source === 'library' ? app.openFromLibrary('r1', a.id) : app.openRunWorkflow('run-1', a.id)
       await vi.waitFor(() => expect(retain).toHaveBeenCalled())
-      if (scenario === 'superseded') await app.openDocument({ ...DOC, lineage: 'newer-open' }, 'Newer')
+      if (scenario === 'superseded') app.openDocument({ ...DOC, lineage: 'newer-open' }, 'Newer')
       if (scenario === 'removed') app.removeBackend(a.id)
       const current = app.activeTab()
       admit()
@@ -285,7 +285,7 @@ describe('owned entry actions', () => {
   )
 
   it('openFromLibrary resolves the record on its owner, not the active backend', async () => {
-    const { a, b, tab } = (await twoBackends())
+    const { a, b, tab } = twoBackends()
     app.setTabTarget(tab.id, b.id) // the click lands while B is active
     const getA = vi
       .spyOn(a.connection, 'getLibraryRecord')
@@ -305,7 +305,7 @@ describe('owned entry actions', () => {
   })
 
   it('an entry whose owner backend is gone fails into Problems, never another backend', async () => {
-    const { a, b } = (await twoBackends())
+    const { a, b } = twoBackends()
     const delA = vi.spyOn(a.connection, 'deleteHistoryRun')
     const delB = vi.spyOn(b.connection, 'deleteHistoryRun')
 
@@ -316,7 +316,7 @@ describe('owned entry actions', () => {
   })
 
   it('clearRunHistory clears the owner scope even when another backend is active', async () => {
-    const { a, b, tab } = (await twoBackends())
+    const { a, b, tab } = twoBackends()
     app.setTabTarget(tab.id, b.id)
     const clearA = vi.spyOn(a.connection, 'clearHistory').mockResolvedValue(3)
     const clearB = vi.spyOn(b.connection, 'clearHistory')
@@ -331,7 +331,7 @@ describe('mid-flight owner loss', () => {
   // Removal retires the backend OBJECT but does not abort its in-flight
   // HTTP; a late response must not install tabs, targets, or links.
   it('a backend removed while its record fetch is in flight opens nothing', async () => {
-    const { a } = (await twoBackends())
+    const { a } = twoBackends()
     let release!: (r: ReturnType<typeof record>) => void
     vi.spyOn(a.connection, 'getLibraryRecord').mockReturnValue(
       new Promise((resolve) => { release = resolve }),
@@ -350,7 +350,7 @@ describe('mid-flight owner loss', () => {
   })
 
   it('a same-URL replacement backend never inherits a retired backend\'s late response', async () => {
-    const { a, tab } = (await twoBackends())
+    const { a, tab } = twoBackends()
     vi.spyOn(a.connection, 'getLibraryRecord').mockResolvedValue(record({ name: 'From A' }))
     let releaseText!: (text: string) => void
     const fetchA = vi.spyOn(a.connection, 'fetchAssetText').mockReturnValue(
@@ -378,7 +378,7 @@ describe('mid-flight owner loss', () => {
     // Liveness is checked before payload checks: a miss (undefined) from a
     // backend removed mid-request must not short-circuit into a silent
     // return that skips the ownership diagnosis.
-    const { a } = (await twoBackends())
+    const { a } = twoBackends()
     let release!: (r: undefined) => void
     vi.spyOn(a.connection, 'getLibraryRecord').mockReturnValue(
       new Promise((resolve) => { release = resolve }),
@@ -392,7 +392,7 @@ describe('mid-flight owner loss', () => {
   })
 
   it('a template fetch rejected by removal reports ownerGone, not a transport failure', async () => {
-    const { a } = (await twoBackends())
+    const { a } = twoBackends()
     let reject!: (e: Error) => void
     vi.spyOn(a.connection, 'fetchTemplateBody').mockReturnValue(
       new Promise((_resolve, rej) => { reject = rej }),
@@ -408,7 +408,7 @@ describe('mid-flight owner loss', () => {
   })
 
   it('opens region templates with a readable left-to-right layout', async () => {
-    const { a } = (await twoBackends())
+    const { a } = twoBackends()
     const template = structuredClone(DOC) as any
     template.lineage = 'region-template-layout'
     template.graphs.g0.nodes = {
@@ -471,7 +471,7 @@ describe('mid-flight owner loss', () => {
   })
 
   it('a run whose backend vanishes mid-open installs no target', async () => {
-    const { a } = (await twoBackends())
+    const { a } = twoBackends()
     vi.spyOn(a.connection, 'getHistoryRun').mockResolvedValue(run())
     let releaseText!: (text: string) => void
     const fetchA = vi.spyOn(a.connection, 'fetchAssetText').mockReturnValue(

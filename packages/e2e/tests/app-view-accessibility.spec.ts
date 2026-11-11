@@ -48,7 +48,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForStartupOwnership(page)
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const widget = (id: string, widgetType: string, defaultValue: unknown) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,
       widget: { widgetType, options: {}, default: defaultValue },
@@ -57,7 +57,7 @@ test.beforeEach(async ({ page }) => {
       type: 'AppViewA11yTest', displayName: 'Accessible App', category: 'test', source: 'v3', isOutputNode: false,
       items: [widget('prompt', 'STRING', 'portrait'), widget('steps', 'INT', 20)],
     }])
-    await window.__dinksterTest!.app.openDocument({
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-view-a11y-test', root: 'g0',
       meta: { title: 'Accessible App View', description: 'Keyboard and screen reader proof' },
       graphs: { g0: {

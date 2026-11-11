@@ -66,9 +66,9 @@ test('proves wire20 manual control policy, CAS, TTL, and phase1 fallback through
 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(1)
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const test = window.__dinksterTest!
-    await test.app.openDocument({
+    test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'wire20-remote-policy-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         n0: { id: 'n0', type: 'Wire20RemotePolicyProof', values: {

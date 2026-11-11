@@ -39,9 +39,9 @@ for (const hidden of [false, true]) {
     })
     await page.goto('/')
     await expect.poll(() => page.evaluate((type) => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has(type) ?? false, nodeType)).toBe(true)
-    await page.evaluate(async (type) => {
+    await page.evaluate((type) => {
       const app = window.__dinksterTest!.app
-      await app.openDocument({
+      app.openDocument({
         format: 'dinkster-workflow', formatVersion: 1, lineage: 'hidden-choice', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'root', nodes: {
           n0: { id: 'n0', type, values: { filename_prefix: 'clip', 'codec.crf': 23 }, dynamic: { codec: { selected: 'h264' } } },
@@ -134,8 +134,8 @@ test('fresh ResizeImageMaskNode selects, round-trips, and submits effective wire
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('comfy.ResizeImageMaskNode') ?? false,
   )).toBe(true)
   await waitForStartupOwnership(page)
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'resize-dynamiccombo-e2e',
@@ -237,10 +237,10 @@ test('fresh ResizeImageMaskNode selects, round-trips, and submits effective wire
   await search.press('Enter')
 
   // Export and reopen through the public app paths without synthesizing state.
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const exported = app.exportDocument(app.activeTab()!.id)!
-    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Resize Reopened')
+    app.openDocument(JSON.parse(JSON.stringify(exported)), 'Resize Reopened')
   })
   await page.waitForFunction(() => {
     const tab = window.__dinksterTest!.app.activeTab()
@@ -286,8 +286,8 @@ test('hidden DynamicCombo hides branch controls and retains serialized state', a
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('HiddenSelector') ?? false,
   )).toBe(true)
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'hidden-selector', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         visible: { id: 'visible', type: 'VisibleSelector', values: { 'codec.quality': 19 }, dynamic: { codec: { selected: 'custom' } } },
@@ -310,9 +310,9 @@ test('hidden DynamicCombo hides branch controls and retains serialized state', a
   expect(presentation['visible']?.pins).toEqual(['codec', 'codec.quality'])
   expect(presentation['hidden']?.widgets).toEqual([])
   expect(presentation['hidden']?.pins).toEqual([])
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    await app.openDocument(JSON.parse(JSON.stringify(app.exportDocument(app.activeTab()!.id))), 'Selector reopened')
+    app.openDocument(JSON.parse(JSON.stringify(app.exportDocument(app.activeTab()!.id))), 'Selector reopened')
   })
   const after = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))
   expect(after).toEqual(before)

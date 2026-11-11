@@ -84,8 +84,8 @@ test('wire 27 resize groups change visible rows without dropping stored values',
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(1)
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'wire27-resize-proof',

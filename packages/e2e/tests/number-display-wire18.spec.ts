@@ -1,5 +1,6 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, type Page } from '@playwright/test'
+import { waitForStartupOwnership } from './fixtures.js'
 
 const PROOF_DIR = '/tmp/audit-ae-proof'
 const RANGE_FILL = '#343940'
@@ -108,7 +109,6 @@ async function rangePaint(page: Page) {
 test.beforeEach(async ({ page }) => {
   await mkdir(PROOF_DIR, { recursive: true })
   advertisedWires.length = 0
-  await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('**/supervisor/status', (route) =>
     route.fulfill({ status: 502, contentType: 'text/plain', body: 'isolated proof: no supervisor' }),
   )
@@ -125,8 +125,8 @@ test.beforeEach(async ({ page }) => {
   expect(advertisedWires).not.toHaveLength(0)
   expect(advertisedWires.every((wire) => wire === '')).toBe(true)
   await waitForStartupOwnership(page)
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'wire18-number-display', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         numbers: {
