@@ -59,20 +59,38 @@ test('crop fields submit exact pixels, preview the source and preserve undo', as
   await page.locator('#bounding-box-width').fill('')
   await expect(page.getByRole('button', { name: 'Apply crop', exact: true })).toBeDisabled()
   const viewport = page.viewportSize()!
-  for (const height of [viewport.height, viewport.height - 100]) {
-    await page.setViewportSize({ ...viewport, height })
-    await expect.poll(() => page.getByTestId('bounding-box-editor').evaluate((editor) => {
-      const bounds = editor.getBoundingClientRect()
-      return Array.from(editor.querySelectorAll('button')).every((button) => {
-        const rect = button.getBoundingClientRect()
-        return rect.top >= bounds.top && rect.bottom <= bounds.bottom
-      })
-    })).toBe(true)
-    const name = height === viewport.height ? 'crop-invalid' : 'crop-invalid-short'
-    const invalid = testInfo.outputPath(`${name}.png`)
-    await page.getByTestId('bounding-box-editor').screenshot({ path: invalid })
-    await testInfo.attach(name, { path: invalid, contentType: 'image/png' })
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate((theme) => { document.documentElement.dataset['theme'] = theme }, theme)
+    const contrast = await page.getByRole('button', { name: 'Apply crop', exact: true }).evaluate((button) => {
+      const style = getComputedStyle(button)
+      const rgb = (color: string) => color.match(/[\d.]+/g)!.slice(0, 3).map(Number)
+      const parent = rgb(getComputedStyle(button.closest('[role="dialog"]')!).backgroundColor)
+      const opacity = Number(style.opacity)
+      const luminance = (color: string) => rgb(color).map((value, index) => {
+        const channel = (value * opacity + parent[index]! * (1 - opacity)) / 255
+        return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+      }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index]!, 0)
+      const foreground = luminance(style.color)
+      const background = luminance(style.backgroundColor)
+      return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05)
+    })
+    expect(contrast, `${theme} disabled crop action contrast`).toBeGreaterThanOrEqual(4.5)
+    for (const height of [viewport.height, viewport.height - 100]) {
+      await page.setViewportSize({ ...viewport, height })
+      await expect.poll(() => page.getByTestId('bounding-box-editor').evaluate((editor) => {
+        const bounds = editor.getBoundingClientRect()
+        return Array.from(editor.querySelectorAll('button')).every((button) => {
+          const rect = button.getBoundingClientRect()
+          return rect.top >= bounds.top && rect.bottom <= bounds.bottom
+        })
+      })).toBe(true)
+      const name = `crop-invalid-${theme}${height === viewport.height ? '' : '-short'}`
+      const invalid = testInfo.outputPath(`${name}.png`)
+      await page.getByTestId('bounding-box-editor').screenshot({ path: invalid })
+      await testInfo.attach(name, { path: invalid, contentType: 'image/png' })
+    }
   }
+  await page.evaluate(() => { document.documentElement.dataset['theme'] = 'dark' })
   await page.setViewportSize(viewport)
   for (const [field, value] of Object.entries({ x: '61', y: '43', width: '12', height: '9' })) {
     await page.locator(`#bounding-box-${field}`).fill(value)

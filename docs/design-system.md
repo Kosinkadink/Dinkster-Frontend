@@ -201,6 +201,10 @@ The output descriptor editor uses compact `ProductButton` actions,
 containers. The editor retains draft commits, profile probing, read-only
 metadata, exact stored JSON and stale-link disconnection behavior.
 
+Disabled primary buttons use the neutral raised surface and secondary text
+without fading their labels. The missing accent fill distinguishes them from
+enabled primary actions while keeping the action name readable in both themes.
+
 | Primitive            | Contract                                                                                                                                          | Adopted surfaces                                                                                                               |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `ProductButton`      | Native button props and caller-owned aria-busy; primary, secondary, danger and ghost variants; loading disables activation and exposes busy state | Learn, Node help, Activity, Execution log, Problems, Desktop management, mounts, audio recorder and Image document empty state |
