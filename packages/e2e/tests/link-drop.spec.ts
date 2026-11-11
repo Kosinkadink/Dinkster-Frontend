@@ -333,11 +333,11 @@ test('output noodle dropped on empty opens input-compatible search; Escape cance
   const search = page.getByTestId('palette-search')
   // PreviewImage accepts IMAGE - present.
   await search.fill('preview image')
-  await expect(page.locator('[data-node-type="PreviewImage"]')).toBeVisible()
+  await expect(page.locator('[data-node-type="dinkster.image.preview_image"]')).toBeVisible()
   // VAEDecode consumes LATENT+VAE, never IMAGE - excluded even when the
   // text would rank it.
   await search.fill('vae decode')
-  await expect(page.locator('[data-node-type="VAEDecode"]')).not.toBeVisible()
+  await expect(page.locator('[data-node-type="dinkster.latent.vae_decode"]')).not.toBeVisible()
 
   // Escape: no node, no link, nothing.
   await search.press('Escape')
@@ -362,23 +362,23 @@ nativeTest('native typed Autogrow families filter in both directions and generic
     await identityViewport(page)
   }
 
-  await openSingleNode('EmptyImage', 'Native typed output drop')
+  await openSingleNode('dinkster.image.empty_image', 'Native typed output drop')
   await drag(page, await pinPoint(page, 'n0', 'out', 'IMAGE'), EMPTY)
   const search = page.getByTestId('palette-search')
   await search.fill('Batch Images')
-  await expect(page.locator('[data-node-type="BatchImagesNode"]')).toBeVisible()
+  await expect(page.locator('[data-node-type="dinkster.image.batch_images_node"]')).toBeVisible()
   await search.fill('Batch Masks')
-  await expect(page.locator('[data-node-type="BatchMasksNode"]')).not.toBeVisible()
+  await expect(page.locator('[data-node-type="dinkster.image.batch_masks_node"]')).not.toBeVisible()
   await search.fill('Batch Latents')
-  await expect(page.locator('[data-node-type="BatchLatentsNode"]')).not.toBeVisible()
+  await expect(page.locator('[data-node-type="dinkster.latent.batch_latents_node"]')).not.toBeVisible()
   await search.fill('Preview as Text')
-  await expect(page.locator('[data-node-type="dinkster.preview_any"]')).toBeVisible()
-  await expect(page.locator('[data-node-type="PreviewAny"]')).toBeVisible()
+  await expect(page.locator('[data-node-type="dinkster.utilities.preview_any"]')).toBeVisible()
+  await expect(page.getByTestId('palette-preview').getByTestId('preview-input')).toContainText('Any')
 
   await search.fill('Batch Images')
-  await page.locator('[data-node-type="BatchImagesNode"]').click()
+  await page.locator('[data-node-type="dinkster.image.batch_images_node"]').click()
   const inserted = await activeDoc(page)
-  const batch = Object.values(inserted.graphs['g0']!.nodes).find((node) => node.type === 'BatchImagesNode')
+  const batch = Object.values(inserted.graphs['g0']!.nodes).find((node) => node.type === 'dinkster.image.batch_images_node')
   expect(batch?.dynamic?.['images']).toMatchObject({ members: ['image0'] })
   expect(Object.values(inserted.graphs['g0']!.links)).toEqual([
     expect.objectContaining({
@@ -387,13 +387,13 @@ nativeTest('native typed Autogrow families filter in both directions and generic
     }),
   ])
 
-  await openSingleNode('PreviewImage', 'Native typed input drop')
+  await openSingleNode('dinkster.image.preview_image', 'Native typed input drop')
   await drag(page, await pinPoint(page, 'n0', 'in', 'images'), EMPTY)
   await expect(page.getByTestId('node-palette')).toHaveAttribute('data-link-drop', 'out')
   await page.getByTestId('palette-search').fill('Batch Images')
-  await expect(page.locator('[data-node-type="BatchImagesNode"]')).toBeVisible()
+  await expect(page.locator('[data-node-type="dinkster.image.batch_images_node"]')).toBeVisible()
   await page.getByTestId('palette-search').fill('Batch Masks')
-  await expect(page.locator('[data-node-type="BatchMasksNode"]')).not.toBeVisible()
+  await expect(page.locator('[data-node-type="dinkster.image.batch_masks_node"]')).not.toBeVisible()
 })
 
 test('backdrop pointerdown cancels a link-drop ghost without creating a link or panning', async ({ page }) => {
@@ -420,12 +420,12 @@ test('picking a node inserts it and connects the dangling end - ONE undo step', 
   const previousIds = Object.keys((await activeDoc(page)).graphs.g0!.nodes)
   await drag(page, await pinPoint(page, 'n0', 'out', 'IMAGE'), EMPTY)
   await page.getByTestId('palette-search').fill('preview image')
-  await page.locator('[data-node-type="PreviewImage"]').click()
+  await page.locator('[data-node-type="dinkster.image.preview_image"]').click()
   await expect(page.getByTestId('node-palette')).not.toBeVisible()
 
   const doc = await activeDoc(page)
   const added = await singleAddedNode(page, previousIds)
-  expect(added.type).toBe('PreviewImage')
+  expect(added.type).toBe('dinkster.image.preview_image')
   const links = Object.values(doc.graphs['g0']!.links)
   expect(links).toHaveLength(2) // l2 untouched + the new connection
   expect(
@@ -461,14 +461,14 @@ test('rewire dropped on empty still disconnects (no palette); a free input then 
   const search = page.getByTestId('palette-search')
   // CLIPTextEncode outputs CONDITIONING, never IMAGE - excluded.
   await search.fill('CLIPTextEncode')
-  await expect(page.locator('[data-node-type="CLIPTextEncode"]')).not.toBeVisible()
+  await expect(page.locator('[data-node-type="dinkster.conditioning.clip_text_encode"]')).not.toBeVisible()
 
   await search.fill('empty image')
-  await page.locator('[data-node-type="EmptyImage"]').click()
+  await page.locator('[data-node-type="dinkster.image.empty_image"]').click()
 
   const doc = await activeDoc(page)
   const added = await singleAddedNode(page, previousIds)
-  expect(added.type).toBe('EmptyImage')
+  expect(added.type).toBe('dinkster.image.empty_image')
   const links = Object.values(doc.graphs['g0']!.links)
   expect(links).toHaveLength(1)
   expect(
@@ -514,7 +514,7 @@ test('dropped noodle stays visible while the palette is browsed; clears on Escap
   // Committing a pick clears it too (the real link replaces the ghost).
   await drag(page, from, EMPTY)
   await page.getByTestId('palette-search').fill('preview image')
-  await page.locator('[data-node-type="PreviewImage"]').click()
+  await page.locator('[data-node-type="dinkster.image.preview_image"]').click()
   await expect(page.getByTestId('node-palette')).not.toBeVisible()
   expect(await ghost()).toBeUndefined()
 })

@@ -39,12 +39,12 @@ test('in: filters by declared input type with residual text ranking', async ({ p
   const search = page.getByTestId('palette-search')
 
   await search.fill('in:latent decode')
-  await expect(page.locator('[data-node-type="VAEDecode"]')).toBeVisible()
+  await expect(page.locator('[data-node-type="dinkster.latent.vae_decode"]')).toBeVisible()
   // LoadImage has no latent input; "decode" text alone must not revive it.
-  await expect(page.locator('[data-node-type="LoadImage"]')).not.toBeVisible()
+  await expect(page.locator('[data-node-type="dinkster.image.load_image"]')).not.toBeVisible()
 
   await search.fill('in:latent')
-  await expect(page.locator('[data-node-type="KSampler"]')).toBeVisible()
+  await expect(page.locator('[data-node-type="dinkster.sampling.k_sampler"]')).toBeVisible()
 })
 
 nativeTest('long node names do not overlap their pack badge', async ({ page }) => {
@@ -90,7 +90,7 @@ test('kind chips filter and toggle; the utility kind always offers a choice', as
   const utilityChip = page.locator('[data-testid="palette-kind"][data-kind="utility"]')
   await utilityChip.click()
   await expect(page.locator('[data-node-type="__dinkster.reroute"]')).toBeVisible()
-  await expect(page.locator('[data-node-type="KSampler"]')).toHaveCount(0)
+  await expect(page.locator('[data-node-type="dinkster.sampling.k_sampler"]')).toHaveCount(0)
   // Toggling the last active chip clears the filter again.
   await utilityChip.click()
   expect(await page.getByTestId('palette-item').count()).toBeGreaterThan(1)
@@ -117,14 +117,14 @@ test('kind chips filter and toggle; the utility kind always offers a choice', as
 test('highlighted entry shows a schema preview: ports with types, keyboard-driven', async ({ page }) => {
   await openPalette(page)
   const search = page.getByTestId('palette-search')
-  await search.fill('VAEDecode')
+  await search.fill('dinkster.latent.vae_decode')
 
   // Hovering an entry highlights it; its interface renders beside the list.
   const preview = page.getByTestId('palette-preview')
   await expect(preview).toBeVisible()
-  await page.locator('[data-node-type="VAEDecode"]').hover()
+  await page.locator('[data-node-type="dinkster.latent.vae_decode"]').hover()
   const canvas = preview.getByTestId('palette-node-preview')
-  await expect(canvas).toHaveAttribute('data-preview-ready', 'VAEDecode')
+  await expect(canvas).toHaveAttribute('data-preview-ready', 'dinkster.latent.vae_decode')
   const painted = await canvas.evaluate((element: HTMLCanvasElement) => ({
     width: element.width,
     height: element.height,
