@@ -411,6 +411,138 @@ describe('ImageDocument commands', () => {
 })
 
 describe('ImageDocument history and session', () => {
+  it.each(['dispatch', 'undo', 'redo'] as const)('keeps prepared %s invisible until admission and commit', async (kind) => {
+    let allowed: ImageDocument | undefined
+    const session = createLocalImageDocumentSession(document(), {
+      validateCommit: (current, candidate) => current === candidate || candidate === allowed ? [] : [{
+        severity: 'error', origin: 'command', code: 'image.admission.required', message: 'Owner not acknowledged',
+      }],
+    })
+    const publishAdd = (): void => {
+      const add = session.prepareDispatch(addLayer())
+      expect(add.ok).toBe(true)
+      if (!add.ok) return
+      allowed = add.document
+      expect(add.commit().ok).toBe(true)
+    }
+    if (kind !== 'dispatch') publishAdd()
+    if (kind === 'redo') {
+      const undo = session.prepareUndo()
+      if (!undo.ok) throw new Error('Missing undo')
+      allowed = undo.document
+      expect(undo.commit().ok).toBe(true)
+    }
+    const before = session.doc
+    const revision = session.revision
+    const undo = session.canUndo
+    const redo = session.canRedo
+    const visible: ImageDocument[] = []
+    const operations: unknown[] = []
+    session.document.subscribe((value) => visible.push(value))
+    session.onOp((value) => operations.push(value))
+    const prepared = kind === 'dispatch' ? session.prepareDispatch(addLayer())
+      : kind === 'undo' ? session.prepareUndo() : session.prepareRedo()
+    if (!prepared.ok) throw new Error('Missing prepared edit')
+    expect(prepared.currentResourceDigests).toEqual(kind === 'dispatch' ? [DIGEST_A] : [DIGEST_A, DIGEST_B])
+    expect(prepared.resourceDigests).toEqual([DIGEST_A, DIGEST_B])
+    let acknowledge!: () => void
+    const admission = new Promise<void>((resolve) => { acknowledge = resolve })
+    const pending = admission.then(() => { allowed = prepared.document; return prepared.commit() })
+    await Promise.resolve()
+    expect(session.doc).toBe(before)
+    expect(session.document.get()).toBe(before)
+    expect(session.revision).toBe(revision)
+    expect([session.canUndo, session.canRedo]).toEqual([undo, redo])
+    expect(visible).toEqual([])
+    expect(operations).toEqual([])
+    acknowledge()
+    expect((await pending).ok).toBe(true)
+    expect(session.doc).toBe(prepared.document)
+    expect(session.revision).toBe(revision + 1)
+    expect(visible).toEqual([prepared.document])
+    expect(operations).toHaveLength(1)
+    expect(prepared.commit().ok).toBe(false)
+  })
+
+  it.each(['dispatch', 'undo', 'redo'] as const)('refuses direct %s without mutating document or history', (kind) => {
+    let admitted = true
+    const policy = () => admitted ? [] : [{
+      severity: 'error' as const, origin: 'command' as const,
+      code: 'image.admission.refused', message: 'Owner refused',
+    }]
+    const session = createLocalImageDocumentSession(document(), { validateCommit: policy })
+    expect(session.dispatch(addLayer()).ok).toBe(true)
+    if (kind === 'redo') expect(session.undo()).toBe(true)
+    const before = session.doc
+    const revision = session.revision
+    const history = [session.canUndo, session.canRedo]
+    const observe = vi.fn()
+    session.document.subscribe(observe)
+    session.onOp(observe)
+    admitted = false
+    const outcome = kind === 'dispatch' ? session.dispatch({ command: 'image.layer.remove', params: { layerId: 'l3' } }).ok
+      : kind === 'undo' ? session.undo() : session.redo()
+    expect(outcome).toBe(false)
+    expect(session.doc).toBe(before)
+    expect(session.revision).toBe(revision)
+    expect([session.canUndo, session.canRedo]).toEqual(history)
+    expect(observe).not.toHaveBeenCalled()
+    expect(() => createLocalImageDocumentSession(document(), { validateCommit: policy })).toThrow('Owner refused')
+    const refused = kind === 'dispatch' ? session.prepareDispatch(addLayer(DIGEST_C))
+      : kind === 'undo' ? session.prepareUndo() : session.prepareRedo()
+    if (!refused.ok) throw new Error('Missing refused candidate')
+    expect(refused.commit().ok).toBe(false)
+    admitted = true
+    expect(refused.commit().ok).toBe(false)
+    expect(session.doc).toBe(before)
+    expect(session.revision).toBe(revision)
+  })
+
+  it.each(['command', 'history-clear', 'policy-history-clear'] as const)('rejects candidates displaced by %s', (change) => {
+    let mutatePolicy = false
+    const store: ImageDocumentStore = new ImageDocumentStore(document(), 200, Date.now, () => {
+      if (mutatePolicy) store.clearHistory()
+      return []
+    })
+    expect(store.dispatch(addLayer()).ok).toBe(true)
+    const prepared = store.prepareUndo()
+    if (!prepared.ok) throw new Error('Missing undo')
+    if (change === 'command') expect(store.dispatch({
+      command: 'image.layer.update', params: { layerId: 'l1', name: 'Newer' },
+    }).ok).toBe(true)
+    else if (change === 'history-clear') store.clearHistory()
+    else mutatePolicy = true
+    const before = store.doc
+    const revision = store.revision
+    expect(prepared.commit()).toMatchObject({ ok: false, diagnostics: [{ code: 'image.candidate.stale' }] })
+    expect(store.doc).toBe(before)
+    expect(store.revision).toBe(revision)
+    expect(store.doc.rootLayerIds).toEqual(['l1', 'l3'])
+    if (change === 'command') expect(store.doc.layers.l1?.name).toBe('Newer')
+    else expect(store.canUndo).toBe(false)
+  })
+
+  it('inventories unused external resources but excludes inline bytes across history', () => {
+    const source = document()
+    const store = new ImageDocumentStore({ ...source, resources: {
+      ...source.resources,
+      r8: { ...source.resources.r0!, id: asImageResourceId('r8'), digest: DIGEST_C },
+      r9: { ...source.resources.r0!, id: asImageResourceId('r9'), inline: 'AA==', byteSize: 1,
+        digest: 'blake3:2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213' },
+    }, allocation: { nextOrdinal: 10 } })
+    const prepared = store.prepareDispatch(addLayer())
+    if (!prepared.ok) throw new Error('Missing prepared add')
+    expect(prepared.currentResourceDigests).toEqual([DIGEST_A, DIGEST_C])
+    expect(prepared.resourceDigests).toEqual([DIGEST_A, DIGEST_B, DIGEST_C])
+    expect(prepared.commit().ok).toBe(true)
+    const undo = store.prepareUndo()
+    if (!undo.ok) throw new Error('Missing undo')
+    expect(undo.resourceDigests).toEqual([DIGEST_A, DIGEST_B, DIGEST_C])
+    expect(undo.commit().ok).toBe(true)
+    store.clearHistory()
+    expect(store.retainedResourceDigests()).toEqual(new Set([DIGEST_A, DIGEST_C]))
+  })
+
   it('undoes and redoes without rewinding allocation cursors', () => {
     const store = new ImageDocumentStore(document())
     expect(store.dispatch(addLayer()).ok).toBe(true)
@@ -447,9 +579,14 @@ describe('ImageDocument history and session', () => {
     expect(store.dispatch(addLayer()).ok).toBe(true)
     expect(store.dispatch({ command: 'image.layer.remove', params: { layerId: 'l3' } }).ok).toBe(true)
     expect(store.retainedResourceDigests()).toContain(DIGEST_B)
-    expect(store.dispatch({
+    const prepared = store.prepareDispatch({
       command: 'image.layer.update', params: { layerId: 'l1', visible: false },
-    }).ok).toBe(true)
+    })
+    if (!prepared.ok) throw new Error('Missing prepared edit')
+    expect(prepared.currentResourceDigests).toEqual([DIGEST_A, DIGEST_B])
+    expect(prepared.resourceDigests).toEqual([DIGEST_A])
+    expect(store.retainedResourceDigests()).toContain(DIGEST_B)
+    expect(prepared.commit().ok).toBe(true)
     expect(store.retainedResourceDigests()).not.toContain(DIGEST_B)
   })
 

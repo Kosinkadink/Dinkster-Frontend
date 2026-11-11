@@ -1,3 +1,4 @@
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 /**
  * Environment stamping orchestration: exportDocument writes a FRESH stamp
  * from the tab's live registry (used packs + used node-type signatures);
@@ -99,15 +100,15 @@ const docJson = (lineage: string, types: string[], environment?: unknown): unkno
   ...(environment !== undefined ? { environment } : {}),
 })
 
-const open = (json: unknown): Tab => {
-  expect(app.openDocument(json, 'T')).toEqual([])
+const open = async (json: unknown): Promise<Tab> => {
+  expect((await app.openDocument(json, 'T'))).toEqual([])
   return app.activeTab()!
 }
 
 describe('exportDocument', () => {
-  it('stamps a live tab freshly from the Dinkster registry (used-only, both axes)', () => {
+  it('stamps a live tab freshly from the Dinkster registry (used-only, both axes)', async () => {
     loadDinksterSchemas()
-    const tab = open(docJson('lin-stamp', ['std.a']))
+    const tab = (await open(docJson('lin-stamp', ['std.a'])))
     const out = app.exportDocument(tab.id)!
     expect(out.environment).toEqual({
       dinkster: { version: '0.9.0', schemaWire: 1 },
@@ -117,39 +118,39 @@ describe('exportDocument', () => {
     })
   })
 
-  it('does not mutate the stored document', () => {
+  it('does not mutate the stored document', async () => {
     loadDinksterSchemas()
-    const tab = open(docJson('lin-nomut', ['std.a']))
+    const tab = (await open(docJson('lin-nomut', ['std.a'])))
     app.exportDocument(tab.id)
     expect(tab.store.doc.environment).toBeUndefined()
   })
 
-  it('replaces a stale stamp wholesale on export', () => {
+  it('replaces a stale stamp wholesale on export', async () => {
     loadDinksterSchemas()
-    const tab = open(
+    const tab = (await open(
       docJson('lin-restamp', ['std.b'], {
         packs: { 'gone.pack': { version: '0.0.1' } },
         nodes: { 'std.b': { pack: 'gone.pack', signature: 'sig-b-OLD' } },
       }),
-    )
+    ))
     const out = app.exportDocument(tab.id)!
     expect(out.environment?.nodes['std.b']).toEqual({ pack: 'vhs.video', signature: 'sig-b-1' })
     expect(out.environment?.packs['gone.pack']).toBeUndefined()
   })
 
-  it('PRESERVES an existing stamp when the registry has no signatures', () => {
+  it('PRESERVES an existing stamp when the registry has no signatures', async () => {
     loadUnstampedSchemas()
     const stamp = {
       packs: { core: { version: '1.0.0' } },
       nodes: { KSampler: { pack: 'core', signature: 'sig-old' } },
     }
-    const tab = open(docJson('lin-preserve', ['KSampler'], stamp))
+    const tab = (await open(docJson('lin-preserve', ['KSampler'], stamp)))
     const out = app.exportDocument(tab.id)!
     expect(out.environment).toEqual(stamp) // last known record beats no record
   })
 
-  it('returns the document unchanged when no registry is loaded, and undefined for unknown tabs', () => {
-    const tab = open(docJson('lin-noreg', ['std.a']))
+  it('returns the document unchanged when no registry is loaded, and undefined for unknown tabs', async () => {
+    const tab = (await open(docJson('lin-noreg', ['std.a'])))
     expect(app.exportDocument(tab.id)).toBe(tab.store.doc)
     expect(app.exportDocument('no-such-tab')).toBeUndefined()
   })
@@ -157,7 +158,7 @@ describe('exportDocument', () => {
   it('frozen execution tabs export their snapshot verbatim - history is never restamped', async () => {
     const backend = app.backends.get()[0]!
     loadUnstampedSchemas()
-    const tab = open(docJson('lin-frozen', ['KSampler']))
+    const tab = (await open(docJson('lin-frozen', ['KSampler'])))
     const result = app.compileTab(tab)
     if (!result?.ok) throw new Error('fixture compile failed')
     const ref: ExecutionRef = { connection: backend.id, prompt: asPromptId('p1') }
@@ -171,9 +172,9 @@ describe('exportDocument', () => {
 describe('load-time drift reporting', () => {
   const driftCodes = () => app.problems.get().filter((d) => d.origin === 'environment').map((d) => d.code)
 
-  it('a stamped document opened against a drifted backend lands env.node-drift in Problems', () => {
+  it('a stamped document opened against a drifted backend lands env.node-drift in Problems', async () => {
     loadDinksterSchemas()
-    open(
+    await open(
       docJson('lin-drift', ['std.a'], {
         packs: { core: { version: '1.0.0' } },
         nodes: { 'std.a': { pack: 'core', signature: 'sig-a-OLD' } },
@@ -182,9 +183,9 @@ describe('load-time drift reporting', () => {
     expect(driftCodes()).toEqual(['env.node-drift'])
   })
 
-  it('an identical environment stays silent', () => {
+  it('an identical environment stays silent', async () => {
     loadDinksterSchemas()
-    open(
+    await open(
       docJson('lin-clean', ['std.a'], {
         packs: { core: { version: '1.2.0' } },
         nodes: { 'std.a': { pack: 'core', signature: 'sig-a-1' } },
@@ -193,8 +194,8 @@ describe('load-time drift reporting', () => {
     expect(driftCodes()).toEqual([])
   })
 
-  it('the check defers until schemas arrive and never duplicates across backend ticks', () => {
-    open(
+  it('the check defers until schemas arrive and never duplicates across backend ticks', async () => {
+    await open(
       docJson('lin-defer', ['std.a'], {
         packs: {},
         nodes: { 'std.a': { pack: 'core', signature: 'sig-a-OLD' } },
@@ -207,35 +208,35 @@ describe('load-time drift reporting', () => {
     expect(driftCodes()).toEqual(['env.node-drift'])
   })
 
-  it('an unstamped document reports nothing (absence is fully valid)', () => {
+  it('an unstamped document reports nothing (absence is fully valid)', async () => {
     loadDinksterSchemas()
-    open(docJson('lin-none', ['std.a']))
+    await open(docJson('lin-none', ['std.a']))
     expect(driftCodes()).toEqual([])
   })
 })
 
 describe('workflow-open requirements', () => {
   it('opens an all-present workflow silently and reports one structured missing-item plan', async () => {
-    app = new AppState()
+    app = prepareWorkflowApp(new AppState())
     loadDinksterSchemas()
     const backend = app.backends.get()[0]!
     if (backend.protocol !== 'dinkster') throw new Error('expected native backend')
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
     const plan = vi.spyOn(backend.connection, 'planWorkflowRequirements')
       .mockResolvedValue({ packs: [], assets: [], errors: [] })
-    open(docJson('present-plan', ['std.a']))
+    await open(docJson('present-plan', ['std.a']))
     await Promise.resolve()
     expect(app.problems.get().filter((entry) => entry.code.startsWith('workflow.requirements'))).toEqual([])
     const missing = { packs: [{ pack: 'core', version: '1.2.0' }], assets: [], errors: [] }
     plan.mockResolvedValue(missing)
-    const tab = open(docJson('missing-plan', ['std.a']))
+    const tab = (await open(docJson('missing-plan', ['std.a'])))
     await vi.waitFor(() => expect(app.problems.get().filter((entry) => entry.code === 'workflow.requirements')).toEqual([
       expect.objectContaining({ owner: tab.id, severity: 'warning', data: missing }),
     ]))
   })
 
   it('discards a plan for a replaced tab even when the replacement has the same lineage', async () => {
-    app = new AppState()
+    app = prepareWorkflowApp(new AppState())
     loadDinksterSchemas()
     const backend = app.backends.get()[0]!
     if (backend.protocol !== 'dinkster') throw new Error('expected native backend')
@@ -244,8 +245,8 @@ describe('workflow-open requirements', () => {
     vi.spyOn(backend.connection, 'planWorkflowRequirements')
       .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
       .mockResolvedValue({ packs: [], assets: [], errors: [] })
-    open(docJson('replaced-plan', ['std.a']))
-    open(docJson('replaced-plan', ['std.b']))
+    await open(docJson('replaced-plan', ['std.a']))
+    await open(docJson('replaced-plan', ['std.b']))
     finish({ packs: [{ pack: 'retired', version: '0.1.0' }], assets: [], errors: [] })
     await Promise.resolve()
     await Promise.resolve()

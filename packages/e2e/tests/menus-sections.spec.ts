@@ -95,12 +95,12 @@ test.beforeEach(async ({ page }, testInfo) => {
 test('canvas name prompts await acceptance and keep refused or newer drafts', {
   annotation: { type: 'mock-name-dispatch' },
 }, async ({ page }, testInfo) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'NameTest', displayName: 'Original name', category: 'test', source: 'v3', isOutputNode: false, items: [],
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'name-dispatch', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         n0: { id: 'n0', type: 'NameTest', values: {} }, n1: { id: 'n1', type: 'NameTest', values: {} },
@@ -449,7 +449,7 @@ test('oversized root and child menus stay in a short viewport, flip left, and re
 // ---------------------------------------------------------------------------
 
 async function openSectionedWorkflow(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([
       {
@@ -482,7 +482,7 @@ async function openSectionedWorkflow(page: Page): Promise<void> {
         items: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'IMAGE' } }],
       },
     ])
-    app.openDocument(
+    await app.openDocument(
       {
         format: 'dinkster-workflow',
         formatVersion: 1,

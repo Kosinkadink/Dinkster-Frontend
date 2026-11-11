@@ -242,7 +242,7 @@ describe('Dinkster app menu', () => {
       'settings.canvas.grid.visible': '[Punktraster anzeigen]',
       'settings.canvas.scrollBehavior.option.pan': '[Verschieben]',
     })
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     expect(app.commands.get('workflow.open')?.label).toBe('Open workflow library')
     expect(app.settings.list().find((setting) => setting.id === 'canvas.grid.visible')?.name).toBe('Show dot grid')
 
@@ -392,7 +392,7 @@ describe('Dinkster app menu', () => {
   })
 
   it('disables canvas commands without a bridge and keeps fit enabled with an empty selection', () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     app.createWorkflow()
     const fitSelection = vi.fn()
     const root = document.createElement('div')
@@ -430,7 +430,7 @@ describe('Dinkster app menu', () => {
   })
 
   it('dispatches Select all through the current canvas bridge', () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     app.createWorkflow()
     const selectAll = vi.fn()
     app.canvasBridge.set({
@@ -716,7 +716,7 @@ describe('cascading context menus', () => {
 
 describe('workflow file commands', () => {
   it.each(['complete', 'closed'] as const)('waits for early download locations or cancels a %s session', async (outcome) => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const backend = app.addBackend('http://native:8000', 'Original machine', false, 'dinkster')!
     if (backend.protocol !== 'dinkster') throw new Error('native backend required')
     prepareWorkflowApp(app)
@@ -734,12 +734,12 @@ describe('workflow file commands', () => {
     const pending = new Promise<readonly string[]>((done) => { resolve = done })
     const paths = vi.spyOn(backend.connection, 'fetchAssetLocations').mockReturnValue(pending)
     const base = app.activeTab()!.store.doc
-    expect(app.openDocument({ ...base, lineage: 'early-download', graphs: {
+    expect((await app.openDocument({ ...base, lineage: 'early-download', graphs: {
       [base.root]: { ...base.graphs[base.root], nodes: {
         ...base.graphs[base.root]!.nodes,
         download: { id: 'download', type: schema.type, values: { a: asset } },
       } },
-    } }, 'Early download')).toEqual([])
+    } }, 'Early download'))).toEqual([])
     const tab = app.activeTab()!
     app.setTabTarget(tab.id, backend.id)
     let blob: Blob | undefined
@@ -771,7 +771,7 @@ describe('workflow file commands', () => {
   })
 
   function executionSnapshotApp() {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const frozen = {
       ...app.activeTab()!,
       id: 'frozen:test',
@@ -790,7 +790,7 @@ describe('workflow file commands', () => {
   })
 
   it('exports pretty stamped JSON, triggers a download, and revokes its object URL', async () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     app.tabs.update((tabs) => tabs.map((tab) => tab.id === app.activeTabId.get()
       ? { ...tab, title: 'fun\nflow\0-01' }
       : tab))
@@ -822,7 +822,7 @@ describe('workflow file commands', () => {
   })
 
   it('reports a snapshot failure without rejecting the download command', async () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     vi.spyOn(app, 'registryForTab').mockImplementation(() => { throw new Error('snapshot unavailable') })
 
     expect(await app.exportWorkflow(app.activeTab()!.id)).toBe(false)
@@ -834,7 +834,7 @@ describe('workflow file commands', () => {
 
   it('revokes a failed export URL and reports the failure visibly', async () => {
     vi.useFakeTimers()
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:failed-export')
     const revokeUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => { throw new Error('download blocked') })
@@ -891,7 +891,7 @@ describe('workflow file commands', () => {
   })
 
   it('reports malformed imported JSON visibly and opens no tab', async () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const before = app.tabs.get().length
 
     expect(await app.importWorkflowFile({
@@ -904,7 +904,7 @@ describe('workflow file commands', () => {
   })
 
   it('reports parseable non-workflow JSON and opens no tab', async () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const before = app.tabs.get().length
     expect(await app.importWorkflowFile({ name: 'wrong.json', text: async () => '{"hello":"world"}' })).toBe(false)
     expect(app.tabs.get()).toHaveLength(before)
@@ -947,7 +947,7 @@ describe('workflow file commands', () => {
 
   it('file command creates and cleans up its JSON picker on cancellation', () => {
     const clickInput = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const addWindowListener = vi.spyOn(window, 'addEventListener')
     const removeWindowListener = vi.spyOn(window, 'removeEventListener')
     app.commands.get('workflow.importFile')!.run()
@@ -964,7 +964,7 @@ describe('workflow file commands', () => {
 
   it('removes the JSON picker on change and routes the selected file through importWorkflowFile', async () => {
     vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const importWorkflowFile = vi.spyOn(app, 'importWorkflowFile').mockResolvedValue(true)
     const addWindowListener = vi.spyOn(window, 'addEventListener')
     const removeWindowListener = vi.spyOn(window, 'removeEventListener')
@@ -984,7 +984,7 @@ describe('workflow file commands', () => {
 
   it('removes the JSON picker through the window-refocus fallback', async () => {
     vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const addWindowListener = vi.spyOn(window, 'addEventListener')
     const removeWindowListener = vi.spyOn(window, 'removeEventListener')
     app.commands.get('workflow.importFile')!.run()
@@ -1000,7 +1000,7 @@ describe('workflow file commands', () => {
 
   it('leaves no picker elements or window focus listeners after repeated cancellations', () => {
     vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const addWindowListener = vi.spyOn(window, 'addEventListener')
     const removeWindowListener = vi.spyOn(window, 'removeEventListener')
 
@@ -1021,7 +1021,7 @@ describe('workflow file commands', () => {
 
   it('cleans up and reports when the browser refuses to open the file picker', () => {
     vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => { throw new Error('picker blocked') })
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const addWindowListener = vi.spyOn(window, 'addEventListener')
     const removeWindowListener = vi.spyOn(window, 'removeEventListener')
     app.commands.get('workflow.importFile')!.run()
@@ -1035,7 +1035,7 @@ describe('workflow file commands', () => {
 
   it('auto-clears transient operation feedback', () => {
     vi.useFakeTimers()
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     app.showTransientStatus('Saved')
     expect(app.transientStatus.get()).toBe('Saved')
     vi.advanceTimersByTime(3_999)
@@ -1126,7 +1126,7 @@ describe('workflow file commands', () => {
   })
 
   it('dispatches extract and flatten through their registered keyboard shortcuts', () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const extractSubgraph = vi.fn(() => true)
     const flattenSubgraph = vi.fn(() => true)
     app.canvasBridge.set({

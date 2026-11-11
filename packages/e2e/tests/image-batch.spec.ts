@@ -43,13 +43,13 @@ for (const nested of [false, true]) for (const batchSupported of [false, true]) 
       'X-Dinkster-Rendition': 'png', 'X-Dinkster-Color-Transform': colorTransform, 'X-Dinkster-Preview-Color-Space': 'sRGB',
     } })
   })
-  await page.evaluate((descriptor) => {
+  await page.evaluate(async (descriptor) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'ImageBatchTest', displayName: 'Image batch', category: 'test', source: 'v3', isOutputNode: true, emitsPreviews: true,
       items: [{ kind: 'output', id: 'image', type: { kind: 'concrete', name: 'comfy.IMAGE' }, preview: true }],
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'image-batch', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Image batch', nodes: { image: { id: 'image', type: 'ImageBatchTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { image: { position: { x: 80, y: 80 }, size: { width: 460, height: 380 } } } } } },

@@ -160,8 +160,8 @@ describe('AppState multi-window workspace', () => {
       const factory = authorityFactories()
       const author = createEditableApp()
       const viewer = createEditableApp()
-      author.openDocument(workflow(), 'Shared workflow')
-      viewer.openDocument(workflow(), 'Shared workflow')
+      await author.openDocument(workflow(), 'Shared workflow')
+      await viewer.openDocument(workflow(), 'Shared workflow')
       await Promise.all([author.enableWorkspaceAuthority(factory.document, factory.workspace),
         viewer.enableWorkspaceAuthority(factory.document, factory.workspace)])
       const received = () => viewer.tabs.get().find((tab) => tab.id === 'multi-window-workflow')!
@@ -237,7 +237,7 @@ describe('AppState multi-window workspace', () => {
       const incomingDocument = { ...document, ext: { held: { digest, name: 'incoming.bin', size: 11,
         mediaType: 'application/octet-stream', virtualPath: '' } } }
       const running = scenario.startsWith('running-')
-      if (!running) author.openDocument(incomingDocument, 'Incoming workflow')
+      if (!running) await author.openDocument(incomingDocument, 'Incoming workflow')
       await author.enableWorkspaceAuthority(factory.document, factory.workspace)
       vi.stubGlobal('localStorage', memoryStorage())
       const viewer = createEditableApp()
@@ -257,7 +257,7 @@ describe('AppState multi-window workspace', () => {
       })
       vi.spyOn(viewer.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
       const opening = running
-        ? Promise.resolve(author.openDocument(incomingDocument, 'Incoming workflow')).then(drainTasks)
+        ? Promise.resolve((await author.openDocument(incomingDocument, 'Incoming workflow'))).then(drainTasks)
         : viewer.enableWorkspaceAuthority(factory.document, factory.workspace)
       await request
       expect(viewer.tabs.get()).toBe(previous)
@@ -298,7 +298,7 @@ describe('AppState multi-window workspace', () => {
     'retains a canonical workspace snapshot before replacing the local store: %s', async (scenario) => {
       const factory = authorityFactories()
       const app = createEditableApp()
-      app.openDocument(workflow(), 'Shared workflow')
+      await app.openDocument(workflow(), 'Shared workflow')
       const tab = app.tabs.get().find((candidate) => candidate.id === 'multi-window-workflow')!
       const backend = app.addBackend('http://workspace.test', 'Workspace source', false, 'dinkster')!
       backend.registry.set(app.registry.get())
@@ -366,13 +366,13 @@ describe('AppState multi-window workspace', () => {
 
   it('opens incoming App tabs as Graph while preserving exposure in a default-off window', async () => {
     const factory = authorityFactories()
-    const author = new AppState()
+    const author = prepareWorkflowApp(new AppState())
     author.settings.set('features.appView.enabled', true)
     const exposed = [{ graphId: 'g0', nodeId: 'n1', inputId: 'amount', label: 'Amount' }]
-    author.openDocument({ ...workflow(), ext: { 'dinkster.exposed': exposed } }, 'Shared app')
+    await author.openDocument({ ...workflow(), ext: { 'dinkster.exposed': exposed } }, 'Shared app')
     author.setTabEditorKind('multi-window-workflow', 'app')
     await author.enableWorkspaceAuthority(factory.document, factory.workspace)
-    const viewer = new AppState()
+    const viewer = prepareWorkflowApp(new AppState())
     viewer.settings.set('features.appView.enabled', false)
     await viewer.enableWorkspaceAuthority(factory.document, factory.workspace)
     await drainTasks()
@@ -392,9 +392,9 @@ describe('AppState multi-window workspace', () => {
   it('uses one authoritative document with shared edit and undo visibility', async () => {
     const factory = authorityFactories()
     const first = createEditableApp()
-    const second = new AppState()
-    first.openDocument(workflow(), 'Shared workflow')
-    second.openDocument(workflow(), 'Shared workflow')
+    const second = prepareWorkflowApp(new AppState())
+    await first.openDocument(workflow(), 'Shared workflow')
+    await second.openDocument(workflow(), 'Shared workflow')
     await Promise.all([
       first.enableWorkspaceAuthority(factory.document, factory.workspace),
       second.enableWorkspaceAuthority(factory.document, factory.workspace),
@@ -414,8 +414,8 @@ describe('AppState multi-window workspace', () => {
 
   it('converges create, reorder, close, and persistence snapshots across windows', async () => {
     const factory = authorityFactories()
-    const first = new AppState()
-    const second = new AppState()
+    const first = prepareWorkflowApp(new AppState())
+    const second = prepareWorkflowApp(new AppState())
     await Promise.all([
       first.enableWorkspaceAuthority(factory.document, factory.workspace),
       second.enableWorkspaceAuthority(factory.document, factory.workspace),
@@ -439,10 +439,10 @@ describe('AppState multi-window workspace', () => {
 
   it('preserves a local image editor when another window publishes tab metadata', async () => {
     const factory = authorityFactories()
-    const first = new AppState()
-    const second = new AppState()
-    first.openDocument(workflow(), 'Shared workflow')
-    second.openDocument(workflow(), 'Shared workflow')
+    const first = prepareWorkflowApp(new AppState())
+    const second = prepareWorkflowApp(new AppState())
+    await first.openDocument(workflow(), 'Shared workflow')
+    await second.openDocument(workflow(), 'Shared workflow')
     await Promise.all([
       first.enableWorkspaceAuthority(factory.document, factory.workspace),
       second.enableWorkspaceAuthority(factory.document, factory.workspace),
@@ -474,9 +474,9 @@ describe('AppState multi-window workspace', () => {
   it.each(['after', 'during'] as const)('keeps a local frozen view active when promotion lands %s admission', async (promotionTiming) => {
     const factory = authorityFactories()
     const first = createEditableApp()
-    const second = new AppState()
-    first.openDocument(workflow(), 'Shared workflow')
-    second.openDocument(workflow(), 'Shared workflow')
+    const second = prepareWorkflowApp(new AppState())
+    await first.openDocument(workflow(), 'Shared workflow')
+    await second.openDocument(workflow(), 'Shared workflow')
     first.registry.set(buildDinksterRegistry(asConnectionId('local'), {
       schemaVersion: 1,
       dinkster: { version: 'test', schemaWire: 1 },
@@ -525,9 +525,9 @@ describe('AppState multi-window workspace', () => {
   it('a shared live tab whose lineage collides with a local frozen view displaces it and releases the pin', async () => {
     const factory = authorityFactories()
     const first = createEditableApp()
-    const second = new AppState()
-    first.openDocument(workflow(), 'Shared workflow')
-    second.openDocument(workflow(), 'Shared workflow')
+    const second = prepareWorkflowApp(new AppState())
+    await first.openDocument(workflow(), 'Shared workflow')
+    await second.openDocument(workflow(), 'Shared workflow')
     first.registry.set(buildDinksterRegistry(asConnectionId('local'), {
       schemaVersion: 1,
       dinkster: { version: 'test', schemaWire: 1 },
@@ -555,7 +555,7 @@ describe('AppState multi-window workspace', () => {
 
     // Lineages are unrestricted strings, so another window can publish a live
     // document whose lineage equals the local frozen tab id.
-    second.openDocument({ ...workflow(), lineage: asLineageId(frozenId) }, 'Impostor')
+    await second.openDocument({ ...workflow(), lineage: asLineageId(frozenId) }, 'Impostor')
     await drainTasks()
 
     const matching = first.tabs.get().filter((candidate) => candidate.id === frozenId)
@@ -643,8 +643,8 @@ describe('AppState multi-window workspace', () => {
     const right = new EventChannel()
     left.peer = right
     right.peer = left
-    const first = new AppState({ workspaceEvents: left })
-    const second = new AppState({ workspaceEvents: right })
+    const first = prepareWorkflowApp(new AppState({ workspaceEvents: left }))
+    const second = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
     const ref = { connection: asConnectionId('local'), prompt: asPromptId('run-1') }
 
     left.postMessage({
@@ -686,7 +686,7 @@ describe('AppState multi-window workspace', () => {
     const right = new EventChannel()
     left.peer = right
     right.peer = left
-    const second = new AppState({ workspaceEvents: right })
+    const second = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
     const ref = { connection: asConnectionId('local'), prompt: asPromptId('run-worker') }
 
     left.postMessage({
@@ -708,7 +708,7 @@ describe('AppState multi-window workspace', () => {
     const right = new EventChannel()
     left.peer = right
     right.peer = left
-    const app = new AppState({ workspaceEvents: right })
+    const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
     const ref = { connection: asConnectionId('local'), prompt: asPromptId('run-hostile-worker') }
 
     for (const worker of ['', { name: 'render-box' }]) {
@@ -732,7 +732,7 @@ describe('AppState multi-window workspace', () => {
     const right = new EventChannel()
     left.peer = right
     right.peer = left
-    const app = new AppState({ workspaceEvents: right })
+    const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
     editableApps.push(app)
     const backend = scenario === 'removed'
       ? app.addBackend('http://registration.test', 'Registration source', false, 'dinkster')!
@@ -797,7 +797,7 @@ describe('AppState multi-window workspace', () => {
     const right = new EventChannel()
     left.peer = right
     right.peer = left
-    const app = new AppState({ workspaceEvents: right })
+    const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
     const registry = buildDinksterRegistry(asConnectionId('local'), {
       schemaVersion: 1,
       dinkster: { version: 'test', schemaWire: 1 },
@@ -839,7 +839,7 @@ describe('AppState multi-window workspace', () => {
     const right = new EventChannel()
     left.peer = right
     right.peer = left
-    const app = new AppState({ workspaceEvents: right })
+    const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
     const connection = asConnectionId('local')
     const schemas = new Map([
       ['dinkster.float', sameIdPrimitive('dinkster.float', 'FLOAT')],
@@ -882,7 +882,7 @@ describe('AppState multi-window workspace', () => {
     const right = new EventChannel()
     left.peer = right
     right.peer = left
-    const app = new AppState({ workspaceEvents: right })
+    const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
 
     for (const [prompt, regionKind, iterations] of [
       ['run-map-null', 'map', null],
@@ -910,7 +910,7 @@ describe('AppState multi-window workspace', () => {
     authority.connect(worker)
     const app = createEditableApp()
     const opening = app.enableWorkspaceAuthority(authorityFactories().document, () => renderer)
-    app.openDocument(workflow(), 'Opened during startup')
+    await app.openDocument(workflow(), 'Opened during startup')
     const selected = app.activeTab()!
     renderer.release()
     await opening
@@ -924,8 +924,8 @@ describe('AppState multi-window workspace', () => {
     const factories = authorityFactories()
     const first = createEditableApp()
     const second = createEditableApp()
-    first.openDocument(workflow(), 'Shared workflow')
-    second.openDocument(workflow(), 'Shared workflow')
+    await first.openDocument(workflow(), 'Shared workflow')
+    await second.openDocument(workflow(), 'Shared workflow')
     await Promise.all([first, second].map((app) => app.enableWorkspaceAuthority(factories.document, factories.workspace)))
     const target = second.addBackend('http://other:8000', 'Other', false, 'dinkster', false)!
     target.registry.set(second.registry.get())
@@ -955,7 +955,7 @@ describe('AppState multi-window workspace', () => {
       return renderer
     }
     const app = createEditableApp()
-    app.openDocument(workflow(), 'Shared workflow')
+    await app.openDocument(workflow(), 'Shared workflow')
     const tab = app.tabs.get().find((candidate) => candidate.id === 'multi-window-workflow')!
     const workspaceFactory = authorityFactories().workspace
     const promotion = app.enableWorkspaceAuthority(factory, workspaceFactory)
@@ -995,9 +995,9 @@ describe('AppState multi-window workspace', () => {
       authority.connect(worker)
       return renderer
     }
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     app.settings.set('features.appView.enabled', true)
-    app.openDocument(workflow(), 'Shared workflow')
+    await app.openDocument(workflow(), 'Shared workflow')
     const tab = app.activeTab()!
     const workspace = authorityFactories().workspace
     const promotion = app.enableWorkspaceAuthority(factory, workspace)
@@ -1046,7 +1046,7 @@ describe('AppState multi-window workspace', () => {
       return renderer
     }
     const app = createEditableApp()
-    app.openDocument(workflow(), 'Shared workflow')
+    await app.openDocument(workflow(), 'Shared workflow')
     const tab = app.tabs.get().find((candidate) => candidate.id === 'multi-window-workflow')!
     const workspaceFactory = authorityFactories().workspace
     const promotion = app.enableWorkspaceAuthority(factory, workspaceFactory)
@@ -1073,7 +1073,7 @@ describe('AppState multi-window workspace', () => {
     const factory = authorityFactories()
     const app = createEditableApp()
     app.settings.set('features.appView.enabled', true)
-    app.openDocument(workflow(), 'Shared workflow')
+    await app.openDocument(workflow(), 'Shared workflow')
     await app.enableWorkspaceAuthority(factory.document, factory.workspace)
     const promoted = app.tabs.get().find((tab) => tab.id === 'multi-window-workflow')!
     expect('status' in promoted.store).toBe(true)
@@ -1119,8 +1119,8 @@ describe('AppState multi-window workspace', () => {
     }
     const documentFactory: SharedWorkerPortFactory = () => connect(documentAuthority, documentWorkers)
     const tabFactory: WorkspaceWorkerPortFactory = () => connect(tabAuthority)
-    const app = new AppState()
-    app.openDocument(workflow(), 'Shared workflow')
+    const app = prepareWorkflowApp(new AppState())
+    await app.openDocument(workflow(), 'Shared workflow')
     await app.enableWorkspaceAuthority(documentFactory, tabFactory)
     const replacement: WorkflowDocument = {
       ...workflow(),
@@ -1129,7 +1129,7 @@ describe('AppState multi-window workspace', () => {
 
     documentWorkers[0]!.paused = true
     try {
-      expect(app.openDocument(replacement, 'Reopened replacement')).toEqual([])
+      expect((await app.openDocument(replacement, 'Reopened replacement'))).toEqual([])
       await app.enableWorkspaceAuthority(documentFactory, tabFactory)
       const reopened = app.tabs.get().find((tab) => tab.id === replacement.lineage)!
       expect('status' in reopened.store).toBe(true)
@@ -1160,8 +1160,8 @@ describe('AppState multi-window workspace', () => {
     }
     const documentFactory: SharedWorkerPortFactory = () => connect(documentAuthority)
     const tabFactory: WorkspaceWorkerPortFactory = () => connect(tabAuthority)
-    const app = new AppState()
-    app.openDocument(workflow(), 'Shared workflow')
+    const app = prepareWorkflowApp(new AppState())
+    await app.openDocument(workflow(), 'Shared workflow')
     await app.enableWorkspaceAuthority(documentFactory, tabFactory)
     const appTab = app.tabs.get().find((tab) => tab.id === 'multi-window-workflow')!
     expect('status' in appTab.store).toBe(true)
@@ -1189,7 +1189,7 @@ describe('AppState multi-window workspace', () => {
     globals.localStorage = memoryStorage()
     try {
       const firstFactory = authorityFactories()
-      const first = new AppState()
+      const first = prepareWorkflowApp(new AppState())
       first.flushPersistTabs()
       await first.enableWorkspaceAuthority(firstFactory.document, firstFactory.workspace)
       const created = first.createWorkflow()
@@ -1197,7 +1197,7 @@ describe('AppState multi-window workspace', () => {
       await drainTasks()
 
       const secondFactory = authorityFactories()
-      const second = new AppState()
+      const second = prepareWorkflowApp(new AppState())
       await second.enableWorkspaceAuthority(secondFactory.document, secondFactory.workspace)
       await drainTasks()
       expect(second.tabs.get().some((tab) => tab.id === created.id)).toBe(true)
@@ -1208,7 +1208,7 @@ describe('AppState multi-window workspace', () => {
       await drainTasks()
 
       const thirdFactory = authorityFactories()
-      const third = new AppState()
+      const third = prepareWorkflowApp(new AppState())
       await third.enableWorkspaceAuthority(thirdFactory.document, thirdFactory.workspace)
       await drainTasks()
       expect(third.tabs.get().some((tab) => tab.id === created.id)).toBe(false)
@@ -1223,7 +1223,7 @@ describe('AppState multi-window workspace', () => {
     globals.localStorage = memoryStorage()
     try {
       const factory = authorityFactories()
-      const app = new AppState()
+      const app = prepareWorkflowApp(new AppState())
       app.flushPersistTabs()
       await app.enableWorkspaceAuthority(factory.document, factory.workspace)
       app.createWorkflow()
@@ -1250,7 +1250,7 @@ describe('AppState multi-window workspace', () => {
     globals.localStorage = memoryStorage(true)
     try {
       const firstFactory = authorityFactories()
-      const first = new AppState()
+      const first = prepareWorkflowApp(new AppState())
       first.flushPersistTabs()
       await first.enableWorkspaceAuthority(firstFactory.document, firstFactory.workspace)
       const created = first.createWorkflow()
@@ -1259,7 +1259,7 @@ describe('AppState multi-window workspace', () => {
       await drainTasks()
 
       const restartedFactory = authorityFactories()
-      const restarted = new AppState()
+      const restarted = prepareWorkflowApp(new AppState())
       await restarted.enableWorkspaceAuthority(restartedFactory.document, restartedFactory.workspace)
       await drainTasks()
       expect(restarted.tabs.get().some((tab) => tab.id === created.id)).toBe(false)
@@ -1299,7 +1299,7 @@ describe('AppState multi-window workspace', () => {
     const right = new EventChannel()
     left.peer = right
     right.peer = left
-    const app = new AppState({ workspaceEvents: right })
+    const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
     const ref = { connection: asConnectionId('local'), prompt: asPromptId('run-duplicate') }
     const message = {
       source: 'peer',
@@ -1340,14 +1340,14 @@ describe('advancement plans survive workspace-authority promotion', () => {
     view: { graphs: { g0: { nodes: {} } } },
   })
 
-  it('keeps controller planning provenance out of mirrored run registrations', () => {
+  it('keeps controller planning provenance out of mirrored run registrations', async () => {
     const left = new EventChannel()
     const right = new EventChannel()
     left.peer = right
     right.peer = left
-    const first = new AppState({ workspaceEvents: left })
-    const second = new AppState({ workspaceEvents: right })
-    expect(first.openDocument(seedFixture(), 'Workspace Seed')).toEqual([])
+    const first = prepareWorkflowApp(new AppState({ workspaceEvents: left }))
+    const second = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
+    expect((await first.openDocument(seedFixture(), 'Workspace Seed'))).toEqual([])
     const tab = first.activeTab()!
     const schemas = new Map([[seedSchema.type, seedSchema]])
     second.registry.set({
@@ -1469,7 +1469,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     const app = createEditableApp()
     ;(app.registry as unknown as { set(value: unknown): void }).set({ schemas: new Map(), resolve: () => undefined, hash: 'promotion-test' })
     app.registerSchemas([seedSchema])
-    expect(app.openDocument(seedFixture(), 'Promotion Seed')).toEqual([])
+    expect((await app.openDocument(seedFixture(), 'Promotion Seed'))).toEqual([])
     const tab = app.activeTab()!
     const result = compile({
       document: tab.store.doc, revision: 0, resolve: resolveSeed, scope: { kind: 'full' },
@@ -1513,7 +1513,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     const app = createEditableApp()
     ;(app.registry as unknown as { set(value: unknown): void }).set({ schemas: new Map(), resolve: () => undefined, hash: 'promotion-test' })
     app.registerSchemas([seedSchema, loadSchema, flattenSchema])
-    expect(app.openDocument(seedFixture(), 'Promotion Roles')).toEqual([])
+    expect((await app.openDocument(seedFixture(), 'Promotion Roles'))).toEqual([])
     const tab = app.activeTab()!
 
     await app.enableWorkspaceAuthority(factory.document, factory.workspace)
@@ -1547,7 +1547,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     const app = createEditableApp()
     ;(app.registry as unknown as { set(value: unknown): void }).set({ schemas: new Map(), resolve: () => undefined, hash: 'promotion-test' })
     app.registerSchemas([seedSchema])
-    expect(app.openDocument(seedFixture(), 'Promotion Seed')).toEqual([])
+    expect((await app.openDocument(seedFixture(), 'Promotion Seed'))).toEqual([])
     const tab = app.activeTab()!
     const result = compile({
       document: tab.store.doc, revision: 0, resolve: resolveSeed, scope: { kind: 'full' },
@@ -1603,7 +1603,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     const app = createEditableApp()
     ;(app.registry as unknown as { set(value: unknown): void }).set({ schemas: new Map(), resolve: () => undefined, hash: 'promotion-test' })
     app.registerSchemas([comboSchema])
-    expect(app.openDocument(comboFixture(), 'Promotion Combo')).toEqual([])
+    expect((await app.openDocument(comboFixture(), 'Promotion Combo'))).toEqual([])
     const tab = app.activeTab()!
     const plan = app.prepareComboRefresh(tab, comboRoute)
     expect(plan).toBeDefined()

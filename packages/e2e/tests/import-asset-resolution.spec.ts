@@ -216,9 +216,9 @@ test('auto-resolves an obvious path match and prompts only for leftovers', async
   expect(await values(page)).toEqual({ model: exported.model, image: RAW_IMAGE })
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
   expect(await values(page)).toEqual({ model: RAW_MODEL, image: RAW_IMAGE })
-  expect(await page.evaluate((document) => {
+  expect(await page.evaluate(async (document) => {
     const app = window.__dinksterTest!.app
-    app.openDocument(document, 'Reopened assets')
+    await app.openDocument(document, 'Reopened assets')
     return app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.model
   }, exported.document)).toEqual(exported.model)
 })

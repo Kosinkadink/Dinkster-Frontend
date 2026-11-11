@@ -38,7 +38,7 @@ test('production planner commits a drilled occurrence ghost connect without any 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get().length ?? 0)).toBe(1)
 
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([
       {
@@ -56,7 +56,7 @@ test('production planner commits a drilled occurrence ghost connect without any 
         }],
       },
     ])
-    test.app.openDocument({
+    await test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-integration-proof', root: 'g0',
       graphs: {
         g0: {
