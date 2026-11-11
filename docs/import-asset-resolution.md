@@ -87,9 +87,7 @@ backend's exact plan is shown before the terminal commands or gateway
 confirmation; Cancel makes no installation request. Clipboard failures leave
 the command text available for manual selection. Editing or replacing the document, switching tabs or
 changing its selected backend invalidates the pending confirmation. Applying
-an unchanged view projection or adopting the same document into its shared
-workspace session preserves the review; neither is a document replacement.
-Applying uses the captured backend and refreshes that backend's schemas after successful
+uses the captured backend and refreshes that backend's schemas after successful
 activation, without re-importing. Host refusals (including disabled routes),
 expired plans and installation failures remain visible in the report; apply
 is never retried automatically. The document stays editable during requests.

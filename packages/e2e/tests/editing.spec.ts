@@ -70,7 +70,7 @@ const activeDoc = (page: Page) =>
   page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
 
 async function openauditInteractionFixture(page: Page): Promise<void> {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'auditPlacementTest', displayName: 'audit KSampler', category: 'test', source: 'v3', isOutputNode: false,
       items: [
@@ -81,7 +81,7 @@ async function openauditInteractionFixture(page: Page): Promise<void> {
         { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'INT' } },
       ],
     }])
-    await window.__dinksterTest!.app.openDocument({
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-interaction', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
@@ -125,8 +125,8 @@ test.beforeEach(async ({ page }, testInfo) => {
 })
 
 test('bridge reports an unrecognized node type', async ({ page }) => {
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'unknown-node', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
@@ -231,8 +231,8 @@ test('Ctrl+empty-canvas drag sweeps a marquee that selects covered nodes', async
 })
 
 test('marquee-selected node and reroute move together and undo atomically', async ({ page }) => {
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'heterogeneous-move', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         n0: { id: 'n0', type: 'EmptyImage', values: { width: 64, height: 64, batch_size: 1, color: 0 } },

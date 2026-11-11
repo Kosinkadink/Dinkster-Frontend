@@ -26,12 +26,12 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('node, link, group, and state hierarchy remains legible at typed detail boundaries', async ({ page }, testInfo) => {
-  const diagnostics = await page.evaluate(async () => {
+  const diagnostics = await page.evaluate(() => {
     const bridge = window.__dinksterTest!
-    return (await bridge.app.openDocument(
+    return bridge.app.openDocument(
       bridge.syntheticWorkflow({ chains: 2, chainLength: 4, reroutes: false }),
       'Hierarchy proof',
-    ))
+    )
   })
   expect(diagnostics).toEqual([])
   await expect(page.getByTestId('tab-bar').locator('.tab', { hasText: 'Hierarchy proof' })).toBeVisible()

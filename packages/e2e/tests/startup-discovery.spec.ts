@@ -67,22 +67,20 @@ for (const unavailable of [404, 503, 'pending'] as const) {
           type: 'Loader', displayName: 'Loader', category: 'test', source: 'v3', isOutputNode: false,
           items: [{ kind: 'input', id: 'file', optional: false, type: { kind: 'concrete', name: 'ASSET' } }],
         }])
-        const tab = app.activeTab()!
-        const before = JSON.stringify(tab.store.doc)
-        const diagnostics = await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'startup-retention', root: 'g0',
+        app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'startup-retention', root: 'g0',
           graphs: { g0: { id: 'g0', name: 'Root', nodes: { n0: { id: 'n0', type: 'Loader', values: {} } },
             links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } }, view: { graphs: {} },
         } as never, 'Local workflow')
-        const outcome = await app.dispatchTo(tab, { command: 'node.add', params: {
-          graphId: tab.store.doc.root, type: 'Loader', position: { x: 20, y: 40 }, values: { file: {
+        const tab = app.activeTab()!
+        const outcome = await app.dispatchTo(tab, { command: 'node.setValue', params: {
+          graphId: 'g0', nodeId: 'n0', inputId: 'file', value: {
             digest: `blake3:${'a'.repeat(64)}`, name: 'new.bin', size: 7,
             mediaType: 'application/octet-stream', virtualPath: '',
-          } },
+          },
         } })
-        return { codes: diagnostics.map((diagnostic) => (diagnostic as { code: string }).code), ok: outcome.ok,
-          unchanged: app.activeTab() === tab && JSON.stringify(tab.store.doc) === before, undo: tab.store.canUndo }
+        return { ok: outcome.ok, values: tab.store.doc.graphs['g0']!.nodes['n0']!.values, undo: tab.store.canUndo }
       })
-      expect(result).toEqual({ codes: ['workflow.open.retention'], ok: false, unchanged: true, undo: false })
+      expect(result).toEqual({ ok: false, values: {}, undo: false })
       expect(errors).toEqual([])
     } finally {
       release()

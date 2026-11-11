@@ -40,7 +40,7 @@ test('proves product select semantics across the five replacement sites', async 
   await expect(page.getByTestId('settings-button')).toBeVisible()
   await waitForStartupOwnership(page)
 
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app as any
     app.registerSchemas([{
       type: 'SelectProof', displayName: 'Select Proof', category: 'proof', source: 'v3', isOutputNode: false,
@@ -55,7 +55,7 @@ test('proves product select semantics across the five replacement sites', async 
         widget: { widgetType: 'MOUNT', options: {}, default: null },
       }],
     }])
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'select-proof\u0000', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { n0: { id: 'n0', type: 'SelectProof', values: { choice: 99 } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { n0: { position: { x: 160, y: 120 } } } } } },
@@ -86,10 +86,10 @@ test('proves product select semantics across the five replacement sites', async 
   await expect(combo).toBeFocused()
   await page.screenshot({ path: `${proofDir}/01-app-view-typed-oov-keyboard.png`, animations: 'disabled' })
 
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app as any
     app.setTabEditorKind(app.activeTab()!.id, 'graph')
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'save-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { save: { id: 'save', type: 'SaveProof', values: { mount: 'legacy' } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { save: { position: { x: 180, y: 160 } } } } } },

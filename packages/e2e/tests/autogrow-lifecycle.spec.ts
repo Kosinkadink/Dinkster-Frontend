@@ -42,7 +42,7 @@ async function drag(page: Page, from: { x: number; y: number }, to: { x: number;
 }
 
 async function openWorkflow(page: Page): Promise<void> {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const image = { kind: 'concrete', name: 'IMAGE' }
     window.__dinksterTest!.app.registerSchemas([
       {
@@ -65,7 +65,7 @@ async function openWorkflow(page: Page): Promise<void> {
         }],
       },
     ] as never)
-    await window.__dinksterTest!.app.openDocument({
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'autogrow-lifecycle-e2e', root: 'root',
       graphs: {
         root: {
@@ -116,10 +116,10 @@ test('grouped forwarded disconnect compacts atomically and never recycles identi
     return { state, links: Object.keys(graph.links).length, ghosts }
   })).toEqual({ state: { members: ['m0'], seq: 1 }, links: 1, ghosts: ['m1', 'm1'] })
 
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app as any
     const exported = app.exportDocument(app.activeTab()!.id)!
-    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Autogrow reopened')
+    app.openDocument(JSON.parse(JSON.stringify(exported)), 'Autogrow reopened')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
   await page.waitForFunction(() => {

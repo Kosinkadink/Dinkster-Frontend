@@ -165,7 +165,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
         }
         if (local) await load()
         else {
-          const reader = props.editor.app.workflowAssetReader(ed.tab, ref.digest as string, abort.signal)
+          const reader = props.editor.app.workflowAssetReader(ed.tab, ref.digest as string)
           if (!reader) throw new Error(message('painterWidget.unavailable'))
           const connectedCurrent = sourceCurrent
           sourceCurrent = () => connectedCurrent() && reader.current()

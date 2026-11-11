@@ -65,8 +65,8 @@ async function openSaveImageWorkflow(
   page: Page,
   asset: Record<string, unknown>,
 ): Promise<void> {
-  await page.evaluate(async (source) => {
-    await window.__dinksterTest!.app.openDocument(
+  await page.evaluate((source) => {
+    window.__dinksterTest!.app.openDocument(
       {
         format: "dinkster-workflow",
         formatVersion: 1,
