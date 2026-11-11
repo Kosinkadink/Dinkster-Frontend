@@ -10,7 +10,7 @@ import { WidgetEditor } from '../src/WidgetEditor.js'
 const fixtures = vi.hoisted(() => ({
   camera: { position: { x: 3, y: 2, z: 7 }, target: { x: 1, y: 0, z: -2 }, zoom: 1.5, cameraType: 'perspective', fov: 53 },
   transform: { position: { x: 2, y: -1, z: 4 }, quaternion: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 2, z: 3 } },
-  loads: [] as { mime: string; format?: string; resources?: Readonly<Record<string, string>> }[],
+  loads: [] as { mime: string; format?: string; pointCloud?: boolean; resources?: Readonly<Record<string, string>> }[],
   mount: undefined as (() => Promise<void>) | undefined,
   capture: undefined as (() => Promise<void>) | undefined,
   disposed: 0,
@@ -34,10 +34,43 @@ vi.mock('../src/model3d-viewer.js', () => ({
 
 afterEach(() => { document.body.replaceChildren(); fixtures.loads.length = 0; fixtures.mount = undefined; fixtures.capture = undefined; fixtures.disposed = 0; vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+it.each(['dinkster.3d.preview_point_cloud', 'dinkster.3d.save_point_cloud'])('opens %s as a point cloud', async (type) => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:cloud')
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  const schema = parseDinksterSchema(type, { interface: [
+    { role: 'input', id: 'model_3d', type: { kind: 'union', types: ['FILE_3D_POINT_CLOUD_ANY', 'FILE_3D_PLY'] } },
+    { role: 'input', id: 'viewport_state', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
+  ] }).schema!
+  const model = { digest: `blake3:${'a'.repeat(64)}`, name: 'cloud.ply', size: 1, mediaType: 'application/octet-stream', virtualPath: 'cloud.ply' }
+  const doc = importLitegraph({ nodes: [{ id: 1, type }], links: [] }, () => schema).document!
+  const store = new DocumentStore(doc, coreCommandRegistry())
+  const manifest = { format: 'ply', source: model, resources: {} }
+  const value = type.endsWith('save_point_cloud') ? { $typed: { type: 'FILE_3D_PLY', value: manifest } } : manifest
+  store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'model_3d', value } })
+  const tab = { store } as unknown as Tab
+  const registry = createWidgetRegistry()
+  const connection = { fetchAssetBytes: async () => new Uint8Array([1]) }
+  const app = {
+    widgetRegistry: registry, widgetRegistryForTab: () => registry,
+    registryForTab: () => ({ resolve: () => schema }),
+    backendForTab: () => ({ protocol: 'dinkster', connection }),
+    workflowAssetReader: () => ({ current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
+  } as unknown as AppState
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <WidgetEditor app={app} ed={{ tab, graphId: 'g0',
+    target: { kind: 'input', nodeId: 'n1', valueKey: 'viewport_state' }, label: 'Viewport',
+    spec: inputsOf(schema)[1]!.widget, declaredType: inputsOf(schema)[1]!.type,
+    multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial: {},
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  await vi.waitFor(() => expect(document.querySelector('#load3d-position-x'), document.body.textContent ?? '').not.toBeNull())
+  expect(fixtures.loads[0]?.pointCloud).toBe(true)
+  dispose()
+})
+
 it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture-close-rejected', 'capture-expired', 'capture-late-expired', 'capture-success', 'capture-rejected', 'recording-close', 'recording-stop-close', 'recording-error-close', 'recording-expired', 'recording-start-failed', 'recording-success', 'recording-late-expired'] as const)('keeps authored state on failure and cancel and captures undoably from %s', async (source) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fixture')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-  const schema = parseDinksterSchema('Load3DFixture', { interface: [
+  const schema = parseDinksterSchema('dinkster.3d.load3_d', { interface: [
     { role: 'input', id: 'model_file', type: { kind: 'concrete', types: ['ASSET'] }, widget: { type: 'ASSET', accept: [], kind: 'model/3d' } },
     { role: 'input', id: 'image', type: { kind: 'concrete', types: ['LOAD_3D'] }, widget: { type: 'LOAD_3D' } },
   ] }).schema!
@@ -97,6 +130,7 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture
     return
   }
   await vi.waitFor(() => expect(document.querySelector('#load3d-position-x')).not.toBeNull())
+  expect(fixtures.loads[0]?.pointCloud).toBe(false)
   if (source.startsWith('recording-')) {
     let instance!: {
       state: string

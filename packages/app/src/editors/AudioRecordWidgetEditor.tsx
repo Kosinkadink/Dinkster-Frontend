@@ -51,7 +51,7 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
   props.editor.bindClickAway?.(props.close)
   onCleanup(() => props.editor.bindClickAway?.(undefined))
 
-  return <div class="widget-editor audio-record-editor" data-testid="audio-record-editor">
+  return <div class="widget-editor widget-modal-editor audio-record-editor" data-testid="audio-record-editor">
     <Show when={draft()} keyed>{(ref) => {
       const [src, setSrc] = createSignal<string>()
       const [failed, setFailed] = createSignal(false)
