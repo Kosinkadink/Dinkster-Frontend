@@ -8,6 +8,49 @@ import { WidgetEditor, type WidgetEditorProps, type WidgetEditorState } from '..
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+it('edits camera siblings atomically with schema defaults, validation and undo without changing view', async () => {
+  const schema = parseDinksterSchema('CameraFixture', { interface: [
+    { role: 'input', id: 'horizontal_angle', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
+    { role: 'input', id: 'vertical_angle', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
+    { role: 'input', id: 'zoom', type: { kind: 'concrete', types: ['FLOAT'] }, default: 5 },
+    { role: 'input', id: 'view', type: { kind: 'concrete', types: ['STRING'] }, default: '', widget: { type: 'CAMERA_ANGLE_VIEW' } },
+  ] }).schema!
+  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema)
+  const store = new DocumentStore(imported.document!, coreCommandRegistry())
+  const before = store.doc.graphs.g0!.nodes.n1!.values
+  const tab = { store } as unknown as Tab
+  const registry = createWidgetRegistry()
+  const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
+    registryForTab: () => ({ resolve: () => schema }),
+    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+  } as unknown as AppState
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <WidgetEditor app={app} ed={{
+    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'view' }, label: 'View',
+    spec: inputsOf(schema)[3]!.widget, multiline: false, initial: '',
+    rect: { x: 0, y: 0, width: 180, height: 24 },
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  const input = (field: string, value: string) => {
+    const element = root.querySelector<HTMLInputElement>(`#camera-angle-${field}`)!
+    expect(element.getAttribute('aria-labelledby')).toBeTruthy()
+    element.value = value; element.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply camera angle')!
+  expect(root.querySelector<HTMLInputElement>('#camera-angle-zoom')!.value).toBe('5')
+  for (const value of ['', '-1', '361', '90.5']) { input('horizontal_angle', value); expect(apply.disabled).toBe(true) }
+  input('horizontal_angle', '90')
+  input('vertical_angle', '30')
+  input('zoom', '7.5')
+  expect(apply.disabled).toBe(false)
+  expect(root.querySelector('output')!.textContent).toContain('X 5.20, Y 3.00, Z 0.00')
+  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
+  apply.click()
+  await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ ...before, horizontal_angle: 90, vertical_angle: 30, zoom: 7.5 }))
+  expect(store.undo()).toBe(true)
+  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
+  dispose()
+})
+
 it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews and releases late results', async (kind) => {
   const inputId = kind === 'BOUNDING_BOX' ? 'crop_region' : 'compare_view'
   const initial = kind === 'BOUNDING_BOX' ? { x: 0, y: 0, width: 12, height: 7 } : null

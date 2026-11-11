@@ -2,6 +2,7 @@ import type { WidgetRegistry } from '@dinkster/core'
 import { AssetWidgetEditor } from './AssetWidgetEditor.js'
 import { AudioRecordWidgetEditor } from './AudioRecordWidgetEditor.js'
 import { BoundingBoxWidgetEditor } from './BoundingBoxWidgetEditor.js'
+import { CameraAngleWidgetEditor } from './CameraAngleWidgetEditor.js'
 import { ColorWidgetEditor } from './ColorWidgetEditor.js'
 import { ColorsWidgetEditor } from './ColorsWidgetEditor.js'
 import { ComboWidgetEditor } from './ComboWidgetEditor.js'
@@ -32,6 +33,7 @@ const coreWidgetEditors = new Map<string, unknown>([
   ['VIDEO_EDIT', VideoEditWidgetEditor],
   ['BOUNDING_BOX', BoundingBoxWidgetEditor],
   ['IMAGECOMPARE', ImageCompareWidgetEditor],
+  ['CAMERA_ANGLE_VIEW', CameraAngleWidgetEditor],
 ])
 
 export const coreEditorFor = (widgetType: string): unknown => coreWidgetEditors.get(widgetType)

@@ -151,6 +151,14 @@ export const imageCompareKind: WidgetKind<null> = {
   defaultView: () => 'core.imageCompare',
 }
 
+export const cameraAngleKind: WidgetKind<string> = {
+  type: 'CAMERA_ANGLE_VIEW',
+  valueSchema: stringSchema,
+  defaultValue: () => '',
+  validate: () => [],
+  defaultView: () => 'core.cameraAngle',
+}
+
 export type BoundingBox = { x: number; y: number; width: number; height: number }
 
 export const boundingBoxKind: WidgetKind<BoundingBox> = {
@@ -905,6 +913,13 @@ export const imageCompareView: WidgetView<null> = {
       t('imageCompareWidget.open'), state, 'widget.edit')
   },
 }
+export const cameraAngleView: WidgetView<string> = {
+  ...makeCompactView<string>('core.cameraAngle', 'CAMERA_ANGLE_VIEW'),
+  drawCompact(ctx, _value, spec, state) {
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
+      t('cameraAngleWidget.title'), state, 'widget.edit')
+  },
+}
 export const videoEditView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.videoEdit', 'VIDEO_EDIT'),
   drawCompact(ctx, value, spec, state) {
@@ -960,11 +975,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, cameraAngleKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView]) {
+    multiSelectView, listView, colorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView, cameraAngleView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

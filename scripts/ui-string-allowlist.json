@@ -987,6 +987,10 @@
   "editors/AudioRecordWidgetEditor.tsx": [
     "text:props.editor.bindClickAway?.(undefined)) return"
   ],
+  "editors/CameraAngleWidgetEditor.tsx": [
+    "text:= limits[field][0] && value",
+    "text:typeof values[field] === 'number') const [draft, setDraft] = createSignal"
+  ],
   "editors/ColorWidgetEditor.tsx": [
     "attribute:label:Color value",
     "text:Cancel",

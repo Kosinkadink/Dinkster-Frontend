@@ -70,6 +70,7 @@ const BACKEND_SERIAL_SPECS = [
   'painter-live.spec.ts',
   'bounding-box-live.spec.ts',
   'image-compare-live.spec.ts',
+  'camera-angle-live.spec.ts',
   'video-edit.spec.ts',
   'glsl-shader.spec.ts',
   'executable-examples-live.spec.ts',

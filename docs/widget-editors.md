@@ -1,5 +1,13 @@
 # Widget compact controls and expanded editors
 
+CAMERA_ANGLE_VIEW opens a top-down orbit and side elevation preview with named
+horizontal angle, vertical angle and zoom fields. Apply camera angle updates
+the three real numeric inputs as one undoable edit; the presentation-only view
+string is unchanged. Blank, fractional angle and out-of-range drafts cannot be
+applied. Connected numeric inputs disable this composer rather than pretending
+to override their drivers; edit the source inputs or disconnect them first.
+Cancel and outside dismissal discard the draft.
+
 IMAGECOMPARE opens a wipe comparison of the node's executed image_a and
 image_b preview streams. The divider supports pointer and keyboard controls;
 each side has an independent frame selector. A single connected side fills
