@@ -283,7 +283,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/ScalarWidgetEditor.tsx",
-      "line": 82,
+      "line": 75,
       "column": 16,
       "symbol": "widgetType:LIST",
       "issue": 511
@@ -291,7 +291,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/ScalarWidgetEditor.tsx",
-      "line": 83,
+      "line": 76,
       "column": 16,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -299,7 +299,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/ScalarWidgetEditor.tsx",
-      "line": 122,
+      "line": 115,
       "column": 16,
       "symbol": "widgetType:INT",
       "issue": 122

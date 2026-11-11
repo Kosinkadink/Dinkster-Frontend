@@ -845,12 +845,6 @@
     "text:() const [locations, setLocations] = createSignal",
     "text:Boolean(props.value.mount) && selected() === undefined return"
   ],
-  "VideoDocumentEditor.tsx": [
-    "text:(error() === undefined ? undefined : '$raw') const setObject = (next: Record",
-    "text:(initialParams) const [drafts, setDrafts] = createSignal",
-    "text:(parsed === undefined && props.command !== 'import_otio' ? message('videoDocument.error.object') : undefined) const [errorField, setErrorField] = createSignal",
-    "text:[field.key, fieldText(field, initialParams)]), )) const [raw, setRaw] = createSignal(props.command === 'import_otio' || parsed === undefined ? props.value : JSON.stringify(parsed, null, 2)) const [error, setError] = createSignal"
-  ],
   "VideoEditEditor.tsx": [
     "attribute:alt:Crop source frame",
     "attribute:alt:Selected source frame",
@@ -916,11 +910,10 @@
     "text:() const commitCommand = async (invocation: CommandInvocation, closeOnAccept = true): Promise",
     "text:) : ed.outputDescriptors !== undefined ? (",
     "text:) : null return (",
-    "text:) : props.implementation !== undefined ? (",
     "text:Promise",
     "text:Promise",
-    "text:string | undefined editor: WidgetEditorProps header: Component",
-    "text:videoDocumentCommand !== undefined ? ("
+    "text:props.implementation !== undefined ? (",
+    "text:string | undefined editor: WidgetEditorProps header: Component"
   ],
   "WorkflowQueueControl.tsx": [
     "attribute:aria-label:Workflow jobs",

@@ -32,7 +32,6 @@ import { OutputDescriptorEditor } from './OutputDescriptorEditor.js'
 import { placeFloatingSurface } from './floating-surface.js'
 import { HostUiProviderHost } from './host-ui.js'
 import { useAppMessage } from './locale.js'
-import { VideoDocumentEditor, isVideoDocumentEditorCommand } from './VideoDocumentEditor.js'
 import {
   dynamicSelectorCommitCommand,
   withMaterializeFrames,
@@ -141,18 +140,6 @@ export interface WidgetEditorState {
   }
 }
 
-function videoDocumentCommandOf(ed: WidgetEditorState): string | undefined {
-  if (ed.target.kind !== 'input') return undefined
-  const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
-  const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
-  const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
-  const type = ed.tab.store?.doc?.graphs[graphId]?.nodes[nodeId]?.type
-  if (type === undefined || !type.startsWith('dinkster.video_document.')) return undefined
-  const command = type.slice('dinkster.video_document.'.length)
-  return ((inputId === 'params' && command !== 'import_otio') || (inputId === 'otio' && command === 'import_otio')) &&
-    isVideoDocumentEditorCommand(command) ? command : undefined
-}
-
 export interface WidgetEditorProps {
   app: AppState
   federatedAssets?: AssetDtoV1WireContract
@@ -197,26 +184,6 @@ export interface WidgetEditorControllerProps extends WidgetEditorProps {
 export function WidgetEditorController(props: WidgetEditorControllerProps) {
   const ed = props.ed
   const message = useAppMessage()
-  const videoDocumentCommand = videoDocumentCommandOf(ed)
-  const videoDocumentContext = createMemo(() => {
-    if (videoDocumentCommand === undefined || ed.target.kind !== 'input') return undefined
-    const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
-    const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
-    const graph = ed.tab.store.doc.graphs[graphId]
-    const linked = (inputId: string) => graph !== undefined && (
-      Object.values(graph.links).some((link) => 'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
-      Object.values(graph.nets).some((net) => net.sinks.some((sink) => sink.node === nodeId && sink.port === inputId))
-    )
-    const needsDocument = !['make', 'import_otio'].includes(videoDocumentCommand)
-    return {
-      videoInputDriven: linked('video'),
-      ...(needsDocument ? {
-        documentSourceStatus: message(linked('document')
-          ? 'videoDocument.source.connected'
-          : 'videoDocument.source.missing'),
-      } : {}),
-    }
-  })
   const popoverAnchor = editorScreenAnchor(ed.rect, props.viewport())
   /** This editor was closed/superseded; late async results must not act. */
   let live = true
@@ -365,14 +332,12 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
           <span class="widget-editor-type" data-testid="widget-editor-type" style={pillStyle}>{headerProps.type}</span>
         </span>
       </header>
-      <Show when={props.modal === undefined && videoDocumentCommand === undefined && commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
+      <Show when={props.modal === undefined && commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
       </>
     )
   }
-  const modalType = props.modal?.type ?? (videoDocumentCommand !== undefined ? 'VIDEO_DOCUMENT' : ed.spec?.widgetType ?? 'JSON')
-  const modalDisplayType = createMemo(() => props.modal?.displayType ?? (modalType === 'VIDEO_DOCUMENT'
-    ? message('videoDocument.type')
-    : modalType))
+  const modalType = props.modal?.type ?? ed.spec?.widgetType ?? 'JSON'
+  const modalDisplayType = createMemo(() => props.modal?.displayType ?? modalType)
   const modalId = `widget-${modalType.toLowerCase().replaceAll('_', '-')}`
   const popoverStyle = {
     left: `${popoverAnchor.x}px`,
@@ -425,23 +390,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
       </div>
     </div>
   )
-  const EditorContent = () => videoDocumentCommand !== undefined ? (
-    <div
-      class="widget-editor widget-modal-editor video-document-modal"
-      data-testid="widget-editor"
-      data-editor-mode="VIDEO_DOCUMENT"
-      data-editor-surface="modal"
-    >
-      <EditorHeader type="VIDEO_DOCUMENT" />
-      <VideoDocumentEditor
-        command={videoDocumentCommand}
-        value={typeof ed.initial === 'string' ? ed.initial : videoDocumentCommand === 'import_otio' ? '' : '{}'}
-        {...videoDocumentContext()}
-        onCommit={commitEditorValue}
-        onCancel={close}
-      />
-    </div>
-  ) : props.implementation !== undefined ? (
+  const EditorContent = () => props.implementation !== undefined ? (
     <props.implementation
       bindPopover={bindPopover}
       close={close}
@@ -476,7 +425,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
       when={ed.hostUi !== undefined}
       fallback={
         <Show
-          when={props.modal !== undefined || videoDocumentCommand !== undefined}
+          when={props.modal !== undefined}
           fallback={
             <div
               class="palette-layer widget-popover-layer"
@@ -506,7 +455,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
                   : {})}
               >
                 <p id="widget-editor-description" class="widget-modal-help">
-                  {props.modal?.help ?? message('videoDocument.help')}
+                  {props.modal?.help}
                 </p>
                 <Show when={commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
                 <div class="widget-commit-content" inert={commitPending()} aria-busy={commitPending()}><EditorContent /></div>

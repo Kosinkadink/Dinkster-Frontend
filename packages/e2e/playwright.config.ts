@@ -62,7 +62,6 @@ const BACKEND_SERIAL_SPECS = [
   'starter-templates-live.spec.ts',
   'collab-noodle-presence.spec.ts',
   'dynamic-combo-native-live.spec.ts',
-  'video-document-editor.spec.ts',
   'string-split-output-lifecycle.spec.ts',
   'curve-editor.spec.ts',
   'trellis2-official-workflow-live.spec.ts',

@@ -5,7 +5,7 @@ import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssetDtoV1WireContract, CandidateV1 } from '@dinkster/client'
 import { DinksterConnection } from '@dinkster/client'
-import { asConnectionId, createSignal as createCoreSignal, registerCatalog, setLocale, type NodeSchema } from '@dinkster/core'
+import { asConnectionId, createSignal as createCoreSignal, setLocale, type NodeSchema } from '@dinkster/core'
 import type { AppState, Tab } from '../src/app-state.js'
 import { ModalSurface } from '../src/ModalSurface.js'
 import { WidgetEditor, type WidgetEditorState } from '../src/WidgetEditor.js'
@@ -175,28 +175,6 @@ describe('ModalSurface', () => {
       } finally { finish?.(); unmount(); connection.disconnect() }
     },
   )
-
-  it('updates an open video document modal and source status when the locale changes', () => {
-    registerCatalog('de-DE', {
-      'videoDocument.source.missing': '[Dokument fehlt]',
-      'videoDocument.type': '[Videodokument]',
-    })
-    const ed = widgetState('STRING', {}, '{"scalar":1}', true, {
-      valueKey: 'params',
-      label: 'Parameters',
-      nodeType: 'dinkster.video_document.retime',
-    })
-    const mounted = mountWidget(ed)
-    const dialog = mounted.root.querySelector<HTMLDialogElement>('[data-modal="widget-video-document"]')!
-    expect(dialog.getAttribute('aria-label')).toBe('Edit Parameters video document')
-    expect(dialog.textContent).toContain('Connect the document input')
-
-    setLocale('de-DE')
-
-    expect(dialog.getAttribute('aria-label')).toBe('Edit Parameters [Videodokument]')
-    expect(dialog.textContent).toContain('[Dokument fehlt]')
-    mounted.unmount()
-  })
 
   it('opens a named, described native modal with explicit close chrome', () => {
     const mounted = mount()
@@ -2239,9 +2217,9 @@ describe('registered interactive widget expanded-editor integration', () => {
     mounted.unmount()
   })
 
-  it('renders multiline node input STRING as a live in-node editor', async () => {
+  it.each(['Fixture', 'dinkster.video_document.retime'])('renders multiline node input STRING as a live in-node editor for %s', async (nodeType) => {
     const mounted = mountWidget({
-      ...widgetState('STRING', { multiline: true }, 'hello\nworld', true),
+      ...widgetState('STRING', { multiline: true }, 'hello\nworld', true, { nodeType, valueKey: 'params' }),
       rect: { x: 20, y: 30, width: 180, height: 76 },
     })
     await new Promise<void>((resolve) => queueMicrotask(resolve))

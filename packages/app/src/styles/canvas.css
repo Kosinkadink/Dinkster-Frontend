@@ -604,17 +604,6 @@
 .video-crop-ratios { display: flex; flex-wrap: wrap; gap: var(--dinkster-space-8); }
 .video-edit-editor > .product-action-footer { position: sticky; z-index: 2; bottom: -12px; padding: var(--dinkster-space-8) 0 12px; background: var(--dinkster-surface-panel); }
 
-.video-document-editor { display: grid; gap: var(--dinkster-space-12); }
-.video-document-editor .product-notice { margin: 0; }
-.video-document-command-summary { margin: 0; color: var(--dinkster-text-secondary); }
-.video-document-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--dinkster-space-12); }
-.video-document-fields textarea { min-height: 92px; resize: vertical; }
-.video-document-advanced { padding: var(--dinkster-space-8) var(--dinkster-space-12); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
-.video-document-advanced summary { color: var(--dinkster-text-secondary); cursor: pointer; }
-.video-document-advanced .product-field { margin-top: var(--dinkster-space-8); }
-.video-document-advanced textarea, #video-document-otio { min-height: 220px; font-family: var(--dinkster-font-mono); resize: vertical; }
-.video-document-editor > .product-action-footer { position: sticky; z-index: 2; bottom: -12px; padding: var(--dinkster-space-8) 0 12px; background: var(--dinkster-surface-panel); }
-
 @media (max-width: 720px) {
   .video-edit-fields,
   .video-edit-fields.crop { grid-template-columns: repeat(2, minmax(0, 1fr)); }

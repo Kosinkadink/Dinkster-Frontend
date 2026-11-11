@@ -1,7 +1,7 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 165,
+    "rawControl": 158,
     "inlineStyle": 64,
     "cssLiteral": 66
   },
@@ -304,12 +304,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/UniversalSearch.tsx",
       "count": 2,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/VideoDocumentEditor.tsx",
-      "count": 7,
       "issue": 382
     },
     {
