@@ -41,7 +41,7 @@ const schema: NodeSchema = {
   ],
 }
 
-const mountPanel = async (withWidgetTap = false, withValueSource = false) => {
+const mountPanel = (withWidgetTap = false, withValueSource = false) => {
   const app = prepareWorkflowApp(new AppState())
   apps.push(app)
   const backend = app.backends.get()[0]!
@@ -52,7 +52,7 @@ const mountPanel = async (withWidgetTap = false, withValueSource = false) => {
     diagnostics: [],
     resolve: (type) => type === schema.type ? schema : undefined,
   })
-  const diagnostics = (await app.openDocument({
+  const diagnostics = app.openDocument({
     format: 'dinkster-workflow',
     formatVersion: 1,
     lineage: 'boundary-panel-component',
@@ -92,7 +92,7 @@ const mountPanel = async (withWidgetTap = false, withValueSource = false) => {
         sub: { nodes: { n1: { position: { x: 10, y: 20 } } } },
       },
     },
-  }, 'Boundary component'))
+  }, 'Boundary component')
   expect(diagnostics).toEqual([])
   const tab = app.activeTab()!
   // Drill in through the real occurrence so navigation survives the
@@ -126,7 +126,7 @@ const delayDispatch = (app: AppState) => {
 
 describe('BoundaryPanel keyboard and accessibility', () => {
   it('retains a refused name draft, prevents duplicate commits and clears only after accepted retry', async () => {
-    const { app, tab, root, unmount } = (await mountPanel())
+    const { app, tab, root, unmount } = mountPanel()
     const releases = delayDispatch(app)
     const input = () => root.querySelector<HTMLInputElement>('[data-testid="boundary-name-input"]')!
     input().value = '  Batch Masks  '
@@ -151,7 +151,7 @@ describe('BoundaryPanel keyboard and accessibility', () => {
   })
 
   it.each([false, true])('does not clear a newer pending draft after navigation (old acceptance: %s)', async (accepted) => {
-    const { app, tab, root, unmount } = (await mountPanel())
+    const { app, tab, root, unmount } = mountPanel()
     const releases = delayDispatch(app)
     const input = () => root.querySelector<HTMLInputElement>('[data-testid="boundary-name-input"]')!
     input().value = 'Old draft'
@@ -174,8 +174,8 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     unmount()
   })
 
-  it('offers a definition prompt and opens through the real occurrence without editing the document', async () => {
-    const { app, tab, root, unmount } = (await mountPanel())
+  it('offers a definition prompt and opens through the real occurrence without editing the document', () => {
+    const { app, tab, root, unmount } = mountPanel()
     truncateGraphStack(tab, 1)
     const revision = tab.store.revision
     expect(root.querySelector('[data-testid="boundary-prompt"]')?.textContent).toContain('Open a subgraph definition')
@@ -195,8 +195,8 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     unmount()
   })
 
-  it('exposes a named region, named item group, and labelled product controls in focus order', async () => {
-    const { root, unmount } = (await mountPanel())
+  it('exposes a named region, named item group, and labelled product controls in focus order', () => {
+    const { root, unmount } = mountPanel()
     const panel = root.querySelector<HTMLElement>('[data-testid="boundary-panel"]')!
     expect(panel.getAttribute('role')).toBe('region')
     expect(panel.getAttribute('aria-label')).toBe('Boundary editor')
@@ -224,8 +224,8 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     unmount()
   })
 
-  it('routes an explicit destination action through canonical canvas focus without editing', async () => {
-    const { app, tab, root, unmount } = (await mountPanel())
+  it('routes an explicit destination action through canonical canvas focus without editing', () => {
+    const { app, tab, root, unmount } = mountPanel()
     const revision = tab.store.revision
     root.querySelector<HTMLButtonElement>('[data-testid="boundary-show-on-canvas"]')!.click()
     expect(tab.store.revision).toBe(revision)
@@ -237,8 +237,8 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     unmount()
   })
 
-  it('identifies and focuses an exact widget-output binding', async () => {
-    const { app, tab, root, unmount } = (await mountPanel(true))
+  it('identifies and focuses an exact widget-output binding', () => {
+    const { app, tab, root, unmount } = mountPanel(true)
     const item = root.querySelector<HTMLElement>('[data-binding-kind="widgetTap"]')!
     expect(item.getAttribute('aria-label')).toBe('Output Amount')
     expect(item.querySelector('.boundary-kind')?.textContent).toBe('Widget output')
@@ -253,8 +253,8 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     unmount()
   })
 
-  it('names a literal binding and offers source navigation without editing the definition', async () => {
-    const { tab, root, unmount } = (await mountPanel(false, true))
+  it('names a literal binding and offers source navigation without editing the definition', () => {
+    const { tab, root, unmount } = mountPanel(false, true)
     const item = root.querySelector<HTMLElement>('[data-binding-kind="valueSource"]')!
     expect(item.querySelector('.boundary-bind')?.textContent?.trim()).toBe('Literal amount (v0)')
     const revision = tab.store.revision
@@ -268,7 +268,7 @@ describe('BoundaryPanel keyboard and accessibility', () => {
   })
 
   it('edits and clears a user-defined boundary display name', async () => {
-    const { tab, root, unmount } = (await mountPanel())
+    const { tab, root, unmount } = mountPanel()
     const input = root.querySelector<HTMLInputElement>('[data-testid="boundary-name-input"]')!
     expect(input.getAttribute('aria-label')).toBe('Input items display name')
     expect(input.value).toBe('Items')
@@ -293,7 +293,7 @@ describe('BoundaryPanel keyboard and accessibility', () => {
   })
 
   it('toggles a slot with Enter and lets Escape leave the control without another edit', async () => {
-    const { tab, root, unmount } = (await mountPanel())
+    const { tab, root, unmount } = mountPanel()
     const panel = root.querySelector<HTMLElement>('[data-testid="boundary-panel"]')!
     const tag = root.querySelector<HTMLButtonElement>('[data-slot-path="tag"]')!
     tag.focus()
@@ -312,7 +312,7 @@ describe('BoundaryPanel keyboard and accessibility', () => {
   })
 
   it('announces derivation errors and refused empty selections', async () => {
-    const { root, unmount } = (await mountPanel())
+    const { root, unmount } = mountPanel()
     const image = root.querySelector<HTMLButtonElement>('[data-slot-path="image"]')!
     image.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     await vi.waitFor(() => expect(root.querySelector('[aria-busy="true"]')).toBeNull())
@@ -325,7 +325,7 @@ describe('BoundaryPanel keyboard and accessibility', () => {
   })
 
   it('presents invalid, unavailable, and empty states without inventing mutations', async () => {
-    const invalid = (await mountPanel())
+    const invalid = mountPanel()
     expect((await invalid.app.dispatchTo(invalid.tab, {
       command: 'boundary.setSlots',
       params: { graphId: 'sub', side: 'inputs', itemId: 'items', slots: ['unknown'] },
@@ -335,7 +335,7 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     expect(diagnostic.getAttribute('data-code')).toBe('boundary.slotUnknown')
     invalid.unmount()
 
-    const unavailable = (await mountPanel())
+    const unavailable = mountPanel()
     unavailable.app.backends.get()[0]!.registry.set(undefined)
     unavailable.app.backendsTick.set(unavailable.app.backendsTick.get() + 1)
     const state = unavailable.root.querySelector<HTMLElement>('[data-testid="boundary-unavailable"]')!
@@ -343,7 +343,7 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     expect(state.textContent).toContain('Exposure unavailable')
     unavailable.unmount()
 
-    const empty = (await mountPanel())
+    const empty = mountPanel()
     expect(empty.tab.store.dispatch({
       command: 'boundary.unbind',
       params: { graphId: 'sub', side: 'inputs', itemId: 'items', node: 'n1', port: 'items' },
@@ -374,7 +374,7 @@ const regionSchema: NodeSchema = {
   ],
 }
 
-const mountRegionPanel = async (occurrence = 'fold') => {
+const mountRegionPanel = (occurrence = 'fold') => {
   const app = prepareWorkflowApp(new AppState())
   apps.push(app)
   const backend = app.backends.get()[0]!
@@ -385,7 +385,7 @@ const mountRegionPanel = async (occurrence = 'fold') => {
     diagnostics: [],
     resolve: (type) => type === regionSchema.type ? regionSchema : undefined,
   })
-  expect((await app.openDocument({
+  expect(app.openDocument({
     format: 'dinkster-workflow', formatVersion: 1, lineage: 'region-panel', root: 'root',
     graphs: {
       root: {
@@ -432,7 +432,7 @@ const mountRegionPanel = async (occurrence = 'fold') => {
         body: { nodes: { n1: { position: { x: 20, y: 20 } } } },
       },
     },
-  }, 'Region panel'))).toEqual([])
+  }, 'Region panel')).toEqual([])
   const tab = app.activeTab()!
   pushGraph(tab, 'body', occurrence)
   const root = document.createElement('div')
@@ -443,7 +443,7 @@ const mountRegionPanel = async (occurrence = 'fold') => {
 
 describe('BoundaryPanel region occurrence context', () => {
   it('awaits occurrence edits and keeps stale refusal out of another occurrence', async () => {
-    const { app, tab, root, unmount } = (await mountRegionPanel())
+    const { app, tab, root, unmount } = mountRegionPanel()
     const releases = delayDispatch(app)
     const cross = () => root.querySelector<HTMLButtonElement>('[data-region-binding="cross"]')!
     cross().click()
@@ -475,8 +475,8 @@ describe('BoundaryPanel region occurrence context', () => {
     unmount()
   })
 
-  it('shows every role fact and accessible editing group for the drilled occurrence', async () => {
-    const { root, unmount } = (await mountRegionPanel())
+  it('shows every role fact and accessible editing group for the drilled occurrence', () => {
+    const { root, unmount } = mountRegionPanel()
     const panel = root.querySelector<HTMLElement>('[data-testid="region-panel"]')!
     expect(panel.getAttribute('role')).toBe('group')
     expect(panel.getAttribute('aria-label')).toBe('Fold region settings')
@@ -505,7 +505,7 @@ describe('BoundaryPanel region occurrence context', () => {
   })
 
   it('dispatches exact region commands from each editing control', async () => {
-    const { app, tab, root, unmount } = (await mountRegionPanel())
+    const { app, tab, root, unmount } = mountRegionPanel()
     const dispatch = vi.spyOn(app, 'dispatchTo')
     const click = async (selector: string) => {
       root.querySelector<HTMLButtonElement>(selector)!.click()
@@ -554,7 +554,7 @@ describe('BoundaryPanel region occurrence context', () => {
       'boundary.region.output.compact.title': 'Kompakte Ausgabe',
       'boundary.region.output.explanation': '{role} - {explanation}',
     })
-    const { root, unmount } = (await mountRegionPanel())
+    const { root, unmount } = mountRegionPanel()
     const compact = root.querySelector<HTMLElement>('[data-region-output="gathered"][data-role-choice="compact"]')!
     expect(compact.getAttribute('data-tooltip-label')).toContain('Compact output')
 
@@ -564,8 +564,8 @@ describe('BoundaryPanel region occurrence context', () => {
     unmount()
   })
 
-  it('disables maximum iterations in a frozen execution view', async () => {
-    const mounted = (await mountRegionPanel())
+  it('disables maximum iterations in a frozen execution view', () => {
+    const mounted = mountRegionPanel()
     Object.defineProperty(mounted.tab, 'execution', { value: { backendId: 'proof', executionId: 'proof' }, configurable: true })
     mounted.app.tabs.set([...mounted.app.tabs.get()])
     expect(mounted.root.querySelector('[data-testid="boundary-frozen"]')?.getAttribute('role')).toBe('status')
@@ -576,7 +576,7 @@ describe('BoundaryPanel region occurrence context', () => {
   })
 
   it('distinguishes two occurrences and surfaces a while broadcast refusal legibly', async () => {
-    const { tab, root, unmount } = (await mountRegionPanel('while'))
+    const { tab, root, unmount } = mountRegionPanel('while')
     root.querySelector<HTMLButtonElement>('[data-region-binding="broadcast"]')!.click()
     await vi.waitFor(() => expect(root.querySelector('[data-testid="region-notice"]')).not.toBeNull())
     expect(tab.store.doc.graphs.root!.nodes.while!.region?.binding).toBeUndefined()
@@ -587,15 +587,15 @@ describe('BoundaryPanel region occurrence context', () => {
     unmount()
   })
 
-  it('fails closed for desynchronized or deleted occurrences while ordinary boundary editing remains', async () => {
-    const desync = (await mountRegionPanel())
+  it('fails closed for desynchronized or deleted occurrences while ordinary boundary editing remains', () => {
+    const desync = mountRegionPanel()
     desync.tab.graphStack.update((stack) => [...stack, 'body'])
     expect(desync.root.querySelector('[data-testid="region-panel"]')).toBeNull()
     expect(desync.root.querySelector('[data-testid="boundary-panel"]')).not.toBeNull()
     expect(desync.root.querySelectorAll('[data-testid="boundary-item"]')).toHaveLength(7)
     desync.unmount()
 
-    const deleted = (await mountRegionPanel())
+    const deleted = mountRegionPanel()
     expect(deleted.tab.store.dispatch({ command: 'node.remove', params: { graphId: 'root', nodeIds: ['fold'] } }).ok).toBe(true)
     expect(deleted.root.querySelector('[data-testid="region-panel"]')).toBeNull()
     expect(deleted.tab.graphStack.get()).toEqual(['root'])

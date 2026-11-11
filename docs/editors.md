@@ -34,21 +34,12 @@ rewrites or bolted-on views.
 Opening an image or compositor editor still selects its target synchronously.
 Decoded image sessions and compositor drafts wait for independent journaled
 ownership of their known source and resource digests before becoming editable.
-Compositor admission validates the full ImageDocument and declares its source
-document plus every external resource, including hidden layers, masks and unused
-resource records, as a complete editor inventory. Inline resources travel inside
-the document and do not require separate server identities. Invalid resources
-refuse admission rather than producing a complete empty inventory. These
-document-owner declarations do not certify other holders or enable collection.
-Refusal keeps the session or draft unavailable and uses the existing editor
-error surface.
+Declarations use the existing document-owner protocol with incomplete roots;
+they do not certify opaque resources or enable collection. Refusal keeps the
+session or draft unavailable and uses the existing editor error surface.
 Closing or replacing the target, changing its source/backend/registry or
 connection lifetime, or disposing the app prevents late admission. Component
 unmount and superseded runtime frames also prevent draft publication.
-Only publication of an acknowledged replacement on the same target, project,
-backend and catalog lifetime retires that target's captured predecessor revision.
-Canceled or out-of-order admission and unmount do not release owners. Receipts
-from another target or recovered from storage are not adopted for retirement.
 
 ## EditorRegistry
 
@@ -109,12 +100,9 @@ pan, and zoom belong to its temporary edit session. The transient `image`
 projection is therefore omitted from tab persistence and cannot be restored
 after refresh.
 
-Mask edits can still become durable workflow behavior. When a native
-`dinkster.load_image` mask has graph consumers, **Apply mask to graph** records the
-session's brush recipe in a source-bound `dinkster.mask.paint` node and rewires
-only those consumers. **Bake to asset** remains the explicit replacement path
-for other eligible image inputs. The graph command validates the source asset,
-paint node, and mask topology before making one undoable change.
+**Bake to asset** encodes the edited mask into a PNG and replaces the eligible
+image input in one undoable change. The source asset is checked again before
+the replacement. Graph-native mask recipes are parked in [the rework queue](rework-queue.md#mask-paint-applied-to-the-graph).
 
 Mask source loading requires acknowledged workflow asset ownership before
 fetching. The read remains owned through the response body and PNG decode;

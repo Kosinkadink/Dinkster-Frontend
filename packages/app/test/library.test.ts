@@ -94,13 +94,13 @@ afterEach(() => {
 })
 
 /** A native backend with live schemas, plus the CHAIN_DOC tab targeted at it. */
-async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'dinkster' }>; tab: Tab }> {
+function nativeSetup(): { backend: Extract<Backend, { protocol: 'dinkster' }>; tab: Tab } {
   const added = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
   if (!added || added.protocol !== 'dinkster') throw new Error('addBackend rejected')
   vi.spyOn(added.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
     ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   added.registry.set(buildDinksterRegistry(added.id, nodesPayload))
-  expect((await app.openDocument(CHAIN_DOC, 'Chain'))).toEqual([])
+  expect(app.openDocument(CHAIN_DOC, 'Chain')).toEqual([])
   const tab = app.activeTab()!
   app.setTabTarget(tab.id, added.id)
   return { backend: added, tab }
@@ -108,7 +108,7 @@ async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'd
 
 describe('saveWorkflow', () => {
   it.each(['available', 'denied', 'edited', 'timed out'] as const)('saves an early snapshot with optional location lookup %s', async (outcome) => {
-    const { backend } = (await nativeSetup())
+    const { backend } = nativeSetup()
     const source: NodeSchema = { type: 'test.asset-location', displayName: 'Asset location', category: 'test', source: 'v3', isOutputNode: false,
       items: [
         { kind: 'input', id: 'a', type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } }, optional: false },
@@ -129,7 +129,7 @@ describe('saveWorkflow', () => {
     const upload = vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST2)
     vi.spyOn(backend.connection, 'createLibraryRecord').mockResolvedValue(record({ digest: DIGEST2 }))
     const asset = { digest: DIGEST, name: 'early.png', size: 19, mediaType: 'image/png', virtualPath: 'input/early.png' }
-    await app.openDocument({ ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0, nodes: {
+    app.openDocument({ ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0, nodes: {
       ...CHAIN_DOC.graphs.g0.nodes, n0: { ...CHAIN_DOC.graphs.g0.nodes.n0, type: source.type, values: { a: asset, b: 4 } },
     } } } }, 'Early save')
     const tab = app.activeTab()!
@@ -168,7 +168,7 @@ describe('saveWorkflow', () => {
   })
 
   it('uploads the document and creates a labeled record; re-save patches it', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     const upload = vi
       .spyOn(backend.connection, 'uploadAsset')
       .mockResolvedValueOnce(DIGEST)
@@ -224,7 +224,7 @@ describe('saveWorkflow', () => {
   })
 
   it('a stale-revision conflict re-reads and retries exactly once', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST2)
     vi.spyOn(backend.connection, 'createLibraryRecord').mockResolvedValue(record())
     const patch = vi
@@ -248,7 +248,7 @@ describe('saveWorkflow', () => {
   })
 
   it('a deleted record falls back to creating a new one', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
     const create = vi
       .spyOn(backend.connection, 'createLibraryRecord')
@@ -263,7 +263,7 @@ describe('saveWorkflow', () => {
   })
 
   it('failures land in Problems and return false', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     app.reportProblems(tab.id, [diag('info', 'import', 'import.notice', 'Sampler: saved seed format is upgraded')])
     vi.spyOn(backend.connection, 'uploadAsset').mockRejectedValue(new Error('boom'))
     expect(await app.saveWorkflow(tab.id)).toBe(false)
@@ -273,7 +273,7 @@ describe('saveWorkflow', () => {
   })
 
   it('AP2: an edit made while the save is in flight keeps the tab dirty', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     let release!: (digest: string) => void
     const upload = vi
       .spyOn(backend.connection, 'uploadAsset')
@@ -294,7 +294,7 @@ describe('saveWorkflow', () => {
   })
 
   it('AP2: concurrent saves serialize - one record, then a patch, never duplicates', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
     const create = vi.spyOn(backend.connection, 'createLibraryRecord').mockResolvedValue(record())
     const patch = vi
@@ -310,7 +310,7 @@ describe('saveWorkflow', () => {
   })
 
   it('AP2: a same-lineage replacement tab inherits neither the link nor the clean flag', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     let release!: (digest: string) => void
     const upload = vi
       .spyOn(backend.connection, 'uploadAsset')
@@ -323,7 +323,7 @@ describe('saveWorkflow', () => {
     const saving = app.saveWorkflow(tab.id)
     await uploadStarted(upload) // ownership captured against the ORIGINAL tab
     // Replace the tab mid-save: same lineage, same tab id, NEW session.
-    expect((await app.openDocument(CHAIN_DOC, 'Chain (reopened)'))).toEqual([])
+    expect(app.openDocument(CHAIN_DOC, 'Chain (reopened)')).toEqual([])
     const replacement = app.activeTab()!
     expect(replacement.id).toBe(tab.id)
     expect(replacement.store).not.toBe(tab.store)
@@ -339,7 +339,7 @@ describe('saveWorkflow', () => {
   })
 
   it('AP2: an old save cannot steal or delete the link openFromLibrary installs mid-flight', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     // Link the tab first so the blocked save enters the patch path.
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValueOnce(DIGEST)
     vi.spyOn(backend.connection, 'createLibraryRecord').mockResolvedValue(record())
@@ -380,7 +380,7 @@ describe('saveWorkflow', () => {
   })
 
   it('AP2: a link made on one backend is never patched through another', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
     vi.spyOn(backend.connection, 'createLibraryRecord').mockResolvedValue(record())
     const patchA = vi.spyOn(backend.connection, 'patchLibraryRecord')
@@ -411,7 +411,7 @@ describe('saveWorkflow', () => {
 
 describe('openFromLibrary', () => {
   it.each(['accepted', 'refused', 'edited-before-bytes'] as const)('stages the workflow home before publication: %s', async (scenario) => {
-    const { backend, tab: previous } = (await nativeSetup())
+    const { backend, tab: previous } = nativeSetup()
     vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record())
     let deliverBytes!: (text: string) => void
     vi.spyOn(backend.connection, 'fetchAssetText').mockReturnValue(new Promise((done) => { deliverBytes = done }))
@@ -447,7 +447,7 @@ describe('openFromLibrary', () => {
   })
 
   it('opens the exact bytes, links the tab, and targets the workflow home', async () => {
-    const { backend } = (await nativeSetup())
+    const { backend } = nativeSetup()
     vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(
       record({ name: 'Opened Flow', revision: 3 }),
     )
@@ -476,7 +476,7 @@ describe('openFromLibrary', () => {
   })
 
   it('a missing record or missing bytes is a clean false', async () => {
-    const { backend } = (await nativeSetup())
+    const { backend } = nativeSetup()
     vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(undefined)
     expect(await app.openFromLibrary('gone', backend.id)).toBe(false)
 
@@ -486,7 +486,7 @@ describe('openFromLibrary', () => {
   })
 
   it('unparseable bytes land in Problems', async () => {
-    const { backend } = (await nativeSetup())
+    const { backend } = nativeSetup()
     vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record())
     vi.spyOn(backend.connection, 'fetchAssetText').mockResolvedValue('{not json')
     expect(await app.openFromLibrary('r1', backend.id)).toBe(false)
@@ -495,13 +495,13 @@ describe('openFromLibrary', () => {
 })
 
 describe('sourceDocument stamp on queue', () => {
-  it('rejects hostile or non-object original prompts without replacing the live tab', async () => {
-    const { tab } = (await nativeSetup())
+  it('rejects hostile or non-object original prompts without replacing the live tab', () => {
+    const { tab } = nativeSetup()
     const accessor = vi.fn(() => { throw new Error('accessor ran') })
     const getter = Object.defineProperty({}, 'value', { enumerable: true, get: accessor })
     const hostile = new Proxy({}, { getPrototypeOf: () => { throw new Error('prototype trap') } })
     for (const prompt of [hostile, getter, null, [], 17]) {
-      const diagnostics = (await app.openDocument(CHAIN_DOC, 'Untrusted prompt', undefined, false, prompt as JsonObject))
+      const diagnostics = app.openDocument(CHAIN_DOC, 'Untrusted prompt', undefined, false, prompt as JsonObject)
       expect(diagnostics.some((item) => item.severity === 'error')).toBe(true)
       expect(app.activeTab()).toBe(tab)
     }
@@ -509,7 +509,7 @@ describe('sourceDocument stamp on queue', () => {
   })
 
   it('submits retained import provenance unchanged after native edits and export/reopen', async () => {
-    const { backend } = (await nativeSetup())
+    const { backend } = nativeSetup()
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
     const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
       ok: true, execution: { connection: backend.id, prompt: asPromptId('original-test') },
@@ -526,7 +526,7 @@ describe('sourceDocument stamp on queue', () => {
       app.setTabTarget(imported.id, backend.id)
       expect((await app.dispatchTo(imported, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'a', value: 99 } })).ok).toBe(true)
       const saved = JSON.parse(JSON.stringify(app.exportDocument(imported.id)))
-      expect((await app.openDocument(saved, 'Reopened'))).toEqual([])
+      expect(app.openDocument(saved, 'Reopened')).toEqual([])
       const reopened = app.activeTab()!
       app.setTabTarget(reopened.id, backend.id)
       await app.queueSelection(reopened, ['n1'])
@@ -538,7 +538,7 @@ describe('sourceDocument stamp on queue', () => {
       expect(reopened.store.doc.graphs.g0!.nodes.n1!.values.a).toBe(99)
     }
     expect(submit).toHaveBeenCalledTimes(3)
-    expect((await app.openDocument(CHAIN_DOC, 'No import provenance'))).toEqual([])
+    expect(app.openDocument(CHAIN_DOC, 'No import provenance')).toEqual([])
     const plain = app.activeTab()!
     app.setTabTarget(plain.id, backend.id)
     await app.queueSelection(plain, ['n1'])
@@ -547,11 +547,11 @@ describe('sourceDocument stamp on queue', () => {
 
   it.each((['accepted', 'refused', 'closed', 'reused'] as const).flatMap((mode) =>
     [false, true].map((opaque) => ({ mode, opaque }))))('confirms late catalog roots before submitting a captured workflow: $mode opaque=$opaque', async ({ mode, opaque }) => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     backend.registry.set(undefined)
-    expect((await app.openDocument({ ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0, nodes: {
+    expect(app.openDocument({ ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0, nodes: {
       n0: { id: 'n0', type: 'DefaultAsset', values: {} },
-    }, links: {} } } }, 'Late default'))).toEqual([])
+    }, links: {} } } }, 'Late default')).toEqual([])
     const candidate = app.activeTab()!
     app.setTabTarget(candidate.id, backend.id)
     await app.confirmStartupOwnership()
@@ -646,7 +646,7 @@ describe('sourceDocument stamp on queue', () => {
   })
 
   it('stamps submissions and uploads once per unchanged document', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     const upload = vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
     const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
       ok: true,
@@ -671,7 +671,7 @@ describe('sourceDocument stamp on queue', () => {
   })
 
   it.each(['accepted', 'refused', 'lost response'] as const)('retains a source stamp before caching or submitting it: %s', async (mode) => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     const upload = vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
     const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
       ok: true, execution: { connection: backend.id, prompt: asPromptId('retained-stamp') },
@@ -720,7 +720,7 @@ describe('sourceDocument stamp on queue', () => {
   })
 
   it('does not reuse a retained source stamp on another backend with the same schemas', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
     vi.spyOn(backend.connection, 'submit').mockResolvedValue({
       ok: true, execution: { connection: backend.id, prompt: asPromptId('first-stamp') },
@@ -743,7 +743,7 @@ describe('sourceDocument stamp on queue', () => {
   })
 
   it('AP4: a same-lineage replacement never reuses the old session sourceDocument digest', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     const upload = vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
     const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
       ok: true,
@@ -759,7 +759,7 @@ describe('sourceDocument stamp on queue', () => {
       graphs: { g0: { nodes: { n0: { values: { a: number } } } } }
     }
     changed.graphs.g0.nodes.n0.values.a = 999
-    expect((await app.openDocument(changed, 'Chain (changed)'))).toEqual([])
+    expect(app.openDocument(changed, 'Chain (changed)')).toEqual([])
     const replacement = app.activeTab()!
     expect(replacement.id).toBe(tab.id)
     expect(replacement.store.revision).toBe(tab.store.revision) // the collision precondition
@@ -776,7 +776,7 @@ describe('sourceDocument stamp on queue', () => {
   })
 
   it('a failed upload degrades to an unstamped submission, never a blocked queue', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection, 'uploadAsset').mockRejectedValue(new Error('no library'))
     const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
       ok: true,

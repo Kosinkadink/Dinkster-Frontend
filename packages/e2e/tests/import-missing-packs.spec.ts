@@ -8,7 +8,7 @@ test('keeps installed conversions and editable missing-pack placeholders during 
     type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'STRING', multiline: false } }
   const installed = { schemaVersion: 1, displayName: 'Installed Text', interface: [stringPort],
     replacements: [{ from: 'InstalledLegacy', cases: [{ to: 'dinkster.text.installed', inputs: { text: { kind: 'copy', input: 'text' } }, outputs: {} }] }] }
-  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 503 }))
+  await page.route('/api/**', (route) => route.fulfill({ status: 503 }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, nodes: { 'dinkster.text.installed': installed },
@@ -24,9 +24,9 @@ test('keeps installed conversions and editable missing-pack placeholders during 
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)
-  const open = () => page.evaluate(async () => {
+  const open = () => page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    await app.openDocument({ nodes: [
+    app.openDocument({ nodes: [
       { id: 1, type: 'InstalledLegacy', pos: [30, 60], widgets_values: ['Installed value retained'] },
       { id: 2, type: 'MissingLegacy', pos: [360, 60], widgets_values: ['Missing value retained'] },
     ], links: [] }, 'Registry availability')
@@ -69,7 +69,7 @@ test('reports missing packs and preserves edits as the active registry gains the
   ]
   let releaseApply: (() => void) | undefined
   const plans: unknown[] = []
-  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 503 }))
+  await page.route('/api/**', (route) => route.fulfill({ status: 503 }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: installed ? 2 : 1, nodes: installed ? {
@@ -111,10 +111,10 @@ test('reports missing packs and preserves edits as the active registry gains the
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)
   await page.waitForFunction(() => window.__dinksterTest?.app.backends.get()[0]?.comfyTranslations.get().length === 2)
-  const opened = await page.evaluate(async () => {
+  const opened = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const backend = app.backends.get()[0]!
-    await app.openDocument({ nodes: [
+    app.openDocument({ nodes: [
       { id: 1, type: 'SaveImage', pos: [20, 40] },
       { id: 2, type: 'SaveImage', pos: [20, 240] },
       { id: 3, type: 'KSampler', pos: [340, 40] },

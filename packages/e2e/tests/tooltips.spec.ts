@@ -123,20 +123,12 @@ test('node palette port product tooltip preserves hover and keyboard wording', a
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
 })
 
-test('shell, surface, and minimap seams use product tooltips without document writes', async ({ page }) => {
+test('shell and minimap seams use product tooltips without document writes', async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'shell-tooltip-fixture', schemaWire: 1 }, nodes: {},
   } }))
-  await page.addInitScript(() => localStorage.setItem('dinkster.settings', JSON.stringify({
-    v: 1,
-    values: { 'features.controlSurfaces.enabled': true },
-  })))
   await page.reload()
   await expect(page.getByTestId('left-panel-toggle')).toBeEnabled()
-  await openRailPanel(page, 'Control surfaces')
-  await page.getByTestId('surface-add').click()
-  const surface = page.locator('[data-testid^="surface-"]').filter({ has: page.locator('.surface-header') }).first()
-  const surfaceRemove = surface.locator('[data-testid^="surface-remove-"]')
   await page.getByTestId('minimap-settings').click()
   const minimapToggle = page.getByTestId('minimap-marker-toggle')
   const shellToggle = page.getByTestId('left-panel-toggle')
@@ -162,8 +154,6 @@ test('shell, surface, and minimap seams use product tooltips without document wr
   )
   await expect(shellToggle).toHaveAccessibleName('Toggle left panel')
   await expect(shellToggle).toHaveAttribute('aria-pressed', /true|false/)
-  await proveTooltip(surfaceRemove, 'Delete surface')
-  await expect(surfaceRemove).toHaveAccessibleName('Delete surface')
   await proveTooltip(minimapToggle, 'Show bookmark numbers on the minimap')
   await expect(minimapToggle).toHaveAccessibleName('Bookmarks. Show bookmark numbers on the minimap')
 
@@ -261,7 +251,7 @@ test('canvas pin and widget hover identities follow the pointer and clear on lea
 
 test('mismatch noodle midpoint grab-dot tooltip shows the retained solver diagnostic', async ({ page }) => {
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  const point = await page.evaluate(async () => {
+  const point = await page.evaluate(() => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([
       {
@@ -273,7 +263,7 @@ test('mismatch noodle midpoint grab-dot tooltip shows the retained solver diagno
         items: [{ kind: 'input', id: 'input', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
       },
     ])
-    await test.app.openDocument({
+    test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'tooltip-mismatch', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         source: { id: 'source', type: 'TooltipImage', values: {} },

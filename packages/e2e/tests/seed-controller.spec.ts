@@ -106,7 +106,7 @@ test('controller choice awaits acceptance and preserves refused or newer menus',
   annotation: { type: 'mock-controller-dispatch' },
 }, async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1366, height: 768 })
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([{
       type: 'ControlledSeed', displayName: 'Controlled seed', category: 'test', source: 'v3', isOutputNode: false,
@@ -115,13 +115,13 @@ test('controller choice awaits acceptance and preserves refused or newer menus',
         widget: { widgetType: 'INT', options: { min: 0, max: 1000, step: 1 }, default: 100, controller: 'after_generate' as const },
       })),
     }])
-    const diagnostics = (await bridge.app.openDocument({
+    const diagnostics = bridge.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'controller-dispatch', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         n0: { id: 'n0', type: 'ControlledSeed', values: { seed: 100, other: 200 }, controllers: { seed: 'fixed', other: 'increment' } },
       }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { g0: { nodes: { n0: { position: { x: 100, y: 100 } } } } } },
-    }, 'Controller dispatch'))
+    }, 'Controller dispatch')
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
   })
   await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
@@ -237,7 +237,7 @@ test('INT expanded editor has no controller control; the compact chip remains th
 test('20 rapid INT increments commit exact declared steps and undo individually', {
   annotation: { type: 'mock-legacy-discovery' },
 }, async ({ page }) => {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'RapidSeedE2E', displayName: 'Rapid Seed', category: 'test', source: 'v3', isOutputNode: false,
@@ -249,7 +249,7 @@ test('20 rapid INT increments commit exact declared steps and undo individually'
         },
       }],
     }])
-    await test.app.openDocument({
+    test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'rapid-seed-e2e', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         n0: { id: 'n0', type: 'RapidSeedE2E', values: { seed: 100 }, controllers: { seed: 'increment' } },
@@ -287,7 +287,7 @@ test('20 rapid INT increments commit exact declared steps and undo individually'
 test('completed runs advance promoted controller values on each subgraph occurrence', {
   annotation: { type: 'mock-legacy-discovery' },
 }, async ({ page }, testInfo) => {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'PromotedControllerE2E', displayName: 'Promoted Controller', category: 'test', source: 'v3', isOutputNode: true,
@@ -302,7 +302,7 @@ test('completed runs advance promoted controller values on each subgraph occurre
         { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' } },
       ],
     }])
-    await test.app.openDocument({
+    test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'promoted-controller-e2e', root: 'root',
       graphs: {
         root: {
@@ -364,7 +364,7 @@ test('completed runs advance promoted controller values on each subgraph occurre
 test('promoted fan-out advancement follows primary binding order', {
   annotation: { type: 'mock-legacy-discovery' },
 }, async ({ page }, testInfo) => {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const controlled = (type: string, name: string) => ({
       type, displayName: name, category: 'test', source: 'v3', isOutputNode: true,
       items: [
@@ -400,7 +400,7 @@ test('promoted fan-out advancement follows primary binding order', {
       }],
       outputs: [{ id: 'out', binds: { kind: 'port', node: 'primary', port: 'out' } }],
     }
-    await test.app.openDocument({
+    test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'controller-fanout-order-e2e', root: 'root',
       graphs: {
         root: {
@@ -461,7 +461,7 @@ test('promoted fan-out advancement follows primary binding order', {
 test('controller rows keep stable responsive value geometry across digit widths', {
   annotation: { type: 'mock-legacy-discovery' },
 }, async ({ page }) => {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const numeric = (id: string, value: number, controlled = true) => ({
       kind: 'input', id, type: { kind: 'concrete', name: 'INT' }, optional: false,
       widget: {
@@ -480,7 +480,7 @@ test('controller rows keep stable responsive value geometry across digit widths'
         numeric('ordinary', 50, false),
       ],
     }])
-    await test.app.openDocument({
+    test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'controller-widths', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         n0: {
@@ -590,7 +590,7 @@ test('remote COMBO reuses the controller chip with refresh-specific copy', async
     remoteRequests += 1
     await route.fulfill({ json: ['alpha', 'beta', 'gamma'] })
   })
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'RefreshComboE2E', displayName: 'Refresh Combo', category: 'test', source: 'v3', isOutputNode: false,
@@ -602,7 +602,7 @@ test('remote COMBO reuses the controller chip with refresh-specific copy', async
         },
       }],
     }])
-    await test.app.openDocument({
+    test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'refresh-combo-e2e', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         n0: { id: 'n0', type: 'RefreshComboE2E', values: { choice: 'alpha' }, controllers: { choice: 'increment' } },

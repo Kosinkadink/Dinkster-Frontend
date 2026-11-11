@@ -1,10 +1,5 @@
 import {
   isImageAssetInput,
-  MAX_MASK_PAINT_COMMANDS,
-  MAX_MASK_PAINT_JSON_BYTES,
-  MAX_MASK_PAINT_STROKE_POINTS,
-  MAX_MASK_PAINT_TOTAL_POINTS,
-  parseMaskPaintRecipe,
   type AssetRef,
   type NodeSchema,
 } from '@dinkster/core'
@@ -21,55 +16,6 @@ export interface ImageSession {
   readonly source: ImageRaster
   readonly operations: readonly MaskEditOperation[]
   readonly index: number
-}
-
-function maskPaintCommands(operations: readonly MaskEditOperation[]): readonly Record<string, unknown>[] {
-  let totalPoints = 0
-  if (operations.length > MAX_MASK_PAINT_COMMANDS) throw new Error(`Mask edits exceed ${MAX_MASK_PAINT_COMMANDS} commands`)
-  return operations.map((operation) => {
-    if (operation.kind === 'mask.clear') return { op: 'clear' }
-    if (operation.kind === 'mask.invert') return { op: 'invert' }
-    if (operation.points.length < 1 || operation.points.length > MAX_MASK_PAINT_STROKE_POINTS) {
-      throw new Error(`A mask stroke must contain 1 to ${MAX_MASK_PAINT_STROKE_POINTS} points`)
-    }
-    totalPoints += operation.points.length
-    if (totalPoints > MAX_MASK_PAINT_TOTAL_POINTS) throw new Error(`Mask edits exceed ${MAX_MASK_PAINT_TOTAL_POINTS} points`)
-    return {
-      op: 'stroke', mode: operation.mode, size: operation.size, hardness: operation.hardness,
-      points: operation.points.map(({ x, y, pressure }) => ({ x, y, pressure })),
-    }
-  })
-}
-
-export function maskPaintOperationsJson(session: ImageSession, sourceDigest: string): string {
-  const value = JSON.stringify({
-    version: 1,
-    sourceDigest,
-    width: session.source.width,
-    height: session.source.height,
-    commands: maskPaintCommands(session.operations.slice(0, session.index + 1)),
-  })
-  if (new TextEncoder().encode(value).length > MAX_MASK_PAINT_JSON_BYTES) throw new Error('Mask edits exceed 4 MiB')
-  return value
-}
-
-export function restoreMaskPaintSession(base: ImageSession, value: string, sourceDigest: string): ImageSession {
-  const raw = parseMaskPaintRecipe(value)
-  if (!raw || raw.sourceDigest !== sourceDigest || raw.width !== base.source.width || raw.height !== base.source.height) {
-    throw new Error('Existing mask operations do not match this source')
-  }
-  const operations: MaskEditOperation[] = []
-  for (const command of raw.commands) {
-    if (command.op === 'clear' || command.op === 'invert') {
-      operations.push({ kind: command.op === 'clear' ? 'mask.clear' : 'mask.invert' })
-      continue
-    }
-    const points = command.points.map((point, index) => {
-      return { x: point.x, y: point.y, pressure: point.pressure, time: index, tiltX: 0, tiltY: 0, twist: 0 }
-    })
-    operations.push({ kind: 'mask.stroke', mode: command.mode, size: command.size, hardness: command.hardness, points })
-  }
-  return { ...base, operations, index: operations.length - 1 }
 }
 
 export function isAssetRef(value: unknown): value is AssetRef {

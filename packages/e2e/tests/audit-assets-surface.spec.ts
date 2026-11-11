@@ -6,23 +6,6 @@ const sharedDigest = `blake3:${'a'.repeat(64)}`
 const localDigest = `blake3:${'b'.repeat(64)}`
 const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XxW8WQAAAABJRU5ErkJggg==', 'base64')
 
-const candidate = {
-  logicalId: 'federated-winner', family: 'flux', assetKind: 'model/checkpoint', variantId: 'fp16',
-  dtype: 'fp16', quantization: 'none', format: 'safetensors', role: 'base',
-  requirements: { loaders: [], runtimes: [], hardware: [] }, digest: sharedDigest,
-  availability: { status: 'local', reason: '' }, compatibility: { status: 'compatible', reason: '' },
-  assetRef: { digest: sharedDigest, name: 'Federated Winner.safetensors', size: 20, mediaType: 'application/octet-stream', virtualPath: 'models/federated.safetensors' },
-  providerSources: [{ source: { providerId: 'registry', sourceId: 'primary' }, status: 'available', reason: '', requires: {} }],
-}
-
-const secondCandidate = {
-  ...candidate,
-  logicalId: 'federated-second',
-  variantId: 'bf16',
-  digest: `blake3:${'e'.repeat(64)}`,
-  assetRef: { ...candidate.assetRef, digest: `blake3:${'e'.repeat(64)}`, name: 'Federated Second.safetensors', virtualPath: 'models/federated-second.safetensors' },
-}
-
 test('uses the configured All assets source while preserving curated per-mount browsing', async ({ page }) => {
   await mkdir(PROOF, { recursive: true })
   let catalogRequests = 0
@@ -52,7 +35,7 @@ test('uses the configured All assets source while preserving curated per-mount b
   })
   await page.route('/api/catalog', (route) => {
     catalogRequests += 1
-    return route.fulfill({ json: { contractVersion: 1, items: [secondCandidate, candidate] } })
+    return route.fulfill({ json: { items: [] } })
   })
   await page.route('/api/assets/*', (route) => route.fulfill({ contentType: 'image/png', body: pixel }))
   await page.route('**/api/assets/catalog?*', (route) => route.fulfill({ json: { assets: [] } }))
@@ -65,35 +48,12 @@ test('uses the configured All assets source while preserving curated per-mount b
   await expect(page.getByText('Browse assets across mounted sources', { exact: true })).toHaveCount(0)
   await expect(page.getByTestId('assets-overlay')).toBeVisible()
   await expect.poll(() => page.getByRole('option').count()).toBeGreaterThan(0)
-  const federated = catalogRequests > 0
-  if (federated) {
-    await expect(page.getByRole('option')).toHaveCount(5)
-    await expect(page.getByRole('option', { name: /Federated Winner\.safetensors/ })).toBeVisible()
-    await expect(page.getByRole('option', { name: /Federated Second\.safetensors/ })).toBeVisible()
-    await expect(page.getByRole('option', { name: /local\.safetensors/ })).toBeVisible()
-    await expect(page.getByRole('option', { name: /image\.png/ })).toBeVisible()
-    await expect(page.getByRole('option', { name: /second\.safetensors/ })).toBeVisible()
-    await expect(page.getByRole('option', { name: /duplicate\.safetensors/ })).toHaveCount(0)
-    const winner = page.getByRole('option', { name: /Federated Winner\.safetensors/ })
-    await expect(winner.locator('.collection-subtitle')).toHaveCount(0)
-    await expect(winner.locator('.collection-badge')).toHaveText(['20 B'])
-    await winner.click()
-    const details = page.getByTestId('asset-selection-summary')
-    await details.getByTestId('asset-rail-details').locator('summary').click()
-    await expect(details).toContainText('Kindmodel/checkpoint')
-    await expect(details).toContainText('Virtual pathmodels/federated.safetensors')
-    await expect(details).toContainText('Providerregistry')
-    await expect(details).toContainText('Provider sourceprimary')
-    await expect(details).toContainText('Availabilitylocal:')
-    await expect(details).toContainText('Compatibilitycompatible:')
-  } else {
-    await expect(page.getByRole('option')).toHaveCount(4)
-    await expect(page.getByRole('option', { name: /duplicate\.safetensors/ })).toBeVisible()
-    await expect(page.getByRole('option', { name: /image\.png/ })).toBeVisible()
-    await expect(page.getByRole('option', { name: /local\.safetensors/ })).toBeVisible()
-    await expect(page.getByRole('option', { name: /second\.safetensors/ })).toBeVisible()
-    expect(catalogRequests).toBe(0)
-  }
+  await expect(page.getByRole('option')).toHaveCount(4)
+  await expect(page.getByRole('option', { name: /duplicate\.safetensors/ })).toBeVisible()
+  await expect(page.getByRole('option', { name: /image\.png/ })).toBeVisible()
+  await expect(page.getByRole('option', { name: /local\.safetensors/ })).toBeVisible()
+  await expect(page.getByRole('option', { name: /second\.safetensors/ })).toBeVisible()
+  expect(catalogRequests).toBe(0)
   const sourceSelect = page.getByTestId('asset-source-select')
   await expect(sourceSelect).toHaveAttribute('data-selected-id', 'all-assets')
   await sourceSelect.click()
@@ -123,13 +83,9 @@ test('uses the configured All assets source while preserving curated per-mount b
 
   await sourceSelect.click()
   await sourceList.getByRole('option', { name: 'All assets', exact: true }).click()
-  await expect(page.getByRole('option')).toHaveCount(federated ? 5 : 4)
+  await expect(page.getByRole('option')).toHaveCount(4)
   await expect(page.getByRole('option', { name: /local\.safetensors/ })).toBeVisible()
-  if (federated) {
-    await expect(page.getByRole('option', { name: /Federated Winner\.safetensors/ })).toBeVisible()
-  } else {
-    await expect(page.getByRole('option', { name: /Federated Winner\.safetensors/ })).toHaveCount(0)
-  }
+  await expect(page.getByRole('option', { name: /Federated Winner\.safetensors/ })).toHaveCount(0)
 
   await page.getByTestId('assets-toggle').hover()
   const description = page.getByText('Browse assets across mounted sources', { exact: true })
@@ -149,11 +105,7 @@ test('uses the configured All assets source while preserving curated per-mount b
   const assetsPanel = page.getByTestId('assets-overlay')
   await assetsPanel.getByTestId('collection-mode').click()
   await expect(assetsPanel.getByTestId('collection-items')).toHaveAttribute('data-mode', 'grid')
-  if (federated) {
-    await expect(assetsPanel.getByRole('option', { name: /Federated Winner\.safetensors/ }).locator('.collection-badge')).toHaveText(['20 B'])
-  } else {
-    await expect(assetsPanel.getByRole('option', { name: /local\.safetensors/ }).locator('.collection-badge').last()).toHaveText('21 B')
-  }
+  await expect(assetsPanel.getByRole('option', { name: /local\.safetensors/ }).locator('.collection-badge').last()).toHaveText('21 B')
   await page.keyboard.press('Escape')
   await expect(page.locator('.app-tooltip')).not.toBeVisible()
   await page.screenshot({ path: `${PROOF}/01-configured-all-assets-grid.png`, fullPage: true })

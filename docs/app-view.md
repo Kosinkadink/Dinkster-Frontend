@@ -2,8 +2,8 @@
 
 App View is experimental and off by default. To opt in, open Settings and
 enable **Enable App View (experimental)** under **Features App View**
-(`features.appView.enabled`). This uses the same persisted boolean settings
-mechanism as Control Surfaces and applies immediately across the shell.
+(`features.appView.enabled`). This persisted boolean setting applies
+immediately across the shell.
 
 While disabled, the App selector, toggle command and shortcut, widget and
 preview promotion menus, and Exposure lens are hidden. Persisted `app` tabs

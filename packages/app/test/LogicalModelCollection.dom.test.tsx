@@ -181,7 +181,7 @@ describe('logical model CollectionPanel adapter', () => {
     expect(installed.getAttribute('aria-selected')).toBe('true')
   })
 
-  it('keeps aliases, variant facts, providers, warnings, and download actions in the selection details', () => {
+  it('keeps variant facts and explains run-time download approval without a picker download action', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const detailVariant = withoutLocalRef(variant({
@@ -191,9 +191,9 @@ describe('logical model CollectionPanel adapter', () => {
       conflicts: [{ code: 'basename-digest-conflict', basename: 'model.safetensors', otherVariantId: B }],
       availability: 'downloadable',
     }))
+    const [selectedVariant, setSelectedVariant] = createSignal(detailVariant)
     render(() => <LogicalModelVariantFacts
-      detail={{ modelName: 'Model', aliases: ['renamed.safetensors'], variant: detailVariant }}
-      acquisitionSupported={false}
+      detail={{ modelName: 'Model', aliases: ['renamed.safetensors'], variant: selectedVariant() }}
     />, root)
 
     const text = root.textContent!
@@ -206,7 +206,14 @@ describe('logical model CollectionPanel adapter', () => {
     expect(text).toContain('Fixture')
     expect(text).toContain('incompatible')
     expect(text).toContain('Name conflict')
-    expect(root.querySelector<HTMLButtonElement>('[data-testid="logical-model-download"]')!.disabled).toBe(true)
+    expect(text).toContain('Not on disk. A download is offered when the workflow runs.')
+    expect(text).not.toContain('Download unavailable')
+    expect(root.querySelector('[data-testid="logical-model-download"]')).toBeNull()
+
+    setSelectedVariant({ ...detailVariant, availability: 'unavailable' })
+    expect(root.textContent).toContain('Not on disk. A download is offered when the workflow runs.')
+    setSelectedVariant(variant())
+    expect(root.textContent).not.toContain('Not on disk.')
   })
 
   it('updates an open variant disclosure while model and provider data stay raw', () => {
@@ -218,9 +225,7 @@ describe('logical model CollectionPanel adapter', () => {
       'assets.fact.digest': '[Digest DE]',
       'assets.logicalModel.aliases': '[Aliase]',
       'assets.logicalModel.availability': '[Verfugbarkeit]',
-      'assets.logicalModel.download': '[Herunterladen]',
-      'assets.logicalModel.downloadUnavailable': '[Download nicht verfugbar]',
-      'assets.logicalModel.downloadUnsupported': '[Kein Downloadvertrag.]',
+      'assets.logicalModel.notOnDisk': '[Nicht auf Datentrager. Download beim Ausfuhren.]',
       'assets.logicalModel.format': '[Format DE]',
       'assets.logicalModel.incompatible': '[inkompatibel]',
       'assets.logicalModel.model': '[Modell]',
@@ -241,7 +246,6 @@ describe('logical model CollectionPanel adapter', () => {
     }))
     render(() => <LogicalModelVariantFacts
       detail={{ modelName: 'RAW Model', aliases: ['RAW alias'], variant: detailVariant }}
-      acquisitionSupported={false}
     />, root)
     const details = root.querySelector<HTMLDetailsElement>('[data-testid="logical-model-variant-details"]')!
     details.querySelector('summary')!.click()
@@ -260,7 +264,7 @@ describe('logical model CollectionPanel adapter', () => {
     expect(details.textContent).toContain('RAW alias')
     expect(details.textContent).toContain('[inkompatibel]: RAW runtime reason')
     expect(details.textContent).toContain('[Namenskonflikt.]')
-    expect(details.textContent).toContain('[Download nicht verfugbar]')
-    expect(details.querySelector<HTMLButtonElement>('[data-testid="logical-model-download"]')?.textContent).toBe('[Herunterladen]')
+    expect(details.textContent).toContain('[Nicht auf Datentrager. Download beim Ausfuhren.]')
+    expect(details.querySelector('[data-testid="logical-model-download"]')).toBeNull()
   })
 })

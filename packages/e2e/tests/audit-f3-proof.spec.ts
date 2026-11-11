@@ -17,7 +17,7 @@ test('proves product numeric, slider, and color controls without native chrome',
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
   await waitForStartupOwnership(page)
 
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app as any
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,
@@ -27,7 +27,7 @@ test('proves product numeric, slider, and color controls without native chrome',
       type: 'NumericProof', displayName: 'Numeric proof', category: 'proof', source: 'v3', isOutputNode: false,
       items: [widget('count', 'INT', 5, { min: 0, max: 100, step: 5 }), widget('color', 'COLOR', '#112233')],
     }])
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'numeric-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { proof: { id: 'proof', type: 'NumericProof', values: { count: 5, color: 'not-a-color' } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { proof: { position: { x: 100, y: 100 } } } } } },

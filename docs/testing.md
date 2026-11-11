@@ -15,7 +15,7 @@ This command runs `check-extension-literals`, `check-ui-strings`, and
 `typecheck` (the latter also runs `check-path-case`) and a fixed unit subset.
 The extension check pins every intentional backend node-id literal and widget
 type comparison to an exact source location, owning issue, and non-increasing
-ceiling. The committed ceilings are zero node-id literals and 86 widget-type
+ceiling. The committed ceilings are zero node-id literals and 85 widget-type
 comparisons. Both have zero slack, so each ceiling must equal its measured
 count, and the fast check rejects any increase from the merge base even when
 the allowlist is edited to match. New and stale entries also fail. After merging main, run
@@ -81,9 +81,20 @@ values select hosted images for main validation, schedules, and manual runs.
 
 ## Full validation
 
+The hosted browser backend also composes `packages/e2e/fixtures/guide-pack`,
+a node-free pack with one guide. `guide-browsing.spec.ts` checks Learn's
+availability with an empty primary catalog, reads the second backend's real
+immutable guide page, and withdraws Learn when that guide server disconnects.
+
 The App View queue fixture creates its submission-release promise before the
 request handler runs, so observing Submitting can release either an already
 waiting request or one that arrives afterward without losing the release.
+
+The Activity, Extensions and Media locale proofs flush fixture persistence and
+wait for a committed version-1 snapshot with no pending workspace candidates
+before recording request baselines. Document recovery slots remain available
+after a commit and are not pending workspace writes. The locale assertions
+still count every backend request.
 
 Screenshots use the product's bundled fonts, including canvas text, without
 test-only font injection or host font configuration. Baseline paths are shared

@@ -12,7 +12,7 @@ test('widget tap drag creates a tap-sourced link and undo removes it', async ({ 
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
 
-  const points = await page.evaluate(async () => {
+  const points = await page.evaluate(() => {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([
       {
@@ -27,7 +27,7 @@ test('widget tap drag creates a tap-sourced link and undo removes it', async ({ 
         items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false }],
       },
     ])
-    const failures = (await bridge.app.openDocument({
+    const failures = bridge.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'widget-tap-e2e', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         source: { id: 'source', type: 'TapWidget', values: { amount: 2 } },
@@ -36,7 +36,7 @@ test('widget tap drag creates a tap-sourced link and undo removes it', async ({ 
       view: { graphs: { g0: { nodes: {
         source: { position: { x: 100, y: 160 } }, sink: { position: { x: 500, y: 160 } },
       } } } },
-    }, 'Widget Tap'))
+    }, 'Widget Tap')
     if (failures.length) throw new Error(`openDocument failed: ${JSON.stringify(failures)}`)
 
     const renderer = bridge.renderer!

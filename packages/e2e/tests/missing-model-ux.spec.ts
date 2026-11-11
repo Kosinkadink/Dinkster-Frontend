@@ -47,7 +47,7 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
   const checkpoint = checkpointEntries.entries.find((entry) => entry['name'] === 'audit-local-checkpoint.safetensors')
   expect(checkpoint).toBeDefined()
   const { kind: _kind, ...checkpointRef } = checkpoint!
-  await page.evaluate(async (requested) => {
+  await page.evaluate((requested) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'auditModelLoader', displayName: 'audit Model Loader', category: 'test', source: 'v3', isOutputNode: false,
@@ -59,7 +59,7 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
         },
       }],
     }])
-    await app.openDocument({
+    app.openDocument({
       last_node_id: 1, last_link_id: 0,
       nodes: [{ id: 1, type: 'auditModelLoader', pos: [120, 100], widgets_values: [requested] }],
       links: [], groups: [], config: {}, extra: {}, version: 0.4,
@@ -101,7 +101,9 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
   await expect(details).toContainText('audit-definitely-missing-model.safetensors')
   await expect(details).toContainText('model/checkpoint')
   await expect(details).toContainText('application/x-safetensors, application/octet-stream')
-  await expect(details.getByTestId('asset-download')).toBeDisabled()
+  await expect(details.getByTestId('asset-not-on-disk')).toHaveText('Not on disk. A download is offered when the workflow runs.')
+  await expect(editor.getByText('Download unavailable', { exact: true })).toHaveCount(0)
+  await expect(editor.getByTestId('asset-download')).toHaveCount(0)
 
   const guessesBeforeRetry = guessBodies.length
   await details.getByTestId('asset-retry-match').click()
@@ -133,9 +135,9 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
     const app = window.__dinksterTest!.app
     return app.exportDocument(app.activeTab()!.id)
   })
-  expect(await page.evaluate(async (document) => {
+  expect(await page.evaluate((document) => {
     const app = window.__dinksterTest!.app
-    await app.openDocument(document, 'audit reopened missing model')
+    app.openDocument(document, 'audit reopened missing model')
     return app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.model
   }, exported)).toBe(REQUESTED)
   await expect.poll(() => page.evaluate(() => {

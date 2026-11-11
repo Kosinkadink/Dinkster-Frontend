@@ -14,7 +14,6 @@ import {
   type ReadonlySignal,
 } from '@dinkster/core'
 import { createMemo, createUniqueId, For, Match, onCleanup, Show, Switch } from 'solid-js'
-import { AssetEditorShell } from './AssetEditorShell.js'
 import { ProductButton } from './ProductControls.js'
 import type { CommandRegistry } from './settings.js'
 
@@ -92,7 +91,7 @@ export class HostUiContributionRegistry {
 }
 
 function HostUiNode(props: { readonly node: HostUiNodeV1; readonly commands: CommandRegistry; readonly idPrefix: string; readonly core?: boolean }) {
-  const toneClass = () => `host-ui-tone-${props.node.kind === 'group' || props.node.kind === 'asset-editor' ? 'neutral' : (props.node.tone ?? 'neutral')}`
+  const toneClass = () => `host-ui-tone-${props.node.kind === 'group' ? 'neutral' : (props.node.tone ?? 'neutral')}`
   return <Switch>
     <Match when={props.node.kind === 'group' ? props.node : undefined}>{(node) => (
       <span class={`host-ui-group host-ui-${node().direction}`} data-host-ui-key={node().key}>
@@ -128,9 +127,6 @@ function HostUiNode(props: { readonly node: HostUiNodeV1; readonly commands: Com
         <Show when={disabled() && node().disabledReason}><span id={reasonId()} class="host-ui-disabled-reason">{node().disabledReason}</span></Show>
       </>
     }}</Match>
-    <Match when={props.node.kind === 'asset-editor' ? props.node : undefined}>{(node) => (
-      <AssetEditorShell presentation={node().presentation} commands={props.commands} idPrefix={props.idPrefix} hostUiKey={node().key} />
-    )}</Match>
   </Switch>
 }
 
@@ -158,10 +154,6 @@ export function HostUiProviderHost(props: HostUiProviderHostProps) {
       const decoded = decodeHostUiContributionV1(props.provider(context))
       if (!decoded.contribution) {
         props.replaceProblems(props.owner, [...decoded.diagnostics])
-        return undefined
-      }
-      if (decoded.contribution.root.kind === 'asset-editor' && context.surface !== 'widget-editor') {
-        props.replaceProblems(props.owner, [diag('error', 'extension', 'host-ui.invalid', '$.root.kind: asset-editor requires the widget-editor surface')])
         return undefined
       }
       props.replaceProblems(props.owner, [])

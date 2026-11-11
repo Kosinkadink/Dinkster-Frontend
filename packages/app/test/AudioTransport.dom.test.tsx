@@ -4,7 +4,7 @@ import { createSignal as createSolidSignal } from 'solid-js'
 import { createSignal, registerCatalog, setLocale } from '@dinkster/core'
 import type { NodePreview } from '@dinkster/canvas'
 import type { AppState } from '../src/app-state.js'
-import { AudioTransport, audioPlayhead, setAudioPlayhead } from '../src/AudioTransport.js'
+import { AudioTransport } from '../src/AudioTransport.js'
 import { CurveEditor } from '../src/CurveEditor.js'
 import { NodeMediaOverlay } from '../src/CanvasHost.js'
 import { AppPreviewSurface } from '../src/AppPreviewSurface.js'
@@ -96,7 +96,7 @@ describe('shared audio transport lifecycle', () => {
     load = vi.fn(async (start) => ({ start, duration: 3, window: new ArrayBuffer(16), waveform: new ArrayBuffer(16), diagnostics: [] }))
     dispose = render(() => <AudioTransport media={{ kind: 'audio', src: '', audio: { identity: 'audio', canScrub: true, canSelectBatch: true, meta: { duration: 10, batch: 2, channels: 6, layout: '5.1', sample_rate: 48000 }, load } }} />, root)
   })
-  afterEach(() => { dispose(); root.remove(); setAudioPlayhead(undefined); setLocale('en'); vi.restoreAllMocks() })
+  afterEach(() => { dispose(); root.remove(); setLocale('en'); vi.restoreAllMocks() })
   it.each([false, true].flatMap((appView) => [false, true].map((bounded) => ({ appView, bounded }))))(
     'forwards only source decode failures (App: $appView, bounded: $bounded)', async ({ appView, bounded }) => {
       dispose()
@@ -141,13 +141,11 @@ describe('shared audio transport lifecycle', () => {
     slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }))
     audio.dispatchEvent(new Event('timeupdate'))
     expect(slider.getAttribute('aria-valuenow')).toBe('0.1')
-    expect(audioPlayhead()?.time).toBe(0.1)
     finish({ start: 0.1, duration: 3, window: new ArrayBuffer(16), diagnostics: [] })
     await next()
     audio.currentTime = 0.25
     audio.dispatchEvent(new Event('timeupdate'))
     expect(slider.getAttribute('aria-valuenow')).toBe('0.35')
-    expect(audioPlayhead()?.time).toBe(0.35)
   })
   it('keeps a late failed window from replacing a newer successful selection', async () => {
     await next()
@@ -174,7 +172,6 @@ describe('shared audio transport lifecycle', () => {
     setMedia({ kind: 'audio', src: '', audio: { ...audio } })
     await next()
     expect(slider.getAttribute('aria-valuenow')).toBe('0.1')
-    expect(audioPlayhead()?.time).toBe(0.1)
     setMedia({ kind: 'audio', src: '', audio: { ...audio, identity: 'second' } })
     await next()
     expect(slider.getAttribute('aria-valuenow')).toBe('0')
@@ -234,12 +231,12 @@ describe('shared audio transport lifecycle', () => {
     expect(root.querySelector('[aria-label="Audio position"]')?.getAttribute('aria-disabled')).toBe('true')
     expect(root.textContent).toContain('Batch selection not advertised by backend')
   })
-  it('does not project process-global audio onto an unrelated editable curve', async () => {
+  it('keeps audio playback separate from an editable curve', async () => {
     await next()
     const audio = root.querySelector('audio')!
     audio.currentTime = 2
     audio.dispatchEvent(new Event('timeupdate'))
-    expect(audioPlayhead()?.time).toBe(2)
+    expect(root.querySelector('[aria-label="Audio position"]')?.getAttribute('aria-valuenow')).toBe('2')
     const request = { tabId: 'tab', graphId: 'g', nodeId: 'envelope', inputId: 'curve', instancePath: [], openedValue: { points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] } }
     const app = {
       curveEditorTarget: createSignal(request), tabs: createSignal([{ id: 'tab', store: { document: createSignal({}) } }]), activeTabId: createSignal('tab'), store: { executions: createSignal(new Map()) },
@@ -310,104 +307,6 @@ describe('shared audio transport lifecycle', () => {
     expect(target.get()).toBe(replace ? replacement : accepted ? undefined : request)
     if (!accepted && !replace) expect(curve.textContent).toContain('Curve update was refused')
     if (replace) expect(curve.textContent).not.toContain('Curve update was refused')
-    closeCurve()
-  })
-  it('loads the executed envelope curve and follows only its exact audio source', async () => {
-    const request = {
-      tabId: 'tab', graphId: 'g', nodeId: 'editor', inputId: 'curve', instancePath: ['sub'],
-      openedStoredValue: undefined, openedSchemaDefault: undefined,
-      openedValue: { points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] },
-      follow: { envelopeNodeId: 'envelope', audioNodeId: 'audio', audioOutputId: 'audio' },
-    }
-    const documentSignal = createSignal({})
-    const tab = { id: 'tab', store: { document: documentSignal } }
-    const prompt = {
-      'audio-input': { class_type: 'Int', inputs: { value: 1 } },
-      'audio-run': { class_type: 'Audio', inputs: { source: ['audio-input', 0] } },
-      'envelope-run': { class_type: 'Envelope', inputs: {} },
-    }
-    const artifact = {
-      connection: 'local', schemaHash: 'same', prompt,
-      provenance: {
-        toSource: { 'audio-run': 'sub.audio', 'envelope-run': 'sub.envelope' },
-        fromSource: { 'sub.audio': ['audio-run'], 'sub.envelope': ['envelope-run'] },
-        outputAliases: {
-          'audio-run': { audio: 'audio-result' },
-          'envelope-run': { curve: 'curve-result' },
-        },
-      },
-    }
-    const execution = {
-      ref: { connection: 'local', prompt: 'run' }, status: 'completed', artifact,
-      nodes: { 'audio-run': {}, 'envelope-run': {} }, outputs: {},
-    }
-    const curve = { interpolation: 'linear', points: [{ position: 0, value: 0.2 }, { position: 3, value: 0.8 }] }
-    const values = {
-      peek: vi.fn(async () => ({
-        available: true,
-        descriptor: { typeId: 'CURVE', fingerprint: 'curve' },
-        renditions: [{ kind: 'curve-points', mime: 'application/json', default: true, cacheKey: 'curve-points', limits: { points: 4096 } }],
-      })),
-      rendition: vi.fn(async () => ({
-        available: true, bytes: new TextEncoder().encode(JSON.stringify(curve)).buffer,
-        mime: 'application/json', kind: 'curve-points', reportedKind: 'curve-points',
-        typeId: 'CURVE', fingerprint: 'curve',
-      })),
-    }
-    let relation = true
-    let liveArtifact = artifact
-    const executionState = createSignal(new Map([['run', execution]]))
-    const app = {
-      curveEditorTarget: createSignal(request), tabs: createSignal([tab]), activeTabId: createSignal('tab'),
-      store: { executions: executionState },
-      curveTargetForInput: () => relation ? request : undefined,
-      executionForTab: () => execution,
-      backendFor: () => ({ protocol: 'dinkster', connection: { values: () => values } }),
-      compileTabCached: () => ({ ok: true, artifact: liveArtifact }),
-    } as unknown as AppState
-    const host = document.createElement('div'); root.append(host)
-    const closeCurve = render(() => <CurveEditor app={app} />, host)
-    await vi.waitFor(() => expect(host.textContent).toContain('Following the executed envelope'))
-    expect(values.peek).toHaveBeenCalledWith({ jobId: 'run', nodeId: 'envelope-run', outputId: 'curve-result' }, expect.anything())
-    expect(values.rendition).toHaveBeenCalledWith({ jobId: 'run', nodeId: 'envelope-run', outputId: 'curve-result' }, 'curve-points', expect.anything())
-    expect(host.querySelectorAll('[aria-label^="Curve point"]')).toHaveLength(2)
-    expect(host.querySelector<HTMLButtonElement>('button.primary')!.disabled).toBe(true)
-
-    setAudioPlayhead({ identity: JSON.stringify({ jobId: 'other', nodeId: 'audio', outputId: 'audio' }), time: 1, duration: 4 })
-    expect(host.querySelector('[data-testid="curve-audio-playhead"]')).toBeNull()
-    setAudioPlayhead({ identity: JSON.stringify({ jobId: 'run', nodeId: 'audio-run', outputId: 'audio-result' }), time: 1, duration: 4 })
-    expect(host.querySelector('[data-testid="curve-audio-playhead"]')).not.toBeNull()
-    expect(host.textContent).toContain('Linked audio 1.00s / 4.00s')
-
-    liveArtifact = {
-      ...artifact,
-      prompt: {
-        ...prompt,
-        'audio-input': { class_type: 'Int', inputs: { value: 2 } },
-      },
-    }
-    executionState.set(new Map([['run', execution]]))
-    await vi.waitFor(() => expect(host.textContent).toContain('Run this exact envelope and audio source'))
-    expect(host.querySelectorAll('[aria-label^="Curve point"]')).toHaveLength(0)
-    expect(host.querySelector('[data-testid="curve-audio-playhead"]')).toBeNull()
-
-    liveArtifact = artifact
-    executionState.set(new Map([['run', execution]]))
-    await vi.waitFor(() => expect(host.textContent).toContain('Following the executed envelope'))
-
-    values.rendition.mockResolvedValueOnce({
-      available: true, bytes: new TextEncoder().encode(JSON.stringify(curve)).buffer,
-      mime: 'application/json', kind: 'curve-points', reportedKind: 'curve-points',
-      typeId: 'CURVE', fingerprint: 'different-execution',
-    })
-    executionState.set(new Map([['run', execution]]))
-    await vi.waitFor(() => expect(host.textContent).toContain('does not match the executed curve'))
-    expect(host.querySelectorAll('[aria-label^="Curve point"]')).toHaveLength(0)
-
-    relation = false
-    documentSignal.set({ changed: true })
-    await vi.waitFor(() => expect(host.textContent).toContain('curve relation is no longer available'))
-    expect(host.querySelector('[data-testid="curve-audio-playhead"]')).toBeNull()
     closeCurve()
   })
 })

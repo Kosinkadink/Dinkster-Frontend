@@ -81,7 +81,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     })).toBe(true)
   }
   await waitForStartupOwnership(page)
-  await page.evaluate(async (remoteRoute) => {
+  await page.evaluate((remoteRoute) => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue },
@@ -101,7 +101,7 @@ test.beforeEach(async ({ page }, testInfo) => {
         widget('asset', 'ASSET', null, { accept: ['image/png'] }),
       ],
     }])
-    await window.__dinksterTest!.app.openDocument({
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-view-test', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { widgets: { id: 'widgets', type: 'AppViewTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
@@ -116,97 +116,6 @@ test.beforeEach(async ({ page }, testInfo) => {
     const tab = window.__dinksterTest!.app.tabs.get().find((candidate) => candidate.id === 'app-view-test')
     return tab !== undefined && 'status' in tab.store
   })
-})
-
-test('control surface group binding waits for final acceptance', {
-  annotation: { type: 'mock-rename-dispatch' },
-}, async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 1440, height: 1000 })
-  const { surfaceId, groupId } = await page.evaluate(async () => {
-    const app = window.__dinksterTest!.app as any
-    app.settings.set('features.controlSurfaces.enabled', true)
-    const tab = app.activeTab()!
-    for (const invocation of [
-      { command: 'view.createGroup', params: { graphId: 'g0', title: 'Binding target', bounds: { x: 100, y: 100, width: 250, height: 200 } } },
-      { command: 'surface.add', params: { type: 'core.modePanel', config: { title: 'Mode panel', bindings: [] } } },
-    ]) {
-      const outcome = await app.dispatchTo(tab, invocation)
-      if (!outcome.ok) throw new Error(JSON.stringify(outcome.diagnostics))
-    }
-    const dispatch = app.dispatchTo.bind(app)
-    ;(window as any).__surfaceGroupPending = []
-    app.dispatchTo = (owner: any, invocation: any) => invocation.command !== 'surface.update'
-      ? dispatch(owner, invocation)
-      : new Promise((resolve, reject) => {
-        ;(window as any).__surfaceGroupPending.push((result: string) => result === 'throw'
-          ? reject(new Error('Group transport refused for test'))
-          : resolve(result === 'accept' ? dispatch(owner, invocation) : {
-              ok: false, diagnostics: [{ severity: 'error', phase: 'command', code: 'test.refused', message: 'Group binding refused for test' }],
-            }))
-      })
-    return { surfaceId: Object.keys(tab.store.doc.surfaces!)[0]!, groupId: Object.keys(tab.store.doc.view.graphs.g0.groups)[0]! }
-  })
-  await openRailPanel(page, 'Control surfaces')
-  const trigger = page.getByTestId(`surface-bind-group-${surfaceId}`)
-  const option = page.getByRole('option', { name: 'Binding target', exact: true })
-  const listbox = page.getByRole('listbox', { name: 'Bind group to surface' })
-  const error = page.getByTestId('surface-group-error')
-  const settle = (result: string) => page.evaluate((result) => (window as any).__surfaceGroupPending.shift()(result), result)
-  const bindings = () => page.evaluate((id) => (window.__dinksterTest!.app.activeTab()!.store.doc.surfaces![id]!.config as any).bindings, surfaceId)
-  await trigger.click()
-  await page.screenshot({ path: testInfo.outputPath('surface-group-default.png') })
-  await option.click()
-  await page.screenshot({ path: testInfo.outputPath('surface-group-before-pending.png') })
-  await expect(trigger).toHaveAttribute('aria-busy', 'true')
-  await expect(listbox).toBeVisible()
-  await expect(option).toHaveAttribute('aria-disabled', 'true')
-  await expect(page.getByTestId('surface-add')).toBeDisabled()
-  expect(await bindings()).toEqual([])
-  await page.screenshot({ path: testInfo.outputPath('surface-group-pending.png') })
-  await settle('refuse')
-  await expect(error).toHaveText('Group binding refused for test')
-  await expect(listbox).toBeVisible()
-  expect(await bindings()).toEqual([])
-  await page.screenshot({ path: testInfo.outputPath('surface-group-refused.png') })
-  await page.setViewportSize({ width: 390, height: 844 })
-  await expect(error).toBeInViewport()
-  await expect(option).toBeInViewport()
-  await page.screenshot({ path: testInfo.outputPath('surface-group-refused-narrow.png') })
-  await page.setViewportSize({ width: 1440, height: 1000 })
-  await option.click()
-  await settle('accept')
-  await expect(listbox).toBeHidden()
-  await expect(trigger).toBeFocused()
-  await expect(error).toBeHidden()
-  expect(await bindings()).toEqual([{ kind: 'group', graphId: 'g0', groupId }])
-  await page.screenshot({ path: testInfo.outputPath('surface-group-accepted.png') })
-
-  await page.getByTestId(`surface-unbind-${surfaceId}-0`).click()
-  await settle('accept')
-  await trigger.click()
-  await option.click()
-  await trigger.press('Escape')
-  await trigger.click()
-  await expect(option).toHaveAttribute('aria-disabled', 'true')
-  await settle('refuse')
-  await expect(option).toHaveAttribute('aria-disabled', 'false')
-  await expect(error).toBeHidden()
-  await expect(listbox).toBeVisible()
-  await page.screenshot({ path: testInfo.outputPath('surface-group-dismissed.png') })
-  await option.click()
-  await settle('throw')
-  await expect(error).toHaveText('Group transport refused for test')
-  await expect(listbox).toBeVisible()
-  await option.click()
-  await page.evaluate(() => {
-    const app = window.__dinksterTest!.app
-    const tab = app.activeTab()!
-    tab.graphStack.set([...tab.graphStack.get()])
-  })
-  await settle('refuse')
-  await expect(error).toBeHidden()
-  await expect(listbox).toBeVisible()
-  expect(await bindings()).toEqual([])
 })
 
 test('shell named-net display changes await final acceptance', {
@@ -392,8 +301,8 @@ test('use mode is the default clean form; arrange mode reveals the row tools per
 
   // The mode is per tab: a second tab opens in use mode while the first
   // keeps arrange mode.
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-view-second', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: {} },
@@ -454,7 +363,7 @@ test('exposure lens marks the exposed set and toggles App view rows', async ({ p
 })
 
 test('custom WidgetView drawCompact renders in the graph and App view adapter', async ({ page }) => {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     ;(window as unknown as { __appViewDraws: number }).__appViewDraws = 0
     const app = window.__dinksterTest!.app
     const diagnostics = app.extensions.register({
@@ -489,7 +398,7 @@ test('custom WidgetView drawCompact renders in the graph and App view adapter', 
         widget: { widgetType: 'app-view-literal-proof.kind', options: {}, default: 7 },
       }],
     }])
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-view-literal-test', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { widgets: { id: 'widgets', type: 'AppViewLiteralTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },

@@ -31,13 +31,11 @@ async function inputPoint(page: Page): Promise<{ readonly x: number; readonly y:
   })
 }
 
-async function queueEnvelope(page: Page): Promise<SubmittedJob> {
-  // This proof requires execution, not a valid cached editor result from an
-  // earlier recording with the same canonical envelope curve. Explicit targets
-  // retain each inspected output without depending on the execution cache.
+async function queueAudio(page: Page): Promise<SubmittedJob> {
+  // Require execution and retain the inspected output rather than reusing a cached value.
   await page.route('**/api/jobs', async (route) => {
     await route.continue({ postData: JSON.stringify({
-      ...route.request().postDataJSON(), cacheEnabled: false, targets: ['load', 'envelope', 'editor'],
+      ...route.request().postDataJSON(), cacheEnabled: false, targets: ['load'],
     }) })
   })
   let submitted: SubmittedJob | undefined
@@ -49,7 +47,7 @@ async function queueEnvelope(page: Page): Promise<SubmittedJob> {
   page.on('request', listener)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    await app.queueSelection(app.activeTab()!, ['editor'])
+    await app.queueSelection(app.activeTab()!, ['load'])
   })
   await expect(page.getByTestId('execution-row').first().locator('.execution-status'))
     .toHaveText('Completed', { timeout: 30_000 })
@@ -72,8 +70,7 @@ test.beforeEach(async ({ page, context }, testInfo) => {
     if (response.ok) nodes = (await response.json() as { nodes?: Record<string, unknown> }).nodes
   } catch { /* skip below */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
-  test.skip(!('dinkster.load_audio' in nodes! && 'dinkster.audio.envelope' in nodes! && 'dinkster.curve.editor' in nodes!),
-    'native backend lacks load audio, audio envelope, or curve editor')
+  test.skip(!('dinkster.load_audio' in nodes!), 'native backend lacks load audio')
   await page.addInitScript(({ synthetic }) => {
     const captures: Promise<readonly number[]>[] = []
     Object.defineProperty(window, '__dinksterRecordedAudioChunks', { value: captures })
@@ -114,26 +111,19 @@ test.beforeEach(async ({ page, context }, testInfo) => {
 test(PHYSICAL_MICROPHONE
   ? 'physical microphone records, uploads, loads and renders as canonical audio'
   : 'browser Opus WebM records, uploads, loads and renders as canonical audio', async ({ page, request }, testInfo) => {
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audio-recording-live', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'Audio recording',
         nodes: {
           load: { id: 'load', type: 'dinkster.load_audio', values: {} },
-          envelope: { id: 'envelope', type: 'dinkster.audio.envelope', values: { frames_per_second: 7 } },
-          editor: { id: 'editor', type: 'dinkster.curve.editor', values: {} },
         },
-        links: {
-          audioEnvelope: { id: 'audioEnvelope', from: { node: 'load', port: 'audio' }, to: { node: 'envelope', port: 'audio' } },
-          envelopeCurve: { id: 'envelopeCurve', from: { node: 'envelope', port: 'curve' }, to: { node: 'editor', port: 'curve' } },
-        },
-        nets: {}, reroutes: {}, nextOrdinal: 4,
+        links: {},
+        nets: {}, reroutes: {}, nextOrdinal: 1,
       } },
       view: { graphs: { g0: { nodes: {
         load: { position: { x: 120, y: 100 }, size: { width: 620, height: 520 } },
-        envelope: { position: { x: 820, y: 100 } },
-        editor: { position: { x: 1160, y: 100 } },
       } } } },
       ext: { 'dinkster.exposedPreviews': [{ graphId: 'g0', nodeId: 'load' }] },
     } as never, 'Live Audio Recording')
@@ -231,13 +221,13 @@ test(PHYSICAL_MICROPHONE
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.load!.values.audio))
     .toEqual(response.asset)
 
-  const submitted = await queueEnvelope(page)
+  const submitted = await queueAudio(page)
   const receiptResponse = await request.get(
     `${NATIVE_BACKEND}/api/jobs/${encodeURIComponent(submitted.clientId)}/${encodeURIComponent(submitted.jobId)}`,
   )
   expect(receiptResponse.ok()).toBe(true)
   const receipt = await receiptResponse.json() as { readonly state: string; readonly executed: readonly string[] }
-  expect(receipt).toMatchObject({ state: 'completed', cacheEnabled: false, executed: expect.arrayContaining(['load', 'envelope', 'editor']) })
+  expect(receipt).toMatchObject({ state: 'completed', cacheEnabled: false, executed: expect.arrayContaining(['load']) })
 
   const descriptorQuery = new URLSearchParams({
     clientId: submitted.clientId, jobId: submitted.jobId, nodeId: 'load', outputId: 'audio',
@@ -290,82 +280,6 @@ test(PHYSICAL_MICROPHONE
     expect(peakAbsoluteSample).toBeGreaterThan(0)
   }
 
-  const curveQuery = new URLSearchParams({
-    clientId: submitted.clientId, jobId: submitted.jobId, nodeId: 'envelope', outputId: 'curve',
-  })
-  const curveDescriptorResponse = await request.get(`${NATIVE_BACKEND}/api/values?${curveQuery}`)
-  expect(curveDescriptorResponse.ok()).toBe(true)
-  const curveDescriptor = await curveDescriptorResponse.json() as {
-    readonly descriptor: { readonly typeId: string; readonly fingerprint: string }
-    readonly renditions: readonly unknown[]
-  }
-  expect(curveDescriptor.descriptor.typeId).toBe('CURVE')
-  expect(curveDescriptor.renditions).toEqual([{
-    kind: 'curve-points', mime: 'application/json', default: true,
-    cacheKey: 'curve-points', limits: { points: 4096 },
-  }])
-  const curveResponse = await request.get(`${NATIVE_BACKEND}/api/values?${curveQuery}&rendition=curve-points`)
-  expect(curveResponse.ok()).toBe(true)
-  expect(curveResponse.headers()).toMatchObject({
-    'content-type': 'application/json',
-    'x-dinkster-type-id': curveDescriptor.descriptor.typeId,
-    'x-dinkster-fingerprint': curveDescriptor.descriptor.fingerprint,
-    'x-dinkster-rendition': 'curve-points',
-  })
-  const computedCurve = await curveResponse.json() as {
-    readonly interpolation: 'linear' | 'monotone_cubic'
-    readonly points: readonly { readonly position: number; readonly value: number }[]
-  }
-  expect(computedCurve.points.length).toBeGreaterThan(3)
-  expect(computedCurve.points.length).toBeLessThanOrEqual(4096)
-  expect(computedCurve.points.at(-1)!.position).toBeGreaterThan(3)
-
-  const graphBeforeFollow = await page.evaluate(() => ({
-    revision: window.__dinksterTest!.app.activeTab()!.store.revision,
-    document: JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc),
-  }))
-  const followTarget = await page.evaluate(() => {
-    const app = window.__dinksterTest!.app
-    const curves = app as unknown as {
-      curveTargetForInput(tab: unknown, graphId: string, nodeId: string, inputId: string, instancePath: readonly string[]): unknown
-    }
-    return curves.curveTargetForInput(app.activeTab()!, 'g0', 'editor', 'curve', [])
-  })
-  expect(followTarget).toMatchObject({
-    follow: { envelopeNodeId: 'envelope', audioNodeId: 'load', audioOutputId: 'audio' },
-  })
-  const curveRenditionRequest = page.waitForRequest((candidate) => {
-    const url = new URL(candidate.url())
-    return url.pathname === '/api/values' && url.searchParams.get('rendition') === 'curve-points'
-  })
-  await page.evaluate((target) => {
-    const curves = window.__dinksterTest!.app as unknown as { openCurveEditor(target: unknown): void }
-    curves.openCurveEditor(target)
-  }, followTarget)
-  const curveEditor = page.getByTestId('curve-editor')
-  await expect(curveEditor).toBeVisible()
-  await expect(curveEditor.getByRole('status')).toContainText('Following the executed envelope')
-  const renditionRequest = new URL((await curveRenditionRequest).url())
-  expect(renditionRequest.searchParams.get('jobId')).toBe(submitted.jobId)
-  expect(renditionRequest.searchParams.get('nodeId')).toBe('envelope')
-  expect(renditionRequest.searchParams.get('outputId')).toBe('curve')
-  await expect(curveEditor.locator('[aria-label^="Curve point"]')).toHaveCount(computedCurve.points.length)
-  await expect(curveEditor.getByRole('button', { name: 'Apply' })).toBeDisabled()
-  await expect(curveEditor).toContainText('read-only curve')
-  const inspectedIndex = Math.floor(computedCurve.points.length * 2 / 3)
-  await curveEditor.getByLabel(`Curve point ${inspectedIndex + 1}`).click()
-  const inspectedPoint = computedCurve.points[inspectedIndex]!
-  await expect(curveEditor.getByTestId('curve-point-value')).toContainText(`Position (s)${inspectedPoint.position.toFixed(4)}`)
-  await expect(curveEditor.getByTestId('curve-point-value')).toContainText(`Value${inspectedPoint.value.toFixed(4)}`)
-  const curveFollow = await curveEditor.screenshot({ animations: 'disabled' })
-  await testInfo.attach('audio-envelope-follow', { body: curveFollow, contentType: 'image/png' })
-  expect(await page.evaluate(() => ({
-    revision: window.__dinksterTest!.app.activeTab()!.store.revision,
-    document: JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc),
-  }))).toEqual(graphBeforeFollow)
-  await curveEditor.getByRole('button', { name: 'Cancel' }).click()
-  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
-
   const transport = page.locator('.node-media-overlay[data-node-id="load"] .audio-transport')
   await expect(transport).toBeVisible({ timeout: 15_000 })
   await expect(transport).toContainText(/Sample rate \(Hz\): [1-9][0-9]*/)
@@ -382,7 +296,6 @@ test(PHYSICAL_MICROPHONE
     if (selectedDevice) writeFileSync(evidencePath('issue-404', `${evidencePrefix}-selected.png`), selectedDevice)
     writeFileSync(evidencePath('issue-404', `${evidencePrefix}-staged.png`), staged)
     writeFileSync(evidencePath('issue-404', `${evidencePrefix}-executed.png`), executed)
-    writeFileSync(evidencePath('issue-404', `${evidencePrefix}-envelope-follow.png`), curveFollow)
     writeFileSync(evidencePath('issue-404', `${evidencePrefix}-receipt.json`), `${JSON.stringify({
       backend: process.env['DINKSTER_BACKEND_SHA'] ?? 'unrecorded',
       ...(PHYSICAL_MICROPHONE ? { device: { label: PHYSICAL_MICROPHONE } } : {}),
@@ -396,21 +309,16 @@ test(PHYSICAL_MICROPHONE
       },
     }, null, 2)}\n`)
   }
-  expect(await page.evaluate(async () => {
+  expect(await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const exported = app.exportDocument(app.activeTab()!.id)
-    if (!exported) throw new Error('Audio envelope workflow export failed')
-    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Reopened Audio Recording')
+    if (!exported) throw new Error('Audio recording workflow export failed')
+    app.openDocument(JSON.parse(JSON.stringify(exported)), 'Reopened Audio Recording')
     const tab = app.activeTab()!
-    const curves = app as unknown as {
-      curveTargetForInput(tab: unknown, graphId: string, nodeId: string, inputId: string, instancePath: readonly string[]): { readonly follow?: unknown } | undefined
-    }
     return {
       asset: tab.store.doc.graphs.g0!.nodes.load!.values.audio,
-      follow: curves.curveTargetForInput(tab, 'g0', 'editor', 'curve', [])?.follow,
     }
   })).toEqual({
     asset: response.asset,
-    follow: { envelopeNodeId: 'envelope', audioNodeId: 'load', audioOutputId: 'audio' },
   })
 })

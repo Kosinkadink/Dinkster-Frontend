@@ -43,13 +43,13 @@ for (const nested of [false, true]) for (const batchSupported of [false, true]) 
       'X-Dinkster-Rendition': 'png', 'X-Dinkster-Color-Transform': colorTransform, 'X-Dinkster-Preview-Color-Space': 'sRGB',
     } })
   })
-  await page.evaluate(async (descriptor) => {
+  await page.evaluate((descriptor) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'ImageBatchTest', displayName: 'Image batch', category: 'test', source: 'v3', isOutputNode: true, emitsPreviews: true,
       items: [{ kind: 'output', id: 'image', type: { kind: 'concrete', name: 'comfy.IMAGE' }, preview: true }],
     }])
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'image-batch', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Image batch', nodes: { image: { id: 'image', type: 'ImageBatchTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { image: { position: { x: 80, y: 80 }, size: { width: 460, height: 380 } } } } } },
@@ -112,6 +112,9 @@ for (const nested of [false, true]) for (const batchSupported of [false, true]) 
     await viewer.screenshot({ path: testInfo.outputPath(`${view}-batch-grid.png`) })
     await viewer.getByRole('button', { name: 'Next grid page' }).click()
     await expect(viewer.getByRole('button', { name: /Image 5 of 9/ })).toBeVisible()
+    await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([]))
+    await expect(viewer.getByTestId('output-viewer-grid')).toBeVisible()
+    await viewer.screenshot({ path: testInfo.outputPath(`${view}-refreshed-grid.png`) })
     await viewer.getByRole('button', { name: /Image 5 of 9/ }).click()
     await expect(viewer.getByTestId('output-viewer-position')).toHaveText('5 / 9')
     await viewer.getByRole('button', { name: 'Compare slider' }).click()
@@ -119,6 +122,7 @@ for (const nested of [false, true]) for (const batchSupported of [false, true]) 
     await viewer.getByRole('spinbutton', { name: 'Left image number' }).press('Tab')
     await viewer.getByRole('spinbutton', { name: 'Right image number' }).fill('7')
     await viewer.getByRole('spinbutton', { name: 'Right image number' }).press('Tab')
+    await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([]))
     await expect(viewer.getByRole('img', { name: 'Left image 2', exact: true })).toBeVisible()
     await expect(viewer.getByRole('img', { name: 'Right image 7', exact: true })).toBeVisible()
     const split = viewer.getByRole('slider', { name: 'Compare split' })

@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
-import { AssetDtoV1Client, type AssetDtoV1WireContract, type DinksterConnection, type MountDescriptor } from '@dinkster/client'
+import type { DinksterConnection, MountDescriptor } from '@dinkster/client'
 import type { CollectionSource, MessageParams } from '@dinkster/core'
 import { CollectionPanel, type CollectionPanelState } from './CollectionPanel.js'
 import { assetCollectionSource } from './asset-browser/collection-adapter.js'
@@ -10,7 +10,6 @@ import { localAssetSource } from './asset-browser/localAssetSource.js'
 import { AssetEntryFallback } from './asset-browser/presentation.js'
 import { AssetEntrySelection } from './asset-browser/rail.js'
 import type { AssetSourceAdapter } from './asset-browser/types.js'
-import { federatedCollectionSource } from './asset-browser/federated-collection-source.js'
 import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductButton } from './ProductControls.js'
@@ -127,8 +126,7 @@ function AssetSourceControl(props: {
   const sourceOptions = () => [
     ...(props.sources[0] ? [{ id: props.sources[0].id, label: props.sources[0].id === 'all-assets' ? props.message('assets.source.all') : props.sources[0].label, value: props.sources[0].id }] : []),
     ...props.sources.slice(1).filter((source) => !source.id.startsWith('mount:')).map((source) => ({
-      id: source.id, label: source.id === 'local-assets' ? props.message('assets.source.local')
-        : source.id === 'federated-assets' ? props.message('assets.source.federatedCatalog') : source.label,
+      id: source.id, label: source.id === 'local-assets' ? props.message('assets.source.local') : source.label,
       value: source.id,
     })),
     ...ready().flatMap((row) => {
@@ -148,7 +146,7 @@ function AssetSourceControl(props: {
         return []
       }),
       ...Object.entries(props.failures).flatMap(([id, failure]) =>
-        mountIds.has(id) ? [] : [{ id, label: id === 'all-assets' ? props.message('assets.source.federatedCatalog') : failure.label, state: 'error', detail: failure.message }]),
+        mountIds.has(id) ? [] : [{ id, label: id === 'all-assets' ? props.message('assets.source.all') : failure.label, state: 'error', detail: failure.message }]),
     ]
   }
   return <div class="asset-source-control" data-testid="asset-source-control">
@@ -191,7 +189,7 @@ function assetState(state: CollectionPanelState, message: AssetMessage) {
   return <ProductEmptyState title={message('assets.state.empty.title')} hint={message('assets.state.empty.detail', { source })} />
 }
 
-export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly backendLabel?: string; readonly federatedContract?: AssetDtoV1WireContract }) {
+export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly backendLabel?: string }) {
   const message = useAppMessage()
   const [adapters, setAdapters] = createSignal<readonly AssetSourceAdapter[]>()
   const [mounts, setMounts] = createSignal<readonly MountDescriptor[]>([])
@@ -277,18 +275,13 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
       if (!live || healthGeneration !== discoveryGeneration) return
       setSourceFailures(Object.fromEntries(failures.map((failure) => [failure.sourceId, { label: failure.label, message: failure.message }])))
     }
-    const federated = props.federatedContract
-      ? { ...federatedCollectionSource(new AssetDtoV1Client(props.baseUrl ?? '', props.federatedContract), () => undefined, { assetUrl, previewOwner }), id: 'federated-assets', label: 'Federated catalog' }
-      : undefined
     const local = allAssetsCollectionSource(browsable, unavailable(), assetUrl, {
       previewOwner,
       onSourceFailures: reportFailures,
-      ...(federated ? { additionalSources: [federated] } : {}),
     })
     return [
       local,
       ...browsable.map((adapter) => assetCollectionSource(adapter, { assetUrl, previewOwner })),
-      ...(federated ? [federated] : []),
     ]
   })
 

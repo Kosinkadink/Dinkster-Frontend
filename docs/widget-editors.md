@@ -35,19 +35,21 @@ Output-descriptor Apply shows command refusals and transport errors above the
 draft, separately from descriptor validation and metadata-probe errors. The
 draft remains available for retry and closes only after command acceptance.
 
-Native asset pickers confirm an independent complete owner for validated selections
+Native asset pickers confirm an independent incomplete owner for stored selections
 on open and before publishing a newly selected reference or starting its server
 preview. Apply stays disabled during initial admission and after refusal until a
 selection is admitted; Cancel remains available. Picks are processed
 in invocation order; Apply is disabled while a pick is pending. Refusal preserves
-the previous selection and reports the failure inline. Removing or clearing a
-selection also admits its replacement inventory. After publication, the previous
-locally admitted owner retires only after its in-flight body reads finish, while
-independent owners remain untouched. Cancel discards the local
+the previous selection and reports the failure inline. Cancel discards the local
 draft without releasing acknowledged owners. The staged selection keeps its
 acknowledged reader: a changed document, registry, connection, or closed session
 refuses further staging and Apply until the picker is reopened. Apply still confirms the document
-command separately. This does not enable backend cleanup eligibility.
+command separately. These conservative owners do not enable cleanup.
+
+Missing model selections say "Not on disk" and explain that download is offered
+when the workflow runs. The picker does not start downloads or show a disabled
+download control. Download approval belongs to the pre-run approval dialog;
+local matching, selection, Cancel and Undo retain their usual behavior.
 
 The registered audio-recording editor uses the same independent ownership
 before replacing its draft or fetching playback bytes for a saved recording.
@@ -57,7 +59,7 @@ retry; an acknowledged recording still needs Use asset to change the document.
 
 Selected-image and recorded-audio preview byte reads are cancelled when their
 preview is replaced, removed or closed. Late results are still ignored if a
-transport completes after cancellation. Cancellation alone does not retire asset owners or
+transport completes after cancellation. This does not retire asset owners or
 prove that queued model posters and other consumers have finished reading.
 Closing Painter or Load3d also cancels pending saved-source byte reads,
 including verified digests and granted local bindings. Load3d uses the same
@@ -75,10 +77,6 @@ uses the camera's native dimensions for both axes. Use frame
 commits the asset reference as an undoable input edit; Cancel or closing the
 dialog leaves the stored value unchanged. Camera errors retain the browser's
 named error (for example NotFoundError when no camera is available).
-A captured draft and its preview wait for independent complete asset admission.
-Replacement keeps the previous draft and owner until acknowledgment and
-publication; failed or obsolete admission leaves that draft unchanged. Closing
-the dialog revokes its local preview URL but does not release its retained owner.
 With capture_on_queue enabled, queue captures and saves a fresh frame for each
 included camera before submitting. Disabled capture reuses the saved frame.
 Changing the workflow or backend during capture refuses that queue attempt
@@ -1210,17 +1208,7 @@ zoom clamps. The Canvas scroll behavior setting also applies inside Image:
 Zoom is cursor-anchored, while Pan uses both wheel axes and keeps Ctrl+wheel as
 cursor-anchored zoom.
 
-For a schema-verified `dinkster.load_image` whose `mask` output has consumers,
-Apply stores the cumulative edit recipe in one `dinkster.mask.paint` node and
-rewires only those mask consumers. The guarded command copies the complete
-loader AssetRef into `source`, preserves direct link identities and named nets,
-and updates the associated paint node on later edits instead of nesting nodes.
-It refuses changed source, topology, recipe, schema, and occurrence-local
-topology. Recipes are bounded to 4 MiB, 2,048 commands, 8,192 points per stroke,
-and 32,768 total points. Reopening the associated node restores its cumulative
-operations. One workflow undo/redo covers insertion or update and rewiring.
-
-Other admitted image inputs retain **Bake to asset**. Apply encodes one PNG
+Admitted image inputs offer **Bake to asset**. Apply encodes one PNG
 that preserves source RGB even under transparent pixels and writes the inverted
 mask in alpha. After `/api/assets` accepts the bytes, the editor creates a
 complete AssetRef and dispatches exactly one `image.applyAsset`. The command
@@ -1230,12 +1218,11 @@ source visible. A rejected command, deleted or changed destination, tab close
 during upload, or Cancel does not claim success or write the document.
 
 The editor remains a flat source plus mask operations. It does not define a
-layer stack or general operation-stack document. Graph persistence is limited
-to the published mask-paint recipe; other targets flatten to one AssetRef.
+layer stack or general operation-stack document. Applying flattens the local
+edits to one AssetRef. Graph-native mask recipes are parked in [the rework queue](rework-queue.md#mask-paint-applied-to-the-graph).
 The inspected before/after and mask-tool frames are under
 `dinkster-evidence/frontend/issue-310/`; pen/touch navigation frames are under
-`dinkster-evidence/frontend/issue-280/`; graph-native mask apply is under
-`dinkster-evidence/frontend/issue-400/`. The physical Huion Kamvas Pro 24 report and paired
+`dinkster-evidence/frontend/issue-280/`. The physical Huion Kamvas Pro 24 report and paired
 screenshots in that folder record pressure-responsive width and opacity,
 coalesced input, one-operation undo, capture-loss rollback, unchanged document
 revision, and the available pen capabilities. That device exposes no touch HID

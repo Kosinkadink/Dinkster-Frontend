@@ -315,7 +315,18 @@ interface DinksterTestBridge {
     registry: { set(value: import('@dinkster/client').SchemaRegistry): void }
     tabs: { get(): readonly DinksterBridgeTab[] }
     readonly appViewEnabled: boolean
-    settings: { set(id: string, value: unknown): void }
+    panels: {
+      register(panel: {
+        id: string; title: string; placement: string; allowedPlacements: readonly string[]
+        order: number; when(): boolean; component(): HTMLElement
+      }): void
+      changed: { get(): number; set(value: number): void }
+    }
+    settings: {
+      set(id: string, value: unknown): void
+      get<T>(id: string): T
+      changed: { subscribe(listener: () => void): () => void }
+    }
     commands: {
       get(id: string): { id: string } | undefined
       register(command: { id: string; label: string; run(payload?: import('@dinkster/core').Json): void; enabled?: () => boolean }): () => void

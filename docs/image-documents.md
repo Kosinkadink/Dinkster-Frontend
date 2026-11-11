@@ -133,58 +133,12 @@ clears its stale preview and shows a diagnostic rather than approximating them.
 **Linear color**, **Z order** and **Pass-through group** edit document properties
 through the same command history. All 27 declared blend modes are retained.
 
-## Graph documents
+## Durable documents
 
-The Outputs panel offers **Open layers** for `dinkster.layers` values, not
-the `LAYERS` or `comfy.LAYERS` tensor mappings. Opening uses the selected
-execution, runtime node and output identity on the value's owning connection
-and explicitly requests the `document`
-rendition. The response must identify the selected type and fingerprint, report
-the `document` rendition, and use
-`application/vnd.dinkster.image-document+json`. The client adopts the exact
-canonical response bytes in the selected scope before creating a recoverable
-draft. It does not rebuild the adoption body from parsed JSON. The initial
-workspace image comes from the backend composite Render API and its verified
-PNG asset. A flattened value rendition is never substituted for the editable
-document or for a failed adoption or render. Missing capabilities, dependency
-grants, unsupported format versions, changed values, failed renders, and
-conflicting local edits produce visible errors.
+Graph opening and snapshot/recipe export are parked in
+[the rework queue](rework-queue.md). Local drafts, library documents, shared
+sessions, rendering and PNG download remain available in the workspace.
 
-The admitted value reader covers canonical decode, adoption, reference rendering,
-resource hydration and draft creation, not only the rendition response body.
-Closing that reader waits for actual consumer settlement and refuses its return.
-The workspace also checks its captured graph request, backend connection and
-project before continuing reads, hydration, draft writes or tab/error publication.
-A replacement request does not let an older open publish or clear its busy state.
-Workspace disposal waits for all pending graph opens before closing the store.
-Already submitted local transactions may settle; they are not rolled back.
-
-**Export snapshot to graph** explicitly adopts the current document and its
-resources on the destination backend, then adds `dinkster.layers.load` wired to
-`dinkster.layers.flatten`. These nodes hold a document AssetRef and composite selector, not pixels,
-browser URLs or producer paths. Export is one undoable workflow command and
-refuses a changed destination graph, tab or backend. It neither changes the
-original graph source nor publishes a library record.
-Snapshot and recipe export require `dinkster.layers` at every layer port;
-tensor `LAYERS` and `comfy.LAYERS` ports are not compatible document targets.
-
-Documents opened from an executed native layer output also offer **Export
-editable recipe**. It branches `dinkster.layers.edit` -> `dinkster.layers.flatten` ->
-`dinkster.save_image` from the original `dinkster.layers` output without replacing or
-rewiring that source. The edit node receives canonical document commands;
-format and quality are explicit save-node values. PNG, JPEG, and WebP are
-supported, quality is 0-100, and PNG remains lossless. Output policy is
-non-rendering document metadata, so it does not change browser preview or the
-authoritative canonical PNG Render API result.
-
-Recipe export is one undoable workflow command. It requires the exact source
-workflow, graph, node output, backend, and graph fingerprint captured by the
-execution. It refuses stale provenance and edits that cannot be represented by
-the advertised layer-edit node, including added or removed raster resources,
-rather than substituting a flattened snapshot. Snapshot export remains a
-separate explicit action.
-
-Native graph opening requires the owner-side document rendition; preview-only owners are refused.
 The durable schema is version 2. Loading canonical v1 changes only its version;
 local recovery and library open verify the original canonical bytes before
 migration and retain the original library digest until explicit Save. Canvas
@@ -199,21 +153,6 @@ External raster hydration first journals a fresh scoped read owner in IndexedDB
 and obtains an exact retained-asset acknowledgment before fetching bytes. The
 owner protects missing external resources through digest verification and local
 durable staging; inline and already-staged resources need no server read owner.
-Before verified external bytes enter durable staging, a separate document owner
-is journaled and acknowledged for that exact digest and scope. Uploading a staged
-raster likewise confirms its independent staged owner before returning it to
-the caller. A refused or mismatched acknowledgment blocks staging/publication;
-a lost response requires an exact owner/revision readback, not a repeated write.
-Hydration also admits a fresh staged owner for already-cached external bytes,
-including legacy entries without receipts, before library opening returns or
-saves its local link. Cached bytes are not evidence of backend ownership or
-scope authority. Refused admission leaves those bytes and earlier owners intact;
-inline resources need no external owner. Repeated descriptors of the same
-external digest share one fresh owner within that hydration.
-Staged owners and unresolved intents survive store closure and restart. Read
-completion releases only the read owner, never the staged owner. Staged ownership
-is conservative: replacing an image, closing its editor or disconnecting does
-not release its durable raster protection.
 Release happens only after those reads settle. Lost registration or release
 responses reconcile by the exact owner and revision without replaying writes.
 Unconfirmed owners remain journaled across restart; closing an editor or local
@@ -244,20 +183,9 @@ It checks component shape and bounds; exact component-to-affine agreement is
 validated by the backend on adoption. Editing affine fields drops components
 instead of preserving metadata that no longer agrees with the transform.
 
-For native `dinkster.load_image` mask outputs already consumed by the graph, the
-image mask editor offers **Apply mask to graph**. It inserts or updates one
-source-bound `dinkster.mask.paint` node, stores the serialized brush operations,
-and rewires only that loader's current mask consumers. The original image
-AssetRef remains unchanged, so the edit is visible and repeatable in execution.
 Pending mask edits and undo history survive layout refreshes while the same
 tab and image target remain active.
-Decoded mask-editor pixels remain unpublished until an independent editor owner
-acknowledges the source digest. The workflow read stays owned through that
-admission; refused or obsolete editor admissions cannot enable editing or draw
-pixels into a closed or replaced session.
-The live acceptance executes paint, layer, and flatten nodes and checks every
-decoded transparency-mask sample against the identically edited explicit bake.
-For other eligible inputs, **Bake to asset** explicitly replaces the input
+**Bake to asset** explicitly replaces the input
 asset; **Cancel** leaves the workflow unchanged. Typed PNG inputs use the same
 editor and command guard for `asset<IMAGE>`. Canonical `LoadImage` inputs also
 qualify through their declared `ASSET` carrier and `media/image` widget kind;
@@ -329,75 +257,9 @@ order, transforms, opacity, blend mode, and raster masks. Every result passes
 the same loader and invariant checks as an imported document.
 
 Undo and redo replay immutable patches. Allocation cursors never rewind, so an
-id is not reused after undo. The history reports every external raster digest
-that its undo or redo stack can restore; inline bytes travel inside the document.
-Local resource cleanup must retain external bytes until the corresponding
-history entry is evicted or cleared.
-
-The local core session exposes `prepareDispatch`, `prepareUndo`, and
-`prepareRedo` for callers that must await ownership before publication. Preparing
-does not change the document, revision, history, signal, or operation stream. A
-candidate carries the current external-resource inventory and the proposed
-document/history inventory, including unused resources. Its one-use `commit`
-refuses an intervening document or history change. An optional synchronous
-`validateCommit` policy guards initial construction and every command/history
-commit, including direct synchronous calls. A refused policy leaves the existing
-document and history unchanged. These core APIs do not themselves perform
-backend admission.
-
-The shared core also exposes one-use prepared command, undo, and redo
-candidates. Their external inventory includes the confirmed ground, unused
-resources, pending edits, and retained history. Its optional `validateCommit`
-policy guards initial construction and local commits. Ordered remote ingest,
-starting catch-up or resync, disconnect, close, history clearing, and intervening local commits
-invalidate previously prepared candidates. A refused or stale history replay
-leaves its history record intact; synchronous undo/redo still reports replay
-conflicts. This synchronous policy guards local changes, not remote publication.
-
-An optional asynchronous `beforeRemoteDocument` hook guards shared initial,
-ordered-operation, rebase, and resync publication. Callers supplying it must use
-`connectSharedImageDocumentSession`; direct construction cannot bypass initial
-admission. The hook receives the proposed optimistic document, server revision,
-current document, complete conservative external inventory, and immutable
-confirmed/current/intermediate snapshots. Rebase planning copies pending edits
-and history without changing live state. Signals, operations, history changes,
-and confirmed ground publish only after admission and a current-generation
-check. Concurrent local changes require a fresh proposal and admission; a
-refused admission or changed connection preserves the last published state.
-Closing prevents pending admissions from publishing. Events received during
-initial admission are caught up through the same boundary. The hook itself
-does not acquire or release backend owners. It may return a callback that runs
-only after its admitted document commits. Superseded or refused proposals never
-run that callback. Retained digests remain conservative.
-
-The workspace waits for backend admission before exposing a recovered,
-imported, or shared session. Local external rasters are verified against staged
-bytes and uploaded before a fresh document owner is journaled and acknowledged.
-Shared initial, ordered, rebase, and resync admission hydrates and verifies
-confirmed/current/intermediate snapshots before acknowledging an independent
-document owner for the complete inventory. Shared and local commands, undo,
-and redo prepare their complete proposed document/history
-inventory and await an exact acknowledgment before commit. A lost response is
-reconciled by reading that owner, without replaying its write. Refusal, reuse,
-disconnection, or a changed project/backend/session prevents publication.
-Unavailable backends leave recovered drafts blocked, not visible without
-ownership. Closing the workspace waits for pending admissions but does not
-release their durable owners. After a replacement publishes, its complete
-acknowledged owner can retire the previous session owner in the same live
-project, backend, and session lifetime. Retirement verifies the exact durable
-journal and revision before releasing; a lost response is reconciled by reading
-that owner, never replaying the release. A stale admission, disconnection,
-changed destination, or foreign journal grants no release authority. Closing
-waits for already-started retirements but never releases the current owner.
-Independent session and staged-raster owners remain separate and held.
-
-Each preview renderer admits independent, scoped owners for its raster bitmap
-cache before decoding or drawing staged bytes. Cache hits recheck the captured
-project, backend, connection, and session lifetime; descriptor changes require
-a new owner. Lost acknowledgments reconcile by exact owner readback, without
-replaying a write. Closing waits for pending decoding and closes bitmaps, but
-does not release cache owners or their durable read intents. Session replacement
-cannot retire a renderer's independent owner, even for the same digest.
+id is not reused after undo. The history reports every raster digest that its
+undo or redo stack can restore; local resource cleanup must retain those bytes
+until the corresponding history entry is evicted or cleared.
 
 ## Shared editing
 
@@ -435,9 +297,7 @@ render request and provenance validation.
 `packages/core/test/image-document-commands.test.ts` covers atomic command
 validation, crop and resize geometry, output policy, layer and mask edits,
 deterministic allocation, resource-aware history, hostile ids, and local
-session operation envelopes. `packages/app/test/image-document-recipe.test.ts`
-proves crop, resize, and output-policy parity between workspace state and graph
-recipe execution.
+session operation envelopes.
 The inspected controls are captured for [crop](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-486/crop.png),
 [resize](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-486/resize.png), and
 [output policy](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-486/output-policy.png).
@@ -447,24 +307,7 @@ workspace component test covers resource upload ordering, membership recovery,
 shared command submission, local fallback on leave, render-without-publish, and
 stale authoritative output. `packages/e2e/tests/image-document-workspace.spec.ts`
 covers the visible render result and canonical PNG download.
-`packages/e2e/tests/image-document-graph.spec.ts` uses route-mocked value,
-adoption, render and asset endpoints to cover graph opening, crop, resize,
-format/quality editing, guarded editable-recipe export, explicit snapshot
-export, grouping, clipping refusal, and draft recovery after reload.
-`packages/e2e/tests/image-document-graph-live.spec.ts` separately runs
-a transparent `dinkster.load_image` -> `dinkster.layers.add` ->
-`dinkster.layers.flatten` graph against a live Dinkster backend. It proves the
-workspace's Render API PNG is byte-identical to the flatten image rendition and
-that its decoded alpha matches the flatten transparency mask.
-`packages/e2e/tests/image-mask-graph-live.spec.ts` applies the same real brush
-stroke through graph-visible `dinkster.mask.paint` and explicit bake paths, then
-proves executed-node receipts, source AssetRef preservation, PNG alpha parity,
-transparency polarity, and authoritative document-render byte equality.
-The acceptance captures the [graph mask editor](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-400/graph-mask-editor.png),
-a [painted-mask detail](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-400/graph-mask-detail.png), and the
-[authoritative document](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-400/graph-mask-authoritative-document.png).
-Graph-opening unit tests cover exact value identity and bytes, missing headers
-and capabilities, stale fingerprints, adoption/render refusals, resource
-validation and protection of existing local edits. The route-mocked
-authoritative display is captured in
-[graph-layer-open-authoritative.png](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-402/graph-layer-open-authoritative.png).
+`packages/e2e/tests/image-bake-live.spec.ts` checks Bake to asset through real
+asset routes with a registered typed image-input fixture. It verifies the
+decoded PNG RGB and alpha and the undoable input replacement. Graph-native
+mask recipes are parked in [the rework queue](rework-queue.md#mask-paint-applied-to-the-graph).

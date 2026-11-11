@@ -46,7 +46,7 @@ async function boundaryPinPoint(page: Page, portId: string): Promise<{ x: number
 
 test('a refused occurrence drag shows gesture-site feedback and creates no link', async ({ page }) => {
   await prepare(page)
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([
       {
@@ -73,7 +73,7 @@ test('a refused occurrence drag shows gesture-site feedback and creates no link'
         }],
       }),
     })
-    await test.app.openDocument({
+    test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-occurrence', root: 'g0',
       graphs: {
         g0: { id: 'g0', name: 'root', nodes: { s: { id: 's', type: '#sub', values: {}, dynamic: { forwarded: { members: ['s0'], seq: 1 } } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 },
@@ -127,7 +127,7 @@ test('a refused occurrence drag shows gesture-site feedback and creates no link'
 
 test('a refused extract commit shows gesture-site feedback and mutates nothing', async ({ page }) => {
   await prepare(page)
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([
       {
@@ -135,7 +135,7 @@ test('a refused extract commit shows gesture-site feedback and mutates nothing',
         items: [{ kind: 'input', id: 'in', type: { kind: 'concrete', name: 'FLOAT' }, optional: true }],
       },
     ])
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-extract', root: 'g0',
       graphs: {
         g0: { id: 'g0', name: 'root', nodes: { target: { id: 'target', type: 'Target', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 },
@@ -178,7 +178,7 @@ test('a refused extract commit shows gesture-site feedback and mutates nothing',
 
 test('repeated family-forwarding fan-out refusal stays one Problem and flashes each time', async ({ page }) => {
   await prepare(page)
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([
       {
@@ -193,7 +193,7 @@ test('repeated family-forwarding fan-out refusal stays one Problem and flashes e
         items: [{ kind: 'input', id: 'in', type: { kind: 'concrete', name: 'FLOAT' }, optional: true }],
       },
     ])
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-boundary', root: 'g0',
       graphs: {
         g0: { id: 'g0', name: 'root', nodes: { s: { id: 's', type: '#sub', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 },

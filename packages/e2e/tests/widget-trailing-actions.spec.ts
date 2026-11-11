@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const numeric = (id: string, controller = false) => ({
       kind: 'input', id, type: { kind: 'concrete', name: 'INT' }, optional: false,
       widget: {
@@ -30,7 +30,7 @@ test.beforeEach(async ({ page }) => {
         },
       ],
     }])
-    await test.app.openDocument({
+    test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'trailing-actions', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         n0: {
