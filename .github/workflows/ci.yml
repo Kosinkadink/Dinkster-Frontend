@@ -71,6 +71,8 @@ jobs:
             -e .ci/Dinkster/packages/dinkster-nodes-dev \
             -e .ci/Dinkster/packages/dinkster-nodes-foundation \
             -e .ci/Dinkster/packages/dinkster-nodes-image \
+            -e .ci/Dinkster/packages/dinkster-nodes-audio \
+            -e .ci/Dinkster/packages/dinkster-nodes-3d \
             -e .ci/Dinkster/packages/dinkster-nodes-media-io \
             -e .ci/Dinkster/packages/dinkster-nodes-remote \
             -e .ci/Dinkster/packages/dinkster-nodes-comfy \
