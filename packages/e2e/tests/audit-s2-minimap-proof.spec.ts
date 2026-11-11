@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const catalog = {
   schemaVersion: 1,
@@ -20,16 +20,18 @@ async function prepare(page: Page): Promise<void> {
   await page.route('/api/mounts', (route) => route.fulfill({ json: { mounts: [] } }))
   await page.goto('/')
   await expect(page.getByTestId('minimap')).toBeVisible()
+  await waitForStartupOwnership(page)
 }
 
 test('dense minimap keeps nodes visible and the viewport stroke inside its canvas', async ({ page }) => {
   await prepare(page)
   await page.evaluate(async () => {
     const bridge = window.__dinksterTest!
-    await bridge.app.openDocument(
+    const diagnostics = await bridge.app.openDocument(
       bridge.syntheticWorkflow({ chains: 8, chainLength: 8, reroutes: true, groups: true }),
       'Dense minimap proof',
     )
+    if (diagnostics.length > 0) throw new Error(`minimap fixture failed: ${JSON.stringify(diagnostics)}`)
     bridge.renderer!.fitToScene()
     const renderer = bridge.renderer!
     const canvas = document.querySelector<HTMLCanvasElement>('[data-testid=graph-canvas]')!
