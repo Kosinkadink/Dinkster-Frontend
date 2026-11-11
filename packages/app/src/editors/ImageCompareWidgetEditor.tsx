@@ -65,7 +65,7 @@ const ImageCompareImplementation: Component<WidgetEditorImplementationProps> = (
     const blob = frame.payload instanceof Blob ? frame.payload : new Blob([frame.payload])
     if (blob.size > 64 * 1024 * 1024) return
     void createImageBitmap(blob).then((image) => {
-      if (!live) { image.close(); return }
+      if (!live || image.width < 1 || image.height < 1 || image.width > 4096 || image.height > 4096) { image.close(); return }
       bitmap = image
       setImages((previous) => ({ ...previous, [side]: image }))
     }).catch(() => {})

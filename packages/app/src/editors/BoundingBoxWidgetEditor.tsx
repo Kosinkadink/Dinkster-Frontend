@@ -70,7 +70,7 @@ const BoundingBoxImplementation: Component<WidgetEditorImplementationProps> = (p
           ...(rendition.version === undefined ? {} : { rendererVersion: rendition.version }) })
         if (!result.available || result.mime !== 'image/png' || result.bytes.byteLength > 64 * 1024 * 1024 || !current()) return
         const bitmap = await createImageBitmap(new Blob([result.bytes], { type: result.mime }))
-        if (!current()) { bitmap.close(); return }
+        if (!current() || bitmap.width < 1 || bitmap.height < 1 || bitmap.width > 4096 || bitmap.height > 4096) { bitmap.close(); return }
         try {
           await values.read(query, peek.descriptor, async () => {
             if (!current()) return

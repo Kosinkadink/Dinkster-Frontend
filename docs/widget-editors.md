@@ -18,6 +18,11 @@ with the selected crop outlined and the excluded area shaded. The outline
 matches the backend's edge clamping. An unavailable or stale source leaves
 the numeric controls usable without showing an unrelated image.
 
+Crop and comparison previews accept encoded images up to 64 MiB and decoded
+dimensions from 1 through 4096 pixels per side. Larger decoded images are
+released without drawing or resizing the canvas. This preview limit does not
+change the stored crop region or the backend's output dimensions.
+
 Compact STRING and MARKDOWN views display non-string imported values using
 the shared value formatter (for example, null displays as `null`). Rendering
 does not replace them with schema defaults, mark them as empty placeholders,
