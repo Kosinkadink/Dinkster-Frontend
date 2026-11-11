@@ -422,8 +422,10 @@ membership for retry; metadata-only editor switches survive adoption. The
 source target is installed before tab publication. SharedWorker canonical
 session promotion retains its snapshot and adopted history on the local tab's
 original backend before swapping stores. A refused or stale acknowledgment
-keeps the local store; metadata-only changes survive the swap. Incoming workspace
-inventories retain newly received native tab snapshots before publishing tabs or
+keeps the local store; metadata-only changes survive the swap. Disabling workspace
+authority also closes connections whose promotion acknowledgment is pending, so
+a disposed renderer cannot keep an obsolete SharedWorker snapshot alive.
+Incoming workspace inventories retain newly received native tab snapshots before publishing tabs or
 displacing local views. Refusal or a changed local inventory, document, backend,
 registry, connection or workspace authority keeps local tabs. Newer shared
 inventories supersede outstanding acknowledgments. Existing-tab metadata updates

@@ -1184,6 +1184,39 @@ describe('AppState multi-window workspace', () => {
     peer.close()
   })
 
+  it('closes a document connection while promotion ownership is still pending', async () => {
+    const factories = authorityFactories()
+    const app = createEditableApp()
+    await app.openDocument(workflow(), 'Pending promotion')
+    app.flushPersistTabs(true)
+    await drainTasks()
+    let release!: () => void
+    let requested!: () => void
+    const admission = new Promise<void>((resolve) => { release = resolve })
+    const request = new Promise<void>((resolve) => { requested = resolve })
+    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      requested()
+      await admission
+      return { ...owner, ...declaration, revision: declaration.revision + 1 }
+    })
+    const promotion = app.enableWorkspaceAuthority(factories.document, factories.workspace)
+    await request
+    const peer = await SharedWorkerCollabConnection.open('multi-window-workflow', workflow(),
+      factories.document, 'remaining-window')
+    const changed = { ...workflow(), graphs: { ...workflow().graphs,
+      g0: { ...workflow().graphs.g0!, name: 'recovered after pending promotion' } } }
+    try {
+      expect(await peer.adoptExclusive(changed)).toBe(false)
+      app.dispose()
+      await new Promise<void>((resolve) => queueMicrotask(resolve))
+      expect(await peer.adoptExclusive(changed)).toBe(true)
+    } finally {
+      release()
+      await promotion
+      peer.close()
+    }
+  })
+
   it('replays create and close operations after final-window crashes', async () => {
     const globals = globalThis as { localStorage?: Storage }
     globals.localStorage = memoryStorage()

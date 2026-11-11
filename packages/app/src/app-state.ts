@@ -2964,7 +2964,7 @@ export class AppState {
 
   /** Local multi-window sessions owned by the same-origin SharedWorker. */
   private readonly workspaceSessions = new Map<string, { readonly tab: Tab; readonly session: SharedDocumentSession }>()
-  private readonly workspacePromotions = new Map<string, { tab: Tab; promise: Promise<void> }>()
+  private readonly workspacePromotions = new Map<string, { tab: Tab; promise: Promise<void>; controller: AbortController }>()
   private readonly workspaceReplacements = new WeakSet<Tab>()
   private readonly startupRecoveryDocuments: readonly WorkflowDocument[]
   private workspaceAuthorityEnabled = false
@@ -4018,6 +4018,7 @@ export class AppState {
     }
     for (const entry of this.workspaceSessions.values()) entry.session.close()
     this.workspaceSessions.clear()
+    for (const entry of this.workspacePromotions.values()) entry.controller.abort()
     this.workspacePromotions.clear()
     this.workspaceTabConnection?.close()
     this.workspaceTabConnection = undefined
@@ -4082,11 +4083,13 @@ export class AppState {
   private startWorkspaceTabPromotion(tab: Tab): Promise<void> {
     const existing = this.workspacePromotions.get(tab.id)
     if (existing?.tab.store === tab.store) return existing.promise
+    existing?.controller.abort()
+    const controller = new AbortController()
     const generation = this.workspaceAuthorityGeneration
-    const promise = this.promoteWorkspaceTab(tab, generation).finally(() => {
+    const promise = this.promoteWorkspaceTab(tab, generation, controller.signal).finally(() => {
       if (this.workspacePromotions.get(tab.id)?.promise === promise) this.workspacePromotions.delete(tab.id)
     })
-    this.workspacePromotions.set(tab.id, { tab, promise })
+    this.workspacePromotions.set(tab.id, { tab, promise, controller })
     return promise
   }
 
@@ -4130,7 +4133,7 @@ export class AppState {
     }
   }
 
-  private async promoteWorkspaceTab(tab: Tab, generation: number): Promise<void> {
+  private async promoteWorkspaceTab(tab: Tab, generation: number, signal: AbortSignal): Promise<void> {
     const sourceDocument = tab.store.doc
     const sourceRevision = tab.store.revision
     const backend = this.backendForTab(tab)
@@ -4174,6 +4177,7 @@ export class AppState {
         this.workspacePortFactory,
         () => this.tabs.get().find((candidate) => candidate.id === tab.id)?.store === tab.store ? tab.store.doc : undefined,
         this.workspaceReplacements.has(tab),
+        signal,
       )
       const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
       const sourceChanged = tab.store.doc !== sourceDocument || tab.store.revision !== sourceRevision
