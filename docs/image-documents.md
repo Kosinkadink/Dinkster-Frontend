@@ -170,7 +170,7 @@ tensor `LAYERS` and `comfy.LAYERS` ports are not compatible document targets.
 
 Documents opened from an executed native layer output also offer **Export
 editable recipe**. It branches `dinkster.layers.edit` -> `dinkster.layers.flatten` ->
-`dinkster.save_image` from the original `dinkster.layers` output without replacing or
+`dinkster.image.save_image` from the original `dinkster.layers` output without replacing or
 rewiring that source. The edit node receives canonical document commands;
 format and quality are explicit save-node values. PNG, JPEG, and WebP are
 supported, quality is 0-100, and PNG remains lossless. Output policy is
@@ -229,7 +229,7 @@ It checks component shape and bounds; exact component-to-affine agreement is
 validated by the backend on adoption. Editing affine fields drops components
 instead of preserving metadata that no longer agrees with the transform.
 
-For native `dinkster.load_image` mask outputs already consumed by the graph, the
+For native `dinkster.image.load_image` mask outputs already consumed by the graph, the
 image mask editor offers **Apply mask to graph**. It inserts or updates one
 source-bound `dinkster.mask.paint` node, stores the serialized brush operations,
 and rewires only that loader's current mask consumers. The original image
@@ -367,7 +367,7 @@ adoption, render and asset endpoints to cover graph opening, crop, resize,
 format/quality editing, guarded editable-recipe export, explicit snapshot
 export, grouping, clipping refusal, and draft recovery after reload.
 `packages/e2e/tests/image-document-graph-live.spec.ts` separately runs
-a transparent `dinkster.load_image` -> `dinkster.layers.add` ->
+a transparent `dinkster.image.load_image` -> `dinkster.layers.add` ->
 `dinkster.layers.flatten` graph against a live Dinkster backend. It proves the
 workspace's Render API PNG is byte-identical to the flatten image rendition and
 that its decoded alpha matches the flatten transparency mask.

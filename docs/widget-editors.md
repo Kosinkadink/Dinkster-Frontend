@@ -1198,7 +1198,7 @@ zoom clamps. The Canvas scroll behavior setting also applies inside Image:
 Zoom is cursor-anchored, while Pan uses both wheel axes and keeps Ctrl+wheel as
 cursor-anchored zoom.
 
-For a schema-verified `dinkster.load_image` whose `mask` output has consumers,
+For a schema-verified `dinkster.image.load_image` whose `mask` output has consumers,
 Apply stores the cumulative edit recipe in one `dinkster.mask.paint` node and
 rewires only those mask consumers. The guarded command copies the complete
 loader AssetRef into `source`, preserves direct link identities and named nets,

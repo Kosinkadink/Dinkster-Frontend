@@ -119,7 +119,7 @@ const glslPayload = (): DinksterNodesPayload => ({
 const maskPaintPayload = (): DinksterNodesPayload => ({
   schemaVersion: 1,
   nodes: {
-    'dinkster.load_image': {
+    'dinkster.image.load_image': {
       schemaVersion: 1, displayName: 'Load Image', category: 'image', idempotent: true, editorRole: 'image-source',
       interface: [
         { role: 'input', id: 'image', required: true, type: { kind: 'asset', element: { kind: 'concrete', types: ['IMAGE'] } }, widget: { type: 'ASSET', accept: ['image/png'] } },
@@ -453,7 +453,7 @@ describe('Tab editorKind', () => {
     expect(app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'mask-paint-target', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
-        loader: { id: 'loader', type: 'dinkster.load_image', values: { image: { digest: `blake3:${'a'.repeat(64)}`, name: 'a.png', size: 10, mediaType: 'image/png', virtualPath: '' } } },
+        loader: { id: 'loader', type: 'dinkster.image.load_image', values: { image: { digest: `blake3:${'a'.repeat(64)}`, name: 'a.png', size: 10, mediaType: 'image/png', virtualPath: '' } } },
         sink: { id: 'sink', type: 'Sink', values: {} },
       }, links: { mask: { id: 'mask', from: { node: 'loader', port: 'mask' }, to: { node: 'sink', port: 'mask' } } }, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: {} },

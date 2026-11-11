@@ -18,7 +18,7 @@ import { nodeHasCommandRole, schemaForCommandRole, type CommandSchemaRole } from
 // NodeSchema.editorRole is authoritative; these ids support schemas without that field.
 const IMAGE_SOURCE_ROLE: CommandSchemaRole = {
   role: 'image-source',
-  fallbackNodeId: 'dinkster.load_image',
+  fallbackNodeId: 'dinkster.image.load_image',
 }
 const MASK_PAINT_ROLE: CommandSchemaRole = {
   role: 'mask-paint',

@@ -37,7 +37,7 @@ const LAYERS_EDIT_ROLE: CommandSchemaRole = {
 }
 const IMAGE_SAVE_ROLE: CommandSchemaRole = {
   role: 'image-save',
-  fallbackNodeId: 'dinkster.save_image',
+  fallbackNodeId: 'dinkster.image.save_image',
 }
 
 const isVec2 = (value: Json | undefined): value is JsonObject & { x: number; y: number } =>

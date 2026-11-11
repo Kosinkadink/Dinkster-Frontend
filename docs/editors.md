@@ -101,7 +101,7 @@ projection is therefore omitted from tab persistence and cannot be restored
 after refresh.
 
 Mask edits can still become durable workflow behavior. When a native
-`dinkster.load_image` mask has graph consumers, **Apply mask to graph** records the
+`dinkster.image.load_image` mask has graph consumers, **Apply mask to graph** records the
 session's brush recipe in a source-bound `dinkster.mask.paint` node and rewires
 only those consumers. **Bake to asset** remains the explicit replacement path
 for other eligible image inputs. The graph command validates the source asset,

@@ -76,6 +76,13 @@ values select hosted images for main validation, schedules, and manual runs.
 
 ## Full validation
 
+The live image upload proof requires `dinkster.image.load_image` and
+`dinkster.image.save_image` from the same-origin catalog and fails with the
+missing node IDs when either is absent. Its execution graph connects the
+loader's `IMAGE` output to the saver's `images` input; upload byte equality,
+canonical asset references, export/reopen and completed execution remain
+required.
+
 The App View queue fixture creates its submission-release promise before the
 request handler runs, so observing Submitting can release either an already
 waiting request or one that arrives afterward without losing the release.

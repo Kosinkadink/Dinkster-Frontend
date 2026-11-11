@@ -156,7 +156,7 @@ describe('image.applyAsset', () => {
 
 const maskLoaderSchema: NodeSchema = {
   ...schema,
-  type: 'dinkster.load_image',
+  type: 'dinkster.image.load_image',
   editorRole: 'image-source',
   items: [
     {
@@ -200,7 +200,7 @@ const maskGraph = (): GraphDef => ({
   ...graph(),
   nodes: {
     ...graph().nodes,
-    image: { id: asNodeId('image'), type: 'dinkster.load_image', values: { image: sourceRef } },
+    image: { id: asNodeId('image'), type: 'dinkster.image.load_image', values: { image: sourceRef } },
     direct: { id: asNodeId('direct'), type: 'Consumer', values: {} },
     net: { id: asNodeId('net'), type: 'Consumer', values: {} },
   },
@@ -542,7 +542,7 @@ describe('image.documentRecipeExport', () => {
       { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'STRING' }, optional: true },
       { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
     ] },
-    { ...schema, type: 'dinkster.save_image', editorRole: 'image-save', isOutputNode: true, items: [
+    { ...schema, type: 'dinkster.image.save_image', editorRole: 'image-save', isOutputNode: true, items: [
       { kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
       { kind: 'input', id: 'format', type: { kind: 'concrete', name: 'COMBO' }, optional: true,
         widget: { widgetType: 'COMBO', options: { options: ['png', 'jpeg', 'webp'] }, default: 'png' } },
@@ -574,7 +574,7 @@ describe('image.documentRecipeExport', () => {
       type: 'dinkster.layers.flatten', values: { selector: 'composite' },
     })
     expect(target.doc.graphs.g0!.nodes.n3).toMatchObject({
-      type: 'dinkster.save_image', values: { format: 'webp', quality: 73 },
+      type: 'dinkster.image.save_image', values: { format: 'webp', quality: 73 },
     })
     expect(Object.values(target.doc.graphs.g0!.links)).toMatchObject([
       { from: { node: 'source', port: 'out' }, to: { node: 'n1', port: 'layers' } },
@@ -635,7 +635,7 @@ describe('image.documentRecipeExport', () => {
     const saveResolve = (formatOptions: readonly string[], qualityOptions: Readonly<Record<string, number>>) =>
       (type: string): NodeSchema | undefined => {
         const resolved = resolve(type)
-        if (resolved?.type !== 'dinkster.save_image') return resolved
+        if (resolved?.type !== 'dinkster.image.save_image') return resolved
         return { ...resolved, items: resolved.items.map((item) => item.id === 'format' ? {
           ...item, widget: { widgetType: 'COMBO', options: { options: formatOptions }, default: 'png' },
         } : item.id === 'quality' ? {
