@@ -124,7 +124,7 @@ const workflow = (): WorkflowDocument => ({
   view: { graphs: {} },
 })
 
-const primitive = (type: string, name: 'FLOAT' | 'BOOLEAN'): NodeSchema => ({
+const sameIdPrimitive = (type: string, name: 'FLOAT' | 'BOOLEAN'): NodeSchema => ({
   type,
   displayName: type,
   category: 'test',
@@ -135,7 +135,7 @@ const primitive = (type: string, name: 'FLOAT' | 'BOOLEAN'): NodeSchema => ({
       kind: 'input', id: 'value', type: { kind: 'concrete', name }, optional: false,
       ...(name === 'FLOAT' ? { widget: { widgetType: 'NUMBER', options: { step: 0.1 }, default: 0 } } : {}),
     },
-    { kind: 'output', id: name, type: { kind: 'concrete', name } },
+    { kind: 'output', id: 'value', type: { kind: 'concrete', name } },
   ],
 })
 
@@ -841,8 +841,8 @@ describe('AppState multi-window workspace', () => {
     const app = new AppState({ workspaceEvents: right })
     const connection = asConnectionId('local')
     const schemas = new Map([
-      ['dinkster.utilities.primitive_float', primitive('dinkster.utilities.primitive_float', 'FLOAT')],
-      ['dinkster.utilities.primitive_boolean', primitive('dinkster.utilities.primitive_boolean', 'BOOLEAN')],
+      ['dinkster.float', sameIdPrimitive('dinkster.float', 'FLOAT')],
+      ['dinkster.boolean', sameIdPrimitive('dinkster.boolean', 'BOOLEAN')],
     ])
     const registry = {
       connection,
