@@ -20,12 +20,12 @@ test('cancels a running and a queued job while later jobs continue, including Ap
       } },
     } as never, 'Cancellation')
   })
-  const toolbar = page.getByTestId('workflow-queue-control')
-  await expect(toolbar.getByTestId('cancel-execution')).toHaveCount(0)
+  const topbar = page.getByRole('banner', { name: 'Application controls' })
+  await expect(topbar.getByTestId('cancel-execution')).toHaveCount(0)
   await page.screenshot({ path: testInfo.outputPath('cancel-before.png') })
 
   const queue = async () => page.evaluate(async () => {
-    const app = window.__dinksterTest!.app as unknown as import('../../app/src/app-state.js').AppState
+    const app = window.__dinksterTest!.app
     await app.queue(app.activeTab()!, { kind: 'partial', targets: [{ instancePath: [], node: 'sleep' as never }] })
   })
   const states = () => page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()].map((entry) => entry.status))
@@ -40,7 +40,7 @@ test('cancels a running and a queued job while later jobs continue, including Ap
   await entries.filter({ has: page.getByText('Queued', { exact: true }) }).first().getByRole('button', { name: 'Cancel run' }).click()
   await expect.poll(states).toEqual(['running', 'queued', 'cancelled'])
   await page.screenshot({ path: testInfo.outputPath('cancel-during.png') })
-  await toolbar.locator('.workflow-queue-buttons').getByRole('button', { name: 'Cancel run' }).focus()
+  await topbar.getByRole('button', { name: 'Cancel run' }).focus()
   await page.keyboard.press('Enter')
   await expect.poll(states).toEqual(['cancelled', 'running', 'cancelled'])
   await expect(entries.filter({ has: page.getByText('Cancelled', { exact: true }) })).toHaveCount(2)

@@ -2604,6 +2604,7 @@ export function App(props: {
         </div>
         <UniversalSearchTrigger shortcut={searchShortcut()} onOpen={() => app.searchOpen.set(true)} />
         <div class="topbar-group topbar-group-right">
+          <CancelExecutionButton app={app} execution={(executions(), activeTab(), app.currentCancellableExecution())} />
           <CustomizeLayoutButton commands={app.commands} />
           <ProductButton variant="ghost" size="compact"
             class="shell-region-toggle"

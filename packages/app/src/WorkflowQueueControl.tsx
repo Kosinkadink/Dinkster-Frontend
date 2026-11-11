@@ -77,11 +77,6 @@ export function WorkflowQueueControl(props: {
       data-owner={props.owner.id}
     >
       <div class="workflow-queue-buttons">
-        <Show when={props.app}>{(app) => <CancelExecutionButton
-          app={app()}
-          execution={props.executions.find((entry) => entry.status === 'running') ??
-            props.executions.find((entry) => entry.status === 'queued')}
-        />}</Show>
         <button
           type="button"
           class="workflow-queue-submit"

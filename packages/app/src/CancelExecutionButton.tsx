@@ -16,16 +16,20 @@ export function CancelExecutionButton(props: {
 }) {
   const message = useAppMessage()
   const pending = useSignal(props.app.cancellingExecutions)
-  const cancelling = () => props.execution !== undefined && pending().has(executionKey(props.execution.ref))
-  return <Show when={canCancelExecution(props.execution)}>
-    <ProductButton
-      type="button"
-      variant="danger"
-      size="compact"
-      data-testid="cancel-execution"
-      aria-label={message('execution.cancel.action')}
-      loading={cancelling()}
-      onClick={() => { if (props.execution) void props.app.cancelExecution(props.execution.ref) }}
-    >{message(cancelling() ? 'execution.cancel.pending' : 'execution.cancel.action')}</ProductButton>
-  </Show>
+  const cancelling = () => {
+    return props.execution !== undefined && pending().has(executionKey(props.execution.ref))
+  }
+  return (
+    <Show when={canCancelExecution(props.execution)}>
+      <ProductButton
+        type="button"
+        variant="danger"
+        size="compact"
+        data-testid="cancel-execution"
+        aria-label={message('execution.cancel.action')}
+        loading={cancelling()}
+        onClick={() => { if (props.execution) void props.app.cancelExecution(props.execution.ref) }}
+      >{message(cancelling() ? 'execution.cancel.pending' : 'execution.cancel.action')}</ProductButton>
+    </Show>
+  )
 }

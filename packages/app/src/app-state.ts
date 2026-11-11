@@ -3332,6 +3332,7 @@ export class AppState {
           previous !== execution.status &&
           terminal.includes(execution.status)
         ) {
+          if (execution.status === 'cancelled') this.showTransientStatus(t('execution.cancel.cancelled'))
           this.log(
             execution.status === 'error' ? 'error' : 'info',
             this.backendFor(execution.ref.connection)?.label ?? String(execution.ref.connection),
@@ -9417,7 +9418,10 @@ export class AppState {
 
   currentCancellableExecution(): ExecutionState | undefined {
     const tab = this.activeTab()
-    const executions = tab === undefined ? [] : this.executionsForTab(tab)
+    const executions = [
+      ...(tab === undefined ? [] : this.executionsForTab(tab)),
+      ...[...this.store.executions.get().values()].reverse(),
+    ]
     return executions.find((execution) => execution.status === 'running') ??
       executions.find((execution) => execution.status === 'queued')
   }
@@ -9438,9 +9442,10 @@ export class AppState {
     this.cancellingExecutions.set(new Set([...this.cancellingExecutions.get(), key]))
     try {
       const state = await backend.connection.cancel(ref)
+      const current = this.store.get(ref)?.status
       this.showTransientStatus(t(state === 'completed' || state === 'failed'
         ? 'execution.cancel.finished'
-        : state === 'cancelled' ? 'execution.cancel.cancelled' : 'execution.cancel.requested'))
+        : state === 'cancelled' || current === 'cancelled' ? 'execution.cancel.cancelled' : 'execution.cancel.requested'))
     } catch {
       this.showTransientStatus(t('execution.cancel.unavailable'))
     } finally {

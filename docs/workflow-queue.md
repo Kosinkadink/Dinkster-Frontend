@@ -2,8 +2,9 @@
 
 ## Cancelling a run
 
-While a workflow has a running or queued job, its toolbar shows Cancel run.
-The running job is selected first, then the newest queued job. Each job in
+While this window has a running or queued job, the top bar shows Cancel run,
+even when another tab is selected. Running jobs are selected first, preferring
+the active workflow, then the newest queued job. Each job in
 the queue disclosure and Executions rail also has its own Cancel run button.
 App View offers cancellation in its header and beside authored queue buttons.
 The command palette's Cancel current run command uses the same selection and
