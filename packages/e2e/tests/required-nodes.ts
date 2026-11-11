@@ -15,6 +15,8 @@ const withdrawnDraftNodes: ReadonlySet<string> = new Set([
   'dinkster.value.compare',
   'std.list.length',
   'std.math.add_ints',
+  'std.string.concat',
+  'std.string.split',
 ])
 
 export function requireBackendNodes(

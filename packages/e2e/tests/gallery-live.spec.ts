@@ -7,9 +7,10 @@
  * wire decode gaps cannot hide behind fixture equivalence.
  *
  * Skips loudly without a reachable native backend (DINKSTER_NATIVE_BACKEND,
- * default http://127.0.0.1:8765) or when the dev gallery pack is absent.
+ * default http://127.0.0.1:8765). Missing required gallery nodes fail.
  */
 import { expect, selectProductOption, test, type Page } from './fixtures.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -38,7 +39,7 @@ async function selectSource(page: Page, source: string): Promise<void> {
   }
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   // Probe outside the skip calls: test.skip signals by throwing, so a skip
   // raised inside the try would be swallowed and remapped to 'unreachable'.
   let served: Record<string, unknown> | null = null
@@ -47,8 +48,7 @@ test.beforeEach(async ({ page }) => {
     if (probe.ok) served = (await probe.json() as { nodes?: Record<string, unknown> }).nodes ?? {}
   } catch { /* unreachable -> served stays null */ }
   test.skip(served === null, `no native Dinkster backend reachable at ${NATIVE_BACKEND} (set DINKSTER_NATIVE_BACKEND)`)
-  test.skip(!(served !== null && 'dev.gallery.sockets' in served),
-    `native backend at ${NATIVE_BACKEND} lacks dev.gallery.* - serve the dinkster-nodes-dev pack (Dinkster >= 33a1345)`)
+  requireBackendNodes(served!, ['dev.gallery.sockets'], testInfo)
 
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })

@@ -21,6 +21,7 @@ import {
   compositorStateOf,
   documentResolver,
   coreCommandRegistry,
+  coreRegionDefinitions,
   coreMenuContributions,
   createMenuRegistry,
   createReplacementRegistry,
@@ -105,7 +106,6 @@ import {
   type ScopeClosure,
   type Json,
   type LineageId,
-  type FreshDefinitionInitializer,
   type NodeActivity,
   type NodeData,
   type NodeId,
@@ -721,45 +721,6 @@ const sharedBackendClientId = (): string => {
   } catch {
     return randomWorkspaceId('dinkster')
   }
-}
-
-const REGION_DEFINITIONS: Readonly<Record<RegionKind, FreshDefinitionInitializer>> = {
-  map: {
-    nodes: { n0: { id: 'n0' as never, type: 'dinkster.float', values: {} } },
-    links: {}, nets: {}, reroutes: {},
-    boundary: {
-      inputs: [{ id: 'item' as never, displayName: 'Item', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
-      outputs: [{ id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
-    },
-    nextOrdinal: 1,
-  },
-  fold: {
-    nodes: { n0: { id: 'n0' as never, type: 'std.math.add_ints', values: {} } },
-    links: {}, nets: {}, reroutes: {},
-    boundary: {
-      inputs: [
-        { id: 'item' as never, displayName: 'Item', binds: { kind: 'port', node: 'n0' as never, port: 'a' as never } },
-        { id: 'state' as never, displayName: 'State', binds: { kind: 'port', node: 'n0' as never, port: 'b' as never } },
-      ],
-      outputs: [{ id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'sum' as never } }],
-    },
-    nextOrdinal: 1,
-  },
-  while: {
-    nodes: {
-      n0: { id: 'n0' as never, type: 'dinkster.float', values: {} },
-      n1: { id: 'n1' as never, type: 'dinkster.boolean', values: { value: true } },
-    },
-    links: {}, nets: {}, reroutes: {},
-    boundary: {
-      inputs: [{ id: 'state' as never, displayName: 'State', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
-      outputs: [
-        { id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } },
-        { id: 'continue' as never, displayName: 'Continue', binds: { kind: 'port', node: 'n1' as never, port: 'value' as never } },
-      ],
-    },
-    nextOrdinal: 2,
-  },
 }
 
 const REGION_VIEWS = {
@@ -6582,7 +6543,7 @@ export class AppState {
     if (occurrenceNodeId === undefined) return { ok: false, diagnostics: [] }
     const plan = planFreshSubgraphCreate(tab.store.doc, {
       parentGraphId: graphId,
-      definition: REGION_DEFINITIONS[kind],
+      definition: coreRegionDefinitions[kind],
       view: REGION_VIEWS[kind],
       occurrence: {
         position,

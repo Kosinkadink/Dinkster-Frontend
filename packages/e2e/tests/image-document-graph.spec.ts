@@ -250,7 +250,7 @@ test('opens graph layers, recovers edits and explicitly exports an asset-backed 
 })
 
 test('layer rows and structural edits respect explicit z order', async ({ page }, testInfo) => {
-  await page.evaluate(async () => {
+  const staged = await page.evaluate(async () => {
     const localPath = '/src/image-document-local.ts'
     const projectPath = '/src/projects.ts'
     const { ImageDocumentLocalStore, importSingleRaster } = await import(localPath)
@@ -268,7 +268,20 @@ test('layer rows and structural edits respect explicit z order', async ({ page }
     value.layers.l1.z_index = 10
     value.rootLayerIds.push('l3')
     await store.saveDraft(value, 'Z order')
+    const resource = value.resources.r0
+    const stored = await store.getResource(resource.digest)
     await store.close()
+    return { digest: resource.digest, bytes: Array.from(stored.bytes) as number[] }
+  })
+  await page.route(/\/api\/assets(?:\/.*)?(?:\?.*)?$/, async (route) => {
+    const request = route.request()
+    if (request.method() === 'GET') return route.fulfill({ contentType: 'image/png', body: Buffer.from(staged.bytes) })
+    expect(new URL(request.url()).pathname).toBe('/api/assets/media')
+    expect(await request.headerValue('x-dinkster-digest')).toBe(staged.digest)
+    expect(request.postDataBuffer()).toEqual(Buffer.from(staged.bytes))
+    return route.fulfill({ status: 201, json: {
+      kind: 'media/image', asset: { digest: staged.digest, name: 'Front.png', size: staged.bytes.length, mediaType: 'image/png', virtualPath: '' },
+    } })
   })
   await page.getByTestId('image-documents-button').click()
   const workspace = page.getByTestId('image-document-workspace')

@@ -1,16 +1,16 @@
 import { expect, nativeAppViewTest as test } from './fixtures.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const nativeBackend = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   let nodes: Record<string, unknown> | undefined
   try {
     const response = await fetch(`${nativeBackend}/api/nodes`, { signal: AbortSignal.timeout(2_000) })
     if (response.ok) nodes = (await response.json() as { nodes?: Record<string, unknown> }).nodes
   } catch { /* The skip below reports the unavailable backend. */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${nativeBackend}`)
-  test.skip(!('dev.image.gradient' in nodes!),
-    `native backend at ${nativeBackend} lacks dev.image.gradient - serve the dinkster-nodes-dev pack`)
+  requireBackendNodes(nodes!, ['dev.image.gradient'], testInfo)
 })
 
 test('an App View partial queue button completes against the native backend', async ({ page }) => {
