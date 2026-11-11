@@ -80,11 +80,11 @@ The App View queue fixture creates its submission-release promise before the
 request handler runs, so observing Submitting can release either an already
 waiting request or one that arrives afterward without losing the release.
 
-The Extensions locale proof flushes fixture persistence and waits for retained
-snapshot acknowledgments before recording its request baseline. Recovery
-candidates can remain when a synthetic schema cannot prove complete asset
-roots; their acknowledgments, not their removal, mark settled fixture writes.
-The locale assertions still count every backend request.
+The Activity, Extensions and Media locale proofs flush fixture persistence and
+wait for a committed version-1 snapshot with no pending workspace candidates
+before recording request baselines. Document recovery slots remain available
+after a commit and are not pending workspace writes. The locale assertions
+still count every backend request.
 
 Screenshots use the product's bundled fonts, including canvas text, without
 test-only font injection or host font configuration. Baseline paths are shared
