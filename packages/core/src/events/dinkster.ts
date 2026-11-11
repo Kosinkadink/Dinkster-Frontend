@@ -730,7 +730,7 @@ export class DinksterNormalizer implements EventNormalizer {
       case 'cancelled': {
         if (this.terminalJobs.has(jobId)) return []
         this.terminalJobs.add(jobId)
-        return [{ kind: 'interrupted', execution, timestamp }]
+        return [{ kind: 'cancelled', execution, timestamp }]
       }
       case 'failed': {
         if (this.terminalJobs.has(jobId)) return []

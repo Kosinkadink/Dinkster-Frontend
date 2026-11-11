@@ -1,5 +1,23 @@
 # Workflow-local queue
 
+## Cancelling a run
+
+While a workflow has a running or queued job, its toolbar shows Cancel run.
+The running job is selected first, then the newest queued job. Each job in
+the queue disclosure and Executions rail also has its own Cancel run button.
+App View offers cancellation in its header and beside authored queue buttons.
+The command palette's Cancel current run command uses the same selection and
+can be assigned a keyboard shortcut.
+
+Cancelling a queued job removes it before it runs. Cancelling a running job
+waits for backend cleanup; later queued jobs continue normally. The job then
+reads Cancelled, and node progress stops. A completed job is not relabelled
+cancelled if it finishes before the request arrives. Backend failures and
+already-finished jobs produce a plain status message; the control becomes
+available again after a failed request.
+
+## Queue controls
+
 Queueing is a control of the workflow currently open in the graph editor,
 not a global shell action. Each live graph tab has a compact control on the
 center region's top toolbar row, right-aligned beside the view and lens

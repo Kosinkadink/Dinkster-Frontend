@@ -574,6 +574,7 @@ const decodeWorkspaceExecutionEvent = (value: unknown): NormalizedEvent | undefi
   switch (value['kind']) {
     case 'started':
     case 'interrupted':
+    case 'cancelled':
     case 'completed':
       return { kind: value['kind'], execution, timestamp }
     case 'regionExpanded': {
@@ -2842,6 +2843,7 @@ export class AppState {
   /** Session-only open-time migration summaries; never stored in documents. */
   readonly migrationNotices = createSignal<ReadonlyMap<string, MigrationNotice>>(new Map())
   readonly queueRefusal = createSignal<Tab | undefined>(undefined)
+  readonly cancellingExecutions = createSignal<ReadonlySet<string>>(new Set())
   readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<AssetConsentRequest | undefined>(undefined)
   readonly importAssetResolution: Signal<ImportAssetResolutionRequest | undefined> = createSignal<ImportAssetResolutionRequest | undefined>(undefined)
   /**
@@ -3103,6 +3105,14 @@ export class AppState {
       this.keybindings.register({ command: id, combo })
     }
     register('workflow.queue', 'command.workflow.queue', 'Ctrl+Enter', () => { const tab = activeTabNow(); if (tab) void this.queue(tab) })
+    this.frontendDoors.command('workflow.cancel', {
+      get label() { return t('command.workflow.cancel') },
+      enabled: () => this.currentCancellableExecution() !== undefined,
+      run: () => {
+        const execution = this.currentCancellableExecution()
+        if (execution) void this.cancelExecution(execution.ref)
+      },
+    })
     register('workflow.save', 'command.workflow.save', 'Ctrl+S', () => { const tab = activeTabNow(); if (tab) void this.saveWorkflow(tab.id) }, () => {
       const tab = activeTabNow()
       return tab !== undefined && tab.execution === undefined && this.backendForTab(tab).protocol === 'dinkster'
@@ -3288,7 +3298,7 @@ export class AppState {
       previousProblems = problems
     })
     const executionStatuses = new Map<string, ExecutionStatus>()
-    const terminal: readonly ExecutionStatus[] = ['completed', 'error', 'interrupted']
+    const terminal: readonly ExecutionStatus[] = ['completed', 'error', 'interrupted', 'cancelled']
     this.store.executions.subscribe((executions) => {
       // Evicted executions drop their status memory and any captured plan.
       for (const key of [...executionStatuses.keys()]) {
@@ -3314,6 +3324,7 @@ export class AppState {
         if (execution.status === 'completed') this.applyAdvancement(key)
         else if (
           execution.status === 'error' ||
+          execution.status === 'cancelled' ||
           (execution.status === 'interrupted' && !this.store.isProvisionallyLost(execution.ref))
         ) this.advancementPlans.delete(key)
         if (
@@ -9402,6 +9413,41 @@ export class AppState {
       if (!outcome.ok) throw new Error('Could not save captured webcam frame.')
       return outcome.doc
     })()
+  }
+
+  currentCancellableExecution(): ExecutionState | undefined {
+    const tab = this.activeTab()
+    const executions = tab === undefined ? [] : this.executionsForTab(tab)
+    return executions.find((execution) => execution.status === 'running') ??
+      executions.find((execution) => execution.status === 'queued')
+  }
+
+  async cancelExecution(ref: ExecutionRef): Promise<void> {
+    const key = executionKey(ref)
+    if (this.cancellingExecutions.get().has(key)) return
+    const execution = this.store.get(ref)
+    if (!execution || (execution.status !== 'running' && execution.status !== 'queued')) {
+      this.showTransientStatus(t('execution.cancel.finished'))
+      return
+    }
+    const backend = this.backendFor(ref.connection)
+    if (!backend) {
+      this.showTransientStatus(t('execution.cancel.unavailable'))
+      return
+    }
+    this.cancellingExecutions.set(new Set([...this.cancellingExecutions.get(), key]))
+    try {
+      const state = await backend.connection.cancel(ref)
+      this.showTransientStatus(t(state === 'completed' || state === 'failed'
+        ? 'execution.cancel.finished'
+        : state === 'cancelled' ? 'execution.cancel.cancelled' : 'execution.cancel.requested'))
+    } catch {
+      this.showTransientStatus(t('execution.cancel.unavailable'))
+    } finally {
+      const pending = new Set(this.cancellingExecutions.get())
+      pending.delete(key)
+      this.cancellingExecutions.set(pending)
+    }
   }
 
   async queue(

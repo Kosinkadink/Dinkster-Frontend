@@ -2426,10 +2426,15 @@ export class DinksterConnection {
   }
 
   /** Cancel one job (the native protocol has no global interrupt). */
-  async cancel(execution: ExecutionRef): Promise<void> {
+  async cancel(execution: ExecutionRef): Promise<DinksterJobRecord['state']> {
     if (execution.connection !== this.id) throw new Error(`cannot cancel execution from connection '${execution.connection}' on '${this.id}'`)
-    const res = await this.fetchFn(this.jobUrl(execution.prompt), { method: 'DELETE' })
-    if (!res.ok) throw await this.failExecutionRequest(res, 'cancel')
+    return requestWithDeadline(async (signal) => {
+      const res = await this.fetchFn(this.jobUrl(execution.prompt), { method: 'DELETE', signal })
+      if (!res.ok) throw await this.failExecutionRequest(res, 'cancel')
+      const job = this.decodeJobRecord(await res.json(), execution.prompt)
+      this.replayJob(execution.prompt, job)
+      return job.state
+    })
   }
 
   // -- Job hydration --------------------------------------------------------------
@@ -2446,7 +2451,10 @@ export class DinksterConnection {
     const res = await this.fetchFn(this.jobUrl(jobId))
     if (res.status === 404 || res.status === 410) return undefined
     if (!res.ok) throw await this.failExecutionRequest(res, operation)
-    const payload: unknown = await res.json()
+    return this.decodeJobRecord(await res.json(), jobId)
+  }
+
+  private decodeJobRecord(payload: unknown, jobId: string): DinksterJobRecord {
     const state = (payload as { state?: unknown } | null)?.state
     if (typeof payload !== 'object' || payload === null || Array.isArray(payload) ||
       typeof state !== 'string' ||

@@ -110,6 +110,7 @@ import {
 } from './panel-drag.js'
 import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
+import { CancelExecutionButton } from './CancelExecutionButton.js'
 import { ExecutedImageFacts, ExecutedImageViewer, ViewerImage, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { executedImageInventory, executedImageLabel, type ExecutedImage } from './executed-image-inventory.js'
 import {
@@ -1220,6 +1221,7 @@ export function App(props: {
       title={app.tabTitleFor(p.exec.ref)}
       testId="execution-row"
       relation={overlayRoleOf(p.exec)}
+      cancelControl={<CancelExecutionButton app={app} execution={p.exec} />}
       onOpen={() => { void app.openExecutionView(p.exec.ref) }}
       onPin={live() ? () => {
         const tab = live()
@@ -2494,6 +2496,7 @@ export function App(props: {
                 <Show when={paneActiveTab()}>
                   {(tab) => (
                     <WorkflowQueueControl
+                      app={app}
                       owner={{ id: tab().id, title: tab().title, lineage: tab().store.doc.lineage }}
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), tab().execution === undefined && app.registryForTab(tab()) !== undefined)}
