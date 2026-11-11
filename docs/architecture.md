@@ -425,6 +425,10 @@ original backend before swapping stores. A refused or stale acknowledgment
 keeps the local store; metadata-only changes survive the swap. Disabling workspace
 authority also closes connections whose promotion acknowledgment is pending, so
 a disposed renderer cannot keep an obsolete SharedWorker snapshot alive.
+Journal replay restores tab membership independently of staged document edits.
+When it restores the original creation record, startup supplies the recovered
+document only after incoming ownership admission. Closed membership is not
+resurrected, and a later shared record or live document authority stays authoritative.
 Incoming workspace inventories retain newly received native tab snapshots before publishing tabs or
 displacing local views. Refusal or a changed local inventory, document, backend,
 registry, connection or workspace authority keeps local tabs. Newer shared

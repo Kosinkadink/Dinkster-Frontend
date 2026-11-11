@@ -21,7 +21,7 @@ import {
   type SharedWorkerPortFactory,
 } from '../src/shared-worker-connection.js'
 import { SharedWorkerTabAuthority } from '../src/workspace-worker-authority.js'
-import type { WorkspaceWorkerPortFactory } from '../src/workspace-worker-connection.js'
+import { SharedWorkerTabConnection, type WorkspaceWorkerPortFactory } from '../src/workspace-worker-connection.js'
 import { IMAGE_EDITOR_KIND } from '../src/editors.js'
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 
@@ -1216,6 +1216,60 @@ describe('AppState multi-window workspace', () => {
       peer.close()
     }
   })
+
+  it.each(['accepted', 'refused', 'closed', 'live-peer', 'newer-record', 'candidate-only'] as const)(
+    'recovers staged edits when replay restores tab membership: %s', async (scenario) => {
+      const factories = authorityFactories()
+      const base = workflow()
+      const initial = { ...workflow(), lineage: asLineageId('replayed-workflow'), graphs: {
+        g0: { ...workflow().graphs.g0!, nodes: {}, nextOrdinal: 1 },
+      } }
+      const digest = `blake3:${'a'.repeat(64)}`
+      const recovered = { ...workflow(), lineage: initial.lineage, ext: { held: {
+        digest, name: 'recovered.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '',
+      } } }
+      const live = { ...recovered, graphs: { g0: { ...recovered.graphs.g0!, name: 'fresher live peer' } } }
+      localStorage.setItem('dinkster.openTabs', JSON.stringify({ v: 1, workspaceRevision: 0,
+        active: base.lineage, tabs: [{ title: 'Base', doc: base },
+          ...(scenario === 'candidate-only' ? [] : [{ title: 'Recovered', doc: recovered }])] }))
+      localStorage.setItem('dinkster.openTabsCandidate.stale', JSON.stringify({ v: 1, workspaceRevision: 0,
+        active: base.lineage, tabs: [{ title: 'Base', doc: base }] }))
+      localStorage.setItem(`dinkster.openTabsDocumentCandidate.${initial.lineage}`, JSON.stringify({
+        v: 1, stageId: 'edited-after-create', tab: { title: 'Recovered', doc: recovered, documentDirty: true },
+      }))
+      const addition = { opId: 'creator#0', actorId: 'creator', sequence: 0, baseRevision: 0,
+        additions: [{ id: initial.lineage, title: 'Created', document: initial }], removals: [], updates: [],
+        order: [base.lineage, initial.lineage], active: initial.lineage }
+      localStorage.setItem('dinkster.workspaceOperation.creator#0', JSON.stringify(addition))
+      if (scenario === 'closed') localStorage.setItem('dinkster.workspaceOperation.creator#1', JSON.stringify({
+        ...addition, opId: 'creator#1', sequence: 1, additions: [], removals: [initial.lineage],
+        order: [base.lineage], active: base.lineage,
+      }))
+      const peer = scenario === 'live-peer'
+        ? await SharedWorkerCollabConnection.open(initial.lineage, live, factories.document, 'live-peer') : undefined
+      const inventory = scenario === 'newer-record' ? await SharedWorkerTabConnection.open([
+        { id: base.lineage, title: 'Base', document: base },
+        { id: initial.lineage, title: 'Updated', document: live },
+      ], factories.workspace, 2, base.lineage, { creator: 0 }) : undefined
+      const app = createEditableApp()
+      expect(app.tabs.get().map((tab) => tab.id)).toEqual([base.lineage])
+      if (scenario === 'refused') vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+        if (declaration.digests.includes(digest)) throw new Error('Recovered workflow ownership refused')
+        return { ...owner, ...declaration, revision: declaration.revision + 1 }
+      })
+      try {
+        await app.enableWorkspaceAuthority(factories.document, factories.workspace)
+        await drainTasks()
+        const tab = app.tabs.get().find((entry) => entry.id === initial.lineage)
+        if (scenario === 'closed' || scenario === 'refused') expect(tab).toBeUndefined()
+        else expect(tab!.store.doc).toEqual(scenario === 'live-peer' || scenario === 'newer-record' ? live : recovered)
+      } finally {
+        app.dispose()
+        peer?.close()
+        inventory?.connection.close()
+      }
+    },
+  )
 
   it('replays create and close operations after final-window crashes', async () => {
     const globals = globalThis as { localStorage?: Storage }

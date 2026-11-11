@@ -1841,15 +1841,16 @@ function parsePersistedDocumentCandidate(raw: string | null): PersistedDocumentC
 function mergePersistedTabs(
   states: readonly PersistedTabs[],
   documentCandidates: readonly PersistedDocumentCandidate[],
+  membership?: PersistedTabs,
 ): PersistedTabs | undefined {
-  let workspace: PersistedTabs | undefined
-  for (const state of states) {
+  let workspace = membership
+  if (workspace === undefined) for (const state of states) {
     if (!workspace || (state.workspaceRevision ?? 0) >= (workspace.workspaceRevision ?? 0)) workspace = state
   }
   if (!workspace) return undefined
   const documents = new Map<string, PersistedTabs['tabs'][number]>()
   const viewStates = new Map<string, TabViewState>()
-  for (const state of states) for (const tab of state.tabs) {
+  for (const state of membership === undefined ? states : [...states, membership]) for (const tab of state.tabs) {
     const id = persistedTabId(tab)
     if (!id) continue
     const mergedViewState = mergeTabViewStates(viewStates.get(id), tab.viewState)
@@ -2967,6 +2968,10 @@ export class AppState {
   private readonly workspacePromotions = new Map<string, { tab: Tab; promise: Promise<void>; controller: AbortController }>()
   private readonly workspaceReplacements = new WeakSet<Tab>()
   private readonly startupRecoveryDocuments: readonly WorkflowDocument[]
+  private readonly workspaceRecoveryDocuments = new Map<string, {
+    readonly initial: WorkflowDocument
+    readonly document: WorkflowDocument
+  }>()
   private workspaceAuthorityEnabled = false
   private workspaceAuthorityDesired = false
   private workspacePortFactory: SharedWorkerPortFactory | undefined
@@ -3387,11 +3392,28 @@ export class AppState {
     // compatibility nodes. The legacy bridge retains its portable fixtures.
     const recovery = loadPersistedTabStates()
     const persisted = mergePersistedTabs(recovery.states, recovery.documentCandidates)
+    const operations = loadWorkspaceOperations()
+    const additions = operations.flatMap((operation) => Array.isArray(operation.additions)
+      ? operation.additions.flatMap((entry) => {
+          const document = loadDocument(entry?.document).document
+          return document !== undefined && document.lineage === entry?.id && typeof entry.title === 'string'
+            ? [{ ...entry, document }] : []
+        }) : [])
+    const replayDocuments = mergePersistedTabs(recovery.states, recovery.documentCandidates, {
+      v: 1, active: '', tabs: additions.map((entry) => ({ title: entry.title, doc: entry.document })),
+    })
+    for (const entry of additions) {
+      const saved = replayDocuments?.tabs.find((tab) => persistedTabId(tab) === entry.id)
+      const document = saved === undefined ? undefined : loadDocument(saved.doc).document
+      if (document !== undefined) {
+        this.workspaceRecoveryDocuments.set(entry.id, { initial: entry.document, document })
+      }
+    }
     // Compaction may retire losing recovery sources before bootstrap can await ownership.
     this.startupRecoveryDocuments = [...new Map([
       ...recovery.states.flatMap((state) => state.tabs),
       ...recovery.documentCandidates.map((candidate) => candidate.tab),
-      ...loadWorkspaceOperations().flatMap((operation) => Array.isArray(operation.additions)
+      ...operations.flatMap((operation) => Array.isArray(operation.additions)
         ? operation.additions.map((entry) => ({ doc: entry?.document })) : []),
     ].flatMap((entry) => {
       const document = loadDocument(entry.doc).document
@@ -3893,7 +3915,12 @@ export class AppState {
     const current = this.tabs.get()
     const active = this.activeTabId.get()
     const liveById = new Map(current.filter((tab) => !tab.execution).map((tab) => [tab.id, tab]))
-    const incoming = snapshot.tabs.filter((record) => !liveById.has(record.id))
+    const incoming = snapshot.tabs.filter((record) => !liveById.has(record.id)).map((record) => {
+      const recovery = this.workspaceRecoveryDocuments.get(record.id)
+      // Only enrich replay of the original creation record, not a later shared replacement.
+      return recovery !== undefined && JSON.stringify(record.document) === JSON.stringify(recovery.initial)
+        ? { ...record, document: recovery.document } : record
+    })
     if (incoming.length > 0) {
       const local = current.map((tab) => ({ tab, document: tab.store.doc, revision: tab.store.revision, backend: this.backendForTab(tab) }))
       const candidates = incoming.map((record) => {
@@ -3946,7 +3973,9 @@ export class AppState {
       for (const record of snapshot.tabs) {
         let tab = liveById.get(record.id)
         if (!tab) {
-          tab = this.makeTab(record.document, record.title, undefined, record.editorKind ?? GRAPH_EDITOR_KIND)
+          const document = incoming.find((candidate) => candidate.id === record.id)!.document
+          tab = this.makeTab(document, record.title, undefined, record.editorKind ?? GRAPH_EDITOR_KIND)
+          this.workspaceRecoveryDocuments.delete(record.id)
           this.markTabDirty(tab.id)
         } else {
           const editorKind = isSessionOnlyEditorKind(tab.editorKind)
