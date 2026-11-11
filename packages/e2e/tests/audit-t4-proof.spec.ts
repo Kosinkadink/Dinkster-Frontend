@@ -38,7 +38,7 @@ test('drilled occurrence suffix and ghost sockets use the planner while definiti
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get().length ?? 0)).toBe(1)
 
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([
       {
@@ -67,7 +67,7 @@ test('drilled occurrence suffix and ghost sockets use the planner while definiti
         }
       },
     })
-    test.app.openDocument({
+    await test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-t4-proof', root: 'g0',
       graphs: {
         g0: {

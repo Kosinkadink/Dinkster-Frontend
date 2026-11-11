@@ -153,8 +153,8 @@ test('graph mask edits execute visibly and match an explicit baked asset', async
   expect([200, 201]).toContain(upload.status())
   const { asset } = await upload.json() as { asset: UploadedAsset }
 
-  await page.evaluate((source) => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async (source) => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'live-graph-mask', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',

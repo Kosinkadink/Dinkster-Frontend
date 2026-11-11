@@ -67,9 +67,9 @@ async function backend(page: Page, base: string, initial: string) {
 }
 
 async function open(page: Page, base: string, title: string) {
-  await page.evaluate((title) => {
+  await page.evaluate(async (title) => {
     const app = window.__dinksterTest!.app
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: title, root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { preview: { id: 'preview', type: 'PaneProof', values: { value: 7 } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { g0: { nodes: { preview: { position: { x: 40, y: 80 } } } } } },

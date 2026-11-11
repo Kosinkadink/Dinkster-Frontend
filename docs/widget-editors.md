@@ -26,20 +26,28 @@ Refresh-controller completion forwards the document command outcome, including
 delayed acceptance or refusal. A transport rejection returns remote options to
 their prior stale state without closing the editor or replacing its draft.
 
+Pending remote choices remain valid when an unchanged editor moves from its
+local workflow session to the equivalent shared workspace session. Initial
+loads and explicit refreshes still publish their options without reopening
+the editor; retired editors and superseded or unauthorized responses do not.
+
 Output-descriptor Apply shows command refusals and transport errors above the
 draft, separately from descriptor validation and metadata-probe errors. The
 draft remains available for retry and closes only after command acceptance.
 
-Native asset pickers confirm an independent incomplete owner for stored selections
+Native asset pickers confirm an independent complete owner for validated selections
 on open and before publishing a newly selected reference or starting its server
 preview. Apply stays disabled during initial admission and after refusal until a
 selection is admitted; Cancel remains available. Picks are processed
 in invocation order; Apply is disabled while a pick is pending. Refusal preserves
-the previous selection and reports the failure inline. Cancel discards the local
+the previous selection and reports the failure inline. Removing or clearing a
+selection also admits its replacement inventory. After publication, the previous
+locally admitted owner retires only after its in-flight body reads finish, while
+independent owners remain untouched. Cancel discards the local
 draft without releasing acknowledged owners. The staged selection keeps its
 acknowledged reader: a changed document, registry, connection, or closed session
 refuses further staging and Apply until the picker is reopened. Apply still confirms the document
-command separately. These conservative owners do not enable cleanup.
+command separately. This does not enable backend cleanup eligibility.
 
 The registered audio-recording editor uses the same independent ownership
 before replacing its draft or fetching playback bytes for a saved recording.
@@ -49,7 +57,7 @@ retry; an acknowledged recording still needs Use asset to change the document.
 
 Selected-image and recorded-audio preview byte reads are cancelled when their
 preview is replaced, removed or closed. Late results are still ignored if a
-transport completes after cancellation. This does not retire asset owners or
+transport completes after cancellation. Cancellation alone does not retire asset owners or
 prove that queued model posters and other consumers have finished reading.
 Closing Painter or Load3d also cancels pending saved-source byte reads,
 including verified digests and granted local bindings. Load3d uses the same
@@ -67,6 +75,10 @@ uses the camera's native dimensions for both axes. Use frame
 commits the asset reference as an undoable input edit; Cancel or closing the
 dialog leaves the stored value unchanged. Camera errors retain the browser's
 named error (for example NotFoundError when no camera is available).
+A captured draft and its preview wait for independent complete asset admission.
+Replacement keeps the previous draft and owner until acknowledgment and
+publication; failed or obsolete admission leaves that draft unchanged. Closing
+the dialog revokes its local preview URL but does not release its retained owner.
 With capture_on_queue enabled, queue captures and saves a fresh frame for each
 included camera before submitting. Disabled capture reuses the saved frame.
 Changing the workflow or backend during capture refuses that queue attempt

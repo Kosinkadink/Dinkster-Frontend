@@ -996,6 +996,35 @@ describe('combo search', () => {
     mounted.unmount()
   })
 
+  it.each(['initial', 'refresh'])('remote COMBO publishes pending %s options after an equivalent session rebind', async (phase) => {
+    const pending = deferred<readonly string[]>()
+    const remoteChoices = phase === 'initial'
+      ? vi.fn(() => pending.promise)
+      : vi.fn().mockResolvedValueOnce(['previous']).mockReturnValueOnce(pending.promise)
+    const scopedClient = { remoteChoices, remoteChoiceAuthority: () => 0 }
+    const state = editorState({
+      widgetType: 'COMBO', options: { options: ['fallback'] },
+      remote: { route: '/api/choices/models', refreshButton: true },
+    }, 'selected')
+    const doc = { graphs: { g0: { nodes: { n0: { values: { choice: 'selected' } } } } } }
+    state.tab = { store: { doc } } as unknown as Tab
+    const mounted = mountEditor(state, {
+      backendForTab: () => ({ scopedClient }),
+      prepareComboRefresh: () => undefined,
+      completeComboRefresh: () => undefined,
+    } as unknown as Partial<AppState>)
+    try {
+      if (phase === 'refresh') {
+        await vi.waitFor(() => expect(optionLabels(mounted.root)).toEqual(['selected', 'previous']))
+        mounted.root.querySelector<HTMLButtonElement>('[data-testid="remote-refresh"]')!.click()
+      }
+      state.tab = { ...state.tab, store: { doc } } as unknown as Tab
+      pending.resolve(['fresh-b', 'fresh-a'])
+      await vi.waitFor(() => expect(optionLabels(mounted.root)).toEqual(['selected', 'fresh-b', 'fresh-a']))
+      expect(mounted.root.querySelector('[data-testid="combo-dropdown"]')?.getAttribute('data-remote')).toBe('ready')
+    } finally { mounted.unmount() }
+  })
+
   it('remote COMBO leaves loading after current authority abort and can demand again', async () => {
     const first = deferred<readonly string[]>()
     const remoteChoices = vi.fn()

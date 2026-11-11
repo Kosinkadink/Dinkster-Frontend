@@ -106,10 +106,10 @@ describe('ProblemsPanel browser interactions', () => {
         from: 'Previous', cases: [{ to: 'Current' }],
       }] } },
     }))
-    expect(app.openDocument({ ...workflow, graphs: { g0: { ...workflow.graphs.g0!, nextOrdinal: 3, nodes: {
+    expect((await app.openDocument({ ...workflow, graphs: { g0: { ...workflow.graphs.g0!, nextOrdinal: 3, nodes: {
       n1: { id: asNodeId('n1'), type: 'Previous', values: {} },
       n2: { id: asNodeId('n2'), type: 'Previous', values: {} },
-    } } } }, 'Upgraded document')).toEqual([])
+    } } } }, 'Upgraded document'))).toEqual([])
     const tab = app.activeTab()!
     await vi.waitFor(() => expect(app.migrationNotices.get().has(tab.id)).toBe(true))
     const root = document.createElement('div')

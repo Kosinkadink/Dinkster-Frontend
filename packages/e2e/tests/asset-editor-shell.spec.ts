@@ -18,7 +18,7 @@ async function widgetPoint(page: Page): Promise<{ x: number; y: number }> {
 }
 
 async function installFixture(page: Page): Promise<void> {
-  const diagnostics = await page.evaluate(() => {
+  const diagnostics = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const commandIds = [
       'asset-shell.edit-prompt',
@@ -136,7 +136,7 @@ async function installFixture(page: Page): Promise<void> {
         widget: { widgetType: 'asset-shell.widget', options: {}, default: 'asset-portrait' },
       }],
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'asset-editor-shell-proof', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
