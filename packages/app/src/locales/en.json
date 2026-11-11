@@ -1,4 +1,11 @@
 {
+  "boundingBoxWidget.title": "Crop region",
+  "boundingBoxWidget.x": "X (pixels)",
+  "boundingBoxWidget.y": "Y (pixels)",
+  "boundingBoxWidget.width": "Width (pixels)",
+  "boundingBoxWidget.height": "Height (pixels)",
+  "boundingBoxWidget.apply": "Apply crop",
+  "boundingBoxWidget.invalid": "Use whole pixel coordinates of zero or more and positive whole pixel dimensions.",
   "command.workflow.cancel": "Cancel current run",
   "execution.cancel.action": "Cancel run",
   "execution.cancel.pending": "Cancelling...",

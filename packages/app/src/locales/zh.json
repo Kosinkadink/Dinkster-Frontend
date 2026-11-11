@@ -1,4 +1,11 @@
 {
+  "boundingBoxWidget.title": "裁剪区域",
+  "boundingBoxWidget.x": "X（像素）",
+  "boundingBoxWidget.y": "Y（像素）",
+  "boundingBoxWidget.width": "宽度（像素）",
+  "boundingBoxWidget.height": "高度（像素）",
+  "boundingBoxWidget.apply": "应用裁剪",
+  "boundingBoxWidget.invalid": "坐标须为非负整数像素，宽度和高度须为正整数像素。",
   "command.workflow.cancel": "取消当前运行",
   "execution.cancel.action": "取消运行",
   "execution.cancel.pending": "正在取消...",

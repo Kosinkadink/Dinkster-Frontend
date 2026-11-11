@@ -1,11 +1,52 @@
 import { render } from 'solid-js/web'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { createWidgetRegistry } from '@dinkster/widgets'
 import { coreCommandRegistry, DocumentStore, importLitegraph, inputsOf, parseDinksterSchema } from '@dinkster/core'
 import type { AppState, Tab } from '../src/app-state.js'
 import { WidgetEditor, type WidgetEditorProps, type WidgetEditorState } from '../src/WidgetEditor.js'
 
 afterEach(() => document.body.replaceChildren())
+
+it('edits a crop region atomically, rejects invalid drafts and supports undo', async () => {
+  const initial = { x: 3, y: 7, width: 91, height: 23 }
+  const schema = parseDinksterSchema('CropFixture', { interface: [
+    { role: 'input', id: 'crop_region', type: { kind: 'concrete', types: ['BOUNDING_BOX'] }, default: initial, widget: { type: 'BOUNDING_BOX', component: 'ImageCrop' } },
+  ] }).schema!
+  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [initial] }], links: [] }, () => schema)
+  const store = new DocumentStore(imported.document!, coreCommandRegistry())
+  const tab = { store } as unknown as Tab
+  const registry = createWidgetRegistry()
+  const app = {
+    widgetRegistry: registry, widgetRegistryForTab: () => registry,
+    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+  } as unknown as AppState
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <WidgetEditor app={app} ed={{
+    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'crop_region' }, label: 'Crop region',
+    spec: inputsOf(schema)[0]!.widget, multiline: false,
+    rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  const input = (field: string, value: string) => {
+    const control = root.querySelector<HTMLInputElement>(`#bounding-box-${field}`)!
+    expect(control.getAttribute('aria-labelledby')).toBeTruthy()
+    control.value = value
+    control.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply crop')!
+  input('width', '')
+  expect(apply.disabled).toBe(true)
+  input('width', '12.5')
+  expect(apply.disabled).toBe(true)
+  input('width', '12')
+  input('height', '5')
+  input('x', '17')
+  expect(store.doc.graphs.g0!.nodes.n1!.values.crop_region).toEqual(initial)
+  apply.click()
+  await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values.crop_region).toEqual({ x: 17, y: 7, width: 12, height: 5 }))
+  expect(store.undo()).toBe(true)
+  expect(store.doc.graphs.g0!.nodes.n1!.values.crop_region).toEqual(initial)
+  dispose()
+})
 
 it('edits only the schema-backed mount string, preserving prefix and undoable default selection', async () => {
   const schema = parseDinksterSchema('SaveFixture', { interface: [
