@@ -1,7 +1,6 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { diag, syntheticWorkflow } from '@dinkster/core'
-import { assetDtoV1Contract } from '@dinkster/client'
 import { App } from './App.js'
 import { AppState } from './app-state.js'
 import { createBootIndicatorElement, startBootIndicator } from './boot-indicator.js'
@@ -116,14 +115,8 @@ async function bootstrap(): Promise<void> {
   const started = app.start()
 
   window.__dinksterTest = { app, semanticDerivations: 0, syntheticWorkflow }
-  const catalogPath = import.meta.env['VITE_DINKSTER_FEDERATED_CATALOG_PATH']
-  const candidatesPath = import.meta.env['VITE_DINKSTER_FEDERATED_CANDIDATES_PATH']
-  const federatedAssets = catalogPath && candidatesPath
-    ? assetDtoV1Contract({ catalog: catalogPath, candidates: candidatesPath })
-    : undefined
   render(() => <App
     app={app}
-    {...(federatedAssets ? { federatedAssets } : {})}
     {...(desktopWindow ? { desktopWindow } : {})}
   />, root)
   // Ownership and shared promotion keep their admission checks, but an older

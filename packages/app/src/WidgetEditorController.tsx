@@ -24,7 +24,6 @@ import {
   type WidgetSpec,
 } from '@dinkster/core'
 import { defaultTokens, typeColor, type DynamicEditOwner } from '@dinkster/canvas'
-import type { AssetDtoV1WireContract } from '@dinkster/client'
 import type { AppState, Tab } from './app-state.js'
 import { ModalSurface } from './ModalSurface.js'
 import { ProductNotice } from './ProductForm.js'
@@ -142,7 +141,6 @@ export interface WidgetEditorState {
 
 export interface WidgetEditorProps {
   app: AppState
-  federatedAssets?: AssetDtoV1WireContract
   /** Visible host region that floating child surfaces must not leave. */
   boundary?: HTMLElement
   /** Plain value: the host's keyed Show remounts this component per open. */

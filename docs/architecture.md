@@ -990,7 +990,7 @@ presence without acquisition or catalog recovery. Missing bytes are explicit
 Both methods pass cancellation signals through to the transport.
 
 The Assets dock's All assets source combines recorded local assets, readable
-mounts and the configured federated catalog. Local assets remain available as
+mounts and their observed locations. Local assets remain available as
 a separate source, including when no filesystem mount exists. Recorded rows
 show aliases, dates and ingest provenance in the existing Details disclosure.
 The selected available asset also names its backend machine and offers exact
@@ -1011,11 +1011,10 @@ and literal selectors do not use it. A failed source is reported independently
 without hiding successful local or remote results. Model scans preserve
 healthy sources when another source fails and cancel paging when the editor
 closes or a refresh replaces the scan. Mount-discovery errors appear in source
-health without removing the independent local or federated catalogs. Compatible
-non-model ASSET pickers combine federated entries with local and mounted rows;
-only locally available, non-refused candidates with complete canonical refs
-can be picked. Remote-only or incompatible candidates cannot trigger byte
-reads or implicit acquisition.
+health without removing the independent local catalog. Compatible non-model
+ASSET pickers combine local and mounted rows; only available assets with
+complete canonical references can be picked. Browsing never acquires bytes
+implicitly.
 
 Live workflow tabs check their stored scalar and list AssetRefs against the
 selected native backend on open, edits, reconnect and target changes. Problems

@@ -56,15 +56,8 @@ of the browser's recording codec is authoritative; bytes are not converted.
 Codec parameters are removed from the upload MIME. Chromium audio-only WebM
 remains `audio/webm`; browser MP4 recording is outside this acceptance boundary.
 
-The curve editor follows audio only for the exact typed graph relation
-`dinkster.audio.envelope.curve -> dinkster.curve.editor.curve`. Direct links and named
-nets preserve that relation. After an exact completed run, the editor displays
-the retained envelope's authoritative `curve-points` rendition on a seconds
-axis and remains read-only; it never copies computed points into graph state or
-history. A playhead appears only for the AUDIO source linked into that envelope.
-Unrelated audio previews do not affect it. Missing, stale, ambiguous or changed
-provenance and executions are refused or cleared. Ordinary editable curves keep
-their 0-1 position axis and never infer audio-follow behavior.
+The curve editor is independent of audio playback. Editable curves keep their
+0-1 position axis; linked inputs do not open the editor.
 
 `audio-preview.test.ts`, `AudioRecorder.dom.test.tsx` and
 `audio-controls.spec.ts` cover bounded negotiation, arbitrary channel counts,
@@ -81,6 +74,5 @@ selected live track and its release, proves MediaRecorder/upload byte equality,
 then loads the clip and requires a non-silent three-second PCM window. The
 committed station17 C920 receipt excludes raw audio and OS device identifiers.
 Permission-denied and no-device states remain in deterministic browser coverage.
-`AudioTransport.dom.test.tsx`, `editors.test.ts`, and `curve-editor.spec.ts`
-cover exact envelope provenance, bounded computed points, linked-audio playhead
-isolation, reactive refusal, and graph/history neutrality.
+`AudioTransport.dom.test.tsx` and `curve-editor.spec.ts` cover independent
+audio playback and editable curve state, reactive refusal, and undoable edits.

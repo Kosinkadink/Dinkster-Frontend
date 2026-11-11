@@ -63,20 +63,9 @@ const compositorPayload = (): DinksterNodesPayload => ({
   },
 }) as unknown as DinksterNodesPayload
 
-const curveFollowPayload = (): DinksterNodesPayload => ({
+const curvePayload = (): DinksterNodesPayload => ({
   schemaVersion: 1,
   nodes: {
-    AudioSource: {
-      schemaVersion: 1, displayName: 'Audio source', category: 'test', idempotent: true,
-      interface: [{ role: 'output', id: 'audio', type: { kind: 'concrete', types: ['AUDIO'] } }],
-    },
-    'dinkster.audio.envelope': {
-      schemaVersion: 1, displayName: 'Audio envelope', category: 'audio', idempotent: true, editorRole: 'audio-envelope',
-      interface: [
-        { role: 'input', id: 'audio', required: true, type: { kind: 'concrete', types: ['AUDIO'] } },
-        { role: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } },
-      ],
-    },
     'dinkster.curve.editor': {
       schemaVersion: 1, displayName: 'Curve editor', category: 'curve', idempotent: true, editorRole: 'curve',
       interface: [
@@ -386,42 +375,36 @@ describe('Tab editorKind', () => {
     expect(app.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(GRAPH_EDITOR_KIND)
   })
 
-  it.each(['link', 'net'] as const)('admits only the exact envelope/audio provenance through a %s', async (topology) => {
+  it.each(['link', 'net'] as const)('refuses editing a curve driven through a %s', async (topology) => {
     const app = prepareWorkflowApp(new AppState())
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), curveFollowPayload()))
-    const curveEdge = { from: { node: 'envelope', port: 'curve' }, to: { node: 'editor', port: 'curve' } }
+    app.registry.set(buildDinksterRegistry(asConnectionId('local'), curvePayload()))
+    const curveEdge = { from: { node: 'other', port: 'curve' }, to: { node: 'editor', port: 'curve' } }
     expect((await app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: `curve-follow-${topology}`, root: 'g0',
+      format: 'dinkster-workflow', formatVersion: 1, lineage: `curve-driven-${topology}`, root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
         nodes: {
-          audio: { id: 'audio', type: 'AudioSource', values: {} },
-          envelope: { id: 'envelope', type: 'dinkster.audio.envelope', values: {} },
           editor: { id: 'editor', type: 'dinkster.curve.editor', values: {} },
-          invalidEditor: { id: 'invalidEditor', type: 'dinkster.curve.editor', values: {} },
+          editable: { id: 'editable', type: 'dinkster.curve.editor', values: {} },
           other: { id: 'other', type: 'OtherCurve', values: {} },
         },
         links: {
-          audioLink: { id: 'audioLink', from: { node: 'audio', port: 'audio' }, to: { node: 'envelope', port: 'audio' } },
           ...(topology === 'link' ? {
             curve: { id: 'curve', ...curveEdge },
-            invalidCurve: { id: 'invalidCurve', from: { node: 'other', port: 'curve' }, to: { node: 'invalidEditor', port: 'curve' } },
           } : {}),
         },
         nets: topology === 'net' ? {
-          curve: { id: 'curve', name: 'envelope curve', source: curveEdge.from, sinks: [curveEdge.to] },
-          invalidCurve: { id: 'invalidCurve', name: 'other curve', source: { node: 'other', port: 'curve' }, sinks: [{ node: 'invalidEditor', port: 'curve' }] },
+          curve: { id: 'curve', name: 'driven curve', source: curveEdge.from, sinks: [curveEdge.to] },
         } : {},
         reroutes: {}, nextOrdinal: 1,
       } },
       view: { graphs: {} },
-    }, 'Curve follow target'))).toEqual([])
+    }, 'Curve target'))).toEqual([])
     const tab = app.activeTab()!
-    expect(app.curveTargetForInput(tab, 'g0', 'editor', 'curve')).toMatchObject({
-      nodeId: 'editor', inputId: 'curve', instancePath: [],
-      follow: { envelopeNodeId: 'envelope', audioNodeId: 'audio', audioOutputId: 'audio' },
+    expect(app.curveTargetForInput(tab, 'g0', 'editable', 'curve')).toMatchObject({
+      nodeId: 'editable', inputId: 'curve', instancePath: [],
     })
-    expect(app.curveTargetForInput(tab, 'g0', 'invalidEditor', 'curve')).toBeUndefined()
+    expect(app.curveTargetForInput(tab, 'g0', 'editor', 'curve')).toBeUndefined()
     app.dispose()
   })
 

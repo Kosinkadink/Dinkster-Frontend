@@ -9,7 +9,7 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, on, onCleanup, onMount, Show, For, Index, untrack } from 'solid-js'
-import type { AssetDtoV1WireContract, ExecutionLogEntry } from '@dinkster/client'
+import type { ExecutionLogEntry } from '@dinkster/client'
 import {
   badgeRect,
   buildScene,
@@ -1475,7 +1475,7 @@ interface CanvasFileDropSurface {
   readonly location?: { readonly backend: Extract<Backend, { protocol: 'dinkster' }>; readonly digest: string; readonly project: string }
 }
 
-export function CanvasHost(props: { app: AppState; host?: EditorHostContext; tooltips?: TooltipController; occurrencePlanner?: OccurrenceMutationPlanner; federatedAssets?: AssetDtoV1WireContract }) {
+export function CanvasHost(props: { app: AppState; host?: EditorHostContext; tooltips?: TooltipController; occurrencePlanner?: OccurrenceMutationPlanner }) {
   const message = useAppMessage()
   const tooltipOwner = Symbol('canvas-host')
   const [occurrencePlanner, setOccurrencePlanner] = createSolidSignal(props.occurrencePlanner)
@@ -4963,10 +4963,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         : undefined
       // A link/net-driven input is read-only: the wire decides its value
       // (companion display), and editing would silently mutate the dormant
-      // stored value underneath. The exact envelope -> curve editor relation
-      // instead opens a read-only view of the executed curve. Selector rows
-      // keep their own value channel and are never driven.
-      if (hit.row.selector === undefined && companionInputs.get(nodeId)?.has(hit.row.address.port) && curveTarget?.follow === undefined) return
+      // stored value underneath. Selector rows keep their own value channel
+      // and are never driven.
+      if (hit.row.selector === undefined && companionInputs.get(nodeId)?.has(hit.row.address.port)) return
       const editorRole = (registry()?.resolve(hit.node.node.type) as { readonly editorRole?: string } | undefined)?.editorRole
       const valueType = canonicalTypeIdOf(hit.row.type)
       if (props.app.openEditorForBinding(tab.id, {
@@ -7052,7 +7051,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             app={props.app}
             ed={ed}
             boundary={canvasEl.parentElement!}
-            {...(props.federatedAssets !== undefined ? { federatedAssets: props.federatedAssets } : {})}
             viewport={editorViewport}
             bindClickAway={(handler) => { editorClickAway = handler }}
             onAssetBackdropPointerDown={(event) => openAssetWidgetAt(event.clientX, event.clientY)}

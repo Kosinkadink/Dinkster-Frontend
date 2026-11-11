@@ -55,7 +55,6 @@ const BACKEND_SERIAL_SPECS = [
   'run-history.spec.ts',
   'peek-preview.spec.ts',
   'native-imagery-live.spec.ts',
-  'image-document-graph-live.spec.ts',
   'lora-conditioning-scheduling-live.spec.ts',
   'image-upload-byte-proof.spec.ts',
   'gallery-live.spec.ts',

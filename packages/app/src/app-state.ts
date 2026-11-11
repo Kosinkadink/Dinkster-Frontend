@@ -1298,11 +1298,6 @@ export interface CurveEditorTarget {
   readonly openedStoredValue: Json | undefined
   readonly openedSchemaDefault: unknown
   readonly openedValue: CurveValue
-  readonly follow?: {
-    readonly envelopeNodeId: string
-    readonly audioNodeId: string
-    readonly audioOutputId: string
-  }
 }
 
 export interface GlslEditorTarget {
@@ -6013,41 +6008,6 @@ export class AppState {
     const fallback = input?.kind === 'input' && input.widget ? effectiveWidgetDefault(input.widget) : undefined
     const value = isCurveValue(stored) ? stored : isCurveValue(fallback) ? fallback : undefined
     if (input?.kind !== 'input' || input.widget?.widgetType !== 'CURVE' || !value) return undefined
-    if (driven && graph && node && resolve?.(node.type)?.editorRole === 'curve') {
-      const sources = companionSourcesOf(graph, undefined, undefined, resolve)
-      const envelopeSource = sources.get(nodeId)?.get(inputId)
-      const envelope = envelopeSource?.kind === 'producer' && envelopeSource.output === 'curve'
-        ? graph.nodes[envelopeSource.node]
-        : undefined
-      const envelopeCurve = envelope && resolve?.(envelope.type)?.items.find((item) =>
-        item.kind === 'output' && item.id === 'curve' && item.type.kind === 'concrete' && item.type.name === 'CURVE')
-      const audioSource = envelope && resolve?.(envelope.type)?.editorRole === 'audio-envelope'
-        ? sources.get(envelope.id)?.get('audio')
-        : undefined
-      const audio = audioSource?.kind === 'producer' ? graph.nodes[audioSource.node] : undefined
-      const audioOutput = audio && audioSource?.kind === 'producer'
-        ? resolve?.(audio.type)?.items.find((item) =>
-            item.kind === 'output' && item.id === audioSource.output && item.type.kind === 'concrete' && item.type.name === 'AUDIO')
-        : undefined
-      if (envelopeCurve && audioSource?.kind === 'producer' && audioOutput) {
-        return {
-          tabId: tab.id,
-          graphId,
-          nodeId,
-          inputId,
-          instancePath: [...instancePath],
-          openedStoredValue: stored,
-          openedSchemaDefault: input.widget.default,
-          openedValue: value,
-          follow: {
-            envelopeNodeId: envelope.id,
-            audioNodeId: audioSource.node,
-            audioOutputId: audioSource.output,
-          },
-        }
-      }
-      return undefined
-    }
     return !driven
       ? {
           tabId: tab.id,

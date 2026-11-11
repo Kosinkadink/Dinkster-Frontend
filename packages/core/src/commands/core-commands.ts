@@ -3382,9 +3382,7 @@ export function coreCommandRegistry(
       candidate.id !== 'node.setValue' &&
       candidate.id !== 'node.setValues' &&
       candidate.id !== 'image.applyAsset' &&
-      candidate.id !== 'image.compositorApply' &&
-      candidate.id !== 'image.documentExport' &&
-      candidate.id !== 'image.documentRecipeExport'),
+      candidate.id !== 'image.compositorApply'),
     nodeSetControllerOf(resolve),
     nodeSetOutputCountOf(resolve),
     nodeSetValueOf(resolve),

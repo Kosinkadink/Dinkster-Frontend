@@ -17,11 +17,7 @@ export const builtinEditorBindings: readonly EditorBinding[] = [
   { id: 'builtin.editor-role.image-source', editor: IMAGE_EDITOR_KIND, match: { editorRole: 'image-source' }, priority: 100 },
   { id: 'builtin.editor-role.image-save', editor: IMAGE_EDITOR_KIND, match: { editorRole: 'image-save' }, priority: 100 },
   { id: 'builtin.editor-role.compositor', editor: IMAGE_EDITOR_KIND, match: { editorRole: 'compositor' }, priority: 100 },
-  { id: 'builtin.editor-role.layers-load', editor: IMAGE_EDITOR_KIND, match: { editorRole: 'layers-load' }, priority: 100 },
-  { id: 'builtin.editor-role.layers-flatten', editor: IMAGE_EDITOR_KIND, match: { editorRole: 'layers-flatten' }, priority: 100 },
-  { id: 'builtin.editor-role.layers-edit', editor: IMAGE_EDITOR_KIND, match: { editorRole: 'layers-edit' }, priority: 100 },
   { id: 'builtin.editor-role.curve', editor: CURVE_EDITOR_KIND, match: { editorRole: 'curve' }, priority: 100 },
-  { id: 'builtin.editor-role.audio-envelope', editor: CURVE_EDITOR_KIND, match: { editorRole: 'audio-envelope' }, priority: 100 },
   { id: 'builtin.editor-role.glsl', editor: GLSL_EDITOR_KIND, match: { editorRole: 'glsl' }, priority: 100 },
 ]
 

@@ -3,7 +3,6 @@
 import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AssetDtoV1WireContract, CandidateV1 } from '@dinkster/client'
 import { DinksterConnection } from '@dinkster/client'
 import { asConnectionId, createSignal as createCoreSignal, setLocale, type NodeSchema } from '@dinkster/core'
 import type { AppState, Tab } from '../src/app-state.js'
@@ -289,40 +288,11 @@ describe('ModalSurface', () => {
 })
 
 describe('ASSET widget modal integration', () => {
-  const candidate = (digest = `blake3:${'c'.repeat(64)}`): CandidateV1 => ({
-    logicalId: 'provider/checkpoint', family: 'Provider checkpoint', assetKind: 'model/checkpoint',
-    variantId: 'fp16', dtype: 'float16', quantization: 'none', format: 'safetensors', role: 'base',
-    requirements: { loaders: [], runtimes: [], hardware: [] }, digest, size: 42,
-    mediaType: 'application/x-safetensors', availability: { status: 'downloadable', reason: 'remote' },
-    compatibility: { status: 'compatible', reason: '' },
-    providerSources: [{ source: { providerId: 'provider', sourceId: 'catalog' }, status: 'available', reason: '', requires: {} }],
-  })
-
-  const federatedContract = (encodeRequest: ReturnType<typeof vi.fn>, items: readonly CandidateV1[]): AssetDtoV1WireContract => ({
-    paths: { catalog: '/catalog', candidates: '/candidates' },
-    catalog: { encodeRequest: (request) => request, decodeResponse: () => ({ contractVersion: 1, items: [] }) },
-    candidates: {
-      encodeRequest,
-      decodeResponse: () => ({ contractVersion: 1, status: 'missing', items }),
-    },
-    decodeError: () => { throw new Error('unexpected federated error') },
-  })
-
-  it('composes local, mounted and federated media and retains local picks after mount failure', async () => {
+  it('composes local and mounted media and retains local picks after mount failure', async () => {
     const ref = (letter: string, name: string) => ({ digest: `blake3:${letter.repeat(64)}`, name, size: 12, mediaType: 'image/png', virtualPath: `images/${name}` })
     const local = ref('a', 'local.png')
     const mounted = ref('b', 'mounted.png')
-    const remote = ref('c', 'federated.png')
     const missing = ref('d', 'missing.png')
-    const encodeRequest = vi.fn((request) => request)
-    const mediaCandidate = { ...candidate(remote.digest), assetKind: 'media/image', assetRef: remote,
-      availability: { status: 'local' as const, reason: '' } }
-    const contract: AssetDtoV1WireContract = { ...federatedContract(vi.fn(), []), catalog: { encodeRequest, decodeResponse: () => ({ contractVersion: 1, items: [
-      mediaCandidate,
-      { ...mediaCandidate, logicalId: 'unavailable', assetRef: ref('e', 'unavailable.png'), digest: ref('e', '').digest,
-        availability: { status: 'unavailable', reason: 'offline' } },
-      { ...mediaCandidate, logicalId: 'wrong-kind', assetKind: 'media/video', assetRef: ref('f', 'wrong-kind.png') },
-    ] }) } }
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}'))
     const connection = {
       ...assetLocationMethods,
@@ -345,26 +315,24 @@ describe('ASSET widget modal integration', () => {
       if (offline) connection.listMounts.mockRejectedValue(new Error('Mount discovery offline'))
       const root = document.createElement('div')
       document.body.append(root)
-      const dispose = render(() => <WidgetEditor app={app} ed={ed} federatedAssets={contract} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-      await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(offline ? 2 : 3))
+      const dispose = render(() => <WidgetEditor app={app} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+      await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(offline ? 1 : 2))
       expect(connection.fetchAssetBytes).not.toHaveBeenCalled()
       const names = [...root.querySelectorAll('[data-testid="collection-entry"]')].map((entry) => entry.textContent)
-      expect(names.some((name) => name?.includes('federated.png'))).toBe(true)
       expect(names.some((name) => name?.includes('local.png'))).toBe(true)
       expect(names.some((name) => name?.includes('mounted.png'))).toBe(!offline)
       if (offline) expect(root.textContent).toContain('Mount discovery offline')
-      const pick = [...root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((entry) => entry.textContent?.includes(offline ? 'local.png' : 'federated.png'))!
+      const pick = [...root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((entry) => entry.textContent?.includes(offline ? 'local.png' : 'mounted.png'))!
       pick.click()
       await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
       root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
       expect(dispatchTo).toHaveBeenLastCalledWith(ed.tab, {
-        command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: offline ? local : remote },
+        command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: offline ? local : mounted },
       })
       dispose()
       root.remove()
       connection.fetchAssetBytes.mockClear()
     }
-    expect(encodeRequest).toHaveBeenCalledWith(expect.objectContaining({ assetKind: 'media/image' }))
   })
 
   it('admits an empty picker replacement before clearing and retiring its previous selection', async () => {
@@ -859,176 +827,10 @@ describe('ASSET widget modal integration', () => {
     mounted.unmount()
   })
 
-  it('requests model candidates with the declared widget and existing schema context, then groups the result', async () => {
-    const encodeRequest = vi.fn((request) => request)
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
-    const mounted = catalogAssetEditor('model/checkpoint', undefined, null, false)
-    const ed = {
-      ...mounted.ed,
-      tab: { store: { doc: { graphs: { g0: { nodes: { n0: { type: 'CheckpointLoader' } } } } } } } as unknown as Tab,
-    }
-    const root = document.createElement('div')
-    document.body.append(root)
-    const dispatchTo = vi.fn()
-    const unmount = render(() => (
-      <WidgetEditor
-        app={({ backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection: mounted.connection }), dispatchTo, widgetRegistry: { kind: () => undefined } } as unknown as AppState)}
-        federatedAssets={federatedContract(encodeRequest, [candidate()])}
-        ed={ed}
-        viewport={() => ({ x: 0, y: 0, scale: 1 })}
-        onClose={() => {}}
-      />
-    ), root)
-
-    await vi.waitFor(() => expect(encodeRequest).toHaveBeenCalledOnce())
-    expect(encodeRequest).toHaveBeenCalledOnce()
-    expect(encodeRequest.mock.calls[0]![0].context).toEqual({
-      assetKind: 'model/checkpoint',
-      schema: { nodeType: 'CheckpointLoader', inputId: 'asset' },
-      accept: ['application/x-safetensors'],
-    })
-    await vi.waitFor(() => expect(root.textContent).toContain('Provider checkpoint'))
-    expect(root.querySelectorAll('[data-testid="collection-group"]')).toHaveLength(1)
-    expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(3)
-    const remote = [...root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')]
-      .find((entry) => entry.textContent?.includes('Provider checkpoint'))!
-    remote.click()
-    expect(remote.classList.contains('selected')).toBe(true)
-    expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain('Provider checkpoint')
-    expect(root.querySelector('[data-testid="logical-model-variant-details"]')?.textContent).toContain('Download unavailable')
-    expect(root.querySelector<HTMLButtonElement>('[data-testid="logical-model-download"]')?.disabled).toBe(true)
-    expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')?.disabled).toBe(true)
-    expect(dispatchTo).not.toHaveBeenCalled()
-    unmount()
-  })
-
-  it('forwards Candidate cursors and retains exact variants from every page', async () => {
-    const requests: unknown[] = []
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
-      requests.push(JSON.parse(init?.body as string))
-      return { ok: true, json: async () => ({ page: requests.length }) } as Response
-    })
-    const first = candidate(`blake3:${'c'.repeat(64)}`)
-    const second = { ...candidate(`blake3:${'d'.repeat(64)}`), variantId: 'fp8' }
-    const mounted = catalogAssetEditor('model/checkpoint', undefined, null, false)
-    const ed = {
-      ...mounted.ed,
-      tab: { store: { doc: { graphs: { g0: { nodes: { n0: { type: 'CheckpointLoader' } } } } } } } as unknown as Tab,
-    }
-    const contract = federatedContract(vi.fn((request) => request), [])
-    const root = document.createElement('div')
-    document.body.append(root)
-    const unmount = render(() => (
-      <WidgetEditor
-        app={({ backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection: mounted.connection }), dispatchTo: vi.fn(), widgetRegistry: { kind: () => undefined } } as unknown as AppState)}
-        federatedAssets={{
-          ...contract,
-          candidates: {
-            ...contract.candidates,
-            decodeResponse: (response) => (response as { page: number }).page === 1
-              ? { contractVersion: 1, status: 'missing', items: [first], nextCursor: 'candidate-page-2' }
-              : { contractVersion: 1, status: 'missing', items: [second] },
-          },
-        }}
-        ed={ed}
-        viewport={() => ({ x: 0, y: 0, scale: 1 })}
-        onClose={() => {}}
-      />
-    ), root)
-
-    await vi.waitFor(() => expect(requests).toHaveLength(2))
-    expect(requests[0]).not.toHaveProperty('cursor')
-    expect(requests[1]).toMatchObject({ cursor: 'candidate-page-2', limit: 100 })
-    await vi.waitFor(() => {
-      const row = Array.from(root.querySelectorAll<HTMLElement>('[data-testid="collection-group"]'))
-        .find((entry) => entry.textContent?.includes('Provider checkpoint'))
-      expect(row?.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2)
-      expect(row?.textContent).toContain('fp16')
-      expect(row?.textContent).toContain('fp8')
-      // Digests stay out of rows; they belong to the selection Details.
-      expect(row?.querySelectorAll('code')).toHaveLength(0)
-    })
-    unmount()
-  })
-
-  it('keeps exact local model choices when Candidate decoding fails', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
-    const mounted = catalogAssetEditor('model/checkpoint', undefined, null, false)
-    const ed = {
-      ...mounted.ed,
-      tab: { store: { doc: { graphs: { g0: { nodes: { n0: { type: 'CheckpointLoader' } } } } } } } as unknown as Tab,
-    }
-    const contract = federatedContract(vi.fn((request) => request), [])
-    const root = document.createElement('div')
-    document.body.append(root)
-    const unmount = render(() => (
-      <WidgetEditor
-        app={({ backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection: mounted.connection }), dispatchTo: vi.fn(), widgetRegistry: { kind: () => undefined } } as unknown as AppState)}
-        federatedAssets={{ ...contract, candidates: { ...contract.candidates, decodeResponse: () => { throw new Error('candidate decode failed') } } }}
-        ed={ed}
-        viewport={() => ({ x: 0, y: 0, scale: 1 })}
-        onClose={() => {}}
-      />
-    ), root)
-    await vi.waitFor(() => expect(root.textContent).toContain('candidate decode failed'))
-    expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2)
-    unmount()
-  })
-
-  it('aborts superseded Candidate pagination and publishes the replacement local scan', async () => {
-    let fetchCall = 0
-    let supersededSignal: AbortSignal | undefined
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
-      fetchCall += 1
-      if (fetchCall === 1) return { ok: true, json: async () => ({ page: 1 }) } as Response
-      if (fetchCall === 2) {
-        supersededSignal = init?.signal as AbortSignal
-        return await new Promise<Response>((_resolve, reject) => {
-          supersededSignal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
-        })
-      }
-      return { ok: true, json: async () => ({ page: 2 }) } as Response
-    })
-    const mounted = catalogAssetEditor('model/checkpoint', undefined, null, false)
-    const ed = {
-      ...mounted.ed,
-      tab: { store: { doc: { graphs: { g0: { nodes: { n0: { type: 'CheckpointLoader' } } } } } } } as unknown as Tab,
-    }
-    const contract = federatedContract(vi.fn((request) => request), [])
-    const root = document.createElement('div')
-    document.body.append(root)
-    const unmount = render(() => (
-      <WidgetEditor
-        app={({ backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection: mounted.connection }), dispatchTo: vi.fn(), widgetRegistry: { kind: () => undefined } } as unknown as AppState)}
-        federatedAssets={{
-          ...contract,
-          candidates: {
-            ...contract.candidates,
-            decodeResponse: (response) => (response as { page: number }).page === 1
-              ? { contractVersion: 1, status: 'missing', items: [], nextCursor: 'next' }
-              : { contractVersion: 1, status: 'missing', items: [] },
-          },
-        }}
-        ed={ed}
-        viewport={() => ({ x: 0, y: 0, scale: 1 })}
-        onClose={() => {}}
-      />
-    ), root)
-    await vi.waitFor(() => expect(fetchCall).toBe(2))
-    const refresh = root.querySelector<HTMLButtonElement>('[data-testid="logical-model-refresh"]')!
-    refresh.disabled = false
-    refresh.click()
-    await vi.waitFor(() => expect(supersededSignal?.aborted).toBe(true))
-    await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
-    expect(fetchCall).toBe(3)
-    unmount()
-  })
-
   it.each([
     ['value source', { kind: 'valueSource', valueSourceId: 'v0' }],
     ['missing graph and node', { kind: 'input', nodeId: 'missing', valueKey: 'asset' }],
-  ] as const)('keeps the local model scan and makes zero candidate calls for a %s target', async (_label, target) => {
-    const encodeRequest = vi.fn((request) => request)
+  ] as const)('keeps the local model scan for a %s target', async (_label, target) => {
     const mounted = catalogAssetEditor('model/checkpoint', undefined, null, false)
     const ed = { ...mounted.ed, tab: { store: { doc: { graphs: {} } } } as unknown as Tab, target }
     const root = document.createElement('div')
@@ -1036,14 +838,12 @@ describe('ASSET widget modal integration', () => {
     const unmount = render(() => (
       <WidgetEditor
         app={({ backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection: mounted.connection }), dispatchTo: vi.fn(), widgetRegistry: { kind: () => undefined } } as unknown as AppState)}
-        federatedAssets={federatedContract(encodeRequest, [candidate()])}
         ed={ed}
         viewport={() => ({ x: 0, y: 0, scale: 1 })}
         onClose={() => {}}
       />
     ), root)
     await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
-    expect(encodeRequest).not.toHaveBeenCalled()
     expect(mounted.connection.listMountEntries).toHaveBeenCalled()
     unmount()
   })

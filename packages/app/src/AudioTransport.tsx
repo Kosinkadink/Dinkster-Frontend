@@ -7,8 +7,6 @@ import { useAppMessage } from './locale.js'
 import type { PreviewSource } from './node-previews.js'
 import './audio-controls.css'
 
-export const [audioPlayhead, setAudioPlayhead] = createSignal<{ identity: string; time: number; duration: number }>()
-
 /** Shared Canvas/App transport. Its gain, loop and playhead are never graph values. */
 export function AudioTransport(props: {
   readonly media: NodePreview
@@ -39,10 +37,6 @@ export function AudioTransport(props: {
   const meta = () => props.media.audio?.meta ?? {}
   const duration = () => props.media.audio ? audioNumber(meta(), 'duration') ?? 0 : nativeDuration()
   const batches = () => Math.max(1, Math.trunc(audioNumber(meta(), 'batch') ?? 1))
-  const publish = () => {
-    const identity = props.media.audio?.identity ?? props.media.src ?? ''
-    setAudioPlayhead({ identity, time: time(), duration: duration() })
-  }
   const release = () => { for (const url of urls) URL.revokeObjectURL(url); urls = [] }
   const blobUrl = (bytes: ArrayBuffer, type: string) => {
     const url = URL.createObjectURL(new Blob([bytes], { type }))
@@ -64,7 +58,6 @@ export function AudioTransport(props: {
     setBusy(true)
     setDiagnostic('')
     setTime(position)
-    publish()
     const deadline = setTimeout(() => {
       request.abort()
       resume = false
@@ -151,7 +144,6 @@ export function AudioTransport(props: {
   }
   onCleanup(() => {
     abort?.abort(); element?.pause(); release()
-    if (audioPlayhead()?.identity === (props.media.audio?.identity ?? props.media.src ?? '')) setAudioPlayhead(undefined)
     queueMicrotask(() => props.onActiveChange?.(false))
   })
   return <div class="audio-transport" classList={{ interactive: props.interactive !== false }}
@@ -168,7 +160,7 @@ export function AudioTransport(props: {
       if (!props.media.audio) props.onMediaError?.()
     }}
       onLoadedMetadata={() => { setNativeDuration(Number.isFinite(element?.duration) ? element!.duration : 0); if (element) element.volume = gain(); if (resume) { resume = false; void play() } }}
-      onTimeUpdate={() => { if (!busy()) { setTime(start + (element?.currentTime ?? 0)); publish() } }}
+      onTimeUpdate={() => { if (!busy()) setTime(start + (element?.currentTime ?? 0)) }}
       onPlay={() => { setPlaying(true); active() }} onPause={() => { setPlaying(false); active() }} onEnded={ended} />
     <Show when={props.interactive !== false}>
       <div class="audio-transport-row">

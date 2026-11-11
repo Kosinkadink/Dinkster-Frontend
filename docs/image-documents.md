@@ -133,58 +133,12 @@ clears its stale preview and shows a diagnostic rather than approximating them.
 **Linear color**, **Z order** and **Pass-through group** edit document properties
 through the same command history. All 27 declared blend modes are retained.
 
-## Graph documents
+## Durable documents
 
-The Outputs panel offers **Open layers** for `dinkster.layers` values, not
-the `LAYERS` or `comfy.LAYERS` tensor mappings. Opening uses the selected
-execution, runtime node and output identity on the value's owning connection
-and explicitly requests the `document`
-rendition. The response must identify the selected type and fingerprint, report
-the `document` rendition, and use
-`application/vnd.dinkster.image-document+json`. The client adopts the exact
-canonical response bytes in the selected scope before creating a recoverable
-draft. It does not rebuild the adoption body from parsed JSON. The initial
-workspace image comes from the backend composite Render API and its verified
-PNG asset. A flattened value rendition is never substituted for the editable
-document or for a failed adoption or render. Missing capabilities, dependency
-grants, unsupported format versions, changed values, failed renders, and
-conflicting local edits produce visible errors.
+Graph opening and snapshot/recipe export are parked in
+[the rework queue](rework-queue.md). Local drafts, library documents, shared
+sessions, rendering and PNG download remain available in the workspace.
 
-The admitted value reader covers canonical decode, adoption, reference rendering,
-resource hydration and draft creation, not only the rendition response body.
-Closing that reader waits for actual consumer settlement and refuses its return.
-The workspace also checks its captured graph request, backend connection and
-project before continuing reads, hydration, draft writes or tab/error publication.
-A replacement request does not let an older open publish or clear its busy state.
-Workspace disposal waits for all pending graph opens before closing the store.
-Already submitted local transactions may settle; they are not rolled back.
-
-**Export snapshot to graph** explicitly adopts the current document and its
-resources on the destination backend, then adds `dinkster.layers.load` wired to
-`dinkster.layers.flatten`. These nodes hold a document AssetRef and composite selector, not pixels,
-browser URLs or producer paths. Export is one undoable workflow command and
-refuses a changed destination graph, tab or backend. It neither changes the
-original graph source nor publishes a library record.
-Snapshot and recipe export require `dinkster.layers` at every layer port;
-tensor `LAYERS` and `comfy.LAYERS` ports are not compatible document targets.
-
-Documents opened from an executed native layer output also offer **Export
-editable recipe**. It branches `dinkster.layers.edit` -> `dinkster.layers.flatten` ->
-`dinkster.save_image` from the original `dinkster.layers` output without replacing or
-rewiring that source. The edit node receives canonical document commands;
-format and quality are explicit save-node values. PNG, JPEG, and WebP are
-supported, quality is 0-100, and PNG remains lossless. Output policy is
-non-rendering document metadata, so it does not change browser preview or the
-authoritative canonical PNG Render API result.
-
-Recipe export is one undoable workflow command. It requires the exact source
-workflow, graph, node output, backend, and graph fingerprint captured by the
-execution. It refuses stale provenance and edits that cannot be represented by
-the advertised layer-edit node, including added or removed raster resources,
-rather than substituting a flattened snapshot. Snapshot export remains a
-separate explicit action.
-
-Native graph opening requires the owner-side document rendition; preview-only owners are refused.
 The durable schema is version 2. Loading canonical v1 changes only its version;
 local recovery and library open verify the original canonical bytes before
 migration and retain the original library digest until explicit Save. Canvas
@@ -432,9 +386,7 @@ render request and provenance validation.
 `packages/core/test/image-document-commands.test.ts` covers atomic command
 validation, crop and resize geometry, output policy, layer and mask edits,
 deterministic allocation, resource-aware history, hostile ids, and local
-session operation envelopes. `packages/app/test/image-document-recipe.test.ts`
-proves crop, resize, and output-policy parity between workspace state and graph
-recipe execution.
+session operation envelopes.
 The inspected controls are captured for [crop](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-486/crop.png),
 [resize](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-486/resize.png), and
 [output policy](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-486/output-policy.png).
@@ -444,21 +396,7 @@ workspace component test covers resource upload ordering, membership recovery,
 shared command submission, local fallback on leave, render-without-publish, and
 stale authoritative output. `packages/e2e/tests/image-document-workspace.spec.ts`
 covers the visible render result and canonical PNG download.
-`packages/e2e/tests/image-document-graph.spec.ts` uses route-mocked value,
-adoption, render and asset endpoints to cover graph opening, crop, resize,
-format/quality editing, guarded editable-recipe export, explicit snapshot
-export, grouping, clipping refusal, and draft recovery after reload.
-`packages/e2e/tests/image-document-graph-live.spec.ts` separately runs
-a transparent `dinkster.load_image` -> `dinkster.layers.add` ->
-`dinkster.layers.flatten` graph against a live Dinkster backend. It proves the
-workspace's Render API PNG is byte-identical to the flatten image rendition and
-that its decoded alpha matches the flatten transparency mask.
 `packages/e2e/tests/image-bake-live.spec.ts` checks Bake to asset through real
 asset routes with a registered typed image-input fixture. It verifies the
 decoded PNG RGB and alpha and the undoable input replacement. Graph-native
 mask recipes are parked in [the rework queue](rework-queue.md#mask-paint-applied-to-the-graph).
-Graph-opening unit tests cover exact value identity and bytes, missing headers
-and capabilities, stale fingerprints, adoption/render refusals, resource
-validation and protection of existing local edits. The route-mocked
-authoritative display is captured in
-[graph-layer-open-authoritative.png](https://raw.githubusercontent.com/Kosinkadink/dinkster-evidence/main/frontend/issue-402/graph-layer-open-authoritative.png).

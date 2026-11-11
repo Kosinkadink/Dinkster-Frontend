@@ -1,7 +1,6 @@
 import type { CommandDefinition } from '../../commands/contract.js'
 import type { SchemaResolver } from '../../schema/derive-boundary.js'
 import { COMPOSITOR_COMMAND_EXTENSION } from './compositor.js'
-import { IMAGE_DOCUMENT_COMMAND_EXTENSION } from './image-document.js'
 import type { CommandSchemaRole } from './schema-role.js'
 
 export interface RegisteredCommandExtension {
@@ -11,7 +10,6 @@ export interface RegisteredCommandExtension {
 }
 
 export const REGISTERED_COMMAND_EXTENSIONS: readonly RegisteredCommandExtension[] = [
-  IMAGE_DOCUMENT_COMMAND_EXTENSION,
   COMPOSITOR_COMMAND_EXTENSION,
 ]
 
