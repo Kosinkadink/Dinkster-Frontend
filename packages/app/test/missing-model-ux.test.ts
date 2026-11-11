@@ -11,6 +11,10 @@ describe('unresolved imported ASSET diagnostics', () => {
     expect(mediaAcceptsFile(['video/*'], 'image/webp')).toBe(false)
     expect(mediaAcceptsFile(['*/*'], 'video/webm')).toBe(true)
     expect(mediaAcceptsFile(['image/*'], '')).toBe(false)
+    expect(mediaAcceptsFile(['.latent'], '', 'example.LATENT')).toBe(true)
+    expect(mediaAcceptsFile(['.latent'], 'application/x-comfy-latent', 'example.latent')).toBe(true)
+    expect(mediaAcceptsFile(['.latent'], 'application/x-comfy-latent', 'example.latent.bak')).toBe(false)
+    expect(mediaAcceptsFile(['image/*', '.latent'], 'audio/wav', 'example.wav')).toBe(false)
   })
 
   it('uses a distinct anchored error with the original path, basename, and expected kind', () => {

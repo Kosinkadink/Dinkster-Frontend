@@ -75,6 +75,7 @@ const BACKEND_SERIAL_SPECS = [
   'executable-examples-live.spec.ts',
   'app-view-queue-buttons-native.spec.ts',
   'cancel-execution-live.spec.ts',
+  'served-contracts-live.spec.ts',
   'output-mount-live.spec.ts',
   'browser-mount-live.spec.ts',
   'local-assets-live.spec.ts',
