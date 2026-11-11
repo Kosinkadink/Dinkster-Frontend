@@ -3,6 +3,7 @@
  * Playwright base directly: the shared legacy fixture disables same-origin
  * /api/nodes and therefore cannot prove native catalog identity.
  */
+import type { NodeSchema } from '@dinkster/core'
 import { expect, test, type Page } from '@playwright/test'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
@@ -15,7 +16,7 @@ async function openPalette(page: Page): Promise<void> {
 async function registerDuplicateName(page: Page): Promise<void> {
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    const original = app.backends.get()[0]!.registry.get()!.resolve('dinkster.utilities.preview_any')!
+    const original = app.backends.get()[0]!.registry.get()!.schemas.get('dinkster.utilities.preview_any') as NodeSchema
     // Canonical context is visible only for duplicate display names.
     app.registerSchemas([{ ...original, type: 'CatalogPreviewText' }])
   })
