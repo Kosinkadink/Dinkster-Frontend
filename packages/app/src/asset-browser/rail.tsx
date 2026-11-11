@@ -225,7 +225,6 @@ export function AssetSelectionDetails(props: {
 /** The picker selection panel's facts for one staged model variant. */
 export function LogicalModelVariantFacts(props: {
   readonly detail: LogicalModelPickDetail
-  readonly acquisitionSupported: boolean
 }) {
   const message = useAppMessage()
   const variant = () => props.detail.variant
@@ -261,14 +260,10 @@ export function LogicalModelVariantFacts(props: {
           {message('assets.logicalModel.nameConflict')}
         </ProductNotice>
       </Show>
-      <Show when={variant().localRef === undefined && variant().availability === 'downloadable'}>
-        <div class="logical-model-download">
-          <div>
-            <strong>{message('assets.logicalModel.downloadUnavailable')}</strong>
-            <p>{message('assets.logicalModel.downloadUnsupported')}</p>
-          </div>
-          <button type="button" data-testid="logical-model-download" disabled={!props.acquisitionSupported}>{message('assets.logicalModel.download')}</button>
-        </div>
+      <Show when={variant().localRef === undefined}>
+        <ProductNotice tone="info" testId="logical-model-not-on-disk">
+          {message('assets.logicalModel.notOnDisk')}
+        </ProductNotice>
       </Show>
     </details>
   )

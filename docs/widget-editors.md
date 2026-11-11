@@ -46,6 +46,11 @@ acknowledged reader: a changed document, registry, connection, or closed session
 refuses further staging and Apply until the picker is reopened. Apply still confirms the document
 command separately. These conservative owners do not enable cleanup.
 
+Missing model selections say "Not on disk" and explain that download is offered
+when the workflow runs. The picker does not start downloads or show a disabled
+download control. Download approval belongs to the pre-run approval dialog;
+local matching, selection, Cancel and Undo retain their usual behavior.
+
 The registered audio-recording editor uses the same independent ownership
 before replacing its draft or fetching playback bytes for a saved recording.
 While acknowledgement is pending, Use asset stays disabled and Cancel remains

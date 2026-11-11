@@ -101,7 +101,9 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
   await expect(details).toContainText('audit-definitely-missing-model.safetensors')
   await expect(details).toContainText('model/checkpoint')
   await expect(details).toContainText('application/x-safetensors, application/octet-stream')
-  await expect(details.getByTestId('asset-download')).toBeDisabled()
+  await expect(details.getByTestId('asset-not-on-disk')).toHaveText('Not on disk. A download is offered when the workflow runs.')
+  await expect(editor.getByText('Download unavailable', { exact: true })).toHaveCount(0)
+  await expect(editor.getByTestId('asset-download')).toHaveCount(0)
 
   const guessesBeforeRetry = guessBodies.length
   await details.getByTestId('asset-retry-match').click()
