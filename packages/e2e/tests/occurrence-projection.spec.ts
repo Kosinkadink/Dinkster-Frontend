@@ -37,7 +37,7 @@ test('sibling subgraph occurrences project independently at root and when drille
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
 
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'OccurrenceLeafE2E',
@@ -75,7 +75,7 @@ test('sibling subgraph occurrences project independently at root and when drille
         shared: { nodes: { inner: { position: { x: 180, y: 140 } } } },
       } },
     }
-    app.openDocument(document, 'Occurrence Projection E2E')
+    await app.openDocument(document, 'Occurrence Projection E2E')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
 
     const ref = { connection: 'e2e', prompt: 'occurrence-projection' }

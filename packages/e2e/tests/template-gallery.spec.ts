@@ -271,23 +271,23 @@ test('refreshes the remote family gallery and opens a digest-verified template',
       .toBe('remote-template')
     await expect(gallery).toBeHidden()
     await captureProof(page, 'starter-template-after-retry.png')
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
       type TestApp = NonNullable<typeof window.__dinksterTest>['app']
       const app = window.__dinksterTest!.app as TestApp & {
         templateGalleryOpen: { set(value: boolean): void }
       }
       const document = app.activeTab()!.store.doc
       app.templateGalleryOpen.set(true)
-      app.openDocument(document, 'Reloaded working document')
+      await app.openDocument(document, 'Reloaded working document')
     })
     await expect(gallery).toBeHidden()
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
       type TestApp = NonNullable<typeof window.__dinksterTest>['app']
       const app = window.__dinksterTest!.app as TestApp & {
         templateGalleryOpen: { set(value: boolean): void }
       }
       const document = app.activeTab()!.store.doc
-      app.openDocument({ ...document, lineage: 'second-working-document' }, 'Second working document')
+      await app.openDocument({ ...document, lineage: 'second-working-document' }, 'Second working document')
       app.templateGalleryOpen.set(true)
       app.activeTabId.set('remote-template')
     })

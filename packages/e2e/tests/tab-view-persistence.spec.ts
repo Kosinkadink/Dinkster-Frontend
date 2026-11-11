@@ -43,7 +43,7 @@ test('refresh restores each graph tab viewport and the active tab', async ({ pag
 test('refresh restores App View scroll position', async ({ page }) => {
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const items = Array.from({ length: 32 }, (_, index) => ({
       id: `text-${index}`,
       kind: 'text',
@@ -51,7 +51,7 @@ test('refresh restores App View scroll position', async ({ page }) => {
       text: `Persisted app view row ${index + 1}`,
     }))
     const app = window.__dinksterTest!.app
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'app-scroll-persistence',

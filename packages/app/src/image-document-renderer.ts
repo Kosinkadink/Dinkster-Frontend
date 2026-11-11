@@ -1,13 +1,14 @@
 import {
   IMAGE_FIXED_POINT_SCALE,
   IMAGE_OPACITY_MAX,
+  loadImageDocument,
   type ImageAffineTransform,
   type ImageDocument,
   type ImageLayer,
   type ImageMask,
   type ImageRasterResource,
 } from '@dinkster/core'
-import type { ImageDocumentLocalStore } from './image-document-local.js'
+import type { RetainedImageDocumentSession } from './image-document-library.js'
 
 const blendOperation: Readonly<Partial<Record<ImageLayer['blendMode'], GlobalCompositeOperation>>> = {
   normal: 'source-over',
@@ -72,15 +73,26 @@ function maskValue(mask: ImageMask, red: number, green: number, blue: number, al
 
 export class ImageDocumentPreviewRenderer {
   private readonly bitmaps = new Map<string, Promise<ImageBitmap>>()
+  private readonly reads = new Set<Promise<ImageBitmap>>()
+  private disposed = false
 
-  constructor(private readonly store: ImageDocumentLocalStore) {}
+  constructor(private readonly owner: Pick<RetainedImageDocumentSession, 'readPreviewResource' | 'previewCurrent'>) {}
 
-  dispose(): void {
-    for (const pending of this.bitmaps.values()) void pending.then((bitmap) => bitmap.close()).catch(() => undefined)
+  private assertCurrent(): void {
+    if (this.disposed || !this.owner.previewCurrent()) throw new Error('Image preview renderer is closed')
+  }
+
+  async dispose(): Promise<void> {
+    this.disposed = true
+    await Promise.allSettled([...this.reads])
+    const pending = [...this.bitmaps.values()]
     this.bitmaps.clear()
+    await Promise.allSettled(pending.map(async (value) => (await value).close()))
   }
 
   async draw(documentValue: ImageDocument, output: HTMLCanvasElement): Promise<void> {
+    this.assertCurrent()
+    if (loadImageDocument(documentValue).document === undefined) throw new Error('Cannot preview an invalid ImageDocument')
     const refusal = imageDocumentPreviewRefusal(documentValue)
     if (refusal !== undefined) {
       context(output).clearRect(0, 0, output.width, output.height)
@@ -100,25 +112,32 @@ export class ImageDocumentPreviewRenderer {
     for (const layerId of documentValue.rootLayerIds) {
       await this.drawLayer(documentValue, documentValue.layers[layerId]!, target, scale)
     }
+    this.assertCurrent()
   }
 
   private async bitmap(resource: ImageRasterResource): Promise<ImageBitmap> {
-    let pending = this.bitmaps.get(resource.digest)
-    if (pending === undefined) {
-      pending = this.store.getResource(resource.digest).then((staged) => {
-        if (staged === undefined) throw new Error(`ImageDocument resource is not staged: ${resource.id}`)
-        return createImageBitmap(new Blob([Uint8Array.from(staged.bytes)], { type: staged.mediaType }), {
+    this.assertCurrent()
+    const read = this.owner.readPreviewResource(this, resource, async (staged) => {
+      this.assertCurrent()
+      const key = JSON.stringify(resource)
+      let pending = this.bitmaps.get(key)
+      if (pending === undefined) {
+        pending = createImageBitmap(new Blob([Uint8Array.from(staged.bytes)], { type: staged.mediaType }), {
           colorSpaceConversion: 'default',
           imageOrientation: 'none',
           premultiplyAlpha: 'none',
         })
-      })
-      this.bitmaps.set(resource.digest, pending)
-      void pending.catch(() => {
-        if (this.bitmaps.get(resource.digest) === pending) this.bitmaps.delete(resource.digest)
-      })
-    }
-    return pending
+        this.bitmaps.set(key, pending)
+        void pending.catch(() => {
+          if (this.bitmaps.get(key) === pending) this.bitmaps.delete(key)
+        })
+      }
+      const bitmap = await pending
+      this.assertCurrent()
+      return bitmap
+    })
+    this.reads.add(read)
+    try { return await read } finally { this.reads.delete(read) }
   }
 
   private async drawLayer(
@@ -136,6 +155,7 @@ export class ImageDocumentPreviewRenderer {
     if (layer.kind === 'raster') {
       const resource = documentValue.resources[layer.resourceId]!
       const image = await this.bitmap(resource)
+      this.assertCurrent()
       local.save()
       applyTransform(local, layer.transform)
       local.drawImage(
@@ -156,6 +176,7 @@ export class ImageDocumentPreviewRenderer {
       }
     }
     if (layer.maskIds.length > 0) await this.applyMasks(documentValue, layer, surface, scale)
+    this.assertCurrent()
     target.save()
     target.globalAlpha = layer.opacity / IMAGE_OPACITY_MAX
     target.globalCompositeOperation = blendOperation[layer.blendMode]!
@@ -182,6 +203,7 @@ export class ImageDocumentPreviewRenderer {
       maskContext.scale(scale, scale)
       const resource = documentValue.resources[mask.resourceId]!
       const image = await this.bitmap(resource)
+      this.assertCurrent()
       maskContext.save()
       applyTransform(maskContext, mask.transform)
       maskContext.drawImage(

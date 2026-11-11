@@ -20,8 +20,8 @@ const catalog = (withArms: boolean) => ({
 })
 
 const openProof = async (page: import('@playwright/test').Page): Promise<void> => {
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'execution-arm-proof',

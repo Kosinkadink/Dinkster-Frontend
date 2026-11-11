@@ -35,8 +35,8 @@ test('ResizeImageMask DynamicCombo choice is accepted and completes on Dinkster'
     submitted = outgoing.postDataJSON() as typeof submitted
   })
 
-  await page.evaluate((color) => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async (color) => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'dynamic-combo-native-live', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',

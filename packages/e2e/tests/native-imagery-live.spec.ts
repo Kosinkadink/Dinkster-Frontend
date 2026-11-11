@@ -64,8 +64,8 @@ interface UploadedAsset {
 }
 
 async function openImageryDoc(page: Page, asset: UploadedAsset): Promise<void> {
-  await page.evaluate((asset) => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async (asset) => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'native-imagery-e2e', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
@@ -95,8 +95,8 @@ async function openImageryDoc(page: Page, asset: UploadedAsset): Promise<void> {
 }
 
 async function openNumericBranches(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'native-partial-values-e2e', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',

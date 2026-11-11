@@ -47,7 +47,7 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
   const checkpoint = checkpointEntries.entries.find((entry) => entry['name'] === 'audit-local-checkpoint.safetensors')
   expect(checkpoint).toBeDefined()
   const { kind: _kind, ...checkpointRef } = checkpoint!
-  await page.evaluate((requested) => {
+  await page.evaluate(async (requested) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'auditModelLoader', displayName: 'audit Model Loader', category: 'test', source: 'v3', isOutputNode: false,
@@ -59,7 +59,7 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
         },
       }],
     }])
-    app.openDocument({
+    await app.openDocument({
       last_node_id: 1, last_link_id: 0,
       nodes: [{ id: 1, type: 'auditModelLoader', pos: [120, 100], widgets_values: [requested] }],
       links: [], groups: [], config: {}, extra: {}, version: 0.4,
@@ -133,9 +133,9 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
     const app = window.__dinksterTest!.app
     return app.exportDocument(app.activeTab()!.id)
   })
-  expect(await page.evaluate((document) => {
+  expect(await page.evaluate(async (document) => {
     const app = window.__dinksterTest!.app
-    app.openDocument(document, 'audit reopened missing model')
+    await app.openDocument(document, 'audit reopened missing model')
     return app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.model
   }, exported)).toBe(REQUESTED)
   await expect.poll(() => page.evaluate(() => {

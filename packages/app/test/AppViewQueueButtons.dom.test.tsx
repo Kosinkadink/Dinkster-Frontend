@@ -1,3 +1,4 @@
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 // @vitest-environment happy-dom
 
 import { render } from 'solid-js/web'
@@ -14,7 +15,7 @@ afterEach(() => {
 
 describe('App View queue button component', () => {
   it('replaces the full-run fallback with named partial actions and an accessible target picker', async () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     app.settings.set('features.appView.enabled', true)
     app.registerSchemas([{
       type: 'QueueOutput',
@@ -24,7 +25,7 @@ describe('App View queue button component', () => {
       isOutputNode: true,
       items: [],
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'queue-component', root: 'root',
       graphs: {
         root: {

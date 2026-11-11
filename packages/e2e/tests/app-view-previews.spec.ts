@@ -99,7 +99,7 @@ test.beforeEach(async ({ page }) => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
     return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
   })).toBe(true)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue },
@@ -112,7 +112,7 @@ test.beforeEach(async ({ page }) => {
         widget('prompt', 'STRING', 'A multiline prompt', { multiline: true }),
       ],
     }])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-view-preview-test', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
