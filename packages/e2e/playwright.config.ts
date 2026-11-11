@@ -71,6 +71,7 @@ const BACKEND_SERIAL_SPECS = [
   'video-edit.spec.ts',
   'glsl-shader.spec.ts',
   'executable-examples-live.spec.ts',
+  'dev-node-features-live.spec.ts',
   'app-view-queue-buttons-native.spec.ts',
   'cancel-execution-live.spec.ts',
   'output-mount-live.spec.ts',

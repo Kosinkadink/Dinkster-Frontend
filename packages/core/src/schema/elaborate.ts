@@ -1369,6 +1369,18 @@ const dynamicSlotHandler: DynamicKindHandler = {
       const requested = state?.selected as unknown
       if (requested === undefined) {
         if (item.optional === false) {
+          ctx.emit(
+            {
+              kind: 'input', address: { port: construct },
+              spec: { ...rekey(item, construct), type: spec.slotType },
+              origin: {
+                kind: 'slot', construct,
+                variants: spec.variants.map(({ key, type }) => ({ key, type })),
+                ...(spec.typeTemplateId !== undefined ? { typeTemplateId: spec.typeTemplateId } : {}),
+              },
+            },
+            { ...scope, wire15Materialization: true },
+          )
           ctx.report(
             'error',
             'prompt.bad_dynamic_choice',
