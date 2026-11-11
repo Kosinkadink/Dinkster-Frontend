@@ -51,8 +51,8 @@ async function registerSchemas(page: Page): Promise<void> {
 }
 
 async function openStructuralWorkflow(page: Page): Promise<void> {
-  await page.evaluate(async () => {
-    const diagnostics = (await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    const diagnostics = window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'structural-output-refusal', root: 'root',
       graphs: {
         root: {
@@ -97,7 +97,7 @@ async function openStructuralWorkflow(page: Page): Promise<void> {
           selectors: { choice: { position: { x: 430, y: 400 } } },
         },
       } },
-    }, 'Structural output refusal'))
+    }, 'Structural output refusal')
     if (diagnostics.length > 0) throw new Error(`open failed: ${JSON.stringify(diagnostics)}`)
     const tab = window.__dinksterTest!.app.activeTab()!
     tab.graphStack.set(['root', 'producers'])
@@ -222,8 +222,8 @@ test('execution-time output arity is refused until count is a pre-execution lite
     promptPosts += 1
     return route.fulfill({ json: { prompt_id: 'unexpected' } })
   })
-  await page.evaluate(async () => {
-    const diagnostics = (await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    const diagnostics = window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'runtime-output-arity-refusal', root: 'root',
       graphs: {
         root: {
@@ -246,7 +246,7 @@ test('execution-time output arity is refused until count is a pre-execution lite
         root: { nodes: { instance: { position: { x: 180, y: 120 } } } },
         runtimeArity: { nodes: { split: { position: { x: 180, y: 120 } } } },
       } },
-    }, 'Runtime output arity refusal'))
+    }, 'Runtime output arity refusal')
     if (diagnostics.length > 0) throw new Error(`open failed: ${JSON.stringify(diagnostics)}`)
     const tab = window.__dinksterTest!.app.activeTab()!
     tab.graphStack.set(['root', 'runtimeArity'])

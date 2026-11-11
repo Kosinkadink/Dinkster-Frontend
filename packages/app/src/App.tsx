@@ -3122,7 +3122,6 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
   })
   const images = createMemo(() => executedImageInventory(props.execution, {
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
-    executionAssetReader: (execution, digests, holder) => props.app.executionAssetReader(execution, digests, holder),
     values: values(),
   }))
   const pageStart = () => Math.min(imagePage(), Math.max(0, Math.ceil(images().length / 4) - 1)) * 4

@@ -80,7 +80,7 @@ test.beforeEach(async ({ page }) => {
     const backend = window.__dinksterTest!.app.backends.get()[0]
     return backend?.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
   })
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const concrete = (name: string) => ({ kind: 'concrete', name })
     const wildcard = { kind: 'wildcard' }
     const widget = (id: string, widgetType: string, defaultValue: number) => ({
@@ -110,7 +110,7 @@ test.beforeEach(async ({ page }) => {
         items: [{ kind: 'output', id: 'out', type: wildcard }],
       },
     ])
-    await window.__dinksterTest!.app.openDocument({
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'dynamic-slot-e2e', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         image: { id: 'image', type: 'ImageProducerE2E', values: {} },

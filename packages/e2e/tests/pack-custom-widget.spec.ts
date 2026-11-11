@@ -48,8 +48,8 @@ test('a pack-declared custom widget uses its extension kind and reports the raw 
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas', { timeout: 15_000 })
 
-  await page.evaluate(async () => {
-    const diagnostics = (await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    const diagnostics = window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'pack-custom-widget', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
@@ -57,7 +57,7 @@ test('a pack-declared custom widget uses its extension kind and reports the raw 
         links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
       } },
       view: { graphs: { g0: { nodes: { blob: { position: { x: 220, y: 180 } } } } } },
-    }, 'Pack custom widget'))
+    }, 'Pack custom widget')
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
   })
   await openRailPanel(page, 'Problems')
@@ -65,7 +65,6 @@ test('a pack-declared custom widget uses its extension kind and reports the raw 
   await page.evaluate(() => {
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
-  await page.waitForFunction(() => window.__dinksterTest?.renderer?.getScene().nodes.some((node) => node.id === 'blob'))
   await page.getByTestId('graph-canvas').click({ position: await widgetPoint(page) })
   await expect(page.getByTestId('widget-editor')).toHaveAttribute('data-editor-mode', 'raw')
   await expect(page.getByTestId('widget-editor').locator('textarea')).toHaveValue('8')

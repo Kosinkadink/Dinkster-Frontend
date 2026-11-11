@@ -67,7 +67,7 @@ async function regionIndexPoint(page: Page): Promise<{ x: number; y: number }> {
 }
 
 async function openConditionalWorkflow(page: Page): Promise<void> {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const concrete = (name: string) => ({ kind: 'concrete', name })
     const widget = (id: string, widgetType: string, defaultValue: number) => ({
       kind: 'input', id, type: concrete(widgetType), optional: true, forceInput: true,
@@ -99,7 +99,7 @@ async function openConditionalWorkflow(page: Page): Promise<void> {
         }],
       },
     ])
-    await window.__dinksterTest!.app.openDocument({
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'boundary-conditional', root: 'g0',
       graphs: {
         g0: {
@@ -262,7 +262,7 @@ test('forwarded selector displays and edits occurrence state while drilled in', 
 })
 
 test('region occurrences author independent conditional and promoted widget state', async ({ page }, testInfo) => {
-  expect(await page.evaluate(async () => {
+  expect(await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const scalar = { kind: 'concrete', name: 'FLOAT' }
     app.registerSchemas([
@@ -314,7 +314,7 @@ test('region occurrences author independent conditional and promoted widget stat
     document.view!.graphs['sub']!.nodes['pass'] = { position: { x: 720, y: 100 } }
     document.view!.graphs['sub']!.nodes['amount'] = { position: { x: 720, y: 320 } }
     document.view!.graphs['sub']!.nodes['indexSink'] = { position: { x: 720, y: 520 } }
-    return (await app.openDocument(document, 'Region conditional authoring'))
+    return app.openDocument(document, 'Region conditional authoring')
   })).toEqual([])
   await identityViewport(page)
   await drillIntoSub(page)
@@ -419,8 +419,8 @@ test('region occurrences author independent conditional and promoted widget stat
     const tab = app.activeTab()!
     return app.exportDocument(tab.id)!
   })
-  expect(await page.evaluate(async (saved) =>
-    (await window.__dinksterTest!.app.openDocument(saved, 'Reopened region authoring', undefined, true)), exported,
+  expect(await page.evaluate((saved) =>
+    window.__dinksterTest!.app.openDocument(saved, 'Reopened region authoring', undefined, true), exported,
   )).toEqual([])
   document = await activeDoc(page)
   expect(document.graphs['g0']!.nodes['i0']!.dynamic?.[boundaryId]?.selected).toBe('crop')
@@ -454,7 +454,7 @@ test('DynamicSlot reveals and hides its dependent row when connected and disconn
 })
 
 test('explicitly upgrades persisted selector-only boundaries and keeps branch values independent', async ({ page }, testInfo) => {
-  const failures = await page.evaluate(async () => {
+  const failures = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'ResizeTest', displayName: 'Resize Test', category: 'test', source: 'v3', isOutputNode: true,
@@ -471,7 +471,7 @@ test('explicitly upgrades persisted selector-only boundaries and keeps branch va
     doc.graphs.sub.nodes.resize.values = { 'resize.[fit].width': 640 }
     doc.graphs.sub.boundary.inputs = [{ id: 'choice', binds: { kind: 'port', node: 'resize', port: 'resize' } }]
     doc.view.graphs.g0.nodes = { i0: { position: { x: 100, y: 100 } }, i1: { position: { x: 520, y: 100 } } }
-    return (await app.openDocument(doc, 'Full branch boundaries'))
+    return app.openDocument(doc, 'Full branch boundaries')
   })
   expect(failures).toEqual([])
   expect((await activeDoc(page)).graphs['sub']!.boundary!.inputs).toEqual([{ id: 'choice', binds: { kind: 'port', node: 'resize', port: 'resize' } }])
@@ -496,14 +496,14 @@ test('explicitly upgrades persisted selector-only boundaries and keeps branch va
   expect(doc.graphs['sub']!.nodes['resize']!.dynamic).toBeUndefined()
   expect(doc.graphs['sub']!.nodes['resize']!.values).toEqual({ 'resize.[fit].width': 640 })
   expect(doc.graphs['g0']!.nodes['i1']!.values).toEqual({ 'choice.[fit].width': 900 })
-  await page.evaluate(async (saved) => (await window.__dinksterTest!.app.openDocument(saved, 'Reopened full branches', undefined, true)), doc)
+  await page.evaluate((saved) => window.__dinksterTest!.app.openDocument(saved, 'Reopened full branches', undefined, true), doc)
   expect((await activeDoc(page)).graphs).toEqual(doc.graphs)
   expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'i0')!.layout.rows.some((row) => row.inputId === 'choice.[crop].ratio'))).toBe(true)
   await page.screenshot({ path: testInfo.outputPath('reopened-crop.png') })
 })
 
 test('specialized slots expose independent variants and editable dependents through two wrappers', async ({ page }, testInfo) => {
-  const failures = await page.evaluate(async () => {
+  const failures = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const concrete = (name: string) => ({ kind: 'concrete', name })
     const gain = { kind: 'input', id: 'gain', type: concrete('FLOAT'), optional: true, widget: { widgetType: 'FLOAT', default: 1, options: {} } }
@@ -518,7 +518,7 @@ test('specialized slots expose independent variants and editable dependents thro
       ...['IMAGE', 'LATENT'].map((type) => ({ type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, items: [{ kind: 'output', id: 'out', type: concrete(type) }] })),
     ])
     const graph = (id: string, nodes: unknown, boundary?: unknown) => ({ id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 100, ...(boundary ? { boundary } : {}) })
-    return (await app.openDocument({
+    return app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'nested-specialized-boundaries', root: 'g0',
       graphs: {
         g0: { ...graph('g0', {
@@ -537,7 +537,7 @@ test('specialized slots expose independent variants and editable dependents thro
         sub: { nodes: { i0: { position: { x: 350, y: 200 } } } },
         body: { nodes: { leaf: { position: { x: 350, y: 200 } } } },
       } },
-    }, 'Independent specialized slots'))
+    }, 'Independent specialized slots')
   })
   expect(failures).toEqual([])
   await identityViewport(page)
@@ -580,6 +580,6 @@ test('specialized slots expose independent variants and editable dependents thro
   expect(prompt['i0.i0.leaf']).toMatchObject({ inputs: { 'data.gain': 12 }, slotVariants: { data: 'image' } })
   expect(prompt['i1.i0.leaf']).toMatchObject({ inputs: { 'data.gain': 9 }, slotVariants: { data: 'latent' } })
   const saved = await activeDoc(page)
-  expect(await page.evaluate(async (doc) => (await window.__dinksterTest!.app.openDocument(doc, 'Reopened specialized slots', undefined, true)), saved)).toEqual([])
+  expect(await page.evaluate((doc) => window.__dinksterTest!.app.openDocument(doc, 'Reopened specialized slots', undefined, true), saved)).toEqual([])
   expect((await activeDoc(page)).graphs).toEqual(saved.graphs)
 })

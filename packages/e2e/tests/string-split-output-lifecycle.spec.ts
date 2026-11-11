@@ -115,8 +115,8 @@ test.beforeEach(async ({ page }) => {
     })
   }, { timeout: 15_000 }).toBe(true)
   await waitForStartupOwnership(page)
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'string-split-output-lifecycle', root: 'g0',
       graphs: {
         g0: {
@@ -206,11 +206,11 @@ test('grows, executes, reloads, shrinks, and restores string split outputs', asy
     return execution?.nodes?.concat?.outputs?.text?.value
   }, prompt)).toBe('alpha|beta gamma')
 
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const exported = app.exportDocument(app.activeTab()!.id)
     if (exported === undefined) throw new Error('string split export failed')
-    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'String split reopened')
+    app.openDocument(JSON.parse(JSON.stringify(exported)), 'String split reopened')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
   await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)

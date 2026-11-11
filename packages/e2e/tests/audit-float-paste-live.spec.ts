@@ -22,9 +22,9 @@ import { skipWithoutNativeCatalog } from './fixtures.js'
 const proofDir = '/tmp/audit-live-conflict-proof'
 
 async function openFixture(page: Page): Promise<void> {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const bridge = window.__dinksterTest!
-    const failures = (await bridge.app.openDocument({
+    const failures = bridge.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-live-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         up: { id: 'up', type: 'dinkster.float', values: { value: 1.5 } },
@@ -39,7 +39,7 @@ async function openFixture(page: Page): Promise<void> {
         mid: { position: { x: 420, y: 120 } },
         down: { position: { x: 760, y: 120 } },
       } } } },
-    }, 'audit float paste proof'))
+    }, 'audit float paste proof')
     if (failures.length > 0) throw new Error(`openDocument failed: ${JSON.stringify(failures)}`)
     bridge.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })

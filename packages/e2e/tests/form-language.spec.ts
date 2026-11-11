@@ -16,7 +16,7 @@ async function installStartup(page: Page): Promise<void> {
 
 async function openNumericWidget(page: Page): Promise<void> {
   await waitForStartupOwnership(page)
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'FormLanguageWidget', displayName: 'Form language', category: 'test', source: 'v3', isOutputNode: false,
       items: [{
@@ -24,7 +24,7 @@ async function openNumericWidget(page: Page): Promise<void> {
         widget: { widgetType: 'INT', options: { min: 0, max: 100, step: 5 }, default: 5 },
       }],
     }])
-    await window.__dinksterTest!.app.openDocument({
+    window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'form-language', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { form: { id: 'form', type: 'FormLanguageWidget', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { form: { position: { x: 180, y: 160 } } } } } },

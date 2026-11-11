@@ -62,7 +62,7 @@ afterEach(() => {
 describe('SubgraphDefinitionsDialog', () => {
   it('presents the complete cleanup impact and removes it only after destructive activation', async () => {
     const app = prepareWorkflowApp(new AppState())
-    expect((await app.openDocument(documentWithUnusedDefinitions(), 'Cleanup'))).toEqual([])
+    expect(app.openDocument(documentWithUnusedDefinitions(), 'Cleanup')).toEqual([])
     app.modalPanel.set('subgraph-definitions')
     const root = document.createElement('div')
     document.body.append(root)
@@ -107,7 +107,7 @@ describe('SubgraphDefinitionsDialog', () => {
 
   it.each([false, true])('waits for cleanup result %s before reporting or closing', async (accepted) => {
     const app = prepareWorkflowApp(new AppState())
-    await app.openDocument(documentWithUnusedDefinitions(), 'Cleanup')
+    app.openDocument(documentWithUnusedDefinitions(), 'Cleanup')
     app.modalPanel.set('subgraph-definitions')
     const root = document.createElement('div')
     document.body.append(root)
@@ -136,8 +136,8 @@ describe('SubgraphDefinitionsDialog', () => {
   })
 
   it('does not close or report into another modal after cleanup completes', async () => {
-    const app = prepareWorkflowApp(new AppState())
-    await app.openDocument(documentWithUnusedDefinitions(), 'Cleanup')
+    const app = new AppState()
+    app.openDocument(documentWithUnusedDefinitions(), 'Cleanup')
     app.modalPanel.set('subgraph-definitions')
     const root = document.createElement('div')
     document.body.append(root)
@@ -157,12 +157,12 @@ describe('SubgraphDefinitionsDialog', () => {
     app.dispose()
   })
 
-  it('shows an empty state and never offers deletion when all definitions are reachable', async () => {
-    const app = prepareWorkflowApp(new AppState())
+  it('shows an empty state and never offers deletion when all definitions are reachable', () => {
+    const app = new AppState()
     const doc = documentWithUnusedDefinitions() as any
     doc.graphs.root.nodes.orphan = { id: 'orphan', type: '#orphan', values: {} }
     doc.view.graphs.root.nodes.orphan = { position: { x: 100, y: 0 } }
-    expect((await app.openDocument(doc, 'No cleanup'))).toEqual([])
+    expect(app.openDocument(doc, 'No cleanup')).toEqual([])
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <SubgraphDefinitionsDialog app={app} />, root)
@@ -180,7 +180,7 @@ describe('SubgraphDefinitionsDialog', () => {
   })
 
   it('explains the unavailable state without exposing cleanup actions', () => {
-    const app = prepareWorkflowApp(new AppState())
+    const app = new AppState()
     for (const tab of app.tabs.get()) app.closeTab(tab.id)
     const root = document.createElement('div')
     document.body.append(root)

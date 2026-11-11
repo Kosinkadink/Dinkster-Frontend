@@ -95,9 +95,9 @@ async function registerSchemas(page: Page): Promise<void> {
 }
 
 async function openNestedWorkflow(page: Page): Promise<void> {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    const diagnostics = (await app.openDocument({
+    const diagnostics = app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'nested-output-family-boundary-proof',
@@ -190,7 +190,7 @@ async function openNestedWorkflow(page: Page): Promise<void> {
           definition: { nodes: { n: { position: { x: 180, y: 120 } } } },
         },
       },
-    }, 'Nested output families'))
+    }, 'Nested output families')
     if (diagnostics.length > 0) throw new Error(`open failed: ${JSON.stringify(diagnostics)}`)
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
@@ -254,11 +254,11 @@ test('nested output identities reach the drilled inner occurrence', async ({ pag
 
 test('nested output identities survive export and reopen', async ({ page }) => {
   await openNestedWorkflow(page)
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     const exported = app.exportDocument(tab.id)
-    const diagnostics = (await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Reopened nested output families'))
+    const diagnostics = app.openDocument(JSON.parse(JSON.stringify(exported)), 'Reopened nested output families')
     if (diagnostics.length > 0) throw new Error(`reopen failed: ${JSON.stringify(diagnostics)}`)
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
@@ -281,9 +281,9 @@ test('nested output members compile to occurrence-local inner output indexes', a
 })
 
 test('promoted literal counts render canonical output members through chained wrappers', async ({ page }) => {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const app = window.__dinksterTest!.app
-    const diagnostics = (await app.openDocument({
+    const diagnostics = app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'count-output-chain-proof', root: 'root',
       graphs: {
         root: {
@@ -329,7 +329,7 @@ test('promoted literal counts render canonical output members through chained wr
         countWrapper: { nodes: { i: { position: { x: 180, y: 120 } } } },
         countDefinition: { nodes: { n: { position: { x: 180, y: 120 } } } },
       } },
-    }, 'Count output families'))
+    }, 'Count output families')
     if (diagnostics.length > 0) throw new Error(`open failed: ${JSON.stringify(diagnostics)}`)
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
@@ -348,7 +348,7 @@ test('promoted literal counts render canonical output members through chained wr
 })
 
 test('linked output counts are refused with boundary and compile diagnostics', async ({ page }) => {
-  await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
+  await page.evaluate(() => window.__dinksterTest!.app.openDocument({
     format: 'dinkster-workflow', formatVersion: 1, lineage: 'linked-output-count-refusal', root: 'root',
     graphs: {
       root: {
@@ -376,7 +376,7 @@ test('linked output counts are refused with boundary and compile diagnostics', a
         source: { position: { x: 100, y: 100 } }, split: { position: { x: 500, y: 100 } },
       } },
     } },
-  }, 'Linked count refusal')))
+  }, 'Linked count refusal'))
 
   await page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!

@@ -36,13 +36,13 @@ test('inspects every media kind through the owning value API without mutating th
   })
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
-  await page.evaluate(async (outputs) => {
+  await page.evaluate((outputs) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'MediaMetadataTest', displayName: 'Media metadata', category: 'test', source: 'v3', isOutputNode: true,
       items: Object.entries(outputs).map(([id, value]) => ({ kind: 'output', id, type: { kind: 'concrete', name: value.typeId } })),
     }])
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'media-metadata', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Media metadata', nodes: { media: { id: 'media', type: 'MediaMetadataTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { media: { position: { x: 100, y: 100 }, size: { width: 360, height: 280 } } } } } },
@@ -220,14 +220,14 @@ test(`shows transparent pixels without changing source bytes, server conversion 
           { kind: 'preview', mime: 'video/mp4' }, { kind: 'poster', mime: 'image/png' },
         ] : [{ kind: 'png', mime: 'image/png', default: true }] } })
   })
-  await page.evaluate(async ({ converted, descriptor }) => {
+  await page.evaluate(({ converted, descriptor }) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'TransparentMediaTest', displayName: 'Transparent image', category: 'test', source: 'v3', isOutputNode: true,
       emitsPreviews: true,
       items: [{ kind: 'output', id: 'images', type: { kind: 'concrete', name: descriptor.typeId }, preview: true }],
     }])
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'transparent-media', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Transparent media', nodes: { image: { id: 'image', type: 'TransparentMediaTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { image: { position: { x: 80, y: 80 }, size: { width: 400, height: 320 } } } } } },
