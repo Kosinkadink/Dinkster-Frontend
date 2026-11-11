@@ -129,7 +129,6 @@ export function executedImageInventory(
       runtimeId: artifact.nodeId, outputId: 'saved file', descriptorIndex: index,
       url: options.assetUrlForExecution(execution.ref, artifact.digest),
       kind: 'artifact', mediaType: artifact.mediaType, digest: artifact.digest,
-      ...(assetReader === undefined ? {} : { assetReader: (holder: object) => assetReader(execution, [artifact.digest], holder) }),
       name: artifact.name, virtualPath: artifact.virtualPath,
     })
   }
