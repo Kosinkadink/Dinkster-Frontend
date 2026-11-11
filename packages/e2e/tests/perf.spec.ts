@@ -23,10 +23,10 @@ async function measureFrameBudget(page: Page, label: string, reroutes: boolean):
 
   // Load the synthetic workload as a new tab (full loadDocument pipeline).
   const opened = await page.evaluate(
-    async ({ chains, chainLength, reroutes }) => {
+    ({ chains, chainLength, reroutes }) => {
       const bridge = window.__dinksterTest!
       const json = bridge.syntheticWorkflow({ chains, chainLength, reroutes })
-      const diagnostics = (await bridge.app.openDocument(json, 'Perf'))
+      const diagnostics = bridge.app.openDocument(json, 'Perf')
       return { diagnostics, tabs: bridge.app.tabs.get().length }
     },
     { chains: CHAINS, chainLength: CHAIN_LENGTH, reroutes },
@@ -104,7 +104,7 @@ test(`opens a ${NODES}-node document and repaints after a command within budget`
 
       const json = bridge.syntheticWorkflow({ chains, chainLength, reroutes: false })
       const openStart = performance.now()
-      await bridge.app.openDocument(json, 'PerfOpen')
+      bridge.app.openDocument(json, 'PerfOpen')
       const openMs = performance.now() - openStart
       const openPaintMs = await paint()
 
@@ -186,9 +186,9 @@ test(`pans and zooms a ${NODES}-node graph with a decoded preview on every node`
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
 
   await page.evaluate(
-    async ({ chains, chainLength }) => {
+    ({ chains, chainLength }) => {
       const bridge = window.__dinksterTest!
-      await bridge.app.openDocument(bridge.syntheticWorkflow({ chains, chainLength, reroutes: false }), 'PerfPreviews')
+      bridge.app.openDocument(bridge.syntheticWorkflow({ chains, chainLength, reroutes: false }), 'PerfPreviews')
     },
     { chains: CHAINS, chainLength: CHAIN_LENGTH },
   )

@@ -46,8 +46,8 @@ const docJson = (lineage: string): unknown => ({
   meta: { title: lineage },
 })
 
-const open = async (lineage: string): Promise<Tab> => {
-  expect((await app.openDocument(docJson(lineage), lineage))).toEqual([])
+const open = (lineage: string): Tab => {
+  expect(app.openDocument(docJson(lineage), lineage)).toEqual([])
   return app.activeTab()!
 }
 
@@ -56,9 +56,9 @@ const shownCodes = (activeTabId: string): readonly string[] =>
   visibleProblems(app.problems.get(), new Set([activeTabId])).map((d) => d.code)
 
 describe('problems ownership', () => {
-  it('dismisses only the selected workflow import notices', async () => {
-    const a = (await open('lin-import-a'))
-    const b = (await open('lin-import-b'))
+  it('dismisses only the selected workflow import notices', () => {
+    const a = open('lin-import-a')
+    const b = open('lin-import-b')
     app.reportProblems(a.id, [diag('info', 'import', 'import.notice', 'Seed format is upgraded')])
     app.reportProblems(b.id, [
       diag('info', 'import', 'import.notice', 'Seed format is upgraded'),
@@ -69,21 +69,21 @@ describe('problems ownership', () => {
     expect(shownCodes(b.id)).toEqual(['compile.input.missing'])
   })
 
-  it('deduplicates report ingress and accepts an entry again after clearing', async () => {
-    const tab = (await open('lin-dedupe'))
+  it('deduplicates report ingress and accepts an entry again after clearing', () => {
+    const tab = open('lin-dedupe')
     const diagnostic = diag('warning', 'command', 'boundary.bindKind', 'family forwarding cannot fan out')
     app.reportProblems(tab.id, [diagnostic])
     app.reportProblems(tab.id, [diagnostic])
     expect(app.problems.get().filter((entry) => entry.code === diagnostic.code)).toHaveLength(1)
 
-    await open('lin-dedupe')
+    open('lin-dedupe')
     expect(app.problems.get().filter((entry) => entry.code === diagnostic.code)).toHaveLength(0)
     app.reportProblems(tab.id, [diagnostic])
     expect(app.problems.get().filter((entry) => entry.code === diagnostic.code)).toHaveLength(1)
   })
 
-  it('replacement batches retain anchor-distinct diagnostics with identical codes and messages', async () => {
-    const tab = (await open('lin-replace-anchors'))
+  it('replacement batches retain anchor-distinct diagnostics with identical codes and messages', () => {
+    const tab = open('lin-replace-anchors')
     const first = diag('error', 'compile', 'compile.schema.unknown', "unknown node type 'Missing'", { anchor: { occurrence: { instancePath: [], node: asNodeId('a') } } })
     const second = diag('error', 'compile', 'compile.schema.unknown', "unknown node type 'Missing'", { anchor: { occurrence: { instancePath: [], node: asNodeId('b') } } })
     app.replaceProblems(tab.id, [first, second])
@@ -92,18 +92,18 @@ describe('problems ownership', () => {
     expect(retained.map((entry) => entry.anchor?.occurrence?.node)).toEqual(['a', 'b'])
   })
 
-  it('hides an inactive workflow\'s diagnostics and shows them again on switch', async () => {
-    const a = (await open('lin-a'))
-    const b = (await open('lin-b'))
+  it('hides an inactive workflow\'s diagnostics and shows them again on switch', () => {
+    const a = open('lin-a')
+    const b = open('lin-b')
     app.reportProblems(a.id, [diag('error', 'compile', 'compile.tap.novalue', 'from A')])
     app.reportProblems(b.id, [diag('warning', 'compile', 'compile.input.missing', 'from B')])
     expect(shownCodes(a.id)).toEqual(['compile.tap.novalue'])
     expect(shownCodes(b.id)).toEqual(['compile.input.missing'])
   })
 
-  it('does not cross-contaminate two documents that both use graph g0', async () => {
-    const a = (await open('lin-a'))
-    const b = (await open('lin-b'))
+  it('does not cross-contaminate two documents that both use graph g0', () => {
+    const a = open('lin-a')
+    const b = open('lin-b')
     // Both diagnostics NAME the same graph id; ownership is the tab, never
     // the graph id, so each panel shows exactly its own entry.
     app.reportProblems(a.id, [diag('error', 'compile', 'compile.tap.novalue', "widget tap 'n15.value' in graph 'g0' has no value")])
@@ -113,18 +113,18 @@ describe('problems ownership', () => {
     expect(shownForA[0]!.message).toContain('n15')
   })
 
-  it('keeps app-scoped globals visible regardless of the active tab', async () => {
-    const a = (await open('lin-a'))
-    const b = (await open('lin-b'))
+  it('keeps app-scoped globals visible regardless of the active tab', () => {
+    const a = open('lin-a')
+    const b = open('lin-b')
     app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'schema', 'schema.fetchFailed', 'backend down')])
     expect(shownCodes(a.id)).toContain('schema.fetchFailed')
     expect(shownCodes(b.id)).toContain('schema.fetchFailed')
   })
 
-  it('replaces and clears an independent symbol-owned app snapshot', async () => {
+  it('replaces and clears an independent symbol-owned app snapshot', () => {
     const appOwner = Symbol('provider-problems')
     const otherOwner = Symbol('other-app-problems')
-    const tab = (await open('lin-symbol-owner'))
+    const tab = open('lin-symbol-owner')
     app.reportProblems(tab.id, [diag('warning', 'compile', 'tab.problem', 'tab stays')])
     app.reportProblems(otherOwner, [diag('error', 'schema', 'other.problem', 'other app stays')])
 
@@ -167,9 +167,9 @@ describe('problems ownership', () => {
     expect(app.problems.get()).toEqual([])
   })
 
-  it('drops a closed tab\'s diagnostics and keeps everyone else\'s', async () => {
-    const a = (await open('lin-a'))
-    const b = (await open('lin-b'))
+  it('drops a closed tab\'s diagnostics and keeps everyone else\'s', () => {
+    const a = open('lin-a')
+    const b = open('lin-b')
     app.reportProblems(a.id, [diag('error', 'compile', 'a.problem', 'A')])
     app.reportProblems(b.id, [diag('error', 'compile', 'b.problem', 'B'), diag('info', 'import', 'import.notice', 'B: saved seed format is upgraded')])
     app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'schema', 'global.problem', 'G')])
@@ -181,20 +181,20 @@ describe('problems ownership', () => {
     expect(codes).not.toContain('import.notice')
   })
 
-  it('replacing a document (same lineage) replaces its diagnostics, not others\'', async () => {
-    const a = (await open('lin-a'))
-    const b = (await open('lin-b'))
+  it('replacing a document (same lineage) replaces its diagnostics, not others\'', () => {
+    const a = open('lin-a')
+    const b = open('lin-b')
     app.reportProblems(a.id, [diag('error', 'compile', 'a.stale', 'stale A')])
     app.reportProblems(b.id, [diag('error', 'compile', 'b.keeps', 'B keeps this')])
-    await open('lin-a') // same lineage -> same tab id -> entries replaced by load diagnostics ([])
+    open('lin-a') // same lineage -> same tab id -> entries replaced by load diagnostics ([])
     const codes = app.problems.get().map((d) => d.code)
     expect(codes).not.toContain('a.stale')
     expect(codes).toContain('b.keeps')
   })
 
-  it('a multi-visible owner set shows both workflows\' diagnostics at once', async () => {
-    const a = (await open('lin-a'))
-    const b = (await open('lin-b'))
+  it('a multi-visible owner set shows both workflows\' diagnostics at once', () => {
+    const a = open('lin-a')
+    const b = open('lin-b')
     app.reportProblems(a.id, [diag('error', 'compile', 'a.problem', 'A')])
     app.reportProblems(b.id, [diag('error', 'compile', 'b.problem', 'B')])
     const codes = visibleProblems(app.problems.get(), new Set([a.id, b.id])).map((d) => d.code)
@@ -203,8 +203,8 @@ describe('problems ownership', () => {
   })
 
   it('rejected commands land under the dispatching tab', async () => {
-    const a = (await open('lin-a'))
-    await open('lin-b')
+    const a = open('lin-a')
+    open('lin-b')
     const outcome = await app.dispatchTo(a, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'missing', inputId: 'x', value: 1 } })
     expect(outcome.ok).toBe(false)
     const owned = app.problems.get().filter((d) => d.owner === a.id)
@@ -213,30 +213,30 @@ describe('problems ownership', () => {
     expect(visibleProblems(app.problems.get(), new Set([app.activeTabId.get()]))).toEqual([])
   })
 
-  it('a tab whose lineage spells an app-ish sentinel is still just a tab, never global', async () => {
+  it('a tab whose lineage spells an app-ish sentinel is still just a tab, never global', () => {
     // The global owner is a unique symbol, so no document lineage (which
     // becomes the tab id) can collide with it - not even one named '#app'.
-    const impostor = (await open('#app'))
+    const impostor = open('#app')
     app.reportProblems(impostor.id, [diag('error', 'compile', 'impostor.problem', 'not global')])
     app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'schema', 'really.global', 'global')])
     // With NO visible canvases, only true globals project.
     const codes = visibleProblems(app.problems.get(), new Set()).map((d) => d.code)
     expect(codes).toEqual(['really.global'])
     // Another tab's projection does not show the impostor's entry either.
-    const b = (await open('lin-b'))
+    const b = open('lin-b')
     expect(shownCodes(b.id)).toEqual(['really.global'])
   })
 
-  it('owner-scoped replacement does not re-log other owners\' retained entries', async () => {
-    const a = (await open('lin-a'))
-    const b = (await open('lin-b'))
+  it('owner-scoped replacement does not re-log other owners\' retained entries', () => {
+    const a = open('lin-a')
+    const b = open('lin-b')
     app.reportProblems(a.id, [diag('error', 'compile', 'a.stale', 'stale A message')])
     app.reportProblems(b.id, [diag('error', 'compile', 'b.keeps', 'B retained message')])
     const logged = (): number => app.logs.get().filter((l) => l.message.includes('B retained message')).length
     expect(logged()).toBe(1)
     // Same-lineage replacement replaces A's entries (reordering the problems
     // array); B's retained entry object must not be logged a second time.
-    await open('lin-a')
+    open('lin-a')
     expect(logged()).toBe(1)
   })
 })
@@ -267,13 +267,13 @@ const CHAIN_DOC = {
 }
 
 /** A native backend with live schemas, plus the CHAIN_DOC tab targeted at it. */
-async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'dinkster' }>; tab: Tab }> {
+function nativeSetup(): { backend: Extract<Backend, { protocol: 'dinkster' }>; tab: Tab } {
   const added = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
   if (!added || added.protocol !== 'dinkster') throw new Error('addBackend rejected')
   vi.spyOn(added.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
     ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   added.registry.set(buildDinksterRegistry(added.id, nodesPayload))
-  expect((await app.openDocument(CHAIN_DOC, 'Chain'))).toEqual([])
+  expect(app.openDocument(CHAIN_DOC, 'Chain')).toEqual([])
   const tab = app.activeTab()!
   app.setTabTarget(tab.id, added.id)
   return { backend: added, tab }
@@ -305,14 +305,14 @@ describe('workflow asset presence', () => {
   }
 
   it('exports last-known paths per occurrence and displays them read-only after reopen on an empty library', async () => {
-    const { backend } = (await nativeSetup())
+    const { backend } = nativeSetup()
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
     vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([
       { digest: first.digest, status: 'available' }, { digest: other.digest, status: 'available' },
     ])
     vi.spyOn(backend.connection, 'fetchAssetLocations').mockImplementation(async (digest) =>
       digest === first.digest ? ['/original/portrait.png', '/relocated/portrait.png'] : ['/other/portrait.png'])
-    await app.openDocument({ ...document, meta: { ext: { unrelated: { keep: true } } } }, 'Assets')
+    app.openDocument({ ...document, meta: { ext: { unrelated: { keep: true } } } }, 'Assets')
     const tab = app.activeTab()!
     app.setTabTarget(tab.id, backend.id)
     const before = JSON.stringify(tab.store.doc)
@@ -337,7 +337,7 @@ describe('workflow asset presence', () => {
       { digest: first.digest, status: 'missing' }, { digest: other.digest, status: 'missing' },
     ])
     const paths = vi.spyOn(empty.connection, 'fetchAssetLocations')
-    await app.openDocument(saved, 'Reopened')
+    app.openDocument(saved, 'Reopened')
     const reopened = app.activeTab()!
     const reopenedBefore = JSON.stringify(reopened.store.doc)
     app.setTabTarget(reopened.id, empty.id)
@@ -353,17 +353,17 @@ describe('workflow asset presence', () => {
   })
 
   it('anchors a missing shared-definition input to a reachable instance', async () => {
-    const { backend } = (await nativeSetup())
+    const { backend } = nativeSetup()
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
     vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([{ digest: first.digest, status: 'missing' }])
-    expect((await app.openDocument({ ...CHAIN_DOC, graphs: {
+    expect(app.openDocument({ ...CHAIN_DOC, graphs: {
       g0: { ...CHAIN_DOC.graphs.g0, nodes: {
         left: { id: 'left', type: '#child', values: {} }, right: { id: 'right', type: '#child', values: {} },
       }, links: {} },
       child: { ...CHAIN_DOC.graphs.g0, id: 'child', nodes: {
         reader: { id: 'reader', type: 'std.math.add_ints', values: { a: first } },
       }, links: {} },
-    }, view: { graphs: {} } }, 'Nested missing asset'))).toEqual([])
+    }, view: { graphs: {} } }, 'Nested missing asset')).toEqual([])
     const tab = app.activeTab()!
     app.setTabTarget(tab.id, backend.id)
     await vi.waitFor(() => expect(app.problems.get().filter((entry) => entry.code === 'asset.availability.missing')).toHaveLength(1))
@@ -375,14 +375,14 @@ describe('workflow asset presence', () => {
   })
 
   it('discards stale path reads after retarget and ignores hints for a different digest', async () => {
-    const { backend } = (await nativeSetup())
+    const { backend } = nativeSetup()
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
     vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([
       { digest: first.digest, status: 'available' }, { digest: other.digest, status: 'available' },
     ])
     const pending = deferred<readonly string[]>()
     const paths = vi.spyOn(backend.connection, 'fetchAssetLocations').mockReturnValue(pending.promise)
-    await app.openDocument({ ...document, meta: { ext: { 'dinkster.assetLocations': { version: 1, observations: [{
+    app.openDocument({ ...document, meta: { ext: { 'dinkster.assetLocations': { version: 1, observations: [{
       graph: 'g0', node: 'n0', input: 'a', index: 0, digest: other.digest, machine: 'Wrong identity', paths: ['/do/not/read'],
     }] } } } }, 'Assets')
     const tab = app.activeTab()!
@@ -403,12 +403,12 @@ describe('workflow asset presence', () => {
   })
 
   it('checks exact identities on reopen and retarget without mutating refs or unrelated problems', async () => {
-    const { backend } = (await nativeSetup())
+    const { backend } = nativeSetup()
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
     vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([
       { digest: first.digest, status: 'available' }, { digest: other.digest, status: 'missing' },
     ])
-    expect((await app.openDocument(document, 'Assets'))).toEqual([])
+    expect(app.openDocument(document, 'Assets')).toEqual([])
     const tab = app.activeTab()!
     const before = JSON.stringify(tab.store.doc)
     const revision = tab.store.revision
@@ -438,11 +438,11 @@ describe('workflow asset presence', () => {
   })
 
   it('does not interpret failed checks as missing or publish late responses after edits and close', async () => {
-    const { backend } = (await nativeSetup())
+    const { backend } = nativeSetup()
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
     const pending = deferred<readonly { digest: string; status: 'missing' }[]>()
     const check = vi.spyOn(backend.connection, 'checkAssetAvailability').mockReturnValue(pending.promise)
-    await app.openDocument(document, 'Assets')
+    app.openDocument(document, 'Assets')
     const tab = app.activeTab()!
     app.setTabTarget(tab.id, backend.id)
     await callStarted(check)
@@ -469,7 +469,7 @@ describe('workflow asset presence', () => {
 
 describe('late async results and dead owners', () => {
   it('blocks a stale wire-15 artifact before POST when mode changes during source upload', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     const clean = app.compileTab(tab, {
       kind: 'partial', targets: [{ instancePath: [], node: asNodeId('n1') }],
     })
@@ -503,7 +503,7 @@ describe('late async results and dead owners', () => {
   })
 
   it('does not recompile before POST while the compiled document object is unchanged', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'a'.repeat(64))
     vi.spyOn(backend.connection, 'submit').mockResolvedValue({
       ok: false,
@@ -515,13 +515,13 @@ describe('late async results and dead owners', () => {
   })
 
   it('blocks a retired session artifact before POST even when its revision is unchanged', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     const upload = deferred<string>()
     const uploadSpy = vi.spyOn(backend.connection, 'uploadAsset').mockReturnValue(upload.promise)
     const submitSpy = vi.spyOn(backend.connection, 'submit')
     const queueing = app.queueSelection(tab, ['n1'])
     await callStarted(uploadSpy)
-    expect((await app.openDocument(CHAIN_DOC, 'replacement'))).toEqual([])
+    expect(app.openDocument(CHAIN_DOC, 'replacement')).toEqual([])
     expect(app.activeTab()).not.toBe(tab)
     upload.resolve('blake3:' + 'a'.repeat(64))
     await queueing
@@ -529,7 +529,7 @@ describe('late async results and dead owners', () => {
   })
 
   it('blocks a captured asset-consent retry when current state enters the wire-15 mode gate', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     const clean = app.compileTab(tab, {
       kind: 'partial', targets: [{ instancePath: [], node: asNodeId('n1') }],
     })
@@ -565,7 +565,7 @@ describe('late async results and dead owners', () => {
   })
 
   it('blocks a retired session captured-body retry before transport', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'a'.repeat(64))
     const retryWithAssets = vi.fn()
     vi.spyOn(backend.connection, 'submit').mockResolvedValue({
@@ -580,7 +580,7 @@ describe('late async results and dead owners', () => {
     await app.queueSelection(tab, ['n1'])
     const request = app.assetConsent.get()
     expect(request).toBeDefined()
-    expect((await app.openDocument(CHAIN_DOC, 'replacement'))).toEqual([])
+    expect(app.openDocument(CHAIN_DOC, 'replacement')).toEqual([])
     expect(app.activeTab()).not.toBe(tab)
     await request!.retry(['blake3:model'])
     expect(retryWithAssets).not.toHaveBeenCalled()
@@ -588,7 +588,7 @@ describe('late async results and dead owners', () => {
   })
 
   it('a submit rejection retains compile warnings alongside validation errors', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'a'.repeat(64))
     const compiled = app.compileTab(tab, {
       kind: 'partial', targets: [{ instancePath: [], node: asNodeId('n1') }],
@@ -611,7 +611,7 @@ describe('late async results and dead owners', () => {
   })
 
   it('a save failing after its tab closed reports nothing (no resurrected owner)', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     const upload = deferred<string>()
     const spy = vi.spyOn(backend.connection, 'uploadAsset').mockReturnValue(upload.promise)
     const saving = app.saveWorkflow(tab.id)
@@ -624,13 +624,13 @@ describe('late async results and dead owners', () => {
   })
 
   it('a save failing after a same-lineage replacement does not blame the replacement', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     const upload = deferred<string>()
     const spy = vi.spyOn(backend.connection, 'uploadAsset').mockReturnValue(upload.promise)
     const saving = app.saveWorkflow(tab.id)
     await callStarted(spy)
     // Same lineage -> same tab id, but a NEW Tab object (new session).
-    expect((await app.openDocument(CHAIN_DOC, 'Chain (reopened)'))).toEqual([])
+    expect(app.openDocument(CHAIN_DOC, 'Chain (reopened)')).toEqual([])
     const replacement = app.activeTab()!
     expect(replacement.id).toBe(tab.id)
     expect(replacement).not.toBe(tab)
@@ -641,7 +641,7 @@ describe('late async results and dead owners', () => {
   })
 
   it('a queue transport failure after its tab closed reports nothing', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'a'.repeat(64))
     const submit = deferred<never>()
     const submitSpy = vi.spyOn(backend.connection, 'submit').mockReturnValue(submit.promise)
@@ -655,13 +655,13 @@ describe('late async results and dead owners', () => {
   })
 
   it('a queue rejection landing after a same-lineage replacement does not clobber it', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'a'.repeat(64))
     const submit = deferred<{ ok: false; diagnostics: readonly unknown[] }>()
     const submitSpy = vi.spyOn(backend.connection, 'submit').mockReturnValue(submit.promise as never)
     const queueing = app.queueSelection(tab, ['n1'])
     await callStarted(submitSpy)
-    expect((await app.openDocument(CHAIN_DOC, 'Chain (reopened)'))).toEqual([])
+    expect(app.openDocument(CHAIN_DOC, 'Chain (reopened)')).toEqual([])
     const replacement = app.activeTab()!
     app.reportProblems(replacement.id, [diag('info', 'command', 'replacement.keeps', 'stays')])
     submit.resolve({ ok: false, diagnostics: [diag('error', 'validation', 'late.rejection', 'from the dead session')] })
@@ -672,7 +672,7 @@ describe('late async results and dead owners', () => {
   })
 
   it('a late assetsMissing response never installs a consent dialog for a dead session', async () => {
-    const { backend, tab } = (await nativeSetup())
+    const { backend, tab } = nativeSetup()
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'a'.repeat(64))
     const submit = deferred<unknown>()
     const submitSpy = vi.spyOn(backend.connection, 'submit').mockReturnValue(submit.promise as never)

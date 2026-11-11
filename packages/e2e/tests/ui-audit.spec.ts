@@ -67,7 +67,7 @@ test.describe('plain widget editors', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
     await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-    await page.evaluate(async () => {
+    await page.evaluate(() => {
       const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
         kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
         widget: { widgetType, options, default: defaultValue },
@@ -83,7 +83,7 @@ test.describe('plain widget editors', () => {
           widget('choice', 'COMBO', 'alpha', { options: ['alpha', 'beta', 'gamma'] }),
         ],
       }])
-      await window.__dinksterTest!.app.openDocument({
+      window.__dinksterTest!.app.openDocument({
         format: 'dinkster-workflow', formatVersion: 1, lineage: 'ui-audit', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'root', nodes: { widgets: { id: 'widgets', type: 'UiAuditTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
         view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
@@ -165,7 +165,7 @@ test.describe('asset and mount editors (mock dinkster backend)', () => {
     await expect.poll(() => page.evaluate((url) =>
       window.__dinksterTest!.app.backends.get().find((backend) => backend.baseUrl === url)?.registry.get() !== undefined,
     MOCK)).toBe(true)
-    await page.evaluate(async () => {
+    await page.evaluate(() => {
       window.__dinksterTest!.app.registerSchemas([{
         type: 'UiAuditAsset', displayName: 'UI Audit Asset', category: 'test', source: 'v3', isOutputNode: false,
         items: [
@@ -175,7 +175,7 @@ test.describe('asset and mount editors (mock dinkster backend)', () => {
             widget: { widgetType: 'MOUNT', options: {}, default: null } },
         ],
       }])
-      await window.__dinksterTest!.app.openDocument({
+      window.__dinksterTest!.app.openDocument({
         format: 'dinkster-workflow', formatVersion: 1, lineage: 'ui-audit-asset', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'root', nodes: { widgets: { id: 'widgets', type: 'UiAuditAsset', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
         view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },

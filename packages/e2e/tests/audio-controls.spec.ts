@@ -28,7 +28,7 @@ test.beforeEach(async ({ page }) => {
 async function graph(page: Page, recorded = false) {
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
-  await page.evaluate(async ({ audioDescriptor, recorded }) => {
+  await page.evaluate(({ audioDescriptor, recorded }) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'AudioControlsTest', displayName: 'Audio waveform and recording', category: 'test', source: 'v3', isOutputNode: true,
@@ -37,7 +37,7 @@ async function graph(page: Page, recorded = false) {
         { kind: 'output', id: 'audio', type: { kind: 'concrete', name: 'AUDIO' }, preview: true },
       ],
     }])
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audio-controls', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Audio controls', nodes: { audio: { id: 'audio', type: 'AudioControlsTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { audio: { position: { x: 80, y: 80 }, size: { width: 530, height: 430 } } } } } },

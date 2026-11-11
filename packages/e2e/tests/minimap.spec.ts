@@ -81,14 +81,14 @@ test('renders an overview and click-jumps the main viewport; document untouched'
 
 test('wheel zoom centers on the pointed far-away minimap location exactly once', async ({ page }) => {
   const far = { x: 5000, y: 0 }
-  const movedNodeId = await page.evaluate(async (position) => {
+  const movedNodeId = await page.evaluate((position) => {
     const test = window.__dinksterTest!
     if (test.renderer!.getScene().nodes.length === 0) {
       test.app.registerSchemas([{
         type: 'MinimapE2E', displayName: 'Minimap E2E', category: 'test', source: 'v3', isOutputNode: false,
         items: [],
       }])
-      await test.app.openDocument({
+      test.app.openDocument({
         format: 'dinkster-workflow', formatVersion: 1, lineage: 'minimap-e2e', root: 'root',
         graphs: { root: {
           id: 'root', name: 'Root',

@@ -89,8 +89,8 @@ test('notes render, persist, copy atomically, and never reach the backend', asyn
     )
     .toMatchObject({ virtual: true, values: { text: '' } })
 
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument(
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.openDocument(
       {
         format: 'dinkster-workflow',
         formatVersion: 1,
@@ -183,8 +183,8 @@ test('notes render, persist, copy atomically, and never reach the backend', asyn
     const app = window.__dinksterTest!.app
     return app.exportDocument(app.activeTab()!.id)
   })
-  await page.evaluate(async (document) => {
-    await window.__dinksterTest!.app.openDocument(
+  await page.evaluate((document) => {
+    window.__dinksterTest!.app.openDocument(
       document,
       'Reopened virtual notes',
       undefined,

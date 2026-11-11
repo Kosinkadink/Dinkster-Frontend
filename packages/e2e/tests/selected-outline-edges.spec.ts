@@ -5,7 +5,7 @@ type Edge = 'left' | 'right' | 'top' | 'bottom'
 async function openFixture(page: Page, tall = false): Promise<number> {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  return page.evaluate(async (tall) => {
+  return page.evaluate((tall) => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'OutlineEdgeE2E', displayName: 'Outline Edge E2E', category: 'test', source: 'v3', isOutputNode: false,
@@ -17,7 +17,7 @@ async function openFixture(page: Page, tall = false): Promise<number> {
         widget: { widgetType: 'FLOAT' as const, options: { min: 0, max: 1 }, default: index / 36 },
       })) : [],
     }])
-    await test.app.openDocument({
+    test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'outline-edge-e2e', root: 'root',
       graphs: { root: {
         id: 'root', name: 'Root',

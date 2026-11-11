@@ -8,15 +8,6 @@ Recorded string outputs also render automatically inside the producing node
 in the Standard view. This makes short text results visible immediately after
 execution without switching to the Data lens.
 
-Live compositor state waits for independent complete preview ownership, including
-the document digest and every external resource, before replacing the visible
-state. Hidden and unused resources remain roots. Refused or obsolete admission
-preserves the prior state. Latest stills and ring slots keep their captured owner
-while any slot still names that generation; replacement and budget eviction
-retire only that owner's exact revision on the admitting connection lifetime.
-Terminal stills remain held. Unknown structured previews stay explicitly
-incomplete and journaled; inline binary frames introduce no CAS identities.
-
 ## Source precedence
 
 The first available source wins:
@@ -61,34 +52,11 @@ still hold its sources. This closes loader admission but does not settle already
 admitted shared renderers or release retained owners.
 
 Recorded artifacts, their associated images and recorded image outputs wait for
-an independent complete preview-owner acknowledgment before fetching or decoding.
-The inventory names the selected CAS bytes, including both an artifact and its
-associated preview, not the execution's opaque runtime values. Canvas and App
-View cache separate reader generations, scoped to the exact document or result
-and backend; the same digest in another tab or loader never borrows that owner. Changed
+their execution's retained-asset acknowledgment before fetching or decoding.
+Canvas and App View keep those readers separate from the editable tab. Changed
 output inventories or observed connection transitions reject stale decoded cache
 entries and late publication. Model orbit viewers borrow the same captured
-reader independently, covering every declared external sidecar. Browser library
-thumbnails likewise register their selected bytes; opaque source-document reads
-remain incomplete until the parsed document has its own admission. Closing a
-viewer, evicting decoded pixels, or unmounting a renderer does not release durable
-ownership. Prior acknowledged generations stay protected through replacements.
-Captured model-byte readers accept canonical digest-only identities as well as
-full resource references; presentation metadata is not needed to protect bytes.
-Malformed digests and opaque resource fields cannot certify a complete inventory.
-
-Saved image tiles in the output rail, Canvas and App View viewers admit their
-own preview owners before fetching CAS bytes. Each mounted tile holds its own
-reader through browser decode, even when compare sides show the same digest.
-Refused or obsolete admission publishes no image URL. Unmounting aborts local
-work and revokes blob URLs without releasing durable owners.
-
-Saved Painter masks, mask-editor sources, recorded audio and Load3D resources
-also scope their readers to the mounted editor, not its workflow tab. Two
-editors of the same asset wait for separate acknowledgments.
-Picker preview reads also acquire independent complete preview owners before
-consuming staged selection bytes. Selection handoff waits for pending reads,
-but retiring that selection never retires a decoded consumer's preview owner.
+reader independently; closing a viewer does not release retained ownership.
 
 ## Video inspection
 

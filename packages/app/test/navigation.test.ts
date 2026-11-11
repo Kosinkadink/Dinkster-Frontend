@@ -1,4 +1,3 @@
-import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createSignal } from '@dinkster/core'
 import {
@@ -137,7 +136,7 @@ describe('graph navigation helpers', () => {
       app.activeTabId.set('another-tab')
       app.activeTabId.set(tab.id)
     } else if (change === 'closed') app.closeTab(tab.id)
-    else await app.openDocument(tab.store.doc, 'Reopened')
+    else app.openDocument(tab.store.doc, 'Reopened')
     settle()
     expect((await pending).ok).toBe(true)
     expect(tab.graphStack.get()).toEqual([root])
@@ -145,8 +144,8 @@ describe('graph navigation helpers', () => {
     app.dispose()
   })
 
-  it('opens F1 help only for one selected documented node', async () => {
-    const app = prepareWorkflowApp(new AppState())
+  it('opens F1 help only for one selected documented node', () => {
+    const app = new AppState()
     const schema = {
       type: 'test.documented', displayName: 'Documented', category: 'testing', pack: 'test-pack',
       inputs: [], outputs: [], items: [], hasDocs: true,
@@ -155,7 +154,7 @@ describe('graph navigation helpers', () => {
       connection: '', hash: 'test', schemas: new Map([[schema.type, schema]]), diagnostics: [],
       resolve: (type: string) => type === schema.type ? schema : undefined,
     } as never)
-    await app.openDocument({
+    app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'node-help-command', root: 'root',
       graphs: {
         root: {

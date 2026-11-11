@@ -3,7 +3,7 @@ import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 const proofDir = '/tmp/audit-noodle-proof'
 
 async function openFixture(page: Page): Promise<void> {
-  await page.evaluate(async () => {
+  await page.evaluate(() => {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([{
       type: 'TapWidget', displayName: 'Tap Widget', category: 'test', source: 'v3', isOutputNode: false,
@@ -16,7 +16,7 @@ async function openFixture(page: Page): Promise<void> {
       type: 'FloatSink', displayName: 'Float Sink', category: 'test', source: 'v3', isOutputNode: false,
       items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false }],
     }])
-    const failures = (await bridge.app.openDocument({
+    const failures = bridge.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         tap: { id: 'tap', type: 'TapWidget', values: { amount: 2 } },
@@ -39,7 +39,7 @@ async function openFixture(page: Page): Promise<void> {
         fan: { position: { x: 80, y: 470 } }, fanA: { position: { x: 450, y: 440 } },
         fanB: { position: { x: 450, y: 590 } }, alternative: { position: { x: 760, y: 270 } },
       } } } },
-    }, 'audit proof'))
+    }, 'audit proof')
     if (failures.length > 0) throw new Error(`openDocument failed: ${JSON.stringify(failures)}`)
     bridge.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
