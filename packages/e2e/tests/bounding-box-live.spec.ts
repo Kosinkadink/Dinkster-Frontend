@@ -63,7 +63,7 @@ test('crop fields submit exact pixels, preview the source and preserve undo', as
     await page.setViewportSize({ ...viewport, height })
     await expect.poll(() => page.getByTestId('bounding-box-editor').evaluate((editor) => {
       const bounds = editor.getBoundingClientRect()
-      return [...editor.querySelectorAll('button')].every((button) => {
+      return Array.from(editor.querySelectorAll('button')).every((button) => {
         const rect = button.getBoundingClientRect()
         return rect.top >= bounds.top && rect.bottom <= bounds.bottom
       })
