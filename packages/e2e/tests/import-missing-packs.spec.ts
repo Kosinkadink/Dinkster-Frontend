@@ -58,11 +58,14 @@ test('keeps installed conversions and editable missing-pack placeholders during 
   if (evidence) await page.screenshot({ path: resolve(evidence, 'registry-reachable.png') })
 })
 
-test('reports missing packs and preserves edits as the active registry gains their nodes', async ({ page }) => {
+test('reports missing packs and preserves edits as the active registry gains their nodes', async ({ page }, testInfo) => {
   let installed = false
   let applyCount = 0
   let refuse = true
   let terminal = true
+  let slowPreparation = false
+  let preparedResult: unknown
+  let progressSequence = 0
   const commands = [
     'dinkster-env --root "/home/example/My Project" packs-plan dinkster-image@0.0.1 --output /tmp/pack-review',
     'dinkster-env --root "/home/example/My Project" packs-apply --input /tmp/pack-review --approval sha256:reviewed-plan',
@@ -90,14 +93,25 @@ test('reports missing packs and preserves edits as the active registry gains the
     return route.fulfill({ json: { packName: pack, version: '0.0.1', schemas: [{ nodeType: type, schemaWireVersion: 1,
       schema: { schemaVersion: 1, displayName: type, interface: [] } }] } })
   })
-  await page.route('/api/packs/install/plan', (route) => {
+  await page.route('/api/packs/install/prepare', (route) => {
     plans.push(route.request().postDataJSON())
+    const prepared = (result: unknown) => {
+      preparedResult = result
+      return { preparation: 'import-preparation', state: slowPreparation ? 'preparing' : 'ready',
+        progress: { sequence: progressSequence++, stage: 'checking-software', completed: 128, total: 256 },
+        ...(slowPreparation ? {} : { result }) }
+    }
     return refuse ? route.fulfill({ status: 404, json: { detail: 'Pack installation is not enabled on this host.' } })
-      : terminal ? route.fulfill({ json: { commands, plan: { format: 'dinkster.project-pack-plan/1' },
-        review: 'Install dinkster-image@0.0.1\nActivate a new generation on this backend.', expiresInSeconds: 900 } })
-      : route.fulfill({ json: { confirmation: 'server-confirmation', plan: { format: 'dinkster.plan/1' },
-        review: 'Install dinkster-image@0.0.1\nActivate a new generation on this backend.', expiresInSeconds: 900 } })
+      : terminal ? route.fulfill({ json: prepared({ commands, plan: { format: 'dinkster.project-pack-plan/1' },
+        review: 'Install dinkster-image@0.0.1\nActivate a new generation on this backend.', expiresInSeconds: 900 }) })
+      : route.fulfill({ json: prepared({ confirmation: 'server-confirmation', plan: { format: 'dinkster.plan/1' },
+        review: 'Install dinkster-image@0.0.1\nActivate a new generation on this backend.', expiresInSeconds: 900 }) })
   })
+  await page.route('/api/packs/install/preparation/status', (route) => route.fulfill({ json: {
+    preparation: 'import-preparation', state: slowPreparation ? 'preparing' : 'ready',
+    progress: { sequence: progressSequence++, stage: 'checking-software', completed: 256, total: 256 },
+    ...(slowPreparation ? {} : { result: preparedResult }),
+  } }))
   await page.route('/api/packs/install/apply', async (route) => {
     expect(route.request().postDataJSON()).toEqual({ confirmation: 'server-confirmation' })
     applyCount++
@@ -173,7 +187,19 @@ test('reports missing packs and preserves edits as the active registry gains the
   await page.setViewportSize({ width: 1440, height: 900 })
   await report.getByRole('button', { name: 'Cancel', exact: true }).click()
   terminal = false
+  slowPreparation = true
+  await page.clock.install()
   await reviewImage.click()
+  await expect(report).toContainText('Checking installed software...')
+  await page.clock.fastForward(45_000)
+  await expect.poll(() => progressSequence).toBeGreaterThan(2)
+  await expect(report.getByRole('button', { name: 'Confirm installation' })).toHaveCount(0)
+  await expect(report).not.toContainText('Retry to reconnect')
+  await page.getByTestId('problems-panel').screenshot({ path: testInfo.outputPath('problems-preparation-progress.png') })
+  slowPreparation = false
+  await page.clock.runFor(1000)
+  await expect(report.getByRole('button', { name: 'Confirm installation' })).toBeVisible()
+  await page.getByTestId('problems-panel').screenshot({ path: testInfo.outputPath('problems-preparation-ready.png') })
   await capture('install-review')
   await page.setViewportSize({ width: 780, height: 900 })
   await capture('install-review-narrow')
