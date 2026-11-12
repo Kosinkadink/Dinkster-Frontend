@@ -1,5 +1,50 @@
 # Widget compact controls and expanded editors
 
+SAVE_TARGET opens a ready writable mount selector and relative filename prefix.
+The writer adds the descriptor's suffix and numbering; no host path is stored
+in the graph. Empty, absolute, dot-segment and backslash prefixes cannot apply.
+Unavailable current mounts stay visible but cannot apply. The optional gallery
+destination also offers Clear destination; required save targets do not.
+Mount grants are checked again by the backend when it writes.
+
+RESOLUTION_PREVIEW opens a proportional rectangle and exact pixel dimensions
+from the node's aspect ratio, megapixels and rounding multiple. The named
+controls update that preview as a draft; Apply resolution writes the three
+real inputs as one undoable edit without writing the ignored preview value.
+Dimensions use the backend's 1024-based megapixels and ties-to-even rounding.
+Connected inputs disable this composer instead of showing invented dimensions.
+
+CAMERA_ANGLE_VIEW opens a top-down orbit and side elevation preview with named
+horizontal angle, vertical angle and zoom fields. Apply camera angle updates
+the three real numeric inputs as one undoable edit; the presentation-only view
+string is unchanged. Blank, fractional angle and out-of-range drafts cannot be
+applied. Connected numeric inputs disable this composer rather than pretending
+to override their drivers; edit the source inputs or disconnect them first.
+Cancel and outside dismissal discard the draft.
+
+IMAGECOMPARE opens a wipe comparison of the node's executed image_a and
+image_b preview streams. The divider supports pointer and keyboard controls;
+each side has an independent frame selector. A single connected side fills
+the preview without a divider. Unequal image sizes fit without distortion.
+The divider and frame choices are local display state, not graph values.
+Successful untimed image batches remain browsable within the session's
+existing preview-byte budget; timed animations release their frame rings at
+completion. After eviction or reload, run the comparison again.
+
+BOUNDING_BOX rows summarize X, Y, width and height in pixels. Opening the crop
+region shows four named fields; Apply crop stores the complete region as one
+undoable edit. Coordinates must be nonnegative whole pixels and dimensions
+must be positive whole pixels. Cancel or outside dismissal discards the draft.
+After running the connected image source, the editor shows its first frame
+with the selected crop outlined and the excluded area shaded. The outline
+matches the backend's edge clamping. An unavailable or stale source leaves
+the numeric controls usable without showing an unrelated image.
+
+Crop and comparison previews accept encoded images up to 64 MiB and decoded
+dimensions from 1 through 4096 pixels per side. Larger decoded images are
+released without drawing or resizing the canvas. This preview limit does not
+change the stored crop region or the backend's output dimensions.
+
 Compact STRING and MARKDOWN views display non-string imported values using
 the shared value formatter (for example, null displays as `null`). Rendering
 does not replace them with schema defaults, mark them as empty placeholders,
@@ -35,16 +80,19 @@ Output-descriptor Apply shows command refusals and transport errors above the
 draft, separately from descriptor validation and metadata-probe errors. The
 draft remains available for retry and closes only after command acceptance.
 
-Native asset pickers confirm an independent incomplete owner for stored selections
+Native asset pickers confirm an independent complete owner for validated selections
 on open and before publishing a newly selected reference or starting its server
 preview. Apply stays disabled during initial admission and after refusal until a
 selection is admitted; Cancel remains available. Picks are processed
 in invocation order; Apply is disabled while a pick is pending. Refusal preserves
-the previous selection and reports the failure inline. Cancel discards the local
+the previous selection and reports the failure inline. Removing or clearing a
+selection also admits its replacement inventory. After publication, the previous
+locally admitted owner retires only after its in-flight body reads finish, while
+independent owners remain untouched. Cancel discards the local
 draft without releasing acknowledged owners. The staged selection keeps its
 acknowledged reader: a changed document, registry, connection, or closed session
 refuses further staging and Apply until the picker is reopened. Apply still confirms the document
-command separately. These conservative owners do not enable cleanup.
+command separately. This does not enable backend cleanup eligibility.
 
 Missing model selections say "Not on disk" and explain that download is offered
 when the workflow runs. The picker does not start downloads or show a disabled
@@ -59,7 +107,7 @@ retry; an acknowledged recording still needs Use asset to change the document.
 
 Selected-image and recorded-audio preview byte reads are cancelled when their
 preview is replaced, removed or closed. Late results are still ignored if a
-transport completes after cancellation. This does not retire asset owners or
+transport completes after cancellation. Cancellation alone does not retire asset owners or
 prove that queued model posters and other consumers have finished reading.
 Closing Painter or Load3d also cancels pending saved-source byte reads,
 including verified digests and granted local bindings. Load3d uses the same
@@ -77,6 +125,10 @@ uses the camera's native dimensions for both axes. Use frame
 commits the asset reference as an undoable input edit; Cancel or closing the
 dialog leaves the stored value unchanged. Camera errors retain the browser's
 named error (for example NotFoundError when no camera is available).
+A captured draft and its preview wait for independent complete asset admission.
+Replacement keeps the previous draft and owner until acknowledgment and
+publication; failed or obsolete admission leaves that draft unchanged. Closing
+the dialog revokes its local preview URL but does not release its retained owner.
 With capture_on_queue enabled, queue captures and saves a fresh frame for each
 included camera before submitting. Disabled capture reuses the saved frame.
 Changing the workflow or backend during capture refuses that queue attempt
@@ -144,9 +196,12 @@ numbers and booleans, including duplicate entries and an empty array.
 ## Painter
 
 The native Painter node's mask row opens an RGBA canvas over its background
-color or a connected image's current first frame. A connected source must have
+color or a connected image's current first frame. The served schema's replacement
+of `Painter` identifies this editor after node migration; other asset mask rows
+keep the ordinary asset picker. A connected source must have
 a completed, unchanged native execution; stale, unavailable or ambiguous
-sources require another run before painting. Connected images set the canvas
+sources require another run before painting. The editor scrolls on small screens
+while Cancel and Apply stay visible. Connected images set the canvas
 dimensions; otherwise it uses the authored width and height. Connected IMAGE
 decoding and drawing borrow the exact descriptor's admitted value reader;
 connection changes refuse drawing even after rendition bytes arrived. The bitmap

@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import type { Page } from '@playwright/test'
-import { expect, test } from './fixtures.js'
+import { expect, test, waitForStartupOwnership } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const digest = `blake3:${'ab'.repeat(32)}`
@@ -86,13 +86,13 @@ test('an uploaded selected asset estimates its represented output before executi
       diagnostics: registry.diagnostics.map((diagnostic) => diagnostic.code),
     }
   })).toEqual({ schemas: ['dinkster.load_image'], diagnostics: [] })
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app as unknown as {
       settings: { set(id: string, value: unknown): void }
       openDocument(document: unknown, title: string): void
     }
     app.settings.set('execution.mirrorPreviews', true)
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'represented-output-proof',
@@ -114,6 +114,7 @@ test('an uploaded selected asset estimates its represented output before executi
     }, 'Represented output estimate')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
+  await waitForStartupOwnership(page)
 
   expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getNodePreviews()['loader'])).toBeUndefined()
   await openImageEditor(page)

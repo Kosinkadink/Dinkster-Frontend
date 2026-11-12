@@ -459,6 +459,8 @@ export interface ElabContext {
   /** See ElaborateOptions.promoteGhosts (view affordance; compiler: false). */
   readonly promoteGhosts: boolean
   readonly includeDormant: boolean
+  /** Dormant wire15 branches can share a choice already validated at the same construct. */
+  acceptsDynamicChoice(state: DynamicPortState | undefined, construct: string, keys: readonly string[]): boolean
   /**
    * Emit one elaborated item. Emission is SCOPED (hazard N4): the item's
    * `address.members`, `ancestry`, and `spec.id` are bound from the scope
@@ -1184,8 +1186,9 @@ const dynamicComboHandler: DynamicKindHandler = {
     const construct = joinValuePath(scope.valuePrefix, item.id)
     const constructApi = apiJoin(scope.apiPrefix, item.id)
     const keys = spec.options.map((o) => o.key)
-    const wire15Choice = spec.materialization === 'wire15' ? scope.stateOf(construct)?.selected : undefined
-    if (wire15Choice !== undefined && (typeof wire15Choice !== 'string' || !keys.includes(wire15Choice))) {
+    const wire15State = spec.materialization === 'wire15' ? scope.stateOf(construct) : undefined
+    const wire15Choice = wire15State?.selected
+    if (!ctx.acceptsDynamicChoice(wire15State, construct, keys)) {
       ctx.report(
         'error',
         'prompt.bad_dynamic_choice',
@@ -1572,11 +1575,12 @@ export function elaborateInterface(
   options: ElaborateOptions = {},
 ): ElaboratedInterface {
   const readStateKeys = options.includeDormant ? new WeakMap<object, Set<string>>() : undefined
+  const validChoices = new WeakMap<object, Set<string>>()
   if (readStateKeys !== undefined) {
     // The dormant walk may stop before valid selected descendants. Only actual reads verify state.
-    elaborateWithStateReads(schema, node, connectivity, { ...options, includeDormant: false }, readStateKeys)
+    elaborateWithStateReads(schema, node, connectivity, { ...options, includeDormant: false }, readStateKeys, validChoices)
   }
-  return elaborateWithStateReads(schema, node, connectivity, options, readStateKeys)
+  return elaborateWithStateReads(schema, node, connectivity, options, readStateKeys, validChoices)
 }
 
 function elaborateWithStateReads(
@@ -1585,6 +1589,7 @@ function elaborateWithStateReads(
   connectivity: Connectivity,
   options: ElaborateOptions,
   readStateKeys: WeakMap<object, Set<string>> | undefined,
+  validChoices: WeakMap<object, Set<string>>,
 ): ElaboratedInterface {
   const handlers = options.handlers ?? defaultDynamicHandlers
   const budget: ElabBudget = { ...DEFAULT_ELAB_BUDGET, ...options.budget }
@@ -1646,6 +1651,16 @@ function elaborateWithStateReads(
     connectivity,
     promoteGhosts: options.promoteGhosts ?? true,
     includeDormant: options.includeDormant ?? false,
+    acceptsDynamicChoice: (state, construct, keys) => {
+      const selected = state?.selected
+      const valid = selected === undefined || typeof selected === 'string' && keys.includes(selected)
+      if (!options.includeDormant && valid && selected !== undefined && state !== undefined) {
+        let constructs = validChoices.get(state)
+        if (constructs === undefined) { constructs = new Set(); validChoices.set(state, constructs) }
+        constructs.add(construct)
+      }
+      return valid || options.includeDormant === true && state !== undefined && validChoices.get(state)?.has(construct) === true
+    },
     emit: (item, scope) => {
       if (halted) return
       if (items.length >= budget.maxItems) {

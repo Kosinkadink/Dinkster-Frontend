@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { waitForStartupOwnership } from './fixtures.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -84,7 +85,7 @@ const splitState = (page: Page) => page.evaluate(() => {
   }
 })
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   test.skip(process.env['DINKSTER_NATIVE_BACKEND'] === undefined,
     'set DINKSTER_NATIVE_BACKEND to an isolated backend serving the dinkster-nodes-dev pack')
   const errors: BrowserErrors = { page: [], console: [], responses: [] }
@@ -104,8 +105,7 @@ test.beforeEach(async ({ page }) => {
     if (response.ok) nodes = (await response.json() as { nodes: Record<string, unknown> }).nodes
   } catch { /* handled by the skip below */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
-  test.skip(!('std.string.split' in nodes! && 'std.string.concat' in nodes!),
-    'native backend lacks the string output-family scaffolding nodes')
+  requireBackendNodes(nodes!, ['std.string.split', 'std.string.concat'], testInfo)
 
   await page.goto('/')
   await expect.poll(() => {
@@ -115,8 +115,8 @@ test.beforeEach(async ({ page }) => {
     })
   }, { timeout: 15_000 }).toBe(true)
   await waitForStartupOwnership(page)
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'string-split-output-lifecycle', root: 'g0',
       graphs: {
         g0: {
@@ -206,11 +206,11 @@ test('grows, executes, reloads, shrinks, and restores string split outputs', asy
     return execution?.nodes?.concat?.outputs?.text?.value
   }, prompt)).toBe('alpha|beta gamma')
 
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const exported = app.exportDocument(app.activeTab()!.id)
     if (exported === undefined) throw new Error('string split export failed')
-    app.openDocument(JSON.parse(JSON.stringify(exported)), 'String split reopened')
+    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'String split reopened')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
   await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)

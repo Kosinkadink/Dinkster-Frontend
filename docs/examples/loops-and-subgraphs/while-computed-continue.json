@@ -17,9 +17,7 @@
           },
           "region": {
             "kind": "while",
-            "statePorts": [
-              "count"
-            ],
+            "statePorts": ["count"],
             "outputRoles": {
               "next": {
                 "kind": "state",
@@ -42,46 +40,65 @@
       "nodes": {
         "add": {
           "id": "add",
-          "type": "std.math.add_ints",
-          "values": {}
+          "type": "dinkster.utilities.comfy_math_expression",
+          "values": { "expression": "a + b" },
+          "dynamic": { "values": { "members": ["a", "b"] } }
         },
         "compare": {
           "id": "compare",
-          "type": "dinkster.value.compare",
-          "values": {
-            "operation": "lt",
-            "epsilon": 0
-          }
+          "type": "dinkster.utilities.comfy_math_expression",
+          "values": { "expression": "a < b" },
+          "dynamic": { "values": { "members": ["a", "b"] } }
         },
         "limit": {
           "id": "limit",
-          "type": "dinkster.int",
+          "type": "dinkster.utilities.primitive_int",
           "values": {
             "value": 4
           }
+        },
+        "count": {
+          "id": "count",
+          "type": "dinkster.utilities.primitive_int",
+          "values": {}
+        },
+        "increment": {
+          "id": "increment",
+          "type": "dinkster.utilities.primitive_int",
+          "values": {}
         }
       },
       "links": {
+        "countToAdd": {
+          "id": "countToAdd",
+          "from": { "node": "count", "port": "INT" },
+          "to": { "node": "add", "port": "values.a" }
+        },
+        "incrementToAdd": {
+          "id": "incrementToAdd",
+          "from": { "node": "increment", "port": "INT" },
+          "to": { "node": "add", "port": "values.b" }
+        },
         "nextToCompare": {
           "id": "nextToCompare",
           "from": {
             "node": "add",
-            "port": "sum"
+            "port": "INT"
           },
           "to": {
             "node": "compare",
-            "port": "a"
+            "port": "values.a"
           }
         },
         "limitToCompare": {
           "id": "limitToCompare",
           "from": {
             "node": "limit",
-            "port": "value"
+            "port": "INT"
           },
           "to": {
             "node": "compare",
-            "port": "b"
+            "port": "values.b"
           }
         }
       },
@@ -93,16 +110,16 @@
             "id": "count",
             "binds": {
               "kind": "port",
-              "node": "add",
-              "port": "a"
+              "node": "count",
+              "port": "value"
             }
           },
           {
             "id": "increment",
             "binds": {
               "kind": "port",
-              "node": "add",
-              "port": "b"
+              "node": "increment",
+              "port": "value"
             }
           }
         ],
@@ -112,7 +129,7 @@
             "binds": {
               "kind": "port",
               "node": "add",
-              "port": "sum"
+              "port": "INT"
             }
           },
           {
@@ -120,12 +137,12 @@
             "binds": {
               "kind": "port",
               "node": "compare",
-              "port": "result"
+              "port": "BOOL"
             }
           }
         ]
       },
-      "nextOrdinal": 3
+      "nextOrdinal": 9
     }
   },
   "view": {

@@ -7,8 +7,14 @@ import {
   MAX_DYNAMIC_STATE_DEPTH,
   appLayout,
   appLayoutItemToJson,
+  applyCompositorCommands,
   buildGraphConnectivity,
   canonicalJson,
+  COMPOSITOR_STATE_PREVIEW_CHANNEL,
+  compositorStateOf,
+  CURVE_HISTOGRAM_PREVIEW_CHANNEL,
+  GLSL_STATE_PREVIEW_CHANNEL,
+  glslShaderStateOf,
   documentNodeResolver,
   elabInputsOf,
   elaborateInterface,
@@ -19,15 +25,23 @@ import {
   exposedToJson,
   isDinksterClipboardEnvelope,
   isAssetWidgetInput,
+  isCompositorRecipe,
+  loadImageDocument,
+  MAX_IMAGE_DOCUMENT_BYTES,
+  IMAGE_OUTPUT_POLICY_EXTENSION,
+  imageOutputPolicyOf,
   parseTypedLiteralWire,
+  planReplacement,
   replayHistoryOps,
   typeExprFromTypeId,
   valueSourceConsumersOf,
   valueKeyOf,
   type CommandOutcome,
+  type CompositorRecipe,
   type Diagnostic,
   type DocumentNodeResolver,
   type ExecutionRef,
+  type ExecutionEvent,
   type HistorySnapshot,
   type GraphDef,
   type InputSpec,
@@ -42,9 +56,26 @@ import {
 } from '@dinkster/core'
 import { isAssetRef } from './image-editor.js'
 import { activeProjectId, scopedStorageKey } from './projects.js'
+import { imageDocumentDigest } from './image-document-local.js'
 
-const primitiveNames = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO'])
-const widgetTypes = new Set(['STRING', 'INT', 'FLOAT', 'NUMBER', 'BOOLEAN', 'COMBO', 'ASSET'])
+interface CompositorInventory {
+  readonly complete: boolean
+  readonly digests: readonly string[]
+}
+
+// These are operation inputs, not cached resolution results or backend authority.
+const compositorCensuses = new WeakMap<object, {
+  readonly recipes: ReadonlyMap<string, CompositorRecipe>
+  readonly resolve: (inventories: ReadonlyMap<string, CompositorInventory>) => ReturnType<typeof workflowAssetRoots>
+}>()
+
+const primitiveNames = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO', 'COLOR'])
+// Widgets with required socket types declare that binding explicitly.
+const widgetTypes = new Map<string, readonly string[] | undefined>([
+  ['STRING', undefined], ['INT', undefined], ['FLOAT', undefined], ['NUMBER', undefined],
+  ['BOOLEAN', undefined], ['COMBO', undefined], ['ASSET', undefined], ['MOUNT', ['STRING']],
+  ['COLOR', ['COLOR', 'STRING']], ['COMPOSITOR', ['COMPOSITOR']], ['CURVE', ['CURVE']],
+])
 
 function assetFreeDynamicState(value: unknown, depth = 0): boolean {
   if (depth > MAX_DYNAMIC_STATE_DEPTH || typeof value !== 'object' || value === null || Array.isArray(value)) return false
@@ -72,7 +103,19 @@ export function workflowAssetRoots(
   purpose: 'publication' | 'admission' | 'execution' = 'publication',
 ): { readonly complete: boolean; readonly digests: readonly string[]; readonly refusal?: string;
   readonly incompleteDiagnostics?: readonly Diagnostic[] } {
+  return censusWorkflowAssetRoots(document, history, resolve, additionalDocuments, purpose)
+}
+
+function censusWorkflowAssetRoots(
+  document: WorkflowDocument,
+  history: HistorySnapshot,
+  resolve: SchemaResolver,
+  additionalDocuments: readonly WorkflowDocument[],
+  purpose: 'publication' | 'admission' | 'execution',
+  inventories: ReadonlyMap<string, CompositorInventory> = new Map(),
+): ReturnType<typeof workflowAssetRoots> {
   const digests = new Set<string>()
+  const recipes = new Map<string, CompositorRecipe>()
   let complete = true
   let refusal: string | undefined
   const incompleteDiagnostics: Diagnostic[] = []
@@ -98,14 +141,23 @@ export function workflowAssetRoots(
     if (type.kind === 'asset') return true
     if (type.kind === 'list') return supported(type.element)
     if (type.kind === 'tuple') return type.elements.every(supported)
-    return type.kind === 'concrete' && (type.name === 'ASSET' || primitiveNames.has(type.name))
+    return type.kind === 'concrete' && (type.name === 'ASSET' || type.name === 'COMPOSITOR' || type.name === 'CURVE' || primitiveNames.has(type.name))
   }
-  const valueRoots = (value: Json, type: TypeExpr, namedAsset = false): boolean => {
+  const valueRoots = (value: Json, type: TypeExpr, namedAsset = false, widgetType?: string): boolean => {
     // A cleared asset widget holds no identity; history still contributes its previous value.
     if (namedAsset && value === null) return true
     // Asset widgets can hold unresolved imported names, never a certified digest set.
     if (namedAsset && typeof value === 'string') { complete = false; return false }
     const typed = parseTypedLiteralWire(value)
+    const socketTypes = widgetTypes.get(widgetType ?? '')
+    const color = socketTypes?.includes('COLOR') === true || (type.kind === 'concrete' && type.name === 'COLOR')
+    if (type.kind === 'concrete' && (
+      (color && typed === undefined && typeof value !== 'string') ||
+      ((color || type.name === 'COMPOSITOR' || type.name === 'CURVE') && typed !== undefined && typed.type !== type.name))) {
+      complete = false
+      opaqueRoots(value)
+      return false
+    }
     if (typed !== undefined) {
       const wrapper = value as { readonly [key: string]: Json }
       if (Object.keys(wrapper).length !== 1 || Object.keys(wrapper['$typed'] as object).length !== 2) {
@@ -113,7 +165,50 @@ export function workflowAssetRoots(
         refusal = 'Workflow typed literal is malformed'
         return false
       }
-      return valueRoots(typed.value, typeExprFromTypeId(typed.type))
+      return valueRoots(typed.value, typeExprFromTypeId(typed.type), false, widgetType)
+    } else if (type.kind === 'concrete' && type.name === 'COMPOSITOR') {
+      opaqueRoots(value)
+      if (typeof value === 'object' && value !== null && !Array.isArray(value) &&
+        'documentDigest' in value && typeof value['documentDigest'] === 'string' &&
+        /^blake3:[0-9a-f]{64}$/.test(value['documentDigest'])) {
+        digests.add(value['documentDigest'])
+      }
+      if (typeof value === 'object' && value !== null && !Array.isArray(value) && Object.keys(value).length === 0) return true
+      if (isCompositorRecipe(value) && value.documentDigest === null && value.commands.length === 0) return true
+      if (isCompositorRecipe(value) && value.documentDigest !== null) {
+        const key = canonicalJson(value)
+        recipes.set(key, value)
+        const inventory = inventories.get(key)
+        if (inventory) {
+          for (const digest of inventory.digests) digests.add(digest)
+          if (inventory.complete) return true
+        }
+      }
+      // A document digest alone does not enumerate the document's external resources.
+      complete = false
+      return false
+    } else if (type.kind === 'concrete' && type.name === 'CURVE') {
+      // The backend codec also accepts numeric pairs and bare point arrays.
+      const record = typeof value === 'object' && value !== null && !Array.isArray(value)
+        ? value as { readonly [key: string]: Json } : undefined
+      const points = record === undefined ? value : record['points']
+      const valid = (record === undefined || (Object.keys(record).every((key) => key === 'points' || key === 'interpolation') &&
+        (!Object.hasOwn(record, 'interpolation') || record['interpolation'] === 'linear' || record['interpolation'] === 'monotone_cubic'))) &&
+        Array.isArray(points) && points.every((point) => {
+          const pair = Array.isArray(point) ? point : typeof point === 'object' && point !== null &&
+            Object.keys(point).sort().join(',') === 'position,value' ? [point['position'], point['value']] : undefined
+          return pair?.length === 2 && pair.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate))
+        })
+      if (!valid) { complete = false; opaqueRoots(value) }
+      return valid
+    } else if (socketTypes !== undefined && (type.kind !== 'concrete' || !socketTypes.includes(type.name) ||
+      (value !== null && typeof value !== 'string'))) {
+      complete = false
+      opaqueRoots(value)
+      return false
+    } else if (socketTypes !== undefined && value === null) {
+      // The default output mount is a selection sentinel, not an asset identity.
+      return true
     } else if (!supported(type)) {
       complete = false
       opaqueRoots(value)
@@ -161,7 +256,7 @@ export function workflowAssetRoots(
       dynamic.variants?.forEach((variant) => variant.inputs.forEach(registerInputDefaults))
     }
   }
-  const visitNode = (node: NodeData, schemas: DocumentNodeResolver, graph: GraphDef): void => {
+  const visitNode = (node: NodeData, schemas: DocumentNodeResolver, graph: GraphDef, snapshot: WorkflowDocument): void => {
     if (node.type.startsWith('#')) hasContextualValues = true
     const schema = schemas(graph.id, node)
     const dynamic = schema?.items.some((item) => (item.kind === 'input' || item.kind === 'output') && item.dynamic !== undefined)
@@ -227,18 +322,41 @@ export function workflowAssetRoots(
       stored.diagnostics.some((diagnostic) => invalidIdentity(diagnostic) &&
         (purpose === 'publication' || diagnostic.code !== 'elab.dormant.unsupported'))) {
       complete = false
-      refusal = 'Workflow dynamic identities are invalid'
+      const invalidIdentities = [...active.diagnostics, ...stored.diagnostics].some((diagnostic) =>
+        diagnostic.severity === 'error' && diagnostic.code !== 'elab.dormant.unsupported' &&
+        (purpose !== 'admission' || ![
+          'elab.outputDescriptors.invalid', 'elab.outputFamily.badCount',
+          'elab.outputFamily.linkedCount', 'elab.outputFamily.countOutOfRange',
+        ].includes(diagnostic.code)))
+      // A planned historical migration can consume state the current schema
+      // no longer describes. Retain its opaque roots, never certify it complete.
+      const migrates = purpose === 'admission' && [...active.diagnostics, ...stored.diagnostics]
+        .every((diagnostic) => diagnostic.severity !== 'error' || diagnostic.code === 'elab.dynamic.unknownState') && schema.replacements?.some((rule) => {
+        if (rule.migration === undefined) return false
+        const result = planReplacement(snapshot, graph.id, node.id, rule, resolve)
+        return result.plan !== undefined && !result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+      })
+      if (!migrates && (invalidIdentities || purpose !== 'admission')) refusal = 'Workflow dynamic identities are invalid'
     }
     const inputs = unsupportedDormant.length > 0 ? [...elabInputsOf(stored), ...elabInputsOf(active)] : elabInputsOf(stored)
-    for (const { spec } of inputs) {
+    for (const input of inputs) {
+      const { spec } = input
+      const socketTypes = widgetTypes.get(spec.widget?.widgetType ?? '')
       if (spec.ext !== undefined && Object.keys(spec.ext).some((key) => key !== 'default')) complete = false
-      if (spec.widget !== undefined && !widgetTypes.has(spec.widget.widgetType)) complete = false
+      if (spec.widget !== undefined && (!widgetTypes.has(spec.widget.widgetType) ||
+        (socketTypes !== undefined && (spec.type.kind !== 'concrete' || !socketTypes.includes(spec.type.name))))) {
+        complete = false
+        incompleteDiagnostics.push({ severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
+          refs: [{ graphId: graph.id, nodeId: node.id }],
+          message: `${node.title ?? node.type} (${node.id}): Declared input '${valueKeyOf(input)}' has an unsupported asset census widget binding '${spec.widget.widgetType}'`,
+        })
+      }
     }
     for (const input of elabInputsOf(active)) {
       if (input.ancestry?.some((ancestor) => ancestor.ghost)) continue
       const fallback = input.spec.widget?.default !== undefined ? input.spec.widget.default : input.spec.ext?.['default']
       if (!Object.hasOwn(node.values, valueKeyOf(input)) && fallback !== undefined) {
-        if (!valueRoots(fallback as Json, input.spec.type, isAssetWidgetInput(input.spec))) incompleteDiagnostics.push({
+        if (!valueRoots(fallback as Json, input.spec.type, isAssetWidgetInput(input.spec), input.spec.widget?.widgetType)) incompleteDiagnostics.push({
           severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
           refs: [{ graphId: graph.id, nodeId: node.id }],
           message: `${node.title ?? node.type} (${node.id}): Default input '${valueKeyOf(input)}' has unresolved asset identities`,
@@ -257,7 +375,7 @@ export function workflowAssetRoots(
           message: `${node.title ?? node.type} (${node.id}): Stored input '${input}' has conflicting dormant branch types`,
         })
       }
-      const resolved = matching.map((item) => valueRoots(value, item.spec.type, isAssetWidgetInput(item.spec)))
+      const resolved = matching.map((item) => valueRoots(value, item.spec.type, isAssetWidgetInput(item.spec), item.spec.widget?.widgetType))
       if (!ambiguous && (matching.length === 0 || resolved.some((result) => !result))) incompleteDiagnostics.push({
         severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
         refs: [{ graphId: graph.id, nodeId: node.id }],
@@ -294,12 +412,12 @@ export function workflowAssetRoots(
         return node === undefined ? [] : [[node, graph!] as const]
       }))
       if ([...nodes.keys()].every((node) => !node.type.startsWith('#'))) {
-        for (const [node, graph] of nodes) visitNode(node, schemas, graph)
+        for (const [node, graph] of nodes) visitNode(node, schemas, graph, snapshot)
         return
       }
     }
     for (const graph of Object.values(snapshot.graphs)) {
-      for (const node of Object.values(graph.nodes)) visitNode(node, schemas, graph)
+      for (const node of Object.values(graph.nodes)) visitNode(node, schemas, graph, snapshot)
       for (const source of Object.values(graph.valueSources ?? {})) {
         opaqueRoots(source.value)
         if (source.spec?.options !== undefined) complete = false
@@ -348,8 +466,29 @@ export function workflowAssetRoots(
       visit(snapshot, replayed.applied)
     }
   }
-  return { complete, digests: [...digests].sort(), ...(refusal === undefined ? {} : { refusal }),
+  const roots = { complete, digests: [...digests].sort(), ...(refusal === undefined ? {} : { refusal }),
     ...(incompleteDiagnostics.length === 0 ? {} : { incompleteDiagnostics }) }
+  if (recipes.size > 0) compositorCensuses.set(roots, { recipes,
+    resolve: (resolved) => censusWorkflowAssetRoots(document, history, resolve, additionalDocuments, purpose, resolved),
+  })
+  return roots
+}
+
+/** Changed compositor commands need fresh admission even when their document digest is unchanged. */
+export function workflowAssetRootsCover(
+  current: ReturnType<typeof workflowAssetRoots>,
+  candidate: ReturnType<typeof workflowAssetRoots>,
+): boolean {
+  const known = new Set(current.digests)
+  const currentCensus = compositorCensuses.get(current)
+  const candidateCensus = compositorCensuses.get(candidate)
+  // Compare unresolved recipes separately, so their presence cannot hide a new opaque field.
+  const currentComplete = currentCensus?.resolve(new Map([...currentCensus.recipes.keys()]
+    .map((key) => [key, { complete: true, digests: [] }]))).complete ?? current.complete
+  const candidateComplete = candidateCensus?.resolve(new Map([...candidateCensus.recipes.keys()]
+    .map((key) => [key, { complete: true, digests: [] }]))).complete ?? candidate.complete
+  return (!currentComplete || candidateComplete) && candidate.digests.every((digest) => known.has(digest)) &&
+    [...(candidateCensus?.recipes.keys() ?? [])].every((key) => currentCensus?.recipes.has(key))
 }
 
 /** Known result identities are roots, but opaque runtime values are never certified complete. */
@@ -434,7 +573,7 @@ export async function reconcileWorkflowRetentions(
             Number.isSafeInteger(intent.documentRevision) && (intent.documentRevision as number) >= 0
           : owner?.ownerKind === 'preview'
             ? typeof owner.ownerId === 'string' && /^asset-preview:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
-              intent.preview === true && intent.complete === false
+              intent.preview === true
           : owner?.ownerKind === 'shown-result' && typeof owner.ownerId === 'string' &&
             /^execution-result:[a-zA-Z0-9-]+$/.test(owner.ownerId) &&
             typeof intent.executionKey === 'string' && intent.executionKey.length > 0
@@ -477,12 +616,64 @@ export async function retainWorkflowAssets(
   roots: ReturnType<typeof workflowAssetRoots>,
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
   clipboardText?: string,
+  requireComplete = false,
 ): Promise<RetainedAssets> {
   if (clipboardText !== undefined) {
     const envelope: unknown = JSON.parse(clipboardText)
     if (!isDinksterClipboardEnvelope(envelope) || envelope.scope?.lineage !== documentLineage || roots.complete) {
       throw new Error('Clipboard retention context differs')
     }
+  }
+  const census = clipboardText === undefined ? compositorCensuses.get(roots) : undefined
+  if (requireComplete && !roots.complete && !census) throw new Error('Workflow ownership unconfirmed. Publication and sharing remain unavailable.')
+  if (census && roots.refusal === undefined) {
+    const inventories = new Map<string, CompositorInventory>()
+    let retained: RetainedAssets | undefined
+    return readAssetPreview(connection, { ...roots, complete: false }, async () => {
+      for (const [key, recipe] of census.recipes) {
+        const digests = new Set<string>([recipe.documentDigest!])
+        let complete = false
+        try {
+          const [documentAvailability] = await connection.checkAssetAvailability([recipe.documentDigest!], { scope: 'local' })
+          if (documentAvailability?.status !== 'available') throw new Error('Compositor document is unavailable')
+          const fetched = await connection.fetchAssetBytes(recipe.documentDigest!)
+          if (fetched === undefined || fetched.byteLength > MAX_IMAGE_DOCUMENT_BYTES) throw new Error('Compositor document is unavailable')
+          const bytes = new Uint8Array(fetched)
+          if (imageDocumentDigest(bytes) !== recipe.documentDigest) throw new Error('Compositor document digest differs')
+          const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+          const parsed: unknown = JSON.parse(text)
+          const loaded = loadImageDocument(parsed)
+          if (!loaded.document || canonicalJson(parsed) !== text) throw new Error('Compositor document is invalid')
+          const resources = Object.values(loaded.document.resources).filter((resource) => resource.inline === undefined)
+          for (const resource of resources) digests.add(resource.digest)
+          const extensions = loaded.document.extensions ?? {}
+          if (Object.entries(extensions).some(([key, value]) => key !== IMAGE_OUTPUT_POLICY_EXTENSION ||
+            canonicalJson(value) !== canonicalJson(imageOutputPolicyOf(loaded.document!)))) {
+            for (const digest of executionAssetRoots({ outputs: { extensions }, artifacts: [] }, () => undefined).digests) digests.add(digest)
+            throw new Error('Compositor document extensions have unknown asset semantics')
+          }
+          const updated = applyCompositorCommands(loaded.document, recipe.commands)
+          if (!updated) throw new Error('Compositor commands are invalid')
+          // Native commands cannot add resource descriptors; hidden and unused entries still belong to this inventory.
+          const availability = await connection.checkAssetAvailability(resources.map((resource) => resource.digest), { scope: 'local' })
+          if (availability.some((resource) => resource.status !== 'available')) throw new Error('Compositor resource is unavailable')
+          for (const resource of resources) {
+            const content = await connection.fetchAssetBytes(resource.digest)
+            if (content === undefined || content.byteLength !== resource.byteSize ||
+              imageDocumentDigest(new Uint8Array(content)) !== resource.digest) throw new Error('Compositor resource is unavailable')
+          }
+          complete = true
+        } catch {
+          // Failed resolution preserves all identities discovered before the failure.
+        }
+        inventories.set(key, { complete, digests: [...digests].sort() })
+      }
+      return census.resolve(inventories)
+    }, () => true, async (resolved) => {
+      if (requireComplete && !resolved.complete) throw new Error('Workflow ownership unconfirmed. Publication and sharing remain unavailable.')
+      retained = await retainAssetRoots(connection, 'document', { documentLineage, documentRevision }, resolved, storage)
+      return true
+    }).then(() => retained!)
   }
   return retainAssetRoots(connection, 'document', { documentLineage, documentRevision,
     ...(clipboardText === undefined ? {} : { clipboardText }) }, roots, storage)
@@ -497,10 +688,34 @@ export async function retainExecutionAssets(
   return retainAssetRoots(connection, 'shown-result', { executionKey: executionKey(ref) }, roots, storage)
 }
 
+/** Only validated preview formats certify their entire external inventory. */
+export function previewAssetRoots(event: Extract<ExecutionEvent, { readonly kind: 'preview' }>): ReturnType<typeof workflowAssetRoots> {
+  if (event.payload instanceof Blob || event.payload instanceof ArrayBuffer) return { complete: true, digests: [] }
+  if (event.channel === GLSL_STATE_PREVIEW_CHANNEL && glslShaderStateOf(event.payload) !== undefined) return { complete: true, digests: [] }
+  const histogram = event.payload['histogram']
+  if (event.channel === CURVE_HISTOGRAM_PREVIEW_CHANNEL && Object.keys(event.payload).length === 1 &&
+    Array.isArray(histogram) && histogram.length === 256 && histogram.every((value) =>
+      typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)) return { complete: true, digests: [] }
+  const state = event.channel === COMPOSITOR_STATE_PREVIEW_CHANNEL ? compositorStateOf(event.payload) : undefined
+  if (state !== undefined && canonicalJson(state.document as unknown as Json) === canonicalJson(event.payload['document'] as Json)) {
+    return { complete: true, digests: [...new Set([state.documentDigest,
+    ...Object.values(state.document.resources).filter((resource) => resource.inline === undefined)
+      .map((resource) => resource.digest)])].sort() }
+  }
+  return executionAssetRoots({ outputs: { preview: { payload: event.payload } }, artifacts: [] }, () => undefined)
+}
+
+export async function retainPreviewAssets(
+  connection: DinksterConnection,
+  roots: ReturnType<typeof workflowAssetRoots>,
+): Promise<RetainedAssets> {
+  return retainAssetRoots(connection, 'preview', { preview: true }, roots, globalThis.localStorage)
+}
+
 /** Source payload reads have independent preview ownership, not workflow roots. */
 export async function readAssetPreview<T>(
   connection: DinksterConnection,
-  digest: string,
+  inventory: string | ReturnType<typeof workflowAssetRoots>,
   consume: () => Promise<T>,
   stillCurrent: () => boolean,
   handoff?: (value: T) => Promise<boolean>,
@@ -512,7 +727,8 @@ export async function readAssetPreview<T>(
   let reader: RetainedAssetReader | undefined
   try {
     if (!current()) throw new Error('Asset preview changed before admission')
-    const retained = await retainAssetRoots(connection, 'preview', { preview: true }, { complete: false, digests: [digest] }, globalThis.localStorage)
+    const retained = await retainPreviewAssets(connection, typeof inventory === 'string'
+      ? { complete: false, digests: [inventory] } : inventory)
     reader = new RetainedAssetReader(connection, retained, current)
     const value = await reader.read(consume)
     // Publishing a replacement can invalidate the open intent itself. Only the

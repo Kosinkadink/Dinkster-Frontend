@@ -10,7 +10,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { expect, test } from './fixtures.js'
+import { expect, test, waitForStartupOwnership } from './fixtures.js'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), '../fixtures')
 const schemas = JSON.parse(readFileSync(join(fixtures, 'gallery-schemas.json'), 'utf8')) as unknown[]
@@ -21,10 +21,11 @@ const workflow = JSON.parse(readFileSync(join(fixtures, 'gallery-workflow.json')
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
   await page.evaluate(
-    ({ schemas, workflow }) => {
+    async ({ schemas, workflow }) => {
       window.__dinksterTest!.app.registerSchemas(schemas as never)
-      const diags = window.__dinksterTest!.app.openDocument(workflow, 'Widget & Socket Gallery')
+      const diags = (await window.__dinksterTest!.app.openDocument(workflow, 'Widget & Socket Gallery'))
       if (diags.length > 0) throw new Error(`gallery failed to open: ${JSON.stringify(diags)}`)
       window.__dinksterTest!.renderer!.setViewport({ x: 20, y: 20, scale: 0.85 })
     },
@@ -39,7 +40,7 @@ test('every gallery node resolves and lays out with zero problems', async ({ pag
     return {
       sceneNodeIds: scene.nodes.map((n) => n.id).sort(),
       unresolved: scene.nodes.filter((n) => n.layout.rows.length === 0 && n.layout.pins.length === 0).map((n) => n.id),
-      problems: app.problems.get().map((p) => `${p.severity}:${p.code}`),
+      problems: app.problems.get().map((p) => `${p.severity}:${p.code}: ${p.message}`),
       links: Object.keys(app.activeTab()!.store.doc.graphs.g0!.links).length,
     }
   })

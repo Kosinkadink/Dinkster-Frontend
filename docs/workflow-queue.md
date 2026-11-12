@@ -29,6 +29,11 @@ submits that tab through the existing `AppState.queue` path. The adjacent
 disclosure shows only jobs whose compile artifact snapshot has the same
 workflow lineage as the tab. A frozen execution tab shows only its exact job.
 
+Queueing preserves the accepted workflow snapshot when shared workspace
+startup adopts the same editing session during submission. Closing the
+workflow or independently reopening its lineage before submission cancels
+that unposted request instead of sending it for the replacement document.
+
 Before submitting, queueing confirms retained
 ownership of known asset digests and incomplete roots in the captured workflow,
 including effective catalog defaults that arrived after startup. An opaque

@@ -101,7 +101,7 @@ it.each(['accepted', 'refused', 'closed', 'project', 'connection', 'mismatched']
     await vi.waitFor(() => expect(f.entries.size).toBe(1))
     expect(renderer).not.toHaveBeenCalled()
     const intent = JSON.parse([...f.entries.values()][0]!)
-    expect(intent).toMatchObject({ owner: { scope: 'local', ownerKind: 'preview' }, preview: true, complete: false,
+    expect(intent).toMatchObject({ owner: { scope: 'local', ownerKind: 'preview' }, preview: true, complete: true,
       digests: [`blake3:${'a'.repeat(64)}`] })
     expect(intent.documentLineage).toBeUndefined()
     if (scenario === 'closed') f.stale()
@@ -113,7 +113,7 @@ it.each(['accepted', 'refused', 'closed', 'project', 'connection', 'mismatched']
     expect(f.releaseRetainedAssets).not.toHaveBeenCalled()
     expect(f.listeners.size).toBe(0)
     if (scenario === 'accepted') {
-      f.fetchRetainedAssets.mockResolvedValue({ ...intent.owner, revision: 1, complete: false, digests: intent.digests })
+      f.fetchRetainedAssets.mockResolvedValue({ ...intent.owner, revision: 1, complete: true, digests: intent.digests })
       expect(await reconcileWorkflowRetentions(f.owner.connection, new AbortController().signal, f.storage)).toBe(true)
     }
   },
@@ -186,6 +186,10 @@ describe('asset browser helpers', () => {
     expect(isCompatible(item, ['video/*'], 'media/*')).toBe(false)
     const { mediaType: _mediaType, ...withoutMediaType } = item
     expect(isCompatible(withoutMediaType, [], undefined)).toBe(false)
+    const latent = { ...item, name: 'example.LATENT', mediaType: 'application/x-comfy-latent', kind: 'data/latent' }
+    expect(isCompatible(latent, ['.latent'], 'data/latent')).toBe(true)
+    expect(isCompatible({ ...latent, name: 'example.latent.bak' }, ['.latent'], 'data/latent')).toBe(false)
+    expect(isCompatible(latent, ['.latent'], 'media/image')).toBe(false)
   })
   it('accepts video wildcard browse rows without admitting image or audio MIME types', () => {
     const video = { ...item, name: 'clip.webm', mediaType: 'video/webm', kind: 'media/video' }

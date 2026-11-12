@@ -168,8 +168,8 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(3)
-  await page.evaluate((document) => {
-    window.__dinksterTest!.app.openDocument(document, 'Execution result persistence')
+  await page.evaluate(async (document) => {
+    await window.__dinksterTest!.app.openDocument(document, 'Execution result persistence')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   }, workflow)
   await page.waitForFunction(() => window.__dinksterTest!.app.activeTab()?.id === 'issue-347-persistence')

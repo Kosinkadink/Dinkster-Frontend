@@ -278,7 +278,7 @@ test('release rolls back when the previewed zone disappears during a drag', asyn
   await page.getByTestId('library-toggle').click()
   const source = rightTab(page, 'docking-proof')
   const from = await center(source)
-  const leftBody = await center(page.getByTestId('library-overlay'))
+  const leftBody = await center(page.getByTestId('dock-zone-left'))
 
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()

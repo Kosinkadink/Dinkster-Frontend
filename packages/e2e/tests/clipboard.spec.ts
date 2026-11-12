@@ -6,27 +6,21 @@ const proofDir = process.env['DINKSTER_SUBGRAPH_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
 
 async function openFixture(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'ClipboardText', displayName: 'Clipboard Text', category: 'test', source: 'v3', isOutputNode: false,
       items: [{ kind: 'input', id: 'text', type: { kind: 'concrete', name: 'STRING' }, optional: false,
         widget: { widgetType: 'STRING', options: {}, default: '' } }],
-    }, {
-      type: 'EmptyImage', displayName: 'Empty Image', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'IMAGE' } }],
-    }, {
-      type: 'PreviewImage', displayName: 'Preview Image', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'clipboard-e2e', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
-        n0: { id: 'n0', type: 'EmptyImage', values: { width: 64, height: 64, batch_size: 1, color: 0 } },
-        n1: { id: 'n1', type: 'PreviewImage', values: {} },
+        n0: { id: 'n0', type: 'dinkster.image.empty_image', values: { width: 64, height: 64, batch_size: 1, color: 0 } },
+        n1: { id: 'n1', type: 'dinkster.image.preview_image', values: {} },
         text: { id: 'text', type: 'ClipboardText', values: { text: 'unchanged' } },
       }, links: {
-        l0: { id: 'l0', from: { node: 'n0', port: 'out0' }, to: { reroute: 'r0' } },
+        l0: { id: 'l0', from: { node: 'n0', port: 'IMAGE' }, to: { reroute: 'r0' } },
         l1: { id: 'l1', from: { reroute: 'r0' }, to: { node: 'n1', port: 'images' } },
       }, nets: {}, reroutes: { r0: { id: 'r0' } }, nextOrdinal: 10 } },
       view: { graphs: { g0: { nodes: {
@@ -89,7 +83,7 @@ test('keyboard copy/paste preserves topology and selection and undoes atomically
 })
 
 test('pasting a dynamic node removes unused members without recycling identity', async ({ page }) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const scalar = { kind: 'concrete', name: 'FLOAT' }
     app.registerSchemas([{
@@ -104,7 +98,7 @@ test('pasting a dynamic node removes unused members without recycling identity',
         },
       }],
     }] as never)
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'clipboard-autogrow', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
@@ -165,7 +159,7 @@ test('connected paste restores incoming node links only and undoes in one step',
     const tab = window.__dinksterTest!.app.activeTab()!
     tab.store.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l1' } })
     tab.store.dispatch({ command: 'link.connect', params: {
-      graphId: 'g0', from: { node: 'n0', port: 'out0' }, to: { node: 'n1', port: 'images' },
+      graphId: 'g0', from: { node: 'n0', port: 'IMAGE' }, to: { node: 'n1', port: 'images' },
     } })
     window.__dinksterTest!.controller!.setSelection(['n1'])
   })
@@ -189,7 +183,7 @@ test('connected paste restores incoming node links only and undoes in one step',
 })
 
 test('connected paste restores an incoming link into a widget-backed input (audit)', async ({ page }) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'FloatOut', displayName: 'Float Out', category: 'test', source: 'v3', isOutputNode: false,
@@ -199,7 +193,7 @@ test('connected paste restores an incoming link into a widget-backed input (audi
       items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: true,
         widget: { widgetType: 'FLOAT', options: {}, default: 0 } }],
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'clipboard-widget-target', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         fsrc: { id: 'fsrc', type: 'FloatOut', values: {} },
@@ -235,11 +229,11 @@ test('connected paste restores an incoming link into a widget-backed input (audi
 test('system clipboard pastes into a second document and foreign text is ignored', async ({ page }) => {
   await selectTopology(page)
   await page.keyboard.press('Control+c')
-  await page.evaluate(() => window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
     format: 'dinkster-workflow', formatVersion: 1, lineage: 'clipboard-target', root: 'g0',
     graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 } },
     view: { graphs: { g0: { nodes: {} } } },
-  }, 'Clipboard Target'))
+  }, 'Clipboard Target')))
   await page.keyboard.press('Control+v')
   await expect.poll(() => graphCounts(page)).toEqual({ nodes: 2, links: 2, reroutes: 1 })
 
@@ -250,7 +244,7 @@ test('system clipboard pastes into a second document and foreign text is ignored
 })
 
 test('subgraph copy across tabs carries nested definitions and undoes atomically', async ({ page }) => {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'NestedPass', displayName: 'Nested Pass', category: 'test', source: 'v3', isOutputNode: false,
@@ -259,7 +253,7 @@ test('subgraph copy across tabs carries nested definitions and undoes atomically
         { kind: 'output', id: 'result', displayName: 'Result Image', type: { kind: 'concrete', name: 'IMAGE' } },
       ],
     }])
-    app.openDocument({
+    await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'clipboard-subgraph-source', root: 'g0',
       graphs: {
         g0: { id: 'g0', name: 'Source', nodes: { instance: { id: 'instance', type: '#outer', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 },
@@ -288,11 +282,11 @@ test('subgraph copy across tabs carries nested definitions and undoes atomically
     window.__dinksterTest!.controller!.setSelection(['instance'])
   })
   await page.keyboard.press('Control+c')
-  await page.evaluate(() => window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
     format: 'dinkster-workflow', formatVersion: 1, lineage: 'clipboard-subgraph-target', root: 'g0',
     graphs: { g0: { id: 'g0', name: 'Target', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 } },
     view: { graphs: { g0: { nodes: {} } } },
-  }, 'Subgraph Target'))
+  }, 'Subgraph Target')))
   await page.waitForFunction(() => {
     const tab = window.__dinksterTest!.app.activeTab()
     return tab?.store.doc.lineage === 'clipboard-subgraph-target' && 'status' in tab.store

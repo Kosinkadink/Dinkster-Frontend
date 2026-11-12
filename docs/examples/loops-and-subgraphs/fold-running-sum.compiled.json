@@ -35,18 +35,41 @@
         "body": {
           "nodes": {
             "add": {
-              "nodeType": "std.math.add_ints",
+              "nodeType": "dinkster.utilities.comfy_math_expression",
               "inputs": {
-                "a": {
+                "expression": "a + b",
+                "values.a": {
                   "$link": {
-                    "node": "$region",
-                    "output": "total"
+                    "node": "total",
+                    "output": "INT"
                   }
                 },
-                "b": {
+                "values.b": {
+                  "$link": {
+                    "node": "item",
+                    "output": "INT"
+                  }
+                }
+              }
+            },
+            "item": {
+              "nodeType": "dinkster.utilities.primitive_int",
+              "inputs": {
+                "value": {
                   "$link": {
                     "node": "$region",
                     "output": "item"
+                  }
+                }
+              }
+            },
+            "total": {
+              "nodeType": "dinkster.utilities.primitive_int",
+              "inputs": {
+                "value": {
+                  "$link": {
+                    "node": "$region",
+                    "output": "total"
                   }
                 }
               }
@@ -57,7 +80,7 @@
           "total": {
             "source": {
               "node": "add",
-              "output": "sum"
+              "output": "INT"
             },
             "mode": "state"
           }

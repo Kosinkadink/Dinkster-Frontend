@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DINKSTER_REF: 9454699a70f9b5aef08f917da37da01303d5fdfa
+  DINKSTER_REF: dfdd269da02503d922b567f57cc9cf634f3c0e5c
 
 jobs:
   fast:
@@ -67,14 +67,12 @@ jobs:
       - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
       - name: Install checkout pack sources
         run: |
+          packs=()
+          for pack in .ci/Dinkster/packages/dinkster-nodes-*; do
+            packs+=(-e "$pack")
+          done
           uv pip install --python .ci/Dinkster/.venv/bin/python --no-deps --no-sources \
-            -e .ci/Dinkster/packages/dinkster-nodes-dev \
-            -e .ci/Dinkster/packages/dinkster-nodes-foundation \
-            -e .ci/Dinkster/packages/dinkster-nodes-image \
-            -e .ci/Dinkster/packages/dinkster-nodes-media-io \
-            -e .ci/Dinkster/packages/dinkster-nodes-remote \
-            -e .ci/Dinkster/packages/dinkster-nodes-comfy \
-            -e .ci/Dinkster/packages/dinkster-nodes-vision
+            "${packs[@]}"
       - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
         env:
           CUDA_VISIBLE_DEVICES: ""

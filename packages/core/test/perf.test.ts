@@ -250,7 +250,7 @@ describe(`subgraph synthetic workload (${CHAINS} instances, ${NODES} expanded no
       expect(Object.keys(prompt)).toHaveLength(NODES)
       // Each instance's promoted color overrides the definition's stored 0.
       const colors = Object.values(prompt)
-        .filter((n) => n.class_type === 'EmptyImage')
+        .filter((n) => n.class_type === 'dinkster.image.empty_image')
         .map((n) => n.inputs['color'] as number)
         .sort((a, b) => a - b)
       const expected = Array.from({ length: CHAINS }, (_, c) => (c * 7919) % 0xffffff).sort((a, b) => a - b)

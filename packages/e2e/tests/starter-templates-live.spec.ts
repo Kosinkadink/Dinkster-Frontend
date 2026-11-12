@@ -1,5 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { TestInfo } from "@playwright/test";
+import { requireBackendTemplates } from "./required-nodes.js";
 import {
   expect,
   openRailPanel,
@@ -28,7 +30,10 @@ interface TemplateDescriptor {
   readonly family?: string;
 }
 
-async function starterTemplates(): Promise<readonly TemplateDescriptor[]> {
+async function starterTemplates(
+  testInfo: TestInfo,
+  required: readonly string[] = EXPECTED_LOOPS,
+): Promise<readonly TemplateDescriptor[]> {
   const response = await fetch(`${NATIVE_BACKEND}/api/templates?limit=200`, {
     signal: AbortSignal.timeout(2_000),
   });
@@ -36,6 +41,13 @@ async function starterTemplates(): Promise<readonly TemplateDescriptor[]> {
   const payload = (await response.json()) as {
     templates: TemplateDescriptor[];
   };
+  requireBackendTemplates(
+    payload.templates
+      .filter((template) => template.pack === "dinkster-nodes-foundation")
+      .map((template) => template.id),
+    required,
+    testInfo,
+  );
   expect(payload.templates.map((template) => template.id).sort()).toEqual(
     ["dev-gallery", ...EXPECTED_LOOPS].sort(),
   );
@@ -150,8 +162,8 @@ async function openTemplateGallery(page: Page): Promise<void> {
 
 test("all retained loop templates load with zero problem-panel errors", async ({
   page,
-}) => {
-  const templates = await starterTemplates();
+}, testInfo) => {
+  const templates = await starterTemplates(testInfo);
   expect(templates.map((template) => template.id).sort()).toEqual(
     [...EXPECTED_LOOPS].sort(),
   );
@@ -207,7 +219,7 @@ test("the retained while loop starter opens with readable node detail at 1280x80
   page,
 }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 800 });
-  const templates = await starterTemplates();
+  const templates = await starterTemplates(testInfo, ["loop-while-until"]);
   const template = templates.find(
     (candidate) => candidate.id === "loop-while-until",
   );
@@ -256,8 +268,8 @@ test("the retained while loop starter opens with readable node detail at 1280x80
 
 test("the problem assertion rejects a malformed retained loop starter", async ({
   page,
-}) => {
-  const templates = await starterTemplates();
+}, testInfo) => {
+  const templates = await starterTemplates(testInfo, ["loop-map-images"]);
   const template = templates.find(
     (candidate) => candidate.id === "loop-map-images",
   );

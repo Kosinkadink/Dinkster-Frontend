@@ -109,7 +109,7 @@ import {
 import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
 import { CancelExecutionButton } from './CancelExecutionButton.js'
-import { ExecutedImageFacts, ExecutedImageViewer, ViewerImage, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
+import { ExecutedImageFacts, ExecutedImageViewer, SavedOutputFiles, ViewerImage, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { executedImageInventory, executedImageLabel, type ExecutedImage } from './executed-image-inventory.js'
 import {
   beginTabDragModel,
@@ -3104,6 +3104,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
   })
   const images = createMemo(() => executedImageInventory(props.execution, {
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
+    executionAssetReader: (execution, digests, holder) => props.app.executionAssetReader(execution, digests, holder),
     values: values(),
   }))
   const pageStart = () => Math.min(imagePage(), Math.max(0, Math.ceil(images().length / 4) - 1)) * 4
@@ -3168,6 +3169,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
         </Show>
       </section>
       <MediaDiagnostics diagnostics={props.execution.valueDiagnostics ?? []} />
+      <SavedOutputFiles artifacts={props.execution.artifacts} images={images()} />
       <For each={mediaValueGroups()}>{(group) => (
         <section class="output-iteration-group output-value-group" aria-label={group.label}>
           <h3>{group.label}</h3>

@@ -67,7 +67,7 @@ test('uses one collection shell for grouped models and media', async ({ page }) 
   await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
   await expect.poll(() => page.evaluate((url) =>
     window.__dinksterTest!.app.backends.get().find((backend) => backend.baseUrl === url)?.registry.get() !== undefined, MOCK)).toBe(true)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'ModelPickerProof', displayName: 'Model picker proof', category: 'test', source: 'v3', isOutputNode: false,
@@ -80,7 +80,7 @@ test('uses one collection shell for grouped models and media', async ({ page }) 
           widget: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] }, default: null } }],
       },
     ])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'logical-model-picker', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         model: { id: 'model', type: 'ModelPickerProof', values: { model: null } },

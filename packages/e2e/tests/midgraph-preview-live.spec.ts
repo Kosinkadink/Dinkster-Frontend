@@ -1,6 +1,6 @@
 /**
  * Mid-graph tensor preview against a REAL Dinkster backend: upload a png asset,
- * execute dinkster.load_image -> dinkster.save_image, and prove the load node's
+ * execute dinkster.image.load_image -> dinkster.image.save_image, and prove the load node's
  * decoded image output is fetched through /api/values rendition
  * negotiation and decoded into an on-canvas preview at its true dimensions.
  *
@@ -9,6 +9,7 @@
  */
 import { deflateSync } from 'node:zlib'
 import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -55,7 +56,7 @@ async function addNativeBackend(page: Page): Promise<void> {
 
 async function openMidgraphDoc(page: Page, asset: { digest: string; size: number }): Promise<void> {
   await expect.poll(() => page.evaluate((url) =>
-    window.__dinksterTest!.app.backends.get().find((backend) => backend.baseUrl === url)?.registry.get()?.schemas.has('dinkster.load_image'),
+    window.__dinksterTest!.app.backends.get().find((backend) => backend.baseUrl === url)?.registry.get()?.schemas.has('dinkster.image.load_image'),
   NATIVE_BACKEND)).toBe(true)
   const opened = await page.evaluate(async ({ digest, size, url }) => {
     const app = window.__dinksterTest!.app
@@ -68,10 +69,10 @@ async function openMidgraphDoc(page: Page, asset: { digest: string; size: number
       graphs: { g0: {
         id: 'g0', name: 'root',
         nodes: {
-          li: { id: 'li', type: 'dinkster.load_image', values: { image: { digest, name: 'e2e.png', size, mediaType: 'image/png', virtualPath: '' } } },
-          pi: { id: 'pi', type: 'dinkster.save_image', values: {} },
+          li: { id: 'li', type: 'dinkster.image.load_image', values: { image: { digest, name: 'e2e.png', size, mediaType: 'image/png', virtualPath: '' } } },
+          pi: { id: 'pi', type: 'dinkster.image.save_image', values: {} },
         },
-        links: { l1: { id: 'l1', from: { node: 'li', port: 'image' }, to: { node: 'pi', port: 'images' } } },
+        links: { l1: { id: 'l1', from: { node: 'li', port: 'IMAGE' }, to: { node: 'pi', port: 'images' } } },
         nets: {}, reroutes: {}, nextOrdinal: 3,
       } },
       view: { graphs: { g0: { nodes: { li: { position: { x: 80, y: 120 } }, pi: { position: { x: 420, y: 120 } } } } } },
@@ -82,22 +83,14 @@ async function openMidgraphDoc(page: Page, asset: { digest: string; size: number
   expect(opened).toBe(true)
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   let served: Record<string, unknown> | null = null
   try {
     const probe = await fetch(`${NATIVE_BACKEND}/api/nodes`, { signal: AbortSignal.timeout(2000) })
     if (probe.ok) served = (await probe.json() as { nodes?: Record<string, unknown> }).nodes ?? {}
   } catch { /* unreachable -> served stays null */ }
   test.skip(served === null, `no native Dinkster backend reachable at ${NATIVE_BACKEND} (set DINKSTER_NATIVE_BACKEND)`)
-  await expect.poll(async () => {
-    const response = await fetch(`${NATIVE_BACKEND}/api/nodes`)
-    if (!response.ok) return false
-    const nodes = (await response.json() as { nodes?: Record<string, unknown> }).nodes ?? {}
-    return 'dinkster.load_image' in nodes && 'dinkster.save_image' in nodes
-  }, {
-    message: `native backend at ${NATIVE_BACKEND} must compose dinkster.load_image and dinkster.save_image`,
-    timeout: 30_000,
-  }).toBe(true)
+  requireBackendNodes(served!, ['dinkster.image.load_image', 'dinkster.image.save_image'], testInfo)
 
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
@@ -131,7 +124,7 @@ test('a mid-graph image rendition decodes real pixels into the producer node pre
     const latest = executions.sort((a, b) => b.queuedAt - a.queuedAt)[0] as unknown as {
       nodes?: Record<string, { outputs?: Record<string, { typeId?: string }> }>
     }
-    return latest.nodes?.['li']?.outputs?.['image']?.typeId
+    return latest.nodes?.['li']?.outputs?.['IMAGE']?.typeId
   })
   expect(outputType).toBe('IMAGE')
 
@@ -147,7 +140,7 @@ test('a mid-graph image rendition decodes real pixels into the producer node pre
 
   const producerRequests = valueRequests
     .map((url) => new URL(url))
-    .filter((url) => url.searchParams.get('nodeId') === 'li' && url.searchParams.get('outputId') === 'image')
+    .filter((url) => url.searchParams.get('nodeId') === 'li' && url.searchParams.get('outputId') === 'IMAGE')
   const peekAt = producerRequests.findIndex((url) => !url.searchParams.has('rendition'))
   const renditionAt = producerRequests.findIndex((url) => url.searchParams.has('rendition'))
   expect(peekAt).toBeGreaterThanOrEqual(0)

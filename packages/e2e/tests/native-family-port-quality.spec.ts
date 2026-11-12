@@ -8,22 +8,22 @@ type DynamicState = Record<string, {
   readonly seq?: number
 }>
 
-// Authored comfy-pack families opt into canonical positions; legacy families
-// retain stable mN identities. ReferenceMultiLatent's image template is optional.
+// Authored families opt into canonical positions; other families retain stable
+// mN identities. The reference-multi-latent image template is optional.
 const canonicalFamilyMembers: Record<string, Record<string, readonly string[] | null>> = {
-  BatchImagesNode: { images: ['image0'] },
-  BatchLatentsNode: { latents: ['latent0'] },
-  BatchMasksNode: { masks: ['mask0'] },
-  ComfyAndNode: { values: ['value0'] },
-  ComfyOrNode: { values: ['value0'] },
-  ComfyMathExpression: { values: ['a'] },
-  ConcatenateVideo: { videos: ['video0'] },
-  CreateList: { inputs: ['input0'] },
-  GLSLShader: { images: ['image0'] },
-  MergeMeshes: { meshes: ['mesh0', 'mesh1'] },
-  MergeSplat: { splats: ['splat0', 'splat1'] },
-  ReferenceMultiLatent: { images: null },
-  TextEncodeMOSSImageEdit: { images: ['image_0'] },
+  'dinkster.image.batch_images_node': { images: ['image0'] },
+  'dinkster.latent.batch_latents_node': { latents: ['latent0'] },
+  'dinkster.image.batch_masks_node': { masks: ['mask0'] },
+  'dinkster.utilities.comfy_and_node': { values: ['value0'] },
+  'dinkster.utilities.comfy_or_node': { values: ['value0'] },
+  'dinkster.utilities.comfy_math_expression': { values: ['a'] },
+  'dinkster.video.concatenate_video': { videos: ['video0'] },
+  'dinkster.utilities.create_list': { inputs: ['input0'] },
+  'dinkster.image.glsl_shader': { images: ['image0'] },
+  'dinkster.3d.merge_meshes': { meshes: ['mesh0', 'mesh1'] },
+  'dinkster.3d.merge_splat': { splats: ['splat0', 'splat1'] },
+  'dinkster.conditioning.reference_multi_latent': { images: null },
+  'dinkster.misc.models.text_encode_moss_image_edit': { images: ['image_0'] },
 }
 
 type Wire15Input = {
@@ -95,8 +95,8 @@ function requiredWire15State(
 }
 
 async function openBlank(page: Page, lineage: string): Promise<void> {
-  await page.evaluate((lineage) => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async (lineage) => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage, root: 'g0',
       graphs: {
         g0: {
@@ -231,13 +231,17 @@ test('every live wire-15 family node persists minimums and reloads with a growth
       if (members === null) expect(result.dynamic[construct], `${type}:${construct}:optional`).toBeUndefined()
     }
     // These nodes expose only the hidden dependencies family in loops.py.
-    const visibleGrowth = !['LoopIteration', 'LoopProgress', 'LoopResult'].includes(type)
+    const visibleGrowth = ![
+      'dinkster.utilities.loop_iteration',
+      'dinkster.utilities.loop_progress',
+      'dinkster.utilities.loop_result',
+    ].includes(type)
     expect(result.hasGrowthTarget, type).toBe(visibleGrowth)
     expect(result.underMinimum, type).toEqual([])
 
-    await page.evaluate(({ type }) => {
+    await page.evaluate(async ({ type }) => {
       const app = window.__dinksterTest!.app
-      app.openDocument(structuredClone(app.activeTab()!.store.doc), `reloaded-${type}`)
+      await app.openDocument(structuredClone(app.activeTab()!.store.doc), `reloaded-${type}`)
     }, { type })
     await expect.poll(() => page.evaluate((nodeId) => {
       const tab = window.__dinksterTest!.app.activeTab()
@@ -273,19 +277,19 @@ test('every live wire-15 family node persists minimums and reloads with a growth
 
 test('Math Expression keeps named inputs ordered through growth and compaction', async ({ page }, testInfo) => {
   await openBlank(page, 'math-family-link-drop')
-  const sourceId = await placeFromPalette(page, 'dinkster.float', { x: 300, y: 300 })
-  const source = await pinPoint(page, sourceId, 'out', 'value')
+  const sourceId = await placeFromPalette(page, 'dinkster.utilities.primitive_float', { x: 300, y: 300 })
+  const source = await pinPoint(page, sourceId, 'out', 'FLOAT')
   await drag(page, source, { x: 800, y: 500 })
   await expect(page.getByTestId('node-palette')).toBeVisible()
-  await page.getByTestId('palette-search').fill('dinkster.math.expression')
-  await page.locator('[data-node-type="dinkster.math.expression"]').getByRole('option').click()
+  await page.getByTestId('palette-search').fill('dinkster.utilities.comfy_math_expression')
+  await page.locator('[data-node-type="dinkster.utilities.comfy_math_expression"]').getByRole('option').click()
 
   const mathId = await expect.poll(() => page.evaluate(() => {
     const doc = window.__dinksterTest!.app.activeTab()!.store.doc
-    return Object.values(doc.graphs.g0!.nodes).find((node) => node.type === 'dinkster.math.expression')?.id
+    return Object.values(doc.graphs.g0!.nodes).find((node) => node.type === 'dinkster.utilities.comfy_math_expression')?.id
   })).not.toBeUndefined().then(() => page.evaluate(() => {
     const doc = window.__dinksterTest!.app.activeTab()!.store.doc
-    return Object.values(doc.graphs.g0!.nodes).find((node) => node.type === 'dinkster.math.expression')!.id
+    return Object.values(doc.graphs.g0!.nodes).find((node) => node.type === 'dinkster.utilities.comfy_math_expression')!.id
   }))
 
   let state = await page.evaluate((mathId) => {
@@ -310,9 +314,9 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
   }, mathId)
   expect(state).toEqual({ members: ['a', 'b'], targets: ['values.a', 'values.b'] })
 
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    app.openDocument(structuredClone(app.activeTab()!.store.doc), 'Reloaded Math family')
+    await app.openDocument(structuredClone(app.activeTab()!.store.doc), 'Reloaded Math family')
   })
   await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
   const reloaded = await page.evaluate((mathId) => {
@@ -339,9 +343,9 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
   ]))
   expect(reloaded.valueWidgets).toEqual([])
   expect(reloaded.pairedRows).toEqual([
-    { input: 'values.a', output: 'float' },
-    { input: 'values.b', output: 'int' },
-    { input: 'values.c', output: 'boolean' },
+    { input: 'values.a', output: 'FLOAT' },
+    { input: 'values.b', output: 'INT' },
+    { input: 'values.c', output: 'BOOL' },
   ])
 
   const preserved = await page.evaluate(async (mathId) => {
@@ -395,6 +399,7 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
     value: 2.5,
     links: [{ id: preserved.bLinkId, target: 'values.b' }],
     inputs: [
+      { port: 'values.a', ghost: false },
       { port: 'values.b', ghost: false },
       { port: 'values.c', ghost: true },
     ],
@@ -417,6 +422,7 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
     value: 2.5,
     links: [{ id: preserved.bLinkId, target: 'values.b' }],
     inputs: [
+      { port: 'values.a', ghost: false },
       { port: 'values.b', ghost: false },
       { port: 'values.c', ghost: true },
     ],

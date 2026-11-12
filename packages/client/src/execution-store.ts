@@ -334,8 +334,8 @@ const mergeSnapshotNodes = (
 }
 
 /**
- * Terminal executions keep their stills but release animated frame rings:
- * the encoded ring payloads are only useful while the node still samples.
+ * Terminal executions release animation and unfinished batches. Successful
+ * untimed batches are retained separately under the existing preview budget.
  */
 const dropPreviewRings = ({ previewRings: _rings, ...rest }: ExecutionState): ExecutionState => rest
 
@@ -646,9 +646,11 @@ export class ExecutionStore {
         }
         const rings = state.previewRings ?? {}
         const nodeRings = rings[event.runtimeNodeId] ?? {}
-        // A terminal execution released its rings; a straggler frame may
-        // still refresh the retained still but must never rebuild a ring.
-        if (!terminal && frame.frameIndex !== undefined && frame.frameCount !== undefined) {
+        // Completed untimed batches remain browsable. Late frames can fill
+        // retained slots, but cannot recreate a batch evicted by the budget.
+        const retainedBatch = state.status === 'completed' && frame.fps === undefined && nodeRings[streamKey]?.fps === undefined
+          && nodeRings[streamKey] !== undefined
+        if ((!terminal || retainedBatch) && frame.frameIndex !== undefined && frame.frameCount !== undefined) {
           const prior = nodeRings[streamKey]
           const kept = prior !== undefined && prior.frameCount === frame.frameCount ? prior.frames : {}
           const ring: PreviewRing = {
@@ -783,10 +785,15 @@ export class ExecutionStore {
         this.enforcePreviewBudget(event.execution.connection)
         this.evictExecutionEntries(event.execution.connection)
         return
-      case 'completed':
+      case 'completed': {
         if (this.isAuthoritativeTerminal(state)) return
+        const batches = Object.fromEntries(Object.entries(state.previewRings ?? {}).flatMap(([node, streams]) => {
+          const kept = Object.fromEntries(Object.entries(streams).filter(([, ring]) => ring.fps === undefined))
+          return Object.keys(kept).length > 0 ? [[node, kept]] : []
+        }))
         this.put({
           ...dropPreviewRings(state),
+          ...(Object.keys(batches).length > 0 ? { previewRings: batches } : {}),
           status: 'completed',
           endedAt: event.timestamp,
           errors: this.provisionallyLost.delete(state.key) ? withoutLostDiagnostics(state.errors) : state.errors,
@@ -794,6 +801,7 @@ export class ExecutionStore {
         this.enforcePreviewBudget(event.execution.connection)
         this.evictExecutionEntries(event.execution.connection)
         return
+      }
     }
   }
 

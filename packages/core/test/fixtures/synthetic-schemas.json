@@ -1,6 +1,6 @@
 {
-  "EmptyImage": {
-    "type": "EmptyImage",
+  "dinkster.image.empty_image": {
+    "type": "dinkster.image.empty_image",
     "displayName": "Empty Image",
     "category": "image",
     "source": "v3",
@@ -62,8 +62,8 @@
       }
     ]
   },
-  "ImageScaleBy": {
-    "type": "ImageScaleBy",
+  "dinkster.image.image_scale_by": {
+    "type": "dinkster.image.image_scale_by",
     "displayName": "Upscale Image By",
     "category": "image/upscaling",
     "source": "v3",
@@ -103,8 +103,8 @@
       }
     ]
   },
-  "PreviewImage": {
-    "type": "PreviewImage",
+  "dinkster.image.preview_image": {
+    "type": "dinkster.image.preview_image",
     "displayName": "Preview Image",
     "category": "image",
     "source": "v3",

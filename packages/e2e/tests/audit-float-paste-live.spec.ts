@@ -1,5 +1,5 @@
 /**
- * Native Float (dinkster.float) Ctrl+Shift+V connected-paste matrix against the
+ * Native Float (dinkster.utilities.primitive_float) Ctrl+Shift+V connected-paste matrix against the
  * standing :5199 dev server and the
  * real native :8765 backend catalog, driven through the user's exact
  * LAN origin. Distinguishes empirically every meaning of "normal
@@ -17,29 +17,29 @@
  * copy/paste round trip exactly as it does for the user.
  */
 import { expect, test, type Page } from '@playwright/test'
-import { skipWithoutNativeCatalog } from './fixtures.js'
+import { skipWithoutNativeCatalog, waitForStartupOwnership } from './fixtures.js'
 
 const proofDir = '/tmp/audit-live-conflict-proof'
 
 async function openFixture(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const bridge = window.__dinksterTest!
-    const failures = bridge.app.openDocument({
+    const failures = (await bridge.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-live-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
-        up: { id: 'up', type: 'dinkster.float', values: { value: 1.5 } },
-        mid: { id: 'mid', type: 'dinkster.float', values: { value: 2.5 } },
-        down: { id: 'down', type: 'dinkster.float', values: { value: 3.5 } },
+        up: { id: 'up', type: 'dinkster.utilities.primitive_float', values: { value: 1.5 } },
+        mid: { id: 'mid', type: 'dinkster.utilities.primitive_float', values: { value: 2.5 } },
+        down: { id: 'down', type: 'dinkster.utilities.primitive_float', values: { value: 3.5 } },
       }, links: {
-        lin: { id: 'lin', from: { node: 'up', port: 'value' }, to: { node: 'mid', port: 'value' } },
-        lout: { id: 'lout', from: { node: 'mid', port: 'value' }, to: { node: 'down', port: 'value' } },
+        lin: { id: 'lin', from: { node: 'up', port: 'FLOAT' }, to: { node: 'mid', port: 'value' } },
+        lout: { id: 'lout', from: { node: 'mid', port: 'FLOAT' }, to: { node: 'down', port: 'value' } },
       }, nets: {}, reroutes: {}, nextOrdinal: 20 } },
       view: { graphs: { g0: { nodes: {
         up: { position: { x: 80, y: 120 } },
         mid: { position: { x: 420, y: 120 } },
         down: { position: { x: 760, y: 120 } },
       } } } },
-    }, 'audit float paste proof')
+    }, 'audit float paste proof'))
     if (failures.length > 0) throw new Error(`openDocument failed: ${JSON.stringify(failures)}`)
     bridge.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
@@ -97,6 +97,7 @@ test.beforeEach(async ({ page, request }, testInfo) => {
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size ?? 0,
   ), { timeout: 20_000 }).toBeGreaterThan(400)
+  await waitForStartupOwnership(page)
   await openFixture(page)
 })
 

@@ -63,7 +63,7 @@ async function openFixture(
   values: Record<string, unknown>,
   links: Record<string, unknown> = {},
 ): Promise<void> {
-  await page.evaluate(({ values, links }) => {
+  await page.evaluate(async ({ values, links }) => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue },
@@ -86,7 +86,7 @@ async function openFixture(
         items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' } }],
       },
     ])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'widget-diagnostics', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         widgets: { id: 'widgets', type: 'DiagWidgetsTest', values },

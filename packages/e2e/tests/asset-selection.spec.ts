@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 async function acknowledgeRetentions(page: Page): Promise<void> {
   await page.route('/api/library/retentions/document/*?scope=local', async (route) => {
@@ -31,7 +31,7 @@ for (const accepted of [true, false]) {
         return output.stream
       } })
     })
-    await page.route('/api/**', (route) => route.fulfill({ status: 503 }))
+    await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 503 }))
     await page.route('/api/nodes*', (route) => route.fulfill({ json: {
       schemaVersion: 1, epoch: 1, dinkster: { version: 'recording-ownership', schemaWire: 1 },
       nodes: { Recorder: { schemaVersion: 1, displayName: 'Audio recording', interface: [
@@ -61,13 +61,14 @@ for (const accepted of [true, false]) {
     })
     await page.goto('/')
     await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
-    await page.evaluate(() => {
-      window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'recording-owner', root: 'g0',
+    await page.evaluate(async () => {
+      await window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'recording-owner', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'root', nodes: { source: { id: 'source', type: 'Recorder', values: { audio: null } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
         view: { graphs: { g0: { nodes: { source: { position: { x: 100, y: 100 } } } } } },
       }, 'Recording ownership')
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     })
+    await waitForStartupOwnership(page)
     await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(1)
     const point = await page.evaluate(() => {
       const renderer = window.__dinksterTest!.renderer!
@@ -137,13 +138,14 @@ for (const accepted of [true, false]) {
     })
     await page.goto('/')
     await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
-    await page.evaluate(() => {
-      window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'picker-owner', root: 'g0',
+    await page.evaluate(async () => {
+      await window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'picker-owner', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'root', nodes: { source: { id: 'source', type: 'Picker', values: { source: null } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
         view: { graphs: { g0: { nodes: { source: { position: { x: 100, y: 100 } } } } } },
       }, 'Picker ownership')
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     })
+    await waitForStartupOwnership(page)
     await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(1)
     const point = await page.evaluate(() => {
       const renderer = window.__dinksterTest!.renderer!
@@ -192,8 +194,8 @@ test('native source choices preserve names, cancel, unavailable values and backe
   await acknowledgeRetentions(page)
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'source-choice', root: 'g0',
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'source-choice', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { source: { id: 'source', type: 'SourceChoice', values: { source: 'old/source' } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { g0: { nodes: { source: { position: { x: 100, y: 100 } } } } } },
     }, 'Source choices')
@@ -274,8 +276,8 @@ test('VAE source picker preserves file identity and rejects closed-editor and st
   await acknowledgeRetentions(page)
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
-  await page.evaluate((asset) => {
-    window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'vae-source', root: 'g0',
+  await page.evaluate(async (asset) => {
+    await window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'vae-source', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { source: { id: 'source', type: 'VaeSource', values: { source: asset } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { g0: { nodes: { source: { position: { x: 100, y: 100 } } } } } },
     }, 'VAE sources')

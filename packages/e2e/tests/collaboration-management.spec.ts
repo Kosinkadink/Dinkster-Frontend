@@ -201,6 +201,11 @@ async function installProductionCollabTransport(page: Page): Promise<void> {
 test('sharing waits for ownership and keeps the local workflow after refusal', async ({ page }, info) => {
   await appReady(page)
   await installProductionCollabTransport(page)
+  await page.evaluate(() => window.__dinksterTest!.app.flushPersistTabs())
+  await expect.poll(() => page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('dinkster.openTabs') ?? 'null')
+    return saved?.assetRetention?.acknowledged === true
+  })).toBe(true)
   const replies: ((revision: number) => Promise<void>)[] = []
   await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
     if (route.request().method() === 'GET') return route.fulfill({ status: 404 })

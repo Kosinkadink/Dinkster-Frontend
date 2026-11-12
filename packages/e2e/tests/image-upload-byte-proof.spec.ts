@@ -103,17 +103,17 @@ async function assertUploadAndVault(
 }
 
 async function openDocument(page: Page, lineage: string, includeOutput: boolean, includeLoad = true): Promise<void> {
-  await page.evaluate(({ lineage, includeOutput, includeLoad }) => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async ({ lineage, includeOutput, includeLoad }) => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage, root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
         nodes: {
-          ...(includeLoad ? { load: { id: 'load', type: 'dinkster.load_image', values: { image: null } } } : {}),
-          ...(includeOutput ? { output: { id: 'output', type: 'dinkster.save_image', values: {} } } : {}),
+          ...(includeLoad ? { load: { id: 'load', type: 'dinkster.image.load_image', values: { image: null } } } : {}),
+          ...(includeOutput ? { output: { id: 'output', type: 'dinkster.image.save_image', values: {} } } : {}),
         },
         links: includeOutput && includeLoad
-          ? { image: { id: 'image', from: { node: 'load', port: 'image' }, to: { node: 'output', port: 'images' } } }
+          ? { image: { id: 'image', from: { node: 'load', port: 'IMAGE' }, to: { node: 'output', port: 'images' } } }
           : {},
         nets: {}, reroutes: {}, nextOrdinal: 1 + Number(includeLoad) + Number(includeOutput),
       } },
@@ -165,27 +165,27 @@ async function assertExportReopen(page: Page): Promise<void> {
     const exported = app.exportDocument(app.activeTab()!.id) as WorkflowDocument | undefined
     return exported?.meta?.ext?.['dinkster.assetLocations'] !== undefined
   })).toBe(true)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const exported = app.exportDocument(app.activeTab()!.id)
     if (exported === undefined) throw new Error('image byte proof export failed')
-    app.openDocument(JSON.parse(JSON.stringify(exported)), 'Reopened image byte proof')
+    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Reopened image byte proof')
   })
   expect(await assetRef(page)).toEqual(before)
 }
 
 async function connectOutputAndRun(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const tab = window.__dinksterTest!.app.activeTab()!
     const reopened = JSON.parse(JSON.stringify(tab.store.doc))
     const graph = reopened.graphs[reopened.root]
     const load = (Object.values(graph.nodes) as Array<{ id: string; type: string }>)
-      .find((node) => node.type === 'dinkster.load_image')!
-    graph.nodes.output = { id: 'output', type: 'dinkster.save_image', values: {} }
-    graph.links.image = { id: 'image', from: { node: load.id, port: 'image' }, to: { node: 'output', port: 'images' } }
+      .find((node) => node.type === 'dinkster.image.load_image')!
+    graph.nodes.output = { id: 'output', type: 'dinkster.image.save_image', values: {} }
+    graph.links.image = { id: 'image', from: { node: load.id, port: 'IMAGE' }, to: { node: 'output', port: 'images' } }
     graph.nextOrdinal += 1
     reopened.view.graphs[reopened.root].nodes.output = { position: { x: 500, y: 100 } }
-    window.__dinksterTest!.app.openDocument(reopened, 'Runnable image byte proof')
+    await window.__dinksterTest!.app.openDocument(reopened, 'Runnable image byte proof')
   })
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   await page.getByTestId('queue-button').click()
@@ -202,11 +202,11 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
   await waitForStartupOwnership(page)
-  const required = await page.evaluate(() => {
+  const missing = await page.evaluate(() => {
     const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas
-    return schemas?.has('dinkster.load_image') === true && schemas.has('dinkster.save_image')
+    return ['dinkster.image.load_image', 'dinkster.image.save_image'].filter((id) => !schemas?.has(id))
   })
-  test.skip(!required, 'same-origin live catalog lacks dinkster.load_image or dinkster.save_image')
+  expect(missing, `same-origin live catalog lacks required nodes: ${missing.join(', ')}`).toEqual([])
 })
 
 test('real ASSET Upload preserves a greater-than-256-KiB PNG through graph, vault, reopen, and execution', async ({ page }) => {

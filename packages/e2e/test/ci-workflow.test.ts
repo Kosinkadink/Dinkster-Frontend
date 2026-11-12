@@ -183,34 +183,25 @@ describe('fast pull-request and full validation workflows', () => {
     expect(runs[3]).toBe(
       'uv sync --project .ci/Dinkster --locked --package dinkster --no-dev',
     )
-    expect(
-      runs[4]!
-        .trim()
-        .split(/\s+/)
-        .filter((part) => part !== '\\'),
-    ).toEqual([
-      'uv',
-      'pip',
-      'install',
-      '--python',
-      '.ci/Dinkster/.venv/bin/python',
-      '--no-deps',
-      '--no-sources',
-      '-e',
-      '.ci/Dinkster/packages/dinkster-nodes-dev',
-      '-e',
-      '.ci/Dinkster/packages/dinkster-nodes-foundation',
-      '-e',
-      '.ci/Dinkster/packages/dinkster-nodes-image',
-      '-e',
-      '.ci/Dinkster/packages/dinkster-nodes-media-io',
-      '-e',
-      '.ci/Dinkster/packages/dinkster-nodes-remote',
-      '-e',
-      '.ci/Dinkster/packages/dinkster-nodes-comfy',
-      '-e',
-      '.ci/Dinkster/packages/dinkster-nodes-vision',
-    ])
+    for (const workflow of [fast, full]) {
+      for (const job of Object.values(workflow.jobs)) {
+        const install = job.steps?.find(
+          (step) => step.name === 'Install checkout pack sources',
+        )
+        if (install === undefined) continue
+        expect(install.run).toBe(
+          [
+            'packs=()',
+            'for pack in .ci/Dinkster/packages/dinkster-nodes-*; do',
+            '  packs+=(-e "$pack")',
+            'done',
+            'uv pip install --python .ci/Dinkster/.venv/bin/python --no-deps --no-sources \\',
+            '  "${packs[@]}"',
+            '',
+          ].join('\n'),
+        )
+      }
+    }
     expect(runs[5]).toBe(
       '.ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library',
     )
@@ -477,7 +468,7 @@ describe('fast pull-request and full validation workflows', () => {
       expect(parallel.testIgnore).not.toContain(`tests/${file}`)
   })
 
-  it('runs the thirteen native live Vitest cases in the native startup server lifetime', async () => {
+  it('runs the current native live cases and checks only canonical withdrawals in the native startup server lifetime', async () => {
     const setup = await readFile(
       resolve(root, 'packages/e2e/hosted-live-vitest-setup.ts'),
       'utf8',
@@ -491,8 +482,10 @@ describe('fast pull-request and full validation workflows', () => {
       'regions-live.integration.test.ts',
     ])
       expect(setup).toContain(`test/${file}`)
-    expect(setup).toContain('count: 11')
-    expect(setup).toContain('count: 2')
+    expect(setup).toContain('count: 16')
+    expect(setup).toContain('count: 6')
+    expect(setup).toContain('tests/withdrawn-drafts.json')
+    expect(setup).toContain('allowedWithdrawals.has(test.fullName)')
     expect(setup).toContain("'--maxWorkers=1'")
     expect(setup).toContain("'--no-file-parallelism'")
     expect(setup).toContain("'--testNamePattern=^live '")
@@ -588,12 +581,23 @@ describe('fast pull-request and full validation workflows', () => {
         expect(compatibilityInstall.run).toContain(
           'uv pip install --python .ci/Dinkster/.venv-torch/bin/python',
         )
+        expect(compatibilityInstall.run).toContain(
+          'UV_PROJECT_ENVIRONMENT=.venv-torch uv sync --project .ci/Dinkster --python 3.12 --locked --package dinkster --no-dev',
+        )
+        expect(compatibilityInstall.run).toContain(
+          'for pack in .ci/Dinkster/packages/dinkster-nodes-*; do',
+        )
+        expect(compatibilityInstall.run).toContain(
+          'uv pip install --python .ci/Dinkster/.venv-torch/bin/python --no-deps --no-sources \\\n  "${packs[@]}"',
+        )
         expect(compatibilityInstall.run).not.toContain(
           'uv pip install --python .ci/ComfyUI/venv/bin/python',
         )
         expect(compatibilityInstall.run).toContain(
-          '--index https://download.pytorch.org/whl/cpu',
+          '--torch-backend cpu --default-index https://pypi.org/simple',
         )
+        expect(compatibilityInstall.run).not.toContain('--index ')
+        expect(compatibilityInstall.run).not.toContain('unsafe-best-match')
         expect(compatibilityInstall.run).toContain(
           '"comfy-kitchen==0.2.40" "comfy-aimdo==0.6.0"',
         )

@@ -62,9 +62,28 @@ const dispositions = [
   { type: 'AUDIO_RECORD', compact: 'core.audioRecord', expanded: 'explicit recording and staged audio asset modal' },
   { type: 'WEBCAM', compact: 'core.webcam', expanded: 'camera capture and staged PNG asset modal' },
   { type: 'COLORS', compact: 'core.colors', expanded: 'ordered palette draft popover' },
+  { type: 'BOUNDING_BOX', compact: 'core.boundingBox', expanded: 'pixel crop region popover' },
+  { type: 'IMAGECOMPARE', compact: 'core.imageCompare', expanded: 'paired preview wipe and independent batch browsing' },
+  { type: 'CAMERA_ANGLE_VIEW', compact: 'core.cameraAngle', expanded: 'orbit preview and atomic sibling input popover' },
+  { type: 'RESOLUTION_PREVIEW', compact: 'core.resolution', expanded: 'dimensions preview and atomic sibling input popover' },
+  { type: 'SAVE_TARGET', compact: 'core.saveTarget', expanded: 'writable mount and relative filename prefix popover' },
 ] as const
 
 describe('registered widget disposition inventory', () => {
+  it('admits only structured relative save targets and copies schema defaults', () => {
+    const kind = registry.kind('SAVE_TARGET')!
+    const initial = { mount: '0-renders', prefix: 'nested/frame' }
+    expect(kind.valueSchema.validate(initial)).toBe(true)
+    expect(kind.valueSchema.validate(null)).toBe(true)
+    expect(kind.defaultValue({ widgetType: 'SAVE_TARGET', options: {}, default: initial })).toEqual(initial)
+    expect(kind.defaultValue({ widgetType: 'SAVE_TARGET', options: {}, default: initial })).not.toBe(initial)
+    for (const value of [
+      'output/frame', {}, { ...initial, extra: true }, { ...initial, mount: 'bad_mount' },
+      { ...initial, mount: '/tmp' }, { ...initial, prefix: '/absolute' },
+      { ...initial, prefix: 'a//b' }, { ...initial, prefix: 'a/../b' }, { ...initial, prefix: 'a\\b' },
+    ]) expect(kind.valueSchema.validate(value)).toBe(false)
+  })
+
   it('copies COLORS defaults without truncation or normalization and draws ordered compact swatches', () => {
     const defaults = ['#A1B2C3dd', '#f00', '#A1B2C3dd', '#ffffff', '#000000']
     const spec: WidgetSpec = { widgetType: 'COLORS', options: {}, default: defaults }
