@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 import { auditLayout } from './ui-audit.js'
 import { evidencePath } from './evidence-output.js'
 
@@ -22,7 +22,8 @@ const runtimeSettings = {
 }
 
 async function installRoutes(page: Page): Promise<void> {
-  await page.route('**/api/**', (route) => route.fulfill({ json: {} }))
+  await page.route('**/api/**', (route) => route.request().url().includes('/api/library/retentions/')
+    ? route.fallback() : route.fulfill({ json: {} }))
   await page.route('/supervisor/status', (route) => route.fulfill({ json: {
     protocol: 1,
     state: 'ready',
@@ -49,7 +50,7 @@ async function installRoutes(page: Page): Promise<void> {
 async function openFixture(page: Page): Promise<void> {
   await installRoutes(page)
   await page.goto('/')
-  await expect.poll(() => page.evaluate(() => Boolean(window.__dinksterTest))).toBe(true)
+  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as any
     const local = app.backends.get()[0]!
@@ -172,6 +173,16 @@ test('mounted backend connection chrome follows the supported locale without cha
   await page.screenshot({ path: evidencePath('issue-457', 'backend-connections-i18n-en.png'), fullPage: true })
 
   await expect(page.locator('.memory-controls details[data-category="memory-budgets"]')).toBeAttached()
+  // Startup persistence is fixture work, not a request caused by changing locale.
+  await page.evaluate(() => window.__dinksterTest!.app.flushPersistTabs())
+  await expect.poll(() => page.evaluate(() => {
+    const slots = Object.keys(localStorage).filter((key) => key.startsWith('dinkster.openTabs'))
+    return {
+      canonical: JSON.parse(localStorage.getItem('dinkster.openTabs') ?? 'null')?.assetRetention?.acknowledged === true,
+      candidates: slots.filter((key) => key.startsWith('dinkster.openTabsCandidate.')),
+      unacknowledged: slots.filter((key) => JSON.parse(localStorage.getItem(key)!).assetRetention?.acknowledged !== true),
+    }
+  })).toEqual({ canonical: true, candidates: [], unacknowledged: [] })
   const backendRequests: string[] = []
   page.on('request', (outgoing) => {
     const url = new URL(outgoing.url())
