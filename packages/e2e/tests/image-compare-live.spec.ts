@@ -17,7 +17,7 @@ test('compares real completed image batches with independent keyboard frame sele
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
   await waitForStartupOwnership(page)
   const openDocument = async (single = false): Promise<void> => {
-    await page.evaluate((single) => {
+    await page.evaluate(async (single) => {
       const nodes: Record<string, unknown> = {
         compare: { id: 'compare', type: 'ImageCompare', values: { compare_view: null } },
       }
@@ -34,7 +34,7 @@ test('compares real completed image batches with independent keyboard frame sele
       }
       link('a-compare', 'a', 'compare', 'image_a')
       if (!single) link('b-compare', 'b', 'compare', 'image_b')
-      const diagnostics = window.__dinksterTest!.app.openDocument({
+      const diagnostics = await window.__dinksterTest!.app.openDocument({
         format: 'dinkster-workflow', formatVersion: 1, lineage: single ? 'compare-single' : 'compare-paired', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'Compare', nodes, links, nets: {}, reroutes: {}, nextOrdinal: 20 } },
         view: { graphs: { g0: { nodes: Object.fromEntries(Object.keys(nodes).map((id, index) => [id,

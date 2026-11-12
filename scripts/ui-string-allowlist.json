@@ -679,6 +679,9 @@
     "text:(undefined) const commit = async (value: string): Promise",
     "text:CommandOutcome | undefined | Promise"
   ],
+  "NodeInstallPrompt.tsx": [
+    "text:() const [commandsCopied, setCommandsCopied] = createSignal(false) const [busy, setBusy] = createSignal(false) const [progress, setProgress] = createSignal"
+  ],
   "NodePalette.tsx": [
     "text:() const duplicates = new Set",
     "text:(new Set(props.anchor.initialInputTypes)) const [paletteOutputTypes, setPaletteOutputTypes] = createSolidSignal",
@@ -700,6 +703,7 @@
     "text:mount.mode === \"readwrite\") ?? []; const save = async (): Promise"
   ],
   "ProblemsPanel.tsx": [
+    "text:() const [progress, setProgress] = createSignal",
     "text:Promise"
   ],
   "ProductControls.tsx": [
@@ -989,6 +993,10 @@
   ],
   "editors/AudioRecordWidgetEditor.tsx": [
     "text:props.editor.bindClickAway?.(undefined)) return"
+  ],
+  "editors/CameraAngleWidgetEditor.tsx": [
+    "text:= limits[field][0] && value",
+    "text:typeof values[field] === 'number') const [draft, setDraft] = createSignal"
   ],
   "editors/ColorWidgetEditor.tsx": [
     "attribute:label:Color value",

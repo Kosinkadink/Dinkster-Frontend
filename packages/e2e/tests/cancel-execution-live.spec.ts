@@ -5,8 +5,8 @@ test.use({ retentionApi: false })
 test('cancels a running and a queued job while later jobs continue, including App View', async ({ page }, testInfo) => {
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('dev.execution.sleep'))).toBe(true)
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    const diagnostics = await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'cancel-live', root: 'root',
       graphs: { root: {
         id: 'root', name: 'Cancellation', nodes: {
@@ -19,6 +19,7 @@ test('cancels a running and a queued job while later jobs continue, including Ap
         mobile: { customized: false, items: [] },
       } },
     } as never, 'Cancellation')
+    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
   })
   const topbar = page.getByRole('banner', { name: 'Application controls' })
   await expect(topbar.getByTestId('cancel-execution')).toHaveCount(0)

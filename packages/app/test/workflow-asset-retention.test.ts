@@ -48,7 +48,7 @@ function deferred<T>() {
 }
 
 describe('workflow retention recovery', () => {
-  it.each(['resolved', 'missing-resource', 'wrong-resource', 'missing-document', 'wrong-document', 'invalid-command', 'opaque-extension', 'disconnected'] as const)(
+  it.each(['resolved', 'dormant', 'dormant-missing', 'missing-resource', 'wrong-resource', 'wrong-size', 'missing-document', 'wrong-document', 'noncanonical-document', 'invalid-command', 'invalid-known-command', 'opaque-extension', 'disconnected'] as const)(
     'resolves configured compositor inventory under independent ownership: %s', async (scenario) => {
       const f = recoveryFixture()
       f.entries.clear()
@@ -59,18 +59,27 @@ describe('workflow retention recovery', () => {
         format: 'dinkster-image', formatVersion: 2, lineage: 'compositor-inventory',
         canvas: { width: 3, height: 2, colorSpace: 'srgb', channelDepth: 8, compositing: 'premultiplied-alpha' },
         allocation: { nextOrdinal: 1 }, rootLayerIds: [], layers: {}, masks: {},
-        resources: { r0: { id: 'r0', kind: 'raster', digest: resourceDigest, byteSize: bytes.length,
+        resources: { r0: { id: 'r0', kind: 'raster', digest: resourceDigest, byteSize: bytes.length + (scenario === 'wrong-size' ? 1 : 0),
           mediaType: 'image/png', width: 2, height: 1, colorSpace: 'srgb', channelDepth: 8, alphaMode: 'opaque' } },
         ...(scenario === 'opaque-extension' ? { extensions: { future: asset('d') } } : {}),
       }
-      const imageBytes = new TextEncoder().encode(core.canonicalJson(image))
+      const imageBytes = new TextEncoder().encode(core.canonicalJson(image) + (scenario === 'noncanonical-document' ? '\n' : ''))
       const documentDigest = imageDocumentDigest(imageBytes)
-      const recipe = { version: 2, documentDigest, commands: scenario === 'invalid-command' ? [{ op: 'future' }] : [] }
-      const compositorSchema: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'compositor', optional: false,
-        type: { kind: 'concrete', name: 'COMPOSITOR' }, widget: { widgetType: 'COMPOSITOR', options: {}, default: {} } }] }
+      const recipe = { version: 2, documentDigest, commands: scenario === 'invalid-command' ? [{ op: 'future' }]
+        : scenario === 'invalid-known-command' ? [{ op: 'canvas', changes: { width: 0 } }] : [] }
+      const compositorInput = { kind: 'input' as const, id: 'compositor', optional: false,
+        type: { kind: 'concrete' as const, name: 'COMPOSITOR' }, widget: { widgetType: 'COMPOSITOR', options: {}, default: {} } }
+      const dormant = scenario === 'dormant' || scenario === 'dormant-missing'
+      const compositorSchema: NodeSchema = { ...schema, items: dormant ? [{
+        kind: 'input', id: 'mode', optional: false, type: { kind: 'concrete', name: 'STRING' },
+        dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+          { key: 'active', inputs: [] }, { key: 'dormant', inputs: [compositorInput] },
+        ] },
+      }] : [compositorInput] }
       const workflow = session([]).doc
       const document: WorkflowDocument = { ...workflow, graphs: { g0: { ...workflow.graphs.g0!, nodes: {
-        n0: { ...workflow.graphs.g0!.nodes.n0!, values: { compositor: recipe } },
+        n0: { ...workflow.graphs.g0!.nodes.n0!, ...(dormant ? { dynamic: { mode: { selected: 'active' } } } : {}),
+          values: { [dormant ? 'mode.compositor' : 'compositor']: recipe } },
       } } } }
       const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => compositorSchema)
       expect(roots.complete).toBe(false)
@@ -100,7 +109,8 @@ describe('workflow retention recovery', () => {
           if (digest === documentDigest) return scenario === 'missing-document' ? undefined
             : scenario === 'wrong-document' ? bytes.buffer : imageBytes.buffer
           expect(digest).toBe(resourceDigest)
-          return scenario === 'missing-resource' ? undefined : scenario === 'wrong-resource' ? imageBytes.buffer : bytes.buffer
+          return scenario === 'missing-resource' || scenario === 'dormant-missing' ? undefined
+            : scenario === 'wrong-resource' ? imageBytes.buffer : bytes.buffer
         },
       } as unknown as DinksterConnection
       const operation = retainWorkflowAssets(connection, document.lineage, 0, roots, f.storage)
@@ -113,8 +123,8 @@ describe('workflow retention recovery', () => {
       expect([...owners.values()].every((owner) => owner.ownerKind === 'preview' && owner.revision === 1)).toBe(true)
       candidateAck.resolve()
       const retained = await operation
-      expect(retained.complete).toBe(scenario === 'resolved')
-      expect(retained.digests).toEqual((['missing-document', 'wrong-document'].includes(scenario)
+      expect(retained.complete).toBe(scenario === 'resolved' || scenario === 'dormant')
+      expect(retained.digests).toEqual((['missing-document', 'wrong-document', 'noncanonical-document'].includes(scenario)
         ? [documentDigest] : scenario === 'opaque-extension' ? [documentDigest, resourceDigest, asset('d').digest]
         : [documentDigest, resourceDigest]).sort())
       expect([...owners.values()].filter((owner) => owner.ownerKind === 'preview'))
