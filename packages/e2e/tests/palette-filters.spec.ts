@@ -51,10 +51,10 @@ nativeTest('long node names do not overlap their pack badge', async ({ page }) =
   nativeTest.skip(process.env['DINKSTER_E2E_USE_NATIVE'] !== '1', 'requires the native multi-pack catalog')
   await openPalette(page)
   await page.getByTestId('palette-search').fill('CLIP Text Encode (SDXL Refiner)')
-  const row = page.locator('[data-node-type="CLIPTextEncodeSDXLRefiner"]')
+  const row = page.locator('[data-node-type="dinkster.sd.clip_text_encode_sdxl_refiner"]')
   const pack = row.locator('.search-result-row-badge')
   await expect(row).toBeVisible()
-  await expect(pack).toHaveText('dinkster-nodes-comfy')
+  await expect(pack).toHaveText('dinkster-sd')
 
   // Catalog refresh can replace a result between separate browser geometry reads.
   await expect.poll(() => row.evaluate((element) => {
