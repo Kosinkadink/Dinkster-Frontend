@@ -71,10 +71,10 @@ const compositorCensuses = new WeakMap<object, {
 
 const primitiveNames = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO', 'COLOR'])
 // Widgets with required socket types declare that binding explicitly.
-const widgetTypes = new Map<string, string | undefined>([
+const widgetTypes = new Map<string, readonly string[] | undefined>([
   ['STRING', undefined], ['INT', undefined], ['FLOAT', undefined], ['NUMBER', undefined],
-  ['BOOLEAN', undefined], ['COMBO', undefined], ['ASSET', undefined], ['MOUNT', 'STRING'],
-  ['COLOR', 'COLOR'], ['COMPOSITOR', 'COMPOSITOR'],
+  ['BOOLEAN', undefined], ['COMBO', undefined], ['ASSET', undefined], ['MOUNT', ['STRING']],
+  ['COLOR', ['COLOR', 'STRING']], ['COMPOSITOR', ['COMPOSITOR']],
 ])
 
 function assetFreeDynamicState(value: unknown, depth = 0): boolean {
@@ -143,15 +143,17 @@ function censusWorkflowAssetRoots(
     if (type.kind === 'tuple') return type.elements.every(supported)
     return type.kind === 'concrete' && (type.name === 'ASSET' || type.name === 'COMPOSITOR' || primitiveNames.has(type.name))
   }
-  const valueRoots = (value: Json, type: TypeExpr, namedAsset = false, nullableScalar?: string): boolean => {
+  const valueRoots = (value: Json, type: TypeExpr, namedAsset = false, widgetType?: string): boolean => {
     // A cleared asset widget holds no identity; history still contributes its previous value.
     if (namedAsset && value === null) return true
     // Asset widgets can hold unresolved imported names, never a certified digest set.
     if (namedAsset && typeof value === 'string') { complete = false; return false }
     const typed = parseTypedLiteralWire(value)
+    const socketTypes = widgetTypes.get(widgetType ?? '')
+    const color = socketTypes?.includes('COLOR') === true || (type.kind === 'concrete' && type.name === 'COLOR')
     if (type.kind === 'concrete' && (
-      (type.name === 'COLOR' && typed === undefined && typeof value !== 'string') ||
-      (['COLOR', 'COMPOSITOR'].includes(type.name) && typed !== undefined && typed.type !== type.name))) {
+      (color && typed === undefined && typeof value !== 'string') ||
+      ((color || type.name === 'COMPOSITOR') && typed !== undefined && typed.type !== type.name))) {
       complete = false
       opaqueRoots(value)
       return false
@@ -163,7 +165,7 @@ function censusWorkflowAssetRoots(
         refusal = 'Workflow typed literal is malformed'
         return false
       }
-      return valueRoots(typed.value, typeExprFromTypeId(typed.type), false, nullableScalar)
+      return valueRoots(typed.value, typeExprFromTypeId(typed.type), false, widgetType)
     } else if (type.kind === 'concrete' && type.name === 'COMPOSITOR') {
       opaqueRoots(value)
       if (typeof value === 'object' && value !== null && !Array.isArray(value) &&
@@ -185,12 +187,12 @@ function censusWorkflowAssetRoots(
       // A document digest alone does not enumerate the document's external resources.
       complete = false
       return false
-    } else if (nullableScalar !== undefined && (type.kind !== 'concrete' || type.name !== nullableScalar ||
+    } else if (socketTypes !== undefined && (type.kind !== 'concrete' || !socketTypes.includes(type.name) ||
       (value !== null && typeof value !== 'string'))) {
       complete = false
       opaqueRoots(value)
       return false
-    } else if (nullableScalar !== undefined && value === null) {
+    } else if (socketTypes !== undefined && value === null) {
       // The default output mount is a selection sentinel, not an asset identity.
       return true
     } else if (!supported(type)) {
@@ -317,10 +319,10 @@ function censusWorkflowAssetRoots(
     const inputs = unsupportedDormant.length > 0 ? [...elabInputsOf(stored), ...elabInputsOf(active)] : elabInputsOf(stored)
     for (const input of inputs) {
       const { spec } = input
-      const nullableScalar = widgetTypes.get(spec.widget?.widgetType ?? '')
+      const socketTypes = widgetTypes.get(spec.widget?.widgetType ?? '')
       if (spec.ext !== undefined && Object.keys(spec.ext).some((key) => key !== 'default')) complete = false
       if (spec.widget !== undefined && (!widgetTypes.has(spec.widget.widgetType) ||
-        (nullableScalar !== undefined && (spec.type.kind !== 'concrete' || spec.type.name !== nullableScalar)))) {
+        (socketTypes !== undefined && (spec.type.kind !== 'concrete' || !socketTypes.includes(spec.type.name))))) {
         complete = false
         incompleteDiagnostics.push({ severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
           refs: [{ graphId: graph.id, nodeId: node.id }],
@@ -332,7 +334,7 @@ function censusWorkflowAssetRoots(
       if (input.ancestry?.some((ancestor) => ancestor.ghost)) continue
       const fallback = input.spec.widget?.default !== undefined ? input.spec.widget.default : input.spec.ext?.['default']
       if (!Object.hasOwn(node.values, valueKeyOf(input)) && fallback !== undefined) {
-        if (!valueRoots(fallback as Json, input.spec.type, isAssetWidgetInput(input.spec), widgetTypes.get(input.spec.widget?.widgetType ?? ''))) incompleteDiagnostics.push({
+        if (!valueRoots(fallback as Json, input.spec.type, isAssetWidgetInput(input.spec), input.spec.widget?.widgetType)) incompleteDiagnostics.push({
           severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
           refs: [{ graphId: graph.id, nodeId: node.id }],
           message: `${node.title ?? node.type} (${node.id}): Default input '${valueKeyOf(input)}' has unresolved asset identities`,
@@ -351,7 +353,7 @@ function censusWorkflowAssetRoots(
           message: `${node.title ?? node.type} (${node.id}): Stored input '${input}' has conflicting dormant branch types`,
         })
       }
-      const resolved = matching.map((item) => valueRoots(value, item.spec.type, isAssetWidgetInput(item.spec), widgetTypes.get(item.spec.widget?.widgetType ?? '')))
+      const resolved = matching.map((item) => valueRoots(value, item.spec.type, isAssetWidgetInput(item.spec), item.spec.widget?.widgetType))
       if (!ambiguous && (matching.length === 0 || resolved.some((result) => !result))) incompleteDiagnostics.push({
         severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
         refs: [{ graphId: graph.id, nodeId: node.id }],

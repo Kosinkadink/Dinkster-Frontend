@@ -2971,61 +2971,74 @@ describe('workflow candidate admission', () => {
       }) })
   })
 
-  it.each(['default', 'stored', 'empty', 'typed', 'socket', 'invalid-value', 'number', 'null', 'typed-mismatch', 'invalid-binding', 'unknown-widget'] as const)(
-    'counts typed colors without inventing assets: %s', (scenario) => {
+  it.each(['COLOR', 'STRING'].flatMap((socket) =>
+    ['default', 'default-number', 'default-null', 'default-opaque', 'stored', 'empty', 'typed', 'typed-number', 'socket', 'invalid-value', 'number', 'null', 'typed-mismatch', 'invalid-binding', 'unknown-widget']
+      .map((scenario) => ({ socket, scenario }))))(
+    'counts $socket-backed colors without inventing assets: $scenario', ({ socket, scenario }) => {
       const local = session()
       const colorSchema: NodeSchema = { ...schema, items: [...schema.items, {
         kind: 'input', id: 'color', optional: false,
-        type: { kind: 'concrete', name: scenario === 'invalid-binding' ? 'FLOAT' : 'COLOR' },
+        type: { kind: 'concrete', name: scenario === 'invalid-binding' ? 'FLOAT' : socket },
         ...(scenario === 'socket' ? {} : { widget: {
-          widgetType: scenario === 'unknown-widget' ? 'opaque' : 'COLOR', options: {}, default: '#c1375a',
+          widgetType: scenario === 'unknown-widget' ? 'opaque' : 'COLOR', options: {},
+          default: scenario === 'default-number' ? 123 : scenario === 'default-null' ? null
+            : scenario === 'default-opaque' ? asset('c') : '#c1375a',
         } }),
       }] }
-      const color = scenario === 'typed' ? { $typed: { type: 'COLOR', value: '#179a4f' } }
-        : scenario === 'typed-mismatch' ? { $typed: { type: 'STRING', value: '#179a4f' } }
+      const color = scenario === 'typed' ? { $typed: { type: socket, value: '#179a4f' } }
+        : scenario === 'typed-number' ? { $typed: { type: socket, value: 123 } }
+        : scenario === 'typed-mismatch' ? { $typed: { type: socket === 'COLOR' ? 'STRING' : 'COLOR', value: '#179a4f' } }
         : scenario === 'number' ? 123 : scenario === 'null' ? null : scenario === 'empty' ? ''
         : scenario === 'invalid-value' ? asset('c') : '#179a4f'
       const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
         n0: { ...local.doc.graphs.g0!.nodes.n0!, values: { files: [asset('a')],
-          ...(scenario === 'default' ? {} : { color }) } },
+          ...(scenario.startsWith('default') ? {} : { color }) } },
       } } } }
       const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => colorSchema)
-      const invalid = ['invalid-value', 'number', 'null', 'typed-mismatch', 'invalid-binding', 'unknown-widget'].includes(scenario)
+      const invalid = ['default-number', 'default-null', 'default-opaque', 'invalid-value', 'number', 'null', 'typed-number', 'typed-mismatch', 'invalid-binding', 'unknown-widget'].includes(scenario)
       expect(roots.complete).toBe(!invalid)
-      expect(roots.digests).toEqual(scenario === 'invalid-value'
+      expect(roots.digests).toEqual(['invalid-value', 'default-opaque'].includes(scenario)
         ? [asset('a').digest, asset('c').digest] : [asset('a').digest])
       if (invalid) expect(roots.incompleteDiagnostics).toEqual(expect.arrayContaining([
         expect.objectContaining({ code: 'workflow.asset.unresolvedInput', message: expect.stringContaining("'color'") }),
       ]))
     })
 
-  it.each(['valid', 'opaque'] as const)('retains dormant historical COLOR values: %s', (scenario) => {
-    const local = session()
-    const colorSchema: NodeSchema = { ...schema, items: [...schema.items, {
-      kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: false,
-      dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
-        { key: 'active', inputs: [] },
-        { key: 'dormant', inputs: [{ kind: 'input', id: 'color', optional: false,
-          type: { kind: 'concrete', name: 'COLOR' },
-          widget: { widgetType: 'COLOR', options: {}, default: '#ff0000' } }] },
-      ] },
-    }] }
-    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
-      n0: { ...local.doc.graphs.g0!.nodes.n0!, dynamic: { mode: { selected: 'active' } },
-        values: { files: [asset('a')], 'mode.color': scenario === 'opaque' ? asset('c') : '#179a4f' } },
-    } } } }
-    const workflow = createLocalSession(document, coreCommandRegistry([], () => colorSchema))
-    expect(workflow.dispatch({ command: 'node.setValue', params: {
-      graphId: 'g0', nodeId: 'n0', inputId: 'mode.color', value: '#c1375a',
-    } }).ok).toBe(true)
-    const roots = workflowAssetRoots(workflow.doc, workflow.historySnapshot(), () => colorSchema)
-    expect(roots.complete).toBe(scenario === 'valid')
-    expect(roots.digests).toEqual(scenario === 'opaque'
-      ? [asset('a').digest, asset('c').digest] : [asset('a').digest])
-    if (scenario === 'opaque') expect(roots.incompleteDiagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: 'workflow.asset.unresolvedInput', message: expect.stringContaining("'mode.color'") }),
-    ]))
-  })
+  it.each(['COLOR', 'STRING'].flatMap((socket) => ['valid', 'opaque'].map((scenario) => ({ socket, scenario }))))(
+    'retains dormant historical $socket-backed COLOR values: $scenario', ({ socket, scenario }) => {
+      const local = session()
+      const colorSchema: NodeSchema = { ...schema, items: [...schema.items, {
+        kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+        dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
+          { key: 'active', inputs: [] },
+          { key: 'dormant', inputs: [{ kind: 'input', id: 'color', optional: false,
+            type: { kind: 'concrete', name: socket },
+            widget: { widgetType: 'COLOR', options: {}, default: '#ff0000' } }] },
+        ] },
+      }] }
+      const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+        n0: { ...local.doc.graphs.g0!.nodes.n0!, dynamic: { mode: { selected: 'active' } },
+          values: { files: [asset('a')], 'mode.color': scenario === 'opaque' ? asset('c') : '#179a4f' } },
+      } } } }
+      const workflow = createLocalSession(document, coreCommandRegistry([], () => colorSchema))
+      expect(workflow.dispatch({ command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n0', inputId: 'mode.color', value: '#c1375a',
+      } }).ok).toBe(true)
+      const roots = workflowAssetRoots(workflow.doc, workflow.historySnapshot(), () => colorSchema)
+      expect(roots.complete).toBe(scenario === 'valid')
+      expect(roots.digests).toEqual(scenario === 'opaque'
+        ? [asset('a').digest, asset('c').digest] : [asset('a').digest])
+      if (scenario === 'opaque') expect(roots.incompleteDiagnostics).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'workflow.asset.unresolvedInput', message: expect.stringContaining("'mode.color'") }),
+      ]))
+      for (const move of [() => workflow.undo(), () => workflow.redo()]) {
+        expect(move()).toBe(true)
+        expect(workflowAssetRoots(workflow.doc, workflow.historySnapshot(), () => colorSchema)).toMatchObject({
+          complete: scenario === 'valid',
+          digests: scenario === 'opaque' ? [asset('a').digest, asset('c').digest] : [asset('a').digest],
+        })
+      }
+    })
 
   it.each(['default', 'normalized-default', 'empty-object', 'empty', 'typed', 'configured', 'malformed', 'typed-mismatch', 'commands-without-document', 'unknown-command', 'invalid-binding', 'unknown-widget'] as const)(
     'retains compositor document identities without certifying unresolved resources: %s', (scenario) => {

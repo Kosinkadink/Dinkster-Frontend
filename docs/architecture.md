@@ -322,9 +322,10 @@ The asset census treats node extension metadata as opaque. A MOUNT widget
 binds a STRING mount ID or null for the default
 output mount; neither is an asset identity. Other value shapes or socket types
 remain incomplete, with any known embedded asset roots preserved.
-Declared COLOR inputs use the widget's string contract, including empty strings,
-without interpreting color syntax or inventing asset identities. Non-string values,
-mismatched typed literals and COLOR widgets bound to other socket types remain
+Declared COLOR widgets bind to concrete COLOR or STRING inputs and use the
+string value contract, including empty strings, without interpreting color syntax
+or inventing asset identities. Non-string values, mismatched typed literals and
+COLOR widgets bound to other socket types remain
 incomplete. Stored dormant branches and undo/redo history use the same contract.
 The empty COMPOSITOR default `{}` and its normalized recipe (version 2, null
 documentDigest, no commands) have no asset roots. A configured recipe retains its
