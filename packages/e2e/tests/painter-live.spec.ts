@@ -122,6 +122,7 @@ for (const connected of [false, true]) test(`Painter ${connected ? 'connected fi
     })).toBe(true)
     if (await page.getByTestId('import-assets-accept').isVisible()) await page.getByTestId('import-assets-accept').click()
     await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.mask)).toEqual(asset)
+    await waitForStartupOwnership(page)
     await openPainter(page, 'n1')
     expect(await pixels()).toEqual({ painted: [225, 38, 104, 255], clear: [0, 0, 0, 0] })
     await page.getByRole('button', { name: 'Cancel', exact: true }).click()
