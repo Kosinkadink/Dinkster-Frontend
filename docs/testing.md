@@ -15,13 +15,18 @@ This command runs `check-extension-literals`, `check-ui-strings`, and
 `typecheck` (the latter also runs `check-path-case`) and a fixed unit subset.
 The extension check pins every intentional backend node-id literal and widget
 type comparison to an exact source location, owning issue, and non-increasing
-ceiling. The committed ceilings are zero node-id literals and 93 widget-type
+ceiling. The committed ceilings are zero node-id literals and 85 widget-type
 comparisons. Both have zero slack, so each ceiling must equal its measured
 count, and the fast check rejects any increase from the merge base even when
 the allowlist is edited to match. New and stale entries also fail. After merging main, run
 `node scripts/check-extension-literals.mjs --write`, review that only expected
 line or column coordinates changed and no ceiling changed, then run
-`pnpm ci:fast`. The Prettier check is limited
+`pnpm ci:fast`. The six region starter occurrences have separate
+`nodeIdExceptions` entries naming their exact file, node ID and owning
+[issue 813](https://github.com/Kosinkadink/comfy-vibe-station/issues/813).
+They do not raise the zero node-ID ceiling: an additional occurrence, another
+ID or the same ID in another file still fails. `--write` refreshes locations,
+not the permitted file, ID or number of occurrences. The Prettier check is limited
 to `scripts/ci-fast.mjs` and
 `packages/e2e/test/ci-workflow.test.ts`; it does not impose formatting
 on existing application files. There is no repository-wide formatter or
@@ -144,6 +149,9 @@ Parallel-safe runs as six shards, backend-serial as two, and native startup
 as one isolated job. Every E2E lane installs
 and checks the software Vulkan driver selected by `VK_DRIVER_FILES`, including
 browser WebGL and native headless rendering.
+Both the server and Torch worker interpreters install the pinned checkout's
+first-party pack sources; catalog composition alone does not prove that the
+execution interpreter can import those packs.
 The product-surface visual matrix runs only in the fast visual job; its
 route-mocked screenshots do not require a second run against hosted backends.
 Synthetic noodle and boundary interaction proofs run only in parallel-safe.
@@ -171,9 +179,13 @@ rootless native composition. It neither starts a stock ComfyUI server nor
 passes a ComfyUI root to Dinkster. The isolated library configures a read-only
 `checkpoints` mount with kind `model/checkpoint` for the missing-model picker
 fixture, alongside its writable `output` mount. The native startup
-job runs the 11 native client and two native app live Vitest cases once inside
+job runs the 16 native client and six native app live Vitest cases once inside
 its native server lifetime, serially, and retains their JSON reports with exact
-case-count and passed-status checks. Its contract proof separately starts Dinkster with
+case-count checks. Current cases must pass. A skipped case is accepted only when
+its required node or served template is absent and recorded in the single
+`packages/e2e/tests/withdrawn-drafts.json` list. The While / Until execution
+fixture remains mandatory even though its served template was withdrawn.
+Its contract proof separately starts Dinkster with
 `--no-default-packs --pack tests/fixtures/extension-contract-pack/dinkster-pack.toml`
 on ports 15420/15421, activates the fixture pack's immutable frontend module,
 renders two custom nodes linked through the pack's custom value type, executes

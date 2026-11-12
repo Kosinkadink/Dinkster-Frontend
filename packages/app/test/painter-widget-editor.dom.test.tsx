@@ -71,15 +71,21 @@ it('keeps same-digest Painter editors behind independent acknowledgments', async
   }
 })
 
-it.each(['live', 'refused', 'closed', 'edited', 'disconnected', 'disposed'] as const)(
-  'keeps the connected IMAGE receipt through Painter decode and draw: %s', async (scenario) => {
-    const schema = parseDinksterSchema('Painter', { interface: [
+it.each([
+  ...(['live', 'refused', 'closed', 'edited', 'disconnected', 'disposed'] as const)
+    .map((scenario) => ({ scenario, nodeType: 'Painter' })),
+  { scenario: 'live', nodeType: 'dinkster.image.painter' },
+])(
+  'keeps the connected IMAGE receipt through $nodeType decode and draw: $scenario', async ({ scenario, nodeType }) => {
+    const schema = parseDinksterSchema(nodeType, { replacements: [
+      { from: 'Painter', cases: [{ to: nodeType }] },
+    ], interface: [
       { role: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
       { role: 'input', id: 'mask', type: { kind: 'concrete', types: ['ASSET'] }, required: false,
         widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image', allowUpload: true },
         sourceFilename: { kind: 'media/image', category: 'input' } },
     ] }).schema!
-    const imported = importLitegraph({ nodes: [{ id: 1, type: 'Painter' }], links: [] }, () => schema).document!
+    const imported = importLitegraph({ nodes: [{ id: 1, type: nodeType }], links: [] }, () => schema).document!
     const graph = imported.graphs.g0!
     const doc = { ...imported, graphs: { g0: { ...graph, nodes: { ...graph.nodes,
       source: { id: asNodeId('source'), type: 'Source', values: {} },

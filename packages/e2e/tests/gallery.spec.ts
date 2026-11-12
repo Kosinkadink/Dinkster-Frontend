@@ -10,7 +10,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { expect, test } from './fixtures.js'
+import { expect, test, waitForStartupOwnership } from './fixtures.js'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), '../fixtures')
 const schemas = JSON.parse(readFileSync(join(fixtures, 'gallery-schemas.json'), 'utf8')) as unknown[]
@@ -21,6 +21,7 @@ const workflow = JSON.parse(readFileSync(join(fixtures, 'gallery-workflow.json')
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
   await page.evaluate(
     async ({ schemas, workflow }) => {
       window.__dinksterTest!.app.registerSchemas(schemas as never)

@@ -2,6 +2,7 @@ import type { Dialog, Page } from '@playwright/test'
 import type { NodeSchema } from '@dinkster/core'
 import { expect, test, waitForStartupOwnership as waitForOwnership } from './fixtures.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json' with { type: 'json' }
+import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json' with { type: 'json' }
 
 test.beforeEach(async ({ context }) => {
   await context.route('**/api/library/retentions/document/*?scope=local', async (route) => {
@@ -219,14 +220,26 @@ for (const accepted of [true, false]) {
 for (const accepted of [true, false]) {
   test(`restored startup renders before ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }, info) => {
     const digest = `blake3:${'e'.repeat(64)}`
-    await page.addInitScript(({ document, digest }) => {
+    const document = structuredClone(seedBasic)
+    document.graphs.g0.nodes.n0.type = 'dinkster.image.empty_image'
+    document.graphs.g0.nodes.n1.type = 'dinkster.image.preview_image'
+    document.graphs.g0.links.l2.from.port = 'IMAGE'
+    const subgraph = structuredClone(seedSubgraph)
+    subgraph.graphs.g0.nodes.n1.type = 'dinkster.image.preview_image'
+    subgraph.graphs.g1.nodes.n0.type = 'dinkster.image.empty_image'
+    subgraph.graphs.g1.boundary.outputs[0]!.binds.port = 'IMAGE'
+    await page.addInitScript(({ document, subgraph, digest }) => {
+      localStorage.setItem('dinkster.openTabs', JSON.stringify({
+        v: 1, active: document.lineage,
+        tabs: [{ title: 'Basic', doc: document, documentRevision: 0 }, { title: 'Subgraph', doc: subgraph, documentRevision: 0 }],
+      }))
       const closed = { ...document, lineage: 'closed-recovery', ext: { held: {
         digest, name: 'closed.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '',
       } } }
       localStorage.setItem('dinkster.openTabsDocumentCandidate.closed-recovery', JSON.stringify({
         v: 1, stageId: 'closed', tab: { title: 'Closed recovery', doc: closed },
       }))
-    }, { document: seedBasic, digest })
+    }, { document, subgraph, digest })
     let release!: () => void
     const acknowledgment = new Promise<void>((resolve) => { release = resolve })
     let requests = 0

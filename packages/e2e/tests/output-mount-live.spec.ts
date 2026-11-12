@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 import { expect, test, type Page } from "@playwright/test";
 import { evidenceGroupDir, evidencePath } from "./evidence-output.js";
+import { waitForStartupOwnership } from "./fixtures.js";
 
 const backend = process.env["DINKSTER_NATIVE_BACKEND"];
 if (!backend)
@@ -171,6 +172,7 @@ test("Save Image publishes its mounted path and follows the persisted output mou
     { timeout: 15_000 },
   );
   await expect(page.getByTestId("status-bar")).toContainText("connected");
+  await waitForStartupOwnership(page);
   await openSaveImageWorkflow(page, asset);
   await page.getByTestId("assets-toggle").click();
   await expect(page.getByTestId("assets-overlay")).toBeVisible();
@@ -185,9 +187,7 @@ test("Save Image publishes its mounted path and follows the persisted output mou
   await expect(page.getByTestId("outputs-panel")).toContainText(
     "mounts/output/output-mount-proof_00001_.png",
   );
-  expect(await readdir(defaultOutput)).toContain(
-    "output-mount-proof_00001_.png",
-  );
+  expect(await readdir(defaultOutput)).toContain("output-mount-proof_00001_.png");
   await page.screenshot({
     path: evidencePath("issue-145", "default-output.png"),
     fullPage: true,
@@ -216,9 +216,7 @@ test("Save Image publishes its mounted path and follows the persisted output mou
   await expect(page.getByTestId("outputs-panel")).toContainText(
     "mounts/renders/output-mount-proof_00001_.png",
   );
-  expect(await readdir(alternateOutput)).toContain(
-    "output-mount-proof_00001_.png",
-  );
+  expect(await readdir(alternateOutput)).toContain("output-mount-proof_00001_.png");
 
   await request.put(`${backend}/api/mounts/output`, { data: { id: "output" } });
   await request.delete(`${backend}/api/mounts/renders`);

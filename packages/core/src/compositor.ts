@@ -2,8 +2,9 @@
 
 import type { Json } from './format/document.js'
 import { canonicalJson, sha256Hex } from './compile/hash.js'
+import { ownJson } from './format/json.js'
 import { loadImageDocument } from './image-document/migrate.js'
-import type { ImageAffineTransform, ImageDocument } from './image-document/model.js'
+import { orderedImageLayerIds, type ImageAffineTransform, type ImageDocument } from './image-document/model.js'
 
 export const COMPOSITOR_STATE_PREVIEW_CHANNEL = 'application/vnd.dinkster.compositor-state+json'
 export const COMPOSITOR_STATE_PREVIEW_STREAM = 'compositor-state'
@@ -332,6 +333,134 @@ export function isCompositorRecipe(value: unknown): value is CompositorRecipe {
 
 export function copyCompositorRecipe(recipe: CompositorRecipe): CompositorRecipe {
   return JSON.parse(canonicalJson(recipe)) as CompositorRecipe
+}
+
+/** Apply the native compositor command grammar, then validate the whole document inventory. */
+export function applyCompositorCommands(document: ImageDocument, commands: readonly Json[]): ImageDocument | undefined {
+  const loaded = loadImageDocument(document)
+  const owned = ownJson(commands)
+  if (!loaded.document || !owned.ok || !Array.isArray(owned.value)) return undefined
+  const next = JSON.parse(canonicalJson(loaded.document)) as {
+    canvas: Record<string, Json>
+    allocation: { nextOrdinal: number }
+    rootLayerIds: string[]
+    layers: Record<string, Record<string, Json>>
+    masks: Record<string, Record<string, Json>>
+  }
+  Object.setPrototypeOf(next.layers, null)
+  Object.setPrototypeOf(next.masks, null)
+  const ids = (value: unknown): string[] => {
+    if (!Array.isArray(value) || !value.every((id) => typeof id === 'string') || new Set(value).size !== value.length) {
+      throw new Error('Compositor identifiers must be distinct strings')
+    }
+    return [...value]
+  }
+  const siblings = (id: string): string[] => {
+    const found = [next.rootLayerIds, ...Object.values(next.layers)
+      .filter((layer) => layer['kind'] === 'group').map((layer) => layer['childLayerIds'] as string[])]
+      .find((entries) => entries.includes(id))
+    if (!found) throw new Error('Compositor layer does not exist')
+    return found
+  }
+  const remove = (id: string): void => {
+    const layer = next.layers[id]!
+    delete next.layers[id]
+    for (const child of (layer['childLayerIds'] ?? []) as string[]) remove(child)
+    for (const mask of layer['maskIds'] as string[]) delete next.masks[mask]
+  }
+  const allocate = (prefix: string): string => `${prefix}${next.allocation.nextOrdinal++}`
+  try {
+    for (const raw of owned.value) {
+      const command = record(raw)
+      if (!command) return undefined
+      const op = command['op']
+      const allowed = op === 'canvas' ? ['changes', 'op']
+        : op === 'remove' || op === 'remove_mask' ? ['id', 'op']
+        : op === 'reorder' ? ['ids', 'op', 'parent']
+        : op === 'group' ? ['ids', 'name', 'op']
+        : op === 'layer' || op === 'mask' ? ['changes', 'id', 'op']
+        : op === 'transform' ? ['components', 'id', 'kind', 'op']
+        : op === 'add_mask' ? ['mask', 'op', 'ownerLayerId'] : []
+      if (Object.keys(command).some((key) => !allowed.includes(key))) return undefined
+      const id = command['id']
+      if (op === 'canvas') {
+        const changes = record(command['changes'])
+        if (!changes) return undefined
+        Object.assign(next.canvas, changes)
+      } else if (op === 'remove' && typeof id === 'string') {
+        const parent = siblings(id)
+        parent.splice(parent.indexOf(id), 1)
+        remove(id)
+      } else if (op === 'reorder') {
+        const parent = command['parent']
+        if (parent !== undefined && parent !== null && typeof parent !== 'string') return undefined
+        const target = parent === undefined || parent === null ? next.rootLayerIds
+          : next.layers[parent]?.['childLayerIds'] as string[] | undefined
+        const order = ids(command['ids'])
+        if (!target || target.length !== order.length || order.some((entry) => !target.includes(entry))) return undefined
+        target.splice(0, target.length, ...order)
+        order.forEach((entry, index) => { next.layers[entry]!['z_index'] = index })
+      } else if (op === 'group') {
+        const members = ids(command['ids'])
+        if (members.length === 0) return undefined
+        const parent = siblings(members[0]!)
+        if (members.some((member) => !parent.includes(member))) return undefined
+        const ordered = orderedImageLayerIds(next as unknown as ImageDocument, parent)
+        parent.splice(0, parent.length, ...ordered)
+        const position = Math.min(...members.map((member) => parent.indexOf(member)))
+        const groupId = allocate('l')
+        next.layers[groupId] = {
+          id: groupId, kind: 'group', name: (command['name'] ?? 'Group') as Json,
+          visible: true, opacity: 65_535, transform: { a: 1_000_000, b: 0, c: 0, d: 1_000_000, tx: 0, ty: 0 },
+          blendMode: 'normal', clipping: 'none', maskIds: [], childLayerIds: members,
+        }
+        const remaining = parent.filter((entry) => !members.includes(entry))
+        remaining.splice(position, 0, groupId)
+        parent.splice(0, parent.length, ...remaining)
+        parent.forEach((entry, index) => { next.layers[entry]!['z_index'] = index })
+      } else if ((op === 'layer' || op === 'mask') && typeof id === 'string') {
+        const changes = record(command['changes'])
+        const target = (op === 'layer' ? next.layers : next.masks)[id]
+        if (!target || !changes || ['id', 'kind', 'childLayerIds', 'maskIds', 'ownerLayerId']
+          .some((key) => Object.hasOwn(changes, key))) return undefined
+        Object.assign(target, changes)
+      } else if (op === 'transform' && typeof id === 'string') {
+        if (command['kind'] !== undefined && command['kind'] !== 'mask' && command['kind'] !== 'layer') return undefined
+        const target = (command['kind'] === 'mask' ? next.masks : next.layers)[id]
+        const components = record(command['components']) as ImageTransformComponents | undefined
+        if (!target || !components) return undefined
+        const affine = affineFromComponents(components)
+        const transform: Record<string, Json> = { components: components as unknown as Json }
+        for (const key of ['a', 'b', 'c', 'd', 'tx', 'ty'] as const) {
+          const value = affine[key] * 1_000_000
+          const floor = Math.floor(value)
+          // Native fixed-point encoding uses ties-to-even rounding.
+          transform[key] = value - floor === 0.5 ? floor + (floor % 2 === 0 ? 0 : 1) : Math.round(value)
+        }
+        target['transform'] = transform
+      } else if (op === 'add_mask' && typeof command['ownerLayerId'] === 'string') {
+        const owner = command['ownerLayerId']
+        const mask = record(command['mask'])
+        if (!next.layers[owner] || !mask) return undefined
+        const maskId = allocate('m')
+        next.masks[maskId] = {
+          id: maskId, kind: 'raster', ownerLayerId: owner, enabled: true, invert: false, opacity: 65_535,
+          transform: { a: 1_000_000, b: 0, c: 0, d: 1_000_000, tx: 0, ty: 0 },
+          combineMode: 'multiply', channel: 'alpha', ...mask as Record<string, Json>,
+        }
+        ;(next.layers[owner]!['maskIds'] as string[]).push(maskId)
+      } else if (op === 'remove_mask' && typeof id === 'string') {
+        const mask = next.masks[id]
+        if (!mask) return undefined
+        const parent = next.layers[mask['ownerLayerId'] as string]!['maskIds'] as string[]
+        parent.splice(parent.indexOf(id), 1)
+        delete next.masks[id]
+      } else return undefined
+    }
+    return loadImageDocument(next).document
+  } catch {
+    return undefined
+  }
 }
 
 export function copyConfiguredCompositorRecipe(recipe: ConfiguredCompositorRecipe): ConfiguredCompositorRecipe {

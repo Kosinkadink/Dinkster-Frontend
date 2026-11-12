@@ -135,6 +135,35 @@ export function ExecutedImageFacts(props: {
   )
 }
 
+export function SavedOutputFiles(props: {
+  readonly artifacts: ExecutionState['artifacts']
+  readonly images: readonly ExecutedImage[]
+}) {
+  const message = useAppMessage()
+  const files = createMemo(() => {
+    const shown = new Set(props.images.filter((image) => image.virtualPath)
+      .map((image) => JSON.stringify([image.runtimeId, image.virtualPath])))
+    return props.artifacts.filter((artifact) => {
+      const key = JSON.stringify([artifact.nodeId, artifact.virtualPath])
+      if (!artifact.virtualPath || shown.has(key)) return false
+      shown.add(key)
+      return true
+    })
+  })
+  return <Show when={files().length > 0}>
+    <section class="output-iteration-group" aria-label={message('outputFile.writtenPath')}>
+      <h3>{message('outputFile.writtenPath')}</h3>
+      <For each={files()}>{(file) => <dl class="output-facts">
+        <div><dt>{message('mediaInspector.fact.runtimeNode')}</dt><dd>{file.nodeId}</dd></div>
+        <div><dt>{message('assets.fact.mediaType')}</dt><dd>{file.mediaType}</dd></div>
+        <div><dt>{message('outputFile.writtenPath')}</dt><dd>
+          <For each={file.virtualPath.split('/')}>{(segment, index) => <>{index() > 0 && <><span>/</span><wbr /></>}{segment}</>}</For>
+        </dd></div>
+      </dl>}</For>
+    </section>
+  </Show>
+}
+
 export function ExecutedImageViewer(props: {
   readonly images: readonly ExecutedImage[]
   readonly batch?: ExecutedImageBatch | undefined

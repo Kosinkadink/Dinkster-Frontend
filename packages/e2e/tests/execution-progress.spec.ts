@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_EXECUTION_PROGRESS_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -16,6 +16,7 @@ test('whole-workflow and executing-node progress update from the same execution 
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
 
   const seed = await page.evaluate(async () => {
     const bridge = window.__dinksterTest!

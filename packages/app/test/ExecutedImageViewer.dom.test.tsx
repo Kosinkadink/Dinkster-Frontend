@@ -1,7 +1,7 @@
 import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { asPromptId } from '@dinkster/core'
-import { ExecutedImageViewer, ViewerImage, executionOutputProvenance } from '../src/ExecutedImageViewer.js'
+import { ExecutedImageFacts, ExecutedImageViewer, SavedOutputFiles, ViewerImage, executionOutputProvenance } from '../src/ExecutedImageViewer.js'
 import { executedImageInventory, type ExecutedImage } from '../src/executed-image-inventory.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
@@ -29,6 +29,42 @@ const provenance = {
   backendId: 'backend-with-a-complete-identity', backendLabel: 'Removed render backend', backendAvailable: false,
   executionId: 'execution-with-a-complete-identity', executionStatus: 'Completed',
 }
+
+describe('SavedOutputFiles', () => {
+  it('shows every written file without ASSET outputs, even when their bytes match', () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const files = ['one.png', 'two.png', 'audio.flac'].map((name) => ({
+      nodeId: 'save', digest: `blake3:${'a'.repeat(64)}`, name, size: 12,
+      mediaType: name.endsWith('.png') ? 'image/png' : 'audio/flac', virtualPath: `mounts/renders/${name}`,
+    }))
+    const dispose = render(() => <SavedOutputFiles artifacts={[...files, files[0]!]} images={[]} />, root)
+    expect([...root.querySelectorAll('dl')].map((facts) =>
+      [...facts.querySelectorAll('dd')].map((value) => value.textContent))).toEqual([
+        ['save', 'image/png', 'mounts/renders/one.png'],
+        ['save', 'image/png', 'mounts/renders/two.png'],
+        ['save', 'audio/flac', 'mounts/renders/audio.flac'],
+      ])
+    dispose()
+  })
+
+  it('does not repeat a saved image ASSET path or invent a path for Preview Image', () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const image = images[0]!
+    const { virtualPath: _path, ...preview } = images[1]!
+    const dispose = render(() => <>
+      <ExecutedImageFacts image={image} availability="Available" />
+      <SavedOutputFiles artifacts={[{ nodeId: image.runtimeId, digest: `blake3:${'a'.repeat(64)}`,
+        name: image.name!, size: 12, mediaType: image.mediaType, virtualPath: image.virtualPath! }]} images={[image]} />
+      <SavedOutputFiles artifacts={[]} images={[preview]} />
+    </>, root)
+    expect([...root.querySelectorAll('dt')].filter((term) => term.textContent === 'Written path')).toHaveLength(1)
+    expect(root.textContent?.split(image.virtualPath!)).toHaveLength(2)
+    expect(root.querySelector('section')).toBeNull()
+    dispose()
+  })
+})
 
 describe('executionOutputProvenance', () => {
   const execution = {

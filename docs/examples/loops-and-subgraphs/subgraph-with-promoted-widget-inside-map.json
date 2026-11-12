@@ -12,17 +12,11 @@
           "id": "region",
           "type": "#promotedRegionBody",
           "values": {
-            "value": [
-              1,
-              2,
-              3
-            ]
+            "value": [1, 2, 3]
           },
           "region": {
             "kind": "map",
-            "elementPorts": [
-              "value"
-            ]
+            "elementPorts": ["value"]
           }
         }
       },
@@ -76,13 +70,33 @@
       "nodes": {
         "add": {
           "id": "add",
-          "type": "std.math.add_ints",
-          "values": {
-            "b": 1
-          }
+          "type": "dinkster.utilities.comfy_math_expression",
+          "values": { "expression": "a + b" },
+          "dynamic": { "values": { "members": ["a", "b"] } }
+        },
+        "value": {
+          "id": "value",
+          "type": "dinkster.utilities.primitive_int",
+          "values": {}
+        },
+        "offset": {
+          "id": "offset",
+          "type": "dinkster.utilities.primitive_int",
+          "values": { "value": 1 }
         }
       },
-      "links": {},
+      "links": {
+        "valueToAdd": {
+          "id": "valueToAdd",
+          "from": { "node": "value", "port": "INT" },
+          "to": { "node": "add", "port": "values.a" }
+        },
+        "offsetToAdd": {
+          "id": "offsetToAdd",
+          "from": { "node": "offset", "port": "INT" },
+          "to": { "node": "add", "port": "values.b" }
+        }
+      },
       "nets": {},
       "reroutes": {},
       "boundary": {
@@ -91,16 +105,16 @@
             "id": "value",
             "binds": {
               "kind": "port",
-              "node": "add",
-              "port": "a"
+              "node": "value",
+              "port": "value"
             }
           },
           {
             "id": "offset",
             "binds": {
               "kind": "port",
-              "node": "add",
-              "port": "b"
+              "node": "offset",
+              "port": "value"
             },
             "promoted": true
           }
@@ -111,12 +125,12 @@
             "binds": {
               "kind": "port",
               "node": "add",
-              "port": "sum"
+              "port": "INT"
             }
           }
         ]
       },
-      "nextOrdinal": 1
+      "nextOrdinal": 5
     }
   },
   "view": {

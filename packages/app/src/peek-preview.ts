@@ -166,10 +166,31 @@ export async function fetchPeekRendition(
   // One absolute deadline for ALL candidate validations, started when the
   // first validation begins (fetch time does not consume the budget).
   let validationDeadline: number | undefined
+  let publicationDeadline: number | undefined
+  const published = async <T extends ValuePeekResult | RenditionResult>(request: () => Promise<T>): Promise<T> => {
+    for (;;) {
+      options?.signal?.throwIfAborted()
+      const result = await request()
+      if (result.available || result.status !== 409 || result.reason !== 'not-complete') return result
+      // A running response can arrive after terminal publication. Do not
+      // permanently replace this candidate with a lower-priority output.
+      publicationDeadline ??= Date.now() + 10_000
+      if (Date.now() >= publicationDeadline) {
+        throw Object.assign(new Error('Preview publication is still pending'), { transient: true, negativeCache: false })
+      }
+      await new Promise<void>((resolve, reject) => {
+        const signal = options?.signal
+        const abort = (): void => { clearTimeout(timer); reject(signal?.reason) }
+        const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve() }, 100)
+        signal?.addEventListener('abort', abort, { once: true })
+        if (signal?.aborted) { signal.removeEventListener('abort', abort); abort() }
+      })
+    }
+  }
   for (const c of candidates) {
     options?.signal?.throwIfAborted()
     let query: ValueQuery = { jobId, nodeId: c.node, outputId: c.output }
-    let peeked = await values.peek(query, options)
+    let peeked = await published(() => values.peek(query, options))
     if (!peeked.available) {
       if (!definitiveStatus(peeked.status)) negativeCache = false
       continue
@@ -182,7 +203,7 @@ export async function fetchPeekRendition(
         break
       }
       query = { ...query, element: [...(query.element ?? []), depth === 0 ? options?.elementIndex ?? 0 : 0] }
-      peeked = await values.peek(query, options)
+      peeked = await published(() => values.peek(query, options))
       depth++
     }
     if (!peeked.available) {
@@ -193,11 +214,11 @@ export async function fetchPeekRendition(
     if (isFile3dType(peeked.descriptor.typeId)) {
       const info = peeked.renditions.find((entry) => entry.kind === 'manifest' && entry.mime === 'application/json')
       if (!info) continue
-      const result = await values.rendition(query, info.kind, {
+      const result = await published(() => values.rendition(query, info.kind, {
         descriptor: peeked.descriptor,
         ...(options?.signal === undefined ? {} : { signal: options.signal }),
         ...(info.version === undefined ? {} : { rendererVersion: info.version }),
-      })
+      }))
       options?.signal?.throwIfAborted()
       if (!result.available) {
         if (!definitiveStatus(result.status)) negativeCache = false
@@ -268,11 +289,11 @@ export async function fetchPeekRendition(
         }
       }
       options?.signal?.throwIfAborted()
-      const rendition = await values.rendition(query, kind, {
+      const rendition = await published(() => values.rendition(query, kind, {
         ...renditionOptions,
         descriptor: peeked.descriptor,
         ...(info.version !== undefined ? { rendererVersion: info.version } : {}),
-      })
+      }))
       options?.signal?.throwIfAborted()
       if (!rendition.available) {
         if (!definitiveStatus(rendition.status)) negativeCache = false

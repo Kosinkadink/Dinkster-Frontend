@@ -1,10 +1,11 @@
-import { expect, nativeAppViewTest as test } from './fixtures.js'
+import { expect, nativeAppViewTest as test, waitForStartupOwnership } from './fixtures.js'
 
 test.use({ retentionApi: false })
 
 test('cancels a running and a queued job while later jobs continue, including App View', async ({ page }, testInfo) => {
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('dev.execution.sleep'))).toBe(true)
+  await waitForStartupOwnership(page)
   await page.evaluate(async () => {
     const diagnostics = await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'cancel-live', root: 'root',

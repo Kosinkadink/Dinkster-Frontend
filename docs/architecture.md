@@ -299,7 +299,10 @@ Superseded receipts also protect roots still named by canonical tab snapshots,
 workspace candidates, document recovery slots and operation-journal additions.
 If the replacement no longer covers a root, retirement waits for a complete
 durable-source census that no longer names it. Persistence compaction retries
-that check; unreadable, corrupt or unknown sources keep protection. Crash-safe
+that check. Configured recipes use only this application's complete acknowledged
+slot inventory, bound to the exact saved bytes, backend, registry, connection
+generation, project and storage object. Recovered receipts never substitute for
+local admission; unreadable, corrupt or unknown sources keep protection. Crash-safe
 staging stays synchronous, and disconnect or session displacement never grants
 release authority over a pending receipt.
 Canonical workspace snapshots, per-window candidates, per-lineage recovery
@@ -322,6 +325,24 @@ The asset census treats node extension metadata as opaque. A MOUNT widget
 binds a STRING mount ID or null for the default
 output mount; neither is an asset identity. Other value shapes or socket types
 remain incomplete, with any known embedded asset roots preserved.
+Declared COLOR widgets bind to concrete COLOR or STRING inputs and use the
+string value contract, including empty strings, without interpreting color syntax
+or inventing asset identities. Non-string values, mismatched typed literals and
+COLOR widgets bound to other socket types remain
+incomplete. Stored dormant branches and undo/redo history use the same contract.
+The empty COMPOSITOR default `{}` and its normalized recipe (version 2, null
+documentDigest, no commands) have no asset roots. A configured recipe retains its
+canonical documentDigest. At asynchronous retention boundaries, an independent
+incomplete preview owner protects reads while the document and every external
+resource are checked for canonical structure, digest and byte size. Native
+compositor commands are applied to an owned copy and the resulting document is
+validated before completeness is acknowledged. The destination owner must
+acknowledge the resolved inventory before the preview owner retires. Resolution
+is operation-local and never reused across backend lifetimes. Malformed or
+unknown commands remain incomplete and keep known roots; clearing a recipe does
+not discard document identities still present in history. Synchronous dispatch
+also compares recipe contents, so changed commands with an unchanged document
+digest still require admission. Save and sharing resolve before publication.
 Metadata and unknown schemas remain
 incomplete. Known canonical references in opaque stored values are retained, but
 the owner explicitly declares `complete: false`, even for an empty known set.
@@ -331,6 +352,9 @@ a digest. Unmarked asset filename strings and malformed AssetRef objects still r
 This conservative document owner blocks collection; it does not certify byte
 availability or global retention completeness. Malformed identities, invalid
 dynamic identities and stale history replay still refuse publication.
+Document-open admission compares the raw schema contract beneath pack locale
+overlays. Label and search-term updates do not invalidate a retained open;
+schema, capability and connection changes still refuse stale publication.
 History array additions insert before occupied entries without overwriting them;
 object additions still require an absent key, and replacements and removals
 still require their recorded value.
@@ -449,6 +473,9 @@ tabs' default target; session-only targets do not persist. Registry loading and
 the first local frame do not wait for ownership or shared-workspace promotion.
 Refused, unavailable or stale startup acknowledgments leave ownership unconfirmed
 in Problems and prevent shared promotion without discarding saved documents.
+Pack locale labels may arrive during confirmation without invalidating its schema
+snapshot. Real registry replacements still invalidate it, even with the same hash;
+startup does not wait for locale downloads.
 Asset publication still requires its exact acknowledgment; an unavailable
 retention route never implies an empty complete set. Restoration
 and crash-safe local writes remain synchronous; newly created durable holders

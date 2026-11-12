@@ -12,22 +12,13 @@
           "id": "region",
           "type": "#foldBody",
           "values": {
-            "item": [
-              1,
-              2,
-              3,
-              4
-            ],
+            "item": [1, 2, 3, 4],
             "total": 0
           },
           "region": {
             "kind": "fold",
-            "elementPorts": [
-              "item"
-            ],
-            "statePorts": [
-              "total"
-            ],
+            "elementPorts": ["item"],
+            "statePorts": ["total"],
             "outputRoles": {
               "result": {
                 "kind": "state",
@@ -48,11 +39,33 @@
       "nodes": {
         "add": {
           "id": "add",
-          "type": "std.math.add_ints",
+          "type": "dinkster.utilities.comfy_math_expression",
+          "values": { "expression": "a + b" },
+          "dynamic": { "values": { "members": ["a", "b"] } }
+        },
+        "item": {
+          "id": "item",
+          "type": "dinkster.utilities.primitive_int",
+          "values": {}
+        },
+        "total": {
+          "id": "total",
+          "type": "dinkster.utilities.primitive_int",
           "values": {}
         }
       },
-      "links": {},
+      "links": {
+        "totalToAdd": {
+          "id": "totalToAdd",
+          "from": { "node": "total", "port": "INT" },
+          "to": { "node": "add", "port": "values.a" }
+        },
+        "itemToAdd": {
+          "id": "itemToAdd",
+          "from": { "node": "item", "port": "INT" },
+          "to": { "node": "add", "port": "values.b" }
+        }
+      },
       "nets": {},
       "reroutes": {},
       "boundary": {
@@ -61,16 +74,16 @@
             "id": "item",
             "binds": {
               "kind": "port",
-              "node": "add",
-              "port": "b"
+              "node": "item",
+              "port": "value"
             }
           },
           {
             "id": "total",
             "binds": {
               "kind": "port",
-              "node": "add",
-              "port": "a"
+              "node": "total",
+              "port": "value"
             }
           }
         ],
@@ -80,12 +93,12 @@
             "binds": {
               "kind": "port",
               "node": "add",
-              "port": "sum"
+              "port": "INT"
             }
           }
         ]
       },
-      "nextOrdinal": 1
+      "nextOrdinal": 5
     }
   },
   "view": {

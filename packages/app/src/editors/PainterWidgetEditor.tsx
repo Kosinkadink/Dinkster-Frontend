@@ -232,6 +232,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
   }
 
   return <div class="widget-editor painter-widget-editor" data-testid="painter-editor">
+    <div class="painter-content">
     <div class="painter-toolbar">
       <ProductField controlId="painter-color" label={message('painterWidget.color')} layout="compact">
         <ProductColorInput id="painter-color" value={color()} disabled={busy()} onInput={(event) => setColor(event.currentTarget.value)} />
@@ -257,6 +258,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
     </div>
     <UploadDestination connection={backend.connection} machine={backend.label} value={destination()} disabled={busy()} onChange={setDestination} />
     <Show when={error()}>{(detail) => <ProductNotice tone="error">{detail()}</ProductNotice>}</Show>
+    </div>
     <ProductActionFooter>
       <ProductButton onClick={props.close}>{message('common.cancel')}</ProductButton>
       <ProductButton variant="primary" disabled={busy()} loading={busy()} onClick={() => void apply()}>{message('common.apply')}</ProductButton>

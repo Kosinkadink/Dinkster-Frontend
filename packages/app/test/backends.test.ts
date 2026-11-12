@@ -401,6 +401,66 @@ describe('addBackend / removeBackend', () => {
     expect(JSON.stringify(tab.store.doc)).toBe(storedBefore)
   })
 
+  it.each(['locale', 'schema', 'connection'] as const)('confirms a retained document across a locale overlay but refuses changed admission: %s', async (scenario) => {
+    const digest = (character: string): string => `sha256:${character.repeat(64)}`
+    setLocale('en')
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      const displayName = url.endsWith(encodeURIComponent(digest('b'))) ? 'Localized label' : 'English label'
+      return new Response(JSON.stringify(url.includes('/api/nodes') ? {
+        schemaVersion: 1, dinkster: { version: 'locale-test', schemaWire: 1 },
+        packs: { demo: { displayName: 'Demo', locales: { en: digest('a'), zh: digest('b') } } },
+        nodes: { 'demo.localized': { schemaVersion: 1, displayName: 'Raw label', pack: 'demo', interface: [] } },
+      } : { nodes: { 'demo.localized': { displayName } }, searchTerms: { 'demo.localized': [displayName] } }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } })
+    })
+    const backend = app.backends.get()[0]!
+    await app.refreshBackendSchemas(backend)
+    await vi.waitFor(() => expect(backend.registry.get()?.resolve('demo.localized')?.displayName).toBe('English label'))
+    let acknowledge!: () => void
+    let entered!: () => void
+    const requested = new Promise<void>((resolve) => { entered = resolve })
+    const response = new Promise<void>((resolve) => { acknowledge = resolve })
+    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      entered()
+      await response
+      return { ...owner, ...declaration, revision: declaration.revision + 1 }
+    })
+    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    const document = {
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'localized-open', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: {} },
+    }
+    const previousTabs = app.tabs.get()
+    const opening = app.openDocument(document, 'Localized workflow')
+    await requested
+    try {
+      setLocale('zh')
+      await vi.waitFor(() => expect(backend.registry.get()?.resolve('demo.localized')?.displayName).toBe('Localized label'))
+      expect(backend.registry.get()?.resolve('demo.localized')?.searchTerms).toContain('Localized label')
+      if (scenario === 'schema') {
+        const registry = backend.registry.get()!
+        const changed = { ...registry.resolve('demo.localized')!, items: [{
+          kind: 'input' as const, id: 'asset', optional: false,
+          type: { kind: 'asset' as const, element: { kind: 'concrete' as const, name: 'IMAGE' } },
+        }] }
+        backend.registry.set({ ...registry, schemas: new Map([[changed.type, changed]]), resolve: () => changed })
+      }
+      if (scenario === 'connection') { backend.connection.connect(); backend.connection.disconnect() }
+      acknowledge()
+      const diagnostics = await opening
+      expect(diagnostics.length === 0).toBe(scenario === 'locale')
+      if (scenario === 'locale') {
+        expect(app.activeTab()?.store.doc.lineage).toBe('localized-open')
+        expect(app.backendForTab(app.activeTab()!)).toBe(backend)
+      } else expect(app.tabs.get()).toBe(previousTabs)
+    } finally {
+      acknowledge()
+      setLocale('en')
+    }
+  })
+
   it('publishes pack locale overlays live without refetching the schema catalog', async () => {
     const digest = (character: string): string => `sha256:${character.repeat(64)}`
     const requests: string[] = []
@@ -448,9 +508,24 @@ describe('addBackend / removeBackend', () => {
     const backend = nativeApp.addBackend('http://native:8000', 'Native', false, 'dinkster')
     if (backend?.protocol !== 'dinkster') throw new Error('native backend rejected')
 
+    nativeApp.setTabTarget(nativeApp.activeTab()!.id, backend.id)
+    let releaseRetention!: () => void
+    const retention = new Promise<void>((resolve) => { releaseRetention = resolve })
+    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
+    vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
+      await retention
+      return { ...owner, ...declaration, revision: declaration.revision + 1 }
+    })
+    let admission: Promise<boolean> | undefined
+    const unsubscribe = backend.registry.subscribe(() => {
+      admission ??= nativeApp.confirmStartupOwnership().then(() => true, () => false)
+    })
     await nativeApp.refreshBackendSchemas(backend)
     await vi.waitFor(() => expect(backend.registry.get()?.resolve('demo.localized')?.displayName)
       .toBe('English pack node'))
+    releaseRetention()
+    expect(await admission).toBe(true)
+    unsubscribe()
     setLocale('de-DE')
     await vi.waitFor(() => expect(requests.some((url) => url.endsWith(encodeURIComponent(digest('b'))))).toBe(true))
     setLocale('fr-FR')

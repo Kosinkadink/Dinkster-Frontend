@@ -86,7 +86,7 @@ async function executeRegion(page: Page): Promise<{
   }, prompt)
 }
 
-test.beforeEach(async ({ page }, testInfo) => {
+test.beforeEach(async ({ page }) => {
   test.skip(process.env['DINKSTER_NATIVE_BACKEND'] === undefined,
     'set DINKSTER_NATIVE_BACKEND so the Vite same-origin proxy targets this native backend')
   let graphFeatures: readonly string[] | undefined
@@ -104,7 +104,9 @@ test.beforeEach(async ({ page }, testInfo) => {
   } catch { /* unreachable backend stays unavailable */ }
   test.skip(!graphFeatures?.includes('regions'),
     `native backend at ${NATIVE_BACKEND} does not advertise region graphs`)
-  requireBackendNodes(nodes ?? {}, ['std.math.add_ints', 'std.list.length', 'dinkster.value.compare', 'dinkster.int', 'dinkster.route.gate'], testInfo)
+  for (const nodeType of ['dinkster.utilities.primitive_int', 'dinkster.utilities.comfy_math_expression']) {
+    expect(nodes?.[nodeType], `current example node ${nodeType}`).toBeDefined()
+  }
 
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
@@ -114,6 +116,15 @@ test.beforeEach(async ({ page }, testInfo) => {
 
 for (const [file, expected] of Object.entries(expectedResults)) {
   test(`${file} imports and reaches its documented CPU result`, async ({ page }, testInfo) => {
+    const response = await fetch(`${NATIVE_BACKEND}/api/nodes?wire=45`)
+    expect(response.ok).toBe(true)
+    const { nodes } = await response.json() as { nodes: Readonly<Record<string, unknown>> }
+    const document = JSON.parse(await readFile(`${EXAMPLES_ROOT}${file}`, 'utf8')) as {
+      readonly graphs: Readonly<Record<string, { readonly nodes: Readonly<Record<string, { readonly type: string }>> }>>
+    }
+    requireBackendNodes(nodes, Object.values(document.graphs)
+      .flatMap((graph) => Object.values(graph.nodes).map((node) => node.type))
+      .filter((type) => !type.startsWith('#')), testInfo)
     await importExample(page, file)
     const execution = await executeRegion(page)
     expect(execution.status).toBe(expected.state)

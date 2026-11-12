@@ -12,21 +12,15 @@ async function openFixture(page: Page): Promise<void> {
       type: 'ClipboardText', displayName: 'Clipboard Text', category: 'test', source: 'v3', isOutputNode: false,
       items: [{ kind: 'input', id: 'text', type: { kind: 'concrete', name: 'STRING' }, optional: false,
         widget: { widgetType: 'STRING', options: {}, default: '' } }],
-    }, {
-      type: 'EmptyImage', displayName: 'Empty Image', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'IMAGE' } }],
-    }, {
-      type: 'PreviewImage', displayName: 'Preview Image', category: 'test', source: 'v3', isOutputNode: true,
-      items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
     }])
     await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'clipboard-e2e', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
-        n0: { id: 'n0', type: 'EmptyImage', values: { width: 64, height: 64, batch_size: 1, color: 0 } },
-        n1: { id: 'n1', type: 'PreviewImage', values: {} },
+        n0: { id: 'n0', type: 'dinkster.image.empty_image', values: { width: 64, height: 64, batch_size: 1, color: 0 } },
+        n1: { id: 'n1', type: 'dinkster.image.preview_image', values: {} },
         text: { id: 'text', type: 'ClipboardText', values: { text: 'unchanged' } },
       }, links: {
-        l0: { id: 'l0', from: { node: 'n0', port: 'out0' }, to: { reroute: 'r0' } },
+        l0: { id: 'l0', from: { node: 'n0', port: 'IMAGE' }, to: { reroute: 'r0' } },
         l1: { id: 'l1', from: { reroute: 'r0' }, to: { node: 'n1', port: 'images' } },
       }, nets: {}, reroutes: { r0: { id: 'r0' } }, nextOrdinal: 10 } },
       view: { graphs: { g0: { nodes: {
@@ -165,7 +159,7 @@ test('connected paste restores incoming node links only and undoes in one step',
     const tab = window.__dinksterTest!.app.activeTab()!
     tab.store.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l1' } })
     tab.store.dispatch({ command: 'link.connect', params: {
-      graphId: 'g0', from: { node: 'n0', port: 'out0' }, to: { node: 'n1', port: 'images' },
+      graphId: 'g0', from: { node: 'n0', port: 'IMAGE' }, to: { node: 'n1', port: 'images' },
     } })
     window.__dinksterTest!.controller!.setSelection(['n1'])
   })

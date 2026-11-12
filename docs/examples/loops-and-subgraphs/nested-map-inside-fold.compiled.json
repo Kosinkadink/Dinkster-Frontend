@@ -74,15 +74,38 @@
                 "body": {
                   "nodes": {
                     "add": {
-                      "nodeType": "std.math.add_ints",
+                      "nodeType": "dinkster.utilities.comfy_math_expression",
                       "inputs": {
-                        "a": {
+                        "expression": "a + b",
+                        "values.a": {
+                          "$link": {
+                            "node": "left",
+                            "output": "INT"
+                          }
+                        },
+                        "values.b": {
+                          "$link": {
+                            "node": "right",
+                            "output": "INT"
+                          }
+                        }
+                      }
+                    },
+                    "left": {
+                      "nodeType": "dinkster.utilities.primitive_int",
+                      "inputs": {
+                        "value": {
                           "$link": {
                             "node": "$region",
                             "output": "left"
                           }
-                        },
-                        "b": {
+                        }
+                      }
+                    },
+                    "right": {
+                      "nodeType": "dinkster.utilities.primitive_int",
+                      "inputs": {
+                        "value": {
                           "$link": {
                             "node": "$region",
                             "output": "right"
@@ -96,7 +119,7 @@
                   "sum": {
                     "source": {
                       "node": "add",
-                      "output": "sum"
+                      "output": "INT"
                     }
                   }
                 }
@@ -114,18 +137,30 @@
               }
             },
             "add": {
-              "nodeType": "std.math.add_ints",
+              "nodeType": "dinkster.utilities.comfy_math_expression",
               "inputs": {
-                "a": {
+                "expression": "a + b",
+                "values.a": {
                   "$link": {
-                    "node": "$region",
-                    "output": "total"
+                    "node": "total",
+                    "output": "INT"
                   }
                 },
-                "b": {
+                "values.b": {
                   "$link": {
                     "node": "length",
                     "output": "length"
+                  }
+                }
+              }
+            },
+            "total": {
+              "nodeType": "dinkster.utilities.primitive_int",
+              "inputs": {
+                "value": {
+                  "$link": {
+                    "node": "$region",
+                    "output": "total"
                   }
                 }
               }
@@ -136,7 +171,7 @@
           "total": {
             "source": {
               "node": "add",
-              "output": "sum"
+              "output": "INT"
             },
             "mode": "state"
           }
