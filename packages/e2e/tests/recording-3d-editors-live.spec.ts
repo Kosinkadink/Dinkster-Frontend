@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { waitForStartupOwnership } from './fixtures.js'
 
 const backend = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const nativeFrontend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
@@ -36,9 +37,11 @@ async function openGraph(page: Page, type: string, values: Record<string, unknow
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   }, { type, values })
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.lineage)).toBe(`served-widget-${type}`)
+  await waitForStartupOwnership(page)
 }
 
 async function run(page: Page): Promise<{ clientId: string; jobId: string }> {
+  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const result = app.compileTab(app.activeTab()!)
@@ -60,6 +63,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.connection.status.get())).toBe('connected')
+  await waitForStartupOwnership(page)
 })
 
 test('Record Audio records a fake microphone and executes its saved asset after reopening', async ({ page, request }, info) => {
@@ -172,6 +176,27 @@ for (const type of ['load3_d', 'load3_d_advanced', 'preview3_d_advanced', 'previ
     await editor.locator('#load3d-fov').dispatchEvent('change')
     await editor.locator('#load3d-position-x').fill('0.25')
     await editor.locator('#load3d-position-x').dispatchEvent('change')
+    if (type.includes('splat')) {
+      await expect.poll(async () => {
+        const png = await editor.getByTestId('load3d-viewport').screenshot()
+        return page.evaluate(async (base64) => {
+          const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+          const image = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+          const canvas = document.createElement('canvas')
+          canvas.width = image.width
+          canvas.height = image.height
+          const context = canvas.getContext('2d')!
+          context.drawImage(image, 0, 0)
+          image.close()
+          const data = context.getImageData(0, 0, canvas.width, canvas.height).data
+          let colored = 0
+          for (let i = 0; i < data.length; i += 4) {
+            if (Math.max(data[i]!, data[i + 1]!, data[i + 2]!) - Math.min(data[i]!, data[i + 1]!, data[i + 2]!) > 30) colored++
+          }
+          return colored
+        }, png.toString('base64'))
+      }).toBeGreaterThan(100)
+    }
     await page.screenshot({ path: info.outputPath(`${type}.png`) })
     await editor.getByRole('button', { name: 'Apply', exact: true }).click()
     await expect(editor).toBeHidden()
