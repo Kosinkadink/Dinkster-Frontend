@@ -1,5 +1,13 @@
 {
   "common.close": "Close",
+  "resolutionWidget.title": "Resolution preview",
+  "resolutionWidget.dimensions": "{width} x {height} pixels",
+  "resolutionWidget.ratio": "Aspect ratio",
+  "resolutionWidget.megapixels": "Megapixels (0.1-16)",
+  "resolutionWidget.multiple": "Round to multiple (8-128)",
+  "resolutionWidget.connected": "Disconnect driven resolution inputs to compose dimensions here. Connected values are computed when the graph runs.",
+  "resolutionWidget.invalid": "Choose a ratio, megapixels from 0.1 to 16, and a whole multiple from 8 to 128.",
+  "resolutionWidget.apply": "Apply resolution",
   "cameraAngleWidget.title": "Camera angle",
   "cameraAngleWidget.preview": "Camera orbit from above and elevation from the side",
   "cameraAngleWidget.front": "Front",

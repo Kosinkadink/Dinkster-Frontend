@@ -65,6 +65,7 @@ const dispositions = [
   { type: 'BOUNDING_BOX', compact: 'core.boundingBox', expanded: 'pixel crop region popover' },
   { type: 'IMAGECOMPARE', compact: 'core.imageCompare', expanded: 'paired preview wipe and independent batch browsing' },
   { type: 'CAMERA_ANGLE_VIEW', compact: 'core.cameraAngle', expanded: 'orbit preview and atomic sibling input popover' },
+  { type: 'RESOLUTION_PREVIEW', compact: 'core.resolution', expanded: 'dimensions preview and atomic sibling input popover' },
 ] as const
 
 describe('registered widget disposition inventory', () => {

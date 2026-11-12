@@ -1,5 +1,13 @@
 {
   "common.close": "关闭",
+  "resolutionWidget.title": "分辨率预览",
+  "resolutionWidget.dimensions": "{width} x {height} 像素",
+  "resolutionWidget.ratio": "宽高比",
+  "resolutionWidget.megapixels": "百万像素（0.1-16）",
+  "resolutionWidget.multiple": "取整倍数（8-128）",
+  "resolutionWidget.connected": "请断开分辨率输入的连接后再设置尺寸。连接值将在运行图时计算。",
+  "resolutionWidget.invalid": "请选择宽高比、0.1 至 16 的百万像素值以及 8 至 128 的整数倍数。",
+  "resolutionWidget.apply": "应用分辨率",
   "cameraAngleWidget.title": "相机角度",
   "cameraAngleWidget.preview": "俯视相机轨道与侧视仰角",
   "cameraAngleWidget.front": "正面",

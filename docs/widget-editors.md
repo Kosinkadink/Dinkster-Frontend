@@ -1,5 +1,12 @@
 # Widget compact controls and expanded editors
 
+RESOLUTION_PREVIEW opens a proportional rectangle and exact pixel dimensions
+from the node's aspect ratio, megapixels and rounding multiple. The named
+controls update that preview as a draft; Apply resolution writes the three
+real inputs as one undoable edit without writing the ignored preview value.
+Dimensions use the backend's 1024-based megapixels and ties-to-even rounding.
+Connected inputs disable this composer instead of showing invented dimensions.
+
 CAMERA_ANGLE_VIEW opens a top-down orbit and side elevation preview with named
 horizontal angle, vertical angle and zoom fields. Apply camera angle updates
 the three real numeric inputs as one undoable edit; the presentation-only view
