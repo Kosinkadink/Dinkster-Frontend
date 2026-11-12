@@ -39,7 +39,7 @@ test('every gallery node resolves and lays out with zero problems', async ({ pag
     return {
       sceneNodeIds: scene.nodes.map((n) => n.id).sort(),
       unresolved: scene.nodes.filter((n) => n.layout.rows.length === 0 && n.layout.pins.length === 0).map((n) => n.id),
-      problems: app.problems.get().map((p) => `${p.severity}:${p.code}`),
+      problems: app.problems.get().map((p) => `${p.severity}:${p.code}: ${p.message}`),
       links: Object.keys(app.activeTab()!.store.doc.graphs.g0!.links).length,
     }
   })
