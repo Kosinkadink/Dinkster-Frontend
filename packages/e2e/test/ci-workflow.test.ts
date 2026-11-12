@@ -183,26 +183,25 @@ describe('fast pull-request and full validation workflows', () => {
     expect(runs[3]).toBe(
       'uv sync --project .ci/Dinkster --locked --package dinkster --no-dev',
     )
-    expect(runs[4]).toContain(
-      'for pack in .ci/Dinkster/packages/dinkster-nodes-*; do',
-    )
-    expect(runs[4]).toContain('packs+=(-e "$pack")')
-    expect(
-      runs[4]!
-        .slice(runs[4]!.indexOf('uv pip install'))
-        .trim()
-        .split(/\s+/)
-        .filter((part) => part !== '\\'),
-    ).toEqual([
-      'uv',
-      'pip',
-      'install',
-      '--python',
-      '.ci/Dinkster/.venv/bin/python',
-      '--no-deps',
-      '--no-sources',
-      '"${packs[@]}"',
-    ])
+    for (const workflow of [fast, full]) {
+      for (const job of Object.values(workflow.jobs)) {
+        const install = job.steps?.find(
+          (step) => step.name === 'Install checkout pack sources',
+        )
+        if (install === undefined) continue
+        expect(install.run).toBe(
+          [
+            'packs=()',
+            'for pack in .ci/Dinkster/packages/dinkster-nodes-*; do',
+            '  packs+=(-e "$pack")',
+            'done',
+            'uv pip install --python .ci/Dinkster/.venv/bin/python --no-deps --no-sources \\',
+            '  "${packs[@]}"',
+            '',
+          ].join('\n'),
+        )
+      }
+    }
     expect(runs[5]).toBe(
       '.ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library',
     )

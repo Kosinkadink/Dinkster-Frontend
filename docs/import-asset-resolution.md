@@ -72,8 +72,17 @@ the explicit HTTP confirmation flow. A response with both execution modes,
 neither mode, or malformed commands is rejected. The `plan` member is an opaque
 JSON object owned by the host; the renderer does not interpret that payload,
 execute terminal commands, or send the plan back for execution.
-Both methods accept an optional AbortSignal. Planning has the ordinary
-30-second metadata deadline. Cancelling an apply stops the caller's wait,
+Both methods accept an optional AbortSignal. Planning starts the shared
+prepare/status/cancel lifecycle on either host. Short metadata reads keep their
+30-second deadline, while actual stage and integrity-batch progress can carry
+healthy preparation beyond 30 seconds. The UI shows that progress and permits
+cancellation before confirmation. No progress for 120 seconds or more than
+30 minutes overall reports a preparation failure, not a reconnect instruction.
+A lost status read reports unavailable preparation status without retrying
+preparation or applying. Cancellation requests cooperative stop, suppresses late
+review results and leaves read-only cleanup owned by the host until it exits.
+Editing/replacing the document, switching tabs or changing its backend cancels
+the old observer. Cancelling an apply stops the caller's wait,
 not the backend mutation; its outcome requires installed-catalog reconciliation.
 Applying never retries automatically: a transport failure may have happened
 after the host changed its installation. HTTP failures retain their status and

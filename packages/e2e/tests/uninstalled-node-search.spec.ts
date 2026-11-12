@@ -5,6 +5,10 @@ import type { Page } from '@playwright/test'
 import catalog from '../../core/fixtures/dinkster-nodes-comfy.json' with { type: 'json' }
 import { expect, test } from './fixtures.js'
 
+function preparedReview(result: unknown) {
+  return { preparation: 'preparation-1', state: 'ready', progress: { sequence: 2, stage: 'retaining-review', completed: 1, total: 1 }, result }
+}
+
 test('uninstalled search renders the same real preview as installed search and never places on selection', async ({ page }) => {
   const wire = { ...catalog.nodes['comfy.EmptyImage'], pack: 'image-tools', displayName: 'Catalog Image', searchTerms: ['catalog-resample'] }
   const body = JSON.stringify({ packName: 'image-tools', version: '1.10.0', schemas: [{ nodeType: 'image.catalog', schemaVersion: 1, schemaWireVersion: 1, schemaSignature: 'catalog-image', role: 'compute', schema: wire }] })
@@ -12,13 +16,13 @@ test('uninstalled search renders the same real preview as installed search and n
   let plans = 0
   let applies = 0
   await page.route(/\/api\/nodes(?:\?.*)?$/, (route) => route.fulfill({ json: { ...catalog, nodes: installed ? { 'image.catalog': wire } : {} } }))
-  await page.route('**/api/packs/install/plan', (route) => {
+  await page.route('**/api/packs/install/prepare', (route) => {
     expect(route.request().postDataJSON()).toEqual({ packs: [{ pack: 'image-tools', version: '1.10.0' }] })
     plans++
-    return plans === 1 ? route.fulfill({ status: 404, json: { error: 'not-found' } }) : route.fulfill({ json: {
+    return plans === 1 ? route.fulfill({ status: 404, json: { error: 'not-found' } }) : route.fulfill({ json: preparedReview({
       confirmation: 'server-confirmation', plan: { format: 'dinkster.plan/1' },
       review: 'Install image-tools 1.10.0\nAdd isolated image dependencies; keep existing packs unchanged.', expiresInSeconds: 900,
-    } })
+    }) })
   })
   await page.route('**/api/packs/install/apply', (route) => {
     expect(route.request().postDataJSON()).toEqual({ confirmation: 'server-confirmation' })
@@ -102,10 +106,10 @@ test('managed host commands copy exactly without HTTP apply and refresh permits 
     "dinkster-env --root '/srv/projects/image work' packs-apply --input '/tmp/image review.json' --approval '<NEW_PLAN_DIGEST>'",
   ]
   let applies = 0
-  await page.route('**/api/packs/install/plan', (route) => {
+  await page.route('**/api/packs/install/prepare', (route) => {
     expect(route.request().postDataJSON()).toEqual({ packs: [{ pack: 'image-tools', version: '1.10.0' }] })
-    return route.fulfill({ json: { commands, plan: { format: 'dinkster.project-pack-plan/1' },
-      review: 'Add image-tools 1.10.0; keep existing packs unchanged.', expiresInSeconds: 900 } })
+    return route.fulfill({ json: preparedReview({ commands, plan: { format: 'dinkster.project-pack-plan/1' },
+      review: 'Add image-tools 1.10.0; keep existing packs unchanged.', expiresInSeconds: 900 }) })
   })
   await page.route('**/api/packs/install/apply', (route) => { applies++; return route.abort() })
   await page.evaluate(() => {
@@ -154,10 +158,10 @@ test('managed host commands copy exactly without HTTP apply and refresh permits 
 for (const timing of ['before-copy', 'during-copy'] as const) {
   test(`terminal review is retired when backend changes ${timing}`, async ({ page }) => {
     const { prompt } = await openInstallPrompt(page)
-    await page.route('**/api/packs/install/plan', (route) => route.fulfill({ json: {
+    await page.route('**/api/packs/install/prepare', (route) => route.fulfill({ json: preparedReview({
       commands: ['dinkster-env --root /original packs-plan image-tools@1.10.0'],
       plan: {}, review: 'Original backend review', expiresInSeconds: 900,
-    } }))
+    }) }))
     await prompt.getByRole('button', { name: 'Review installation', exact: true }).click()
     await expect(prompt.getByTestId('node-install-commands')).toBeVisible()
     await page.evaluate((when) => {
@@ -192,7 +196,7 @@ for (const outcome of ['lost-response', 'malformed-success', 'cancel-waiting'] a
     let applies = 0
     let release = () => {}
     const gate = new Promise<void>((resolve) => { release = resolve })
-    await page.route('**/api/packs/install/plan', (route) => route.fulfill({ json: reviewPlan }))
+    await page.route('**/api/packs/install/prepare', (route) => route.fulfill({ json: preparedReview(reviewPlan) }))
     await page.route('**/api/packs/install/apply', async (route) => {
       applies++
       if (outcome === 'cancel-waiting') { await gate; return }
@@ -231,15 +235,15 @@ test('hanging installation planning can be dismissed and expired review cannot b
   const { open, prompt } = await openInstallPrompt(page)
   let release = () => {}
   const gate = new Promise<void>((resolve) => { release = resolve })
-  await page.route('**/api/packs/install/plan', async (route) => { await gate; await route.fulfill({ json: reviewPlan }) })
-  const request = page.waitForRequest('**/api/packs/install/plan')
+  await page.route('**/api/packs/install/prepare', async (route) => { await gate; await route.fulfill({ json: preparedReview(reviewPlan) }) })
+  const request = page.waitForRequest('**/api/packs/install/prepare')
   await prompt.getByRole('button', { name: 'Review installation', exact: true }).click()
   await request
   await prompt.getByRole('button', { name: 'Cancel waiting', exact: true }).click()
   release()
   await expect(prompt).not.toBeVisible()
-  await page.unroute('**/api/packs/install/plan')
-  await page.route('**/api/packs/install/plan', (route) => route.fulfill({ json: { ...reviewPlan, expiresInSeconds: 2 } }))
+  await page.unroute('**/api/packs/install/prepare')
+  await page.route('**/api/packs/install/prepare', (route) => route.fulfill({ json: preparedReview({ ...reviewPlan, expiresInSeconds: 2 }) }))
   await open()
   await page.clock.install()
   await prompt.getByRole('button', { name: 'Review installation', exact: true }).click()
@@ -251,3 +255,61 @@ test('hanging installation planning can be dismissed and expired review cannot b
   const proof = process.env['DINKSTER_SEARCH_PROOF_DIR']
   if (proof) await page.screenshot({ path: join(proof, 'expired-prompt.png') })
 })
+
+for (const outcome of ['ready', 'stalled', 'cancelled', 'status-lost'] as const) {
+  test(`slow progressing preparation ends as ${outcome} without reconnect advice`, async ({ page }, testInfo) => {
+    const { prompt } = await openInstallPrompt(page)
+    await page.clock.install()
+    let finish = false
+    let sequence = 0
+    let starts = 0
+    let cancels = 0
+    let applies = 0
+    const snapshot = () => ({ preparation: 'slow-review', state: 'preparing',
+      progress: { sequence: sequence++, stage: 'checking-software', completed: sequence * 128, total: 1024 } })
+    await page.route('**/api/packs/install/prepare', (route) => { starts++; return route.fulfill({ status: 202, json: snapshot() }) })
+    await page.route('**/api/packs/install/preparation/status', (route) => {
+      expect(route.request().postDataJSON()).toEqual({ preparation: 'slow-review' })
+      if (!finish) return route.fulfill({ json: snapshot() })
+      if (outcome === 'status-lost') return new Promise<void>(() => {})
+      return route.fulfill({ json: outcome === 'stalled' ? { ...snapshot(), state: 'failed', error: 'preparation-stalled' }
+        : { ...snapshot(), state: 'ready', result: reviewPlan } })
+    })
+    await page.route('**/api/packs/install/preparation/cancel', (route) => { cancels++; return route.fulfill({ json: { ...snapshot(), state: 'cancelled' } }) })
+    await page.route('**/api/packs/install/apply', (route) => { applies++; return route.fulfill({ status: 500 }) })
+    await prompt.getByRole('button', { name: 'Review installation', exact: true }).click()
+    await expect(prompt).toContainText('Checking installed software...')
+    await page.clock.fastForward(45_000)
+    await expect.poll(() => sequence).toBeGreaterThan(1)
+    await expect(prompt.getByRole('button', { name: 'Confirm installation', exact: true })).toHaveCount(0)
+    await expect(prompt).not.toContainText('Retry to reconnect')
+    await prompt.screenshot({ path: testInfo.outputPath('preparation-progress.png') })
+    if (outcome === 'ready') {
+      await page.setViewportSize({ width: 780, height: 900 })
+      await prompt.screenshot({ path: testInfo.outputPath('preparation-progress-narrow.png') })
+      await page.setViewportSize({ width: 1440, height: 900 })
+    }
+    if (outcome === 'cancelled') {
+      await prompt.getByRole('button', { name: 'Cancel waiting', exact: true }).click()
+      await expect(prompt).not.toBeVisible()
+      await expect.poll(() => cancels).toBe(1)
+      finish = true
+      await page.clock.runFor(1000)
+      await expect(prompt).not.toBeVisible()
+      await page.screenshot({ path: testInfo.outputPath('preparation-cancelled.png') })
+    } else {
+      finish = true
+      await page.clock.runFor(1000)
+      if (outcome === 'ready') await expect(prompt.getByRole('button', { name: 'Confirm installation', exact: true })).toBeVisible()
+      else if (outcome === 'stalled') await expect(prompt).toContainText('no progress for 120 seconds')
+      else {
+        await page.clock.runFor(30_000)
+        await expect(prompt).toContainText('preparation status is unavailable after 30 seconds')
+      }
+      await expect(prompt).not.toContainText('Retry to reconnect')
+      await prompt.screenshot({ path: testInfo.outputPath(`preparation-${outcome}.png`) })
+    }
+    expect(starts).toBe(1)
+    expect(applies).toBe(0)
+  })
+}
