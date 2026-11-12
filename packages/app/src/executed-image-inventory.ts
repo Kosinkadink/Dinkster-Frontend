@@ -127,13 +127,14 @@ export function executedImageInventory(
   }
   for (const [index, artifact] of (execution.artifacts ?? []).entries()) {
     if (allowed !== undefined && !allowed.has(artifact.nodeId)) continue
-    if (!artifact.mediaType.startsWith('image/') || !CAS_DIGEST.test(artifact.digest)) continue
+    if (!artifact.mediaType.startsWith('image/') || !CAS_DIGEST.test(artifact.digest) || artifact.preview !== undefined) continue
     if (images.some((image) => image.kind === 'asset' && image.runtimeId === artifact.nodeId && image.digest === artifact.digest)) continue
     images.push({
       key: `${execution.key}:artifact:${artifact.nodeId}:${index}:${artifact.digest}`,
       runtimeId: artifact.nodeId, outputId: 'saved file', descriptorIndex: index,
       url: options.assetUrlForExecution(execution.ref, artifact.digest),
       kind: 'artifact', mediaType: artifact.mediaType, digest: artifact.digest,
+      ...(assetReader === undefined ? {} : { assetReader: (holder: object) => assetReader(execution, [artifact.digest], holder) }),
       name: artifact.name, virtualPath: artifact.virtualPath,
     })
   }

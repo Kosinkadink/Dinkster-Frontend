@@ -97,13 +97,16 @@ function mount(initialIndex = 0, onReveal?: (image: ExecutedImage) => void) {
 }
 
 describe('ExecutedImageViewer', () => {
-  it.each(['accepted', 'lost', 'refused', 'reused', 'replaced', 'replaced-decode', 'disconnected', 'unmounted'] as const)(
-    'keeps same-digest tiles independently admitted through decode: %s', async (scenario) => {
+  it.each(['accepted', 'lost', 'refused', 'reused', 'replaced', 'replaced-decode', 'disconnected', 'unmounted', 'saved-artifact'] as const)(
+    'keeps same-digest tiles independently admitted through decode: %s', async (source) => {
+      const scenario = source === 'saved-artifact' ? 'accepted' : source
       const app = createWorkflowApp()
       const digest = `blake3:${'c'.repeat(64)}`
       const ref = { connection: app.connection.id, prompt: asPromptId('image-tiles') }
       app.store.apply({ kind: 'started', execution: ref, timestamp: 0 })
-      app.store.hydrateOutputs(ref, { save: { image: { typeId: 'ASSET', fingerprint: digest,
+      if (source === 'saved-artifact') app.store.hydrateArtifacts(ref, [{ nodeId: 'save', digest,
+        mediaType: 'image/png', name: 'saved.png', size: 3, virtualPath: 'output/saved.png' }])
+      else app.store.hydrateOutputs(ref, { save: { image: { typeId: 'ASSET', fingerprint: digest,
         meta: { digest, mediaType: 'image/png', name: 'saved.png', size: 3, virtualPath: '' } } } })
       const state = app.store.get(ref)!
       const image = executedImageInventory(state, {

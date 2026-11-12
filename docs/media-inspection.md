@@ -37,6 +37,9 @@ output order and opening a tile selects that image in the full viewer.
 Each native batch tile requests an advertised PNG rendition from its
 owning execution; mounting and unmounting the tile owns its request and blob URL.
 Unavailable renditions remain visible as unavailable tiles.
+Saved image tiles use the same execution ownership reader as typed image assets.
+Files with a separate associated preview stay in the saved-file presentation:
+preview loading or failure never downloads their original bytes automatically.
 
 Canvas and App View show attributed live frames while a node is running.
 Once it finishes, recorded native media renditions take precedence over late

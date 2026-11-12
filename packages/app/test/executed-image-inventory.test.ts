@@ -102,7 +102,9 @@ describe('executedImageInventory', () => {
     const saved = { nodeId: 'save', digest: digest('a'), name: 'saved.png', size: 7,
       mediaType: 'image/png', virtualPath: 'mounts/renders/saved.png' }
     const state = { ...execution({ save: { images: { typeId: 'IMAGE', meta: { shape: [1, 8, 16, 3] } } } }),
-      artifacts: [saved, { ...saved, nodeId: 'other' }, { ...saved, mediaType: 'audio/wav', digest: digest('b') }] }
+      artifacts: [saved, { ...saved, nodeId: 'other' }, { ...saved, mediaType: 'audio/wav', digest: digest('b') },
+        { ...saved, name: 'original.exr', mediaType: 'image/x-exr', digest: digest('c'), size: 2 ** 30 + 1,
+          preview: { digest: digest('d'), name: 'preview.png', size: 128, mediaType: 'image/png', virtualPath: 'previews/preview.png' } }] }
     const options = { runtimeIds: ['save'], assetUrlForExecution: (_ref: unknown, value: string) => `asset/${value}` }
     const result = executedImageInventory(state, options)
     expect(result).toEqual([expect.objectContaining({ kind: 'artifact', runtimeId: 'save',
