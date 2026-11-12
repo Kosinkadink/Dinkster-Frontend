@@ -23,8 +23,8 @@ for (const connected of [false, true]) test(`Painter ${connected ? 'connected fi
       graphs: { g0: {
         id: 'g0', name: 'Painting',
         nodes: {
-          paint: { id: 'paint', type: 'Painter', values: { width: 128, height: 64, bg_color: '#123456' } },
-          ...(connected ? { source: { id: 'source', type: 'EmptyImage', values: { width: 64, height: 128, batch_size: 2, color: 0x28649c } } } : {}),
+          paint: { id: 'paint', type: 'dinkster.image.painter', values: { width: 128, height: 64, bg_color: '#123456' } },
+          ...(connected ? { source: { id: 'source', type: 'dinkster.image.empty_image', values: { width: 64, height: 128, batch_size: 2, color: 0x28649c } } } : {}),
         },
         links: connected ? { image: { id: 'image', from: { node: 'source', port: 'IMAGE' }, to: { node: 'paint', port: 'image' } } } : {},
         nets: {}, reroutes: {}, nextOrdinal: 3,
