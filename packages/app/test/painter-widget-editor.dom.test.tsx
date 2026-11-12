@@ -9,6 +9,68 @@ import type { ExecutionState, RetainedAssets } from '@dinkster/client'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+it('keeps same-digest Painter editors behind independent acknowledgments', async () => {
+  const schema = parseDinksterSchema('Painter', { interface: [
+    { role: 'input', id: 'mask', type: { kind: 'concrete', types: ['ASSET'] }, required: false,
+      widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image', allowUpload: true },
+      sourceFilename: { kind: 'media/image', category: 'input' } },
+  ] }).schema!
+  const initial = { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png', name: 'mask.png', size: 7, virtualPath: '' }
+  const doc = importLitegraph({ nodes: [{ id: 1, type: 'Painter', widgets_values: [initial] }], links: [] }, () => schema).document!
+  const app = createWorkflowApp([schema])
+  expect(await app.openDocument(doc, 'Independent Painters')).toEqual([])
+  const tab = app.activeTab()!
+  const context = { clearRect: vi.fn(), drawImage: vi.fn(), fillRect: vi.fn() }
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context as unknown as CanvasRenderingContext2D)
+  vi.stubGlobal('createImageBitmap', async () => ({ close() {} }))
+  const fetch = vi.spyOn(app.connection, 'fetchAssetBytes').mockResolvedValue(new Uint8Array([1]).buffer)
+  const release = vi.spyOn(app.connection, 'releaseRetainedAssets')
+  const requests: Array<{ receipt: RetainedAssets; acknowledge: () => void }> = []
+  const retain = vi.mocked(app.connection.retainAssets).getMockImplementation()!
+  vi.mocked(app.connection.retainAssets).mockImplementation((owner, declaration) => {
+    if (owner.ownerKind !== 'preview') return retain(owner, declaration)
+    return new Promise((resolve) => {
+      const receipt = { ...owner, ...declaration, revision: 1 }
+      requests.push({ receipt, acknowledge: () => resolve(receipt) })
+    })
+  })
+  const roots = [0, 1].map(() => {
+    const root = document.createElement('div'); document.body.append(root)
+    return root
+  })
+  const disposers = roots.map((root) => render(() => <WidgetEditor app={app} ed={{
+    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'mask' }, label: 'Mask',
+    spec: inputsOf(schema)[0]!.widget, declaredType: inputsOf(schema)[0]!.type,
+    multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root))
+  const apply = (root: HTMLElement) => Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply')!
+  try {
+    await vi.waitFor(() => expect(requests).toHaveLength(2))
+    expect(requests[0]!.receipt.ownerId).not.toBe(requests[1]!.receipt.ownerId)
+    for (const { receipt } of requests) expect(receipt).toMatchObject({
+      ownerKind: 'preview', complete: true, digests: [initial.digest],
+    })
+    expect(fetch).not.toHaveBeenCalled()
+    expect(apply(roots[0]!).disabled).toBe(true)
+    expect(apply(roots[1]!).disabled).toBe(true)
+    requests[1]!.acknowledge()
+    await vi.waitFor(() => expect(apply(roots[1]!).disabled).toBe(false))
+    expect(apply(roots[0]!).disabled).toBe(true)
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(context.drawImage).toHaveBeenCalledOnce()
+    disposers[1]!()
+    requests[0]!.acknowledge()
+    await vi.waitFor(() => expect(apply(roots[0]!).disabled).toBe(false))
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(context.drawImage).toHaveBeenCalledTimes(2)
+    expect(release).not.toHaveBeenCalled()
+  } finally {
+    disposers.forEach((dispose) => dispose())
+    requests.forEach(({ acknowledge }) => acknowledge())
+    app.dispose()
+  }
+})
+
 it.each(['live', 'refused', 'closed', 'edited', 'disconnected', 'disposed'] as const)(
   'keeps the connected IMAGE receipt through Painter decode and draw: %s', async (scenario) => {
     const schema = parseDinksterSchema('Painter', { interface: [
@@ -24,7 +86,7 @@ it.each(['live', 'refused', 'closed', 'edited', 'disconnected', 'disposed'] as c
     }, links: { image: { id: asLinkId('image'), from: { node: asNodeId('source'), port: asPortId('IMAGE') },
       to: { node: asNodeId('n1'), port: asPortId('image') } } } } } }
     const app = createWorkflowApp([schema])
-    app.openDocument(doc, 'Connected Painter')
+    await app.openDocument(doc, 'Connected Painter')
     const tab = app.activeTab()!
     const art = { snapshot: tab.store.doc, schemaHash: 'schema', connection: app.connection.id,
       prompt: { source: { class_type: 'Source', inputs: {} } },
@@ -178,7 +240,7 @@ it.each(['live', 'refused', 'closed-before', 'closed-decode', 'edited', 'disconn
     const initial = { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png', name: 'mask.png', size: 7, virtualPath: '' }
     const doc = importLitegraph({ nodes: [{ id: 1, type: 'Painter', widgets_values: [initial] }], links: [] }, () => schema).document!
     const app = createWorkflowApp([schema])
-    expect(app.openDocument(doc, 'Painter reader')).toEqual([])
+    expect((await app.openDocument(doc, 'Painter reader'))).toEqual([])
     const tab = app.activeTab()!
     const context = { clearRect: vi.fn(), drawImage: vi.fn(), fillRect: vi.fn() }
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context as unknown as CanvasRenderingContext2D)

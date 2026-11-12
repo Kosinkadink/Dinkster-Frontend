@@ -45,8 +45,8 @@ test('authors multiple partial queue buttons, persists them, and reports executi
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('test.PartialOutput') ?? false,
   )).toBe(true)
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-view-queue-buttons', root: 'root',
       graphs: {
         root: {

@@ -52,10 +52,10 @@ const run = (tab: Tab, queuedAt: number): ExecutionRef => {
   return ref
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   app = createWorkflowApp(null)
   for (const name of ['basic', 'subgraph']) {
-    app.openDocument(JSON.parse(readFileSync(join(root, `fixtures/workflows/seed-${name}.json`), 'utf8')), name)
+    await app.openDocument(JSON.parse(readFileSync(join(root, `fixtures/workflows/seed-${name}.json`), 'utf8')), name)
   }
   const backend = app.backends.get()[0]!
   backend.registry.set(historicalRegistry(backend.id))
@@ -178,14 +178,14 @@ describe('view-state lifecycle', () => {
     expect(app.overlayPins.get().has(basic.id)).toBe(false)
   })
 
-  it('replacing a document via openDocument starts unpinned', () => {
+  it('replacing a document via openDocument starts unpinned', async () => {
     const ref = run(basic, 100)
     app.pinExecutionOverlay(basic.id, ref)
     // Reload the same document (same lineage -> same tab id).
     const json = JSON.parse(
       readFileSync(join(root, 'fixtures/workflows/seed-basic.json'), 'utf8'),
     ) as unknown
-    expect(app.openDocument(json, 'Basic reloaded')).toEqual([])
+    expect((await app.openDocument(json, 'Basic reloaded'))).toEqual([])
     expect(app.overlayPins.get().has(basic.id)).toBe(false)
     expect(app.overlayModeForTab(app.activeTab()!)).toBe('latest')
   })

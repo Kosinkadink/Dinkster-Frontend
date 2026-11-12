@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/audit-t6a-proof'
 
@@ -67,8 +67,9 @@ test('UI disconnect compacts an occurrence member atomically and survives reload
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get().length ?? 0)).toBe(1)
+  await waitForStartupOwnership(page)
 
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([
       {
@@ -86,7 +87,7 @@ test('UI disconnect compacts an occurrence member atomically and survives reload
         }],
       },
     ])
-    test.app.openDocument({
+    await test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-t6a-proof', root: 'g0',
       graphs: {
         g0: {
@@ -164,10 +165,10 @@ test('UI disconnect compacts an occurrence member atomically and survives reload
   })
   await page.screenshot({ path: `${proofDir}/05-redo-compacted.png`, animations: 'disabled' })
 
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app as any
     const exported = app.exportDocument(app.activeTab()!.id)!
-    app.openDocument(JSON.parse(JSON.stringify(exported)), 'audit T6A reopened')
+    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'audit T6A reopened')
     const tab = app.activeTab()!
     tab.graphStack.set(['g0', 'sub'])
     tab.instancePath.set(['a'])

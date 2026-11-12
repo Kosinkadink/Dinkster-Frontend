@@ -9,10 +9,21 @@ import {
 import {
   MAX_IMAGE_DOCUMENT_BYTES,
   canonicalJson,
+  connectSharedImageDocumentSession,
+  createLocalImageDocumentSession,
+  diag,
   loadImageDocument,
   serializeImageDocument,
+  type CollabConnection,
+  type CollabSessionDescriptor,
   type ImageDocument,
+  type ImageDocumentCommandInvocation,
+  type ImageDocumentDispatchOutcome,
+  type ImageDocumentSession,
   type ImageRasterResource,
+  type PreparedImageDocumentDispatch,
+  type SharedImageDocumentSession,
+  type SharedImageDocumentSessionOptions,
 } from '@dinkster/core'
 import {
   ImageDocumentLocalStore,
@@ -21,8 +32,241 @@ import {
   type ImageLibraryLink,
   type StagedImageResource,
 } from './image-document-local.js'
+import { activeProjectId } from './projects.js'
+import { RetainedAssetReader, retainWorkflowAssets, retireAssetOwner } from './workflow-asset-retention.js'
 
 export const IMAGE_DOCUMENT_LIBRARY_LABEL = 'image-document'
+
+export interface RetainedImageDocumentSession<S extends ImageDocumentSession = ImageDocumentSession> {
+  readonly session: S
+  dispatch(invocation: ImageDocumentCommandInvocation): Promise<ImageDocumentDispatchOutcome>
+  undo(): Promise<ImageDocumentDispatchOutcome>
+  redo(): Promise<ImageDocumentDispatchOutcome>
+  readPreviewResource<T>(holder: object, resource: ImageRasterResource, consume: (staged: StagedImageResource) => Promise<T>): Promise<T>
+  previewCurrent(): boolean
+  close(): Promise<void>
+}
+
+export function createRetainedLocalImageDocumentSession(
+  connection: DinksterConnection,
+  store: ImageDocumentLocalStore,
+  document: ImageDocument,
+  isCurrent: () => boolean,
+  storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
+): Promise<RetainedImageDocumentSession> {
+  return createRetainedImageDocumentSession(connection, store,
+    (options) => Promise.resolve(createLocalImageDocumentSession(document, options)), isCurrent, storage)
+}
+
+export async function createRetainedSharedImageDocumentSession(
+  connection: DinksterConnection,
+  store: ImageDocumentLocalStore,
+  transport: CollabConnection,
+  descriptor: CollabSessionDescriptor,
+  options: Pick<SharedImageDocumentSessionOptions, 'actorId' | 'onConflict' | 'onError'>,
+  isCurrent: () => boolean,
+  storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
+): Promise<RetainedImageDocumentSession<SharedImageDocumentSession>> {
+  let disconnected = false
+  const stop = transport.onEvent((event) => {
+    if (event.kind === 'disconnected' || event.kind === 'session-closed') disconnected = true
+  })
+  try {
+    const retained = await createRetainedImageDocumentSession(connection, store,
+      (admission) => connectSharedImageDocumentSession(transport, descriptor, { ...options, ...admission }),
+      () => !disconnected && isCurrent(), storage, descriptor.scope)
+    return { ...retained, close: async () => { stop(); await retained.close() } }
+  } catch (cause) {
+    stop()
+    transport.close()
+    throw cause
+  }
+}
+
+async function createRetainedImageDocumentSession<S extends ReturnType<typeof createLocalImageDocumentSession> | SharedImageDocumentSession>(
+  connection: DinksterConnection,
+  store: ImageDocumentLocalStore,
+  createSession: (options: Pick<SharedImageDocumentSessionOptions, 'validateCommit' | 'beforeRemoteDocument'>) => Promise<S>,
+  isCurrent: () => boolean,
+  storage: Pick<Storage, 'setItem'>,
+  remoteScope?: string,
+) {
+  const assetBaseUrl = connection.assetUrl('')
+  const project = activeProjectId()
+  let closed = false
+  let connectionChanged = false
+  const unsubscribe = connection.status.subscribe(() => { connectionChanged = true })
+  const assertCurrent = (): void => {
+    if (closed || connectionChanged || activeProjectId() !== project || connection.status.get() !== 'connected' ||
+      connection.assetUrl('') !== assetBaseUrl || !isCurrent()) {
+      throw new Error('ImageDocument destination changed during asset admission')
+    }
+  }
+  let initializing = true
+  let admitted: ImageDocument | undefined
+  let stopSession = (): void => undefined
+  const pending = new Set<Promise<unknown>>()
+  const previewReaders = new WeakMap<object, Map<string, Promise<RetainedAssetReader>>>()
+  let session: S | undefined
+  let owner: RetainedAssets | undefined
+  const superseded = new Set<RetainedAssets>()
+  const installOwner = (retained: RetainedAssets): void => {
+    try { assertCurrent() } catch { return }
+    const previous = owner
+    owner = retained
+    if (previous === undefined || !previous.complete || !retained.complete) return
+    superseded.add(previous)
+    queueMicrotask(() => {
+      try { assertCurrent() } catch { return }
+      if (owner !== retained || storage !== globalThis.localStorage) return
+      for (const previous of superseded) {
+        superseded.delete(previous)
+        const task = retireAssetOwner(connection, previous)
+        pending.add(task)
+        void task.finally(() => pending.delete(task)).catch(() => undefined)
+      }
+    })
+  }
+  try {
+    assertCurrent()
+    session = await createSession({
+      validateCommit: (_current, candidate) => {
+        if (initializing) return []
+        if (admitted === candidate) { admitted = undefined; return [] }
+        return [diag('error', 'command', 'image.retention.required', 'ImageDocument change requires asset admission')]
+      },
+      ...(remoteScope === undefined ? {} : {
+        beforeRemoteDocument: (document, revision, _current, digests, snapshots) => {
+          const task = (async () => {
+            assertCurrent()
+            for (const snapshot of snapshots) {
+              await hydrateImageDocumentResources(connection, store, snapshot, remoteScope, assertCurrent)
+            }
+            assertCurrent()
+            const retained = await retainWorkflowAssets(connection, document.lineage, revision,
+              { complete: true, digests }, storage)
+            assertCurrent()
+            return () => {
+              if (session !== undefined && session.doc !== document) return
+              installOwner(retained)
+            }
+          })()
+          pending.add(task)
+          void task.finally(() => pending.delete(task)).catch(() => undefined)
+          return task
+        },
+      } satisfies Pick<SharedImageDocumentSessionOptions, 'beforeRemoteDocument'>),
+    })
+    const admittedSession = session
+    stopSession = (): void => { if ('close' in admittedSession) admittedSession.close() }
+    initializing = false
+    const uploaded = new Set<string>()
+    const uploadResources = async (snapshot: ImageDocument): Promise<void> => {
+      for (const resource of Object.values(snapshot.resources)) {
+        if (resource.inline !== undefined) continue
+        const staged = await store.getResource(resource.digest)
+        assertCurrent()
+        if (staged === undefined || !stagedMatches(resource, staged)) {
+          throw new Error(`staged ImageDocument resource does not match its descriptor: ${resource.id}`)
+        }
+        if (uploaded.has(resource.digest)) continue
+        await uploadImageDocumentResource(connection, store, resource, remoteScope ?? 'local', undefined, assertCurrent)
+        uploaded.add(resource.digest)
+      }
+    }
+    if (remoteScope === undefined) {
+      await uploadResources(session.doc)
+      assertCurrent()
+      const retained = await retainWorkflowAssets(connection, session.doc.lineage, session.revision,
+        { complete: true, digests: [...session.retainedResourceDigests()].sort() }, storage)
+      installOwner(retained)
+    }
+    assertCurrent()
+    const commit = (prepared: PreparedImageDocumentDispatch): Promise<ImageDocumentDispatchOutcome> => {
+      const revision = admittedSession.revision + 1
+      const task = (async (): Promise<ImageDocumentDispatchOutcome> => {
+        assertCurrent()
+        if (!prepared.ok) return prepared
+        await uploadResources(prepared.document)
+        const retained = await retainWorkflowAssets(connection, prepared.document.lineage, revision,
+          { complete: true, digests: prepared.resourceDigests }, storage)
+        assertCurrent()
+        admitted = prepared.document
+        try {
+          const outcome = prepared.commit()
+          if (outcome.ok && admittedSession.doc === outcome.document && admittedSession.revision === outcome.revision) installOwner(retained)
+          return outcome
+        } finally { admitted = undefined }
+      })()
+      pending.add(task)
+      void task.finally(() => pending.delete(task)).catch(() => undefined)
+      return task
+    }
+    return {
+      session,
+      previewCurrent: (): boolean => { try { assertCurrent(); return true } catch { return false } },
+      dispatch: (invocation: ImageDocumentCommandInvocation) => commit(admittedSession.prepareDispatch(invocation)),
+      undo: () => commit(admittedSession.prepareUndo()),
+      redo: () => commit(admittedSession.prepareRedo()),
+      readPreviewResource: <T>(holder: object, resource: ImageRasterResource, consume: (staged: StagedImageResource) => Promise<T>): Promise<T> => {
+        const task = (async (): Promise<T> => {
+          assertCurrent()
+          let readers = previewReaders.get(holder)
+          if (readers === undefined) { readers = new Map(); previewReaders.set(holder, readers) }
+          const key = JSON.stringify(resource)
+          let admission = readers.get(key)
+          if (admission === undefined) {
+            admission = (async () => {
+              const digests = resource.inline === undefined ? [resource.digest] : []
+              const read = await store.beginResourceRead(connection.id, assetBaseUrl, remoteScope ?? 'local', digests)
+              assertCurrent()
+              const matches = (actual: RetainedAssets | undefined): actual is RetainedAssets => actual !== undefined &&
+                actual.scope === read.owner.scope && actual.ownerKind === read.owner.ownerKind &&
+                actual.ownerId === read.owner.ownerId && actual.revision === 1 && actual.complete === true &&
+                actual.digests.length === digests.length && actual.digests.every((digest, index) => digest === digests[index])
+              let acknowledged: RetainedAssets | undefined
+              try {
+                acknowledged = await connection.retainAssets(read.owner, { revision: 0, complete: true, digests })
+                if (!matches(acknowledged)) throw new Error('Image preview retention acknowledgment differs')
+              } catch (cause) {
+                try { acknowledged = await connection.fetchRetainedAssets(read.owner) } catch { /* Intent stays unresolved. */ }
+                if (!matches(acknowledged)) throw cause
+              }
+              assertCurrent()
+              return new RetainedAssetReader(connection, acknowledged, () => {
+                try { assertCurrent(); return true } catch { return false }
+              })
+            })()
+            readers.set(key, admission)
+          }
+          const reader = await admission
+          return reader.read(async () => {
+            const staged = await store.getResource(resource.digest)
+            assertCurrent()
+            if (staged === undefined || !stagedMatches(resource, staged)) {
+              throw new Error(`staged ImageDocument resource does not match its descriptor: ${resource.id}`)
+            }
+            return consume(staged)
+          })
+        })()
+        pending.add(task)
+        void task.finally(() => pending.delete(task)).catch(() => undefined)
+        return task
+      },
+      close: async (): Promise<void> => {
+        closed = true
+        unsubscribe()
+        stopSession()
+        await Promise.allSettled([...pending])
+      },
+    }
+  } catch (cause) {
+    closed = true
+    unsubscribe()
+    stopSession()
+    throw cause
+  }
+}
 
 function expectedDependencies(document: ImageDocument): readonly ImageDocumentDependency[] {
   return Object.values(document.resources)
@@ -108,6 +352,30 @@ export async function uploadImageDocumentResource(
     mediaTypeBase(adopted.mediaType) !== resource.mediaType) {
     throw new Error(`server returned a mismatched ImageDocument resource: ${resource.id}`)
   }
+  await retainStagedImageResource(connection, store, scope, resource.digest)
+  assertCurrent()
+}
+
+async function retainStagedImageResource(
+  connection: DinksterConnection,
+  store: ImageDocumentLocalStore,
+  scope: string,
+  digest: string,
+): Promise<void> {
+  const retention = await store.beginStagedResourceRetention(connection.id, connection.assetUrl(''), scope, digest)
+  const matches = (actual: RetainedAssets | undefined): boolean => actual !== undefined &&
+    actual.scope === scope && actual.ownerKind === retention.owner.ownerKind &&
+    actual.ownerId === retention.owner.ownerId && actual.revision === 1 && actual.complete === true &&
+    actual.digests.length === 1 && actual.digests[0] === digest
+  try {
+    const acknowledged = await connection.retainAssets(retention.owner, { revision: 0, complete: true, digests: [digest] })
+    if (!matches(acknowledged)) throw new Error('Staged image retention acknowledgment differs')
+  } catch (cause) {
+    let observed: RetainedAssets | undefined
+    try { observed = await connection.fetchRetainedAssets(retention.owner) } catch { /* Durable intent stays unresolved. */ }
+    if (!matches(observed)) throw cause
+  }
+  await store.confirmStagedResourceRetention(retention)
 }
 
 async function withImageResourceRead<T>(
@@ -175,12 +443,18 @@ export async function hydrateImageDocumentResources(
   }
   await withImageResourceRead(connection, store, scope, [...missing].sort(), async () => {
     assertCurrent()
+    const retained = new Set<string>()
     for (const resource of resources) {
       const local = await store.getResource(resource.digest)
       assertCurrent()
       if (local !== undefined) {
         if (!stagedMatches(resource, local)) {
           throw new Error(`local ImageDocument resource does not match its descriptor: ${resource.id}`)
+        }
+        if (resource.inline === undefined && !retained.has(resource.digest)) {
+          await retainStagedImageResource(connection, store, scope, resource.digest)
+          retained.add(resource.digest)
+          assertCurrent()
         }
       } else {
         const fetched = resource.inline === undefined
@@ -190,9 +464,18 @@ export async function hydrateImageDocumentResources(
         if (fetched === undefined) {
           throw new Error(`ImageDocument resource is not held by the server: ${resource.id}`)
         }
+        const bytes = new Uint8Array(fetched)
+        if (bytes.byteLength !== resource.byteSize || imageDocumentDigest(bytes) !== resource.digest) {
+          throw new Error('staged resource bytes do not match their descriptor')
+        }
+        if (resource.inline === undefined) {
+          await retainStagedImageResource(connection, store, scope, resource.digest)
+          retained.add(resource.digest)
+          assertCurrent()
+        }
         await store.stageResource(
           resource,
-          new Uint8Array(fetched),
+          bytes,
           `${resource.id}.${resource.mediaType.slice('image/'.length)}`,
         )
       }

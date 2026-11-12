@@ -30,7 +30,7 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
   await expect(page.getByTestId('status-bar')).toContainText('0 node schemas', { timeout: 15_000 })
   await waitForStartupOwnership(page)
-  await page.evaluate((mode) => {
+  const diagnostics = await page.evaluate(async (mode) => {
     const profile = mode === true
     const fixedIds = mode !== false
     const choices = profile
@@ -50,13 +50,15 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
         { kind: 'output', id: 'entries', type: choices[0]!.type, outputDescriptors: { input: 'entries', choices, minEntries: profile ? 1 : 0, maxEntries: profile ? 3 : 32, fixedIds, ...(profile ? { probe: { input: 'checkpoint', kind: 'model' as const, revision: '1' } } : {}) } },
       ],
     }])
-    window.__dinksterTest!.app.openDocument({
+    const diagnostics = await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'descriptor-browser', root: 'root',
-      graphs: { root: { id: 'root', name: 'Descriptor editor', nodes: { n: { id: 'n', type: nodeType, values: { entries: source, ...(profile ? { checkpoint: { digest: `blake3:${'1'.repeat(64)}`, name: 'model.safetensors' } } : {}) } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10 } },
+      graphs: { root: { id: 'root', name: 'Descriptor editor', nodes: { n: { id: 'n', type: nodeType, values: { entries: source, ...(profile ? { checkpoint: { digest: `blake3:${'1'.repeat(64)}`, name: 'model.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } } : {}) } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10 } },
       view: { graphs: { root: { nodes: { n: { position: { x: 130, y: 100 }, size: { width: 350, height: 190 } } } } } },
     }, 'Output descriptors')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    return diagnostics
   }, mode)
+  expect(diagnostics).toEqual([])
 }
 
 const stored = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.nodes.n!.values.entries as string)
@@ -244,10 +246,12 @@ test('profile probe uses asset identity, rejects connection races, and inactivat
   await page.getByTestId('output-descriptors-apply').click()
   expect(await stored(page)).toBe(canonicalProfile)
   expect(await pins(page)).toEqual(['model', 'vae'])
-  await page.evaluate(() => {
+  expect(await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    app.activeTab()!.store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'2'.repeat(64)}`, name: 'model.safetensors' } } })
-  })
+    const tab = app.activeTab()!
+    if ('settle' in tab.store && typeof tab.store.settle === 'function') await tab.store.settle()
+    return await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'2'.repeat(64)}`, name: 'model.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } } })
+  })).toMatchObject({ ok: true })
   expect(await pins(page)).toEqual([])
   await openDescriptors(page)
   await expect(page.getByTestId('output-descriptor-editor')).toContainText('stale')
@@ -259,9 +263,9 @@ test('profile probe uses asset identity, rejects connection races, and inactivat
   requested = false
   await page.getByTestId('output-profile-probe').click()
   await expect.poll(() => requested).toBe(true)
-  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
-    command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'3'.repeat(64)}`, name: 'model.safetensors' } },
-  }))
+  expect(await page.evaluate(async () => (await window.__dinksterTest!.app.dispatchTo(window.__dinksterTest!.app.activeTab()!, {
+    command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'3'.repeat(64)}`, name: 'model.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } },
+  })).ok)).toBe(true)
   release!()
   await expect(page.getByTestId('output-descriptor-editor')).toBeHidden()
   await openDescriptors(page)
@@ -280,33 +284,42 @@ test('matching saved metadata profiles restore exact ordered stable outputs', as
     assetDigest: `blake3:${'1'.repeat(64)}`,
     detectorRevision: '1',
   })
-  await page.evaluate((entries) => {
+  const restoredDiagnostics = await page.evaluate(async (entries) => {
     const app = window.__dinksterTest!.app
+    await (app as unknown as { enableWorkspaceAuthority(): Promise<void> }).enableWorkspaceAuthority()
+    await (app as unknown as { workspaceOperationSubmission: Promise<unknown> }).workspaceOperationSubmission
     const current = app.activeTab()!
-    current.store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'entries', value: entries } })
     const saved = structuredClone(current.store.doc)
-    app.openDocument(saved, 'Restored metadata profile')
+    saved.graphs.root!.nodes.n!.values.entries = entries
+    const diagnostics = await app.openDocument(saved, 'Restored metadata profile')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    return diagnostics
   }, source)
+  expect(restoredDiagnostics).toEqual([])
   expect(await pins(page)).toEqual(['vae', 'model'])
   await openDescriptors(page)
   await expect(page.getByLabel('Output 1 ID', { exact: true })).toHaveValue('vae')
   await expect(page.getByLabel('Output 2 ID', { exact: true })).toHaveValue('model')
   await expect(page.getByTestId('output-descriptors-apply')).toBeEnabled()
   await page.screenshot({ path: info.outputPath('metadata-profile-restored.png'), animations: 'disabled' })
-  await page.evaluate((entries) => {
+  const mismatchedDiagnostics = await page.evaluate(async (entries) => {
     const app = window.__dinksterTest!.app
+    await (app as unknown as { enableWorkspaceAuthority(): Promise<void> }).enableWorkspaceAuthority()
+    await (app as unknown as { workspaceOperationSubmission: Promise<unknown> }).workspaceOperationSubmission
     const current = app.activeTab()!
     const restored = structuredClone(current.store.doc)
     restored.lineage = 'mismatched-restored-profile'
     restored.graphs.root!.nodes.n!.values.entries = entries
-    app.openDocument(restored, 'Mismatched restored metadata profile')
+    const diagnostics = await app.openDocument(restored, 'Mismatched restored metadata profile')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    return diagnostics
   }, source.replace('"detectorRevision":"1"', '"detectorRevision":"2"'))
+  expect(mismatchedDiagnostics).toEqual([])
   expect(await pins(page)).toEqual([])
   await openDescriptors(page)
   await expect(page.getByTestId('output-descriptor-editor')).toContainText('stale')
   await expect(page.getByTestId('output-descriptors-apply')).toBeDisabled()
+  await page.screenshot({ path: info.outputPath('metadata-profile-mismatched.png'), animations: 'disabled' })
 })
 
 test('invalid metadata profile responses expose no outputs and cannot be applied', async ({ page }) => {
@@ -348,21 +361,23 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
     assetDigest: digest,
     detectorRevision: '1',
   })
-  await page.evaluate(({ digest, profile }) => {
+  const diagnostics = await page.evaluate(async ({ digest, profile }) => {
     const app = window.__dinksterTest!.app
+    await (app as unknown as { enableWorkspaceAuthority(): Promise<void> }).enableWorkspaceAuthority()
+    await (app as unknown as { workspaceOperationSubmission: Promise<unknown> }).workspaceOperationSubmission
     const sink = (type: string, input: string) => ({
       type, displayName: type, category: 'test', source: 'v3' as const, isOutputNode: true,
       items: [{ kind: 'input' as const, id: input, type: { kind: 'concrete' as const, name: input.toUpperCase() }, optional: false }],
     })
     app.registerSchemas([sink('ModelSink', 'model'), sink('ClipSink', 'clip'), sink('VaeSink', 'vae')])
     const original = app.activeTab()!.store.doc
-    app.openDocument({
+    const diagnostics = await app.openDocument({
       ...original,
       lineage: 'saved-checkpoint-profile-links',
       graphs: { root: {
         ...original.graphs.root!,
         nodes: {
-          n: { ...original.graphs.root!.nodes.n!, values: { checkpoint: { digest, name: 'model.safetensors' }, entries: profile } },
+          n: { ...original.graphs.root!.nodes.n!, values: { checkpoint: { digest, name: 'model.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' }, entries: profile } },
           modelSink: { id: 'modelSink', type: 'ModelSink', values: {} },
           clipSink: { id: 'clipSink', type: 'ClipSink', values: {} },
           vaeSink: { id: 'vaeSink', type: 'VaeSink', values: {} },
@@ -381,7 +396,9 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
       } } } },
     }, 'Saved checkpoint profile links')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    return diagnostics
   }, { digest, profile })
+  expect(diagnostics).toEqual([])
 
   expect(await pins(page)).toEqual(['model', 'vae'])
   expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.links))).toEqual(['modelLink', 'clipLink', 'vaeLink'])
@@ -391,11 +408,17 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
   await expect(stale).not.toContainText('model')
   await expect(stale).not.toContainText('vae')
   await stale.screenshot({ path: info.outputPath('metadata-profile-inactive-link.png'), animations: 'disabled' })
-  await page.evaluate(() => {
+  expect(await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    app.openDocument(structuredClone(app.activeTab()!.store.doc), 'Reloaded checkpoint profile links')
-  })
+    const diagnostics = await app.openDocument(structuredClone(app.activeTab()!.store.doc), 'Reloaded checkpoint profile links')
+    await (app as unknown as { enableWorkspaceAuthority(): Promise<void> }).enableWorkspaceAuthority()
+    return diagnostics
+  })).toEqual([])
   await page.getByRole('button', { name: 'Disconnect inactive clip output' }).click()
+  await page.evaluate(async () => {
+    // Guarded ingress must finish before preparing the next retained command.
+    await (window.__dinksterTest!.app.activeTab()!.store as unknown as { settle(): Promise<void> }).settle()
+  })
   expect(await page.evaluate(() => window.__dinksterTest!.app.problems.get().filter((problem) => problem.code.startsWith('link.') || problem.code === 'params.invalid').map((problem) => `${problem.code}: ${problem.message}`))).toEqual([])
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.links)).toMatchObject({
     modelLink: { from: { node: 'n', port: 'model' } },
@@ -403,9 +426,10 @@ test('inactive fixed-ID links stay attached to semantic outputs and can be disco
   })
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.root!.links.clipLink)).toBeUndefined()
 
-  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
-    command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'2'.repeat(64)}`, name: 'replacement.safetensors' } },
+  const outcome = await page.evaluate(async () => window.__dinksterTest!.app.dispatchTo(window.__dinksterTest!.app.activeTab()!, {
+    command: 'node.setValue', params: { graphId: 'root', nodeId: 'n', inputId: 'checkpoint', value: { digest: `blake3:${'2'.repeat(64)}`, name: 'replacement.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } },
   }))
+  expect(outcome.ok, JSON.stringify(outcome)).toBe(true)
   expect(await pins(page)).toEqual([])
   await openDescriptors(page)
   await expect(page.getByTestId('output-descriptor-stale-links')).toContainText('model')
@@ -458,7 +482,7 @@ test('chained source-only boundaries retain the metadata probe and read-only edi
   await page.setViewportSize({ width: 1600, height: 1600 })
   await setup(page, true)
   const digest = `blake3:${'4'.repeat(64)}`
-  await page.evaluate((digest) => {
+  await page.evaluate(async (digest) => {
     const app = window.__dinksterTest!.app
     const original = structuredClone(app.activeTab()!.store.doc)
     const node = original.graphs.root!.nodes.n!
@@ -468,8 +492,8 @@ test('chained source-only boundaries retain the metadata probe and read-only edi
     })
     const inner = { ...graph('inner', node.type), nodes: { n: node } }
     const outer = graph('outer', '#inner')
-    app.openDocument({ ...original, lineage: 'source-only-descriptors', graphs: {
-      root: { ...original.graphs.root!, nodes: { n: { ...node, type: '#outer', values: { ...node.values, checkpoint: { digest, name: 'current.safetensors' } } } } },
+    await app.openDocument({ ...original, lineage: 'source-only-descriptors', graphs: {
+      root: { ...original.graphs.root!, nodes: { n: { ...node, type: '#outer', values: { ...node.values, checkpoint: { digest, name: 'current.safetensors', size: 7, mediaType: 'application/octet-stream', virtualPath: '' } } } } },
       inner, outer,
     } } as Parameters<typeof app.openDocument>[0], 'Chained metadata source')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })

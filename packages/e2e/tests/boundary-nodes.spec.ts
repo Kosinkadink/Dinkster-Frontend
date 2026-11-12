@@ -60,7 +60,7 @@ async function drag(page: Page, from: { x: number; y: number }, to: { x: number;
 
 /** Root with one #sub instance; sub forwards a port-bound input and output. */
 async function openSubgraphWorkflow(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([
       {
@@ -75,7 +75,7 @@ async function openSubgraphWorkflow(page: Page): Promise<void> {
         ],
       },
     ])
-    app.openDocument(
+    await app.openDocument(
       {
         format: 'dinkster-workflow',
         formatVersion: 1,
