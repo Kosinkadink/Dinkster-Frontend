@@ -184,6 +184,7 @@ test(`pans and zooms a ${NODES}-node graph with a decoded preview on every node`
   await page.goto('/')
   await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
 
   await page.evaluate(
     async ({ chains, chainLength }) => {

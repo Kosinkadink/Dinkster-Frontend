@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 async function acknowledgeRetentions(page: Page): Promise<void> {
   await page.route('/api/library/retentions/document/*?scope=local', async (route) => {
@@ -68,6 +68,7 @@ for (const accepted of [true, false]) {
       }, 'Recording ownership')
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     })
+    await waitForStartupOwnership(page)
     await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(1)
     const point = await page.evaluate(() => {
       const renderer = window.__dinksterTest!.renderer!
@@ -144,6 +145,7 @@ for (const accepted of [true, false]) {
       }, 'Picker ownership')
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     })
+    await waitForStartupOwnership(page)
     await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(1)
     const point = await page.evaluate(() => {
       const renderer = window.__dinksterTest!.renderer!

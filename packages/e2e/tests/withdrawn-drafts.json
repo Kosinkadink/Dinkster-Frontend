@@ -1,0 +1,36 @@
+{
+  "nodes": [
+    "dinkster.audio.envelope",
+    "dinkster.curve.evaluate",
+    "dinkster.int",
+    "dinkster.layers.edit",
+    "dinkster.layers.flatten",
+    "dinkster.layers.load",
+    "dinkster.mask.paint",
+    "dinkster.render_image_document",
+    "dinkster.route.gate",
+    "dinkster.route.switch_by_name",
+    "dinkster.value.compare",
+    "std.list.length",
+    "std.math.add_ints",
+    "std.string.concat",
+    "std.string.split"
+  ],
+  "templates": {
+    "loop-map-images": [
+      "dinkster.image.generate",
+      "dinkster.image.batch.to_list",
+      "dinkster.image.list.to_batch"
+    ],
+    "loop-gather-image-batch": [
+      "dinkster.image.generate",
+      "dinkster.image.list.to_batch"
+    ],
+    "loop-fold-scan-images": ["dinkster.image.generate"],
+    "loop-while-until": [],
+    "loop-per-item-image-spawn": [
+      "dinkster.image.generate",
+      "dinkster.image.list.to_batch"
+    ]
+  }
+}

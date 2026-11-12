@@ -688,6 +688,7 @@ test('latent workflow metadata uses normal workflow recovery without upload or e
 
 test('latent without a valid workflow uploads canonically and inserts Load Latent without auto-execution', async ({ page }) => {
   await mkdir(PROOF, { recursive: true })
+  await page.route('/api/assets/catalog?*', (route) => route.fulfill({ json: { assets: [] } }))
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.setViewportSize({ width: 1366, height: 768 })
   await closeRightRail(page)

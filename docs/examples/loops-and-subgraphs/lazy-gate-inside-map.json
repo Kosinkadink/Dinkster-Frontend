@@ -12,18 +12,12 @@
           "id": "region",
           "type": "#lazyBody",
           "values": {
-            "item": [
-              1,
-              2,
-              3
-            ],
+            "item": [1, 2, 3],
             "enabled": true
           },
           "region": {
             "kind": "map",
-            "elementPorts": [
-              "item"
-            ]
+            "elementPorts": ["item"]
           }
         }
       },
@@ -38,10 +32,9 @@
       "nodes": {
         "input": {
           "id": "input",
-          "type": "std.math.add_ints",
-          "values": {
-            "b": 0
-          }
+          "type": "dinkster.utilities.comfy_math_expression",
+          "values": { "expression": "a + 0" },
+          "dynamic": { "values": { "members": ["a"] } }
         },
         "gate": {
           "id": "gate",
@@ -50,18 +43,27 @@
         },
         "add": {
           "id": "add",
-          "type": "std.math.add_ints",
-          "values": {
-            "b": 0
-          }
+          "type": "dinkster.utilities.comfy_math_expression",
+          "values": { "expression": "a + 0" },
+          "dynamic": { "values": { "members": ["a"] } }
+        },
+        "item": {
+          "id": "item",
+          "type": "dinkster.utilities.primitive_int",
+          "values": {}
         }
       },
       "links": {
+        "itemToInput": {
+          "id": "itemToInput",
+          "from": { "node": "item", "port": "INT" },
+          "to": { "node": "input", "port": "values.a" }
+        },
         "inputToGate": {
           "id": "inputToGate",
           "from": {
             "node": "input",
-            "port": "sum"
+            "port": "INT"
           },
           "to": {
             "node": "gate",
@@ -76,7 +78,7 @@
           },
           "to": {
             "node": "add",
-            "port": "a"
+            "port": "values.a"
           }
         }
       },
@@ -88,8 +90,8 @@
             "id": "item",
             "binds": {
               "kind": "port",
-              "node": "input",
-              "port": "a"
+              "node": "item",
+              "port": "value"
             }
           },
           {
@@ -107,12 +109,12 @@
             "binds": {
               "kind": "port",
               "node": "add",
-              "port": "sum"
+              "port": "INT"
             }
           }
         ]
       },
-      "nextOrdinal": 3
+      "nextOrdinal": 7
     }
   },
   "view": {

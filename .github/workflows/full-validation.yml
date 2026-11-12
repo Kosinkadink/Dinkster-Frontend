@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DINKSTER_REF: 9454699a70f9b5aef08f917da37da01303d5fdfa
+  DINKSTER_REF: 2ddabb162072dbe197b39e186e417a57c251b3bd
 
 jobs:
   validation-plan:
@@ -203,7 +203,13 @@ jobs:
             "${packs[@]}"
       - name: Install hosted compatibility dependencies
         run: |
-          uv venv --python 3.12 .ci/Dinkster/.venv-torch
+          UV_PROJECT_ENVIRONMENT=.venv-torch uv sync --project .ci/Dinkster --python 3.12 --locked --package dinkster --no-dev
+          packs=()
+          for pack in .ci/Dinkster/packages/dinkster-nodes-*; do
+            packs+=(-e "$pack")
+          done
+          uv pip install --python .ci/Dinkster/.venv-torch/bin/python --no-deps --no-sources \
+            "${packs[@]}"
           uv pip install --python .ci/Dinkster/.venv-torch/bin/python torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
           uv pip install --python .ci/Dinkster/.venv-torch/bin/python -r .ci/ComfyUI/requirements.txt
           uv pip install --python .ci/Dinkster/.venv-torch/bin/python --torch-backend cpu --default-index https://pypi.org/simple \

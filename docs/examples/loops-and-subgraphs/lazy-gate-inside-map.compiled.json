@@ -31,15 +31,15 @@
         "body": {
           "nodes": {
             "input": {
-              "nodeType": "std.math.add_ints",
+              "nodeType": "dinkster.utilities.comfy_math_expression",
               "inputs": {
-                "a": {
+                "expression": "a + 0",
+                "values.a": {
                   "$link": {
-                    "node": "$region",
-                    "output": "item"
+                    "node": "item",
+                    "output": "INT"
                   }
-                },
-                "b": 0
+                }
               }
             },
             "gate": {
@@ -54,21 +54,32 @@
                 "value": {
                   "$link": {
                     "node": "input",
-                    "output": "sum"
+                    "output": "INT"
                   }
                 }
               }
             },
             "add": {
-              "nodeType": "std.math.add_ints",
+              "nodeType": "dinkster.utilities.comfy_math_expression",
               "inputs": {
-                "a": {
+                "expression": "a + 0",
+                "values.a": {
                   "$link": {
                     "node": "gate",
                     "output": "value"
                   }
-                },
-                "b": 0
+                }
+              }
+            },
+            "item": {
+              "nodeType": "dinkster.utilities.primitive_int",
+              "inputs": {
+                "value": {
+                  "$link": {
+                    "node": "$region",
+                    "output": "item"
+                  }
+                }
               }
             }
           }
@@ -77,7 +88,7 @@
           "result": {
             "source": {
               "node": "add",
-              "output": "sum"
+              "output": "INT"
             }
           }
         }

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, nativeTest, openRailPanel, test, type Page } from './fixtures.js'
+import { expect, nativeTest, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const readJson = (path: string): any => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
 // Import results stay independent of the current backend catalog; see the
@@ -36,6 +36,7 @@ async function expectSchemasReady(page: Page): Promise<void> {
   const schemaCount = Object.keys(catalog.nodes).length
   expect(schemaCount).toBeGreaterThan(0)
   await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`(?<!\\d)${schemaCount} node schemas`))
+  await waitForStartupOwnership(page)
 }
 
 nativeTest('retains unattached typed boundary slots without phantom destinations', async ({ page }, testInfo) => {

@@ -27,45 +27,67 @@
         "body": {
           "nodes": {
             "add": {
-              "nodeType": "std.math.add_ints",
+              "nodeType": "dinkster.utilities.comfy_math_expression",
               "inputs": {
-                "a": {
+                "expression": "a + b",
+                "values.a": {
                   "$link": {
-                    "node": "$region",
-                    "output": "count"
+                    "node": "count",
+                    "output": "INT"
                   }
                 },
-                "b": {
+                "values.b": {
                   "$link": {
-                    "node": "$region",
-                    "output": "increment"
+                    "node": "increment",
+                    "output": "INT"
                   }
                 }
               }
             },
             "compare": {
-              "nodeType": "dinkster.value.compare",
+              "nodeType": "dinkster.utilities.comfy_math_expression",
               "inputs": {
-                "a": {
+                "expression": "a < b",
+                "values.a": {
                   "$link": {
                     "node": "add",
-                    "output": "sum"
+                    "output": "INT"
                   }
                 },
-                "b": {
+                "values.b": {
                   "$link": {
                     "node": "limit",
-                    "output": "value"
+                    "output": "INT"
                   }
-                },
-                "operation": "lt",
-                "epsilon": 0
+                }
               }
             },
             "limit": {
-              "nodeType": "dinkster.int",
+              "nodeType": "dinkster.utilities.primitive_int",
               "inputs": {
                 "value": 4
+              }
+            },
+            "count": {
+              "nodeType": "dinkster.utilities.primitive_int",
+              "inputs": {
+                "value": {
+                  "$link": {
+                    "node": "$region",
+                    "output": "count"
+                  }
+                }
+              }
+            },
+            "increment": {
+              "nodeType": "dinkster.utilities.primitive_int",
+              "inputs": {
+                "value": {
+                  "$link": {
+                    "node": "$region",
+                    "output": "increment"
+                  }
+                }
               }
             }
           }
@@ -74,7 +96,7 @@
           "count": {
             "source": {
               "node": "add",
-              "output": "sum"
+              "output": "INT"
             },
             "mode": "state"
           }
@@ -82,7 +104,7 @@
         "maxIterations": 10,
         "continueSource": {
           "node": "compare",
-          "output": "result"
+          "output": "BOOL"
         }
       }
     }

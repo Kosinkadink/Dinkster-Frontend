@@ -1,5 +1,6 @@
 import { mkdir } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
+import { waitForStartupOwnership } from './fixtures.js'
 
 // Served-app proof for the subgraph Autogrow ghost-input defect: real
 // deployed frontend on :5199, real native backend behind the proxy, no
@@ -88,6 +89,7 @@ test('served app commits, undoes, redoes, and reloads a drilled occurrence ghost
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get().length ?? 0), { timeout: 20_000 }).toBeGreaterThanOrEqual(1)
+  await waitForStartupOwnership(page)
 
   await page.evaluate(async (doc) => {
     const test = window.__dinksterTest!

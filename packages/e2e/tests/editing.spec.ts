@@ -4,7 +4,7 @@
  * Real pointer/keyboard input against the live app; document assertions go
  * through the __dinksterTest bridge (commands -> DocumentStore -> doc).
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 /** Reset the viewport to identity so world coords == canvas CSS pixels. */
 async function identityViewport(page: Page): Promise<void> {
@@ -125,6 +125,7 @@ test.beforeEach(async ({ page }, testInfo) => {
 })
 
 test('bridge reports an unrecognized node type', async ({ page }) => {
+  await waitForStartupOwnership(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'unknown-node', root: 'g0',

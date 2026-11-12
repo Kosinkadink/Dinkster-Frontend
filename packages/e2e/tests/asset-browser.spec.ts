@@ -438,6 +438,10 @@ test('selected image assets preview immediately inside the node and follow impor
 
   await page.reload()
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await expect.poll(() => page.evaluate(() => {
+    const store = window.__dinksterTest!.app.activeTab()!.store
+    return 'status' in store && (store.status as { get(): string }).get() === 'live'
+  })).toBe(true)
   await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
     type: 'AssetBrowserListTest', displayName: 'Asset Browser', category: 'test', source: 'v3', isOutputNode: false,

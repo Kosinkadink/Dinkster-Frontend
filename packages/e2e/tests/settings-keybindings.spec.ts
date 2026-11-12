@@ -89,7 +89,7 @@ test('language setting updates the document language and persists', async ({ pag
   await expect(page.locator('html')).toHaveAttribute('lang', 'en-US')
   await page.getByTestId('settings-button').click()
   const dialog = page.getByRole('dialog', { name: 'Settings' })
-  await dialog.locator('.settings-categories').getByRole('button', { name: 'Dinkster' }).click()
+  await dialog.locator('.settings-categories').getByRole('button', { name: 'Dinkster', exact: true }).click()
   const row = dialog.locator('[data-setting-id="dinkster.locale"]')
   await expect(row).toContainText('Choose the language used by Dinkster.')
   await row.getByRole('combobox').click()

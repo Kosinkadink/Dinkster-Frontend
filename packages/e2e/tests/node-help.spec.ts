@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
+import { waitForStartupOwnership } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_NODE_HELP_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -11,9 +12,10 @@ const videoDigest = `sha256:${'3'.repeat(64)}`
 const videoFixture = readFileSync(new URL('../fixtures/media-overlay/with_metadata.mp4', import.meta.url))
 
 async function addNodeAndOpenContextMenu(page: Page, type: string): Promise<void> {
-  await page.evaluate((nodeType) => {
-    const tab = window.__dinksterTest!.app.activeTab()!
-    const result = tab.store.dispatch({
+  await page.evaluate(async (nodeType) => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    const result = await app.dispatchTo(tab, {
       command: 'node.add',
       params: { graphId: tab.store.doc.root, type: nodeType, values: {}, position: { x: 80, y: 120 } },
     })
@@ -133,18 +135,19 @@ test('live wire-42 backend serves descriptor metadata separately from the Markdo
     const backend = window.__dinksterTest?.app.backends.get()[0]
     return backend?.schemaState.get().status === 'ready' && backend.workerCatalog.get().status !== 'loading'
   })
+  await waitForStartupOwnership(page)
   await expect.poll(() => page.evaluate(() => {
     const backend = window.__dinksterTest?.app.backends.get()[0]
     return {
       protocol: backend?.protocol,
-      documented: (backend?.registry.get()?.schemas.get('std.math.add_ints') as { hasDocs?: boolean } | undefined)?.hasDocs,
+      documented: (backend?.registry.get()?.schemas.get('dev.features.widget_kinds') as { hasDocs?: boolean } | undefined)?.hasDocs,
     }
   })).toEqual({ protocol: 'dinkster', documented: true })
 
-  await addNodeAndOpenHelp(page, 'std.math.add_ints')
+  await addNodeAndOpenHelp(page, 'dev.features.widget_kinds')
   const panel = page.getByTestId('node-help-panel')
-  await expect(panel.getByRole('heading', { name: 'Add Integers', level: 1 })).toHaveCount(2)
-  await expect(panel).toContainText('Connect integer values to a and b.')
+  await expect(panel.getByRole('heading', { name: /^(Feature: Widget Kinds|Five widget kinds)$/, level: 1 })).toHaveCount(2)
+  await expect(panel).toContainText('Run the node to see all stored values as JSON in its text output.')
   await expect(panel).not.toContainText('schema_version')
   await expect(panel).not.toContainText('+++')
 })

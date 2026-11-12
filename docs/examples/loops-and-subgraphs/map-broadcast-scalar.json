@@ -12,18 +12,12 @@
           "id": "region",
           "type": "#addBody",
           "values": {
-            "left": [
-              3,
-              6,
-              9
-            ],
+            "left": [3, 6, 9],
             "right": 100
           },
           "region": {
             "kind": "map",
-            "elementPorts": [
-              "left"
-            ]
+            "elementPorts": ["left"]
           }
         }
       },
@@ -38,11 +32,33 @@
       "nodes": {
         "add": {
           "id": "add",
-          "type": "std.math.add_ints",
+          "type": "dinkster.utilities.comfy_math_expression",
+          "values": { "expression": "a + b" },
+          "dynamic": { "values": { "members": ["a", "b"] } }
+        },
+        "left": {
+          "id": "left",
+          "type": "dinkster.utilities.primitive_int",
+          "values": {}
+        },
+        "right": {
+          "id": "right",
+          "type": "dinkster.utilities.primitive_int",
           "values": {}
         }
       },
-      "links": {},
+      "links": {
+        "leftToAdd": {
+          "id": "leftToAdd",
+          "from": { "node": "left", "port": "INT" },
+          "to": { "node": "add", "port": "values.a" }
+        },
+        "rightToAdd": {
+          "id": "rightToAdd",
+          "from": { "node": "right", "port": "INT" },
+          "to": { "node": "add", "port": "values.b" }
+        }
+      },
       "nets": {},
       "reroutes": {},
       "boundary": {
@@ -51,16 +67,16 @@
             "id": "left",
             "binds": {
               "kind": "port",
-              "node": "add",
-              "port": "a"
+              "node": "left",
+              "port": "value"
             }
           },
           {
             "id": "right",
             "binds": {
               "kind": "port",
-              "node": "add",
-              "port": "b"
+              "node": "right",
+              "port": "value"
             }
           }
         ],
@@ -70,12 +86,12 @@
             "binds": {
               "kind": "port",
               "node": "add",
-              "port": "sum"
+              "port": "INT"
             }
           }
         ]
       },
-      "nextOrdinal": 1
+      "nextOrdinal": 5
     }
   },
   "view": {

@@ -23,8 +23,8 @@ for (const connected of [false, true]) test(`Painter ${connected ? 'connected fi
       graphs: { g0: {
         id: 'g0', name: 'Painting',
         nodes: {
-          paint: { id: 'paint', type: 'Painter', values: { width: 128, height: 64, bg_color: '#123456' } },
-          ...(connected ? { source: { id: 'source', type: 'EmptyImage', values: { width: 64, height: 128, batch_size: 2, color: 0x28649c } } } : {}),
+          paint: { id: 'paint', type: 'dinkster.image.painter', values: { width: 128, height: 64, bg_color: '#123456' } },
+          ...(connected ? { source: { id: 'source', type: 'dinkster.image.empty_image', values: { width: 64, height: 128, batch_size: 2, color: 0x28649c } } } : {}),
         },
         links: connected ? { image: { id: 'image', from: { node: 'source', port: 'IMAGE' }, to: { node: 'paint', port: 'image' } } } : {},
         nets: {}, reroutes: {}, nextOrdinal: 3,
@@ -70,13 +70,31 @@ for (const connected of [false, true]) test(`Painter ${connected ? 'connected fi
   expect(asset).toMatchObject({ name: expect.stringMatching(/^painting(?:_[0-9]+)?\.png$/), mediaType: 'image/png' })
   await openPainter(page)
   expect(await pixels()).toEqual({ painted: [225, 38, 104, 255], clear: [0, 0, 0, 0] })
-  const screenshot = testInfo.outputPath('reopened-painting.png')
-  await page.getByTestId('painter-editor').screenshot({ path: screenshot })
-  await testInfo.attach('reopened-painting', { path: screenshot, contentType: 'image/png' })
-  await page.setViewportSize({ width: 430, height: 900 })
-  const narrow = testInfo.outputPath('narrow-painting.png')
-  await page.getByTestId('painter-editor').screenshot({ path: narrow })
-  await testInfo.attach('narrow-painting', { path: narrow, contentType: 'image/png' })
+  await selectProductOption(page, page.getByTestId('upload-destination-mount'), 'output')
+  await page.getByTestId('upload-destination-folder').fill('paintings')
+  for (const [name, width, height] of [
+    ['reopened-painting', 1440, 900],
+    ['narrow-painting', 430, 900],
+    ['short-painting', 430, 600],
+  ] as const) {
+    await page.setViewportSize({ width, height })
+    await page.locator('#painter-color').scrollIntoViewIfNeeded()
+    await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport({ ratio: 1 })
+    await expect(page.getByRole('button', { name: 'Apply', exact: true })).toBeInViewport({ ratio: 1 })
+    await expect(canvas).toBeInViewport({ ratio: 1 })
+    const top = testInfo.outputPath(`${name}-canvas.png`)
+    await page.getByTestId('widget-modal-surface').screenshot({ path: top })
+    await testInfo.attach(`${name}-canvas`, { path: top, contentType: 'image/png' })
+    const destination = page.getByTestId('upload-destination').locator('.product-notice').first()
+    await destination.scrollIntoViewIfNeeded()
+    await expect(destination).toBeInViewport({ ratio: 1 })
+    const noticeBounds = (await destination.boundingBox())!
+    const footerBounds = (await page.getByTestId('painter-editor').locator('.product-action-footer').boundingBox())!
+    expect(noticeBounds.y + noticeBounds.height).toBeLessThanOrEqual(footerBounds.y)
+    const screenshot = testInfo.outputPath(`${name}.png`)
+    await page.getByTestId('widget-modal-surface').screenshot({ path: screenshot })
+    await testInfo.attach(name, { path: screenshot, contentType: 'image/png' })
+  }
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   await page.evaluate(async () => {
@@ -103,6 +121,8 @@ for (const connected of [false, true]) test(`Painter ${connected ? 'connected fi
       return document.querySelector('[data-testid=import-assets-accept]') !== null || typeof app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.mask === 'object'
     })).toBe(true)
     if (await page.getByTestId('import-assets-accept').isVisible()) await page.getByTestId('import-assets-accept').click()
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.mask)).toEqual(asset)
+    await waitForStartupOwnership(page)
     await openPainter(page, 'n1')
     expect(await pixels()).toEqual({ painted: [225, 38, 104, 255], clear: [0, 0, 0, 0] })
     await page.getByRole('button', { name: 'Cancel', exact: true }).click()

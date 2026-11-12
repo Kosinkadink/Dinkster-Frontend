@@ -35,6 +35,9 @@ type ExampleExpectation = CompletedExpectation | FailedExpectation
 const expectedResults = readJson('expected-results.json') as Record<string, ExampleExpectation>
 const exampleFiles = Object.keys(expectedResults)
 const LIVE_URL = process.env['DINKSTER_LIVE_URL']
+const withdrawnDrafts = JSON.parse(readFileSync(
+  new URL('../../e2e/tests/withdrawn-drafts.json', import.meta.url), 'utf8',
+)) as { readonly nodes: readonly string[] }
 
 const concrete = (type: string): Record<string, unknown> => ({ kind: 'concrete', types: [type] })
 const list = (element: Record<string, unknown>): Record<string, unknown> => ({ kind: 'list', element })
@@ -59,17 +62,22 @@ const exampleNodes = {
   schemaVersion: 1,
   dinkster: { version: 'test', schemaWire: 1, graphFeatures: ['regions'] },
   nodes: {
-    'std.math.add_ints': schema('std.math.add_ints', [
-      input('a', int), input('b', int), output('sum', int),
+    'dinkster.utilities.primitive_int': schema('dinkster.utilities.primitive_int', [
+      input('value', int), output('INT', int),
     ]),
+    'dinkster.utilities.comfy_math_expression': schema('dinkster.utilities.comfy_math_expression', [
+      input('expression', concrete('STRING'), 'a + b'),
+      {
+        role: 'inputFamily', id: 'values', required: true, minMembers: 1,
+        optionalAfterMinimum: true, memberNames: [...'abcdefghijklmnopqrstuvwxyz'],
+        template: [input('value', { kind: 'union', types: ['FLOAT', 'INT', 'BOOLEAN'] })],
+      },
+      output('FLOAT', concrete('FLOAT')), output('INT', int), output('BOOL', boolean),
+    ]),
+    // Withdrawn nodes remain structural test inputs, not a served catalog.
     'std.list.length': schema('std.list.length', [
       input('list', list(int)), output('length', int),
     ]),
-    'dinkster.value.compare': schema('dinkster.value.compare', [
-      input('a', int), input('b', int), input('operation', concrete('STRING')),
-      input('epsilon', concrete('FLOAT')), output('result', boolean),
-    ]),
-    'dinkster.int': schema('dinkster.int', [input('value', int), output('value', int)]),
     'dinkster.route.gate': schema('dinkster.route.gate', [
       input('condition', boolean), input('value', int), output('value', int),
     ]),
@@ -110,7 +118,8 @@ describe('loop and subgraph executable examples', () => {
 })
 
 describe.skipIf(!LIVE_URL)('live loop and subgraph executable examples', () => {
-  it.each(exampleFiles)('%s reaches its expected terminal result', async (file) => {
+  for (const file of exampleFiles) {
+  it(`${file} reaches its expected terminal result`, async (context) => {
     const connection = new DinksterConnection({
       id: asConnectionId('example-live'),
       baseUrl: LIVE_URL!,
@@ -118,6 +127,14 @@ describe.skipIf(!LIVE_URL)('live loop and subgraph executable examples', () => {
     })
     const registry = await connection.fetchSchemas()
     expect(registry.graphFeatures).toContain('regions')
+    const document = readJson(file) as WorkflowDocument
+    const missing = Object.values(document.graphs)
+      .flatMap((graph) => Object.values(graph.nodes).map((node) => node.type))
+      .filter((type) => !type.startsWith('#') && registry.resolve(type) === undefined)
+    expect(missing.filter((type) => !withdrawnDrafts.nodes.includes(type)),
+      `live catalog lacks required nodes: ${missing.join(', ')}`).toEqual([])
+    if (missing.length > 0)
+      context.skip(`node withdrawn with the drafts, #661: ${missing.join(', ')}`)
     const artifact = compileExample(file, registry, {
       kind: 'partial',
       targets: [{ instancePath: [], node: asNodeId('region') }],
@@ -143,6 +160,7 @@ describe.skipIf(!LIVE_URL)('live loop and subgraph executable examples', () => {
       : descriptor?.['value']
     expect(value).toEqual(expected.value)
   }, 45_000)
+  }
 })
 
 async function waitForJob(connection: DinksterConnection, jobId: string): Promise<Record<string, unknown>> {
