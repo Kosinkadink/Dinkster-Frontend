@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { waitForStartupOwnership } from './fixtures.js'
 
 const backend = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const nativeFrontend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
@@ -36,9 +37,11 @@ async function openGraph(page: Page, type: string, values: Record<string, unknow
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   }, { type, values })
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.lineage)).toBe(`served-widget-${type}`)
+  await waitForStartupOwnership(page)
 }
 
 async function run(page: Page): Promise<{ clientId: string; jobId: string }> {
+  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const result = app.compileTab(app.activeTab()!)
@@ -60,6 +63,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.connection.status.get())).toBe('connected')
+  await waitForStartupOwnership(page)
 })
 
 test('Record Audio records a fake microphone and executes its saved asset after reopening', async ({ page, request }, info) => {
