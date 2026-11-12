@@ -17,7 +17,7 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
   },
   webServer: {
-    command: 'pnpm --filter @dinkster/app dev --host 127.0.0.1 --port 5299 --strictPort',
+    command: 'pnpm --filter @dinkster/app dev --mode test --host 127.0.0.1 --port 5299 --strictPort',
     url: 'http://127.0.0.1:5299',
     reuseExistingServer: false,
     env: { DINKSTER_NATIVE_BACKEND: process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765' },

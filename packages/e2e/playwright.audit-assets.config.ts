@@ -53,7 +53,7 @@ export default defineConfig({
       timeout: 180_000,
     },
     {
-      command: `pnpm --filter @dinkster/app dev --host 127.0.0.1 --port ${port} --strictPort`,
+      command: `pnpm --filter @dinkster/app dev --mode test --host 127.0.0.1 --port ${port} --strictPort`,
       url: `http://127.0.0.1:${port}`,
       cwd: frontendRoot,
       reuseExistingServer: false,
