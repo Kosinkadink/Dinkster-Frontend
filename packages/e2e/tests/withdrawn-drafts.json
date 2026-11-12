@@ -8,6 +8,7 @@
     "dinkster.layers.load",
     "dinkster.mask.paint",
     "dinkster.route.gate",
+    "dinkster.route.switch_by_name",
     "dinkster.value.compare",
     "std.list.length",
     "std.math.add_ints",
