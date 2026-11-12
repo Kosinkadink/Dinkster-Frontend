@@ -56,6 +56,7 @@ const BACKEND_SERIAL_SPECS = [
   'peek-preview.spec.ts',
   'preferred-preview-publication-live.spec.ts',
   'native-imagery-live.spec.ts',
+  'mirror-native-live.spec.ts',
   'lora-conditioning-scheduling-live.spec.ts',
   'image-upload-byte-proof.spec.ts',
   'gallery-live.spec.ts',
