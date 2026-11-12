@@ -201,7 +201,8 @@ of `Painter` identifies this editor after node migration; other asset mask rows
 keep the ordinary asset picker. A connected source must have
 a completed, unchanged native execution; stale, unavailable or ambiguous
 sources require another run before painting. The editor scrolls on small screens
-while Cancel and Apply stay visible. Connected images set the canvas
+while Cancel and Apply stay visible. Scrolled controls and destination notices
+keep a padded inset from the content's clipping edge. Connected images set the canvas
 dimensions; otherwise it uses the authored width and height. Connected IMAGE
 decoding and drawing borrow the exact descriptor's admitted value reader;
 connection changes refuse drawing even after rendition bytes arrived. The bitmap
