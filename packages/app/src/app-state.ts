@@ -4041,6 +4041,7 @@ export class AppState {
       let retained: RetainedAssets | undefined
       if (backend.protocol === 'dinkster') {
         const registry = backend.registry.get()
+        const ownershipRegistry = registry && (this.packLocaleSources.get(registry) ?? registry)
         const document = session.doc
         const revision = session.revision
         const localDocument = tab.store.doc
@@ -4052,9 +4053,11 @@ export class AppState {
             this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
           retained = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
           const latest = this.tabs.get().find((candidate) => candidate.id === tab.id)
+          const currentRegistry = backend.registry.get()
           if (this.disposed || generation !== this.workspaceAuthorityGeneration || !this.workspaceAuthorityEnabled ||
             activeProjectId() !== project || this.assetConnectionGenerations.get(backend.connection) !== connectionGeneration ||
-            connectionChanged || !this.backends.get().includes(backend) || backend.registry.get() !== registry ||
+            connectionChanged || !this.backends.get().includes(backend) ||
+            (currentRegistry && (this.packLocaleSources.get(currentRegistry) ?? currentRegistry)) !== ownershipRegistry ||
             latest?.store !== tab.store || this.backendForTab(latest) !== backend || this.collabTabs.get().has(tab.id) ||
             tab.store.doc !== localDocument || tab.store.revision !== localRevision ||
             session.doc !== document || session.revision !== revision ||
