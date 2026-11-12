@@ -352,6 +352,9 @@ a digest. Unmarked asset filename strings and malformed AssetRef objects still r
 This conservative document owner blocks collection; it does not certify byte
 availability or global retention completeness. Malformed identities, invalid
 dynamic identities and stale history replay still refuse publication.
+Document-open admission compares the raw schema contract beneath pack locale
+overlays. Label and search-term updates do not invalidate a retained open;
+schema, capability and connection changes still refuse stale publication.
 History array additions insert before occupied entries without overwriting them;
 object additions still require an absent key, and replacements and removals
 still require their recorded value.
