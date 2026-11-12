@@ -6,6 +6,7 @@ import {
   asGraphDefId,
   asLineageId,
   asNodeId,
+  asPromptId,
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
@@ -98,10 +99,11 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-const workspaceApp = async (): Promise<{
+const workspaceApp = async (startSharedWorkspace = true): Promise<{
   readonly app: AppState
   readonly promotionPorts: MemoryPort[]
   pausePromotions(): void
+  enableAuthority(): Promise<void>
 }> => {
   const app = prepareWorkflowApp(new AppState())
   vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
@@ -126,15 +128,47 @@ const workspaceApp = async (): Promise<{
   }
   const tabAuthority = new SharedWorkerTabAuthority()
   const workspaceFactory: WorkspaceWorkerPortFactory = () => connect(tabAuthority)
-  await app.enableWorkspaceAuthority(documentFactory, workspaceFactory)
+  const enableAuthority = () => app.enableWorkspaceAuthority(documentFactory, workspaceFactory)
+  if (startSharedWorkspace) await enableAuthority()
   return {
     app,
     promotionPorts,
     pausePromotions: () => { pausePromotion = true },
+    enableAuthority,
   }
 }
 
 describe('workspace promotion queueing', () => {
+  it.each(['promoted', 'closed', 'replaced'] as const)('preserves only a continuing session when %s during source upload', async (action) => {
+    const { app, enableAuthority } = await workspaceApp(false)
+    await app.openDocument(workflow(), 'Late shared workspace')
+    const local = app.activeTab()!
+    vi.spyOn(app.connection, 'uploadAsset').mockImplementationOnce(async () => {
+      if (action === 'promoted') await enableAuthority()
+      else if (action === 'closed') app.closeTab(local.id)
+      else await app.openDocument(workflow(), 'Independent replacement')
+      return `blake3:${'1'.repeat(64)}`
+    })
+    const ref = { connection: app.connection.id, prompt: asPromptId('late-promotion') }
+    vi.spyOn(app.connection, 'submit').mockResolvedValue({ ok: true, execution: ref })
+
+    try {
+      await app.queue(local)
+      if (action === 'promoted') {
+        const promoted = app.activeTab()!
+        expect(promoted).not.toBe(local)
+        expect('status' in promoted.store).toBe(true)
+        expect(app.executionsForTab(promoted).map((execution) => execution.ref)).toEqual([ref])
+      } else {
+        expect([...app.store.executions.get().values()]).toEqual([])
+        expect(app.tabs.get()).not.toContain(local)
+      }
+      expect(app.problems.get().filter((problem) => problem.severity === 'error')).toEqual([])
+    } finally {
+      app.dispose()
+    }
+  })
+
   it('preserves an actual Queue control action until the replacement store is live', async () => {
     const { app, promotionPorts, pausePromotions } = await workspaceApp()
     pausePromotions()
