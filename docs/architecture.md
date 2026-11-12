@@ -322,6 +322,10 @@ The asset census treats node extension metadata as opaque. A MOUNT widget
 binds a STRING mount ID or null for the default
 output mount; neither is an asset identity. Other value shapes or socket types
 remain incomplete, with any known embedded asset roots preserved.
+Declared COLOR inputs use the widget's string contract, including empty strings,
+without interpreting color syntax or inventing asset identities. Non-string values,
+mismatched typed literals and COLOR widgets bound to other socket types remain
+incomplete. Stored dormant branches and undo/redo history use the same contract.
 Metadata and unknown schemas remain
 incomplete. Known canonical references in opaque stored values are retained, but
 the owner explicitly declares `complete: false`, even for an empty known set.

@@ -50,11 +50,11 @@ import {
 import { isAssetRef } from './image-editor.js'
 import { activeProjectId, scopedStorageKey } from './projects.js'
 
-const primitiveNames = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO'])
-// Nullable scalar selections name their required socket type, not an asset.
+const primitiveNames = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO', 'COLOR'])
+// Bound scalar widgets name their required socket type, not an asset.
 const widgetTypes = new Map<string, string | undefined>([
   ['STRING', undefined], ['INT', undefined], ['FLOAT', undefined], ['NUMBER', undefined],
-  ['BOOLEAN', undefined], ['COMBO', undefined], ['ASSET', undefined], ['MOUNT', 'STRING'],
+  ['BOOLEAN', undefined], ['COMBO', undefined], ['ASSET', undefined], ['MOUNT', 'STRING'], ['COLOR', 'COLOR'],
 ])
 
 function assetFreeDynamicState(value: unknown, depth = 0): boolean {
@@ -117,6 +117,12 @@ export function workflowAssetRoots(
     // Asset widgets can hold unresolved imported names, never a certified digest set.
     if (namedAsset && typeof value === 'string') { complete = false; return false }
     const typed = parseTypedLiteralWire(value)
+    if (type.kind === 'concrete' && type.name === 'COLOR' &&
+      (typed === undefined ? typeof value !== 'string' : typed.type !== 'COLOR')) {
+      complete = false
+      opaqueRoots(value)
+      return false
+    }
     if (typed !== undefined) {
       const wrapper = value as { readonly [key: string]: Json }
       if (Object.keys(wrapper).length !== 1 || Object.keys(wrapper['$typed'] as object).length !== 2) {
