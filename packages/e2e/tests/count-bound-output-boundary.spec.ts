@@ -13,7 +13,7 @@ test('count-bound outputs project independently onto subgraph instances', async 
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
   await expect(page.getByTestId('status-bar')).toContainText('0 node schemas', { timeout: 15_000 })
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const image = { kind: 'concrete' as const, name: 'IMAGE' }
     window.__dinksterTest!.app.registerSchemas([{
       type: 'CountOutputTest',
@@ -42,7 +42,7 @@ test('count-bound outputs project independently onto subgraph instances', async 
         },
       ],
     }])
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'count-output-boundary-proof',

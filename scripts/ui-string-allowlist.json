@@ -530,6 +530,7 @@
     "text:() const [authoritativeError, setAuthoritativeError] = createSignal",
     "text:() const [libraryOpen, setLibraryOpen] = createSignal(false) const [libraryRecords, setLibraryRecords] = createSignal",
     "text:() const leaving = new Set",
+    "text:() const pendingAdmissions = new Set",
     "text:() const pendingAuthoritativeRenders = new Set",
     "text:() const pendingCollaborationEnds = new Set",
     "text:() const pendingCollaborationJoins = new Set",
@@ -551,12 +552,14 @@
     "text:documentValue().masks[maskId]! return (",
     "text:entry.draft.document.lineage === descriptor.documentId) const task: Promise",
     "text:false const pendingCollaborationLists = new Set",
-    "text:hydrate: Promise",
     "text:let libraryConnection: DinksterConnection | undefined const pendingLibraryLists = new Set",
     "text:live && activeProjectId() === store.projectId && collaborationListIntent === intent && backendForCollaboration() === backend && backend.connection === connection setBusy(true) setError(undefined) const task: Promise",
     "text:live && activeProjectId() === store.projectId && documents().includes(entry) && entry.session === session && entry.collaboration === shared && backendForCollaboration() === backend && (backend?.protocol !== 'dinkster' || backend.connection === connection) if (!current()) return setCollaborationTransition(true) setBusy(true) setError(undefined) const task: Promise",
     "text:live && activeProjectId() === store.projectId && documents().includes(entry) && entry.session === session setBusy(true) setError(undefined) queuePersist(entry) const task: Promise",
+    "text:props.entry.retained.dispatch(invocation) const dispatch = async (invocation: ImageDocumentCommandInvocation): Promise",
     "text:tablist.querySelector",
+    "text:true, ): Promise",
+    "text:true, ): Promise",
     "text:true, ): Promise",
     "text:undefined) const pending: Promise",
     "text:void name: string draft: ImageDocumentDraft persist: Promise",
@@ -990,6 +993,10 @@
   ],
   "editors/AudioRecordWidgetEditor.tsx": [
     "text:props.editor.bindClickAway?.(undefined)) return"
+  ],
+  "editors/CameraAngleWidgetEditor.tsx": [
+    "text:= limits[field][0] && value",
+    "text:typeof values[field] === 'number') const [draft, setDraft] = createSignal"
   ],
   "editors/ColorWidgetEditor.tsx": [
     "attribute:label:Color value",

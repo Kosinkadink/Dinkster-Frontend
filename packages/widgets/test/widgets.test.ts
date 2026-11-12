@@ -57,6 +57,21 @@ describe('BOUNDING_BOX values', () => {
   })
 })
 
+describe('CAMERA_ANGLE_VIEW values', () => {
+  it('registers a presentation string with an editable compact row, not camera parameters', () => {
+    const r = registry()
+    const kind = r.kind('CAMERA_ANGLE_VIEW')!
+    const s = spec('CAMERA_ANGLE_VIEW')
+    expect(kind.defaultValue(s)).toBe('')
+    expect(kind.valueSchema.validate('')).toBe(true)
+    expect(kind.valueSchema.validate({ horizontal_angle: 90 })).toBe(false)
+    const view = r.viewsFor('CAMERA_ANGLE_VIEW').find((entry) => entry.id === kind.defaultView(s))!
+    const { builder, ops } = recordingBuilder()
+    view.drawCompact(builder, '', s, { focused: false, connected: false, readonly: false })
+    expect(ops.filter((op) => op.op === 'hitRegion')).toHaveLength(1)
+  })
+})
+
 describe('MOUNT values', () => {
   it('preserves scalar mount ids and the null default through the public registry', () => {
     const kind = registry().kind('MOUNT')!

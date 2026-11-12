@@ -19,10 +19,10 @@ test('whole-workflow and executing-node progress update from the same execution 
 
   const seed = await page.evaluate(async () => {
     const bridge = window.__dinksterTest!
-    const diagnostics = bridge.app.openDocument(
+    const diagnostics = (await bridge.app.openDocument(
       bridge.syntheticWorkflow({ chains: 1, chainLength: 4, reroutes: false }),
       'Progress proof',
-    )
+    ))
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
     const tab = bridge.app.activeTab()!
     const nodeIds = Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes)
