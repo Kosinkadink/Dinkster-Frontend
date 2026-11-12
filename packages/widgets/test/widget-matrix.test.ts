@@ -62,6 +62,8 @@ const dispositions = [
   { type: 'AUDIO_RECORD', compact: 'core.audioRecord', expanded: 'explicit recording and staged audio asset modal' },
   { type: 'WEBCAM', compact: 'core.webcam', expanded: 'camera capture and staged PNG asset modal' },
   { type: 'COLORS', compact: 'core.colors', expanded: 'ordered palette draft popover' },
+  { type: 'BOUNDING_BOX', compact: 'core.boundingBox', expanded: 'pixel crop region popover' },
+  { type: 'IMAGECOMPARE', compact: 'core.imageCompare', expanded: 'paired preview wipe and independent batch browsing' },
 ] as const
 
 describe('registered widget disposition inventory', () => {
