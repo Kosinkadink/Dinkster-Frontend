@@ -724,8 +724,7 @@ describe('retained app dispatch', () => {
         kind: 'input', id: 'file', optional: false, type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } },
         widget: { widgetType: 'ASSET', options: {}, default: asset('a') },
       }] }, { key: 'unsupported', inputs: [{ kind: 'input', id: 'slot', optional: true,
-        type: { kind: 'concrete', name: 'STRING' }, dynamic: { kind: 'dynamicSlot', materialization: 'wire15',
-          slotType: { kind: 'concrete', name: 'STRING' }, inputs: [] },
+        type: { kind: 'concrete', name: 'LOAD_3D' }, widget: { widgetType: 'LOAD_3D', options: {} },
       }] }] },
     }] }
     app = createWorkflowApp([dynamic])
@@ -738,7 +737,7 @@ describe('retained app dispatch', () => {
     vi.spyOn(app.connection, 'fetchTemplateBody').mockResolvedValue(document)
     expect(await app.openTemplate('test', 'dormant', 'Dormant ownership', app.connection.id)).toBe(true)
     const tab = app.activeTab()!
-    expect(await app.shareActiveTab()).toBe('Workflow dynamic identities are invalid. Publication and sharing remain unavailable.')
+    expect(await app.shareActiveTab()).toBe('Workflow ownership unconfirmed. Publication and sharing remain unavailable.')
     const downloads = captureDownloads()
     const before = app.exportDocument(tab.id)
     const warnings = app.problems.get().filter((problem) => problem.code === 'workflow.execution.ownershipUnconfirmed')
@@ -774,19 +773,19 @@ describe('retained app dispatch', () => {
         .map((key) => JSON.parse(localStorage.getItem(key)!))
       expect(records).toContainEqual(expect.objectContaining({ complete: false, digests: [asset('a').digest],
         acknowledgedRevision: 1, incompleteDiagnostics: [expect.objectContaining({ severity: 'error',
-          code: 'elab.dormant.unsupported', message: expect.stringContaining('Loader (n0)'),
+          code: 'workflow.asset.unresolvedInput', message: expect.stringContaining('Loader (n0)'),
         })] }))
       const html = renderToString(() => createComponent(ProblemsPanel, {
         app: ownerApp, diagnostics: () => ownerApp.problems.get(), compatSkips: () => [],
       }))
       expect(html).toContain('Workflow ownership unconfirmed.')
-      expect(html).toContain('Loader (n0): Dormant wire15 inputs require branch-specific identity resolution')
+      expect(html).toContain("Loader (n0): Declared input 'mode.slot' has an unsupported asset census widget binding 'LOAD_3D'")
       expect(html).toContain('Publication and sharing remain unavailable.')
       const beforePublication = shared.store.doc
       const prepared = shared.store.prepareDispatch!(replace('b'))
       if (!prepared.ok) throw new Error('candidate rejected before retention')
-      await expect(admitWorkflowDispatch(app.connection, prepared, () => dynamic, () => true))
-        .rejects.toThrow('Workflow dynamic identities are invalid')
+      expect(await admitWorkflowDispatch(app.connection, prepared, () => dynamic, () => true))
+        .toMatchObject({ ok: false, diagnostics: [{ code: 'command.retention.required' }] })
       expect(shared.store.doc).toBe(beforePublication)
       // Incomplete roots never establish cleanup eligibility, even after exact acknowledgment.
       expect(records.some((record) => record.complete && record.digests.includes(asset('a').digest))).toBe(false)
@@ -1204,8 +1203,7 @@ describe('retained app dispatch', () => {
         kind: 'input', id: 'file', optional: false, type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } },
         widget: { widgetType: 'ASSET', options: {}, default: asset('a') },
       }] }, { key: 'unsupported', inputs: [{ kind: 'input', id: 'slot', optional: true,
-        type: { kind: 'concrete', name: 'STRING' }, dynamic: { kind: 'dynamicSlot', materialization: 'wire15',
-          slotType: { kind: 'concrete', name: 'STRING' }, inputs: [] },
+        type: { kind: 'concrete', name: 'LOAD_3D' }, widget: { widgetType: 'LOAD_3D', options: {} },
       }] }] },
     }] }
     app = createWorkflowApp([dynamic])
@@ -1219,7 +1217,7 @@ describe('retained app dispatch', () => {
       .filter((key) => key.includes('dinkster.workflow-retentions.'))
       .map((key) => JSON.parse(localStorage.getItem(key)!))
     expect(records).toContainEqual(expect.objectContaining({ complete: false, digests: [asset('a').digest],
-      incompleteDiagnostics: [expect.objectContaining({ code: 'elab.dormant.unsupported' })] }))
+      incompleteDiagnostics: [expect.objectContaining({ code: 'workflow.asset.unresolvedInput' })] }))
     expect(app.problems.get()).toContainEqual(expect.objectContaining({ severity: 'warning',
       code: 'workflow.execution.ownershipUnconfirmed' }))
     expect(await app.saveWorkflow(tab.id)).toBe(false)
@@ -3390,6 +3388,59 @@ describe('workflow candidate admission', () => {
         naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 } } },
   ] }
 
+  it.each(['text', 'integer', 'invalid', 'missing'] as const)('censuses the real dev feature slot declaration: %s', (choice) => {
+    const registry = buildDinksterRegistry(asConnectionId('retention'), { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: {
+      'dev.features.slot': { version: 1, idempotent: true, interface: [{
+        role: 'dynamicSlot', id: 'source', required: true, inputs: [], variants: [
+          { key: 'text', type: { kind: 'concrete', types: ['STRING'] }, inputs: [] },
+          { key: 'integer', type: { kind: 'concrete', types: ['INT'] }, inputs: [] },
+        ],
+      }, { role: 'output', id: 'text', type: { kind: 'concrete', types: ['STRING'] } }] },
+    } })
+    expect(registry.resolve('dev.features.slot')).toBeDefined()
+    const local = session()
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'dev.features.slot',
+        values: choice === 'missing' ? {} : { source: choice === 'integer' ? 17 : 'hello' },
+        ...(choice === 'missing' ? {} : { dynamic: { source: { selected: choice } } }) },
+    } } } }
+    const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, registry.resolve)
+    expect(roots.complete).toBe(choice === 'text' || choice === 'integer')
+    expect(roots.digests).toEqual([])
+    expect(roots.refusal).toBe(choice === 'text' || choice === 'integer' ? undefined : 'Workflow dynamic identities are invalid')
+  })
+
+  it.each(['known', 'ambiguous', 'typed', 'foreign-typed', 'invalid-choice', 'unknown-state'] as const)(
+    'retains dormant slot dependents without guessing branch types: %s', (scenario) => {
+      const candidate: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'source', optional: false,
+        type: { kind: 'concrete', name: 'STRING' }, dynamic: {
+          kind: 'dynamicSlot', materialization: 'wire15', slotType: { kind: 'concrete', name: 'STRING' }, inputs: [],
+          variants: [
+            { key: 'text', type: { kind: 'concrete', name: 'STRING' }, inputs: [assetInput('shared', 'a')] },
+            { key: 'integer', type: { kind: 'concrete', name: 'INT' }, inputs: [
+              { ...assetInput('shared', 'b'), type: scenario === 'known' ? assetType : { kind: 'concrete', name: 'STRING' } },
+              assetInput('dormant', 'e'),
+            ] },
+          ],
+        },
+      }] }
+      const local = session()
+      const value = scenario === 'typed' ? { $typed: { type: 'asset<DATA>', value: asset('c') } }
+        : scenario === 'foreign-typed' ? { $typed: { type: 'INT', value: 5 } } : asset('c')
+      const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+        n0: { id: asNodeId('n0'), type: 'Loader', values: { source: 'selected', 'source.shared': value, 'source.dormant': asset('d') },
+          dynamic: { source: { selected: scenario === 'invalid-choice' ? 'gone' : 'text' },
+            ...(scenario === 'unknown-state' ? { 'source.unknown': { selected: 'text' } } : {}) } },
+      } } } }
+      const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => candidate)
+      expect(roots.complete).toBe(scenario === 'known' || scenario === 'typed')
+      expect(roots.digests).toEqual((scenario === 'foreign-typed' ? ['d'] : ['c', 'd']).map((letter) => asset(letter).digest))
+      expect(roots.refusal).toBe(scenario === 'invalid-choice' || scenario === 'unknown-state' ? 'Workflow dynamic identities are invalid' : undefined)
+      if (scenario === 'ambiguous') expect(roots.incompleteDiagnostics).toContainEqual(expect.objectContaining({ code: 'workflow.asset.ambiguousInput' }))
+      if (scenario === 'foreign-typed') expect(roots.incompleteDiagnostics).toContainEqual(expect.objectContaining({ code: 'workflow.asset.unresolvedInput' }))
+    },
+  )
+
   it.each(['resolved', 'conflicting', 'typed'] as const)('censuses stored wire15 branch values: %s', (scenario) => {
     const local = session()
     const candidate: NodeSchema = { ...schema, items: [{
@@ -3468,6 +3519,30 @@ describe('workflow candidate admission', () => {
       .toEqual({ complete: true, digests: ['c', 'd', 'e', 'f'].map((letter) => asset(letter).digest) })
   })
 
+  it('keeps slot choices and active-only defaults scoped to independent family members', () => {
+    const local = session()
+    const candidate: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'items', type: assetType, optional: true,
+      dynamic: { kind: 'autogrow', naming: { kind: 'prefix', prefix: 'item', min: 0, max: 3 }, template: [{
+        kind: 'input', id: 'source', type: { kind: 'concrete', name: 'STRING' }, optional: true,
+        dynamic: { kind: 'dynamicSlot', materialization: 'wire15', slotType: { kind: 'concrete', name: 'STRING' }, inputs: [],
+          variants: ['a', 'b'].map((key) => ({ key, type: { kind: 'concrete' as const, name: 'STRING' }, inputs: [
+            assetInput('file', key), assetInput(key, key === 'a' ? 'e' : 'f'),
+          ] })),
+        },
+      }] },
+    }] }
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Loader', values: {
+        'items.source#m0': 'first', 'items.source.file#m0': asset('c'),
+        'items.source#m1': 'second', 'items.source.file#m1': asset('d'),
+      }, dynamic: { items: { members: ['m0', 'm1'], memberState: {
+        m0: { 'items.source': { selected: 'a' } }, m1: { 'items.source': { selected: 'b' } },
+      } } } },
+    } } } }
+    expect(workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => candidate))
+      .toEqual({ complete: true, digests: ['c', 'd', 'e', 'f'].map((letter) => asset(letter).digest) })
+  })
+
   it('uses non-widget defaults only in active branches while retaining stored dormant values', () => {
     const local = session()
     const candidate: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'mode', optional: true,
@@ -3497,7 +3572,7 @@ describe('workflow candidate admission', () => {
       .toEqual({ complete: true, digests: ['a', 'c', 'e', 'f'].map((letter) => asset(letter).digest) })
   })
 
-  it.each(['metadata', 'nested-metadata', 'unknown-value', 'unknown-dynamic', 'static-unknown', 'nested-unknown', 'stale-member', 'budget', 'wire15'] as const)(
+  it.each(['metadata', 'nested-metadata', 'unknown-value', 'unknown-dynamic', 'static-unknown', 'nested-unknown', 'stale-member', 'budget', 'opaque-slot'] as const)(
     'keeps unsupported dynamic census incomplete: %s', (scenario) => {
       const local = session()
       const node = { id: asNodeId('n0'), type: 'Loader', values: scenario === 'unknown-value' ? { unknown: asset('e') } : {},
@@ -3508,9 +3583,12 @@ describe('workflow candidate admission', () => {
                 : scenario === 'stale-member' ? { items: { members: [], memberState: { retired: { future: {} } } } }
             : scenario === 'budget' ? { items: { members: Array.from({ length: 600 }, (_, index) => `m${index}`) } } : {} }
       const document = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: { n0: node } } } } as WorkflowDocument
-      const candidate: NodeSchema = scenario === 'wire15' ? { ...dynamicSchema, items: [{
+      const candidate: NodeSchema = scenario === 'opaque-slot' ? { ...dynamicSchema, items: [{
         kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'STRING' }, optional: true,
-        dynamic: { kind: 'dynamicSlot', materialization: 'wire15', slotType: assetType, inputs: [assetInput('file', 'a')] },
+        dynamic: { kind: 'dynamicSlot', materialization: 'wire15', slotType: assetType, inputs: [{
+          kind: 'input', id: 'opaque', type: { kind: 'concrete', name: 'LOAD_3D' }, optional: true,
+          widget: { widgetType: 'LOAD_3D', options: {} },
+        }] },
       }] } : scenario === 'static-unknown' ? schema : dynamicSchema
       expect(workflowAssetRoots(document, local.historySnapshot(), () => candidate).complete).toBe(false)
     },

@@ -1063,6 +1063,29 @@ describe('dynamicSlot', () => {
     },
   })
 
+  it('censuses wire15 slot branches without submitting dormant paths and keeps the item budget', () => {
+    const source: InputSpec = { ...slotConstruct('source', [intInput('shared')]), dynamic: {
+      kind: 'dynamicSlot', materialization: 'wire15', slotType: { kind: 'concrete', name: 'STRING' },
+      inputs: [intInput('shared')], variants: [
+        { key: 'text', type: { kind: 'concrete', name: 'STRING' }, inputs: [intInput('amount')] },
+        { key: 'integer', type: { kind: 'concrete', name: 'INT' }, inputs: [socketInput('amount', 'ASSET')] },
+      ],
+    } }
+    const node = { values: { source: 'hello' }, dynamic: { source: { selected: 'text' } } }
+    const active = elaborateInterface(schemaOf([source]), node)
+    expect(elabInputsOf(active).map((input) => input.apiName)).toEqual(['source', 'source.shared', 'source.amount'])
+    const census = elaborateInterface(schemaOf([source]), node, EMPTY_CONNECTIVITY, { includeDormant: true })
+    expect(census.diagnostics).toEqual([])
+    expect(elabInputsOf(census).map((input) => [input.address.port, input.spec.type, input.apiName])).toEqual([
+      ['source', { kind: 'concrete', name: 'STRING' }, undefined],
+      ['source.shared', { kind: 'concrete', name: 'INT' }, undefined],
+      ['source.amount', { kind: 'concrete', name: 'INT' }, undefined],
+      ['source.amount', { kind: 'concrete', name: 'ASSET' }, undefined],
+    ])
+    expect(elaborateInterface(schemaOf([source]), node, EMPTY_CONNECTIVITY, { includeDormant: true, budget: { maxItems: 3 } })
+      .diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['elab.budget.items'])
+  })
+
   it('disconnected: only the slot itself, typed and optional', () => {
     const e = elaborateInterface(schemaOf([slot]), noState)
     const inputs = elabInputsOf(e)

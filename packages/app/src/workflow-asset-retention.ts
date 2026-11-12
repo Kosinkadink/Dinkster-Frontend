@@ -399,10 +399,14 @@ function censusWorkflowAssetRoots(
       }
     }
     for (const [input, value] of Object.entries(node.values)) {
-      const matching = inputs.filter((item) => valueKeyOf(item) === input)
+      const candidates = inputs.filter((item) => valueKeyOf(item) === input)
+      const conflicting = candidates.some((item) => item.wire15Materialization) &&
+        new Set(candidates.map((item) => canonicalJson(item.spec.type))).size > 1
+      const typed = parseTypedLiteralWire(value)
+      const matching = conflicting && typed !== undefined ? candidates.filter((item) =>
+        canonicalJson(item.spec.type) === canonicalJson(typeExprFromTypeId(typed.type))) : candidates
       if (matching.length === 0) complete = false
-      const ambiguous = matching.some((item) => item.wire15Materialization) &&
-        new Set(matching.map((item) => canonicalJson(item.spec.type))).size > 1 && parseTypedLiteralWire(value) === undefined
+      const ambiguous = conflicting && typed === undefined
       if (ambiguous) {
         complete = false
         incompleteDiagnostics.push({ severity: 'error', origin: 'schema', code: 'workflow.asset.ambiguousInput',
