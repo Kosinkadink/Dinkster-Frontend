@@ -34,7 +34,7 @@ test('the full live catalog decodes without schema errors and dynamic families m
       schemaCount: reg.schemas.size,
       schemaErrors: ((reg.diagnostics ?? []) as readonly { code: string; severity?: string }[])
         .filter((d) => d.severity === 'error'),
-      hasListMake: reg.schemas.has('std.list.make'),
+      hasListMake: reg.schemas.has('dinkster.utilities.make_list'),
     }
   })
   // Every node the backend serves must decode: an undecodable schema drops
@@ -48,23 +48,22 @@ test('the full live catalog decodes without schema errors and dynamic families m
     return Object.keys(payload.nodes).filter((type) => !registryTypes.includes(type))
   }).toEqual([])
 
-  if (registry.hasListMake) {
-    // Dynamic input families must materialize members: a family that
-    // elaborates zero members renders a node with no input pins at all.
-    await page.evaluate(async () => {
-      await window.__dinksterTest!.app.openDocument({
-        format: 'dinkster-workflow', formatVersion: 1, lineage: 'native-catalog-decode', root: 'g0',
-        graphs: { g0: {
-          id: 'g0', name: 'root',
-          nodes: { m1: { id: 'm1', type: 'std.list.make', values: {} } },
-          links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
-        } },
-        view: { graphs: { g0: { nodes: { m1: { position: { x: 120, y: 120 } } } } } },
-      } as never, 'Catalog decode smoke')
-    })
-    await expect.poll(() => page.evaluate(() => {
-      const node = window.__dinksterTest!.renderer!.getScene().nodes.find((n: { id: string }) => n.id === 'm1')
-      return node === undefined ? -1 : node.layout.pins.filter((p: { direction: string }) => p.direction === 'in').length
-    }), { timeout: 10_000 }).toBeGreaterThan(0)
-  }
+  expect(registry.hasListMake, 'live catalog lacks required node: dinkster.utilities.make_list').toBe(true)
+  // Dynamic input families must materialize members: a family that
+  // elaborates zero members renders a node with no input pins at all.
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'native-catalog-decode', root: 'g0',
+      graphs: { g0: {
+        id: 'g0', name: 'root',
+        nodes: { m1: { id: 'm1', type: 'dinkster.utilities.make_list', values: {} } },
+        links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
+      } },
+      view: { graphs: { g0: { nodes: { m1: { position: { x: 120, y: 120 } } } } } },
+    } as never, 'Catalog decode smoke')
+  })
+  await expect.poll(() => page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((n: { id: string }) => n.id === 'm1')
+    return node === undefined ? -1 : node.layout.pins.filter((p: { direction: string }) => p.direction === 'in').length
+  }), { timeout: 10_000 }).toBeGreaterThan(0)
 })
