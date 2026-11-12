@@ -16,6 +16,12 @@ Recorded native values also offer [typed media inspection](media-inspection.md)
 through the execution owner's values API. Nonblocking alpha and mask warnings
 name their runtime node and affected ports. Metadata reads do not download media.
 
+Saved files also show their written paths, runtime nodes and media types from
+the execution's saved artifacts, even when a save node returns no ASSET output.
+Different written paths remain separate when their content digests match.
+A path already shown by an image ASSET card is not repeated in the saved-file
+section. Preview renditions do not imply a written file or an output path.
+
 Persisted job completion refreshes output descriptors as well as artifacts.
 An earlier engine completion notification can arrive before those results are
 stored; that early empty read does not make the final output inventory empty.

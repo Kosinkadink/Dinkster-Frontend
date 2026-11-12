@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, selectProductOption, test, type Page } from './fixtures.js'
+import { expect, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_ACTIVITY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -30,6 +30,7 @@ const records = Array.from({ length: 27 }, (_, index) => ({
 }))
 
 async function installFixture(page: Page): Promise<void> {
+  await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'fixture has no supervisor' }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
@@ -55,7 +56,7 @@ async function installFixture(page: Page): Promise<void> {
 }
 
 async function seedExecutions(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const document = {
       format: 'dinkster-workflow', formatVersion: 1,
@@ -63,7 +64,7 @@ async function seedExecutions(page: Page): Promise<void> {
       graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: { g0: { nodes: {} } } },
     }
-    app.openDocument(document as never, 'Workflow with a deliberately long activity identity')
+    await app.openDocument(document as never, 'Workflow with a deliberately long activity identity')
     const tab = app.activeTab()!
     const connection = (app as unknown as { backendForTab(tab: unknown): { id: string } }).backendForTab(tab).id
     const artifact = {
@@ -137,6 +138,8 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
   await page.setViewportSize({ width: 1600, height: 950 })
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest !== undefined)).toBe(true)
+  await expect(page.getByTestId('status-bar')).toContainText('connected')
+  await waitForStartupOwnership(page)
   await seedExecutions(page)
 
   await page.getByTestId('workflow-queue-toggle').click()

@@ -516,7 +516,26 @@ test('shell and canvas visual matrix', async ({ page }) => {
       },
     ])
     await bridge.app.openDocument(
-      bridge.syntheticWorkflow({ chains: 1, chainLength: 2, reroutes: false }),
+      {
+        format: 'dinkster-workflow', formatVersion: 1,
+        lineage: 'visual-canvas-nodes', root: 'g0',
+        graphs: {
+          g0: {
+            id: 'g0', name: 'root',
+            nodes: {
+              n0: { id: 'n0', type: 'EmptyImage', values: { width: 64, height: 64, batch_size: 1, color: 0 } },
+              n1: { id: 'n1', type: 'PreviewImage', values: {} },
+            },
+            links: { l2: { id: 'l2', from: { node: 'n0', port: 'IMAGE' }, to: { node: 'n1', port: 'images' } } },
+            nets: {}, reroutes: {}, nextOrdinal: 3,
+          },
+        },
+        view: { graphs: { g0: { nodes: {
+          n0: { position: { x: 80, y: 80 } },
+          n1: { position: { x: 400, y: 80 } },
+        } } } },
+        meta: { title: 'Synthetic 1x2 (2 nodes)' },
+      },
       'Visual controls',
     )
   })

@@ -948,6 +948,13 @@ export interface WorkflowRequirementPlan {
   readonly errors: readonly string[]
 }
 
+export interface PackPreparationProgress {
+  readonly sequence: number
+  readonly stage: string
+  readonly completed: number
+  readonly total: number
+}
+
 export type PackInstallPlan = {
   readonly plan: Readonly<Record<string, unknown>>
   readonly review: string
@@ -3071,7 +3078,7 @@ export class DinksterConnection {
     return matches
   }
 
-  private async packInstallRequest(action: 'plan' | 'apply', body: unknown, signal?: AbortSignal): Promise<Record<string, unknown>> {
+  private async packInstallRequest(action: 'prepare' | 'preparation/status' | 'preparation/cancel' | 'apply', body: unknown, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const response = await this.fetchFn(`${this.baseUrl}/api/packs/install/${action}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       ...(signal === undefined ? {} : { signal }),
@@ -3147,10 +3154,63 @@ export class DinksterConnection {
   }
 
   /** Request a review with terminal commands or a gateway confirmation; never apply. */
-  async planPackInstall(packs: readonly { readonly pack: string; readonly version: string }[], signal?: AbortSignal): Promise<PackInstallPlan> {
-    const body = await requestWithDeadline((deadline) => this.packInstallRequest('plan',
-      { packs: packs.map(({ pack, version }) => ({ pack, version })) },
-      signal === undefined ? deadline : AbortSignal.any([deadline, signal])))
+  async planPackInstall(packs: readonly { readonly pack: string; readonly version: string }[], signal?: AbortSignal,
+    onProgress?: (progress: PackPreparationProgress) => void): Promise<PackInstallPlan> {
+    let preparation: string | undefined
+    let abandoned = false
+    let cancelSent = false
+    const cancel = () => {
+      if (!preparation || cancelSent) return
+      cancelSent = true
+      void requestWithDeadline((deadline) => this.packInstallRequest('preparation/cancel', { preparation }, deadline),
+        'Pack preparation cancellation could not be acknowledged. Read-only cleanup may still be running.').catch(() => undefined)
+    }
+    let body: Record<string, unknown>
+    try {
+      let snapshot = await requestWithDeadline(async (deadline) => {
+        const started = await this.packInstallRequest('prepare', { packs: packs.map(({ pack, version }) => ({ pack, version })) }, deadline)
+        if (typeof started['preparation'] === 'string') preparation = started['preparation']
+        if (abandoned || signal?.aborted) cancel()
+        return started
+      }, 'Pack preparation could not be acknowledged within 30 seconds. No installation was confirmed.', signal)
+      while (true) {
+        signal?.throwIfAborted()
+        if (!preparation || snapshot['preparation'] !== preparation) throw new Error('Malformed pack preparation identity')
+        const raw = snapshot['progress']
+        if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('Malformed pack preparation progress')
+        const progress = raw as Record<string, unknown>
+        if (typeof progress['stage'] !== 'string' || !['sequence', 'completed', 'total'].every((key) =>
+          Number.isSafeInteger(progress[key]) && (progress[key] as number) >= 0)) throw new Error('Malformed pack preparation progress')
+        onProgress?.(progress as unknown as PackPreparationProgress)
+        signal?.throwIfAborted()
+        if (snapshot['state'] === 'ready') {
+          const result = snapshot['result']
+          if (typeof result !== 'object' || result === null || Array.isArray(result)) throw new Error('Malformed pack preparation result')
+          body = result as Record<string, unknown>
+          break
+        }
+        if (snapshot['state'] === 'failed') {
+          const error = snapshot['error']
+          throw new Error(error === 'preparation-stalled' ? 'Pack preparation reported no progress for 120 seconds. No installation was confirmed.'
+            : error === 'preparation-expired' ? 'Pack preparation exceeded 30 minutes. No installation was confirmed.'
+              : 'Pack preparation failed. No installation was confirmed. Request a new review after checking the host diagnostics.')
+        }
+        if (snapshot['state'] === 'cancelled') throw new Error('Pack preparation was cancelled. No installation was confirmed.')
+        if (snapshot['state'] !== 'preparing') throw new Error('Malformed pack preparation state')
+        await new Promise<void>((resolve, reject) => {
+          const abort = () => { clearTimeout(timer); reject(signal!.reason) }
+          const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve() }, 1000)
+          signal?.addEventListener('abort', abort, { once: true })
+          if (signal?.aborted) abort()
+        })
+        snapshot = await requestWithDeadline((deadline) => this.packInstallRequest('preparation/status', { preparation }, deadline),
+          'Pack preparation status is unavailable after 30 seconds. No installation was confirmed; read-only cleanup may still be running.', signal)
+      }
+    } catch (error) {
+      abandoned = true
+      cancel()
+      throw error
+    }
     const plan = body['plan']
     const confirmation = body['confirmation']
     const commands = body['commands']
@@ -3161,6 +3221,7 @@ export class DinksterConnection {
       typeof body['review'] !== 'string' ||
       !Number.isSafeInteger(body['expiresInSeconds']) || (body['expiresInSeconds'] as number) <= 0 ||
       typeof plan !== 'object' || plan === null || Array.isArray(plan)) {
+      cancel()
       throw new Error('Malformed pack installation plan response')
     }
     return { ...(terminal ? { commands: commands as string[] } : { confirmation: confirmation as string }), plan: plan as Record<string, unknown>,

@@ -5,11 +5,19 @@
  * viewport (and only the viewport: the document never changes), and the
  * overview keeps painting on a frozen historical tab.
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
+  expect(await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const document = structuredClone(app.activeTab()!.store.doc)
+    document.graphs.g0!.nodes.n0!.type = 'dinkster.image.empty_image'
+    document.graphs.g0!.nodes.n1!.type = 'dinkster.image.preview_image'
+    return app.openDocument(document, 'Basic')
+  })).toEqual([])
 })
 
 const viewport = (page: Page) => page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())
@@ -81,14 +89,14 @@ test('renders an overview and click-jumps the main viewport; document untouched'
 
 test('wheel zoom centers on the pointed far-away minimap location exactly once', async ({ page }) => {
   const far = { x: 5000, y: 0 }
-  const movedNodeId = await page.evaluate((position) => {
+  const movedNodeId = await page.evaluate(async (position) => {
     const test = window.__dinksterTest!
     if (test.renderer!.getScene().nodes.length === 0) {
       test.app.registerSchemas([{
         type: 'MinimapE2E', displayName: 'Minimap E2E', category: 'test', source: 'v3', isOutputNode: false,
         items: [],
       }])
-      test.app.openDocument({
+      await test.app.openDocument({
         format: 'dinkster-workflow', formatVersion: 1, lineage: 'minimap-e2e', root: 'root',
         graphs: { root: {
           id: 'root', name: 'Root',
@@ -335,7 +343,7 @@ test('ordinary and narrow layouts keep controls disjoint and canvas interaction 
     { size: { width: 480, height: 900 }, menuPlacement: 'above' as const },
   ]) {
     await page.setViewportSize(size)
-    if (size.width <= 520) await page.getByRole('button', { name: 'Toggle right rail', exact: true }).click()
+    if (size.width <= 520) await page.getByRole('button', { name: /^Toggle right rail(?:,|$)/ }).click()
     await expect(page.getByRole('group', { name: 'Minimap controls', exact: true })).toBeVisible()
     await expect(page.getByRole('group', { name: 'Canvas view controls', exact: true })).toBeVisible()
     for (const [id, tooltip] of [

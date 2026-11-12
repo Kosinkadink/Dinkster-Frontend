@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, selectProductOption, test, type Page } from './fixtures.js'
+import { expect, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_CANVAS_WHEEL_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -44,6 +44,8 @@ const wheel = (
 test('canvas wheel policy preserves default zoom and adds persisted two-axis pan', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
+  await expect(page.getByTestId('status-bar')).toContainText('connected')
+  await waitForStartupOwnership(page)
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   const documentBefore = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
   const point = { screenX: 320, screenY: 240 }

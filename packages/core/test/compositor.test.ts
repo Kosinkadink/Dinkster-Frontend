@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   COMPOSITOR_STATE_PREVIEW_CHANNEL,
   COMPOSITOR_STATE_PREVIEW_STREAM,
+  applyCompositorCommands,
   compositorDeltaFromDraft,
   compositorRecipeFingerprint,
   compositorStateOf,
@@ -98,6 +99,64 @@ const wireState = {
   stale: false,
   layerStreams: ['compositor.layer.0', 'compositor.layer.1'],
 }
+
+describe('native compositor commands', () => {
+  it('applies the editor delta without mutating the source or losing hidden resources', () => {
+    const state = compositorStateOf(wireState)!
+    const draft = copyConfiguredCompositorRecipe(state)
+    const recipe = compositorDeltaFromDraft(state, {
+      ...draft, canvas: { width: 320, height: 240 },
+      layers: [...draft.layers].reverse().map((layer) => layer.id === 'l2'
+        ? { ...layer, visible: true, opacity: 0.25, transform: { ...layer.transform, x: -17, y: 33 } } : layer),
+    })!
+    const result = applyCompositorCommands(state.document, recipe.commands)!
+    expect(result.canvas).toMatchObject({ width: 320, height: 240 })
+    expect(result.rootLayerIds).toEqual(['l2', 'l0'])
+    expect(result.layers['l2']).toMatchObject({ visible: true, opacity: 16_384, z_index: 0,
+      transform: { tx: -17_000_000, ty: 33_000_000 } })
+    expect(result.resources).toEqual(document.resources)
+    expect(state.document).toEqual(document)
+  })
+
+  it('validates structural changes and resource switches against the entire inventory', () => {
+    const state = compositorStateOf(wireState)!
+    const result = applyCompositorCommands(state.document, [
+      { op: 'layer', id: 'l2', changes: { resourceId: 'r1', sourceRect: { x: 2, y: 3, width: 20, height: 10 } } },
+      { op: 'mask', id: 'm4', changes: { enabled: false } },
+      { op: 'remove_mask', id: 'm4' },
+      { op: 'add_mask', ownerLayerId: 'l0', mask: {
+        resourceId: 'r5', sourceRect: { x: 0, y: 0, width: 25, height: 10 },
+      } },
+      { op: 'group', ids: ['l2', 'l0'], name: 'Stack' },
+      { op: 'reorder', parent: 'l7', ids: ['l0', 'l2'] },
+      { op: 'remove', id: 'l2' },
+    ])!
+    expect(result.rootLayerIds).toEqual(['l7'])
+    expect(result.layers['l7']).toMatchObject({ childLayerIds: ['l0'], name: 'Stack' })
+    expect(result.layers['l2']).toBeUndefined()
+    expect(result.layers['l0']!.maskIds).toEqual(['m6'])
+    expect(result.masks['m6']).toMatchObject({ resourceId: 'r5', ownerLayerId: 'l0' })
+    expect(result.masks['m4']).toBeUndefined()
+    expect(result.resources).toEqual(document.resources)
+    expect(result.allocation.nextOrdinal).toBe(8)
+  })
+
+  it.each([
+    { op: 'future', resource: { digest } },
+    { op: 'canvas', changes: { width: 0 } },
+    { op: 'layer', id: 'l2', changes: { resourceId: 'missing' } },
+    { op: 'layer', id: 'l2', changes: { maskIds: [] } },
+    { op: 'mask', id: 'm4', changes: { ownerLayerId: 'l0' } },
+    { op: 'reorder', ids: ['l0', 'l0'] },
+    { op: 'group', ids: ['l0', 'missing'] },
+    { op: 'remove', id: 'missing' },
+    { op: 'transform', id: 'l0', components: { x: 0 } },
+    { op: 'add_mask', ownerLayerId: 'l0', mask: { resourceId: 'missing' } },
+    { op: 'remove_mask', id: 'missing' },
+  ])('refuses invalid commands without certifying a document: %j', (command) => {
+    expect(applyCompositorCommands(compositorStateOf(wireState)!.document, [command])).toBeUndefined()
+  })
+})
 
 const reflectedMaskFixture = () => {
   const reflectedDocument = structuredClone(document)

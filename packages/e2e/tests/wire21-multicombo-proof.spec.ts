@@ -65,9 +65,9 @@ test('proves wire21 MULTI_COMBO editing, presentation, OOV, and remote choices',
 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(1)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const test = window.__dinksterTest!
-    test.app.openDocument({
+    await test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'wire21-multi-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         n0: { id: 'n0', type: 'Wire21MultiProof', values: {

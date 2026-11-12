@@ -1,5 +1,6 @@
 import { mkdir } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
+import { waitForStartupOwnership } from './fixtures.js'
 
 // Served-app proof for the subgraph Autogrow ghost-input defect: real
 // deployed frontend on :5199, real native backend behind the proxy, no
@@ -88,8 +89,9 @@ test('served app commits, undoes, redoes, and reloads a drilled occurrence ghost
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get().length ?? 0), { timeout: 20_000 }).toBeGreaterThanOrEqual(1)
+  await waitForStartupOwnership(page)
 
-  await page.evaluate((doc) => {
+  await page.evaluate(async (doc) => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([
       {
@@ -107,7 +109,7 @@ test('served app commits, undoes, redoes, and reloads a drilled occurrence ghost
         }],
       },
     ])
-    test.app.openDocument(doc as never, 'audit served proof')
+    await test.app.openDocument(doc as never, 'audit served proof')
   }, proofDocument())
   await drillIntoOccurrence(page)
   await page.screenshot({ path: `${proofDir}/01-served-drilled-sockets.png`, animations: 'disabled' })
@@ -131,8 +133,8 @@ test('served app commits, undoes, redoes, and reloads a drilled occurrence ghost
   // link and its socketed ghost survive.
   const saved = await page.evaluate(() =>
     JSON.parse(JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc)))
-  await page.evaluate((doc) => {
-    window.__dinksterTest!.app.openDocument(doc as never, 'audit served proof reloaded')
+  await page.evaluate(async (doc) => {
+    await window.__dinksterTest!.app.openDocument(doc as never, 'audit served proof reloaded')
   }, saved)
   await drillIntoOccurrence(page)
   await expect.poll(() => overlayLinkCount(page)).toBe(1)

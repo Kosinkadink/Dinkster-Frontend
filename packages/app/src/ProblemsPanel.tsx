@@ -1,11 +1,12 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
-import { diag, type Diagnostic, type ImportedNodePackResolution } from '@dinkster/core'
-import type { CompatSkip, PackInferenceUnavailable, PackInstallPlan } from '@dinkster/client'
+import { canonicalJson, diag, type Diagnostic, type ImportedNodePackResolution } from '@dinkster/core'
+import type { CompatSkip, PackInferenceUnavailable, PackInstallPlan, PackPreparationProgress } from '@dinkster/client'
 import { diagnosticFocusTarget, type AppState, type MigrationNotice } from './app-state.js'
 import { groupProblemDiagnostics } from './problem-display.js'
 import { RuntimeErrorHints } from './RuntimeErrorHints.js'
 import { useAppMessage } from './locale.js'
 import { ProductButton } from './ProductControls.js'
+import { PackPreparationStatus } from './PackPreparationStatus.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductEmptyState, ProductPanelHeader } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
@@ -93,22 +94,33 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
     return [...packs].sort(([left], [right]) => left.localeCompare(right))
   })
   const [install, setInstall] = createSignal<PackInstallReview>()
+  const [progress, setProgress] = createSignal<PackPreparationProgress>()
+  let preparationController: AbortController | undefined
   const [commandsCopied, setCommandsCopied] = createSignal(false)
   createEffect(() => {
     activeTabId()
     tabs()
     props.importedNodes?.()
-    if (install() && !install()!.current()) setInstall(undefined)
+    if (install() && !install()!.current()) { preparationController?.abort(); setInstall(undefined) }
   })
-  onCleanup(() => setInstall(undefined))
+  onCleanup(() => { preparationController?.abort(); setInstall(undefined) })
   const planInstall = async (selectedPack?: string) => {
     const tab = props.app.activeTab()
     if (!tab) return
     const backend = props.app.backendForTab(tab)
-    const document = tab.store.doc
-    const current = () => props.app.activeTab() === tab &&
-      props.app.backendForTab(tab) === backend && tab.store.doc === document
+    const document = canonicalJson(tab.store.doc)
+    const revision = tab.store.revision
+    const current = () => {
+      const live = props.app.liveTabContinuing(tab.store)
+      return live !== undefined && props.app.activeTab() === live &&
+        props.app.backendForTab(live) === backend && live.store.revision === revision &&
+        canonicalJson(live.store.doc) === document
+    }
     const request = { current, phase: 'planning' as const }
+    preparationController?.abort()
+    const controller = new AbortController()
+    preparationController = controller
+    setProgress(undefined)
     setCommandsCopied(false)
     setInstall(request)
     try {
@@ -118,7 +130,10 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
         if (versions.size !== 1 || !version) throw new Error(message('problems.importedPacks.versionConflict'))
         return { pack, version }
       })
-      const plan = await backend.connection.planPackInstall(packs)
+      const plan = await backend.connection.planPackInstall(packs, controller.signal, (value) => {
+        if (install() !== request || !current()) { controller.abort(); return }
+        setProgress(value)
+      })
       if (install() !== request || !current()) return
       const confirmation = plan.confirmation
       if (confirmation === undefined) {
@@ -207,8 +222,8 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
             <ProductNotice tone="error">{error()}</ProductNotice>
           )}</Show>
           <Show when={install()?.phase === 'planning' || install()?.phase === 'applying'}>
-            <ProductNotice tone="status">{message(install()?.phase === 'applying'
-              ? 'problems.importedPacks.applying' : 'problems.importedPacks.planning')}</ProductNotice>
+            <ProductNotice tone="status">{install()?.phase === 'applying'
+              ? message('problems.importedPacks.applying') : <PackPreparationStatus progress={progress()} />}</ProductNotice>
           </Show>
           <ProductActionFooter>
             <Show when={install()?.phase === 'review'} fallback={
@@ -221,9 +236,9 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                   onClick={() => void install()?.apply?.()}>{message('problems.importedPacks.confirm')}</ProductButton>
               </Show>
             </Show>
-            <Show when={install()?.phase === 'review'}>
+            <Show when={install()?.phase === 'review' || install()?.phase === 'planning'}>
               <ProductButton variant="ghost" size="compact"
-                onClick={() => setInstall(undefined)}>{message('problems.importedPacks.cancel')}</ProductButton>
+                onClick={() => { preparationController?.abort(); setInstall(undefined) }}>{message('problems.importedPacks.cancel')}</ProductButton>
             </Show>
           </ProductActionFooter>
         </section>

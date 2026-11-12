@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { evidencePath } from './evidence-output.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const REQUIRED = process.env['DINKSTER_REQUIRE_BACKEND'] === '1'
 
@@ -18,21 +19,22 @@ async function clickChoiceRow(page: Page): Promise<void> {
   await page.mouse.click(point.x, point.y)
 }
 
-test('wire 43 Route Switch by Name edits labels but stores stable member ids', async ({ page }) => {
+test('wire 43 Route Switch by Name edits labels but stores stable member ids', async ({ page }, testInfo) => {
   const catalog = await page.request.get('/api/nodes', { timeout: 5_000 }).catch(() => undefined)
   if ((!catalog?.ok() || catalog === undefined) && !REQUIRED) {
     test.skip(true, 'no wire-43 Dinkster backend reachable through the dev proxy')
   }
   expect(catalog?.ok(), 'wire-43 Dinkster backend is required').toBe(true)
   const payload = await catalog!.json() as { nodes?: Record<string, unknown> }
+  requireBackendNodes(payload.nodes ?? {}, ['dinkster.route.switch_by_name'], testInfo)
   expect(payload.nodes?.['dinkster.route.switch_by_name']).toBeDefined()
 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined,
   ), { timeout: 15_000 }).toBe(true)
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'wire43-input-family-combo', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',

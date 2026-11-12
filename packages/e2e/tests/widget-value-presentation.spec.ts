@@ -49,8 +49,8 @@ test.beforeEach(async ({ page, request }, testInfo) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 15_000 })
   await waitForStartupOwnership(page)
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'widget-value-presentation', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
@@ -61,6 +61,7 @@ test.beforeEach(async ({ page, request }, testInfo) => {
     }, 'Widget Value Presentation')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
+  await waitForStartupOwnership(page)
   await expect.poll(() => page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'loader')
     return node?.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'ckpt_name') ?? false

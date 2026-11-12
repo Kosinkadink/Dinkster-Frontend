@@ -151,6 +151,40 @@ export const imageCompareKind: WidgetKind<null> = {
   defaultView: () => 'core.imageCompare',
 }
 
+export const cameraAngleKind: WidgetKind<string> = {
+  type: 'CAMERA_ANGLE_VIEW',
+  valueSchema: stringSchema,
+  defaultValue: () => '',
+  validate: () => [],
+  defaultView: () => 'core.cameraAngle',
+}
+
+export const resolutionKind: WidgetKind<null> = {
+  type: 'RESOLUTION_PREVIEW',
+  valueSchema: { version: 1, validate: (value): value is null => value === null },
+  defaultValue: () => null,
+  validate: () => [],
+  defaultView: () => 'core.resolution',
+}
+
+type SaveTarget = { mount: string; prefix: string }
+
+export const isSaveTarget = (value: unknown): value is SaveTarget => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const target = value as Record<string, unknown>
+  return Object.keys(target).length === 2 && typeof target['mount'] === 'string' && /^[a-z0-9][a-z0-9-]*$/.test(target['mount'])
+    && typeof target['prefix'] === 'string' && target['prefix'] !== '' && !target['prefix'].includes('\\')
+    && target['prefix'].split('/').every((segment) => !['', '.', '..'].includes(segment))
+}
+
+export const saveTargetKind: WidgetKind<SaveTarget | null> = {
+  type: 'SAVE_TARGET',
+  valueSchema: { version: 1, validate: (value): value is SaveTarget | null => value === null || isSaveTarget(value) },
+  defaultValue: (spec) => isSaveTarget(spec.default) ? { ...spec.default } : null,
+  validate: () => [],
+  defaultView: () => 'core.saveTarget',
+}
+
 export type BoundingBox = { x: number; y: number; width: number; height: number }
 
 export const boundingBoxKind: WidgetKind<BoundingBox> = {
@@ -905,6 +939,27 @@ export const imageCompareView: WidgetView<null> = {
       t('imageCompareWidget.open'), state, 'widget.edit')
   },
 }
+export const cameraAngleView: WidgetView<string> = {
+  ...makeCompactView<string>('core.cameraAngle', 'CAMERA_ANGLE_VIEW'),
+  drawCompact(ctx, _value, spec, state) {
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
+      t('cameraAngleWidget.title'), state, 'widget.edit')
+  },
+}
+export const resolutionView: WidgetView<null> = {
+  ...makeCompactView<null>('core.resolution', 'RESOLUTION_PREVIEW'),
+  drawCompact(ctx, _value, spec, state) {
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
+      t('resolutionWidget.title'), state, 'widget.edit')
+  },
+}
+export const saveTargetView: WidgetView<SaveTarget | null> = {
+  ...makeCompactView<SaveTarget | null>('core.saveTarget', 'SAVE_TARGET'),
+  drawCompact(ctx, value, spec, state) {
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
+      value === null ? t('saveTargetWidget.title') : `${value.mount}/${value.prefix}`, state, 'widget.edit')
+  },
+}
 export const videoEditView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.videoEdit', 'VIDEO_EDIT'),
   drawCompact(ctx, value, spec, state) {
@@ -960,11 +1015,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, cameraAngleKind, resolutionKind, saveTargetKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView]) {
+    multiSelectView, listView, colorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView, cameraAngleView, resolutionView, saveTargetView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

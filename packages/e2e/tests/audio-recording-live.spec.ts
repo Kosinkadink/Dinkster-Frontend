@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
-import { selectProductOption } from './fixtures.js'
+import { selectProductOption, waitForStartupOwnership } from './fixtures.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const PHYSICAL_MICROPHONE = process.env['DINKSTER_PHYSICAL_MICROPHONE']
@@ -70,7 +71,7 @@ test.beforeEach(async ({ page, context }, testInfo) => {
     if (response.ok) nodes = (await response.json() as { nodes?: Record<string, unknown> }).nodes
   } catch { /* skip below */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
-  test.skip(!('dinkster.load_audio' in nodes!), 'native backend lacks load audio')
+  requireBackendNodes(nodes!, ['dinkster.audio.load_audio'], testInfo)
   await page.addInitScript(({ synthetic }) => {
     const captures: Promise<readonly number[]>[] = []
     Object.defineProperty(window, '__dinksterRecordedAudioChunks', { value: captures })
@@ -106,18 +107,19 @@ test.beforeEach(async ({ page, context }, testInfo) => {
   }, { synthetic: PHYSICAL_MICROPHONE === undefined })
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 15_000 })
+  await waitForStartupOwnership(page)
 })
 
 test(PHYSICAL_MICROPHONE
   ? 'physical microphone records, uploads, loads and renders as canonical audio'
   : 'browser Opus WebM records, uploads, loads and renders as canonical audio', async ({ page, request }, testInfo) => {
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audio-recording-live', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'Audio recording',
         nodes: {
-          load: { id: 'load', type: 'dinkster.load_audio', values: {} },
+          load: { id: 'load', type: 'dinkster.audio.load_audio', values: {} },
         },
         links: {},
         nets: {}, reroutes: {}, nextOrdinal: 1,
@@ -230,10 +232,10 @@ test(PHYSICAL_MICROPHONE
   expect(receipt).toMatchObject({ state: 'completed', cacheEnabled: false, executed: expect.arrayContaining(['load']) })
 
   const descriptorQuery = new URLSearchParams({
-    clientId: submitted.clientId, jobId: submitted.jobId, nodeId: 'load', outputId: 'audio',
+    clientId: submitted.clientId, jobId: submitted.jobId, nodeId: 'load', outputId: 'AUDIO',
   })
   const windowQuery = new URLSearchParams({
-    clientId: submitted.clientId, jobId: submitted.jobId, nodeId: 'load', outputId: 'audio',
+    clientId: submitted.clientId, jobId: submitted.jobId, nodeId: 'load', outputId: 'AUDIO',
     rendition: 'window', batch: '0', window: '0,3',
   })
   const descriptorResponse = await request.get(`${NATIVE_BACKEND}/api/values?${descriptorQuery}`)
@@ -309,11 +311,11 @@ test(PHYSICAL_MICROPHONE
       },
     }, null, 2)}\n`)
   }
-  expect(await page.evaluate(() => {
+  expect(await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const exported = app.exportDocument(app.activeTab()!.id)
     if (!exported) throw new Error('Audio recording workflow export failed')
-    app.openDocument(JSON.parse(JSON.stringify(exported)), 'Reopened Audio Recording')
+    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Reopened Audio Recording')
     const tab = app.activeTab()!
     return {
       asset: tab.store.doc.graphs.g0!.nodes.load!.values.audio,

@@ -39,8 +39,19 @@ async function setEntries(page: Page, value: readonly ProofLogEntry[]): Promise<
       logs: { set(entries: readonly ProofLogEntry[]): void }
     }
     app.registerSchemas([
-      { type: 'EmptyImage', displayName: 'Empty Image', category: 'e2e', source: 'e2e', isOutputNode: false, items: [] },
-      { type: 'PreviewImage', displayName: 'Preview Image', category: 'e2e', source: 'e2e', isOutputNode: true, items: [] },
+      {
+        type: 'EmptyImage', displayName: 'Empty Image', category: 'e2e', source: 'e2e', isOutputNode: false,
+        items: [
+          ...['width', 'height', 'batch_size', 'color'].map((id) => ({
+            kind: 'input', id, type: { kind: 'concrete', name: 'INT' }, optional: false,
+          })),
+          { kind: 'output', id: 'IMAGE', type: { kind: 'concrete', name: 'IMAGE' } },
+        ],
+      },
+      {
+        type: 'PreviewImage', displayName: 'Preview Image', category: 'e2e', source: 'e2e', isOutputNode: true,
+        items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
+      },
     ])
     app.connection.disconnect()
     app.logs.set(next)
@@ -92,8 +103,8 @@ test('mounted Activity chrome localizes without changing raw events or reader st
     return snapshot?.v === 1 &&
       !Object.keys(localStorage).some((key) => key.startsWith('dinkster.openTabsCandidate.'))
   })).toBe(true)
-  await page.clock.install()
-  await page.clock.pauseAt(new Date())
+  await page.clock.install({ time: new Date('2026-08-16T12:30:00Z') })
+  await page.clock.pauseAt(new Date('2026-08-16T12:31:00Z'))
   const clearButton = page.getByTestId('logs-clear')
   await clearButton.click()
 

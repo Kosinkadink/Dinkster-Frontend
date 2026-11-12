@@ -1,5 +1,6 @@
 import { mkdir } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
+import { waitForStartupOwnership } from './fixtures.js'
 
 // Served-app proof for automatic occurrence compaction: real deployed
 // frontend on :5199, real native backend behind the proxy, no route
@@ -111,8 +112,9 @@ test('served app compacts a UI occurrence disconnect atomically and survives rel
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get().length ?? 0), { timeout: 20_000 }).toBeGreaterThanOrEqual(1)
+  await waitForStartupOwnership(page)
 
-  await page.evaluate((doc) => {
+  await page.evaluate(async (doc) => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([
       {
@@ -130,7 +132,7 @@ test('served app compacts a UI occurrence disconnect atomically and survives rel
         }],
       },
     ])
-    test.app.openDocument(doc as never, 'audit served compaction proof')
+    await test.app.openDocument(doc as never, 'audit served compaction proof')
   }, proofDocument())
   await drillIntoOccurrence(page)
   const baseline = await state(page)
@@ -188,8 +190,8 @@ test('served app compacts a UI occurrence disconnect atomically and survives rel
   // Save/reload round trip preserves the compacted state.
   const saved = await page.evaluate(() =>
     JSON.parse(JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc)))
-  await page.evaluate((doc) => {
-    window.__dinksterTest!.app.openDocument(doc as never, 'audit served compaction reloaded')
+  await page.evaluate(async (doc) => {
+    await window.__dinksterTest!.app.openDocument(doc as never, 'audit served compaction reloaded')
   }, saved)
   await drillIntoOccurrence(page)
   await expect.poll(() => state(page)).toEqual({

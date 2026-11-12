@@ -8,6 +8,151 @@ import { WidgetEditor, type WidgetEditorProps, type WidgetEditorState } from '..
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+it.each([false, true])('edits structured save destinations with writable grants and optional=%s', async (optional) => {
+  const schema = parseDinksterSchema('SaveTargetFixture', { interface: [
+    { role: 'input', id: 'target', type: { kind: 'concrete', types: ['dinkster.save_target'] }, required: !optional, widget: { type: 'SAVE_TARGET', suffix: '.pgm' } },
+  ] }).schema!
+  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema)
+  const store = new DocumentStore(imported.document!, coreCommandRegistry())
+  const tab = { store } as unknown as Tab
+  const registry = createWidgetRegistry()
+  const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
+    registryForTab: () => ({ resolve: () => schema }),
+    backendForTab: () => ({ protocol: 'dinkster', connection: { fetchMountSettings: async () => ({ outputMount: 'archive', mounts: [
+      { id: 'archive', mode: 'readwrite', state: 'ready' },
+      { id: 'reference', mode: 'read', state: 'ready' },
+      { id: 'offline', mode: 'readwrite', state: 'missing' },
+    ] }) } }),
+    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+  } as unknown as AppState
+  const root = document.createElement('div'); document.body.append(root)
+  const open = () => render(() => <WidgetEditor app={app} ed={{
+    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'target' }, label: 'Destination',
+    spec: inputsOf(schema)[0]!.widget, multiline: false, initial: store.doc.graphs.g0!.nodes.n1!.values.target ?? null,
+    rect: { x: 0, y: 0, width: 180, height: 24 },
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  let dispose = open()
+  await vi.waitFor(() => expect(root.querySelector('[role="combobox"]')!.textContent).toContain('archive'))
+  ;(root.querySelector('[role="combobox"]') as HTMLButtonElement).click()
+  expect(Array.from(document.querySelectorAll('[role="option"]')).map((entry) => entry.textContent)).toEqual(['archive'])
+  ;(document.querySelector('[data-option-id="archive"]') as HTMLElement).click()
+  const before = store.doc.graphs.g0!.nodes.n1!.values
+  const prefix = root.querySelector<HTMLInputElement>('#save-target-prefix')!
+  expect(prefix.getAttribute('aria-labelledby')).toBeTruthy()
+  expect(root.textContent).toContain('numbering and .pgm')
+  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply destination')!
+  for (const value of ['', '/absolute', 'a//b', '.', 'a/../b', 'a/./b', 'a\\b', 'a/']) {
+    prefix.value = value; prefix.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(apply.disabled, value).toBe(true)
+  }
+  prefix.value = 'nested/frame'; prefix.dispatchEvent(new Event('input', { bubbles: true }))
+  expect(apply.disabled).toBe(false)
+  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
+  apply.click()
+  await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values.target).toEqual({ mount: 'archive', prefix: 'nested/frame' }))
+  expect(store.undo()).toBe(true)
+  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
+  expect(Array.from(root.querySelectorAll('button')).some((button) => button.textContent === 'Clear destination')).toBe(optional)
+  dispose()
+  if (optional) {
+    store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'target', value: { mount: 'archive', prefix: 'old' } } })
+    dispose = open()
+    Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Clear destination')!.click()
+    await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values.target).toBeNull())
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.n1!.values.target).toEqual({ mount: 'archive', prefix: 'old' })
+    dispose()
+  }
+})
+
+it('previews resolution with half-even rounding and edits descriptor-named siblings as one undo', async () => {
+  const schema = parseDinksterSchema('ResolutionFixture', { interface: [
+    { role: 'input', id: 'ratio', type: { kind: 'concrete', types: ['COMBO'] }, default: '1:1 (Square)', widget: { type: 'COMBO', options: ['1:1 (Square)', '16:9 (Widescreen)'] } },
+    { role: 'input', id: 'mp', type: { kind: 'concrete', types: ['FLOAT'] }, default: 1 },
+    { role: 'input', id: 'step', type: { kind: 'concrete', types: ['INT'] }, default: 8 },
+    { role: 'input', id: 'preview', type: { kind: 'concrete', types: ['RESOLUTION_PREVIEW'] }, default: null, widget: { type: 'RESOLUTION_PREVIEW', ratio_widget: 'ratio', megapixels_widget: 'mp', multiple_widget: 'step' } },
+  ] }).schema!
+  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema)
+  const store = new DocumentStore(imported.document!, coreCommandRegistry())
+  const before = store.doc.graphs.g0!.nodes.n1!.values
+  const tab = { store } as unknown as Tab
+  const registry = createWidgetRegistry()
+  const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
+    registryForTab: () => ({ resolve: () => schema }),
+    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+  } as unknown as AppState
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <WidgetEditor app={app} ed={{
+    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'preview' }, label: 'Preview',
+    spec: inputsOf(schema)[3]!.widget, multiline: false, initial: null,
+    rect: { x: 0, y: 0, width: 180, height: 24 },
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  const input = (field: string, value: string) => {
+    const element = root.querySelector<HTMLInputElement>(`#resolution-${field}`)!
+    expect(element.getAttribute('aria-labelledby')).toBeTruthy()
+    element.value = value; element.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply resolution')!
+  expect(root.querySelector('output')!.textContent).toBe('1,024 x 1,024 pixels')
+  input('megapixels', '0.2539215087890625')
+  expect(root.querySelector('output')!.textContent).toBe('512 x 512 pixels')
+  input('megapixels', '0.2618560791015625')
+  expect(root.querySelector('output')!.textContent).toBe('528 x 528 pixels')
+  for (const value of ['', '0.09', '16.1', 'NaN']) { input('megapixels', value); expect(apply.disabled).toBe(true) }
+  input('megapixels', '1.3')
+  for (const value of ['', '7', '129', '8.5']) { input('multiple', value); expect(apply.disabled).toBe(true) }
+  input('multiple', '64')
+  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
+  apply.click()
+  await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ ...before, ratio: '1:1 (Square)', mp: 1.3, step: 64 }))
+  expect(store.undo()).toBe(true)
+  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
+  dispose()
+})
+
+it('edits camera siblings atomically with schema defaults, validation and undo without changing view', async () => {
+  const schema = parseDinksterSchema('CameraFixture', { interface: [
+    { role: 'input', id: 'horizontal_angle', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
+    { role: 'input', id: 'vertical_angle', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
+    { role: 'input', id: 'zoom', type: { kind: 'concrete', types: ['FLOAT'] }, default: 5 },
+    { role: 'input', id: 'view', type: { kind: 'concrete', types: ['STRING'] }, default: '', widget: { type: 'CAMERA_ANGLE_VIEW' } },
+  ] }).schema!
+  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema)
+  const store = new DocumentStore(imported.document!, coreCommandRegistry())
+  const before = store.doc.graphs.g0!.nodes.n1!.values
+  const tab = { store } as unknown as Tab
+  const registry = createWidgetRegistry()
+  const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
+    registryForTab: () => ({ resolve: () => schema }),
+    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+  } as unknown as AppState
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <WidgetEditor app={app} ed={{
+    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'view' }, label: 'View',
+    spec: inputsOf(schema)[3]!.widget, multiline: false, initial: '',
+    rect: { x: 0, y: 0, width: 180, height: 24 },
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  const input = (field: string, value: string) => {
+    const element = root.querySelector<HTMLInputElement>(`#camera-angle-${field}`)!
+    expect(element.getAttribute('aria-labelledby')).toBeTruthy()
+    element.value = value; element.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply camera angle')!
+  expect(root.querySelector<HTMLInputElement>('#camera-angle-zoom')!.value).toBe('5')
+  for (const value of ['', '-1', '361', '90.5']) { input('horizontal_angle', value); expect(apply.disabled).toBe(true) }
+  input('horizontal_angle', '90')
+  input('vertical_angle', '30')
+  input('zoom', '7.5')
+  expect(apply.disabled).toBe(false)
+  expect(root.querySelector('output')!.textContent).toContain('X 5.20, Y 3.00, Z 0.00')
+  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
+  apply.click()
+  await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ ...before, horizontal_angle: 90, vertical_angle: 30, zoom: 7.5 }))
+  expect(store.undo()).toBe(true)
+  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
+  dispose()
+})
+
 it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews and releases late results', async (kind) => {
   const inputId = kind === 'BOUNDING_BOX' ? 'crop_region' : 'compare_view'
   const initial = kind === 'BOUNDING_BOX' ? { x: 0, y: 0, width: 12, height: 7 } : null

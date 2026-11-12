@@ -1067,6 +1067,40 @@ describe('peekSource negative cache', () => {
     expect(l.peekSource(values, exec({}), candidates, 'scene1')).toBeDefined()
   })
 
+  it.each([409, 404] as const)('retries a temporarily unavailable preferred output but keeps a permanent fallback: %s', async (status) => {
+    let published = false
+    const requests: string[] = []
+    const values = new DinksterValuesClient({ baseUrl: 'http://backend', clientId: 'client', fetchFn: async (url) => {
+      const query = new URL(url).searchParams
+      const output = query.get('outputId')!
+      requests.push(output)
+      if (output === 'IMAGE' && !published) return new Response(JSON.stringify({
+        available: false, reason: status === 409 ? 'not-complete' : 'not-retained', error: 'unavailable',
+      }), { status, headers: { 'Content-Type': 'application/json' } })
+      if (!query.has('rendition')) return new Response(JSON.stringify({
+        available: true, descriptor: { typeId: output, fingerprint: output },
+        renditions: [{ kind: 'png', mime: 'image/png', default: true }],
+      }), { headers: { 'Content-Type': 'application/json' } })
+      return new Response(new Uint8Array([output === 'IMAGE' ? 48 : 64]), { headers: {
+        'Content-Type': 'image/png', 'X-Dinkster-Fingerprint': output, 'X-Dinkster-Rendition': 'png',
+      } })
+    } })
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:preferred')
+    vi.stubGlobal('createImageBitmap', async (blob: Blob) => ({ width: 64, height: new Uint8Array(await blob.arrayBuffer())[0] }))
+    const l = loader()
+    const source = l.peekSource(values, exec({}), [
+      { node: 'producer', output: 'IMAGE' }, { node: 'producer', output: 'MASK' },
+    ], 'scene')!
+    try {
+      l.resolve(source)
+      await vi.waitFor(() => expect(requests).toContain('IMAGE'))
+      await flush()
+      published = true
+      await vi.waitFor(() => expect(l.resolve(source)).toMatchObject({ width: 64, height: status === 409 ? 48 : 64 }))
+      expect(requests.every((output) => output === 'IMAGE' || output === 'MASK')).toBe(true)
+    } finally { l.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() }
+  })
+
   it.each([undefined, 'PQ to sRGB'])('fetches and decodes a declared PNG with server color conversion %s', async (colorTransform) => {
     const urls: string[] = []
     const fetchFn: FetchLike = async (url) => {

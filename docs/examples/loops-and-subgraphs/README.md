@@ -12,15 +12,25 @@ iterations. A region's `cachePolicy` is `reuse` when omitted; `rerun` bypasses
 cache reads, writes, and same-run single-flight reuse for its body occurrences.
 Nested regions apply their own policy and retain occurrence-scoped identity.
 
+The arithmetic bodies use `dinkster.utilities.primitive_int` to bind their typed
+integer boundaries into `dinkster.utilities.comfy_math_expression` input families.
+The While body uses the expression's `BOOL` output for its continue flag.
+
 `packages/client/test/executable-examples.test.ts` checks every authored document
-against its compiled graph during the normal test suite. With a compatible local
-Dinkster backend, set `DINKSTER_LIVE_URL` to also assert all nine successful results:
+against its compiled graph during the normal test suite. Seven examples execute
+on the current backend. Nested Map inside Fold retains the withdrawn
+`std.list.length` node, and Lazy Gate inside Map retains `dinkster.route.gate`;
+neither has a current replacement. Those two documents and their structural
+compiler checks remain available, but their live execution requires the
+withdrawn nodes. Their status is tracked on
+[the withdrawn-draft inventory](https://github.com/Kosinkadink/comfy-vibe-station/issues/773).
+Set `DINKSTER_LIVE_URL` to assert the available deterministic results:
 
 ```sh
 DINKSTER_LIVE_URL=http://127.0.0.1:8765 pnpm --filter @dinkster/client test
 ```
 
-The browser CPU acceptance imports all nine documents through the app menu,
+The browser CPU acceptance imports available documents through the app menu,
 confirms their authored region structure, submits the region, and checks the
 same result table through the execution store:
 

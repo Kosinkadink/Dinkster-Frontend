@@ -5,6 +5,7 @@
  */
 import { expect, test as base, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
+import { waitForStartupOwnership } from './fixtures.js'
 import { widgetDiagnostics } from './widget-diagnostics.js'
 
 const test = base.extend(widgetDiagnostics)
@@ -76,18 +77,19 @@ test.beforeEach(async ({ page, request }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText('connected')
+  await waitForStartupOwnership(page)
   // Menus snapshot the worker catalog and close when its initial request completes.
   await expect.poll(() => page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()
     return tab === undefined ? undefined : app.backendForTab(tab).workerCatalog.get().status
   })).toBe('ready')
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'wire17-representations', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
-        nodes: { clip: { id: 'clip', type: 'dinkster.string_multiline', values: { value: 'canonical text' } } },
+        nodes: { clip: { id: 'clip', type: 'dinkster.utilities.primitive_string_multiline', values: { value: 'canonical text' } } },
         links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
       } },
       view: { graphs: { g0: { nodes: { clip: { position: { x: 100, y: 100 } } } } } },
@@ -136,9 +138,9 @@ test('schema default and user switch persist as view state without changing the 
   await page.keyboard.press('Control+y')
   await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('single-line')
 
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const current = structuredClone(window.__dinksterTest!.app.activeTab()!.store.doc)
-    window.__dinksterTest!.app.openDocument(current, 'Wire 17 Reopened')
+    await window.__dinksterTest!.app.openDocument(current, 'Wire 17 Reopened')
   })
   await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('single-line')
   state = await page.evaluate(() => {
@@ -168,7 +170,7 @@ test('schema default and user switch persist as view state without changing the 
         }[]
       } | undefined
     }
-    const original = registry.resolve('dinkster.string_multiline')!
+    const original = registry.resolve('dinkster.utilities.primitive_string_multiline')!
     ;(window as typeof window & { __wire17OriginalSchema?: typeof original }).__wire17OriginalSchema = original
     app.registerSchemas([{
       ...original,
@@ -213,12 +215,12 @@ test('schema default and user switch persist as view state without changing the 
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const current = structuredClone(app.activeTab()!.store.doc)
-    current.graphs.g0!.nodes.sink = { id: 'sink', type: 'dinkster.preview_any', values: {} }
+    current.graphs.g0!.nodes.sink = { id: 'sink', type: 'dinkster.utilities.preview_any', values: {} }
     const links = current.graphs.g0!.links as Record<string, unknown>
     links['l_value'] = {
-      id: 'l_value', from: { node: 'clip', port: 'value' }, to: { node: 'sink', port: 'source' },
+      id: 'l_value', from: { node: 'clip', port: 'STRING' }, to: { node: 'sink', port: 'source' },
     }
-    app.openDocument(current, 'Wire 17 Submission')
+    await app.openDocument(current, 'Wire 17 Submission')
     await app.queue(app.activeTab()!)
   })
   expect(submitted).toBeDefined()
@@ -226,10 +228,10 @@ test('schema default and user switch persist as view state without changing the 
     nodes: Record<string, { nodeType: string; inputs: Record<string, unknown> }>
   }
   expect(graph.nodes['clip']).toEqual({
-    nodeType: 'dinkster.string_multiline',
+    nodeType: 'dinkster.utilities.primitive_string_multiline',
     inputs: { value: 'canonical text' },
   })
-  expect(graph.nodes['sink']?.inputs['source']).toEqual({ $link: { node: 'clip', output: 'value' } })
+  expect(graph.nodes['sink']?.inputs['source']).toEqual({ $link: { node: 'clip', output: 'STRING' } })
   expect(JSON.stringify(graph)).not.toContain('single-line')
 })
 
@@ -335,13 +337,13 @@ test('multiline preview expands with node height while representation, editor, a
     const tab = app.activeTab()!
     const exported = structuredClone(app.exportDocument(tab.id)!) as any
     const graph = exported.graphs.g0!
-    graph.nodes.sink = { id: 'sink', type: 'dinkster.preview_any', values: {} }
+    graph.nodes.sink = { id: 'sink', type: 'dinkster.utilities.preview_any', values: {} }
     graph.links.l_value = {
-      id: 'l_value', from: { node: 'clip', port: 'value' }, to: { node: 'sink', port: 'source' },
+      id: 'l_value', from: { node: 'clip', port: 'STRING' }, to: { node: 'sink', port: 'source' },
     }
     graph.nextOrdinal += 1
     exported.view.graphs.g0!.nodes.sink = { position: { x: 500, y: 300 } }
-    app.openDocument(exported, 'Multiline Layout Reopened')
+    await app.openDocument(exported, 'Multiline Layout Reopened')
     const reopened = app.activeTab()!
     const compiled = app.compileTab(reopened)
     if (!compiled?.ok) throw new Error('reopened multiline document did not compile')

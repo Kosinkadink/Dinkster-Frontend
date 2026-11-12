@@ -86,9 +86,9 @@ describe('open-tab persistence', () => {
       const app = createEditableApp()
       expect(app.tabs.get()).toHaveLength(1)
       expect(app.activeTab()!.store.doc).toEqual(newest)
-      // Compaction may retire workspace candidates before the network responds.
+      // Incomplete canonical ownership cannot retire a losing recovery source.
       flush()
-      expect(localStorage.getItem('dinkster.openTabsCandidate.peer')).toBeNull()
+      expect(localStorage.getItem('dinkster.openTabsCandidate.peer')).not.toBeNull()
       if (scenario.startsWith('targeted')) {
         const backend = app.addBackend('http://other.test', 'Other', false, 'dinkster')!
         vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
@@ -120,7 +120,7 @@ describe('open-tab persistence', () => {
     },
   )
 
-  it.each(['accepted', 'refused', 'edited', 'closed', 'retargeted', 'registry', 'disconnected', 'disposed'] as const)(
+  it.each(['accepted', 'refused', 'edited', 'closed', 'retargeted', 'registry', 'same-hash-registry', 'disconnected', 'disposed'] as const)(
     'confirms restored native ownership before startup continues: %s', async (scenario) => {
       const digest = `blake3:${'c'.repeat(64)}`
       const saved = { ...seedBasic, ext: { held: { digest, name: 'restored.bin', size: 7,
@@ -154,6 +154,7 @@ describe('open-tab persistence', () => {
       if (scenario === 'retargeted') app.setTabTarget(tab.id, app.addBackend('http://other.test', 'Other', false, 'dinkster')!.id)
       if (scenario === 'registry') app.registry.set({ connection: app.connection.id, schemas: new Map(),
         diagnostics: [], hash: 'changed', resolve: () => undefined })
+      if (scenario === 'same-hash-registry') app.registry.set({ ...app.registry.get()! })
       if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
       if (scenario === 'disposed') app.dispose()
       acknowledge()
@@ -167,11 +168,11 @@ describe('open-tab persistence', () => {
   )
 
   it('rechecks workspace revision inside the cross-window commit lock', async () => {
-    const seed = new AppState()
+    const seed = prepareWorkflowApp(new AppState())
     flush()
     const first = JSON.parse(g.localStorage!.getItem(TABS_KEY)!) as Record<string, unknown>
     g.localStorage!.setItem(TABS_KEY, JSON.stringify({ ...first, workspaceRevision: 1 }))
-    const stale = new AppState()
+    const stale = prepareWorkflowApp(new AppState())
     flush()
     const newer = {
       ...JSON.parse(g.localStorage!.getItem(TABS_KEY)!) as Record<string, unknown>,
@@ -201,14 +202,17 @@ describe('open-tab persistence', () => {
     g.localStorage!.setItem(TABS_KEY, JSON.stringify(newer))
     enterLock!()
     await vi.waitFor(() => expect(request).toHaveReturned())
-    expect(JSON.parse(g.localStorage!.getItem(TABS_KEY)!)).toEqual(newer)
+    const { assetRetention: _assetRetention, ...expected } = newer as Record<string, unknown>
+    const { assetRetention: retention, ...actual } = JSON.parse(g.localStorage!.getItem(TABS_KEY)!)
+    expect(actual).toEqual(expected)
+    expect(retention).toEqual({ stageId: expect.any(String), acknowledged: false })
     seed.dispose()
     stale.dispose()
   })
 
   it('starts native mode with one schema-independent blank workflow', () => {
     g.localStorage!.removeItem(TABS_KEY)
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     expect(app.tabs.get().map((tab) => tab.title)).toEqual(['Untitled'])
     const tab = app.activeTab()!
     expect(Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes)).toEqual([])
@@ -241,11 +245,11 @@ describe('open-tab persistence', () => {
     expect(app.requestCloseTab(tab.id, () => true)).toBe(true)
     expect(app.tabs.get()).not.toContain(tab)
     flush()
-    expect(new AppState().tabs.get().some((candidate) => candidate.id === tab.id)).toBe(false)
+    expect(prepareWorkflowApp(new AppState()).tabs.get().some((candidate) => candidate.id === tab.id)).toBe(false)
   })
 
   it('protects dirty closes and permits an explicit discard', () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const tab = app.tabs.get()[0]!
     expect(app.isTabDirty(tab.id)).toBe(true)
 
@@ -259,7 +263,7 @@ describe('open-tab persistence', () => {
   })
 
   it('creates and activates a dirty empty workflow tab', () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const before = app.tabs.get().length
     const tab = app.createWorkflow()
     expect(app.tabs.get()).toHaveLength(before + 1)
@@ -281,7 +285,7 @@ describe('open-tab persistence', () => {
     flush()
     expect(g.localStorage!.getItem(TABS_KEY)).toBeTruthy()
 
-    const second = new AppState() // "refresh"
+    const second = prepareWorkflowApp(new AppState()) // "refresh"
     expect(second.tabs.get().length).toBe(2)
     const restored = second.tabs.get().find((t) => t.id === basic.id)!
     expect(restored).toBeDefined()
@@ -291,17 +295,17 @@ describe('open-tab persistence', () => {
   })
 
   it('restores the active tab id', () => {
-    const first = new AppState()
+    const first = prepareWorkflowApp(new AppState())
     const secondTabId = first.tabs.get()[1]!.id
     first.activeTabId.set(secondTabId)
     flush()
 
-    const second = new AppState()
+    const second = prepareWorkflowApp(new AppState())
     expect(second.activeTabId.get()).toBe(secondTabId)
   })
 
   it('round-trips browser-local graph and app view positions without changing the document', () => {
-    const first = new AppState()
+    const first = prepareWorkflowApp(new AppState())
     const [basic, subgraph] = first.tabs.get()
     if (!basic || !subgraph) throw new Error('fixture needs two tabs')
     const basicDocument = JSON.stringify(basic.store.doc)
@@ -350,7 +354,7 @@ describe('open-tab persistence', () => {
     })
     expect('viewState' in storedBasic.doc).toBe(false)
 
-    const second = new AppState()
+    const second = prepareWorkflowApp(new AppState())
     expect(second.graphViewport(basic.id, basic.store.doc.root)).toEqual(basicViewport)
     expect(second.appScrollTop(basic.id)).toBe(640)
     expect(second.graphViewport(subgraph.id, subgraph.store.doc.root)).toEqual(subgraphViewport)
@@ -359,7 +363,7 @@ describe('open-tab persistence', () => {
   })
 
   it('merges stale-window view updates per graph and resolves same-view updates by recency', () => {
-    const seed = new AppState()
+    const seed = prepareWorkflowApp(new AppState())
     const seedTab = seed.tabs.get()[1]!
     const [rootGraph, nestedGraph] = Object.keys(seedTab.store.doc.graphs)
     if (!rootGraph || !nestedGraph) throw new Error('fixture needs a nested graph')
@@ -368,8 +372,8 @@ describe('open-tab persistence', () => {
     seed.setAppScrollTop(seedTab.id, 300)
     flush()
 
-    const first = new AppState()
-    const stale = new AppState()
+    const first = prepareWorkflowApp(new AppState())
+    const stale = prepareWorkflowApp(new AppState())
     const newerViewport = { x: 30, y: 40, scale: 1.5 }
     const nestedViewport = { x: -50, y: 60, scale: 0.75 }
     first.setGraphViewport(seedTab.id, rootGraph, newerViewport)
@@ -378,7 +382,7 @@ describe('open-tab persistence', () => {
     stale.setGraphViewport(seedTab.id, nestedGraph, nestedViewport)
     flush()
 
-    const merged = new AppState()
+    const merged = prepareWorkflowApp(new AppState())
     expect(merged.graphViewport(seedTab.id, rootGraph)).toEqual(newerViewport)
     expect(merged.graphViewport(seedTab.id, nestedGraph)).toEqual(nestedViewport)
     expect(merged.appScrollTop(seedTab.id)).toBe(600)
@@ -387,7 +391,7 @@ describe('open-tab persistence', () => {
     stale.setGraphViewport(seedTab.id, rootGraph, latestViewport)
     stale.setAppScrollTop(seedTab.id, 0)
     flush()
-    const latest = new AppState()
+    const latest = prepareWorkflowApp(new AppState())
     expect(latest.graphViewport(seedTab.id, rootGraph)).toEqual(latestViewport)
     expect(latest.graphViewport(seedTab.id, nestedGraph)).toEqual(nestedViewport)
     expect(latest.appScrollTop(seedTab.id)).toBe(0)
@@ -399,7 +403,7 @@ describe('open-tab persistence', () => {
   })
 
   it('rejects persisted graph viewports outside the canvas zoom bounds', () => {
-    const first = new AppState()
+    const first = prepareWorkflowApp(new AppState())
     const [basic, subgraph] = first.tabs.get()
     if (!basic || !subgraph) throw new Error('fixture needs two tabs')
     const [subgraphRoot, nestedGraph] = Object.keys(subgraph.store.doc.graphs)
@@ -419,9 +423,10 @@ describe('open-tab persistence', () => {
       .graphViewports[basic.store.doc.root]!.scale = MIN_SCALE / 2
     stored.tabs.find((tab) => tab.doc.lineage === subgraph.id)!.viewState!
       .graphViewports[subgraphRoot]!.scale = MAX_SCALE * 2
+    g.localStorage = fakeStorage()
     g.localStorage!.setItem(TABS_KEY, JSON.stringify(stored))
 
-    const restored = new AppState()
+    const restored = prepareWorkflowApp(new AppState())
     expect(restored.graphViewport(basic.id, basic.store.doc.root)).toBeUndefined()
     expect(restored.graphViewport(subgraph.id, subgraphRoot)).toBeUndefined()
     expect(restored.graphViewport(subgraph.id, nestedGraph)).toEqual({ x: 5, y: 6, scale: 2 })
@@ -429,16 +434,16 @@ describe('open-tab persistence', () => {
     restored.dispose()
   })
 
-  it('persists tabs opened from a document (unsaved), and closed tabs stay closed', () => {
-    const first = new AppState()
+  it('persists tabs opened from a document (unsaved), and closed tabs stay closed', async () => {
+    const first = prepareWorkflowApp(new AppState())
     const basic = first.tabs.get()[0]!
     const doc = JSON.parse(JSON.stringify(basic.store.doc)) as { lineage: string }
     doc.lineage = 'lineage-imported'
-    expect(first.openDocument(doc, 'Imported')).toEqual([])
+    expect((await first.openDocument(doc, 'Imported'))).toEqual([])
     first.closeTab(first.tabs.get()[1]!.id) // close Subgraph
     flush()
 
-    const second = new AppState()
+    const second = prepareWorkflowApp(new AppState())
     const titles = second.tabs.get().map((t) => t.title)
     expect(titles).toEqual(['Basic', 'Imported'])
     expect(second.activeTabId.get()).toBe('lineage-imported')
@@ -446,26 +451,26 @@ describe('open-tab persistence', () => {
 
   it('falls back to a blank workflow on a corrupt payload', () => {
     g.localStorage!.setItem(TABS_KEY, '{not json')
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     expect(app.tabs.get().map((t) => t.title)).toEqual(['Untitled'])
   })
 
   it('falls back to a blank workflow on an unknown envelope version', () => {
     g.localStorage!.setItem(TABS_KEY, JSON.stringify({ v: 2, active: '', tabs: [] }))
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     expect(app.tabs.get().map((t) => t.title)).toEqual(['Untitled'])
   })
 
   it('falls back to a blank workflow for a corrupt native snapshot', () => {
     g.localStorage!.setItem(TABS_KEY, '{not json')
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     expect(app.tabs.get().map((t) => t.title)).toEqual(['Untitled'])
     const tab = app.activeTab()!
     expect(Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes)).toEqual([])
   })
 
   it('skips unloadable documents but keeps loadable siblings', () => {
-    const first = new AppState()
+    const first = prepareWorkflowApp(new AppState())
     flush() // write the seed tabs
     const raw = JSON.parse(g.localStorage!.getItem(TABS_KEY)!) as {
       v: 1
@@ -473,9 +478,10 @@ describe('open-tab persistence', () => {
       tabs: { title: string; doc: unknown }[]
     }
     raw.tabs[0]!.doc = { format: 'not-a-workflow' }
+    g.localStorage = fakeStorage()
     g.localStorage!.setItem(TABS_KEY, JSON.stringify(raw))
 
-    const second = new AppState()
+    const second = prepareWorkflowApp(new AppState())
     expect(second.tabs.get().map((t) => t.title)).toEqual(['Subgraph'])
   })
 
@@ -484,7 +490,7 @@ describe('open-tab persistence', () => {
     const basic = first.tabs.get()[0]!
     const doc = JSON.parse(JSON.stringify(basic.store.doc)) as { lineage: string }
     // Replace the Basic tab: same lineage, same id, NEW session.
-    expect(first.openDocument(doc, 'Basic (replaced)')).toEqual([])
+    expect((await first.openDocument(doc, 'Basic (replaced)'))).toEqual([])
     const replacement = first.tabs.get().find((t) => t.id === basic.id)!
     expect(replacement.store).not.toBe(basic.store)
     flush() // settle the replacement write
@@ -498,15 +504,15 @@ describe('open-tab persistence', () => {
     expect(out.ok).toBe(true)
     flush()
 
-    const second = new AppState()
+    const second = prepareWorkflowApp(new AppState())
     const restored = second.tabs.get().find((t) => t.id === basic.id)!
     expect(restored.store.doc.graphs[restored.store.doc.root]!.nodes['n0']!.title).toBe(
       'edited after replace',
     )
   })
 
-  it('persists a same-lineage replacement that has no subsequent command', () => {
-    const first = new AppState()
+  it('persists a same-lineage replacement that has no subsequent command', async () => {
+    const first = prepareWorkflowApp(new AppState())
     flush()
     const original = first.tabs.get()[0]!
     const cloned = JSON.parse(JSON.stringify(original.store.doc)) as typeof original.store.doc
@@ -518,10 +524,10 @@ describe('open-tab persistence', () => {
       },
     }
 
-    expect(first.openDocument(replacement, 'Replacement')).toEqual([])
+    expect((await first.openDocument(replacement, 'Replacement'))).toEqual([])
     flush()
 
-    const restored = new AppState().tabs.get().find((tab) => tab.id === original.id)!
+    const restored = prepareWorkflowApp(new AppState()).tabs.get().find((tab) => tab.id === original.id)!
     expect(restored.store.doc.graphs[restored.store.doc.root]!.name).toBe('replacement-without-command')
     first.dispose()
   })
@@ -553,7 +559,7 @@ describe('open-tab persistence', () => {
       delete w.window
     }
 
-    const second = new AppState()
+    const second = prepareWorkflowApp(new AppState())
     const restored = second.tabs.get().find((t) => t.id === basicId)!
     expect(restored.store.doc.graphs[restored.store.doc.root]!.nodes['n0']!.title).toBe(
       'last-second edit',
@@ -563,7 +569,7 @@ describe('open-tab persistence', () => {
   it('keeps the newest document at an equal workspace membership revision', async () => {
     const fresh = createEditableApp()
     flush()
-    const stale = new AppState()
+    const stale = prepareWorkflowApp(new AppState())
     const freshTab = fresh.tabs.get()[0]!
     const staleTab = stale.tabs.get().find((tab) => tab.id === freshTab.id)!
 
@@ -576,14 +582,14 @@ describe('open-tab persistence', () => {
     stale.activeTabId.set(staleTab.id)
     flush()
 
-    const restored = new AppState().tabs.get().find((tab) => tab.id === freshTab.id)!
+    const restored = prepareWorkflowApp(new AppState()).tabs.get().find((tab) => tab.id === freshTab.id)!
     expect(restored.store.doc.graphs[restored.store.doc.root]!.nodes['n0']!.title).toBe('newer document')
     fresh.dispose()
     stale.dispose()
   })
 
   it('uses one overwrite register per dirty document so the actual later stage wins', () => {
-    const seed = new AppState()
+    const seed = prepareWorkflowApp(new AppState())
     flush()
     const canonical = JSON.parse(g.localStorage!.getItem(TABS_KEY)!) as {
       tabs: Array<{
@@ -604,7 +610,7 @@ describe('open-tab persistence', () => {
     g.localStorage!.setItem(key, JSON.stringify(candidate('earlier-B', 'stage-B')))
     g.localStorage!.setItem(key, JSON.stringify(candidate('later-A', 'stage-A')))
 
-    const restored = new AppState()
+    const restored = prepareWorkflowApp(new AppState())
     const tab = restored.tabs.get().find((entry) => entry.id === lineage)!
     expect(tab.store.doc.graphs[tab.store.doc.root]!.name).toBe('later-A')
     flush()
@@ -614,15 +620,18 @@ describe('open-tab persistence', () => {
     expect(persistedTab.doc.graphs[persistedTab.doc.root]!.name).toBe('later-A')
     expect(persistedTab.documentRevision).toBe(1)
     expect(JSON.parse(g.localStorage!.getItem(key)!)).toEqual(candidate('later-A', 'stage-A'))
-    expect([...Array(g.localStorage!.length).keys()]
+    const candidates = [...Array(g.localStorage!.length).keys()]
       .map((index) => g.localStorage!.key(index))
-      .filter((key) => key?.startsWith('dinkster.openTabsCandidate.'))).toEqual([])
+      .filter((key) => key?.startsWith('dinkster.openTabsCandidate.'))
+    expect(candidates).toHaveLength(2)
+    for (const candidate of candidates) expect(JSON.parse(g.localStorage!.getItem(candidate!)!).assetRetention)
+      .toEqual({ stageId: expect.any(String), acknowledged: false })
     seed.dispose()
     restored.dispose()
   })
 
   it('keeps independently staged edits for different document lineages', () => {
-    const seed = new AppState()
+    const seed = prepareWorkflowApp(new AppState())
     flush()
     const canonical = JSON.parse(g.localStorage!.getItem(TABS_KEY)!) as {
       tabs: Array<{
@@ -639,7 +648,7 @@ describe('open-tab persistence', () => {
       g.localStorage!.setItem(key, JSON.stringify({ v: 1, stageId: `stage-${index}`, tab }))
     }
 
-    const restored = new AppState()
+    const restored = prepareWorkflowApp(new AppState())
     expect(restored.tabs.get().slice(0, 2).map((tab) =>
       tab.store.doc.graphs[tab.store.doc.root]!.name)).toEqual(['independent-0', 'independent-1'])
     seed.dispose()
@@ -647,7 +656,7 @@ describe('open-tab persistence', () => {
   })
 
   it('keeps a newer document stage that arrives during canonical reconciliation', () => {
-    const seed = new AppState()
+    const seed = prepareWorkflowApp(new AppState())
     flush()
     const canonical = JSON.parse(g.localStorage!.getItem(TABS_KEY)!) as {
       tabs: Array<{
@@ -664,7 +673,7 @@ describe('open-tab persistence', () => {
     }
     const candidateKey = `dinkster.openTabsDocumentCandidate.${encodeURIComponent(lineage)}`
     g.localStorage!.setItem(candidateKey, candidate('first', 'stage-first'))
-    const committing = new AppState()
+    const committing = prepareWorkflowApp(new AppState())
     const storage = g.localStorage!
     const setItem = storage.setItem.bind(storage)
     let injected = false
@@ -677,7 +686,7 @@ describe('open-tab persistence', () => {
     }
     flush()
 
-    const restored = new AppState()
+    const restored = prepareWorkflowApp(new AppState())
     const tab = restored.tabs.get().find((entry) => entry.id === lineage)!
     expect(tab.store.doc.graphs[tab.store.doc.root]!.name).toBe('arrived-during-commit')
     seed.dispose()
@@ -686,7 +695,7 @@ describe('open-tab persistence', () => {
   })
 
   it('AP3: duplicate lineages in a stored snapshot restore last-wins, never twin ids', () => {
-    const first = new AppState()
+    const first = prepareWorkflowApp(new AppState())
     flush()
     const raw = JSON.parse(g.localStorage!.getItem(TABS_KEY)!) as {
       v: 1
@@ -695,9 +704,10 @@ describe('open-tab persistence', () => {
     }
     // Corrupt/hand-edited snapshot: the Basic document appears twice.
     raw.tabs.push({ title: 'Basic (duplicate)', doc: raw.tabs[0]!.doc })
+    g.localStorage = fakeStorage()
     g.localStorage!.setItem(TABS_KEY, JSON.stringify(raw))
 
-    const second = new AppState()
+    const second = prepareWorkflowApp(new AppState())
     const ids = second.tabs.get().map((t) => t.id)
     expect(new Set(ids).size).toBe(ids.length) // ids stay unique
     expect(second.tabs.get().map((t) => t.title)).toEqual(['Subgraph', 'Basic (duplicate)'])

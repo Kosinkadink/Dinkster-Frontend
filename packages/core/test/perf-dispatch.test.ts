@@ -59,7 +59,7 @@ describe(`dispatch throughput on the synthetic workload (${NODES} nodes)`, { tim
     for (let i = 0; i < 300; i++) {
       const out = store.dispatch({
         command: 'node.add',
-        params: { graphId: 'g0', type: 'EmptyImage', position: { x: i * 10, y: 0 }, values: { width: 64, height: 64 } },
+        params: { graphId: 'g0', type: 'dinkster.image.empty_image', position: { x: i * 10, y: 0 }, values: { width: 64, height: 64 } },
       })
       if (!out.ok) throw new Error(JSON.stringify(out.diagnostics))
     }

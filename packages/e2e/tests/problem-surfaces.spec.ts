@@ -65,7 +65,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForStartupOwnership(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'ProofNode', displayName: 'Proof Node', category: 'test', source: 'v3', isOutputNode: false,
@@ -74,7 +74,7 @@ test.beforeEach(async ({ page }) => {
     ])
     // Two disconnected nodes: no links, so the solver contributes no
     // diagnostics and the spec fully controls the problem population.
-    window.__dinksterTest!.app.openDocument({
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'problem-surfaces', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         source: { id: 'source', type: 'ProofNode', title: 'Source proof', values: { steps: 4 } },
@@ -179,6 +179,12 @@ test('the mounted Focused panel relabels without changing context, raw facts, or
   const localeModule = await (await request.get('/src/locale.ts')).text()
   const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
   expect(i18nModule).toBeDefined()
+  await page.evaluate(() => window.__dinksterTest!.app.flushPersistTabs())
+  await expect.poll(() => page.evaluate(() => {
+    const snapshot = JSON.parse(localStorage.getItem('dinkster.openTabs') ?? 'null')
+    return snapshot?.v === 1 &&
+      !Object.keys(localStorage).some((key) => key.startsWith('dinkster.openTabsCandidate.'))
+  })).toBe(true)
   const requestsBeforeLocale = requests.length
   await page.evaluate(async ({ i18nModule }) => {
     const { registerCatalog, setLocale } = await import(i18nModule)

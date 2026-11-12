@@ -1,0 +1,140 @@
+{
+  "format": "dinkster-workflow",
+  "formatVersion": 1,
+  "lineage": "loop-while-until",
+  "root": "root",
+  "graphs": {
+    "root": {
+      "id": "root",
+      "name": "Repeat until the count reaches four",
+      "nodes": {
+        "limit": {
+          "id": "limit",
+          "type": "dinkster.utilities.primitive_int",
+          "values": { "value": 4 }
+        },
+        "loop": {
+          "id": "loop",
+          "type": "#whileBody",
+          "values": { "count": 0 },
+          "region": {
+            "kind": "while",
+            "statePorts": ["count"],
+            "outputRoles": {
+              "result": { "kind": "state", "statePort": "count" },
+              "steps": { "kind": "gather" }
+            },
+            "continueOutput": "continue",
+            "maxIterations": 10
+          }
+        },
+        "output": {
+          "id": "output",
+          "type": "dinkster.utilities.preview_any",
+          "values": {}
+        }
+      },
+      "links": {
+        "limit_loop": {
+          "id": "limit_loop",
+          "from": { "node": "limit", "port": "INT" },
+          "to": { "node": "loop", "port": "limit" }
+        },
+        "loop_output": {
+          "id": "loop_output",
+          "from": { "node": "loop", "port": "result" },
+          "to": { "node": "output", "port": "source" }
+        }
+      },
+      "nets": {},
+      "reroutes": {},
+      "nextOrdinal": 3
+    },
+    "whileBody": {
+      "id": "whileBody",
+      "name": "Increment and continue below limit",
+      "nodes": {
+        "count": {
+          "id": "count",
+          "type": "dinkster.utilities.primitive_int",
+          "values": {}
+        },
+        "limit": {
+          "id": "limit",
+          "type": "dinkster.utilities.primitive_int",
+          "values": {}
+        },
+        "add": {
+          "id": "add",
+          "type": "dinkster.utilities.comfy_math_expression",
+          "values": { "expression": "a + 1" },
+          "dynamic": { "values": { "members": ["a"] } }
+        },
+        "compare": {
+          "id": "compare",
+          "type": "dinkster.utilities.comfy_math_expression",
+          "values": { "expression": "a < b" },
+          "dynamic": { "values": { "members": ["a", "b"] } }
+        }
+      },
+      "links": {
+        "count_add": {
+          "id": "count_add",
+          "from": { "node": "count", "port": "INT" },
+          "to": { "node": "add", "port": "values.a" }
+        },
+        "limit_compare": {
+          "id": "limit_compare",
+          "from": { "node": "limit", "port": "INT" },
+          "to": { "node": "compare", "port": "values.b" }
+        },
+        "next_compare": {
+          "id": "next_compare",
+          "from": { "node": "add", "port": "INT" },
+          "to": { "node": "compare", "port": "values.a" }
+        }
+      },
+      "nets": {},
+      "reroutes": {},
+      "boundary": {
+        "inputs": [
+          {
+            "id": "count",
+            "binds": { "kind": "port", "node": "count", "port": "value" }
+          },
+          {
+            "id": "limit",
+            "binds": { "kind": "port", "node": "limit", "port": "value" }
+          }
+        ],
+        "outputs": [
+          {
+            "id": "result",
+            "binds": { "kind": "port", "node": "add", "port": "INT" }
+          },
+          {
+            "id": "steps",
+            "binds": { "kind": "port", "node": "add", "port": "INT" }
+          },
+          {
+            "id": "continue",
+            "binds": { "kind": "port", "node": "compare", "port": "BOOL" }
+          }
+        ]
+      },
+      "nextOrdinal": 7
+    }
+  },
+  "view": {
+    "graphs": {
+      "root": { "nodes": { "loop": { "position": { "x": 160, "y": 120 } } } },
+      "whileBody": {
+        "nodes": {
+          "add": { "position": { "x": 100, "y": 120 } },
+          "compare": { "position": { "x": 400, "y": 120 } }
+        }
+      }
+    }
+  },
+  "meta": { "title": "Loop: While / Until" }
+}

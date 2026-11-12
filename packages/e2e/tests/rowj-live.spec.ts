@@ -95,11 +95,11 @@ test('live current-wire row J acceptance proof', async ({ page, request }, testI
   expect(wires).toContain(DINKSTER_SCHEMA_WIRE_VERSION)
   await waitForStartupOwnership(page)
 
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'rowj-live', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
-        sampler: { id: 'sampler', type: 'KSampler', values: { seed: 7, steps: 20, cfg: 8, sampler_name: 'euler', scheduler: 'simple', denoise: 1 }, controllers: { seed: 'fixed' } },
+        sampler: { id: 'sampler', type: 'dinkster.sampling.k_sampler', values: { seed: 7, steps: 20, cfg: 8, sampler_name: 'euler', scheduler: 'simple', denoise: 1 }, controllers: { seed: 'fixed' } },
       }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { sampler: { position: { x: 140, y: 90 }, size: { width: 360, height: 220 } } } } } },
     }, 'Row J live proof')
@@ -134,7 +134,7 @@ test('live current-wire row J acceptance proof', async ({ page, request }, testI
   await page.evaluate((value) => {
     const test = window.__dinksterTest!
     const tab = test.app.activeTab()!
-    tab.store.dispatch({ command: 'node.add', params: { graphId: 'g0', type: 'CLIPTextEncode', values: { text: value }, position: { x: 570, y: 90 } } })
+    tab.store.dispatch({ command: 'node.add', params: { graphId: 'g0', type: 'dinkster.conditioning.clip_text_encode', values: { text: value }, position: { x: 570, y: 90 } } })
   }, text)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(2)
   const clipId = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id !== 'sampler')!.id)
@@ -170,7 +170,7 @@ test('live current-wire row J acceptance proof', async ({ page, request }, testI
   await page.evaluate(async ({ image, size }) => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
-    const outcome = await app.dispatchTo(tab, { command: 'node.add', params: { graphId: 'g0', type: 'LoadImage', values: { image: { ...image, size, virtualPath: '' } }, position: { x: 180, y: 430 } } })
+    const outcome = await app.dispatchTo(tab, { command: 'node.add', params: { graphId: 'g0', type: 'dinkster.image.load_image', values: { image: { ...image, size, virtualPath: '' } }, position: { x: 180, y: 430 } } })
     if (!outcome.ok) throw new Error(`Image fixture admission failed: ${JSON.stringify(outcome.diagnostics)}`)
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   }, { image, size: PNG.length })
@@ -209,7 +209,7 @@ test('live current-wire row J acceptance proof', async ({ page, request }, testI
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
-    const outcome = await app.dispatchTo(tab, { command: 'node.add', params: { graphId: 'g0', type: 'dinkster.mask.make', values: { width: 512, height: 512, batch_size: 1, invert: false, 'operation.foreground': 1 }, dynamic: { operation: { selected: 'solid' } }, position: { x: 920, y: 430 } } })
+    const outcome = await app.dispatchTo(tab, { command: 'node.add', params: { graphId: 'g0', type: 'dinkster.image.solid_mask', values: { width: 512, height: 512, value: 1 }, position: { x: 920, y: 430 } } })
     if (!outcome.ok) throw new Error(`Mask fixture admission failed: ${JSON.stringify(outcome.diagnostics)}`)
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
