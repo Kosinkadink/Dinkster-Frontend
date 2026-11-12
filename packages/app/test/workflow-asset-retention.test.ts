@@ -3109,6 +3109,31 @@ describe('workflow candidate admission', () => {
     },
   )
 
+  it.each(['recorded', 'cleared', 'foreign-socket', 'wrong-media', 'unknown-field'] as const)(
+    'censuses the served AUDIO recording declaration: %s', (scenario) => {
+      const local = session([])
+      const audioAssetRef = { ...asset('a'), name: 'recording.webm', mediaType: 'audio/webm', virtualPath: 'imports/recording.webm' }
+      const registry = buildDinksterRegistry(asConnectionId('retention'), { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: {
+        Recorder: { interface: [
+          { role: 'input', id: 'audio', type: { kind: 'concrete', types: [scenario === 'foreign-socket' ? 'FOREIGN' : 'AUDIO'] },
+            widget: { type: 'AUDIO_RECORD' } },
+        ] },
+      } })
+      const value = scenario === 'cleared' ? null : {
+        ...audioAssetRef,
+        ...(scenario === 'wrong-media' ? { mediaType: 'image/png' } : {}),
+        ...(scenario === 'unknown-field' ? { hidden: asset('b') } : {}),
+      }
+      const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+        n0: { id: asNodeId('n0'), type: 'Recorder', values: { audio: value } },
+      } } } }
+      const roots = workflowAssetRoots(document, local.historySnapshot(), registry.resolve)
+      expect(roots.complete).toBe(scenario === 'recorded' || scenario === 'cleared')
+      expect(roots.digests).toEqual(scenario === 'cleared' ? [] : scenario === 'unknown-field'
+        ? [asset('b').digest] : [audioAssetRef.digest])
+    },
+  )
+
   it.each([
     { widgetType: 'AUDIO_RECORD', value: { ...asset('a'), mediaType: 'audio/wav' }, complete: true, digests: [asset('a').digest] },
     { widgetType: 'WEBCAM', value: { ...asset('b'), mediaType: 'image/png' }, complete: true, digests: [asset('b').digest] },

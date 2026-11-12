@@ -508,8 +508,9 @@ Retained MARKDOWN, BUTTON and CAMERA_ANGLE_VIEW values use their declared
 STRING binding. MULTI_COMBO, COLORS and LIST require their declared primitive
 list bindings; embedded objects do not become asset-free by appearing in a list.
 SAVE_TARGET accepts only null or the closed mount/prefix record, and BOUNDING_BOX
-accepts only its four finite coordinates. AUDIO_RECORD and WEBCAM retain exact
-asset references with the matching media type, or accept null when cleared.
+accepts only its four finite coordinates. AUDIO_RECORD accepts the served AUDIO
+socket binding. It and WEBCAM retain exact asset references with the matching
+media type, or accept null when cleared.
 IMAGECOMPARE and RESOLUTION_PREVIEW accept their null presentation state.
 Open-ended LOAD_3D and VIDEO_EDIT bindings remain incomplete even when unset,
 and retain any known embedded roots. Editor acceptance is not an ownership guarantee.

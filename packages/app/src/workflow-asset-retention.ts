@@ -95,7 +95,7 @@ const widgetTypes = new Map<string, {
     typeof value === 'object' && value !== null && !Array.isArray(value) && Object.keys(value).length === 4 &&
     ['x', 'y', 'width', 'height'].every((key) => Object.hasOwn(value, key)) &&
     Object.values(value).every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate)) }],
-  ['AUDIO_RECORD', { sockets: ['AUDIO_RECORD', 'ASSET'], asset: true,
+  ['AUDIO_RECORD', { sockets: ['AUDIO', 'AUDIO_RECORD', 'ASSET'], asset: true,
     validate: (value) => value === null || isAssetRef(value) && value.mediaType.startsWith('audio/') }],
   ['WEBCAM', { sockets: ['WEBCAM', 'ASSET'], asset: true,
     validate: (value) => value === null || isAssetRef(value) && value.mediaType.startsWith('image/') }],
