@@ -1938,19 +1938,28 @@ function loadWorkspaceOperations(): readonly WorkspaceTabMutation[] {
 }
 
 /** Losing recovery sources remain holders until their actual storage slots retire. */
-function persistedWorkflowAssetRoots(resolve: SchemaResolver): ReadonlySet<string> | undefined {
+function persistedWorkflowAssetRoots(
+  resolve: SchemaResolver,
+  acknowledgedRoots: (key: string, raw: string) => ReadonlySet<string> | undefined,
+): ReadonlySet<string> | undefined {
   try {
     const storage = globalThis.localStorage
     if (!storage) return undefined
     const documents: unknown[] = []
+    const digests = new Set<string>()
     for (let index = 0; index < storage.length; index += 1) {
       const key = storage.key(index)
       if (key === null) return undefined
       if (key !== tabsKey() && !key.startsWith(tabsCandidatePrefix()) &&
         !key.startsWith(documentCandidatePrefix()) && !key.startsWith(workspaceOperationPrefix())) continue
       const raw = storage.getItem(key)
+      if (raw === null) return undefined
+      const acknowledged = acknowledgedRoots(key, raw)
+      if (acknowledged !== undefined) {
+        for (const digest of acknowledged) digests.add(digest)
+        continue
+      }
       if (key === tabsKey() || key.startsWith(tabsCandidatePrefix())) {
-        if (raw === null) return undefined
         const state = parsePersistedTabs(raw)
         if (!state || state.tabs.length !== JSON.parse(raw).tabs.length) return undefined
         documents.push(...state.tabs.map((tab) => tab.doc))
@@ -1959,14 +1968,12 @@ function persistedWorkflowAssetRoots(resolve: SchemaResolver): ReadonlySet<strin
         if (!candidate || key !== `${documentCandidatePrefix()}${encodeURIComponent(persistedTabId(candidate.tab)!)}`) return undefined
         documents.push(candidate.tab.doc)
       } else if (key.startsWith(workspaceOperationPrefix())) {
-        if (raw === null) return undefined
         const operation = JSON.parse(raw) as Partial<WorkspaceTabMutation> | null
         if (!operation || typeof operation.opId !== 'string' ||
           key !== `${workspaceOperationPrefix()}${operation.opId}` || !Array.isArray(operation.additions)) return undefined
         documents.push(...operation.additions.map((entry) => entry?.document))
       }
     }
-    const digests = new Set<string>()
     for (const json of documents) {
       const document = loadDocument(json).document
       if (!document) return undefined
@@ -3751,6 +3758,7 @@ export class AppState {
 
   private readonly persistedWorkflowSlots = new Map<string, {
     readonly raw: string
+    readonly complete: boolean
     readonly owners: readonly {
       readonly backend: Backend
       readonly registry: SchemaRegistry | undefined
@@ -3795,7 +3803,7 @@ export class AppState {
     const previousOwners = previous?.raw === storage.getItem(key) ? previous.owners : []
     storage.setItem(key, pending)
     if (this.disposed) return Promise.resolve(undefined)
-    this.persistedWorkflowSlots.set(key, { raw: pending, owners: previousOwners })
+    this.persistedWorkflowSlots.set(key, { raw: pending, complete: false, owners: previousOwners })
     const local = this.backends.get().find((backend) => backend.connection === this.connection)!
     const sources = documents.map(({ document, revision }) => {
       const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.id === document.lineage)
@@ -3830,7 +3838,7 @@ export class AppState {
       stageId, acknowledged: true, complete, owners: receipts,
     } })
     storage.setItem(key, acknowledged)
-    this.persistedWorkflowSlots.set(key, { raw: acknowledged, owners: [
+    this.persistedWorkflowSlots.set(key, { raw: acknowledged, complete, owners: [
       ...(complete ? [] : previousOwners),
       ...owners.map((retained, index) => ({ ...native[index]!, project, storage, retained })),
     ] })
@@ -7757,7 +7765,15 @@ export class AppState {
       const removed = retained.digests.filter((digest) => !covered.has(digest))
       if (removed.length > 0) {
         if (!durableRoots.has(backend)) durableRoots.set(backend, persistedWorkflowAssetRoots(
-          this.resolverWithVirtualNodes(backend.registry.get()?.resolve ?? (() => undefined))))
+          this.resolverWithVirtualNodes(backend.registry.get()?.resolve ?? (() => undefined)), (key, raw) => {
+            const slot = this.persistedWorkflowSlots.get(key)
+            // Recovered receipts cannot certify a configured recipe. Only this
+            // lifetime's exact acknowledged slot has a resolved inventory.
+            if (!slot?.complete || slot.raw !== raw || slot.owners.length === 0 || slot.owners.some((owner) =>
+              owner.backend !== backend || owner.registry !== backend.registry.get() || owner.generation !== generation ||
+              owner.project !== project || owner.storage !== globalThis.localStorage || !owner.retained.complete)) return undefined
+            return new Set(slot.owners.flatMap((owner) => owner.retained.digests))
+          }))
         const persisted = durableRoots.get(backend)
         if (persisted === undefined || removed.some((digest) => persisted.has(digest))) continue
       }

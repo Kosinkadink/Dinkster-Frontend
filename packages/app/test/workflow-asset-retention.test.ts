@@ -1248,6 +1248,106 @@ describe('retained app dispatch', () => {
     expect(app.problems.get().filter((problem) => problem.code === 'workflow.execution.ownershipUnconfirmed')).toEqual([])
   })
 
+  it.each(['acknowledged', 'changed-raw', 'recovered', 'registry', 'storage', 'disconnected', 'unresolved'] as const)(
+    'retires superseded compositor owners only against current admitted durable slots: %s', async (scenario) => {
+      vi.useFakeTimers()
+      try {
+        vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+        const compositorSchema: NodeSchema = { ...schema, items: [...schema.items, {
+          kind: 'input', id: 'compositor', optional: false, type: { kind: 'concrete', name: 'COMPOSITOR' },
+          widget: { widgetType: 'COMPOSITOR', options: {}, default: {} },
+        }] }
+        app = createWorkflowApp([compositorSchema])
+        const bytes = new Uint8Array([7, 19, 23])
+        const resourceDigest = imageDocumentDigest(bytes)
+        const image = { format: 'dinkster-image', formatVersion: 2, lineage: 'durable-compositor',
+          canvas: { width: 3, height: 2, colorSpace: 'srgb', channelDepth: 8, compositing: 'premultiplied-alpha' },
+          allocation: { nextOrdinal: 1 }, rootLayerIds: [], layers: {}, masks: {}, resources: {
+            r0: { id: 'r0', kind: 'raster', digest: resourceDigest, byteSize: bytes.length,
+              mediaType: 'image/png', width: 2, height: 1, colorSpace: 'srgb', channelDepth: 8, alphaMode: 'opaque' },
+          },
+        }
+        const imageBytes = new TextEncoder().encode(core.canonicalJson(image))
+        const documentDigest = imageDocumentDigest(imageBytes)
+        vi.spyOn(app.connection, 'fetchAssetBytes').mockImplementation(async (digest) =>
+          digest === documentDigest ? imageBytes.buffer : bytes.buffer)
+        const owners = new Map<string, RetainedAssets>()
+        vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+          const receipt = { ...owner, ...declaration, revision: 1 }
+          owners.set(owner.ownerId, receipt)
+          return receipt
+        })
+        vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
+          const receipt = { ...owners.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
+          owners.set(owner.ownerId, receipt)
+          return receipt
+        })
+        const workflow = session().doc
+        await app.openDocument({ ...workflow, graphs: { g0: { ...workflow.graphs.g0!, nodes: {
+          n0: { ...workflow.graphs.g0!.nodes.n0!, values: { files: [asset('a')],
+            compositor: { version: 2, documentDigest, commands: [] } } },
+        } } } }, 'Durable compositor')
+        const tab = app.activeTab()!
+        expect((await app.dispatchRetainedTo(tab, replace('b'))).ok).toBe(true)
+        tab.store.clearHistory()
+        expect((await app.dispatchRetainedTo(tab, replace('c'))).ok).toBe(true)
+        tab.store.clearHistory()
+        if (scenario === 'unresolved') vi.mocked(app.connection.fetchAssetBytes).mockImplementation(async (digest) =>
+          digest === documentDigest ? imageBytes.buffer : undefined)
+        app.flushPersistTabs(true)
+        await vi.advanceTimersByTimeAsync(0)
+        const canonicalKey = scopedStorageKey('dinkster.openTabs')
+        const raw = localStorage.getItem(canonicalKey)!
+        expect(JSON.parse(raw).assetRetention.complete).toBe(scenario !== 'unresolved')
+        vi.mocked(app.connection.fetchAssetBytes).mockImplementation(async (digest) =>
+          digest === documentDigest ? imageBytes.buffer : bytes.buffer)
+        expect((await app.dispatchRetainedTo(tab, replace('d'))).ok).toBe(true)
+        const previous = [...owners.values()].at(-1)!
+        expect(previous.digests).toEqual([asset('c').digest, asset('d').digest, documentDigest, resourceDigest].sort())
+        // The persisted recipe still holds c, so a live replacement cannot release it.
+        tab.store.clearHistory()
+        expect((await app.dispatchRetainedTo(tab, replace('e'))).ok).toBe(true)
+        await Promise.resolve()
+        expect(owners.get(previous.ownerId)).toEqual(previous)
+        let cleanup: (() => void) | undefined
+        let lockCount = 0
+        vi.stubGlobal('navigator', { locks: {
+          request: async (_name: string, _options: unknown, callback: () => void) => {
+            if (lockCount++ === 0) callback()
+            else cleanup = callback
+          },
+        } })
+        if (scenario === 'unresolved') vi.mocked(app.connection.fetchAssetBytes).mockImplementation(async (digest) =>
+          digest === documentDigest ? imageBytes.buffer : undefined)
+        app.flushPersistTabs(true)
+        await vi.advanceTimersByTimeAsync(0)
+        expect(cleanup).toBeDefined()
+        const staged = localStorage.getItem(canonicalKey)!
+        expect(JSON.parse(staged).assetRetention.complete).toBe(scenario !== 'unresolved')
+        if (scenario === 'changed-raw') {
+          const key = scopedStorageKey(`dinkster.openTabsDocumentCandidate.${encodeURIComponent(tab.id)}`)
+          localStorage.setItem(key, `${localStorage.getItem(key)} `)
+        }
+        if (scenario === 'recovered') localStorage.setItem(scopedStorageKey('dinkster.openTabsCandidate.peer'), staged)
+        if (scenario === 'registry') app.registry.set({ ...app.registry.get()!, hash: 'refreshed-catalog' })
+        if (scenario === 'storage') {
+          const storage = localStorage
+          vi.stubGlobal('localStorage', {
+            get length() { return storage.length }, key: (index: number) => storage.key(index),
+            getItem: (key: string) => storage.getItem(key), setItem: (key: string, value: string) => storage.setItem(key, value),
+            removeItem: (key: string) => storage.removeItem(key), clear: () => storage.clear(),
+          })
+        }
+        if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
+        cleanup!()
+        if (scenario === 'storage') expect((await app.dispatchRetainedTo(tab, replace('f'))).ok).toBe(true)
+        await vi.advanceTimersByTimeAsync(0)
+        expect(owners.get(previous.ownerId)).toEqual(scenario === 'acknowledged'
+          ? { ...previous, revision: 2, complete: true, digests: [] } : previous)
+      } finally { vi.useRealTimers() }
+    },
+  )
+
   it('saves a complete snapshot without certifying unknown undo history or allowing sharing', async () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
     app = createWorkflowApp([schema])

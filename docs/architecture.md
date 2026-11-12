@@ -299,7 +299,10 @@ Superseded receipts also protect roots still named by canonical tab snapshots,
 workspace candidates, document recovery slots and operation-journal additions.
 If the replacement no longer covers a root, retirement waits for a complete
 durable-source census that no longer names it. Persistence compaction retries
-that check; unreadable, corrupt or unknown sources keep protection. Crash-safe
+that check. Configured recipes use only this application's complete acknowledged
+slot inventory, bound to the exact saved bytes, backend, registry, connection
+generation, project and storage object. Recovered receipts never substitute for
+local admission; unreadable, corrupt or unknown sources keep protection. Crash-safe
 staging stays synchronous, and disconnect or session displacement never grants
 release authority over a pending receipt.
 Canonical workspace snapshots, per-window candidates, per-lineage recovery
