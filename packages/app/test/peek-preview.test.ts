@@ -415,6 +415,49 @@ describe('fetchPeekRendition', () => {
     expect(transientOf(err)).toBe(true)
   })
 
+  it.each(['peek', 'rendition'] as const)('waits for preferred publication at %s without selecting a fallback', async (phase) => {
+    vi.useFakeTimers()
+    const pending = { available: false as const, status: 409, reason: 'not-complete', error: 'running' }
+    let ready = false
+    const values: PeekValues = {
+      peek: async () => phase === 'peek' && !ready ? pending : hit([png]),
+      rendition: async () => phase === 'rendition' && !ready ? pending : {
+        available: true, bytes: bytesOf(48), mime: 'image/png', kind: 'png', fingerprint: 'fp',
+      },
+    }
+    try {
+      const result = fetchPeekRendition(values, 'job', [{ node: 'producer', output: 'IMAGE' }, { node: 'producer', output: 'MASK' }])
+      await vi.advanceTimersByTimeAsync(100)
+      ready = true
+      await vi.advanceTimersByTimeAsync(100)
+      await expect(result).resolves.toMatchObject({ node: 'producer', output: 'IMAGE' })
+    } finally { vi.useRealTimers() }
+  })
+
+  it.each(['deadline', 'abort'] as const)('ends unpublished preferred output on %s without caching fallback', async (ending) => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    const outputs: string[] = []
+    const values: PeekValues = {
+      peek: async (query) => {
+        outputs.push(query.outputId)
+        return { available: false, status: 409, reason: 'not-complete', error: 'running' }
+      },
+      rendition: async () => { throw new Error('No rendition before publication') },
+    }
+    try {
+      const result = fetchPeekRendition(values, 'job', [{ node: 'producer', output: 'IMAGE' }, { node: 'producer', output: 'MASK' }],
+        undefined, { signal: controller.signal }).catch((error: unknown) => error)
+      await vi.advanceTimersByTimeAsync(100)
+      if (ending === 'abort') controller.abort(new Error('closed'))
+      else await vi.advanceTimersByTimeAsync(10_000)
+      expect(await result).toMatchObject(ending === 'abort' ? { message: 'closed' } : { transient: true, negativeCache: false })
+      expect(outputs.length).toBeGreaterThan(1)
+      expect(new Set(outputs)).toEqual(new Set(['IMAGE']))
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { vi.useRealTimers() }
+  })
+
   it('a transport failure on peek marks the miss transient (retryable)', async () => {
     const values = fakeValues({
       peek: { 'a.image': refusal('http-error'), 'b.image': refusal('not-retained') },

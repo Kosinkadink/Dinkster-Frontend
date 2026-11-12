@@ -31,6 +31,12 @@ The first available source wins:
 6. A locally computed scalar expression estimate.
 7. An unambiguous recorded string output.
 
+Recorded-value candidates keep their priority while the backend reports
+`409 not-complete`: the loader rechecks publication for up to ten seconds
+instead of caching a lower-priority output. Closing the loader aborts the wait.
+A publication timeout stays retryable; permanent refusals such as not-retained
+or evicted still permit the next candidate immediately.
+
 The declared final-output stage dispatches by the response MIME rather than
 the output type. `image/*` decodes as an image, `video/mp4` and `video/webm`
 play in a browser video element, and `audio/wav` plays through an audio
