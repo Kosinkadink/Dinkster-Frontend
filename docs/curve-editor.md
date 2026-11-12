@@ -7,6 +7,12 @@ Double-click the graph to add a point, drag points to change position and value,
 Linked inputs are read-only and do not open the editor. Editable curves use
 the 0-1 position axis and are independent of audio playback.
 
+Asset-free curves can be saved and reopened without an ownership warning.
+The ownership census accepts the backend's closed curve record with optional
+Linear or Monotone cubic interpolation and finite numeric point objects or
+position/value pairs, including bare point arrays. Unknown fields or malformed
+points keep ownership incomplete and preserve any embedded asset identities.
+
 If an editable input is linked, removed, or changed while the editor is open,
 Apply is refused.
 

@@ -74,7 +74,7 @@ const primitiveNames = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO', 'C
 const widgetTypes = new Map<string, readonly string[] | undefined>([
   ['STRING', undefined], ['INT', undefined], ['FLOAT', undefined], ['NUMBER', undefined],
   ['BOOLEAN', undefined], ['COMBO', undefined], ['ASSET', undefined], ['MOUNT', ['STRING']],
-  ['COLOR', ['COLOR', 'STRING']], ['COMPOSITOR', ['COMPOSITOR']],
+  ['COLOR', ['COLOR', 'STRING']], ['COMPOSITOR', ['COMPOSITOR']], ['CURVE', ['CURVE']],
 ])
 
 function assetFreeDynamicState(value: unknown, depth = 0): boolean {
@@ -141,7 +141,7 @@ function censusWorkflowAssetRoots(
     if (type.kind === 'asset') return true
     if (type.kind === 'list') return supported(type.element)
     if (type.kind === 'tuple') return type.elements.every(supported)
-    return type.kind === 'concrete' && (type.name === 'ASSET' || type.name === 'COMPOSITOR' || primitiveNames.has(type.name))
+    return type.kind === 'concrete' && (type.name === 'ASSET' || type.name === 'COMPOSITOR' || type.name === 'CURVE' || primitiveNames.has(type.name))
   }
   const valueRoots = (value: Json, type: TypeExpr, namedAsset = false, widgetType?: string): boolean => {
     // A cleared asset widget holds no identity; history still contributes its previous value.
@@ -153,7 +153,7 @@ function censusWorkflowAssetRoots(
     const color = socketTypes?.includes('COLOR') === true || (type.kind === 'concrete' && type.name === 'COLOR')
     if (type.kind === 'concrete' && (
       (color && typed === undefined && typeof value !== 'string') ||
-      ((color || type.name === 'COMPOSITOR') && typed !== undefined && typed.type !== type.name))) {
+      ((color || type.name === 'COMPOSITOR' || type.name === 'CURVE') && typed !== undefined && typed.type !== type.name))) {
       complete = false
       opaqueRoots(value)
       return false
@@ -187,6 +187,20 @@ function censusWorkflowAssetRoots(
       // A document digest alone does not enumerate the document's external resources.
       complete = false
       return false
+    } else if (type.kind === 'concrete' && type.name === 'CURVE') {
+      // The backend codec also accepts numeric pairs and bare point arrays.
+      const record = typeof value === 'object' && value !== null && !Array.isArray(value)
+        ? value as { readonly [key: string]: Json } : undefined
+      const points = record === undefined ? value : record['points']
+      const valid = (record === undefined || (Object.keys(record).every((key) => key === 'points' || key === 'interpolation') &&
+        (!Object.hasOwn(record, 'interpolation') || record['interpolation'] === 'linear' || record['interpolation'] === 'monotone_cubic'))) &&
+        Array.isArray(points) && points.every((point) => {
+          const pair = Array.isArray(point) ? point : typeof point === 'object' && point !== null &&
+            Object.keys(point).sort().join(',') === 'position,value' ? [point['position'], point['value']] : undefined
+          return pair?.length === 2 && pair.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate))
+        })
+      if (!valid) { complete = false; opaqueRoots(value) }
+      return valid
     } else if (socketTypes !== undefined && (type.kind !== 'concrete' || !socketTypes.includes(type.name) ||
       (value !== null && typeof value !== 'string'))) {
       complete = false
