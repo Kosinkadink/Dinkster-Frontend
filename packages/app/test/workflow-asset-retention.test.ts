@@ -2859,6 +2859,32 @@ describe('workflow candidate admission', () => {
       }) })
   })
 
+  it.each(['default', 'stored', 'typed', 'socket', 'invalid-value', 'invalid-binding', 'unknown-widget'] as const)(
+    'counts typed colors without inventing assets: %s', (scenario) => {
+      const local = session()
+      const colorSchema: NodeSchema = { ...schema, items: [...schema.items, {
+        kind: 'input', id: 'color', optional: false,
+        type: { kind: 'concrete', name: scenario === 'invalid-binding' ? 'FLOAT' : 'COLOR' },
+        ...(scenario === 'socket' ? {} : { widget: {
+          widgetType: scenario === 'unknown-widget' ? 'opaque' : 'COLOR', options: {}, default: '#c1375a',
+        } }),
+      }] }
+      const color = scenario === 'typed' ? { $typed: { type: 'COLOR', value: '#179a4f' } }
+        : scenario === 'invalid-value' ? asset('c') : '#179a4f'
+      const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+        n0: { ...local.doc.graphs.g0!.nodes.n0!, values: { files: [asset('a')],
+          ...(scenario === 'default' ? {} : { color }) } },
+      } } } }
+      const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => colorSchema)
+      const invalid = ['invalid-value', 'invalid-binding', 'unknown-widget'].includes(scenario)
+      expect(roots.complete).toBe(!invalid)
+      expect(roots.digests).toEqual(scenario === 'invalid-value'
+        ? [asset('a').digest, asset('c').digest] : [asset('a').digest])
+      if (invalid) expect(roots.incompleteDiagnostics).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'workflow.asset.unresolvedInput', message: expect.stringContaining("'color'") }),
+      ]))
+    })
+
   it.each(['default', 'selected', 'cleared', 'typed', 'unknown-widget', 'invalid-value', 'invalid-binding'] as const)(
     'counts mount selection without losing stored or historical assets: %s', (scenario) => {
       const local = session()
