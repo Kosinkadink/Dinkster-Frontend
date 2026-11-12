@@ -4,6 +4,7 @@ import { basename } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { canonicalJson } from '@dinkster/core'
 import { selectProductOption, skipWithoutNativeCatalog } from './fixtures.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 // Exact native catalog of the backend pinned by the hosted workflows.
 const canonicalCatalogSha256 =
@@ -118,6 +119,22 @@ async function refreshCombo(
   await page.keyboard.press('Escape')
 }
 
+test('Render Image Document retains its multiline selector descriptor', async ({ request }, testInfo) => {
+  await skipWithoutNativeCatalog(request, testInfo)
+  const response = await request.get(`${nativeBackend}/api/nodes`)
+  expect(response.ok()).toBe(true)
+  const catalog = await response.json() as Catalog
+  requireBackendNodes(catalog.nodes, ['dinkster.render_image_document'], testInfo)
+  const inputs = widgets(catalog)
+  expect(
+    inputs.find(
+      ({ nodeType, input }) =>
+        nodeType === 'dinkster.render_image_document' &&
+        input.id === 'selector',
+    )?.input.widget,
+  ).toEqual({ type: 'STRING', multiline: true })
+})
+
 test('hosted native stack proves live widget adoption and exact catalog absences', async ({
   page,
   request,
@@ -191,13 +208,6 @@ test('hosted native stack proves live widget adoption and exact catalog absences
       Object.hasOwn(input.widget ?? {}, 'placeholder'),
     ),
   ).toEqual([])
-  expect(
-    inputs.find(
-      ({ nodeType, input }) =>
-        nodeType === 'dinkster.render_image_document' &&
-        input.id === 'selector',
-    )?.input.widget,
-  ).toEqual({ type: 'STRING', multiline: true })
   expect(
     descriptors.filter((widget) => widget['type'] === 'MULTI_COMBO'),
   ).toHaveLength(0)

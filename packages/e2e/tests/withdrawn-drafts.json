@@ -7,6 +7,7 @@
     "dinkster.layers.flatten",
     "dinkster.layers.load",
     "dinkster.mask.paint",
+    "dinkster.render_image_document",
     "dinkster.route.gate",
     "dinkster.route.switch_by_name",
     "dinkster.value.compare",
