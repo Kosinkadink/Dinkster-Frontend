@@ -3094,12 +3094,16 @@ describe('workflow candidate admission', () => {
     { name: 'pairs', value: { interpolation: 'monotone_cubic', points: [[0, 0.2], [1, 0.8]] }, valid: true },
     { name: 'implicit interpolation', value: { points: [[0, 0.2], [1, 0.8]] }, valid: true },
     { name: 'bare pairs', value: [[0, 0.2], [1, 0.8]], valid: true },
+    { name: 'empty points', value: { points: [] }, valid: true },
+    { name: 'unordered finite points', value: { points: [[1.5, -0.2], [-0.25, 2.8]] }, valid: true },
     { name: 'unknown interpolation', value: { interpolation: 'future', points: [[0, 0.2], [1, 0.8]] }, valid: false },
     { name: 'extra curve fields', value: { points: [[0, 0.2], [1, 0.8]], resource: asset('c') }, valid: false },
     { name: 'extra point fields', value: { points: [{ position: 0, value: 0.2, resource: asset('c') }] }, valid: false },
     { name: 'asset point', value: { points: [[0, asset('c')]] }, valid: false },
     { name: 'oversized pair', value: { points: [[0, 0.2, 0.8]] }, valid: false },
     { name: 'string coordinate', value: { points: [['0', 0.2]] }, valid: false },
+    { name: 'infinite coordinate', value: { points: [[0, Infinity]] }, valid: false },
+    { name: 'NaN coordinate', value: { points: [[NaN, 0.2]] }, valid: false },
     { name: 'null', value: null, valid: false },
   ])('classifies closed CURVE values without discarding opaque roots: $name', ({ value, valid }) => {
     const local = session()
