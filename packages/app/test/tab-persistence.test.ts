@@ -120,7 +120,7 @@ describe('open-tab persistence', () => {
     },
   )
 
-  it.each(['accepted', 'refused', 'edited', 'closed', 'retargeted', 'registry', 'disconnected', 'disposed'] as const)(
+  it.each(['accepted', 'refused', 'edited', 'closed', 'retargeted', 'registry', 'same-hash-registry', 'disconnected', 'disposed'] as const)(
     'confirms restored native ownership before startup continues: %s', async (scenario) => {
       const digest = `blake3:${'c'.repeat(64)}`
       const saved = { ...seedBasic, ext: { held: { digest, name: 'restored.bin', size: 7,
@@ -154,6 +154,7 @@ describe('open-tab persistence', () => {
       if (scenario === 'retargeted') app.setTabTarget(tab.id, app.addBackend('http://other.test', 'Other', false, 'dinkster')!.id)
       if (scenario === 'registry') app.registry.set({ connection: app.connection.id, schemas: new Map(),
         diagnostics: [], hash: 'changed', resolve: () => undefined })
+      if (scenario === 'same-hash-registry') app.registry.set({ ...app.registry.get()! })
       if (scenario === 'disconnected') { app.connection.connect(); app.connection.disconnect() }
       if (scenario === 'disposed') app.dispose()
       acknowledge()
