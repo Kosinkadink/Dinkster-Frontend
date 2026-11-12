@@ -380,7 +380,8 @@ sibling's different option set. That exception is bound to the same state
 object and construct; invalid active choices and unvalidated dormant choices
 still refuse. Keys read by neither walk remain unknown-state errors; dormant
 diagnostics still make ownership incomplete. Active elaboration errors still
-refuse admission, and no dormant branch identities are resolved or guessed.
+refuse admission. Dormant wire-15 combo and slot dependents are enumerated from
+their declared branch paths; their active interface and stored keys are unchanged.
 Custom dynamic handlers read root constructs through `ctx.stateOf` and nested
 constructs through `ctx.memberScope(...).stateOf`; raw state-table access is not
 part of the handler context. Enumerating input evidence does not verify a key.
@@ -503,18 +504,31 @@ Concrete nodes use occurrence-aware schemas, including a region's list-valued
 element inputs; definition-only boundary types do not describe those values.
 Standard NUMBER widgets are asset-free metadata; unknown widget kinds still
 make the census incomplete.
+Retained MARKDOWN, BUTTON and CAMERA_ANGLE_VIEW values use their declared
+STRING binding. MULTI_COMBO, COLORS and LIST require their declared primitive
+list bindings; embedded objects do not become asset-free by appearing in a list.
+SAVE_TARGET accepts only null or the closed mount/prefix record, and BOUNDING_BOX
+accepts only its four finite coordinates. AUDIO_RECORD accepts the served AUDIO
+socket binding. It and WEBCAM retain exact asset references with the matching
+media type, or accept null when cleared.
+IMAGECOMPARE and RESOLUTION_PREVIEW accept their null presentation state.
+Open-ended LOAD_3D and VIDEO_EDIT bindings remain incomplete even when unset,
+and retain any known embedded roots. Editor acceptance is not an ownership guarantee.
 Dynamic inputs use canonical elaborated identities: stored inactive combo branches,
 disconnected slot dependents and persisted family members contribute roots, while
 defaults come only from the active interface. Historical connectivity changes
 recheck dynamic nodes even when their objects are shared. Dynamic metadata must
 have the known asset-free shape, and every stored state key must be read in its
 canonical construct/member scope. Unknown stored keys, elaboration diagnostics or
-budget exhaustion, and unsupported dormant wire-15 slots remain incomplete.
-The wire-15 DynamicCombo census visits every branch at its direct stored path,
-without changing the active interface or inventing branch-local storage keys.
-Projected names may recur across branches but not within one branch. A stored
-untyped value with conflicting branch types stays incomplete and names the input
-in its diagnostic; a typed literal supplies its own exact type. Only effective
+budget exhaustion and unsupported declarations remain incomplete.
+The wire-15 DynamicCombo and DynamicSlot census visits every dependent branch
+at its direct stored path, without changing the active interface or inventing
+branch-local storage keys. A closed slot's own value uses its explicit selected
+variant; disconnected open-slot dependents remain enumerable without contributing
+their defaults. Projected names may recur across branches but not within one
+branch. A stored untyped dependent with conflicting branch types stays incomplete
+and names the input in its diagnostic; a typed literal must match a declared
+branch type exactly to disambiguate it. Only effective
 defaults contribute roots, while stored values from all branches are retained.
 Missing node or input schemas, unsupported value types, malformed containers and
 unresolved selection names identify the exact stored input (or effective default)
