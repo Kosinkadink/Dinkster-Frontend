@@ -5,10 +5,9 @@ import {
   asLineageId,
   asNodeId,
   asPromptId,
-  canonicalJson,
   compile,
+  compositorRecipeFingerprint,
   coreCommandRegistry,
-  sha256Hex,
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
@@ -940,6 +939,36 @@ describe('AppState multi-window workspace', () => {
     expect((right.store as unknown as { status: { get(): string } }).status.get()).toBe('live')
   })
 
+  it('confirms ownership on the current target after authority promotion opens', async () => {
+    const authority = new SharedWorkerDocumentAuthority()
+    const renderers: MemoryPort[] = []
+    const factory: SharedWorkerPortFactory = () => {
+      const renderer = new MemoryPort()
+      const worker = new MemoryPort()
+      renderer.peer = worker
+      worker.peer = renderer
+      renderer.paused = true
+      renderers.push(renderer)
+      authority.connect(worker)
+      return renderer
+    }
+    const app = createEditableApp()
+    await app.openDocument(workflow(), 'Shared workflow')
+    const tab = app.activeTab()!
+    const target = app.addBackend('http://other:8000', 'Other', false, 'dinkster', false)!
+    target.registry.set(app.registry.get())
+    const promotion = app.enableWorkspaceAuthority(factory, authorityFactories().workspace)
+    await vi.waitFor(() => expect(renderers.length).toBeGreaterThan(0))
+    app.setTabTarget(tab.id, target.id)
+    renderers.forEach((renderer) => renderer.release())
+    await promotion
+    const promoted = app.tabs.get().find((candidate) => candidate.id === tab.id)!
+    expect('status' in promoted.store && (promoted.store.status as { get(): string }).get()).toBe('live')
+    expect(promoted.store.doc).toEqual(tab.store.doc)
+    expect(app.backendForTab(promoted)).toBe(target)
+    expect(app.problems.get().filter((problem) => problem.code === 'workspace.authority.failed')).toEqual([])
+  })
+
   it('keeps a local edit made while authority promotion is opening', async () => {
     const authority = new SharedWorkerDocumentAuthority()
     const renderers: MemoryPort[] = []
@@ -1576,57 +1605,42 @@ describe('advancement plans survive workspace-authority promotion', () => {
   })
 
   it('preserves editor-role schema resolution in the promoted command registry', async () => {
-    const loadSchema: NodeSchema = {
+    const compositorSchema: NodeSchema = {
       ...seedSchema,
-      type: 'SyntheticLayersLoad',
-      editorRole: 'layers-load',
+      type: 'SyntheticCompositor',
+      editorRole: 'compositor',
       items: [
-        { kind: 'input', id: 'document', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
-          widget: { widgetType: 'ASSET', options: {} } },
-        { kind: 'output', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' } },
-      ],
-    }
-    const flattenSchema: NodeSchema = {
-      ...seedSchema,
-      type: 'SyntheticLayersFlatten',
-      editorRole: 'layers-flatten',
-      items: [
-        { kind: 'input', id: 'layers', type: { kind: 'concrete', name: 'dinkster.layers' }, optional: false },
-        { kind: 'input', id: 'selector', type: { kind: 'concrete', name: 'STRING' }, optional: true,
-          widget: { widgetType: 'STRING', options: {}, default: 'composite' } },
+        { kind: 'input', id: 'recipe', type: { kind: 'concrete', name: 'COMPOSITOR' }, optional: true,
+          widget: { widgetType: 'COMPOSITOR', options: {} } },
       ],
     }
     const factory = authorityFactories()
     const app = createEditableApp()
     ;(app.registry as unknown as { set(value: unknown): void }).set({ schemas: new Map(), resolve: () => undefined, hash: 'promotion-test' })
-    app.registerSchemas([seedSchema, loadSchema, flattenSchema])
-    expect((await app.openDocument(seedFixture(), 'Promotion Roles'))).toEqual([])
+    app.registerSchemas([seedSchema, compositorSchema])
+    const fixture = seedFixture()
+    fixture.graphs.g0.nodes.seed.type = compositorSchema.type
+    expect((await app.openDocument(fixture, 'Promotion Roles'))).toEqual([])
     const tab = app.activeTab()!
 
     await app.enableWorkspaceAuthority(factory.document, factory.workspace)
     await drainTasks()
     const promoted = app.tabs.get().find((candidate) => candidate.id === tab.id)!
-    const graph = promoted.store.doc.graphs.g0!
+    const recipe = { version: 2, documentDigest: null, commands: [] }
     const result = await app.dispatchTo(promoted, {
-      command: 'image.documentExport',
+      command: 'image.compositorApply',
       params: {
         graphId: 'g0',
-        expectedGraphFingerprint: sha256Hex(canonicalJson(graph)),
-        asset: {
-          digest: `blake3:${'a'.repeat(64)}`,
-          name: 'layers.dinkster',
-          size: 10,
-          mediaType: 'application/vnd.dinkster.image-document+json',
-          virtualPath: '',
-        },
-        position: { x: 80, y: 80 },
+        nodeId: 'seed',
+        inputId: 'recipe',
+        instancePath: [],
+        expectedRecipeFingerprint: compositorRecipeFingerprint(undefined)!,
+        recipe,
       },
     })
 
     expect(result.ok).toBe(true)
-    expect(Object.values(promoted.store.doc.graphs.g0!.nodes).map((node) => node.type)).toEqual(
-      expect.arrayContaining([loadSchema.type, flattenSchema.type]),
-    )
+    expect(promoted.store.doc.graphs.g0!.nodes.seed!.values.recipe).toEqual(recipe)
   })
 
   it('an edit restored through the promoted session still suppresses its advancement (ABA)', async () => {

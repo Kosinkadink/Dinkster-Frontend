@@ -1,5 +1,50 @@
 # Widget compact controls and expanded editors
 
+SAVE_TARGET opens a ready writable mount selector and relative filename prefix.
+The writer adds the descriptor's suffix and numbering; no host path is stored
+in the graph. Empty, absolute, dot-segment and backslash prefixes cannot apply.
+Unavailable current mounts stay visible but cannot apply. The optional gallery
+destination also offers Clear destination; required save targets do not.
+Mount grants are checked again by the backend when it writes.
+
+RESOLUTION_PREVIEW opens a proportional rectangle and exact pixel dimensions
+from the node's aspect ratio, megapixels and rounding multiple. The named
+controls update that preview as a draft; Apply resolution writes the three
+real inputs as one undoable edit without writing the ignored preview value.
+Dimensions use the backend's 1024-based megapixels and ties-to-even rounding.
+Connected inputs disable this composer instead of showing invented dimensions.
+
+CAMERA_ANGLE_VIEW opens a top-down orbit and side elevation preview with named
+horizontal angle, vertical angle and zoom fields. Apply camera angle updates
+the three real numeric inputs as one undoable edit; the presentation-only view
+string is unchanged. Blank, fractional angle and out-of-range drafts cannot be
+applied. Connected numeric inputs disable this composer rather than pretending
+to override their drivers; edit the source inputs or disconnect them first.
+Cancel and outside dismissal discard the draft.
+
+IMAGECOMPARE opens a wipe comparison of the node's executed image_a and
+image_b preview streams. The divider supports pointer and keyboard controls;
+each side has an independent frame selector. A single connected side fills
+the preview without a divider. Unequal image sizes fit without distortion.
+The divider and frame choices are local display state, not graph values.
+Successful untimed image batches remain browsable within the session's
+existing preview-byte budget; timed animations release their frame rings at
+completion. After eviction or reload, run the comparison again.
+
+BOUNDING_BOX rows summarize X, Y, width and height in pixels. Opening the crop
+region shows four named fields; Apply crop stores the complete region as one
+undoable edit. Coordinates must be nonnegative whole pixels and dimensions
+must be positive whole pixels. Cancel or outside dismissal discards the draft.
+After running the connected image source, the editor shows its first frame
+with the selected crop outlined and the excluded area shaded. The outline
+matches the backend's edge clamping. An unavailable or stale source leaves
+the numeric controls usable without showing an unrelated image.
+
+Crop and comparison previews accept encoded images up to 64 MiB and decoded
+dimensions from 1 through 4096 pixels per side. Larger decoded images are
+released without drawing or resizing the canvas. This preview limit does not
+change the stored crop region or the backend's output dimensions.
+
 Compact STRING and MARKDOWN views display non-string imported values using
 the shared value formatter (for example, null displays as `null`). Rendering
 does not replace them with schema defaults, mark them as empty placeholders,
@@ -48,6 +93,11 @@ draft without releasing acknowledged owners. The staged selection keeps its
 acknowledged reader: a changed document, registry, connection, or closed session
 refuses further staging and Apply until the picker is reopened. Apply still confirms the document
 command separately. This does not enable backend cleanup eligibility.
+
+Missing model selections say "Not on disk" and explain that download is offered
+when the workflow runs. The picker does not start downloads or show a disabled
+download control. Download approval belongs to the pre-run approval dialog;
+local matching, selection, Cancel and Undo retain their usual behavior.
 
 The registered audio-recording editor uses the same independent ownership
 before replacing its draft or fetching playback bytes for a saved recording.
@@ -851,10 +901,6 @@ value sources also use the raw JSON fallback. An unavailable-kind draft
 survives scene refreshes while its document and declared row contract remain
 unchanged; document, schema, target, or extension changes still invalidate it.
 
-Compositor Apply resolves the schema's `compositor` editor role. Resolvers
-without editor-role lookup use the current `dinkster.image.image_compositor`
-node ID; recipe validation and atomic undo remain the same.
-
 ## COMBO editor
 
 The COMBO editor keeps its search field focused while ArrowUp, ArrowDown,
@@ -1214,17 +1260,7 @@ zoom clamps. The Canvas scroll behavior setting also applies inside Image:
 Zoom is cursor-anchored, while Pan uses both wheel axes and keeps Ctrl+wheel as
 cursor-anchored zoom.
 
-For a schema-verified `dinkster.image.load_image` whose `mask` output has consumers,
-Apply stores the cumulative edit recipe in one `dinkster.mask.paint` node and
-rewires only those mask consumers. The guarded command copies the complete
-loader AssetRef into `source`, preserves direct link identities and named nets,
-and updates the associated paint node on later edits instead of nesting nodes.
-It refuses changed source, topology, recipe, schema, and occurrence-local
-topology. Recipes are bounded to 4 MiB, 2,048 commands, 8,192 points per stroke,
-and 32,768 total points. Reopening the associated node restores its cumulative
-operations. One workflow undo/redo covers insertion or update and rewiring.
-
-Other admitted image inputs retain **Bake to asset**. Apply encodes one PNG
+Admitted image inputs offer **Bake to asset**. Apply encodes one PNG
 that preserves source RGB even under transparent pixels and writes the inverted
 mask in alpha. After `/api/assets` accepts the bytes, the editor creates a
 complete AssetRef and dispatches exactly one `image.applyAsset`. The command
@@ -1234,12 +1270,11 @@ source visible. A rejected command, deleted or changed destination, tab close
 during upload, or Cancel does not claim success or write the document.
 
 The editor remains a flat source plus mask operations. It does not define a
-layer stack or general operation-stack document. Graph persistence is limited
-to the published mask-paint recipe; other targets flatten to one AssetRef.
+layer stack or general operation-stack document. Applying flattens the local
+edits to one AssetRef. Graph-native mask recipes are parked in [the rework queue](rework-queue.md#mask-paint-applied-to-the-graph).
 The inspected before/after and mask-tool frames are under
 `dinkster-evidence/frontend/issue-310/`; pen/touch navigation frames are under
-`dinkster-evidence/frontend/issue-280/`; graph-native mask apply is under
-`dinkster-evidence/frontend/issue-400/`. The physical Huion Kamvas Pro 24 report and paired
+`dinkster-evidence/frontend/issue-280/`. The physical Huion Kamvas Pro 24 report and paired
 screenshots in that folder record pressure-responsive width and opacity,
 coalesced input, one-operation undo, capture-loss rollback, unchanged document
 revision, and the available pen capabilities. That device exposes no touch HID

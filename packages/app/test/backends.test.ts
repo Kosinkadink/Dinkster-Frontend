@@ -794,10 +794,10 @@ describe('backend protocols', () => {
     },
   )
 
-  it.each(['accepted', 'refused', 'lost', 'reused', 'disconnected', 'same-digest', 'ring', 'lost-release', 'reused-release'] as const)(
+  it.each(['accepted', 'refused', 'lost', 'reused', 'disconnected', 'same-digest', 'ring', 'batch', 'lost-release', 'reused-release'] as const)(
     'admits independent compositor preview generations and retires only replaced frames: %s', async (scenario) => {
       let receive: ((event: MessageEvent<unknown>) => void) | undefined
-      if (scenario === 'ring') {
+      if (scenario === 'ring' || scenario === 'batch') {
         app.dispose()
         app = prepareWorkflowApp(new AppState({ workspaceEvents: {
           postMessage() {}, addEventListener(_type, listener) { receive = listener },
@@ -838,6 +838,7 @@ describe('backend protocols', () => {
           kind: 'preview', execution: ref, timestamp, runtimeNodeId: nodeId,
           channel: 'application/vnd.dinkster.compositor-state+json', stream: 'compositor-state', payload: data,
           frameIndex: (timestamp - 1) % 2, frameCount: 2,
+          ...(scenario === 'ring' ? { fps: 16 } : {}),
         } } } as MessageEvent<unknown>)
         else backend.connection.ingest({ type: 'node_event', event: 'dinkster.compositor.state', jobId: ref.prompt,
           nodeId, data, timestamp })
@@ -864,7 +865,7 @@ describe('backend protocols', () => {
       expect(app.store.get(ref)?.previews.image?.['compositor-state']?.payload).toMatchObject({ documentDigest: digest('a') })
       expect(release).not.toHaveBeenCalled()
       if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
-      if (scenario === 'ring') {
+      if (scenario === 'ring' || scenario === 'batch') {
         deliver(preview('c'), 3)
         expect(requests).toHaveLength(2)
         replacement.accept()
@@ -875,8 +876,12 @@ describe('backend protocols', () => {
         expect(app.store.get(ref)?.status).toBe('running')
         requests[2]!.accept()
         await vi.waitFor(() => expect(app.store.get(ref)?.status).toBe('completed'))
-        await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(2))
-        expect(release.mock.calls).toEqual([[requests[0]!.receipt, 1], [requests[1]!.receipt, 1]])
+        await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(scenario === 'ring' ? 2 : 1))
+        expect(release.mock.calls).toEqual(scenario === 'ring'
+          ? [[requests[0]!.receipt, 1], [requests[1]!.receipt, 1]] : [[requests[0]!.receipt, 1]])
+        if (scenario === 'batch') {
+          expect(app.store.get(ref)?.previewRings?.image?.['compositor-state']?.frames[1]?.payload).toMatchObject({ documentDigest: digest('b') })
+        } else expect(app.store.get(ref)?.previewRings).toBeUndefined()
         expect(app.store.get(ref)?.previews.image?.['compositor-state']?.payload).toMatchObject({ documentDigest: digest('c') })
         return
       }

@@ -85,6 +85,13 @@ test('mounted Activity chrome localizes without changing raw events or reader st
   const seeded = [entries(3)[2]!, ...entries(32).slice(3)]
   await setEntries(page, seeded)
   await page.getByTestId('logs-toggle').click()
+  // Finish fixture persistence before freezing timers and measuring locale requests.
+  await page.evaluate(() => window.__dinksterTest!.app.flushPersistTabs())
+  await expect.poll(() => page.evaluate(() => {
+    const snapshot = JSON.parse(localStorage.getItem('dinkster.openTabs') ?? 'null')
+    return snapshot?.v === 1 &&
+      !Object.keys(localStorage).some((key) => key.startsWith('dinkster.openTabsCandidate.'))
+  })).toBe(true)
   await page.clock.install()
   await page.clock.pauseAt(new Date())
   const clearButton = page.getByTestId('logs-clear')

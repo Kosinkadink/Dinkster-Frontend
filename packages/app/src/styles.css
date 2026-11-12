@@ -9,7 +9,6 @@
 @import './styles/activity.css';
 @import './styles/boundary.css';
 @import './styles/backends.css';
-@import './styles/control-surfaces.css';
 @import './styles/library.css';
 @import './styles/shell.css';
 @import './styles/execution-log.css';
@@ -18,6 +17,11 @@
 @import './styles/collaboration.css';
 @import './styles/boot.css';
 @import './styles/image-editor.css';
+
+.banner-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 
 .project-folder-list {
   margin: 0;

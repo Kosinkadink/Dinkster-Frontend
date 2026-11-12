@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { auditLayout } from './ui-audit.js'
 import { evidencePath } from './evidence-output.js'
+import { nativeTest } from './fixtures.js'
 
 const GUIDE_DIGEST = `sha256:${'a'.repeat(64)}`
 const TEMPLATE_DOCUMENT = {
@@ -74,7 +75,7 @@ test('browses a fallback guide in place and opens its exact template', async ({ 
   await expect(panel.getByRole('button', { name: /Map and Gather/ })).toBeVisible()
   await search.fill('map')
   await search.press('Enter')
-  await expect.poll(() => docsRequests.length).toBe(2)
+  await expect.poll(() => docsRequests.filter((query) => new URLSearchParams(query).get('limit') === '50').length).toBe(2)
   await expect(search).toBeFocused()
   await search.hover()
   await expect(page.getByTestId('app-tooltip')).not.toBeVisible()
@@ -110,4 +111,42 @@ test('browses a fallback guide in place and opens its exact template', async ({ 
   await expect.poll(() => templateRequests.length).toBe(1)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.lineage)).toBe('guide-template')
   expect(nodeRequests).toBe(requestsBeforeLocaleChange.nodes)
+})
+
+nativeTest('Learn appears for a real pack guide and reads its immutable page', async ({ page }, testInfo) => {
+  const guideBackend = process.env['DINKSTER_E2E_GUIDE_BACKEND'] ?? process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
+  const catalog = await page.request.get(`${guideBackend}/api/docs?kind=guide&pack=guide-fixture`)
+  expect(catalog.ok()).toBe(true)
+  expect((await catalog.json()).docs).toEqual([expect.objectContaining({
+    pack: 'guide-fixture', kind: 'guide', id: 'read-a-guide',
+  })])
+  await page.route('/api/docs?*', (route) => route.fulfill({ json: { docs: [] } }))
+  await page.goto('/')
+  await page.waitForFunction(() => window.__dinksterTest?.app.backends.get()[0]?.schemaState.get().status === 'ready')
+  await expect(page.getByTestId('learn-toggle')).toHaveCount(0)
+  const backendId = await page.evaluate((url) => {
+    const backend = window.__dinksterTest!.app.addBackend(url, 'Guide server', true, 'dinkster', false)
+    if (!backend) throw new Error('Guide server was not added')
+    return backend.id
+  }, guideBackend)
+  await expect(page.getByTestId('learn-toggle')).toBeVisible()
+  await page.getByTestId('learn-toggle').click()
+  const panel = page.getByTestId('learn-panel')
+  await expect(panel.getByRole('button', { name: /Read a guide/ })).toBeVisible()
+  await panel.getByRole('button', { name: /Read a guide/ }).click()
+  await expect(panel.locator('article')).toContainText('Guides come from connected packs.')
+  await expect(panel.locator('article')).toHaveAttribute('lang', 'en')
+  expect(await auditLayout(page, '[data-testid="learn-panel"]')).toEqual([])
+  const path = testInfo.outputPath('learn-real-guide.png')
+  await page.screenshot({ path, animations: 'disabled' })
+  await testInfo.attach('Learn reading a real pack guide', { path, contentType: 'image/png' })
+  await page.evaluate((id) => {
+    const connection = window.__dinksterTest!.app.backends.get().find((backend) => backend.id === id)!.connection as unknown as { disconnect(): void }
+    connection.disconnect()
+  }, backendId)
+  await expect(page.getByTestId('learn-toggle')).toHaveCount(0)
+  await expect(panel).toHaveCount(0)
+  const disconnected = testInfo.outputPath('learn-no-connected-guide.png')
+  await page.screenshot({ path: disconnected, animations: 'disabled' })
+  await testInfo.attach('Learn hidden without a connected guide', { path: disconnected, contentType: 'image/png' })
 })

@@ -39,6 +39,39 @@ function recordingBuilder() {
   return { ops, builder }
 }
 
+describe('BOUNDING_BOX values', () => {
+  it('registers pixel regions without accepting invalid crop dimensions', () => {
+    const r = registry()
+    const kind = r.kind('BOUNDING_BOX')!
+    const declaration = spec('BOUNDING_BOX', {}, { x: 3, y: 7, width: 91, height: 23 })
+    expect(kind.defaultValue(declaration)).toEqual({ x: 3, y: 7, width: 91, height: 23 })
+    expect(kind.validate({ x: 3, y: 7, width: 91, height: 23 }, declaration)).toEqual([])
+    for (const value of [null, {}, { x: 0, y: 0, width: Infinity, height: 1 }]) expect(kind.valueSchema.validate(value)).toBe(false)
+    for (const value of [
+      { x: -1, y: 0, width: 1, height: 1 },
+      { x: 0, y: 0.5, width: 1, height: 1 },
+      { x: 0, y: 0, width: 0, height: 1 },
+      { x: 0, y: 0, width: 1, height: -1 },
+    ]) expect(kind.validate(value, declaration)).not.toEqual([])
+    expect(r.viewsFor('BOUNDING_BOX').map((view) => view.id)).toContain('core.boundingBox')
+  })
+})
+
+describe('CAMERA_ANGLE_VIEW values', () => {
+  it('registers a presentation string with an editable compact row, not camera parameters', () => {
+    const r = registry()
+    const kind = r.kind('CAMERA_ANGLE_VIEW')!
+    const s = spec('CAMERA_ANGLE_VIEW')
+    expect(kind.defaultValue(s)).toBe('')
+    expect(kind.valueSchema.validate('')).toBe(true)
+    expect(kind.valueSchema.validate({ horizontal_angle: 90 })).toBe(false)
+    const view = r.viewsFor('CAMERA_ANGLE_VIEW').find((entry) => entry.id === kind.defaultView(s))!
+    const { builder, ops } = recordingBuilder()
+    view.drawCompact(builder, '', s, { focused: false, connected: false, readonly: false })
+    expect(ops.filter((op) => op.op === 'hitRegion')).toHaveLength(1)
+  })
+})
+
 describe('MOUNT values', () => {
   it('preserves scalar mount ids and the null default through the public registry', () => {
     const kind = registry().kind('MOUNT')!

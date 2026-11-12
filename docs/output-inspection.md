@@ -29,6 +29,8 @@ owner removal and successful media availability.
 Opening a card or the canvas output pager uses the same read-only modal. Single
 mode retains previous/next and Arrow-key paging plus fit, 100%, and 25%-400%
 zoom. Grid mode shows the selected item with `aria-pressed` and visible text.
+Canvas viewer mode, grid page, and comparison selections survive backend
+metadata and schema refreshes while the same output remains selected.
 Escape, Close, and backdrop dismissal restore the rail card or canvas pager
 focus. Inventory replacement closes a stale viewer; a shrinking inventory
 clamps its selected index. Narrow and browser CSS-zoom layouts keep the media

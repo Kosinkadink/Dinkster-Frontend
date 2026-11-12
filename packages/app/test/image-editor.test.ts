@@ -4,54 +4,14 @@ import {
   appendImageEditOperation,
   createImageSession,
   imageInputCandidates,
-  maskPaintOperationsJson,
   projectImageMask,
   redoImageEdit,
-  restoreMaskPaintSession,
   undoImageEdit,
 } from '../src/image-editor.js'
 import { applyMaskToRgba, maskFromRgba } from '../src/image-mask-tool.js'
 import { decodePng, encodePng } from '../src/image-png.js'
 
 describe('image editor mask capability', () => {
-  it('round-trips the strict cumulative mask-paint recipe without local pointer fields', () => {
-    const source = { width: 2, height: 1, rgba: new Uint8ClampedArray(8) }
-    const digest = `blake3:${'a'.repeat(64)}`
-    const edited = appendImageEditOperation(createImageSession(source), {
-      kind: 'mask.stroke', mode: 'paint', size: 12.5, hardness: 0.75,
-      points: [{ x: 0.5, y: 0.5, pressure: 0.8, time: 10, tiltX: 2, tiltY: 3, twist: 4 }],
-    })
-    const value = maskPaintOperationsJson(edited, digest)
-    expect(JSON.parse(value)).toEqual({
-      version: 1, sourceDigest: digest, width: 2, height: 1,
-      commands: [{ op: 'stroke', mode: 'paint', size: 12.5, hardness: 0.75, points: [{ x: 0.5, y: 0.5, pressure: 0.8 }] }],
-    })
-    const restored = restoreMaskPaintSession(createImageSession(source), value, digest)
-    expect(restored.index).toBe(0)
-    expect(maskPaintOperationsJson(restored, digest)).toBe(value)
-  })
-
-  it('refuses stale, malformed, dimension-mismatched, and unknown mask-paint recipes', () => {
-    const base = createImageSession({ width: 2, height: 1, rgba: new Uint8ClampedArray(8) })
-    const digest = `blake3:${'a'.repeat(64)}`
-    const valid = { version: 1, sourceDigest: digest, width: 2, height: 1, commands: [] }
-    const validJson = JSON.stringify(valid)
-    for (const value of [
-      '{',
-      JSON.stringify({ ...valid, sourceDigest: `blake3:${'b'.repeat(64)}` }),
-      JSON.stringify({ ...valid, width: 3 }),
-      JSON.stringify({ ...valid, extra: true }),
-      JSON.stringify({ ...valid, commands: [{ op: 'stroke', mode: 'paint', size: 1, hardness: 1, points: [] }] }),
-      `{"version":1,"\\u0076ersion":1,"sourceDigest":"${digest}","width":2,"height":1,"commands":[]}`,
-      `{"version":1,"sourceDigest":"${digest}","width":2,"height":1,"commands":[{"op":"stroke","mode":"paint","size":1,"hardness":1,"points":[{"x":0.5,"x":0.5,"y":0.5,"pressure":1}]}]}`,
-      `${validJson}${' '.repeat(4_194_305)}`,
-      validJson.replace('"version":1', '"version":1.0'),
-      validJson.replace('"version":1', '"version":1e0'),
-      validJson.replace('"width":2', '"width":2.0'),
-      validJson.replace('"height":1', '"height":1e0'),
-    ]) expect(() => restoreMaskPaintSession(base, value, digest)).toThrow()
-  })
-
   it('decodes a standard filtered RGBA fixture', async () => {
     const bytes = Uint8Array.from(Buffer.from('89504e470d0a1a0a0000000d494844520000000200000002080600000072b60d240000001549444154789c63f8cfc0f01f0841e07ffd7f2000003d5208780421d8850000000049454e44ae426082', 'hex'))
     const decoded = await decodePng(bytes)

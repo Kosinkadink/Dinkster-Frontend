@@ -1,0 +1,14 @@
+.widget-editor-popover.image-compare-editor {
+  width: min(520px, calc(100% - 8px));
+  overflow-y: auto;
+}
+.image-compare-preview {
+  display: none;
+  width: 100%;
+  max-height: min(240px, 30vh);
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: var(--dinkster-surface-canvas);
+}
+.image-compare-preview.is-ready { display: block; }
+.image-compare-editor .product-slider.disabled { opacity: 0.45; }

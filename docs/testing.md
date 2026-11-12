@@ -83,9 +83,24 @@ loader's `IMAGE` output to the saver's `images` input; upload byte equality,
 canonical asset references, export/reopen and completed execution remain
 required.
 
+The hosted guide backend composes only `packages/e2e/fixtures/guide-pack`,
+a node-free pack with one guide, in a separate library. Its port defaults to
+the native backend port plus two (`DINKSTER_E2E_GUIDE_PORT` overrides it).
+`DINKSTER_E2E_GUIDE_BACKEND` identifies it to `guide-browsing.spec.ts`, which
+checks Learn with an empty primary guide catalog, reads the second backend's
+real immutable page, and withdraws Learn when that server disconnects. The
+shared native catalog excludes test-only guide packs so its exact digest
+continues to describe the pinned default packs and dev pack.
+
 The App View queue fixture creates its submission-release promise before the
 request handler runs, so observing Submitting can release either an already
 waiting request or one that arrives afterward without losing the release.
+
+The Activity, Extensions and Media locale proofs flush fixture persistence and
+wait for a committed version-1 snapshot with no pending workspace candidates
+before recording request baselines. Document recovery slots remain available
+after a commit and are not pending workspace writes. The locale assertions
+still count every backend request.
 
 Screenshots use the product's bundled fonts, including canvas text, without
 test-only font injection or host font configuration. Baseline paths are shared

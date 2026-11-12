@@ -1,18 +1,15 @@
 // @vitest-environment happy-dom
 
-import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory as FakeIDBFactory, IDBObjectStore as FakeIDBObjectStore } from 'fake-indexeddb'
-import { DinksterValuesClient, IMAGE_DOCUMENT_MEDIA_TYPE, type DinksterConnection, type LibraryRecord, type RetainedAssetOwner, type RetainedAssetDeclaration } from '@dinkster/client'
+import { IMAGE_DOCUMENT_MEDIA_TYPE, type DinksterConnection, type LibraryRecord, type RetainedAssetOwner, type RetainedAssetDeclaration } from '@dinkster/client'
 import {
   COLLAB_PROTOCOL_VERSION,
   IMAGE_OPACITY_MAX,
-  canonicalJson,
   registerCatalog,
   setLocale,
   serializeImageDocument,
-  sha256Hex,
   type CollabClientOp,
   type CollabConnection,
   type CollabConnectionEvent,
@@ -27,8 +24,6 @@ import type { CollabTransport } from '../src/collab.js'
 import { ImageDocumentWorkspace } from '../src/ImageDocumentWorkspace.js'
 import { ImageDocumentLocalStore, imageDocumentDigest, importSingleRaster } from '../src/image-document-local.js'
 import { activeProjectId, initializeProjectScope } from '../src/projects.js'
-import { RetainedAssetReader } from '../src/workflow-asset-retention.js'
-import type { GraphImageDocumentRequest } from '../src/image-document-graph.js'
 
 const rgba = new Uint8ClampedArray([
   255, 0, 0, 255,
@@ -215,183 +210,6 @@ describe('ImageDocumentWorkspace', () => {
       )
       if (scenario !== 'dispose') dispose()
       await store.close()
-    },
-  )
-
-  it.each(['accepted', 'failed', 'project', 'backend', 'connection', 'dispose', 'project-failed', 'preflight-project', 'preflight-backend', 'preflight-tab'])(
-    'keeps recipe export with its original workspace and source graph (%s)', async (outcome) => {
-      vi.stubGlobal('indexedDB', new FakeIDBFactory())
-      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
-      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:recipe-source')
-      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
-      const source = new ImageDocumentLocalStore('recipe-source', new FakeIDBFactory())
-      const seed = await importSingleRaster(new File(['source'], 'Recipe.png', { type: 'image/png' }), source,
-        { lineage: 'recipe-export-owner', normalize: async () => ({ width: 2, height: 1, rgba }) })
-      const resource = Object.values(seed.document.resources)[0]!
-      const staged = (await source.getResource(resource.digest))!
-      const text = serializeImageDocument(seed.document)
-      const digest = imageDocumentDigest(new TextEncoder().encode(text))
-      await source.close()
-      const inspect = new ImageDocumentLocalStore(activeProjectId())
-      const dependencies = [{ resourceId: resource.id, ...resource }]
-      const connection = {
-        ...imageRetention,
-        id: 'recipe-owner', assetUrl: () => 'http://recipe.test/resource',
-        values: () => ({
-          peek: async () => ({ available: true, descriptor: { typeId: 'dinkster.layers', fingerprint: 'recipe-value' },
-            renditions: [{ kind: 'document', mime: IMAGE_DOCUMENT_MEDIA_TYPE }] }),
-          rendition: async () => ({ available: true, bytes: new TextEncoder().encode(text).buffer,
-            fingerprint: 'recipe-value', typeId: 'dinkster.layers', reportedKind: 'document', mime: IMAGE_DOCUMENT_MEDIA_TYPE }),
-          read: async (_query: unknown, _descriptor: unknown, action: () => Promise<unknown>) => action(),
-        }),
-        adoptImageDocument: async () => ({ digest, mediaType: IMAGE_DOCUMENT_MEDIA_TYPE,
-          byteSize: new TextEncoder().encode(text).byteLength, dependencies }),
-        renderImageDocument: async () => ({ cacheKey: digest, cached: false,
-          asset: { digest: resource.digest, size: staged.bytes.byteLength, mediaType: 'image/png', name: 'render.png', virtualPath: '' },
-          provenance: { documentDigest: digest, selector: 'composite', profile: 'dinkster-image-document-v2-cpu-reference',
-            rendererContract: 'test-renderer', encoding: 'image/png;dinkster-canonical=1',
-            source: { digest, mediaType: IMAGE_DOCUMENT_MEDIA_TYPE, dependencies },
-            output: { digest: resource.digest, byteSize: staged.bytes.byteLength, mediaType: 'image/png', width: 2, height: 1,
-              encoding: 'image/png;dinkster-canonical=1' } } }),
-        fetchAssetBytes: async () => Uint8Array.from(staged.bytes).buffer,
-        retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) =>
-          ({ ...owner, ...declaration, revision: declaration.revision + 1 }),
-        releaseRetainedAssets: async (owner: RetainedAssetOwner, revision: number) =>
-          ({ ...owner, revision: revision + 1, complete: true, digests: [] }),
-      } as unknown as DinksterConnection
-      let backend = { id: 'recipe-owner', protocol: 'dinkster', connection }
-      const graph = { id: 'g0', nodes: {}, links: {} }
-      const tab = { id: 'source-tab', graphStack: { get: () => [] }, store: { doc: { root: 'g0', graphs: { g0: graph } } } }
-      let selected: typeof tab | undefined = tab
-      const request = { connectionId: 'recipe-owner', query: { jobId: 'job', nodeId: 'producer', outputId: 'layers' },
-        sourceTabId: tab.id, graphId: 'g0', sourceNodeId: 'producer', sourceOutputId: 'layers',
-        expectedGraphFingerprint: sha256Hex(canonicalJson(graph)) } as GraphImageDocumentRequest
-      const [graphRequest, setGraphRequest] = createSignal<GraphImageDocumentRequest | undefined>(request)
-      let finish!: () => void
-      let fail!: (cause: Error) => void
-      const held = new Promise<void>((resolve, reject) => { finish = resolve; fail = reject })
-      let entered = false
-      const exported: string[] = []
-      const status = vi.fn()
-      const app = { activeTab: () => selected, backendForTab: () => backend, backendFor: () => backend, libraryBackend: () => undefined,
-        dispatchRetainedTo: async (_tab: unknown, invocation: { params: { commands: string } }, current: () => boolean) => {
-          entered = true; await held
-          if (!current()) return { ok: false, diagnostics: [] }
-          exported.push(invocation.params.commands)
-          return { ok: true }
-        }, showTransientStatus: status } as unknown as AppState
-      const close = ImageDocumentLocalStore.prototype.close
-      let closed = false
-      vi.spyOn(ImageDocumentLocalStore.prototype, 'close').mockImplementation(async function (this: ImageDocumentLocalStore) {
-        if (this !== inspect) closed = true
-        await close.call(this)
-      })
-      const root = document.createElement('div')
-      document.body.append(root)
-      let busy = false
-      const dispose = render(() => <ImageDocumentWorkspace active app={app} graphRequest={graphRequest()}
-        onGraphRequestHandled={() => setGraphRequest(undefined)} onBusyChange={(value) => { busy = value }} onClose={() => undefined} />, root)
-      try {
-        await vi.waitFor(() => expect(root.querySelector('[role="tab"]')?.textContent).toBe('producer / layers'))
-        await vi.waitFor(() => expect(busy).toBe(false))
-        ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Export editable recipe')!.click()
-        if (!outcome.startsWith('preflight-')) await vi.waitFor(() => expect(entered).toBe(true))
-        const busyWhilePending = busy
-        if (outcome.includes('project')) initializeProjectScope('other-project')
-        if (outcome.includes('backend')) backend = { ...backend }
-        if (outcome.includes('connection')) backend.connection = {} as DinksterConnection
-        if (outcome.includes('tab')) selected = undefined
-        if (outcome.includes('dispose')) { dispose(); await inspect.recoverDrafts(); expect(closed).toBe(false) }
-        if (outcome.endsWith('failed')) fail(new Error('Recipe unavailable'))
-        else finish()
-        if (outcome.includes('dispose')) await vi.waitFor(() => expect(closed).toBe(true))
-        else await vi.waitFor(() => expect(busy).toBe(false))
-        expect(busyWhilePending).toBe(true)
-        expect(exported).toEqual(outcome === 'accepted' ? ['[]'] : [])
-        expect(status.mock.calls.length).toBe(outcome === 'accepted' ? 1 : 0)
-        expect(root.textContent?.includes('Recipe unavailable')).toBe(outcome === 'failed')
-        if (outcome.startsWith('preflight-')) expect(entered).toBe(false)
-      } finally { finish(); dispose() }
-      await vi.waitFor(() => expect(closed).toBe(true))
-      await inspect.close()
-    },
-  )
-
-  it.each(['accepted', 'failed', 'project', 'backend', 'connection', 'dispose', 'project-failed', 'dispatch-project', 'dispatch-connection', 'dispatch-dispose', 'preflight-tab', 'preflight-project', 'preflight-backend'])(
-    'keeps snapshot export with its original source and destination (%s)', async (outcome) => {
-      vi.stubGlobal('indexedDB', new FakeIDBFactory())
-      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
-      const inspect = new ImageDocumentLocalStore(activeProjectId())
-      const seed = await importSingleRaster(new File(['source'], 'Export source.png', { type: 'image/png' }), inspect,
-        { lineage: 'export-owner', normalize: async () => ({ width: 2, height: 1, rgba }) })
-      const resource = Object.values(seed.document.resources)[0]!
-      const dependencies = [{ resourceId: resource.id, digest: resource.digest, byteSize: resource.byteSize,
-        mediaType: resource.mediaType, width: resource.width, height: resource.height,
-        colorSpace: resource.colorSpace, channelDepth: resource.channelDepth, alphaMode: resource.alphaMode }]
-      let finish!: () => void
-      let fail!: (cause: Error) => void
-      const held = new Promise<void>((resolve, reject) => { finish = resolve; fail = reject })
-      let entered = false
-      let adopted = false
-      const pause = async (): Promise<void> => { entered = true; await held }
-      const connection = {
-        ...imageRetention,
-        uploadMediaAsset: async () => ({ digest: resource.digest, size: resource.byteSize, mediaType: resource.mediaType }),
-        adoptImageDocument: async (bytes: Uint8Array) => {
-          adopted = true
-          if (!outcome.startsWith('dispatch-')) await pause()
-          return { digest: imageDocumentDigest(bytes), mediaType: IMAGE_DOCUMENT_MEDIA_TYPE, byteSize: bytes.byteLength, dependencies }
-        },
-      } as unknown as DinksterConnection
-      let backend = { protocol: 'dinkster', connection }
-      const tab = { graphStack: { get: () => [] }, store: { doc: { root: 'g0', graphs: { g0: { id: 'g0', nodes: {}, links: {} } } } } }
-      let selected: typeof tab | undefined = tab
-      const exported: { graphId: string; asset: { name: string } }[] = []
-      const status = vi.fn()
-      const app = {
-        activeTab: () => selected, libraryBackend: () => backend, backendForTab: () => backend,
-        registryForTab: () => ({ resolve: { forEditorRole: () => ({}) } }),
-        dispatchRetainedTo: async (_tab: unknown, invocation: { params: { graphId: string; asset: { name: string } } }, current: () => boolean) => {
-          if (outcome.startsWith('dispatch-')) await pause()
-          if (!current()) return { ok: false, diagnostics: [] }
-          exported.push(invocation.params)
-          return { ok: true }
-        },
-        showTransientStatus: status,
-      } as unknown as AppState
-      const close = ImageDocumentLocalStore.prototype.close
-      let closed = false
-      vi.spyOn(ImageDocumentLocalStore.prototype, 'close').mockImplementation(async function (this: ImageDocumentLocalStore) {
-        if (this !== inspect) closed = true
-        await close.call(this)
-      })
-      const root = document.createElement('div')
-      document.body.append(root)
-      let busy = false
-      const dispose = render(() => <ImageDocumentWorkspace active app={app}
-        onBusyChange={(value) => { busy = value }} onClose={() => undefined} />, root)
-      try {
-        await vi.waitFor(() => expect(root.querySelector('[role="tab"]')?.textContent).toBe('Export source'))
-        ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Export snapshot to graph')!.click()
-        if (!outcome.startsWith('preflight-')) await vi.waitFor(() => expect(entered).toBe(true))
-        const busyWhilePending = busy
-        if (outcome.includes('project')) initializeProjectScope('other-project')
-        if (outcome.includes('backend')) backend = { ...backend }
-        if (outcome.includes('connection')) backend.connection = {} as DinksterConnection
-        if (outcome.includes('tab')) selected = undefined
-        if (outcome.includes('dispose')) { dispose(); await inspect.recoverDrafts(); expect(closed).toBe(false) }
-        if (outcome.endsWith('failed')) fail(new Error('Export unavailable'))
-        else finish()
-        if (outcome.includes('dispose')) await vi.waitFor(() => expect(closed).toBe(true))
-        else await vi.waitFor(() => expect(busy).toBe(false))
-        expect(busyWhilePending).toBe(true)
-        expect(exported.map((value) => [value.graphId, value.asset.name])).toEqual(outcome === 'accepted' ? [['g0', 'Export source.dinkster-image']] : [])
-        expect(status.mock.calls.length).toBe(outcome === 'accepted' ? 1 : 0)
-        expect(root.textContent?.includes('Export unavailable')).toBe(outcome === 'failed')
-        if (outcome.startsWith('preflight-')) expect(adopted).toBe(false)
-      } finally { finish(); dispose() }
-      await vi.waitFor(() => expect(closed).toBe(true))
-      await inspect.close()
     },
   )
 
@@ -1345,121 +1163,6 @@ describe('ImageDocumentWorkspace', () => {
         dispose()
       }
       if (!outcome.includes('failed')) await vi.waitFor(() => expect(released).toBe(true))
-      await inspect.close()
-    },
-  )
-
-  it.each(['accepted', 'cancelled', 'replaced', 'backend', 'connection', 'project', 'dispose', 'dispose-bytes', 'replaced-dispose', 'failed'])(
-    'settles a graph open without stale publication or local writes (%s)', async (outcome) => {
-      const source = new ImageDocumentLocalStore('graph-source', new FakeIDBFactory())
-      const seed = await importSingleRaster(new File(['source'], 'Graph source.png', { type: 'image/png' }), source,
-        { lineage: 'graph-workspace-open', normalize: async () => ({ width: 2, height: 1, rgba }) })
-      const resource = Object.values(seed.document.resources)[0]!
-      const staged = (await source.getResource(resource.digest))!
-      const text = serializeImageDocument(seed.document)
-      const digest = imageDocumentDigest(new TextEncoder().encode(text))
-      await source.close()
-      vi.stubGlobal('indexedDB', new FakeIDBFactory())
-      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
-      const inspect = new ImageDocumentLocalStore(activeProjectId())
-      let finish!: () => void
-      let fail!: (error: Error) => void
-      const rendering = new Promise<void>((resolve, reject) => { finish = resolve; fail = reject })
-      let entered = false
-      let settled = false
-      let fetches = 0
-      const holdBytes = outcome === 'dispose-bytes' || outcome === 'replaced-dispose'
-      const dependencies = [{ resourceId: resource.id, ...resource }]
-      const connection = {
-        ...imageRetention,
-        id: 'graph-owner', assetUrl: (value: string) => `http://graph.test/${value}`,
-        adoptImageDocument: async () => ({ digest, mediaType: IMAGE_DOCUMENT_MEDIA_TYPE,
-          byteSize: new TextEncoder().encode(text).byteLength, dependencies }),
-        renderImageDocument: async () => {
-          if (!holdBytes) { entered = true; await rendering }
-          return { cacheKey: digest, cached: false,
-            asset: { digest: resource.digest, size: staged.bytes.byteLength, mediaType: 'image/png', name: 'render.png', virtualPath: '' },
-            provenance: { documentDigest: digest, selector: 'composite', profile: 'dinkster-image-document-v2-cpu-reference',
-              rendererContract: 'test-renderer', encoding: 'image/png;dinkster-canonical=1',
-              source: { digest, mediaType: IMAGE_DOCUMENT_MEDIA_TYPE, dependencies },
-              output: { digest: resource.digest, byteSize: staged.bytes.byteLength, mediaType: 'image/png',
-                width: 2, height: 1, encoding: 'image/png;dinkster-canonical=1' } },
-          }
-        },
-        fetchAssetBytes: async () => {
-          fetches += 1
-          if (holdBytes && fetches === 1) { entered = true; await rendering }
-          return Uint8Array.from(staged.bytes).buffer
-        },
-        retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) =>
-          ({ ...owner, ...declaration, revision: declaration.revision + 1 }),
-        releaseRetainedAssets: async (owner: RetainedAssetOwner, revision: number) =>
-          ({ ...owner, revision: revision + 1, complete: true, digests: [] }),
-      }
-      const reader = new RetainedAssetReader(connection as unknown as DinksterConnection, {
-        scope: 'local', ownerKind: 'shown-result', ownerId: 'graph-owner', revision: 1, complete: false, digests: [],
-      }, () => true)
-      const values = new DinksterValuesClient({ baseUrl: 'http://graph.test', clientId: 'graph-open',
-        admitPeek: async () => reader,
-        fetchFn: async (url) => new URL(url).searchParams.has('rendition')
-          ? new Response(text, { headers: { 'Content-Type': IMAGE_DOCUMENT_MEDIA_TYPE,
-            'X-Dinkster-Type-Id': 'dinkster.layers', 'X-Dinkster-Fingerprint': 'graph-value', 'X-Dinkster-Rendition': 'document' } })
-          : new Response(JSON.stringify({ available: true, descriptor: { typeId: 'dinkster.layers', fingerprint: 'graph-value' },
-            renditions: [{ kind: 'document', mime: IMAGE_DOCUMENT_MEDIA_TYPE }] }), { headers: { 'Content-Type': 'application/json' } }),
-      })
-      const ownedConnection = { ...connection, values: () => ({
-        peek: values.peek.bind(values), rendition: values.rendition.bind(values),
-        read: async (...args: Parameters<typeof values.read>) => {
-          try { return await values.read(...args) } finally { settled = true }
-        },
-      }) } as unknown as DinksterConnection
-      let backend = { protocol: 'dinkster', id: 'graph-owner', connection: ownedConnection }
-      const request = { connectionId: 'graph-owner', query: { jobId: 'job', nodeId: 'producer', outputId: 'layers' },
-        sourceTabId: 'tab', graphId: 'graph', sourceNodeId: 'producer', sourceOutputId: 'layers',
-        expectedGraphFingerprint: 'graph' } as GraphImageDocumentRequest
-      const [graphRequest, setGraphRequest] = createSignal<GraphImageDocumentRequest | undefined>(request)
-      const app = { backendFor: () => backend, libraryBackend: () => undefined,
-        showTransientStatus: vi.fn() } as unknown as AppState
-      const handled = vi.fn()
-      const root = document.createElement('div')
-      document.body.append(root)
-      let busy = false
-      const dispose = render(() => <ImageDocumentWorkspace active app={app} graphRequest={graphRequest()}
-        onGraphRequestHandled={handled} onBusyChange={(value) => { busy = value }} onClose={() => undefined} />, root)
-      await vi.waitFor(() => expect(entered).toBe(true))
-      if (outcome === 'cancelled') setGraphRequest(undefined)
-      if (outcome === 'replaced' || outcome === 'replaced-dispose') {
-        setGraphRequest({ ...request, query: { ...request.query, nodeId: 'replacement' } })
-        if (outcome === 'replaced-dispose') {
-          await vi.waitFor(() => expect(root.querySelector('[role="tab"]')?.textContent).toBe('replacement / layers'))
-          expect(busy).toBe(true)
-          dispose()
-        }
-      }
-      if (outcome === 'backend') backend = { ...backend }
-      if (outcome === 'connection') backend.connection = {} as DinksterConnection
-      if (outcome === 'project') initializeProjectScope('other-project')
-      if (outcome === 'dispose' || outcome === 'dispose-bytes') dispose()
-      if (outcome === 'failed') fail(new Error('Reference render failed'))
-      else finish()
-      await vi.waitFor(() => expect(settled).toBe(true))
-      await vi.waitFor(() => expect(busy).toBe(false))
-      if (outcome === 'accepted' || outcome === 'replaced' || outcome === 'replaced-dispose') {
-        const name = outcome.startsWith('replaced') ? 'replacement / layers' : 'producer / layers'
-        if (outcome !== 'replaced-dispose') await vi.waitFor(() => expect(root.querySelector('[role="tab"]')?.textContent).toBe(name))
-        expect((await inspect.recoverDraft(seed.document.lineage))?.name).toBe(name)
-        expect((await inspect.getResource(resource.digest))?.bytes).toEqual(staged.bytes)
-      } else {
-        expect(root.querySelector('[role="tab"]')).toBeNull()
-        expect(await inspect.recoverDraft(seed.document.lineage)).toBeUndefined()
-        expect(await inspect.getResource(resource.digest)).toBeUndefined()
-        expect(root.querySelector('[role="alert"]')?.textContent ?? '').toBe(
-          outcome === 'failed' ? 'Graph layers could not be opened: Reference render failed' : '',
-        )
-      }
-      await vi.waitFor(async () => expect(await inspect.resourceReads()).toEqual([]))
-      if (!['dispose', 'dispose-bytes', 'replaced-dispose'].includes(outcome)) dispose()
-      await reader.close()
       await inspect.close()
     },
   )

@@ -100,33 +100,8 @@ remain separate environment-gated evidence lanes.
 
 ## Video document commands
 
-Every authored text input on `dinkster.video_document.*` opens a command-specific
-video document editor. It covers document creation, clip and track insertion,
-effects, transitions, retiming and freeze frames, audio mixing, split/move/trim,
-ripple/roll edits, source binding, and OTIO import. Canvas size and frame rate
-are creation parameters, and sampling is the retime scalar. The verified
-contract has no separate cap, resize, or pad command; `set_effect` preserves
-ordered effect payloads, but rendering may refuse effect node types the backend
-does not support. `render` and `export_otio` have no authored text input and
-retain their ordinary graph ports.
-
-Structured fields write the exact JSON string consumed by the node. Imported
-keys unknown to this frontend survive structured edits, while the Advanced JSON
-section can edit the complete object. Malformed objects and nested JSON remain
-unchanged and cannot be applied until repaired. Empty node defaults open as an
-empty object. OTIO import text is stored verbatim. Source and document links
-remain graph connections; the editor reports their status rather than copying
-runtime values into the parameters.
-
-Apply uses the normal undoable graph-value command, so compile, export, reopen,
-import, and execution use the same value as a hand-authored node. The command
-editor does not request timeline or media bytes. It adds no timeline endpoint
-and cannot fetch an original or unbounded preview; executed media continues to
-use only the existing advertised bounded rendition routes.
-
-`VideoDocumentEditor.dom.test.tsx` covers command completeness, unknown-key
-preservation, nested JSON validation, empty defaults, OTIO text, and typed VIDEO
-binding status. `video-document-editor.spec.ts` covers every editor state in
-Chromium, exact compiled values, save/reopen/import, undo/redo, no editor media
-requests, and equal native outputs for editor-authored and literal creation,
-every mutation, OTIO import/export, and render graphs.
+The command-specific video document form is parked because no served pack
+provides its nodes. Its kept branch, contracts and restoration checks are in
+[the rework queue](rework-queue.md#video-document-editor). Saved input values
+remain ordinary graph data and use the generic text/JSON editor. The video
+trim/crop widget described above remains available.

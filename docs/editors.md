@@ -109,12 +109,9 @@ pan, and zoom belong to its temporary edit session. The transient `image`
 projection is therefore omitted from tab persistence and cannot be restored
 after refresh.
 
-Mask edits can still become durable workflow behavior. When a native
-`dinkster.image.load_image` mask has graph consumers, **Apply mask to graph** records the
-session's brush recipe in a source-bound `dinkster.mask.paint` node and rewires
-only those consumers. **Bake to asset** remains the explicit replacement path
-for other eligible image inputs. The graph command validates the source asset,
-paint node, and mask topology before making one undoable change.
+**Bake to asset** encodes the edited mask into a PNG and replaces the eligible
+image input in one undoable change. The source asset is checked again before
+the replacement. Graph-native mask recipes are parked in [the rework queue](rework-queue.md#mask-paint-applied-to-the-graph).
 
 Mask source loading requires acknowledged workflow asset ownership before
 fetching. The read remains owned through the response body and PNG decode;

@@ -79,8 +79,7 @@ function AssetFacts(props: {
         <dt>{message('assets.fact.mediaType')}</dt><dd>{props.item.mediaType ?? message('assets.value.unknown')}</dd>
         <Show when={props.dimensions}>{(dimensions) => <><dt>{message('assets.fact.resolution')}</dt><dd>{dimensions().width} x {dimensions().height}</dd></>}</Show>
         <dt>{message('assets.fact.size')}</dt><dd>{formatSize(props.item.size)}</dd>
-        <dt>{message('assets.fact.source')}</dt><dd>{props.item.source.id === 'all-assets' ? message('assets.source.all')
-          : props.item.source.id === 'federated-assets' ? message('assets.source.federatedCatalog') : props.item.source.label}</dd>
+        <dt>{message('assets.fact.source')}</dt><dd>{props.item.source.id === 'all-assets' ? message('assets.source.all') : props.item.source.label}</dd>
         <Show when={props.item.source.id.startsWith('mount:')}><dt>{message('assets.fact.mount')}</dt><dd>{props.item.source.id.slice('mount:'.length)}</dd></Show>
         <dt>{message('assets.fact.virtualPath')}</dt><dd>{props.item.virtualPath ?? ''}</dd>
         <Show when={props.item.digest}>{(digest) => <><dt>{message('assets.fact.digest')}</dt><dd class="asset-digest"><DigestValue digest={digest()} /></dd></>}</Show>
@@ -226,7 +225,6 @@ export function AssetSelectionDetails(props: {
 /** The picker selection panel's facts for one staged model variant. */
 export function LogicalModelVariantFacts(props: {
   readonly detail: LogicalModelPickDetail
-  readonly acquisitionSupported: boolean
 }) {
   const message = useAppMessage()
   const variant = () => props.detail.variant
@@ -262,14 +260,10 @@ export function LogicalModelVariantFacts(props: {
           {message('assets.logicalModel.nameConflict')}
         </ProductNotice>
       </Show>
-      <Show when={variant().localRef === undefined && variant().availability === 'downloadable'}>
-        <div class="logical-model-download">
-          <div>
-            <strong>{message('assets.logicalModel.downloadUnavailable')}</strong>
-            <p>{message('assets.logicalModel.downloadUnsupported')}</p>
-          </div>
-          <button type="button" data-testid="logical-model-download" disabled={!props.acquisitionSupported}>{message('assets.logicalModel.download')}</button>
-        </div>
+      <Show when={variant().localRef === undefined}>
+        <ProductNotice tone="info" testId="logical-model-not-on-disk">
+          {message('assets.logicalModel.notOnDisk')}
+        </ProductNotice>
       </Show>
     </details>
   )

@@ -312,6 +312,15 @@ test('mounted Extensions management chrome localizes without changing extension 
   await categoryToggle.focus()
   const changedBeforeLocale = await page.evaluate(() =>
     (window.__dinksterTest!.app.extensions as unknown as { changed: { get(): number } }).changed.get())
+  // Opening the fixture and rail schedules persistence independently of locale.
+  await page.evaluate(() => window.__dinksterTest!.app.flushPersistTabs())
+  await expect.poll(() => page.evaluate(() => {
+    const snapshot = JSON.parse(localStorage.getItem('dinkster.openTabs') ?? 'null')
+    return snapshot?.assetRetention?.acknowledged === true &&
+      Object.keys(localStorage).filter((key) => key.startsWith('dinkster.openTabsCandidate.') ||
+        key.startsWith('dinkster.openTabsDocumentCandidate.')).every((key) =>
+        JSON.parse(localStorage.getItem(key) ?? 'null')?.assetRetention?.acknowledged === true)
+  })).toBe(true)
   const requestsBeforeLocale = backendRequests
   await page.screenshot({ path: evidencePath('issue-457', 'extensions-panel-i18n-en.png'), fullPage: true })
 

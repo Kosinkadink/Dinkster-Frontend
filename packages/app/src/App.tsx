@@ -5,8 +5,8 @@
 
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { BrandMark } from './BrandMark.js'
-import { activeLocale, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, resolveImportedNodePacks, sha256Hex, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup } from '@dinkster/core'
-import type { AssetDtoV1WireContract, ExecutionState } from '@dinkster/client'
+import { activeLocale, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup } from '@dinkster/core'
+import type { ExecutionState } from '@dinkster/client'
 import Database from 'lucide-solid/icons/database'
 import FolderOpen from 'lucide-solid/icons/folder-open'
 import HardDrive from 'lucide-solid/icons/hard-drive'
@@ -37,7 +37,6 @@ import { builtinEditorBindings, builtinEditorRoles } from './builtin-bindings.js
 import { AppView } from './AppView.js'
 import { ImageEditor } from './ImageEditor.js'
 import { ImageDocumentWorkspace } from './ImageDocumentWorkspace.js'
-import { isLayerDocumentType, type GraphImageDocumentRequest } from './image-document-graph.js'
 import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter } from './ProductForm.js'
@@ -45,7 +44,6 @@ import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
-import { SurfacePanel } from './SurfacePanel.js'
 import { TemplateGallery } from './TemplateGallery.js'
 import { useSignal } from './solid-adapter.js'
 import { comboFromEvent, isNativeTextScopeTarget, shortcutSuppressed, type CommandRegistry, type KeybindingRegistry } from './settings.js'
@@ -332,7 +330,6 @@ export function dispatchAppCommandKey(
 
 export function App(props: {
   app: AppState
-  federatedAssets?: AssetDtoV1WireContract
   desktopWindow?: { readonly context: DesktopWindowContext; readonly layout: DesktopWindowLayout }
 }) {
   const app = props.app
@@ -357,7 +354,6 @@ export function App(props: {
   const [imageDocumentsOpen, setImageDocumentsOpen] = createSolidSignal(false)
   const [imageDocumentsMounted, setImageDocumentsMounted] = createSolidSignal(false)
   const [imageDocumentsBusy, setImageDocumentsBusy] = createSolidSignal(false)
-  const [graphImageRequest, setGraphImageRequest] = createSolidSignal<GraphImageDocumentRequest>()
   const imageDocumentsActive = (): boolean => managedContext().kind === 'primary' && imageDocumentsOpen()
   const setImageDocumentsVisible = (visible: boolean): void => {
     if (visible) setImageDocumentsMounted(true)
@@ -461,10 +457,6 @@ export function App(props: {
   const searchShortcut = (): string | undefined => {
     settingsTick()
     return app.keybindings.combo('search.open')
-  }
-  const controlSurfacesEnabled = (): boolean => {
-    settingsTick()
-    return app.settings.get<boolean>('features.controlSurfaces.enabled')
   }
   const appViewEnabled = createMemo((): boolean => {
     settingsTick()
@@ -1289,7 +1281,6 @@ export function App(props: {
           backendId={String(backend.id)}
           baseUrl={backend.baseUrl}
           backendLabel={backend.label}
-          {...(props.federatedAssets ? { federatedContract: props.federatedAssets } : {})}
         /></BackendMetadataState>
       : <ProductEmptyState title={message('shell.backend.assetsRequireNative')} />
     }}
@@ -1364,11 +1355,7 @@ export function App(props: {
           <ProductEmptyState title="No execution selected" hint="Run this workflow or open a recorded execution to inspect its outputs." />
         </div>
       }>
-        {(exec) => <Outputs app={app} execution={exec()} onOpenLayers={(request) => {
-          if (imageDocumentsBusy()) return
-          setGraphImageRequest(request)
-          setImageDocumentsVisible(true)
-        }} />}
+        {(exec) => <Outputs app={app} execution={exec()} />}
       </Show>
       </BackendMetadataState>
     </div>
@@ -1419,6 +1406,13 @@ export function App(props: {
     const local = backend.baseUrl === '' || new URL(backend.baseUrl, window.location.href).origin === window.location.origin
     return backend.protocol === 'dinkster' && local ? backend.connection : undefined
   }
+  const learnBackend = createMemo<Backend | undefined>(() => {
+    backendsTick()
+    const available = (backend: Backend): boolean =>
+      backendConnectionStatus(backend) === 'connected' && backend.guidesAvailable.get()
+    const active = activeBackend()
+    return available(active) ? active : backends().find(available)
+  })
   const registerBuiltinPanel = (descriptor: import('./panels.js').PanelDescriptor): (() => void) =>
     app.frontendDoors.panel(descriptor.id, descriptor)
   const unregisterPanels = [
@@ -1432,12 +1426,12 @@ export function App(props: {
       id: 'learn', get title() { return message('learn.panel.title') }, icon: BookOpen,
       get description() { return message('learn.panel.description') }, get ariaLabel() { return message('learn.panel.ariaLabel') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 12,
+      when: () => learnBackend() !== undefined,
       toggleTestId: 'learn-toggle', component: () => {
-        const backend = activeBackend()
         return <LearnPanel
-          backend={backend.protocol === 'dinkster' ? { id: backend.id, connection: backend.connection } : undefined}
+          backend={learnBackend()}
           locale={locale().tag}
-          templatesEnabled={activeBackend().templatesEnabled.get()}
+          templatesEnabled={learnBackend()?.templatesEnabled.get() === true}
           onOpenTemplate={(pack, template, title, owner) => { void app.openTemplate(pack, template, title, owner) }}
         />
       },
@@ -1505,14 +1499,6 @@ export function App(props: {
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 40,
       indicator: boundaryIndicator,
       component: () => <BoundaryPanel app={app} />,
-    }),
-    // Control surfaces are parked in the rework queue (rgthree-like
-    // controls); hidden by default so they are not mistaken for a settled
-    // feature. See docs/rework-queue.md.
-    registerBuiltinPanel({
-      id: 'surfaces', get title() { return message('shell.panel.controlSurfaces.title') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 50,
-      when: controlSurfacesEnabled, component: () => <SurfacePanel app={app} />,
     }),
     // The Focused tab shows the focused entity and only its problems
     // (docs/problem-surfaces.md); the Problems tab remains the whole-document
@@ -1664,7 +1650,7 @@ export function App(props: {
       <div class="graph-editor-canvas">
         <CanvasHost app={app} tooltips={tooltips} occurrencePlanner={coreOccurrencePlanner}
           {...(editorProps.host !== undefined ? { host: editorProps.host } : {})}
-          {...(props.federatedAssets !== undefined ? { federatedAssets: props.federatedAssets } : {})} />
+          />
       </div>
       <Show when={activeBackend().templatesEnabled.get() && empty() && !galleryRequested()}>
         <ProductButton class="template-gallery-open" type="button" onClick={() => app.templateGalleryOpen.set(true)}>
@@ -2873,8 +2859,6 @@ export function App(props: {
               app={app}
               onBusyChange={setImageDocumentsBusy}
               onClose={() => setImageDocumentsVisible(false)}
-              graphRequest={graphImageRequest()}
-              onGraphRequestHandled={() => setGraphImageRequest(undefined)}
             />
           </Show>
         </main>
@@ -3073,7 +3057,7 @@ function outputIterationGroup(runtimeId: string, workflowLabel: string): { reado
   }
 }
 
-function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers: (request: GraphImageDocumentRequest) => void }) {
+function Outputs(props: { app: AppState; execution: ExecutionState }) {
   const message = useAppMessage()
   const backendTick = useSignal(props.app.backendsTick)
   const [viewerIndex, setViewerIndex] = createSolidSignal<number>()
@@ -3087,7 +3071,6 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
   }
   const outputIdentities = createMemo(() => {
     const media = new Set<string>()
-    const layers = new Set<string>()
     const outputs = [
       ...Object.entries(props.execution.outputs),
       ...Object.entries(props.execution.nodes).map(([nodeId, progress]) => [nodeId, progress.outputs ?? {}] as const),
@@ -3097,10 +3080,9 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
           typeof descriptor.typeId === 'string') {
         const identity = JSON.stringify([nodeId, outputId])
         if (mediaMetadataOf(descriptor.typeId, undefined) !== undefined) media.add(identity)
-        if (isLayerDocumentType(descriptor.typeId)) layers.add(identity)
       }
     }
-    return { media: [...media].sort(), layers: [...layers].sort() }
+    return { media: [...media].sort() }
   }, undefined, { equals: (previous, next) => canonicalJson(previous) === canonicalJson(next) })
   const mediaValueGroups = createMemo(() => {
     const groups = new Map<string, { readonly label: string; readonly identities: string[] }>()
@@ -3149,26 +3131,6 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
   }
   const availability = (key: string): 'Checking' | 'Available' | 'Unavailable' =>
     failed().has(key) ? 'Unavailable' : loaded().has(key) ? 'Available' : 'Checking'
-  const layerRequest = (nodeId: string, outputId: string): GraphImageDocumentRequest | undefined => {
-    const artifact = props.execution.artifact
-    if (artifact === undefined) return undefined
-    const identity = documentIdentityOf(nodeId, artifact.provenance.toSource)
-    const source = identity === undefined ? undefined : resolveNodeOccurrence(artifact.snapshot, identity.occurrence)
-    const graph = source === undefined ? undefined : artifact.snapshot.graphs[source.graphId]
-    const tab = props.app.liveTabFor(artifact.snapshot.lineage)
-    if (source === undefined || graph === undefined || tab === undefined) return undefined
-    const aliases = artifact.provenance.outputAliases?.[nodeId]
-    const sourceOutputId = Object.entries(aliases ?? {}).find(([, runtimeOutputId]) => runtimeOutputId === outputId)?.[0] ?? outputId
-    return {
-      connectionId: props.execution.ref.connection,
-      query: { jobId: props.execution.ref.prompt, nodeId, outputId },
-      sourceTabId: tab.id,
-      graphId: source.graphId,
-      sourceNodeId: source.nodeId,
-      sourceOutputId,
-      expectedGraphFingerprint: sha256Hex(canonicalJson(graph)),
-    }
-  }
   const emptyState = (): { readonly state: string; readonly title: string; readonly detail: string } => {
     if (props.execution.status === 'error') return {
       state: 'error', title: 'Execution failed without image outputs',
@@ -3207,13 +3169,6 @@ function Outputs(props: { app: AppState; execution: ExecutionState; onOpenLayers
         </Show>
       </section>
       <MediaDiagnostics diagnostics={props.execution.valueDiagnostics ?? []} />
-      <For each={outputIdentities().layers}>{(identity) => {
-        const [nodeId, outputId] = JSON.parse(identity) as [string, string]
-        return <ProductButton type="button" disabled={layerRequest(nodeId, outputId) === undefined} onClick={() => {
-          const request = layerRequest(nodeId, outputId)
-          if (request !== undefined) props.onOpenLayers(request)
-        }}>Open layers: {nodeId} / {outputId}</ProductButton>
-      }}</For>
       <For each={mediaValueGroups()}>{(group) => (
         <section class="output-iteration-group output-value-group" aria-label={group.label}>
           <h3>{group.label}</h3>

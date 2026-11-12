@@ -965,9 +965,8 @@ export interface WorkflowDocument {
   readonly occurrenceTopologies?: Readonly<Record<string, OccurrenceTopology>>
   readonly surfaces?: Readonly<Record<string, ControlSurfaceData>>
   /**
-   * Surface id allocation cursor (never-reuse contract, mirrors each
-   * graph's nextOrdinal). Optional: absent on pre-cursor documents, where
-   * the key scan in surface.add is the floor.
+   * Saved surface id allocation cursor. Retained even without a surface
+   * editor so restoring that editor cannot reuse an earlier identity.
    */
   readonly surfaceSeq?: number
   /** View state - excluded from the execution-semantic hash. */

@@ -318,12 +318,11 @@ application for the removed generation and unchanged payload; retention metadata
 updates do not change that identity or transfer release authority. Other windows'
 receipts and recovered receipts are observation-only, even when their digests match. Release remains
 revision-bound and uncertain responses stay journaled for observation, not replay.
-The asset census recognizes the mask command's exact source-association marker
-on mask-paint nodes: a string node ID and the fixed mask output ID contain no
-asset identity. A MOUNT widget binds a STRING mount ID or null for the default
+The asset census treats node extension metadata as opaque. A MOUNT widget
+binds a STRING mount ID or null for the default
 output mount; neither is an asset identity. Other value shapes or socket types
 remain incomplete, with any known embedded asset roots preserved.
-Extra marker fields, other metadata and unknown schemas remain
+Metadata and unknown schemas remain
 incomplete. Known canonical references in opaque stored values are retained, but
 the owner explicitly declares `complete: false`, even for an empty known set.
 Unresolved filename strings in asset widgets also keep ownership incomplete,
@@ -424,7 +423,9 @@ tab and close only the unadopted transport. Reload failures preserve pending
 membership for retry; metadata-only editor switches survive adoption. The
 source target is installed before tab publication. SharedWorker canonical
 session promotion retains its snapshot and adopted history on the local tab's
-original backend before swapping stores. A refused or stale acknowledgment
+current backend after the shared session opens and before swapping stores. A
+target change during opening is included in that ownership request; a target
+change while its acknowledgment is pending keeps the local store. A refused or stale acknowledgment
 keeps the local store; metadata-only changes survive the swap. Disabling workspace
 authority also closes connections whose promotion acknowledgment is pending, so
 a disposed renderer cannot keep an obsolete SharedWorker snapshot alive.
@@ -866,6 +867,11 @@ The old ecosystem's "widget as output" requests dead-ended because node definiti
 
 ### 6. Graph control: mode flags, control surfaces, and selectors
 
+The control-surface design below is parked on the branch recorded in
+`rework-queue.md`. Main retains saved surface data and binding lifecycle
+protection, but no panel, setting, registry or surface commands. App View,
+ordinary node mode commands and selectors remain separate working features.
+
 rgthree's Fast Muter/Bypasser, Fast Groups Muter, Node Mode Relay/Repeater, and Random Unmuter prove real demand for controlling the graph (mute/bypass, group toggles, randomized branch selection) without server involvement. Their current embodiment is everything this architecture bans: virtual nodes with `*` control links masquerading as dataflow, group targeting by re-scanning geometry every 500ms, procedural `node.mode` assignment with no command boundaries (bulk toggles are not atomic undo steps), a monkey-patched mode setter, and Random Unmuter temporarily mutating live graph state around the prompt-compile call. The demand decomposes onto three contracts this design already has - **no second category of "node" is needed**:
 
 1. **Mute/bypass are document mode flags** on any node or subgraph instance, changed only through commands - so a bulk toggle is one atomic, undoable transaction, whoever initiates it. Compiler semantics are specified, not incidental: *bypass* lowers to a type-matched passthrough (same-slot-index preferred, then exact type match, using solved types - the current frontend's DTO heuristic, made deterministic and testable); *mute* drops the node's contribution and surfaces "required input now unsatisfied" as a **compile diagnostic before submit** instead of a server round-trip error. Subgraph instances mute/bypass at their boundary NodeSchema; flattening respects the flag - no recursive descendant-poking (rgthree needed a depth-first hack for exactly this).
@@ -986,7 +992,7 @@ presence without acquisition or catalog recovery. Missing bytes are explicit
 Both methods pass cancellation signals through to the transport.
 
 The Assets dock's All assets source combines recorded local assets, readable
-mounts and the configured federated catalog. Local assets remain available as
+mounts and their observed locations. Local assets remain available as
 a separate source, including when no filesystem mount exists. Recorded rows
 show aliases, dates and ingest provenance in the existing Details disclosure.
 The selected available asset also names its backend machine and offers exact
@@ -1007,11 +1013,10 @@ and literal selectors do not use it. A failed source is reported independently
 without hiding successful local or remote results. Model scans preserve
 healthy sources when another source fails and cancel paging when the editor
 closes or a refresh replaces the scan. Mount-discovery errors appear in source
-health without removing the independent local or federated catalogs. Compatible
-non-model ASSET pickers combine federated entries with local and mounted rows;
-only locally available, non-refused candidates with complete canonical refs
-can be picked. Remote-only or incompatible candidates cannot trigger byte
-reads or implicit acquisition.
+health without removing the independent local catalog. Compatible non-model
+ASSET pickers combine local and mounted rows; only available assets with
+complete canonical references can be picked. Browsing never acquires bytes
+implicitly.
 
 Live workflow tabs check their stored scalar and list AssetRefs against the
 selected native backend on open, edits, reconnect and target changes. Problems

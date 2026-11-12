@@ -78,10 +78,12 @@ const nativeFrontendPort = port(
   'DINKSTER_E2E_NATIVE_FRONTEND_PORT',
   frontendPort + 3,
 )
-if (new Set([frontendPort, nativePort, nativeFrontendPort]).size !== 3)
+const guidePort = port('DINKSTER_E2E_GUIDE_PORT', nativePort + 2)
+if (new Set([frontendPort, nativePort, nativeFrontendPort, guidePort]).size !== 4)
   throw new Error('hosted E2E ports must differ')
 const nativeBackend = `http://127.0.0.1:${nativePort}`
 process.env['DINKSTER_NATIVE_BACKEND'] = nativeBackend
+process.env['DINKSTER_E2E_GUIDE_BACKEND'] = `http://127.0.0.1:${guidePort}`
 process.env['DINKSTER_E2E_NATIVE_FRONTEND'] =
   `http://127.0.0.1:${nativeFrontendPort}`
 
@@ -113,6 +115,26 @@ export default defineConfig({
       cwd: dinksterRoot,
       env: { ...process.env, CUDA_VISIBLE_DEVICES: '' },
       url: `${nativeBackend}/api/health`,
+      reuseExistingServer: false,
+      timeout: 180_000,
+    },
+    {
+      command: [
+        JSON.stringify(resolve(dinksterRoot, '.venv/bin/dinkster-serve')),
+        '--host 127.0.0.1',
+        `--port ${guidePort}`,
+        '--no-default-packs',
+        `--pack ${JSON.stringify(resolve(frontendRoot, 'packages/e2e/fixtures/guide-pack/dinkster-pack.toml'))}`,
+        `--allow-origin http://127.0.0.1:${frontendPort}`,
+        `--allow-origin http://127.0.0.1:${nativeFrontendPort}`,
+        `--library-root ${JSON.stringify(resolve(frontendRoot, '.ci/guide-library'))}`,
+      ].join(' '),
+      cwd: dinksterRoot,
+      env: {
+        ...process.env, CUDA_VISIBLE_DEVICES: '',
+        PYTHONPATH: [resolve(frontendRoot, 'packages/e2e/fixtures/guide-pack'), process.env['PYTHONPATH']].filter(Boolean).join(':'),
+      },
+      url: `${process.env['DINKSTER_E2E_GUIDE_BACKEND']}/api/docs?kind=guide&limit=1`,
       reuseExistingServer: false,
       timeout: 180_000,
     },

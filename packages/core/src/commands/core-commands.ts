@@ -37,7 +37,6 @@ import { SUBGRAPH_COMMANDS } from './subgraph-commands.js'
 import { DYNAMIC_COMMANDS } from './dynamic-commands.js'
 import { REPLACE_COMMANDS } from './replace-commands.js'
 import { CLIPBOARD_COMMANDS } from '../clipboard.js'
-import { SURFACE_COMMANDS } from './surface-commands.js'
 import { EXPOSED_COMMANDS } from './exposed-commands.js'
 import { EXPOSED_PREVIEW_COMMANDS } from './exposed-preview-commands.js'
 import { APP_LAYOUT_COMMANDS } from './app-layout-commands.js'
@@ -3280,7 +3279,6 @@ export const CORE_COMMANDS: readonly CommandDefinition[] = [
   ...DYNAMIC_COMMANDS,
   ...BOUNDARY_COMMANDS,
   ...SUBGRAPH_COMMANDS,
-  ...SURFACE_COMMANDS,
   ...REPLACE_COMMANDS,
   ...CLIPBOARD_COMMANDS,
   ...EXPOSED_COMMANDS,
@@ -3384,10 +3382,7 @@ export function coreCommandRegistry(
       candidate.id !== 'node.setValue' &&
       candidate.id !== 'node.setValues' &&
       candidate.id !== 'image.applyAsset' &&
-      candidate.id !== 'image.applyMaskPaint' &&
-      candidate.id !== 'image.compositorApply' &&
-      candidate.id !== 'image.documentExport' &&
-      candidate.id !== 'image.documentRecipeExport'),
+      candidate.id !== 'image.compositorApply'),
     nodeSetControllerOf(resolve),
     nodeSetOutputCountOf(resolve),
     nodeSetValueOf(resolve),

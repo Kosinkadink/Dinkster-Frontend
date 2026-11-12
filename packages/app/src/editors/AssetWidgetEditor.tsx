@@ -1,15 +1,13 @@
 import { createEffect, createMemo, createSignal as createSolidSignal, For, on, onCleanup, Show, type Component } from 'solid-js'
 import { assetMultiSelect, type CollectionEntry, type JsonObject } from '@dinkster/core'
-import { AssetDtoV1Client, type AssetGuessCandidate, type CandidateV1 } from '@dinkster/client'
+import type { AssetGuessCandidate } from '@dinkster/client'
 import { Check, RotateCw, Upload, X } from 'lucide-solid'
 import { assetCollectionSource, assetEntryPickable, assetItemOf } from '../asset-browser/collection-adapter.js'
 import { assetSourcesStatus, committableAssetRef, formatSize, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
 import { mountAssetSources } from '../asset-browser/mountAssetSource.js'
 import { localAssetSource } from '../asset-browser/localAssetSource.js'
-import { federatedCollectionSource } from '../asset-browser/federated-collection-source.js'
 import { localMountScanAdapter } from '../asset-browser/local-mount-logical-model.js'
 import { ingestLogicalModels } from '../asset-browser/logical-model-merge.js'
-import { candidateLogicalModelAdapter } from '../asset-browser/candidate-logical-model.js'
 import { allAssetsCollectionSource, mountPresentationClass } from '../asset-browser/cross-mount-collection-source.js'
 import type { LogicalModel } from '../asset-browser/logical-model.js'
 import { logicalModelAssetRefOf, logicalModelCollectionSource, logicalModelEntrySelectable, logicalModelEntryVisible, logicalModelPickDetailOf, type LogicalModelPickDetail } from '../asset-browser/logical-model-collection-source.js'
@@ -34,6 +32,7 @@ import { readUploadDestination, saveUploadDestination } from '../upload-destinat
 import { AssetFileLocation } from '../AssetFileLocation.js'
 import { resolveDroppedAsset } from '../desktop-bridge.js'
 import type { PreviewSource } from '../node-previews.js'
+import { useAppMessage } from '../locale.js'
 
 interface AssetRef extends JsonObject {
   readonly digest: string
@@ -150,8 +149,6 @@ function mediaUploadName(name: string): string {
   return bounded === '' || bounded === '.' || bounded === '..' ? 'upload' : bounded
 }
 
-export function backendSupportsAssetAcquisition(): boolean { return false }
-
 interface AssetImplementationProps extends WidgetEditorImplementationProps {
   setDismissBlocked: (blocked: () => boolean) => void
   setRequestClose: (handler: (close: () => void) => void) => void
@@ -159,6 +156,7 @@ interface AssetImplementationProps extends WidgetEditorImplementationProps {
 
 const AssetEditorImplementation: Component<AssetImplementationProps> = (implementationProps) => {
   const props = implementationProps.editor
+  const message = useAppMessage()
   const ed = props.ed
   const close = implementationProps.close
   const commitEditorValue = implementationProps.commitValue
@@ -436,44 +434,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         signal: abort.signal,
         onSourceError: (message) => sourceErrors.push(message),
       })
-      const candidateItems: CandidateV1[] = []
-      let candidateError: string | undefined
-      if (props.federatedAssets !== undefined && ed.target.kind === 'input') {
-        const targetGraphId = ed.target.familyOwner?.graphId ?? ed.graphId
-        const targetNodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
-        const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
-        const node = ed.tab.store.doc.graphs[targetGraphId]?.nodes[targetNodeId]
-        if (node !== undefined) {
-          const client = new AssetDtoV1Client('', props.federatedAssets)
-          try {
-            let cursor: string | undefined
-            do {
-              const page = await client.candidates({
-                context: {
-                  assetKind: kind,
-                  schema: { nodeType: node.type, inputId },
-                  accept: assetAccept(),
-                },
-                ...(cursor !== undefined ? { cursor } : {}),
-                limit: 100,
-              }, abort.signal)
-              if (!live || load !== logicalModelLoad) return
-              candidateItems.push(...page.items)
-              cursor = page.nextCursor
-            } while (cursor !== undefined)
-          } catch (error) {
-            if (abort.signal.aborted) return
-            candidateError = error instanceof Error ? error.message : String(error)
-          }
-        }
-      }
-      const result = ingestLogicalModels([
-        ...(candidateItems.length > 0 ? [candidateLogicalModelAdapter(candidateItems)] : []),
-        localAdapter,
-      ])
+      const result = ingestLogicalModels([localAdapter])
       if (!live || load !== logicalModelLoad) return
       setLogicalModels(result.models)
-      const errors = [...sourceErrors, ...(candidateError !== undefined ? [candidateError] : []), ...result.diagnostics.map((entry) => entry.message)]
+      const errors = [...sourceErrors, ...result.diagnostics.map((entry) => entry.message)]
       if (errors.length > 0) setLogicalModelsError(errors.join('; '))
     } catch (error) {
       if (live && load === logicalModelLoad) setLogicalModelsError(error instanceof Error ? error.message : String(error))
@@ -739,26 +703,16 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     if (usesLogicalModelSource()) {
       return logicalModels() === undefined ? [] : [logicalModelCollectionSource(() => logicalModels() ?? [])]
     }
-    const federated = props.federatedAssets === undefined ? undefined : {
-      ...federatedCollectionSource(new AssetDtoV1Client('', props.federatedAssets), () => undefined, {
-        ...ownership,
-        ...(fixedKind !== undefined ? { fixedKind } : {}),
-        ...(assetUrl !== undefined ? { assetUrl } : {}),
-      }),
-      id: 'federated-assets', label: 'Federated catalog',
-    }
-    const additionalSources = federated ? [federated] : []
     if (fixedKind?.startsWith('media/') === true) {
       const imported = adapters.filter((adapter) => mountPresentationClass({ id: adapter.id.replace(/^mount:/, ''), kind: fixedKind }) === 'input')
       const generated = adapters.filter((adapter) => mountPresentationClass({ id: adapter.id.replace(/^mount:/, ''), kind: fixedKind }) === 'output')
       return [
-        allAssetsCollectionSource(adapters, [], assetUrl, { ...ownership, fixedKind, failWhenAllSourcesFail: true, additionalSources }),
+        allAssetsCollectionSource(adapters, [], assetUrl, { ...ownership, fixedKind, failWhenAllSourcesFail: true }),
         ...(imported.length > 0 ? [allAssetsCollectionSource(imported, [], assetUrl, { ...ownership, id: 'imported-assets', label: 'Imported', fixedKind, failWhenAllSourcesFail: true })] : []),
         ...(generated.length > 0 ? [allAssetsCollectionSource(generated, [], assetUrl, { ...ownership, id: 'generated-assets', label: 'Generated', fixedKind, failWhenAllSourcesFail: true })] : []),
       ]
     }
     return [
-      ...(federated ? [allAssetsCollectionSource(adapters, [], assetUrl, { ...ownership, additionalSources, failWhenAllSourcesFail: true })] : []),
       ...adapters.map((adapter) =>
       assetCollectionSource(adapter, {
         ...ownership,
@@ -766,7 +720,6 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         ...(fixedKind !== undefined ? { fixedKind } : {}),
       }
       )),
-      ...additionalSources,
     ]
   })
   const pickAssetEntry = (entry: CollectionEntry): void => {
@@ -864,15 +817,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                     )}
                   </For>
                 </div>
-                <section class="asset-acquisition" aria-label="Download provider">
-                  <Show when={!backendSupportsAssetAcquisition()}>
-                    <div>
-                      <h4>Download unavailable</h4>
-                      <p data-testid="asset-acquisition-unavailable">This backend provides no download source or acquisition contract.</p>
-                    </div>
-                    <button type="button" data-testid="asset-download" disabled>Download</button>
-                  </Show>
-                </section>
+                <ProductNotice tone="info" testId="asset-not-on-disk">{message('assets.logicalModel.notOnDisk')}</ProductNotice>
               </section>
             </Show>
             <Show when={assetError()}>{(message) => <ProductNotice tone="error" class="asset-error">{message()}</ProductNotice>}</Show>
@@ -1029,7 +974,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 {(item) => <AssetSelectionDetails item={item} dimensions={assetPreviewDims()} adapters={assetSources() ?? []} backendId={String(props.app.backendForTab(ed.tab).id)} />}
               </Show>
               <Show when={selectionDetailModel()} keyed>
-                {(detail) => <LogicalModelVariantFacts detail={detail} acquisitionSupported={backendSupportsAssetAcquisition()} />}
+                {(detail) => <LogicalModelVariantFacts detail={detail} />}
               </Show>
               <Show when={assetSelection().length > 0 || selectedUncommittableModel() !== undefined}>
                 {/* Remove only stages an empty selection: nothing commits

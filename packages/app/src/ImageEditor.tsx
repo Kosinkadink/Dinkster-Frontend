@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show, untrack } from 'solid-js'
 import type { AssetRef } from '@dinkster/core'
-import { isCompositorEditorTarget, isMaskPaintEditorTarget, type AppState, type ImageEditorTarget } from './app-state.js'
+import { isCompositorEditorTarget, type AppState, type ImageEditorTarget } from './app-state.js'
 import type { EditorHostContext } from './editors.js'
 import { useSignal } from './solid-adapter.js'
 import { CompositorEditor } from './CompositorEditor.js'
@@ -9,10 +9,8 @@ import { ProductEmptyState } from './ProductSurfaces.js'
 import {
   appendImageEditOperation,
   createImageSession,
-  maskPaintOperationsJson,
   projectImageMask,
   redoImageEdit,
-  restoreMaskPaintSession,
   undoImageEdit,
   type ImageSession,
 } from './image-editor.js'
@@ -170,14 +168,10 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
         const decoded = await decodePng(new Uint8Array(bytes))
         if (!current()) return
         const created = createImageSession(decoded)
-        const existingOperations = request.maskPaint?.expectedPaintOperations
-        const editing = existingOperations === undefined || existingOperations === null
-          ? created
-          : restoreMaskPaintSession(created, existingOperations, request.sourceRef.digest)
         await props.app.retainEditorAssets(request, backend, request.sourceRef, () => {
           if (!current()) return false
           loadedTarget = request
-          setSession(editing)
+          setSession(created)
           return true
         })
       })
@@ -209,34 +203,6 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
     const abort = new AbortController()
     uploadAbort = abort
     try {
-      if (isMaskPaintEditorTarget(request)) {
-        const validated = props.app.validateImageTarget(request)
-        const currentTab = validated ? props.app.tabs.get().find((candidate) => candidate.id === request.tabId) : undefined
-        if (!currentTab || !validated || props.app.backendForTab(currentTab) !== backend) {
-          setError('The image destination changed while the mask was being edited')
-          return
-        }
-        const outcome = await props.app.dispatchRetainedTo(currentTab, {
-          command: 'image.applyMaskPaint',
-          params: {
-            graphId: request.graphId,
-            loaderNodeId: request.nodeId,
-            inputId: request.inputId,
-            expectedSource: request.sourceRef,
-            operations: maskPaintOperationsJson(editing, request.sourceRef.digest),
-            paintNodeId: request.maskPaint!.paintNodeId,
-            expectedPaintOperations: request.maskPaint!.expectedPaintOperations,
-            expectedMaskLinkIds: request.maskPaint!.expectedMaskLinkIds,
-            expectedMaskNetIds: request.maskPaint!.expectedMaskNetIds,
-          },
-        }, () => live && !abort.signal.aborted && target() === request)
-        if (!outcome.ok) {
-          setError(outcome.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? 'Mask apply was rejected')
-          return
-        }
-        props.app.closeImageEditor(request)
-        return
-      }
       const png = await encodePng(source.width, source.height, applyMaskToRgba(source.rgba, mask))
       const blob = new Blob([new Uint8Array(png).buffer], { type: 'image/png' })
       const digest = await backend.connection.uploadAsset(blob, abort.signal)
@@ -404,7 +370,7 @@ function MaskImageEditor(props: { readonly app: AppState; readonly host?: Editor
               <div><strong>Image editor</strong><span>Mask</span><small>{request().sourceRef.name}</small></div>
               <div class="image-editor-actions">
                 <button disabled={busy()} onClick={() => close(request())}>Cancel</button>
-                <button class="primary" disabled={busy() || !session()} onClick={() => void apply(request())}>{busy() ? 'Applying...' : isMaskPaintEditorTarget(request()) ? 'Apply mask to graph' : 'Bake to asset'}</button>
+                <button class="primary" disabled={busy() || !session()} onClick={() => void apply(request())}>{busy() ? 'Applying...' : 'Bake to asset'}</button>
               </div>
             </header>
             <div class="image-editor-body">
