@@ -103,6 +103,10 @@ describe('workflow retention recovery', () => {
           owners.set(owner.ownerId, released)
           return released
         },
+        checkAssetAvailability: async (digests: readonly string[]) => digests.map((digest) => ({ digest,
+          status: (digest === documentDigest ? scenario === 'missing-document'
+            : scenario === 'missing-resource' || scenario === 'dormant-missing') ? 'missing' : 'available',
+        })),
         fetchAssetBytes: async (digest: string) => {
           expect([...owners.values()].some((owner) => owner.ownerKind === 'preview' && owner.revision === 1 && !owner.complete)).toBe(true)
           if (scenario === 'disconnected') for (const listener of listeners) listener()
@@ -1233,6 +1237,8 @@ describe('retained app dispatch', () => {
     }
     const imageBytes = new TextEncoder().encode(core.canonicalJson(image))
     const documentDigest = imageDocumentDigest(imageBytes)
+    vi.spyOn(app.connection, 'checkAssetAvailability').mockImplementation(async (digests) =>
+      digests.map((digest) => ({ digest, status: 'available' })))
     vi.spyOn(app.connection, 'fetchAssetBytes').mockResolvedValue(imageBytes.buffer)
     vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) =>
       ({ ...owner, revision: revision + 1, complete: true, digests: [] }))
@@ -1279,6 +1285,8 @@ describe('retained app dispatch', () => {
         }
         const imageBytes = new TextEncoder().encode(core.canonicalJson(image))
         const documentDigest = imageDocumentDigest(imageBytes)
+        vi.spyOn(app.connection, 'checkAssetAvailability').mockImplementation(async (digests) =>
+          digests.map((digest) => ({ digest, status: 'available' })))
         vi.spyOn(app.connection, 'fetchAssetBytes').mockImplementation(async (digest) =>
           digest === documentDigest ? imageBytes.buffer : bytes.buffer)
         const owners = new Map<string, RetainedAssets>()

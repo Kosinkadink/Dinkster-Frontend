@@ -612,6 +612,8 @@ export async function retainWorkflowAssets(
         const digests = new Set<string>([recipe.documentDigest!])
         let complete = false
         try {
+          const [documentAvailability] = await connection.checkAssetAvailability([recipe.documentDigest!], { scope: 'local' })
+          if (documentAvailability?.status !== 'available') throw new Error('Compositor document is unavailable')
           const fetched = await connection.fetchAssetBytes(recipe.documentDigest!)
           if (fetched === undefined || fetched.byteLength > MAX_IMAGE_DOCUMENT_BYTES) throw new Error('Compositor document is unavailable')
           const bytes = new Uint8Array(fetched)
@@ -631,6 +633,8 @@ export async function retainWorkflowAssets(
           const updated = applyCompositorCommands(loaded.document, recipe.commands)
           if (!updated) throw new Error('Compositor commands are invalid')
           // Native commands cannot add resource descriptors; hidden and unused entries still belong to this inventory.
+          const availability = await connection.checkAssetAvailability(resources.map((resource) => resource.digest), { scope: 'local' })
+          if (availability.some((resource) => resource.status !== 'available')) throw new Error('Compositor resource is unavailable')
           for (const resource of resources) {
             const content = await connection.fetchAssetBytes(resource.digest)
             if (content === undefined || content.byteLength !== resource.byteSize ||
