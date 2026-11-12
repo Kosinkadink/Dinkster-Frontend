@@ -8,6 +8,7 @@ import {
   compile,
   compositorRecipeFingerprint,
   coreCommandRegistry,
+  setLocale,
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
@@ -293,7 +294,7 @@ describe('AppState multi-window workspace', () => {
     },
   )
 
-  it.each(['accepted', 'refused', 'edited', 'closed', 'retargeted', 'removed', 'disposed', 'registry', 'disconnected', 'metadata', 'remote'] as const)(
+  it.each(['accepted', 'refused', 'edited', 'closed', 'retargeted', 'removed', 'disposed', 'registry', 'disconnected', 'metadata', 'remote', 'locale'] as const)(
     'retains a canonical workspace snapshot before replacing the local store: %s', async (scenario) => {
       const factory = authorityFactories()
       const app = createEditableApp()
@@ -302,6 +303,22 @@ describe('AppState multi-window workspace', () => {
       const backend = app.addBackend('http://workspace.test', 'Workspace source', false, 'dinkster')!
       backend.registry.set(app.registry.get())
       app.setTabTarget(tab.id, backend.id)
+      if (scenario === 'locale') {
+        setLocale('en')
+        vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+          const url = String(input)
+          const displayName = url.endsWith(encodeURIComponent(`sha256:${'b'.repeat(64)}`))
+            ? 'Changed label' : 'English label'
+          return new Response(JSON.stringify(url.includes('/api/nodes') ? {
+            schemaVersion: 1, dinkster: { version: 'locale-test', schemaWire: 1 },
+            packs: { demo: { displayName: 'Demo', locales: { en: `sha256:${'a'.repeat(64)}`, zh: `sha256:${'b'.repeat(64)}` } } },
+            nodes: { 'demo.localized': { schemaVersion: 1, displayName: 'Raw node', pack: 'demo', interface: [] } },
+          } : { nodes: { 'demo.localized': { displayName } } }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } })
+        })
+        await app.refreshBackendSchemas(backend)
+        await vi.waitFor(() => expect(backend.registry.get()?.resolve('demo.localized')?.displayName).toBe('English label'))
+      }
       const digest = `blake3:${'a'.repeat(64)}`
       const previousDigest = `blake3:${'b'.repeat(64)}`
       vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
@@ -335,6 +352,10 @@ describe('AppState multi-window workspace', () => {
       if (scenario === 'removed') app.removeBackend(backend.id)
       if (scenario === 'disposed') app.dispose()
       if (scenario === 'registry') backend.registry.set({ connection: backend.id, schemas: new Map(), diagnostics: [], hash: 'changed', resolve: () => undefined })
+      if (scenario === 'locale') {
+        setLocale('zh')
+        await vi.waitFor(() => expect(backend.registry.get()?.resolve('demo.localized')?.displayName).toBe('Changed label'))
+      }
       if (scenario === 'disconnected') { backend.connection.connect(); backend.connection.disconnect() }
       if (scenario === 'metadata') {
         app.settings.set('features.appView.enabled', true)
@@ -350,7 +371,7 @@ describe('AppState multi-window workspace', () => {
       acknowledge()
       await promotion
       const current = app.tabs.get().find((candidate) => candidate.id === tab.id)
-      if (scenario === 'accepted' || scenario === 'metadata') {
+      if (scenario === 'accepted' || scenario === 'metadata' || scenario === 'locale') {
         expect(current?.store).not.toBe(tab.store)
         expect(current?.store.doc).toEqual(tab.store.doc)
         expect(current?.store.canUndo).toBe(true)
@@ -360,6 +381,7 @@ describe('AppState multi-window workspace', () => {
         await (current!.store as unknown as { settle(): Promise<void> }).settle()
         expect(current?.store.doc.graphs.g0!.nodes.n1!.values.held).toMatchObject({ digest: previousDigest })
       } else if (scenario !== 'closed') expect(current?.store).toBe(tab.store)
+      if (scenario === 'locale') setLocale('en')
     },
   )
 
