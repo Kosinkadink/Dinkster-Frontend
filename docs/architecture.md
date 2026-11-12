@@ -326,6 +326,12 @@ Declared COLOR inputs use the widget's string contract, including empty strings,
 without interpreting color syntax or inventing asset identities. Non-string values,
 mismatched typed literals and COLOR widgets bound to other socket types remain
 incomplete. Stored dormant branches and undo/redo history use the same contract.
+The empty COMPOSITOR default `{}` and its normalized recipe (version 2, null
+documentDigest, no commands) have no asset roots. A configured recipe retains its
+canonical documentDigest but does not certify completeness without its external
+resource inventory. Malformed
+or unknown commands remain incomplete and keep any known embedded asset roots;
+clearing a recipe does not discard document identities still present in history.
 Metadata and unknown schemas remain
 incomplete. Known canonical references in opaque stored values are retained, but
 the owner explicitly declares `complete: false`, even for an empty known set.

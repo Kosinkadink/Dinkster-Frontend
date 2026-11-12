@@ -24,6 +24,7 @@ import {
   exposedToJson,
   isDinksterClipboardEnvelope,
   isAssetWidgetInput,
+  isCompositorRecipe,
   parseTypedLiteralWire,
   planReplacement,
   replayHistoryOps,
@@ -51,10 +52,11 @@ import { isAssetRef } from './image-editor.js'
 import { activeProjectId, scopedStorageKey } from './projects.js'
 
 const primitiveNames = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO', 'COLOR'])
-// Bound scalar widgets name their required socket type, not an asset.
+// Widgets with required socket types declare that binding explicitly.
 const widgetTypes = new Map<string, string | undefined>([
   ['STRING', undefined], ['INT', undefined], ['FLOAT', undefined], ['NUMBER', undefined],
-  ['BOOLEAN', undefined], ['COMBO', undefined], ['ASSET', undefined], ['MOUNT', 'STRING'], ['COLOR', 'COLOR'],
+  ['BOOLEAN', undefined], ['COMBO', undefined], ['ASSET', undefined], ['MOUNT', 'STRING'],
+  ['COLOR', 'COLOR'], ['COMPOSITOR', 'COMPOSITOR'],
 ])
 
 function assetFreeDynamicState(value: unknown, depth = 0): boolean {
@@ -109,7 +111,7 @@ export function workflowAssetRoots(
     if (type.kind === 'asset') return true
     if (type.kind === 'list') return supported(type.element)
     if (type.kind === 'tuple') return type.elements.every(supported)
-    return type.kind === 'concrete' && (type.name === 'ASSET' || primitiveNames.has(type.name))
+    return type.kind === 'concrete' && (type.name === 'ASSET' || type.name === 'COMPOSITOR' || primitiveNames.has(type.name))
   }
   const valueRoots = (value: Json, type: TypeExpr, namedAsset = false, nullableScalar?: string): boolean => {
     // A cleared asset widget holds no identity; history still contributes its previous value.
@@ -117,8 +119,9 @@ export function workflowAssetRoots(
     // Asset widgets can hold unresolved imported names, never a certified digest set.
     if (namedAsset && typeof value === 'string') { complete = false; return false }
     const typed = parseTypedLiteralWire(value)
-    if (type.kind === 'concrete' && type.name === 'COLOR' &&
-      (typed === undefined ? typeof value !== 'string' : typed.type !== 'COLOR')) {
+    if (type.kind === 'concrete' && (
+      (type.name === 'COLOR' && typed === undefined && typeof value !== 'string') ||
+      (['COLOR', 'COMPOSITOR'].includes(type.name) && typed !== undefined && typed.type !== type.name))) {
       complete = false
       opaqueRoots(value)
       return false
@@ -131,6 +134,18 @@ export function workflowAssetRoots(
         return false
       }
       return valueRoots(typed.value, typeExprFromTypeId(typed.type), false, nullableScalar)
+    } else if (type.kind === 'concrete' && type.name === 'COMPOSITOR') {
+      opaqueRoots(value)
+      if (typeof value === 'object' && value !== null && !Array.isArray(value) &&
+        'documentDigest' in value && typeof value['documentDigest'] === 'string' &&
+        /^blake3:[0-9a-f]{64}$/.test(value['documentDigest'])) {
+        digests.add(value['documentDigest'])
+      }
+      if (typeof value === 'object' && value !== null && !Array.isArray(value) && Object.keys(value).length === 0) return true
+      if (isCompositorRecipe(value) && value.documentDigest === null && value.commands.length === 0) return true
+      // A document digest alone does not enumerate the document's external resources.
+      complete = false
+      return false
     } else if (nullableScalar !== undefined && (type.kind !== 'concrete' || type.name !== nullableScalar ||
       (value !== null && typeof value !== 'string'))) {
       complete = false

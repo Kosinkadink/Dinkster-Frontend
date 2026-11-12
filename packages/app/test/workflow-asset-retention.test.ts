@@ -2915,6 +2915,61 @@ describe('workflow candidate admission', () => {
     ]))
   })
 
+  it.each(['default', 'normalized-default', 'empty-object', 'empty', 'typed', 'configured', 'malformed', 'typed-mismatch', 'commands-without-document', 'unknown-command', 'invalid-binding', 'unknown-widget'] as const)(
+    'retains compositor document identities without certifying unresolved resources: %s', (scenario) => {
+      const local = session()
+      const recipe = { version: 2, documentDigest: null, commands: [] }
+      const compositorSchema: NodeSchema = { ...schema, items: [...schema.items, {
+        kind: 'input', id: 'compositor', optional: false,
+        type: { kind: 'concrete', name: scenario === 'invalid-binding' ? 'STRING' : 'COMPOSITOR' },
+        widget: { widgetType: scenario === 'unknown-widget' ? 'opaque' : 'COMPOSITOR', options: {},
+          default: scenario === 'default' ? {} : recipe },
+      }] }
+      const value = scenario === 'configured' ? { ...recipe, documentDigest: asset('c').digest }
+        : scenario === 'empty-object' ? {}
+        : scenario === 'malformed' ? { ...recipe, documentDigest: asset('c').digest, commands: null }
+        : scenario === 'typed' ? { $typed: { type: 'COMPOSITOR', value: recipe } }
+        : scenario === 'typed-mismatch' ? { $typed: { type: 'STRING', value: '' } }
+        : scenario === 'commands-without-document' ? { ...recipe, commands: [{ op: 'reorder', ids: [] }] }
+        : scenario === 'unknown-command' ? { ...recipe, documentDigest: asset('c').digest, commands: [{ op: 'future', value: asset('d') }] }
+        : recipe
+      const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+        n0: { ...local.doc.graphs.g0!.nodes.n0!, values: { files: [asset('a')],
+          ...(['default', 'normalized-default'].includes(scenario) ? {} : { compositor: value }) } },
+      } } } }
+      const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => compositorSchema)
+      expect(roots.complete).toBe(['default', 'normalized-default', 'empty-object', 'empty', 'typed'].includes(scenario))
+      expect(roots.digests).toEqual(scenario === 'unknown-command'
+        ? [asset('a').digest, asset('c').digest, asset('d').digest]
+        : ['configured', 'malformed'].includes(scenario) ? [asset('a').digest, asset('c').digest] : [asset('a').digest])
+      if (!roots.complete) expect(roots.incompleteDiagnostics).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'workflow.asset.unresolvedInput', message: expect.stringContaining("'compositor'") }),
+      ]))
+    })
+
+  it('keeps configured compositor document roots after clearing an undoable recipe', () => {
+    const local = session()
+    const empty = { version: 2, documentDigest: null, commands: [] }
+    const compositorSchema: NodeSchema = { ...schema, items: [...schema.items, {
+      kind: 'input', id: 'compositor', optional: false, type: { kind: 'concrete', name: 'COMPOSITOR' },
+      widget: { widgetType: 'COMPOSITOR', options: {}, default: empty },
+    }] }
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { ...local.doc.graphs.g0!.nodes.n0!, values: {
+        files: [asset('a')], compositor: { ...empty, documentDigest: asset('c').digest },
+      } },
+    } } } }
+    const workflow = createLocalSession(document, coreCommandRegistry([], () => compositorSchema))
+    expect(workflow.dispatch({ command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n0', inputId: 'compositor', value: empty,
+    } }).ok).toBe(true)
+    expect(workflowAssetRoots(workflow.doc, { revision: workflow.revision, undo: [], redo: [] }, () => compositorSchema))
+      .toEqual({ complete: true, digests: [asset('a').digest] })
+    const roots = workflowAssetRoots(workflow.doc, workflow.historySnapshot(), () => compositorSchema)
+    expect(roots.complete).toBe(false)
+    expect(roots.digests).toEqual([asset('a').digest, asset('c').digest])
+  })
+
   it.each(['default', 'selected', 'cleared', 'typed', 'unknown-widget', 'invalid-value', 'invalid-binding'] as const)(
     'counts mount selection without losing stored or historical assets: %s', (scenario) => {
       const local = session()
