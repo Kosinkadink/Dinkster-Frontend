@@ -7,11 +7,12 @@
  * occurrences, orphaned bookmarks) is unit-tested in the core package; this
  * verifies the live keyboard/camera/minimap wiring.
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForStartupOwnership(page)
 })
 
 const viewport = (page: Page) => page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())
