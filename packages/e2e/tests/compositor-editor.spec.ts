@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
-import { waitForStartupOwnership } from './fixtures.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -58,7 +58,7 @@ async function queueAndComplete(page: Page): Promise<void> {
   await expect.poll(() => latestStatus(page), { timeout: 30_000 }).toBe('completed')
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   test.skip(process.env['DINKSTER_E2E_USE_NATIVE'] !== '1' || process.env['DINKSTER_NATIVE_BACKEND'] === undefined,
     'set DINKSTER_E2E_USE_NATIVE=1 and DINKSTER_NATIVE_BACKEND to an isolated Dinkster backend')
 
@@ -93,20 +93,19 @@ test.beforeEach(async ({ page }) => {
   test.skip(table?.schemaVersion !== 1, `no current native Dinkster backend reachable at ${NATIVE_BACKEND}`)
   const nodes = table!.nodes ?? {}
   const required = [
-    'dinkster.image.generate',
-    'dinkster.layers.add',
-    'dinkster.layers.from_bounding_boxes',
-    'dinkster.image.create_layered',
+    'dinkster.image.empty_image',
+    'dinkster.image.add_layer',
+    'dinkster.image.layers_from_bounding_boxes',
+    'dinkster.image.image_compositor',
   ]
-  test.skip(required.some((nodeType) => !(nodeType in nodes)),
-    'native backend lacks the image generator and graph-native compositor nodes')
-  const createWire = nodes['dinkster.image.create_layered']!
+  requireBackendNodes(nodes, required, testInfo)
+  const createWire = nodes['dinkster.image.image_compositor']!
   expect(createWire.schemaVersion).toBe(1)
   expect(createWire.idempotent).toBe(false)
   const compositorInput = createWire.interface?.find((item) => item.id === 'compositor')
-  expect(compositorInput?.default).toEqual({ version: 2, documentDigest: null, commands: [] })
+  expect(compositorInput?.default).toEqual({})
   expect(compositorInput?.widget).toEqual({ type: 'COMPOSITOR' })
-  expect(nodes['dinkster.layers.from_bounding_boxes']).toBeDefined()
+  expect(nodes['dinkster.image.layers_from_bounding_boxes']).toBeDefined()
 
   await page.route('/system_stats', (route) =>
     route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
@@ -119,8 +118,8 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => {
     const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas
-    return schemas?.has('dinkster.image.generate') === true &&
-      schemas.has('dinkster.layers.add') && schemas.has('dinkster.image.create_layered')
+    return schemas?.has('dinkster.image.empty_image') === true &&
+      schemas.has('dinkster.image.add_layer') && schemas.has('dinkster.image.image_compositor')
   }), { timeout: 15_000 }).toBe(true)
   await waitForStartupOwnership(page)
 
@@ -132,38 +131,34 @@ test.beforeEach(async ({ page }) => {
           id: 'g0', name: 'root',
           nodes: {
             red: {
-              id: 'red', type: 'dinkster.image.generate',
-              dynamic: { color_source: { selected: 'hex' }, operation: { selected: 'solid' } },
+              id: 'red', type: 'dinkster.image.empty_image',
               values: {
-                width: 64, height: 48, batch_size: 1, channels: 'rgb',
-                'color_source.color_a': '#ff0000',
+                width: 64, height: 48, batch_size: 1, color: 0xff0000,
               },
             },
             blue: {
-              id: 'blue', type: 'dinkster.image.generate',
-              dynamic: { color_source: { selected: 'hex' }, operation: { selected: 'solid' } },
+              id: 'blue', type: 'dinkster.image.empty_image',
               values: {
-                width: 16, height: 16, batch_size: 1, channels: 'rgb',
-                'color_source.color_a': '#0000ff',
+                width: 16, height: 16, batch_size: 1, color: 0x0000ff,
               },
             },
             bottom: {
-              id: 'bottom', type: 'dinkster.layers.add',
+              id: 'bottom', type: 'dinkster.image.add_layer',
               values: { name: 'Red base', x: 0, y: 0 },
             },
             top: {
-              id: 'top', type: 'dinkster.layers.add',
+              id: 'top', type: 'dinkster.image.add_layer',
               values: { name: 'Blue accent', x: 8, y: 4 },
             },
             create: {
-              id: 'create', type: 'dinkster.image.create_layered', values: { color_space: 'linear' },
+              id: 'create', type: 'dinkster.image.image_compositor', values: {},
             },
           },
           links: {
-            redImage: { id: 'redImage', from: { node: 'red', port: 'image' }, to: { node: 'bottom', port: 'image' } },
-            blueImage: { id: 'blueImage', from: { node: 'blue', port: 'image' }, to: { node: 'top', port: 'image' } },
-            bottomLayers: { id: 'bottomLayers', from: { node: 'bottom', port: 'layers' }, to: { node: 'top', port: 'layers' } },
-            finalLayers: { id: 'finalLayers', from: { node: 'top', port: 'layers' }, to: { node: 'create', port: 'layers' } },
+            redImage: { id: 'redImage', from: { node: 'red', port: 'IMAGE' }, to: { node: 'bottom', port: 'image' } },
+            blueImage: { id: 'blueImage', from: { node: 'blue', port: 'IMAGE' }, to: { node: 'top', port: 'image' } },
+            bottomLayers: { id: 'bottomLayers', from: { node: 'bottom', port: 'LAYERS' }, to: { node: 'top', port: 'layers' } },
+            finalLayers: { id: 'finalLayers', from: { node: 'top', port: 'LAYERS' }, to: { node: 'create', port: 'layers' } },
           },
           nets: {}, reroutes: {}, nextOrdinal: 5,
         },
@@ -200,33 +195,28 @@ test('edits, executes, persists, and falls back safely when compositor sources c
 
   await queueAndComplete(page)
   expect(submissions[0]?.graph.nodes.red).toEqual({
-    nodeType: 'dinkster.image.generate',
+    nodeType: 'dinkster.image.empty_image',
     inputs: {
       width: 64,
       height: 48,
       batch_size: 1,
-      channels: 'rgb',
-      'color_source.color_a': '#ff0000',
+      color: 0xff0000,
     },
-    slotVariants: { color_source: 'hex', operation: 'solid' },
   })
   expect(submissions[0]?.graph.nodes.blue).toEqual({
-    nodeType: 'dinkster.image.generate',
+    nodeType: 'dinkster.image.empty_image',
     inputs: {
       width: 16,
       height: 16,
       batch_size: 1,
-      channels: 'rgb',
-      'color_source.color_a': '#0000ff',
+      color: 0x0000ff,
     },
-    slotVariants: { color_source: 'hex', operation: 'solid' },
   })
   expect(submissions[0]?.graph.nodes.create).toEqual({
-    nodeType: 'dinkster.image.create_layered',
+    nodeType: 'dinkster.image.image_compositor',
     inputs: {
-      layers: { $link: { node: 'top', output: 'layers' } },
+      layers: { $link: { node: 'top', output: 'LAYERS' } },
       compositor: { version: 2, documentDigest: null, commands: [] },
-      color_space: 'linear',
     },
   })
   expect(await storedRecipe(page)).toBeUndefined()
@@ -342,11 +332,10 @@ test('edits, executes, persists, and falls back safely when compositor sources c
 
   await queueAndComplete(page)
   expect(submissions.at(-1)?.graph.nodes.create).toEqual({
-    nodeType: 'dinkster.image.create_layered',
+    nodeType: 'dinkster.image.image_compositor',
     inputs: {
-      layers: { $link: { node: 'top', output: 'layers' } },
+      layers: { $link: { node: 'top', output: 'LAYERS' } },
       compositor: recipe,
-      color_space: 'linear',
     },
   })
   await expect.poll(() => page.evaluate(() => {
@@ -379,7 +368,7 @@ test('edits, executes, persists, and falls back safely when compositor sources c
     const app = window.__dinksterTest!.app
     return (await app.dispatchTo(app.activeTab()!, {
       command: 'node.setValue',
-      params: { graphId: 'g0', nodeId: 'blue', inputId: 'color_source.color_a', value: '#00ff00' },
+      params: { graphId: 'g0', nodeId: 'blue', inputId: 'color', value: 0x00ff00 },
     })).ok
   })).toBe(true)
   await queueAndComplete(page)
@@ -402,7 +391,8 @@ test('edits, executes, persists, and falls back safely when compositor sources c
     },
   }])
   expect([...new Set((problems[0]!.data!['reason'] as string).split('; '))].sort()).toEqual([
-    "dinkster.image.create_layered (create): Stored input 'compositor' has unresolved asset identities",
+    "dinkster.image.image_compositor (create): Declared input 'compositor' has an unsupported asset census widget binding 'COMPOSITOR'",
+    "dinkster.image.image_compositor (create): Stored input 'compositor' has unresolved asset identities",
   ])
   const errors = browserErrors.get(page)
   if (errors === undefined) throw new Error('browser error collector was not installed')
