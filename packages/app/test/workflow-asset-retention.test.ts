@@ -103,6 +103,10 @@ describe('workflow retention recovery', () => {
           owners.set(owner.ownerId, released)
           return released
         },
+        checkAssetAvailability: async (digests: readonly string[]) => digests.map((digest) => ({ digest,
+          status: (digest === documentDigest ? scenario === 'missing-document'
+            : scenario === 'missing-resource' || scenario === 'dormant-missing') ? 'missing' : 'available',
+        })),
         fetchAssetBytes: async (digest: string) => {
           expect([...owners.values()].some((owner) => owner.ownerKind === 'preview' && owner.revision === 1 && !owner.complete)).toBe(true)
           if (scenario === 'disconnected') for (const listener of listeners) listener()
@@ -1233,6 +1237,8 @@ describe('retained app dispatch', () => {
     }
     const imageBytes = new TextEncoder().encode(core.canonicalJson(image))
     const documentDigest = imageDocumentDigest(imageBytes)
+    vi.spyOn(app.connection, 'checkAssetAvailability').mockImplementation(async (digests) =>
+      digests.map((digest) => ({ digest, status: 'available' })))
     vi.spyOn(app.connection, 'fetchAssetBytes').mockResolvedValue(imageBytes.buffer)
     vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) =>
       ({ ...owner, revision: revision + 1, complete: true, digests: [] }))
@@ -1279,6 +1285,8 @@ describe('retained app dispatch', () => {
         }
         const imageBytes = new TextEncoder().encode(core.canonicalJson(image))
         const documentDigest = imageDocumentDigest(imageBytes)
+        vi.spyOn(app.connection, 'checkAssetAvailability').mockImplementation(async (digests) =>
+          digests.map((digest) => ({ digest, status: 'available' })))
         vi.spyOn(app.connection, 'fetchAssetBytes').mockImplementation(async (digest) =>
           digest === documentDigest ? imageBytes.buffer : bytes.buffer)
         const owners = new Map<string, RetainedAssets>()
@@ -3080,6 +3088,75 @@ describe('workflow candidate admission', () => {
         }],
       }) })
   })
+
+  it.each([
+    { name: 'objects', value: { interpolation: 'linear', points: [{ position: 0, value: 0.2 }, { position: 1, value: 0.8 }] }, valid: true },
+    { name: 'pairs', value: { interpolation: 'monotone_cubic', points: [[0, 0.2], [1, 0.8]] }, valid: true },
+    { name: 'implicit interpolation', value: { points: [[0, 0.2], [1, 0.8]] }, valid: true },
+    { name: 'bare pairs', value: [[0, 0.2], [1, 0.8]], valid: true },
+    { name: 'empty points', value: { points: [] }, valid: true },
+    { name: 'unordered finite points', value: { points: [[1.5, -0.2], [-0.25, 2.8]] }, valid: true },
+    { name: 'unknown interpolation', value: { interpolation: 'future', points: [[0, 0.2], [1, 0.8]] }, valid: false },
+    { name: 'extra curve fields', value: { points: [[0, 0.2], [1, 0.8]], resource: asset('c') }, valid: false },
+    { name: 'extra point fields', value: { points: [{ position: 0, value: 0.2, resource: asset('c') }] }, valid: false },
+    { name: 'asset point', value: { points: [[0, asset('c')]] }, valid: false },
+    { name: 'oversized pair', value: { points: [[0, 0.2, 0.8]] }, valid: false },
+    { name: 'string coordinate', value: { points: [['0', 0.2]] }, valid: false },
+    { name: 'infinite coordinate', value: { points: [[0, Infinity]] }, valid: false },
+    { name: 'NaN coordinate', value: { points: [[NaN, 0.2]] }, valid: false },
+    { name: 'null', value: null, valid: false },
+  ])('classifies closed CURVE values without discarding opaque roots: $name', ({ value, valid }) => {
+    const local = session()
+    const curveSchema: NodeSchema = { ...schema, items: [...schema.items, {
+      kind: 'input', id: 'curve', optional: false, type: { kind: 'concrete', name: 'CURVE' },
+      widget: { widgetType: 'CURVE', options: {}, default: { points: [[0, 0], [1, 1]] } },
+    }] }
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { ...local.doc.graphs.g0!.nodes.n0!, values: { files: [asset('a')], curve: value as core.Json } },
+    } } } }
+    const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => curveSchema)
+    expect(roots.complete).toBe(valid)
+    expect(roots.digests).toEqual(JSON.stringify(value).includes(asset('c').digest)
+      ? [asset('a').digest, asset('c').digest] : [asset('a').digest])
+    if (!valid) expect(roots.incompleteDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'workflow.asset.unresolvedInput', message: expect.stringContaining("'curve'") }),
+    ]))
+  })
+
+  it.each(['default', 'typed', 'typed-mismatch', 'socket-mismatch', 'dormant-history', 'opaque-history'] as const)(
+    'checks CURVE ownership through defaults, bindings and retained history: %s', (scenario) => {
+      const local = session()
+      const curve = { interpolation: 'linear', points: [{ position: -0.25, value: 0.2 }, { position: 1.5, value: 0.8 }] }
+      const input = { kind: 'input' as const, id: 'curve', optional: false,
+        type: { kind: 'concrete' as const, name: scenario === 'socket-mismatch' ? 'STRING' : 'CURVE' },
+        widget: { widgetType: 'CURVE', options: {}, default: { points: [[0, 0], [1, 1]] } } }
+      const historical = scenario.endsWith('history')
+      const curveSchema: NodeSchema = { ...schema, items: [...schema.items, ...(historical ? [{
+        kind: 'input' as const, id: 'mode', optional: false, type: { kind: 'concrete' as const, name: 'STRING' },
+        dynamic: { kind: 'dynamicCombo' as const, materialization: 'wire15' as const, options: [
+          { key: 'active', inputs: [] }, { key: 'dormant', inputs: [input] },
+        ] },
+      }] : [input])] }
+      const key = historical ? 'mode.curve' : 'curve'
+      const value = scenario === 'typed' ? { $typed: { type: 'CURVE', value: curve } }
+        : scenario === 'typed-mismatch' ? { $typed: { type: 'STRING', value: '' } }
+        : scenario === 'opaque-history' ? { ...curve, resource: asset('c') } : curve
+      const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+        n0: { ...local.doc.graphs.g0!.nodes.n0!, ...(historical ? { dynamic: { mode: { selected: 'active' } } } : {}),
+          values: { files: [asset('a')], ...(scenario === 'default' ? {} : { [key]: value }) } },
+      } } } }
+      const workflow = createLocalSession(document, coreCommandRegistry([], () => curveSchema))
+      if (historical) expect(workflow.dispatch({ command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n0', inputId: key, value: curve,
+      } }).ok).toBe(true)
+      for (const move of [() => true, ...(historical ? [() => workflow.undo(), () => workflow.redo()] : [])]) {
+        expect(move()).toBe(true)
+        expect(workflowAssetRoots(workflow.doc, workflow.historySnapshot(), () => curveSchema)).toMatchObject({
+          complete: !['typed-mismatch', 'socket-mismatch', 'opaque-history'].includes(scenario),
+          digests: scenario === 'opaque-history' ? [asset('a').digest, asset('c').digest] : [asset('a').digest],
+        })
+      }
+    })
 
   it.each(['COLOR', 'STRING'].flatMap((socket) =>
     ['default', 'default-number', 'default-null', 'default-opaque', 'stored', 'empty', 'typed', 'typed-number', 'socket', 'invalid-value', 'number', 'null', 'typed-mismatch', 'invalid-binding', 'unknown-widget']
