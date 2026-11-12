@@ -1051,13 +1051,5 @@
   ],
   "host-ui.tsx": [
     "text:() private readonly changedSignal = createSignal(0) private batchDepth = 0 private batchDirty = false get changed(): ReadonlySignal"
-  ],
-  "tabs-proof.tsx": [
-    "text:Activity content",
-    "text:Disabled content",
-    "text:Nearby content",
-    "text:Outside focus target",
-    "text:Overview content",
-    "text:Product tabs proof"
   ]
 }

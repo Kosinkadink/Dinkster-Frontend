@@ -15,7 +15,6 @@ import { DocumentStore } from '../src/commands/store.js'
 import type { Diagnostic } from '../src/diagnostics.js'
 import type { JsonObject } from '../src/format/document.js'
 import { importLitegraph, resolveImportedNodePacks, type ComfyNodeUpgradeTable, type ComfyTranslation } from '../src/format/import-litegraph.js'
-import { exportVirtualNodesToLitegraph } from '../src/format/export-litegraph.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
@@ -3474,7 +3473,7 @@ describe('view extras', () => {
     expect(codesOf(diagnostics)).not.toContain('import.schema.missing')
   })
 
-  it('round-trips MarkdownNote text, geometry, and color', () => {
+  it('imports MarkdownNote text, geometry, and color', () => {
     const json = workflow([
       lgNode(7, 'MarkdownNote', {
         pos: [12, 34], size: [420, 210], widgets_values: ['# Heading'], color: '#335577',
@@ -3482,12 +3481,12 @@ describe('view extras', () => {
     ])
     const { document } = importLitegraph(json, resolve)
     expect(document).toBeDefined()
-    expect(exportVirtualNodesToLitegraph(document!)).toEqual([
-      expect.objectContaining({
-        type: 'MarkdownNote', pos: [12, 34], size: [420, 210],
-        widgets_values: ['# Heading'], color: '#335577',
-      }),
-    ])
-    expect(exportVirtualNodesToLitegraph(document!)[0]).not.toHaveProperty('bgcolor')
+    expect(document!.graphs.g0!.nodes.n7).toMatchObject({
+      type: 'dinkster.markdown_note', virtual: true,
+      values: { text: '# Heading' },
+    })
+    expect(document!.view.graphs.g0!.nodes.n7).toMatchObject({
+      position: { x: 12, y: 34 }, size: { width: 420, height: 210 }, color: '#335577',
+    })
   })
 })

@@ -391,18 +391,6 @@
       "issue": 382
     },
     {
-      "kind": "rawControl",
-      "path": "packages/app/src/tabs-proof.tsx",
-      "count": 1,
-      "issue": 382
-    },
-    {
-      "kind": "inlineStyle",
-      "path": "packages/app/src/tabs-proof.tsx",
-      "count": 1,
-      "issue": 382
-    },
-    {
       "kind": "cssLiteral",
       "path": "packages/app/src/styles.css",
       "count": 65,

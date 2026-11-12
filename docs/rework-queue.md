@@ -1,5 +1,52 @@
 # Rework Queue
 
+## Standalone tabs proof page
+
+- What and purpose: an isolated page exercised ProductTabs keyboard focus, selection and ARIA behavior without application state.
+- Why off main: nothing in the product navigates to it. ProductTabs, its DOM contract tests and the real dock consumers remain.
+- Kept code: [draft-frontend-unused-code-before-removal-781](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-frontend-unused-code-before-removal-781), commit `69758c644068c0465e6d9a0ae39dd44145a3cd8d`. Paths: `packages/app/tabs-proof.html`, `packages/app/src/tabs-proof.tsx`, `packages/e2e/tests/audit-tabs-proof.spec.ts`; entries in `scripts/{raw-control,ui-string}-allowlist.json`.
+- Return condition: a supported, reachable component showcase needs this surface. Restore its browser spec with the page, and check keyboard activation, dynamic focus repair and the host dock independently.
+
+## Asset reference repair planner
+
+- What and purpose: a planner described atomic asset-reference substitutions with document preconditions and undo.
+- Why off main: only its own tests call it; the product does not offer or execute this repair plan. Existing asset retention and import resolution remain.
+- Kept code: [draft-frontend-unused-code-before-removal-781](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-frontend-unused-code-before-removal-781), commit `69758c644068c0465e6d9a0ae39dd44145a3cd8d`. Paths: `packages/core/src/asset-ref-repair.ts`, `packages/core/test/asset-ref-repair.test.ts`, export in `packages/core/src/index.ts`.
+- Return condition: a real repair UI owns the full validation/apply/undo contract and has a served asset authority to validate replacements. Prove an actual missing-asset repair and one-step undo, including refusal after document drift.
+
+## Unused asset source abstraction
+
+- What and purpose: an adapter-neutral asset identity, resolution and catalog state model, exercised against mock adapters.
+- Why off main: no wire adapter or product caller uses it. The actual AssetSourceAdapter, local library and mount collections stay.
+- Kept code: [draft-frontend-unused-code-before-removal-781](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-frontend-unused-code-before-removal-781), commit `69758c644068c0465e6d9a0ae39dd44145a3cd8d`. Paths: `packages/app/src/asset-browser/asset-source.ts`, `packages/app/test/asset-source.test.ts`, `docs/asset-source-abstraction.md`.
+- Return condition: a real catalog consumer and backend adapter require this contract rather than the existing source model. Demonstrate actual query, paging, selection, stale-response handling and resolution without treating foreign record ids as authority.
+
+## Note-only LiteGraph export
+
+- What and purpose: a helper exported virtual Note and MarkdownNote records, including text and view geometry, into LiteGraph fragments.
+- Why off main: no product export action uses it and it does not export a complete workflow. Note/MarkdownNote import and native document serialization remain.
+- Kept code: [draft-frontend-unused-code-before-removal-781](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-frontend-unused-code-before-removal-781), commit `69758c644068c0465e6d9a0ae39dd44145a3cd8d`. Paths: `packages/core/src/format/export-litegraph.ts`, export in `packages/core/src/index.ts`, exporter assertions in `packages/core/test/import-litegraph.test.ts`.
+- Return condition: a supported workflow export feature defines its format and loss policy. Test through that product action, including note content, geometry and color. A note fragment alone is not full workflow export.
+
+## Obsolete loop-to-region lowering
+
+- What and purpose: the fallback importer lowered legacy StartLoop/EndLoop topology to explicit regions and emitted withdrawn `std.*` helper nodes.
+- Why off main: registered native expanding loop nodes pass through directly; the fallback is not a served product path. The independently active list-consumer conversion, native expanding loop import, and their tests remain.
+- Kept code: [draft-frontend-unused-code-before-removal-781](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-frontend-unused-code-before-removal-781), commit `69758c644068c0465e6d9a0ae39dd44145a3cd8d`. Paths: `packages/core/src/format/import-litegraph-loops.ts` (`convertLitegraphLoops` and its private helpers), its call in `packages/core/src/format/import-litegraph.ts`, `packages/core/src/extensions/import-helpers.ts`, fallback cases in `packages/core/test/import-litegraph-loops.test.ts`, and `packages/core/test/fixtures/comfyui-generic-loops/`.
+- Return condition: a supported importer contract requires structural lowering rather than native loop execution, and every emitted helper is served. Prove semantic execution on a real backend, nested boundaries and authored lazy branches; never restore withdrawn ids as silent fallback.
+
+## Regions rework
+
+- User direction: regions have never worked for the user and will need a rework. This is future design work, not another starting-body repair.
+- Current behavior stays: Map, Fold and While starting bodies use served nodes; this entry does not redesign or remove them.
+- Return condition: agree on the intended authoring and execution experience, then validate it through real workflows, nested bodies, errors and save/reopen. No region rework is ordered here.
+
+## Node-defined text-input autocomplete
+
+- Future purpose: a node asks for and defines completion inside a text input, rather than the frontend inventing a fixed completion vocabulary.
+- Current limitation: embedding and LoRA name completion asks the backend for two lists it does not serve. The user ruled this extremely low priority; the existing autocomplete code stays on main untouched.
+- Return condition: a served, node-defined completion contract and a useful product workflow exist. Test actual suggestions, selection and insertion against that contract; do not hard-code embedding or LoRA lists as the generalized API.
+
 ## Picker download-unavailable pane
 
 - What and purpose: an unavailable-download heading, backend acquisition-contract explanation and disabled Download button appeared in missing imported-model and logical-model variant details. It attempted to explain why the picker could not download immediately.
