@@ -3579,6 +3579,7 @@ export class AppState {
       let connectionChanged = false
       const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
       return { ...source, registry, unsubscribe, connectionChanged: () => connectionChanged,
+        ownershipRegistry: registry && (this.packLocaleSources.get(registry) ?? registry),
         project: activeProjectId(), generation: this.assetConnectionGenerations.get(backend.connection) }
     })
     try {
@@ -3592,12 +3593,14 @@ export class AppState {
           return { candidate, receipt, roots }
         }))
       const latest = this.tabs.get()
-      if (this.disposed || latest.length !== tabs.length || candidates.some((candidate, index) =>
-        (candidate.tab !== undefined && (latest[index] !== candidate.tab ||
+      if (this.disposed || latest.length !== tabs.length || candidates.some((candidate, index) => {
+        const registry = candidate.backend.registry.get()
+        return (candidate.tab !== undefined && (latest[index] !== candidate.tab ||
           candidate.tab.store.doc !== candidate.document || candidate.tab.store.revision !== candidate.revision ||
           this.backendForTab(candidate.tab) !== candidate.backend)) || candidate.connectionChanged() ||
-        !this.backends.get().includes(candidate.backend) ||
-        candidate.backend.registry.get() !== candidate.registry)) {
+          !this.backends.get().includes(candidate.backend) ||
+          (registry && (this.packLocaleSources.get(registry) ?? registry)) !== candidate.ownershipRegistry
+      })) {
         throw new Error('The restored workspace changed while startup ownership was being confirmed')
       }
       for (const { candidate, receipt, roots } of retained) {
@@ -4223,6 +4226,7 @@ export class AppState {
       let retained: RetainedAssets | undefined
       if (backend.protocol === 'dinkster') {
         const registry = backend.registry.get()
+        const ownershipRegistry = registry && (this.packLocaleSources.get(registry) ?? registry)
         const document = session.doc
         const revision = session.revision
         const localDocument = tab.store.doc
@@ -4234,9 +4238,11 @@ export class AppState {
             this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
           retained = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
           const latest = this.tabs.get().find((candidate) => candidate.id === tab.id)
+          const currentRegistry = backend.registry.get()
           if (this.disposed || generation !== this.workspaceAuthorityGeneration || !this.workspaceAuthorityEnabled ||
             activeProjectId() !== project || this.assetConnectionGenerations.get(backend.connection) !== connectionGeneration ||
-            connectionChanged || !this.backends.get().includes(backend) || backend.registry.get() !== registry ||
+            connectionChanged || !this.backends.get().includes(backend) ||
+            (currentRegistry && (this.packLocaleSources.get(currentRegistry) ?? currentRegistry)) !== ownershipRegistry ||
             latest?.store !== tab.store || this.backendForTab(latest) !== backend || this.collabTabs.get().has(tab.id) ||
             tab.store.doc !== localDocument || tab.store.revision !== localRevision ||
             session.doc !== document || session.revision !== revision ||
@@ -8325,15 +8331,20 @@ export class AppState {
     }
   }
 
+  /** Locale labels do not change the schema snapshot used for asset admission. */
+  private readonly packLocaleSources = new WeakMap<SchemaRegistry, SchemaRegistry>()
+
   private async refreshPackLocaleOverlay(
     backend: Backend & { readonly protocol: 'dinkster' },
     base: SchemaRegistry | undefined = backend.connection.currentRegistry,
   ): Promise<void> {
+    const held = backend.registry.get()
+    if (base === undefined || base.packs === undefined || held === undefined) return
+    const source = this.packLocaleSources.get(held) ?? held
     const current = (): boolean =>
       !this.disposed &&
       this.backends.get().includes(backend) &&
-      backend.connection.currentRegistry === base
-    if (base === undefined || base.packs === undefined) return
+      backend.connection.currentRegistry === base && backend.registry.get() === held
     const locale = activeLocale.get().tag
     const catalogsByPack = new Map<string, readonly PackLocaleCatalog[]>()
     await Promise.all([...base.packs].map(async ([packId, pack]) => {
@@ -8354,7 +8365,9 @@ export class AppState {
     }))
     if (!current() || activeLocale.get().tag !== locale) return
     if (catalogsByPack.size === 0) return
-    backend.registry.set(this.layerExtraSchemas(overlayPackLocales(base, catalogsByPack)))
+    const localized = overlayPackLocales(source, catalogsByPack)
+    this.packLocaleSources.set(localized, source)
+    backend.registry.set(localized)
     backend.invalidateRemoteChoices()
   }
 
