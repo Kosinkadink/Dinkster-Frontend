@@ -11,7 +11,8 @@ import { buildDinksterRegistry } from '@dinkster/client'
 import type { DinksterConnection, RetainedAssets, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { GLSL_EDITOR_KIND } from '../src/editors.js'
-import { admitWorkflowDispatch, executionAssetRoots, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, retainExecutionAssets, RetainedAssetReader, workflowAssetRoots } from '../src/workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, retainExecutionAssets, retainWorkflowAssets, RetainedAssetReader, workflowAssetRoots } from '../src/workflow-asset-retention.js'
+import { imageDocumentDigest } from '../src/image-document-local.js'
 import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { createPreviewLoader } from '../src/node-previews.js'
@@ -47,6 +48,81 @@ function deferred<T>() {
 }
 
 describe('workflow retention recovery', () => {
+  it.each(['resolved', 'missing-resource', 'wrong-resource', 'missing-document', 'wrong-document', 'invalid-command', 'opaque-extension', 'disconnected'] as const)(
+    'resolves configured compositor inventory under independent ownership: %s', async (scenario) => {
+      const f = recoveryFixture()
+      f.entries.clear()
+      vi.stubGlobal('localStorage', f.storage)
+      const bytes = new Uint8Array([7, 19, 23])
+      const resourceDigest = imageDocumentDigest(bytes)
+      const image = {
+        format: 'dinkster-image', formatVersion: 2, lineage: 'compositor-inventory',
+        canvas: { width: 3, height: 2, colorSpace: 'srgb', channelDepth: 8, compositing: 'premultiplied-alpha' },
+        allocation: { nextOrdinal: 1 }, rootLayerIds: [], layers: {}, masks: {},
+        resources: { r0: { id: 'r0', kind: 'raster', digest: resourceDigest, byteSize: bytes.length,
+          mediaType: 'image/png', width: 2, height: 1, colorSpace: 'srgb', channelDepth: 8, alphaMode: 'opaque' } },
+        ...(scenario === 'opaque-extension' ? { extensions: { future: asset('d') } } : {}),
+      }
+      const imageBytes = new TextEncoder().encode(core.canonicalJson(image))
+      const documentDigest = imageDocumentDigest(imageBytes)
+      const recipe = { version: 2, documentDigest, commands: scenario === 'invalid-command' ? [{ op: 'future' }] : [] }
+      const compositorSchema: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'compositor', optional: false,
+        type: { kind: 'concrete', name: 'COMPOSITOR' }, widget: { widgetType: 'COMPOSITOR', options: {}, default: {} } }] }
+      const workflow = session([]).doc
+      const document: WorkflowDocument = { ...workflow, graphs: { g0: { ...workflow.graphs.g0!, nodes: {
+        n0: { ...workflow.graphs.g0!.nodes.n0!, values: { compositor: recipe } },
+      } } } }
+      const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => compositorSchema)
+      expect(roots.complete).toBe(false)
+      const owners = new Map<string, RetainedAssets>()
+      const listeners = new Set<() => void>()
+      const candidateAck = deferred<void>()
+      const candidateEntered = deferred<void>()
+      const connection = {
+        id: asConnectionId('compositor-inventory'), assetUrl: () => 'http://test/api/assets/',
+        status: { subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) } },
+        retainAssets: async (owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration) => {
+          if (owner.ownerKind === 'document') { candidateEntered.resolve(); await candidateAck.promise }
+          const retained = { ...owner, ...declaration, revision: 1 }
+          owners.set(owner.ownerId, retained)
+          return retained
+        },
+        fetchRetainedAssets: async (owner: RetainedAssetOwner) => owners.get(owner.ownerId),
+        releaseRetainedAssets: async (owner: RetainedAssetOwner) => {
+          const before = owners.get(owner.ownerId)!
+          const released = { ...before, revision: 2, digests: [], complete: true }
+          owners.set(owner.ownerId, released)
+          return released
+        },
+        fetchAssetBytes: async (digest: string) => {
+          expect([...owners.values()].some((owner) => owner.ownerKind === 'preview' && owner.revision === 1 && !owner.complete)).toBe(true)
+          if (scenario === 'disconnected') for (const listener of listeners) listener()
+          if (digest === documentDigest) return scenario === 'missing-document' ? undefined
+            : scenario === 'wrong-document' ? bytes.buffer : imageBytes.buffer
+          expect(digest).toBe(resourceDigest)
+          return scenario === 'missing-resource' ? undefined : scenario === 'wrong-resource' ? imageBytes.buffer : bytes.buffer
+        },
+      } as unknown as DinksterConnection
+      const operation = retainWorkflowAssets(connection, document.lineage, 0, roots, f.storage)
+      if (scenario === 'disconnected') {
+        await expect(operation).rejects.toThrow('changed during read')
+        expect([...owners.values()].every((owner) => owner.ownerKind === 'preview' && owner.revision === 1)).toBe(true)
+        return
+      }
+      await candidateEntered.promise
+      expect([...owners.values()].every((owner) => owner.ownerKind === 'preview' && owner.revision === 1)).toBe(true)
+      candidateAck.resolve()
+      const retained = await operation
+      expect(retained.complete).toBe(scenario === 'resolved')
+      expect(retained.digests).toEqual((['missing-document', 'wrong-document'].includes(scenario)
+        ? [documentDigest] : scenario === 'opaque-extension' ? [documentDigest, resourceDigest, asset('d').digest]
+        : [documentDigest, resourceDigest]).sort())
+      expect([...owners.values()].filter((owner) => owner.ownerKind === 'preview'))
+        .toEqual([expect.objectContaining({ revision: 2, digests: [], complete: true })])
+      expect([...owners.values()].filter((owner) => owner.ownerKind === 'document')).toEqual([retained])
+      expect(roots.complete).toBe(false)
+    })
+
   it.each(['acknowledged', 'lost-release', 'reused-owner', 'refused-handoff', 'disconnected'] as const)(
     'holds independent source reads until successful handoff and reconciles retirement: %s', async (scenario) => {
       const f = recoveryFixture()
@@ -1134,6 +1210,42 @@ describe('retained app dispatch', () => {
       code: 'workflow.execution.ownershipUnconfirmed' }))
     expect(await app.saveWorkflow(tab.id)).toBe(false)
     expect(await app.shareActiveTab()).toContain('Publication and sharing remain unavailable.')
+  })
+
+  it('admits changed compositor commands with the same document identity and saves the resolved snapshot', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+    const compositorSchema: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'compositor', optional: false,
+      type: { kind: 'concrete', name: 'COMPOSITOR' }, widget: { widgetType: 'COMPOSITOR', options: {}, default: {} } }] }
+    app = createWorkflowApp([compositorSchema])
+    const image = { format: 'dinkster-image', formatVersion: 2, lineage: 'saved-compositor',
+      canvas: { width: 3, height: 2, colorSpace: 'srgb', channelDepth: 8, compositing: 'premultiplied-alpha' },
+      allocation: { nextOrdinal: 0 }, rootLayerIds: [], layers: {}, masks: {}, resources: {},
+    }
+    const imageBytes = new TextEncoder().encode(core.canonicalJson(image))
+    const documentDigest = imageDocumentDigest(imageBytes)
+    vi.spyOn(app.connection, 'fetchAssetBytes').mockResolvedValue(imageBytes.buffer)
+    vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) =>
+      ({ ...owner, revision: revision + 1, complete: true, digests: [] }))
+    const workflow = session([]).doc
+    await app.openDocument({ ...workflow, graphs: { g0: { ...workflow.graphs.g0!, nodes: {
+      n0: { ...workflow.graphs.g0!.nodes.n0!, values: { compositor: { version: 2, documentDigest, commands: [] } } },
+    } } } }, 'Configured compositor')
+    const tab = app.activeTab()!
+    const recipe = { version: 2, documentDigest, commands: [{ op: 'canvas', changes: { width: 5 } }] }
+    expect(tab.store.dispatch({ command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n0', inputId: 'compositor', value: recipe,
+    } }).ok).toBe(false)
+    expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n0', inputId: 'compositor', value: recipe,
+    } })).ok).toBe(true)
+    const upload = vi.spyOn(app.connection, 'uploadAsset').mockResolvedValue(asset('c').digest)
+    vi.spyOn(app.connection, 'createLibraryRecord').mockResolvedValue({
+      id: 'saved-compositor', scope: 'local', name: 'Configured compositor', digest: asset('c').digest,
+      mediaType: 'application/json', labels: [], created: 1, modified: 1, revision: 1,
+    })
+    expect(await app.saveWorkflow(tab.id)).toBe(true)
+    expect(JSON.parse(upload.mock.calls[0]![0] as string).graphs.g0.nodes.n0.values.compositor).toEqual(recipe)
+    expect(app.problems.get().filter((problem) => problem.code === 'workflow.execution.ownershipUnconfirmed')).toEqual([])
   })
 
   it('saves a complete snapshot without certifying unknown undo history or allowing sharing', async () => {

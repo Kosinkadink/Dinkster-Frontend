@@ -328,10 +328,17 @@ mismatched typed literals and COLOR widgets bound to other socket types remain
 incomplete. Stored dormant branches and undo/redo history use the same contract.
 The empty COMPOSITOR default `{}` and its normalized recipe (version 2, null
 documentDigest, no commands) have no asset roots. A configured recipe retains its
-canonical documentDigest but does not certify completeness without its external
-resource inventory. Malformed
-or unknown commands remain incomplete and keep any known embedded asset roots;
-clearing a recipe does not discard document identities still present in history.
+canonical documentDigest. At asynchronous retention boundaries, an independent
+incomplete preview owner protects reads while the document and every external
+resource are checked for canonical structure, digest and byte size. Native
+compositor commands are applied to an owned copy and the resulting document is
+validated before completeness is acknowledged. The destination owner must
+acknowledge the resolved inventory before the preview owner retires. Resolution
+is operation-local and never reused across backend lifetimes. Malformed or
+unknown commands remain incomplete and keep known roots; clearing a recipe does
+not discard document identities still present in history. Synchronous dispatch
+also compares recipe contents, so changed commands with an unchanged document
+digest still require admission. Save and sharing resolve before publication.
 Metadata and unknown schemas remain
 incomplete. Known canonical references in opaque stored values are retained, but
 the owner explicitly declares `complete: false`, even for an empty known set.

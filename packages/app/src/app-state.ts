@@ -203,7 +203,7 @@ import { isCurveValue, type CurveValue } from '@dinkster/widgets'
 import { imageInputCandidates, isAssetRef } from './image-editor.js'
 import { validFile3dAsset } from './file3d-preview.js'
 import { savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
-import { admitWorkflowDispatch, executionAssetRoots, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots } from './workflow-asset-retention.js'
+import { admitWorkflowDispatch, executionAssetRoots, previewAssetRoots, readAssetPreview, reconcileWorkflowRetentions, RetainedAssetReader, retainExecutionAssets, retainPreviewAssets, retainWorkflowAssets, retireAssetOwner, workflowAssetRoots, workflowAssetRootsCover } from './workflow-asset-retention.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -3604,7 +3604,7 @@ export class AppState {
         if (candidate.tab && !candidate.tab.execution && candidate.tab.store.doc === candidate.document &&
           candidate.tab.store.revision === candidate.revision) this.replaceWorkflowAssetOwner(candidate.tab.store,
           candidate.backend, receipt, candidate.project, candidate.generation)
-        this.reportIncompleteOwnership(candidate.document.lineage, roots)
+        this.reportIncompleteOwnership(candidate.document.lineage, roots, receipt)
       }
     } finally {
       for (const candidate of candidates) candidate.unsubscribe()
@@ -3925,8 +3925,8 @@ export class AppState {
         const retained = await Promise.all(native.map(async ({ tab, backend, registry }) => {
           const roots = workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(),
             this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)), [], 'admission')
-          await retainWorkflowAssets(backend.connection, tab.id, tab.store.revision, roots)
-          return { tab, roots }
+          const receipt = await retainWorkflowAssets(backend.connection, tab.id, tab.store.revision, roots)
+          return { tab, roots, receipt }
         }))
         const latest = this.tabs.get()
         if (this.disposed || !this.workspaceAuthorityEnabled || generation !== this.workspaceAuthorityGeneration ||
@@ -3938,7 +3938,7 @@ export class AppState {
             !this.backends.get().includes(backend) || this.backendForTab(tab) !== backend || backend.registry.get() !== registry)) {
           throw new Error('The workspace changed while incoming tab ownership was being confirmed; local tabs were kept')
         }
-        for (const { tab, roots } of retained) this.reportIncompleteOwnership(tab.id, roots)
+        for (const { tab, roots, receipt } of retained) this.reportIncompleteOwnership(tab.id, roots, receipt)
       } catch (error) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
           'error', 'command', 'workspace.tabs.ownershipFailed',
@@ -4139,7 +4139,7 @@ export class AppState {
         }
         // A refreshed schema can expose new roots; its own acknowledgment must precede publication.
         if (backend.registry.get() !== registry) continue
-        this.reportIncompleteOwnership(document.lineage, roots)
+        this.reportIncompleteOwnership(document.lineage, roots, retained)
         return () => {
           if (session !== undefined && !connectionChanged && stillCurrent() && backend.registry.get() === registry) {
             this.replaceWorkflowAssetOwner(session, backend, retained, project, generation)
@@ -4243,7 +4243,7 @@ export class AppState {
             session.status.get() !== 'live') {
             throw new Error('The workflow changed while workspace ownership was being confirmed; the local workflow was kept')
           }
-          this.reportIncompleteOwnership(tab.id, roots)
+          this.reportIncompleteOwnership(tab.id, roots, retained)
           current = latest
         } finally {
           unsubscribe()
@@ -6222,15 +6222,34 @@ export class AppState {
     })
   }
 
-  private requireCompleteWorkflow(tab: Tab): void {
+  private requireCompleteWorkflow(tab: Tab, history: HistorySnapshot): void | Promise<void> {
     const registry = this.registryForTab(tab)
-    const roots = workflowAssetRoots(tab.store.doc, tab.store.historySnapshot(),
+    const backend = this.backendForTab(tab)
+    const document = tab.store.doc
+    const revision = tab.store.revision
+    const project = activeProjectId()
+    const generation = this.assetConnectionGenerations.get(backend.connection)
+    const roots = workflowAssetRoots(document, history,
       this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
-    if (!roots.complete) throw new Error(`${roots.refusal ?? 'Workflow ownership unconfirmed'}. Publication and sharing remain unavailable.`)
+    if (roots.complete) return
+    if (roots.refusal !== undefined || backend.protocol !== 'dinkster') {
+      throw new Error(`${roots.refusal ?? 'Workflow ownership unconfirmed'}. Publication and sharing remain unavailable.`)
+    }
+    return retainWorkflowAssets(backend.connection, document.lineage, revision, roots, undefined, undefined, true).then((retained) => {
+      if (!retained.complete) throw new Error('Workflow ownership unconfirmed. Publication and sharing remain unavailable.')
+      if (this.disposed || !this.tabs.get().includes(tab) || tab.store.doc !== document || tab.store.revision !== revision ||
+        this.backendForTab(tab) !== backend || this.registryForTab(tab) !== registry || activeProjectId() !== project ||
+        this.assetConnectionGenerations.get(backend.connection) !== generation) throw new Error('Workflow changed during publication admission')
+      // A snapshot-only publication owner must not replace protection for live undo history.
+      if (history.undo.length > 0 || history.redo.length > 0 ||
+        (tab.store.historySnapshot().undo.length === 0 && tab.store.historySnapshot().redo.length === 0)) {
+        this.replaceWorkflowAssetOwner(tab.store, backend, retained, project, generation)
+      }
+    })
   }
 
-  private reportIncompleteOwnership(owner: ProblemOwner, roots: ReturnType<typeof workflowAssetRoots>): void {
-    if (roots.incompleteDiagnostics === undefined) return
+  private reportIncompleteOwnership(owner: ProblemOwner, roots: ReturnType<typeof workflowAssetRoots>, retained?: RetainedAssets): void {
+    if (retained?.complete || roots.incompleteDiagnostics === undefined) return
     this.reportProblems(owner, [diag(
       'warning', 'validation', 'workflow.execution.ownershipUnconfirmed',
       'Workflow ownership unconfirmed.',
@@ -6396,8 +6415,7 @@ export class AppState {
       const history = { revision: prepared.currentHistory.revision, undo: [], redo: [] }
       const current = workflowAssetRoots(prepared.currentDocument, history, resolve)
       const candidate = workflowAssetRoots(prepared.document, history, resolve)
-      const known = new Set(current.digests)
-      if ((current.complete && !candidate.complete) || candidate.digests.some((digest) => !known.has(digest))) {
+      if (!workflowAssetRootsCover(current, candidate)) {
         return this.admitPreparedWorkflowDispatch(tab, prepared)
       }
     }
@@ -6419,12 +6437,9 @@ export class AppState {
     const documentHistory = { revision: history.revision, undo: [], redo: [] }
     const proposed = workflowAssetRoots(candidate, documentHistory, resolve)
     const presentRoots = workflowAssetRoots(current, documentHistory, resolve)
-    const losesCompleteness = presentRoots.complete && !proposed.complete
-    const present = new Set(presentRoots.digests)
-    if (!losesCompleteness && !proposed.digests.some((digest) => !present.has(digest))) return []
+    if (workflowAssetRootsCover(presentRoots, proposed)) return []
     const retainedRoots = workflowAssetRoots(current, history, resolve, retainedDocuments)
-    const known = new Set(retainedRoots.digests)
-    if ((!losesCompleteness || !retainedRoots.complete) && !proposed.digests.some((digest) => !known.has(digest))) return []
+    if (workflowAssetRootsCover(retainedRoots, proposed)) return []
     const diagnostics = [diag('error', 'command', 'command.retention.required',
       'New workflow assets require ownership confirmation through application dispatch')]
     this.reportProblems(tab.id, diagnostics)
@@ -6483,13 +6498,12 @@ export class AppState {
           if (!connectionChanged && this.registryForTab(tab) === registry &&
             session.doc === prepared.document && session.revision === prepared.history.revision) {
             this.replaceWorkflowAssetOwner(session, backend, retained, project, generation)
+            this.reportIncompleteOwnership(tab.id, workflowAssetRoots(prepared.currentDocument, prepared.currentHistory,
+              this.resolverWithVirtualNodes(registry.resolve), [prepared.document, ...(prepared.retainedDocuments ?? [])], 'admission'), retained)
           }
         },
       )
-      if (outcome.ok) {
-        this.reportIncompleteOwnership(tab.id, workflowAssetRoots(prepared.currentDocument, prepared.currentHistory,
-          this.resolverWithVirtualNodes(registry.resolve), [prepared.document, ...(prepared.retainedDocuments ?? [])], 'admission'))
-      } else this.reportProblems(tab.id, outcome.diagnostics)
+      if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
       return outcome
     } catch (error) {
       const outcome = { ok: false as const, diagnostics: [diag(
@@ -6602,7 +6616,7 @@ export class AppState {
       published = true
       this.tabs.update((tabs) => [...tabs, tab])
       this.activeTabId.set(id)
-      if (roots) this.reportIncompleteOwnership(id, roots)
+      if (roots) this.reportIncompleteOwnership(id, roots, retained)
       return true
     } catch {
       if (stillWanted()) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
@@ -6745,15 +6759,19 @@ export class AppState {
     if (this.collabPending.has(key)) return 'this tab is already being shared'
     this.collabPending.add(key)
     try {
-      this.requireCompleteWorkflow(tab)
       // The snapshot is the document at THIS revision; adoption re-verifies
       // both (expect below) so edits/closure during the awaits can never be
       // silently overwritten by the stale snapshot.
       const expect = { store: tab.store, revision: tab.store.revision }
+      const snapshot = tab.store.doc
+      const admission = this.requireCompleteWorkflow(tab, tab.store.historySnapshot())
+      if (admission) await admission
+      if (!this.tabs.get().includes(tab) || tab.store !== expect.store || tab.store.revision !== expect.revision ||
+        tab.store.doc !== snapshot || this.collabBackend() !== backend) throw new Error('Workflow changed during publication admission')
       const descriptor = await this.collabTransport.create(backend.baseUrl, {
         scope: COLLAB_SCOPE,
-        documentId: tab.store.doc.lineage,
-        snapshot: tab.store.doc,
+        documentId: snapshot.lineage,
+        snapshot,
       })
       try {
         await this.adoptCollabSession(descriptor, backend.baseUrl, tab.title, { expect })
@@ -7272,7 +7290,7 @@ export class AppState {
         !registryUnchanged(destinationRegistry, destination.registry.get()) || connectionChanged) return undefined
       const tab = prepared.publish(target ?? undefined)
       this.replaceWorkflowAssetOwner(tab.store, destination, retained, project, generation)
-      this.reportIncompleteOwnership(tab.id, roots)
+      this.reportIncompleteOwnership(tab.id, roots, retained)
       if (!awaitPromotion) return tab
       // Complete authority adoption before the next open captures the workspace.
       const intent = this.workflowOpenIntent
@@ -7925,9 +7943,16 @@ export class AppState {
     const link = this.libraryLinks.get(tab.id)
     try {
       const registry = this.registryForTab(tab)
-      const roots = workflowAssetRoots(tab.store.doc, { revision, undo: [], redo: [] },
+      const document = tab.store.doc
+      const roots = workflowAssetRoots(document, { revision, undo: [], redo: [] },
         this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined)))
-      if (roots.refusal !== undefined || !roots.complete) {
+      if (!roots.complete && roots.refusal === undefined) {
+        await this.requireCompleteWorkflow(tab, { revision, undo: [], redo: [] })
+        if (tab.store.doc !== document || tab.store.revision !== revision || this.backendForTab(tab) !== backend) {
+          throw new Error('Workflow changed during publication admission')
+        }
+      }
+      if (roots.refusal !== undefined) {
         throw new Error(`${roots.refusal ?? 'Workflow ownership unconfirmed'}. Publication and sharing remain unavailable.`)
       }
       const payload = JSON.stringify(await this.documentWithAssetLocations(tab))

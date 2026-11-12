@@ -7,6 +7,7 @@ import {
   MAX_DYNAMIC_STATE_DEPTH,
   appLayout,
   appLayoutItemToJson,
+  applyCompositorCommands,
   buildGraphConnectivity,
   canonicalJson,
   COMPOSITOR_STATE_PREVIEW_CHANNEL,
@@ -25,6 +26,10 @@ import {
   isDinksterClipboardEnvelope,
   isAssetWidgetInput,
   isCompositorRecipe,
+  loadImageDocument,
+  MAX_IMAGE_DOCUMENT_BYTES,
+  IMAGE_OUTPUT_POLICY_EXTENSION,
+  imageOutputPolicyOf,
   parseTypedLiteralWire,
   planReplacement,
   replayHistoryOps,
@@ -32,6 +37,7 @@ import {
   valueSourceConsumersOf,
   valueKeyOf,
   type CommandOutcome,
+  type CompositorRecipe,
   type Diagnostic,
   type DocumentNodeResolver,
   type ExecutionRef,
@@ -50,6 +56,18 @@ import {
 } from '@dinkster/core'
 import { isAssetRef } from './image-editor.js'
 import { activeProjectId, scopedStorageKey } from './projects.js'
+import { imageDocumentDigest } from './image-document-local.js'
+
+interface CompositorInventory {
+  readonly complete: boolean
+  readonly digests: readonly string[]
+}
+
+// These are operation inputs, not cached resolution results or backend authority.
+const compositorCensuses = new WeakMap<object, {
+  readonly recipes: ReadonlyMap<string, CompositorRecipe>
+  readonly resolve: (inventories: ReadonlyMap<string, CompositorInventory>) => ReturnType<typeof workflowAssetRoots>
+}>()
 
 const primitiveNames = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO', 'COLOR'])
 // Widgets with required socket types declare that binding explicitly.
@@ -85,7 +103,19 @@ export function workflowAssetRoots(
   purpose: 'publication' | 'admission' | 'execution' = 'publication',
 ): { readonly complete: boolean; readonly digests: readonly string[]; readonly refusal?: string;
   readonly incompleteDiagnostics?: readonly Diagnostic[] } {
+  return censusWorkflowAssetRoots(document, history, resolve, additionalDocuments, purpose)
+}
+
+function censusWorkflowAssetRoots(
+  document: WorkflowDocument,
+  history: HistorySnapshot,
+  resolve: SchemaResolver,
+  additionalDocuments: readonly WorkflowDocument[],
+  purpose: 'publication' | 'admission' | 'execution',
+  inventories: ReadonlyMap<string, CompositorInventory> = new Map(),
+): ReturnType<typeof workflowAssetRoots> {
   const digests = new Set<string>()
+  const recipes = new Map<string, CompositorRecipe>()
   let complete = true
   let refusal: string | undefined
   const incompleteDiagnostics: Diagnostic[] = []
@@ -143,6 +173,15 @@ export function workflowAssetRoots(
       }
       if (typeof value === 'object' && value !== null && !Array.isArray(value) && Object.keys(value).length === 0) return true
       if (isCompositorRecipe(value) && value.documentDigest === null && value.commands.length === 0) return true
+      if (isCompositorRecipe(value) && value.documentDigest !== null) {
+        const key = canonicalJson(value)
+        recipes.set(key, value)
+        const inventory = inventories.get(key)
+        if (inventory) {
+          for (const digest of inventory.digests) digests.add(digest)
+          if (inventory.complete) return true
+        }
+      }
       // A document digest alone does not enumerate the document's external resources.
       complete = false
       return false
@@ -403,8 +442,29 @@ export function workflowAssetRoots(
       visit(snapshot, replayed.applied)
     }
   }
-  return { complete, digests: [...digests].sort(), ...(refusal === undefined ? {} : { refusal }),
+  const roots = { complete, digests: [...digests].sort(), ...(refusal === undefined ? {} : { refusal }),
     ...(incompleteDiagnostics.length === 0 ? {} : { incompleteDiagnostics }) }
+  if (recipes.size > 0) compositorCensuses.set(roots, { recipes,
+    resolve: (resolved) => censusWorkflowAssetRoots(document, history, resolve, additionalDocuments, purpose, resolved),
+  })
+  return roots
+}
+
+/** Changed compositor commands need fresh admission even when their document digest is unchanged. */
+export function workflowAssetRootsCover(
+  current: ReturnType<typeof workflowAssetRoots>,
+  candidate: ReturnType<typeof workflowAssetRoots>,
+): boolean {
+  const known = new Set(current.digests)
+  const currentCensus = compositorCensuses.get(current)
+  const candidateCensus = compositorCensuses.get(candidate)
+  // Compare unresolved recipes separately, so their presence cannot hide a new opaque field.
+  const currentComplete = currentCensus?.resolve(new Map([...currentCensus.recipes.keys()]
+    .map((key) => [key, { complete: true, digests: [] }]))).complete ?? current.complete
+  const candidateComplete = candidateCensus?.resolve(new Map([...candidateCensus.recipes.keys()]
+    .map((key) => [key, { complete: true, digests: [] }]))).complete ?? candidate.complete
+  return (!currentComplete || candidateComplete) && candidate.digests.every((digest) => known.has(digest)) &&
+    [...(candidateCensus?.recipes.keys() ?? [])].every((key) => currentCensus?.recipes.has(key))
 }
 
 /** Known result identities are roots, but opaque runtime values are never certified complete. */
@@ -532,12 +592,60 @@ export async function retainWorkflowAssets(
   roots: ReturnType<typeof workflowAssetRoots>,
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
   clipboardText?: string,
+  requireComplete = false,
 ): Promise<RetainedAssets> {
   if (clipboardText !== undefined) {
     const envelope: unknown = JSON.parse(clipboardText)
     if (!isDinksterClipboardEnvelope(envelope) || envelope.scope?.lineage !== documentLineage || roots.complete) {
       throw new Error('Clipboard retention context differs')
     }
+  }
+  const census = clipboardText === undefined ? compositorCensuses.get(roots) : undefined
+  if (requireComplete && !roots.complete && !census) throw new Error('Workflow ownership unconfirmed. Publication and sharing remain unavailable.')
+  if (census && roots.refusal === undefined) {
+    const inventories = new Map<string, CompositorInventory>()
+    let retained: RetainedAssets | undefined
+    return readAssetPreview(connection, { ...roots, complete: false }, async () => {
+      for (const [key, recipe] of census.recipes) {
+        const digests = new Set<string>([recipe.documentDigest!])
+        let complete = false
+        try {
+          const fetched = await connection.fetchAssetBytes(recipe.documentDigest!)
+          if (fetched === undefined || fetched.byteLength > MAX_IMAGE_DOCUMENT_BYTES) throw new Error('Compositor document is unavailable')
+          const bytes = new Uint8Array(fetched)
+          if (imageDocumentDigest(bytes) !== recipe.documentDigest) throw new Error('Compositor document digest differs')
+          const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+          const parsed: unknown = JSON.parse(text)
+          const loaded = loadImageDocument(parsed)
+          if (!loaded.document || canonicalJson(parsed) !== text) throw new Error('Compositor document is invalid')
+          const resources = Object.values(loaded.document.resources).filter((resource) => resource.inline === undefined)
+          for (const resource of resources) digests.add(resource.digest)
+          const extensions = loaded.document.extensions ?? {}
+          if (Object.entries(extensions).some(([key, value]) => key !== IMAGE_OUTPUT_POLICY_EXTENSION ||
+            canonicalJson(value) !== canonicalJson(imageOutputPolicyOf(loaded.document!)))) {
+            for (const digest of executionAssetRoots({ outputs: { extensions }, artifacts: [] }, () => undefined).digests) digests.add(digest)
+            throw new Error('Compositor document extensions have unknown asset semantics')
+          }
+          const updated = applyCompositorCommands(loaded.document, recipe.commands)
+          if (!updated) throw new Error('Compositor commands are invalid')
+          // Native commands cannot add resource descriptors; hidden and unused entries still belong to this inventory.
+          for (const resource of resources) {
+            const content = await connection.fetchAssetBytes(resource.digest)
+            if (content === undefined || content.byteLength !== resource.byteSize ||
+              imageDocumentDigest(new Uint8Array(content)) !== resource.digest) throw new Error('Compositor resource is unavailable')
+          }
+          complete = true
+        } catch {
+          // Failed resolution preserves all identities discovered before the failure.
+        }
+        inventories.set(key, { complete, digests: [...digests].sort() })
+      }
+      return census.resolve(inventories)
+    }, () => true, async (resolved) => {
+      if (requireComplete && !resolved.complete) throw new Error('Workflow ownership unconfirmed. Publication and sharing remain unavailable.')
+      retained = await retainAssetRoots(connection, 'document', { documentLineage, documentRevision }, resolved, storage)
+      return true
+    }).then(() => retained!)
   }
   return retainAssetRoots(connection, 'document', { documentLineage, documentRevision,
     ...(clipboardText === undefined ? {} : { clipboardText }) }, roots, storage)
