@@ -19,11 +19,12 @@ export function WidgetEditor(props: WidgetEditorProps) {
     return <WidgetEditorController {...props} />
   }
   const target = props.ed.target
-  if (target.kind === 'input') {
+  if (target.kind === 'input' && (target.familyOwner?.valueKey ?? target.valueKey) === 'mask') {
     const graphId = target.familyOwner?.graphId ?? props.ed.graphId
     const nodeId = target.familyOwner?.nodeId ?? target.nodeId
-    if ((target.familyOwner?.valueKey ?? target.valueKey) === 'mask' &&
-      props.ed.tab.store.doc.graphs[graphId]?.nodes[nodeId]?.type === 'Painter') {
+    const node = props.ed.tab.store.doc.graphs[graphId]?.nodes[nodeId]
+    const schema = node && props.app.registryForTab?.(props.ed.tab)?.resolve(node.type)
+    if (node?.type === 'Painter' || schema?.replacements?.some((rule) => rule.from === 'Painter')) {
       return <PainterWidgetEditor {...props} />
     }
   }
