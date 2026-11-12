@@ -1286,6 +1286,11 @@ describe('deriveNodePreviewSurface frame-ring animation', () => {
       deriveNodePreviewSurface(args)
       await flush(); await flush()
       expect(deriveNodePreviewSurface(args).preview).toMatchObject(outputBitmap)
+      expect(deriveNodePreviewSurface(args).source).toMatchObject({ runtimeId: 'n1', outputId: 'IMAGE' })
+      const edited = { ...args, exactProducer: () => false }
+      expect(deriveNodePreviewSurface(edited).preview).toMatchObject({ ...outputBitmap, state: 'cached' })
+      expect(deriveNodePreviewSurface({ ...edited, frozen: true }).preview).not.toHaveProperty('state')
+      expect(deriveNodePreviewSurface({ ...args, exactProducer: () => true }).preview).not.toHaveProperty('state')
       deriveNodePreviewSurface({ ...args, running: true })
       await flush()
       expect(deriveNodePreviewSurface({ ...args, running: true }).preview).toMatchObject(frameBitmap)

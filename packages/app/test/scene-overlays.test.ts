@@ -1741,6 +1741,27 @@ describe('glsl image estimate overlay', () => {
     expect(m.previewSources['a1']!.key).toMatch(/^mirror:sha256:[0-9a-f]{64}$/)
   })
 
+  it('replaces edited output with an estimate only while its source recipe is unchanged', () => {
+    const original = { image: {} as CanvasImageSource, width: 4, height: 3 }
+    const sources: Record<string, PreviewSource> = {
+      src: { ...srcSource, runtimeId: 'src' },
+      a1: { key: 'preview:a1', runtimeId: 'a1', outputId: 'image', load: async () => original },
+    }
+    const derive = (sourceUnchanged: boolean) => deriveSceneOverlays({
+      ...mirrorBase(),
+      exec: exec({ nodes: { src: {}, a1: {} } }),
+      exactProducer: (id) => id === 'src' && sourceUnchanged,
+      loader: {
+        ...noLoader,
+        sourceFor: (_exec, ids) => sources[ids[0]!],
+        resolve: (source) => source.runtimeId === 'src' ? decodedUpstream : original,
+      },
+      imageEstimator: { estimate: () => ({ image: estimateBitmap, width: 4, height: 3 }), dispose: () => {} },
+    })
+    expect(derive(true).previews.a1).toMatchObject({ image: estimateBitmap, state: 'estimate' })
+    expect(derive(false).previews.a1).toMatchObject({ image: original.image, state: 'cached' })
+  })
+
   it('does not propagate a mirror whose represented output is ambiguous', () => {
     const ambiguousSchema = {
       ...adjustSchema,

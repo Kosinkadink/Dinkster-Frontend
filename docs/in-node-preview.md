@@ -227,6 +227,17 @@ and unresolved suffixes show no estimate. An exact or cached result also
 suppresses the same node's local estimate panel without changing the
 downstream preview.
 
+## Local image estimates
+
+A supported GLSL mirror can use an attributed, decoded native output image
+to estimate an edited node without queueing. Native rendition previews retain
+the exact producing runtime node and output, including the selected batch page.
+After an edit, a result whose upstream recipe no longer matches is labeled
+cached. It can be replaced by a local image labeled estimated, but cannot seed
+another estimate itself. An unchanged source can still feed the edited mirror.
+Frozen views and current backend results remain authoritative. Disabling mirror
+previews suppresses local estimates without discarding recorded images.
+
 ## Recorded text results
 
 A text result appears only when the Data lens recorded-output projection finds
