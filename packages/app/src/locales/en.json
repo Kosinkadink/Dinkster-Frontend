@@ -1342,6 +1342,7 @@
   "outputMountSettings.unsaved": "Unsaved changes",
   "outputFile.file": "File",
   "outputFile.showInFolder": "Show in folder",
+  "outputFile.revealFailed": "Could not open the saved file's folder on this computer.",
   "outputFile.writtenPath": "Written path",
   "outputFile.writtenTo": "Written to {path}",
   "settings.canvas.bookmarkTransitions": "Animate bookmark transitions",
