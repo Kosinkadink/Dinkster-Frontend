@@ -35,6 +35,8 @@ test('required served slot can be cleared, reselected and execute a connected va
   const source = await pinPoint(page, 'slot', 'source', 'in')
   await page.mouse.click(source.x, source.y, { button: 'right' })
   await page.locator('[data-item-id="core.slot.specialize.clear"]').click()
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc
+    .graphs.root!.nodes.slot!.dynamic?.source)).toEqual({})
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes
     .find((node) => node.id === 'slot')!.layout.pins.some((pin) => pin.portId === 'source' && pin.direction === 'in'))).toBe(true)
   await expect.poll(() => page.evaluate(() => {
