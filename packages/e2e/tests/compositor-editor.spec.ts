@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 import { requireBackendNodes } from './required-nodes.js'
 
@@ -391,6 +391,7 @@ test('edits, executes, persists, and falls back safely when compositor sources c
     },
   }])
   expect([...new Set((problems[0]!.data!['reason'] as string).split('; '))].sort()).toEqual([
+    "dinkster.image.image_compositor (create): Declared input 'compositor' has an unsupported asset census widget binding 'COMPOSITOR'",
     "dinkster.image.image_compositor (create): Stored input 'compositor' has unresolved asset identities",
   ])
   const errors = browserErrors.get(page)
