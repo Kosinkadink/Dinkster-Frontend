@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
-import { selectProductOption } from './fixtures.js'
+import { selectProductOption, waitForStartupOwnership } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
@@ -107,6 +107,7 @@ test.beforeEach(async ({ page, context }, testInfo) => {
   }, { synthetic: PHYSICAL_MICROPHONE === undefined })
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 15_000 })
+  await waitForStartupOwnership(page)
 })
 
 test(PHYSICAL_MICROPHONE

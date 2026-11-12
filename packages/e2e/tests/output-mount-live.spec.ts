@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 import { expect, test, type Page } from "@playwright/test";
 import { evidenceGroupDir, evidencePath } from "./evidence-output.js";
+import { waitForStartupOwnership } from "./fixtures.js";
 
 const backend = process.env["DINKSTER_NATIVE_BACKEND"];
 if (!backend)
@@ -171,6 +172,7 @@ test("Save Image publishes its mounted path and follows the persisted output mou
     { timeout: 15_000 },
   );
   await expect(page.getByTestId("status-bar")).toContainText("connected");
+  await waitForStartupOwnership(page);
   await openSaveImageWorkflow(page, asset);
   await page.getByTestId("assets-toggle").click();
   await expect(page.getByTestId("assets-overlay")).toBeVisible();
