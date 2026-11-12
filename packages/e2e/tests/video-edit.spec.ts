@@ -366,17 +366,21 @@ test('native crop source-pixel geometry, pointer handles, presets, and App edito
   expect((await valuesOf(page)).video_edit).toEqual({ ...imported, crop: { ...imported.crop, width: 0 } })
 })
 
-test('absent VIDEO_EDIT preserves scalar settings until a real edit', async ({ page }) => {
+test('absent VIDEO_EDIT preserves scalar settings until a real edit', async ({ page }, info) => {
   await openDocument(page, 'trim', { start_time: 2, duration: 3, strict_duration: true })
   const before = await valuesOf(page)
   await openEditor(page)
   await expect(page.getByTestId('video-trim-start-seconds')).toHaveValue('2')
+  await page.getByTestId('widget-modal-surface').screenshot({ path: info.outputPath('unset-video-edit.png') })
   await page.getByTestId('video-edit-apply').click()
   expect(await valuesOf(page)).toEqual(before)
   await openEditor(page)
   await page.getByTestId('video-trim-duration-seconds').fill('0')
   await page.getByTestId('video-edit-apply').click()
   expect(await valuesOf(page)).toEqual({ ...before, video_edit: { trim: { start_time: 2, duration: 0 } } })
+  await openEditor(page)
+  await expect(page.getByTestId('video-trim-duration-seconds')).toHaveValue('0')
+  await page.getByTestId('widget-modal-surface').screenshot({ path: info.outputPath('applied-video-edit.png') })
 })
 
 test('linked scalar overrides refuse Apply and linked strict duration stays read-only', async ({ page }, info) => {
