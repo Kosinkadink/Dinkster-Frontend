@@ -17,7 +17,7 @@
  * copy/paste round trip exactly as it does for the user.
  */
 import { expect, test, type Page } from '@playwright/test'
-import { skipWithoutNativeCatalog } from './fixtures.js'
+import { skipWithoutNativeCatalog, waitForStartupOwnership } from './fixtures.js'
 
 const proofDir = '/tmp/audit-live-conflict-proof'
 
@@ -97,6 +97,7 @@ test.beforeEach(async ({ page, request }, testInfo) => {
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size ?? 0,
   ), { timeout: 20_000 }).toBeGreaterThan(400)
+  await waitForStartupOwnership(page)
   await openFixture(page)
 })
 
