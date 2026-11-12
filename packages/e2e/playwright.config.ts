@@ -54,6 +54,7 @@ const BACKEND_SERIAL_SPECS = [
   'audit-widget-parity-live.spec.ts',
   'run-history.spec.ts',
   'peek-preview.spec.ts',
+  'dev-blueprint-live.spec.ts',
   'preferred-preview-publication-live.spec.ts',
   'native-imagery-live.spec.ts',
   'mirror-native-live.spec.ts',
