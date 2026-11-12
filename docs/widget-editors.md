@@ -1,5 +1,27 @@
 # Widget compact controls and expanded editors
 
+SAVE_TARGET opens a ready writable mount selector and relative filename prefix.
+The writer adds the descriptor's suffix and numbering; no host path is stored
+in the graph. Empty, absolute, dot-segment and backslash prefixes cannot apply.
+Unavailable current mounts stay visible but cannot apply. The optional gallery
+destination also offers Clear destination; required save targets do not.
+Mount grants are checked again by the backend when it writes.
+
+RESOLUTION_PREVIEW opens a proportional rectangle and exact pixel dimensions
+from the node's aspect ratio, megapixels and rounding multiple. The named
+controls update that preview as a draft; Apply resolution writes the three
+real inputs as one undoable edit without writing the ignored preview value.
+Dimensions use the backend's 1024-based megapixels and ties-to-even rounding.
+Connected inputs disable this composer instead of showing invented dimensions.
+
+CAMERA_ANGLE_VIEW opens a top-down orbit and side elevation preview with named
+horizontal angle, vertical angle and zoom fields. Apply camera angle updates
+the three real numeric inputs as one undoable edit; the presentation-only view
+string is unchanged. Blank, fractional angle and out-of-range drafts cannot be
+applied. Connected numeric inputs disable this composer rather than pretending
+to override their drivers; edit the source inputs or disconnect them first.
+Cancel and outside dismissal discard the draft.
+
 IMAGECOMPARE opens a wipe comparison of the node's executed image_a and
 image_b preview streams. The divider supports pointer and keyboard controls;
 each side has an independent frame selector. A single connected side fills

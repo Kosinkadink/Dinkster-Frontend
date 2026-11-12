@@ -15,8 +15,8 @@ test('crop fields submit exact pixels, preview the source and preserve undo', as
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
   await waitForStartupOwnership(page)
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    const diagnostics = await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'bounding-box-live', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'Crop',
@@ -31,6 +31,7 @@ test('crop fields submit exact pixels, preview the source and preserve undo', as
         source: { position: { x: 60, y: 100 } }, crop: { position: { x: 400, y: 100 } },
       } } } },
     } as never, 'Crop')
+    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
   const run = async (node: string): Promise<void> => {
