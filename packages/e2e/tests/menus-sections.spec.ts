@@ -272,6 +272,13 @@ test('right-click a link offers Delete Link', async ({ page }) => {
 })
 
 test('Escape and outside click dismiss the menu without acting', async ({ page }) => {
+  expect(await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const document = structuredClone(app.activeTab()!.store.doc)
+    document.graphs.g0!.nodes.n0!.type = 'dinkster.image.empty_image'
+    document.graphs.g0!.nodes.n1!.type = 'dinkster.image.preview_image'
+    return app.openDocument(document, 'Basic')
+  })).toEqual([])
   await page.mouse.click(...xy(await headerPoint(page, 'n0')), { button: 'right' })
   await expect(menu(page)).toBeVisible()
   await page.keyboard.press('Escape')
