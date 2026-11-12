@@ -939,6 +939,36 @@ describe('AppState multi-window workspace', () => {
     expect((right.store as unknown as { status: { get(): string } }).status.get()).toBe('live')
   })
 
+  it('confirms ownership on the current target after authority promotion opens', async () => {
+    const authority = new SharedWorkerDocumentAuthority()
+    const renderers: MemoryPort[] = []
+    const factory: SharedWorkerPortFactory = () => {
+      const renderer = new MemoryPort()
+      const worker = new MemoryPort()
+      renderer.peer = worker
+      worker.peer = renderer
+      renderer.paused = true
+      renderers.push(renderer)
+      authority.connect(worker)
+      return renderer
+    }
+    const app = createEditableApp()
+    await app.openDocument(workflow(), 'Shared workflow')
+    const tab = app.activeTab()!
+    const target = app.addBackend('http://other:8000', 'Other', false, 'dinkster', false)!
+    target.registry.set(app.registry.get())
+    const promotion = app.enableWorkspaceAuthority(factory, authorityFactories().workspace)
+    await vi.waitFor(() => expect(renderers.length).toBeGreaterThan(0))
+    app.setTabTarget(tab.id, target.id)
+    renderers.forEach((renderer) => renderer.release())
+    await promotion
+    const promoted = app.tabs.get().find((candidate) => candidate.id === tab.id)!
+    expect('status' in promoted.store && (promoted.store.status as { get(): string }).get()).toBe('live')
+    expect(promoted.store.doc).toEqual(tab.store.doc)
+    expect(app.backendForTab(promoted)).toBe(target)
+    expect(app.problems.get().filter((problem) => problem.code === 'workspace.authority.failed')).toEqual([])
+  })
+
   it('keeps a local edit made while authority promotion is opening', async () => {
     const authority = new SharedWorkerDocumentAuthority()
     const renderers: MemoryPort[] = []

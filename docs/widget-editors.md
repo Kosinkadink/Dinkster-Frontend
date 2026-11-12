@@ -1,5 +1,28 @@
 # Widget compact controls and expanded editors
 
+IMAGECOMPARE opens a wipe comparison of the node's executed image_a and
+image_b preview streams. The divider supports pointer and keyboard controls;
+each side has an independent frame selector. A single connected side fills
+the preview without a divider. Unequal image sizes fit without distortion.
+The divider and frame choices are local display state, not graph values.
+Successful untimed image batches remain browsable within the session's
+existing preview-byte budget; timed animations release their frame rings at
+completion. After eviction or reload, run the comparison again.
+
+BOUNDING_BOX rows summarize X, Y, width and height in pixels. Opening the crop
+region shows four named fields; Apply crop stores the complete region as one
+undoable edit. Coordinates must be nonnegative whole pixels and dimensions
+must be positive whole pixels. Cancel or outside dismissal discards the draft.
+After running the connected image source, the editor shows its first frame
+with the selected crop outlined and the excluded area shaded. The outline
+matches the backend's edge clamping. An unavailable or stale source leaves
+the numeric controls usable without showing an unrelated image.
+
+Crop and comparison previews accept encoded images up to 64 MiB and decoded
+dimensions from 1 through 4096 pixels per side. Larger decoded images are
+released without drawing or resizing the canvas. This preview limit does not
+change the stored crop region or the backend's output dimensions.
+
 Compact STRING and MARKDOWN views display non-string imported values using
 the shared value formatter (for example, null displays as `null`). Rendering
 does not replace them with schema defaults, mark them as empty placeholders,

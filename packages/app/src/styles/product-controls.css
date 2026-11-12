@@ -20,6 +20,7 @@
 .product-button:active:not(:disabled) { background: var(--dinkster-interaction-pressed); }
 .product-button[data-variant='primary']:is(:hover, :active):not(:disabled) { color: var(--dinkster-action-primary-text); background: var(--dinkster-action-primary-bg); }
 .product-button:disabled { color: var(--dinkster-text-disabled); opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
+.product-button[data-variant='primary']:disabled { border-color: var(--dinkster-border-strong); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); opacity: 1; }
 
 .product-text-input,
 .product-text-area {

@@ -423,7 +423,9 @@ tab and close only the unadopted transport. Reload failures preserve pending
 membership for retry; metadata-only editor switches survive adoption. The
 source target is installed before tab publication. SharedWorker canonical
 session promotion retains its snapshot and adopted history on the local tab's
-original backend before swapping stores. A refused or stale acknowledgment
+current backend after the shared session opens and before swapping stores. A
+target change during opening is included in that ownership request; a target
+change while its acknowledgment is pending keeps the local store. A refused or stale acknowledgment
 keeps the local store; metadata-only changes survive the swap. Disabling workspace
 authority also closes connections whose promotion acknowledgment is pending, so
 a disposed renderer cannot keep an obsolete SharedWorker snapshot alive.

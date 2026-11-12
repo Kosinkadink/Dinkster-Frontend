@@ -4154,9 +4154,7 @@ export class AppState {
   private async promoteWorkspaceTab(tab: Tab, generation: number, signal: AbortSignal): Promise<void> {
     const sourceDocument = tab.store.doc
     const sourceRevision = tab.store.revision
-    const backend = this.backendForTab(tab)
     const project = activeProjectId()
-    const connectionGeneration = this.assetConnectionGenerations.get(backend.connection)
     const registry = (): SchemaRegistry | undefined => {
       const live = this.tabs.get().find((candidate) => candidate.id === tab.id)
       return live ? this.registryForTab(live) : undefined
@@ -4219,6 +4217,8 @@ export class AppState {
       // established the workspace first) invalidates the records, so they
       // stay behind.
       if (sameDocument) session.adoptHistory(tab.store.historySnapshot())
+      const backend = this.backendForTab(live)
+      const connectionGeneration = this.assetConnectionGenerations.get(backend.connection)
       let current = live
       let retained: RetainedAssets | undefined
       if (backend.protocol === 'dinkster') {
