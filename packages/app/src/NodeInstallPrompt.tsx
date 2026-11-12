@@ -1,9 +1,10 @@
 import { createSignal, onCleanup, Show } from 'solid-js'
-import { PackInstallError, type PackInstallPlan } from '@dinkster/client'
+import { PackInstallError, type PackInstallPlan, type PackPreparationProgress } from '@dinkster/client'
 import type { AppState } from './app-state.js'
 import type { CatalogNode } from './node-catalog.js'
 import { ModalSurface } from './ModalSurface.js'
 import { ProductButton } from './ProductControls.js'
+import { PackPreparationStatus } from './PackPreparationStatus.js'
 import { SchemaPreview } from './SchemaPreview.js'
 import { useAppMessage } from './locale.js'
 
@@ -12,6 +13,8 @@ export function NodeInstallPrompt(props: { readonly app: AppState; readonly requ
   const [plan, setPlan] = createSignal<PackInstallPlan>()
   const [commandsCopied, setCommandsCopied] = createSignal(false)
   const [busy, setBusy] = createSignal(false)
+  const [progress, setProgress] = createSignal<PackPreparationProgress>()
+  const [preparing, setPreparing] = createSignal(false)
   const [status, setStatus] = createSignal(props.app.nodeInstallUncertain.has(props.request.backendId) ? message('search.installUnknown') : '')
   const [applied, setApplied] = createSignal(false)
   const [uncertain, updateUncertain] = createSignal(props.app.nodeInstallUncertain.has(props.request.backendId))
@@ -47,14 +50,14 @@ export function NodeInstallPrompt(props: { readonly app: AppState; readonly requ
     controller = new AbortController()
     clearTimeout(expiryTimer)
     setCommandsCopied(false)
-    setBusy(true); setPlan(undefined); setStatus('')
+    setBusy(true); setPlan(undefined); setStatus(''); setProgress(undefined); setPreparing(true)
     try {
       const target = backend()
-      const started = Date.now()
-      const result = await target.connection.planPackInstall([{ pack: props.request.pack.name, version: props.request.pack.version }], controller.signal)
+      const result = await target.connection.planPackInstall([{ pack: props.request.pack.name, version: props.request.pack.version }], controller.signal,
+        (value) => { backend(); if (!disposed) setProgress(value) })
       backend()
       if (!disposed) {
-        expiresAt = started + result.expiresInSeconds * 1000
+        expiresAt = Date.now() + result.expiresInSeconds * 1000
         if (Date.now() >= expiresAt) expire()
         else {
           setPlan(result)
@@ -62,7 +65,7 @@ export function NodeInstallPrompt(props: { readonly app: AppState; readonly requ
         }
       }
     } catch (error) { failure(error) }
-    finally { if (!disposed) setBusy(false) }
+    finally { if (!disposed) { setBusy(false); setPreparing(false) } }
   }
   const install = async () => {
     const confirmed = plan()
@@ -150,9 +153,9 @@ export function NodeInstallPrompt(props: { readonly app: AppState; readonly requ
           <ProductButton disabled={busy()} onClick={() => { void copyCommands(value) }}>{message(commandsCopied() ? 'search.installCopied' : 'search.installCopyCommands')}</ProductButton>
         </>}</Show>
       </>}</Show>
-      <Show when={!applied() && !uncertain()}><ProductButton disabled={busy()} onClick={() => { void review() }}>{message('search.installReview')}</ProductButton></Show>
+      <Show when={!applied() && !uncertain() && !preparing()}><ProductButton disabled={busy()} onClick={() => { void review() }}>{message('search.installReview')}</ProductButton></Show>
       <Show when={(uncertain() || plan()?.commands !== undefined) && !busy()}><ProductButton onClick={() => { void refresh() }}>{message('search.installRefresh')}</ProductButton></Show>
-      <p role="status">{busy() ? message('search.installWorking') : status()}</p>
+      <p role="status">{preparing() ? <PackPreparationStatus progress={progress()} /> : busy() ? message('search.installWorking') : status()}</p>
       <Show when={busy() && uncertain()}><p>{message('search.installCancelWarning')}</p></Show>
       <ProductButton onClick={close}>{message(busy() ? 'search.installCancelWaiting' : 'search.close')}</ProductButton>
     </div>

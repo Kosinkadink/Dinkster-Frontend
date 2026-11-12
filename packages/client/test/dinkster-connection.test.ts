@@ -152,6 +152,10 @@ it('retains the newer import catalog when an older refresh completes last', asyn
   expect(etags).toEqual([null, null, '"newer"'])
 })
 
+function preparedReview(result: unknown) {
+  return { preparation: 'preparation-1', state: 'ready', progress: { sequence: 2, stage: 'retaining-review', completed: 1, total: 1 }, result }
+}
+
 it.each([
   { format: 'dinkster.plan/1', base: null },
   { format: 'desktop.project-software/1', retained: { engine: 'sealed', constraints: ['cpu'] } },
@@ -163,7 +167,7 @@ it.each([
   const calls: { url: string; body: unknown }[] = []
   const fetchFn: FetchLike = async (url, init) => {
     calls.push({ url, body: JSON.parse(init!.body as string) })
-    return jsonResponse(200, url.endsWith('/plan') ? plan : { generation: 3, activation })
+    return jsonResponse(200, url.endsWith('/prepare') ? preparedReview(plan) : { generation: 3, activation })
   }
   const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer', fetchFn,
     webSocketFactory: () => ({}) as WebSocketLike })
@@ -171,7 +175,7 @@ it.each([
     { pack: 'sampling', version: '2.1' }, { pack: 'image', version: '3.2' },
   ])
   expect(reviewed).toEqual(plan)
-  expect(calls).toEqual([{ url: '/selected/api/packs/install/plan', body: { packs: [
+  expect(calls).toEqual([{ url: '/selected/api/packs/install/prepare', body: { packs: [
     { pack: 'sampling', version: '2.1' }, { pack: 'image', version: '3.2' },
   ] } }])
   if (reviewed.commands !== undefined) throw new Error('Expected a gateway confirmation')
@@ -185,7 +189,7 @@ it('retains terminal-only installation commands without granting HTTP confirmati
     commands: ['dinkster-env --root /project packs-plan image@3.2 --output /tmp/review',
       'dinkster-env --root /project packs-apply --input /tmp/review --approval sha256:example'], expiresInSeconds: 900 }
   const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer',
-    fetchFn: async () => jsonResponse(200, plan), webSocketFactory: () => ({}) as WebSocketLike })
+    fetchFn: async () => jsonResponse(200, preparedReview(plan)), webSocketFactory: () => ({}) as WebSocketLike })
   expect(await connection.planPackInstall([{ pack: 'image', version: '3.2' }])).toEqual(plan)
 })
 
@@ -206,7 +210,7 @@ it.each([404, 409, 422])('preserves structured installation failures without ret
 
 it('rejects malformed installation success and activation rollback instead of reporting installed', async () => {
   let response: unknown
-  const fetchFn: FetchLike = async () => jsonResponse(200, response)
+  const fetchFn: FetchLike = async (url) => jsonResponse(200, url.endsWith('/prepare') ? preparedReview(response) : response)
   const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer', fetchFn,
     webSocketFactory: () => ({}) as WebSocketLike })
   const plan = { confirmation: 'token', plan: { format: 'dinkster.plan/1' }, review: 'Review', expiresInSeconds: 900 }
@@ -239,7 +243,7 @@ it('bounds install planning and forwards cancellation without retrying apply', a
     }
     const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer', fetchFn,
       webSocketFactory: () => ({}) as WebSocketLike })
-    const planning = expect(connection.planPackInstall([{ pack: 'image', version: '1' }])).rejects.toThrow('timed out')
+    const planning = expect(connection.planPackInstall([{ pack: 'image', version: '1' }])).rejects.toThrow('could not be acknowledged within 30 seconds')
     await vi.advanceTimersByTimeAsync(30_000)
     await planning
     expect(signals[0]!.aborted).toBe(true)
@@ -250,6 +254,26 @@ it('bounds install planning and forwards cancellation without retrying apply', a
     expect(signals[1]!.aborted).toBe(true)
     expect(signals).toHaveLength(2)
   } finally { vi.useRealTimers() }
+})
+
+it('cancels a late preparation acknowledgement after the caller stops waiting', async () => {
+  let acknowledge!: (response: Response) => void
+  const calls: string[] = []
+  const fetchFn: FetchLike = async (url) => {
+    calls.push(url)
+    if (url.endsWith('/prepare')) return new Promise((resolve) => { acknowledge = resolve })
+    return jsonResponse(200, { state: 'cancelled' })
+  }
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer', fetchFn,
+    webSocketFactory: () => ({}) as WebSocketLike })
+  const controller = new AbortController()
+  const stopped = expect(connection.planPackInstall([{ pack: 'image', version: '1' }], controller.signal)).rejects.toThrow('Aborted')
+  controller.abort(new Error('Aborted'))
+  await stopped
+  acknowledge(jsonResponse(202, { preparation: 'late-preparation', state: 'preparing' }))
+  await vi.waitFor(() => expect(calls).toEqual([
+    '/selected/api/packs/install/prepare', '/selected/api/packs/install/preparation/cancel',
+  ]))
 })
 
 it('reads live source selections from the editing connection and rejects malformed options', async () => {
