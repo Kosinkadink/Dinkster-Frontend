@@ -3,15 +3,32 @@
 }
 
 .modal-surface[data-modal='widget-painter'] .widget-modal-help {
+  flex: none;
   padding: 12px 12px 0;
 }
 
-.painter-widget-editor {
+.widget-editor.painter-widget-editor {
+  display: flex;
+  flex: 1;
+  gap: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.painter-content {
   display: grid;
+  grid-auto-rows: max-content;
+  flex: 1;
   gap: 12px;
   min-width: 0;
+  min-height: 0;
   padding: 12px;
   overflow: auto;
+}
+
+.painter-widget-editor > .product-action-footer {
+  margin: 0 12px 12px;
 }
 
 .painter-toolbar {
