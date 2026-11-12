@@ -61,6 +61,7 @@ test.beforeEach(async ({ page, request }, testInfo) => {
     }, 'Widget Value Presentation')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
+  await waitForStartupOwnership(page)
   await expect.poll(() => page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'loader')
     return node?.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'ckpt_name') ?? false
