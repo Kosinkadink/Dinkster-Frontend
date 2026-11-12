@@ -7291,6 +7291,8 @@ export class AppState {
     const destination = target ?? this.backends.get()[0]!
     const destinationRegistry = destination.registry.get()
     const registryUnchanged = (before: SchemaRegistry | undefined, after: SchemaRegistry | undefined): boolean => {
+      before = before && (this.packLocaleSources.get(before) ?? before)
+      after = after && (this.packLocaleSources.get(after) ?? after)
       if (before === after) return true
       if (before === undefined || after === undefined) return false
       // A refetch can replace the registry without changing its admission contract.
