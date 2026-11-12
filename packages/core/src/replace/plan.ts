@@ -871,6 +871,7 @@ function planReplacementForCase(
     const invalidElaboration = sourceElaboration.diagnostics.find((diagnostic) =>
       diagnostic.code === 'elab.combo.unknownOption' ||
       diagnostic.code === 'elab.slot.unknownVariant' ||
+      diagnostic.code === 'prompt.missing_dynamic_choice' ||
       diagnostic.code === 'prompt.bad_dynamic_choice',
     )
     if (invalidElaboration !== undefined) {
