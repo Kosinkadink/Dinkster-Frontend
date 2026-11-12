@@ -925,7 +925,7 @@ export function deriveSceneOverlays(args: {
       // cardinality is no proof: a one-output node's panel can show its
       // selected input asset, which is not the produced output.
       if (upstreamSource.outputId !== binding.images[0]!.driver.output) continue
-      if (upstreamSource.runtimeId !== undefined && args.exactProducer?.(upstreamSource.runtimeId) === false) continue
+      if (upstreamSource.runtimeId !== undefined && args.exactProducer?.(upstreamSource.runtimeId) !== true) continue
       const width = upstream.width ?? 0
       const height = upstream.height ?? 0
       if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) continue

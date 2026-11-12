@@ -505,7 +505,7 @@ export function deriveNodePreviewSurface(args: {
     : animatedPreview
   const retainedPreview = source.runtimeId !== undefined && (
     args.retainedRuntimeIds?.has(source.runtimeId) === true ||
-    (!args.frozen && !args.running && args.exactProducer?.(source.runtimeId) === false)
+    (!args.frozen && !args.running && args.exactProducer?.(source.runtimeId) !== true)
   )
     ? { ...preview, state: 'cached' as const }
     : preview

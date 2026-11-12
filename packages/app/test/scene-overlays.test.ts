@@ -323,6 +323,7 @@ describe('selected image asset overlay', () => {
       scene: assetScene as unknown as Scene,
       exec: exec({ nodes: { n1: {} } }),
       loader: outputLoader,
+      exactProducer: () => true,
     })
     expect(output.previews.n1).toBe(decoded)
     expect(output.selectedInputPreviews).toEqual({})
@@ -413,6 +414,7 @@ describe('executed image paging overlay', () => {
         }],
       }),
       loader: { ...noLoader, sourceFor, resolve: () => decoded },
+      exactProducer: () => true,
     })
 
     expect(sourceFor).toHaveBeenCalledWith(expect.anything(), ['saved'], false, undefined, undefined)
@@ -437,6 +439,7 @@ describe('executed image paging overlay', () => {
       exec: exec({ key: 'run', nodes: { n1: { state: 'done' } } }),
       outputPreviewKeyPrefix: 'document',
       outputPreviewIndex,
+      exactProducer: () => true,
       loader: { ...noLoader, inventoryFor: () => images, sourceFor, resolve: () => undefined },
     })
     expect(model.executedImages.n1).toMatchObject({ images, index: 1, count: 2 })
@@ -1530,6 +1533,7 @@ describe('deriveSceneOverlays', () => {
       ...base,
       scene: scene([{ id: 'n1' }]),
       exec: exec({ nodes: { n1: { state: 'cached' } } }),
+      exactProducer: () => true,
       loader,
     })
     expect(m.previews.n1).toBe(decoded)
@@ -1553,6 +1557,7 @@ describe('deriveSceneOverlays', () => {
         artifact: { provenance: { toSource: { current: 'group.a', old: 'group.b' } } },
       }),
       retainedRuntimeIds: new Set(['old']),
+      exactProducer: () => true,
       loader,
     })
     expect(m.previews.group).toBe(current)
@@ -1741,16 +1746,16 @@ describe('glsl image estimate overlay', () => {
     expect(m.previewSources['a1']!.key).toMatch(/^mirror:sha256:[0-9a-f]{64}$/)
   })
 
-  it('replaces edited output with an estimate only while its source recipe is unchanged', () => {
+  it('replaces edited output with an estimate only while its source recipe is proven unchanged', () => {
     const original = { image: {} as CanvasImageSource, width: 4, height: 3 }
     const sources: Record<string, PreviewSource> = {
       src: { ...srcSource, runtimeId: 'src' },
       a1: { key: 'preview:a1', runtimeId: 'a1', outputId: 'image', load: async () => original },
     }
-    const derive = (sourceUnchanged: boolean) => deriveSceneOverlays({
+    const derive = (sourceUnchanged: boolean | undefined) => deriveSceneOverlays({
       ...mirrorBase(),
       exec: exec({ nodes: { src: {}, a1: {} } }),
-      exactProducer: (id) => id === 'src' && sourceUnchanged,
+      exactProducer: sourceUnchanged === undefined ? undefined : (id) => id === 'src' && sourceUnchanged,
       loader: {
         ...noLoader,
         sourceFor: (_exec, ids) => sources[ids[0]!],
@@ -1760,6 +1765,9 @@ describe('glsl image estimate overlay', () => {
     })
     expect(derive(true).previews.a1).toMatchObject({ image: estimateBitmap, state: 'estimate' })
     expect(derive(false).previews.a1).toMatchObject({ image: original.image, state: 'cached' })
+    const unknown = derive(undefined)
+    expect(unknown.previews.src).toMatchObject({ image: decodedUpstream.image, state: 'cached' })
+    expect(unknown.previews.a1).toMatchObject({ image: original.image, state: 'cached' })
   })
 
   it('does not propagate a mirror whose represented output is ambiguous', () => {
