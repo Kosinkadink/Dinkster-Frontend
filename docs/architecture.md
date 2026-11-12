@@ -510,8 +510,8 @@ SAVE_TARGET accepts only null or the closed mount/prefix record, and BOUNDING_BO
 accepts only its four finite coordinates. AUDIO_RECORD and WEBCAM retain exact
 asset references with the matching media type, or accept null when cleared.
 IMAGECOMPARE and RESOLUTION_PREVIEW accept their null presentation state.
-Open-ended LOAD_3D and VIDEO_EDIT records remain incomplete and retain any known
-embedded roots; editor acceptance is not an ownership guarantee.
+Open-ended LOAD_3D and VIDEO_EDIT bindings remain incomplete even when unset,
+and retain any known embedded roots. Editor acceptance is not an ownership guarantee.
 Dynamic inputs use canonical elaborated identities: stored inactive combo branches,
 disconnected slot dependents and persisted family members contribute roots, while
 defaults come only from the active interface. Historical connectivity changes

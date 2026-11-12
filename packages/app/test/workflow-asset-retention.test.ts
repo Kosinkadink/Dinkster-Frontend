@@ -3120,6 +3120,8 @@ describe('workflow candidate admission', () => {
     { widgetType: 'RESOLUTION_PREVIEW', value: null, complete: true, digests: [] },
     { widgetType: 'BOUNDING_BOX', value: { x: 7, y: 13, width: 64, height: 32 }, complete: true, digests: [] },
     { widgetType: 'BOUNDING_BOX', value: { x: 7, y: 13, width: 64, height: 32, hidden: asset('c') }, complete: false, digests: [asset('c').digest] },
+    { widgetType: 'LOAD_3D', value: undefined, complete: false, digests: [] },
+    { widgetType: 'VIDEO_EDIT', value: undefined, complete: false, digests: [] },
     { widgetType: 'LOAD_3D', value: { model: asset('d') }, complete: false, digests: [asset('d').digest] },
     { widgetType: 'VIDEO_EDIT', value: { trim: { start_time: 1, duration: 3 }, hidden: asset('e') }, complete: false, digests: [asset('e').digest] },
   ])('keeps $widgetType ownership closed for $value', ({ widgetType, value, complete, digests }) => {
@@ -3128,7 +3130,7 @@ describe('workflow candidate admission', () => {
       type: { kind: 'concrete', name: widgetType }, widget: { widgetType, options: {} },
     }] }
     const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
-      n0: { id: asNodeId('n0'), type: 'Loader', values: { value: value as core.Json } },
+      n0: { id: asNodeId('n0'), type: 'Loader', values: value === undefined ? {} : { value: value as core.Json } },
     } } } }
     const roots = workflowAssetRoots(document, local.historySnapshot(), () => candidate)
     expect(roots.complete).toBe(complete)

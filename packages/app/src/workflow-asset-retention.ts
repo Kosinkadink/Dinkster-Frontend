@@ -72,30 +72,46 @@ const compositorCensuses = new WeakMap<object, {
 
 const primitiveNames = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO', 'COLOR'])
 // Widgets with required socket types declare that binding explicitly.
-const widgetTypes = new Map<string, readonly string[] | undefined>([
-  ['STRING', undefined], ['INT', undefined], ['FLOAT', undefined], ['NUMBER', undefined],
-  ['BOOLEAN', undefined], ['COMBO', undefined], ['ASSET', undefined], ['MOUNT', ['STRING']],
-  ['COLOR', ['COLOR', 'STRING']], ['COMPOSITOR', ['COMPOSITOR']], ['CURVE', ['CURVE']],
-  ['MARKDOWN', ['STRING']], ['BUTTON', ['STRING']], ['CAMERA_ANGLE_VIEW', ['STRING']],
-  ['IMAGECOMPARE', ['IMAGECOMPARE']], ['RESOLUTION_PREVIEW', ['RESOLUTION_PREVIEW']],
-  ['MULTI_COMBO', undefined], ['COLORS', undefined], ['LIST', undefined],
-  ['SAVE_TARGET', ['SAVE_TARGET']], ['BOUNDING_BOX', ['BOUNDING_BOX']],
-  ['AUDIO_RECORD', undefined], ['WEBCAM', undefined], ['LOAD_3D', undefined], ['VIDEO_EDIT', undefined],
+const widgetTypes = new Map<string, {
+  readonly sockets?: readonly string[]
+  readonly listElements?: readonly string[]
+  readonly asset?: boolean
+  readonly opaque?: boolean
+  readonly validate?: (value: Json) => boolean
+}>([
+  ['STRING', {}], ['INT', {}], ['FLOAT', {}], ['NUMBER', {}],
+  ['BOOLEAN', {}], ['COMBO', {}], ['ASSET', {}],
+  ['MOUNT', { sockets: ['STRING'], validate: (value) => value === null || typeof value === 'string' }],
+  ['COLOR', { sockets: ['COLOR', 'STRING'] }], ['COMPOSITOR', { sockets: ['COMPOSITOR'] }], ['CURVE', { sockets: ['CURVE'] }],
+  ['MARKDOWN', { sockets: ['STRING'] }], ['CAMERA_ANGLE_VIEW', { sockets: ['STRING'] }],
+  ['BUTTON', { sockets: ['STRING'], validate: (value) => value === null || typeof value === 'string' }],
+  ['IMAGECOMPARE', { sockets: ['IMAGECOMPARE'], validate: (value) => value === null }],
+  ['RESOLUTION_PREVIEW', { sockets: ['RESOLUTION_PREVIEW'], validate: (value) => value === null }],
+  ['MULTI_COMBO', { listElements: ['COMBO'], validate: (value) => Array.isArray(value) && value.every((entry) => typeof entry === 'string') }],
+  ['COLORS', { listElements: ['STRING'], validate: (value) => Array.isArray(value) && value.every((entry) => typeof entry === 'string') }],
+  ['LIST', { listElements: ['STRING', 'INT', 'FLOAT'] }],
+  ['SAVE_TARGET', { sockets: ['SAVE_TARGET'], validate: (value) => value === null || isSaveTarget(value) }],
+  ['BOUNDING_BOX', { sockets: ['BOUNDING_BOX'], validate: (value) =>
+    typeof value === 'object' && value !== null && !Array.isArray(value) && Object.keys(value).length === 4 &&
+    ['x', 'y', 'width', 'height'].every((key) => Object.hasOwn(value, key)) &&
+    Object.values(value).every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate)) }],
+  ['AUDIO_RECORD', { sockets: ['AUDIO_RECORD', 'ASSET'], asset: true,
+    validate: (value) => value === null || isAssetRef(value) && value.mediaType.startsWith('audio/') }],
+  ['WEBCAM', { sockets: ['WEBCAM', 'ASSET'], asset: true,
+    validate: (value) => value === null || isAssetRef(value) && value.mediaType.startsWith('image/') }],
+  // These editors preserve open-ended imported records, not a closed ownership contract.
+  ['LOAD_3D', { opaque: true }], ['VIDEO_EDIT', { opaque: true }],
 ])
 
 function widgetBindingSupported(type: TypeExpr, widgetType: string): boolean {
-  if (!widgetTypes.has(widgetType)) return false
-  if (widgetType === 'MULTI_COMBO' || widgetType === 'COLORS' || widgetType === 'LIST') {
+  const contract = widgetTypes.get(widgetType)
+  if (contract === undefined || contract.opaque) return false
+  if (contract.listElements !== undefined) {
     return type.kind === 'list' && type.element.kind === 'concrete' &&
-      (widgetType === 'MULTI_COMBO' ? type.element.name === 'COMBO'
-        : widgetType === 'COLORS' ? type.element.name === 'STRING'
-          : ['STRING', 'INT', 'FLOAT'].includes(type.element.name))
+      contract.listElements.includes(type.element.name)
   }
-  if (widgetType === 'AUDIO_RECORD' || widgetType === 'WEBCAM') {
-    return type.kind === 'asset' || type.kind === 'concrete' && ['ASSET', widgetType].includes(type.name)
-  }
-  const socketTypes = widgetTypes.get(widgetType)
-  return socketTypes === undefined || type.kind === 'concrete' && socketTypes.includes(type.name)
+  return contract.sockets === undefined || type.kind === 'concrete' && contract.sockets.includes(type.name) ||
+    contract.asset === true && type.kind === 'asset'
 }
 
 function assetFreeDynamicState(value: unknown, depth = 0): boolean {
@@ -175,7 +191,8 @@ function censusWorkflowAssetRoots(
       return false
     }
     const typed = parseTypedLiteralWire(value)
-    const socketTypes = widgetTypes.get(widgetType ?? '')
+    const contract = widgetTypes.get(widgetType ?? '')
+    const socketTypes = contract?.sockets
     const color = socketTypes?.includes('COLOR') === true || (type.kind === 'concrete' && type.name === 'COLOR')
     if (type.kind === 'concrete' && (
       (color && typed === undefined && typeof value !== 'string') ||
@@ -227,31 +244,11 @@ function censusWorkflowAssetRoots(
         })
       if (!valid) { complete = false; opaqueRoots(value) }
       return valid
-    } else if (widgetType === 'AUDIO_RECORD' || widgetType === 'WEBCAM') {
-      const valid = value === null || isAssetRef(value) &&
-        value.mediaType.startsWith(widgetType === 'AUDIO_RECORD' ? 'audio/' : 'image/')
-      if (valid && value !== null) digests.add(value.digest)
-      if (!valid) { complete = false; opaqueRoots(value) }
-      return valid
-    } else if (widgetType === 'LOAD_3D' || widgetType === 'VIDEO_EDIT') {
-      // These editors preserve open-ended imported records, not a closed ownership contract.
-      complete = false
+    } else if (contract?.validate !== undefined) {
+      const valid = contract.validate(value)
+      if (!valid) complete = false
       opaqueRoots(value)
-      return false
-    } else if (widgetType === 'MULTI_COMBO' || widgetType === 'COLORS') {
-      const valid = Array.isArray(value) && value.every((entry) => typeof entry === 'string')
-      if (!valid) { complete = false; opaqueRoots(value) }
       return valid
-    } else if (widgetType === 'SAVE_TARGET' || widgetType === 'BOUNDING_BOX') {
-      const record = typeof value === 'object' && value !== null && !Array.isArray(value)
-        ? value as { readonly [key: string]: Json } : undefined
-      const valid = widgetType === 'SAVE_TARGET' ? value === null || isSaveTarget(value)
-        : record !== undefined && Object.keys(record).length === 4 && ['x', 'y', 'width', 'height'].every((key) =>
-          typeof record[key] === 'number' && Number.isFinite(record[key]))
-      if (!valid) { complete = false; opaqueRoots(value) }
-      return valid
-    } else if (value === null && ['BUTTON', 'IMAGECOMPARE', 'RESOLUTION_PREVIEW', 'MOUNT'].includes(widgetType ?? '')) {
-      return true
     } else if (socketTypes !== undefined && (type.kind !== 'concrete' || !socketTypes.includes(type.name) ||
       typeof value !== 'string')) {
       complete = false
