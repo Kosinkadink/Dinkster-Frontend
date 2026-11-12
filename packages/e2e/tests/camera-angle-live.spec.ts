@@ -4,8 +4,8 @@ test('camera composer writes real siblings, executes orbit coordinates and prese
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
   await waitForStartupOwnership(page)
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'camera-angle-live', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Camera', nodes: {
         camera: { id: 'camera', type: 'CameraAngle', values: {} },

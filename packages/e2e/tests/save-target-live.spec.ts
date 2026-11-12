@@ -10,8 +10,8 @@ test('save destination writes the selected relative prefix through the real back
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
   await waitForStartupOwnership(page)
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'save-target-live', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Save destination', nodes: {
         gradient: { id: 'gradient', type: 'dev.image.gradient', values: { width: 3, height: 2 } },

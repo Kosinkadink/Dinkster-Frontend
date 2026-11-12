@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
-import { diag, type Diagnostic, type ImportedNodePackResolution } from '@dinkster/core'
+import { canonicalJson, diag, type Diagnostic, type ImportedNodePackResolution } from '@dinkster/core'
 import type { CompatSkip, PackInferenceUnavailable, PackInstallPlan } from '@dinkster/client'
 import { diagnosticFocusTarget, type AppState, type MigrationNotice } from './app-state.js'
 import { groupProblemDiagnostics } from './problem-display.js'
@@ -105,9 +105,14 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
     const tab = props.app.activeTab()
     if (!tab) return
     const backend = props.app.backendForTab(tab)
-    const document = tab.store.doc
-    const current = () => props.app.activeTab() === tab &&
-      props.app.backendForTab(tab) === backend && tab.store.doc === document
+    const document = canonicalJson(tab.store.doc)
+    const revision = tab.store.revision
+    const current = () => {
+      const live = props.app.liveTabContinuing(tab.store)
+      return live !== undefined && props.app.activeTab() === live &&
+        props.app.backendForTab(live) === backend && live.store.revision === revision &&
+        canonicalJson(live.store.doc) === document
+    }
     const request = { current, phase: 'planning' as const }
     setCommandsCopied(false)
     setInstall(request)

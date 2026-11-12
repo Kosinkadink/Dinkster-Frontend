@@ -172,7 +172,7 @@ test("the browser template gallery grants a read-only model mount and the asset 
 
     // A generic ASSET widget browses the mounted source: the fixture file
     // appears as a pickable Browse row, and the source facet names the mount.
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
       window.__dinksterTest!.app.registerSchemas([
         {
           type: "BrowserMountLiveTest",
@@ -195,7 +195,7 @@ test("the browser template gallery grants a read-only model mount and the asset 
           ],
         },
       ]);
-      window.__dinksterTest!.app.openDocument(
+      await window.__dinksterTest!.app.openDocument(
         {
           format: "dinkster-workflow",
           formatVersion: 1,

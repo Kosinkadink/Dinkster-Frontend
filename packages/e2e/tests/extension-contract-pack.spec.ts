@@ -33,9 +33,9 @@ test('an ordinary third-party pack activates and executes through public contrac
   })
   await expect(status).toContainText('Waiting for custom fixture execution')
 
-  const diagnostics = await page.evaluate(() => {
+  const diagnostics = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    return app.openDocument(
+    return (await app.openDocument(
       {
         format: 'dinkster-workflow',
         formatVersion: 1,
@@ -83,7 +83,7 @@ test('an ordinary third-party pack activates and executes through public contrac
         },
       } as never,
       'Third-party extension contract',
-    )
+    ))
   })
   expect(diagnostics).toEqual([])
   await expect

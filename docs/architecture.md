@@ -302,6 +302,22 @@ durable-source census that no longer names it. Persistence compaction retries
 that check; unreadable, corrupt or unknown sources keep protection. Crash-safe
 staging stays synchronous, and disconnect or session displacement never grants
 release authority over a pending receipt.
+Canonical workspace snapshots, per-window candidates, per-lineage recovery
+documents and operation-journal additions each have independent saved-document
+owners. Exact complete acknowledgment precedes retiring covered candidate and
+operation slots. A registry refresh during slot admission recomputes the captured
+document's roots and requires a fresh acknowledgment before publishing the slot
+or its shared-tab operation; later tab changes cannot skip that admission.
+A live window reconciles newly staged workspace candidates from
+its peers, retaining their captured roots before compaction. A disposed window
+only stages recovery data and cannot finish network admission or release owners.
+A local slot replacement retires its previous owners only after
+complete acknowledgment on the same backend/catalog lifetime; incomplete or
+refused replacements keep them. Cleanup releases only receipts admitted by this
+application for the removed generation and unchanged payload; retention metadata
+updates do not change that identity or transfer release authority. Other windows'
+receipts and recovered receipts are observation-only, even when their digests match. Release remains
+revision-bound and uncertain responses stay journaled for observation, not replay.
 The asset census treats node extension metadata as opaque. A MOUNT widget
 binds a STRING mount ID or null for the default
 output mount; neither is an asset identity. Other value shapes or socket types
@@ -334,7 +350,11 @@ losslessly with opaque data and ownership warnings preserved, without posting a
 retention declaration. Malformed or invalid identities still refuse export.
 The stored-state census also records actual state reads from active elaboration.
 A key read from its exact state table is verified even when the dormant walk
-stops before it. Keys read by neither walk remain unknown-state errors; dormant
+stops before it. Wire-15 sibling branches can share a stored selector path:
+a choice validated by the active branch is not rejected against a dormant
+sibling's different option set. That exception is bound to the same state
+object and construct; invalid active choices and unvalidated dormant choices
+still refuse. Keys read by neither walk remain unknown-state errors; dormant
 diagnostics still make ownership incomplete. Active elaboration errors still
 refuse admission, and no dormant branch identities are resolved or guessed.
 Custom dynamic handlers read root constructs through `ctx.stateOf` and nested
@@ -365,12 +385,19 @@ malformed, changed or unavailable observations produce a backend-owned Problems
 warning. Disconnect, removal and disposal cancel stale observations. All journals
 remain unchanged; recovery never replays a command, retries PUT, releases an
 owner, or certifies other holders or global completeness.
-Asynchronous native file imports and library/template/run workflow opens also
+Native direct document opens, file imports and library/template/run workflow opens
 stage their loaded snapshot before publishing a tab. They use the same durable
 owner protocol, preserving existing tabs on refusal or an uncertain response.
-Unknown schemas retain known roots with explicit incomplete ownership. A newer
-open, changed tab/session/history/target, changed registry or connection, caller
-cancellation or disposal prevents a late open from publishing. Library/template/run
+`openDocument` returns a promise of diagnostics; callers await it before reading
+the opened tab. Only creation of the built-in empty workflow remains synchronous,
+because that document introduces no asset identities.
+Unknown schemas retain known roots with explicit incomplete ownership. An
+open can also retain an incomplete output descriptor for repair. Historical
+dynamic state is admitted only when a declared migration plans successfully;
+it remains incomplete until migration, and malformed asset identities still refuse.
+A newer open, changed tab/session/history/target, changed registry or connection, caller
+cancellation or disposal prevents a late open from publishing. View-only changes
+keep the same document session and do not cancel admission. Library/template/run
 tabs publish with their source backend already selected. Local file imports keep
 their existing untargeted semantics: legacy translation uses the chosen source
 schemas, but ownership is requested from the default destination backend.
@@ -396,9 +423,17 @@ tab and close only the unadopted transport. Reload failures preserve pending
 membership for retry; metadata-only editor switches survive adoption. The
 source target is installed before tab publication. SharedWorker canonical
 session promotion retains its snapshot and adopted history on the local tab's
-original backend before swapping stores. A refused or stale acknowledgment
-keeps the local store; metadata-only changes survive the swap. Incoming workspace
-inventories retain newly received native tab snapshots before publishing tabs or
+current backend after the shared session opens and before swapping stores. A
+target change during opening is included in that ownership request; a target
+change while its acknowledgment is pending keeps the local store. A refused or stale acknowledgment
+keeps the local store; metadata-only changes survive the swap. Disabling workspace
+authority also closes connections whose promotion acknowledgment is pending, so
+a disposed renderer cannot keep an obsolete SharedWorker snapshot alive.
+Journal replay restores tab membership independently of staged document edits.
+When it restores the original creation record, startup supplies the recovered
+document only after incoming ownership admission. Closed membership is not
+resurrected, and a later shared record or live document authority stays authoritative.
+Incoming workspace inventories retain newly received native tab snapshots before publishing tabs or
 displacing local views. Refusal or a changed local inventory, document, backend,
 registry, connection or workspace authority keeps local tabs. Newer shared
 inventories supersede outstanding acknowledgments. Existing-tab metadata updates
@@ -416,8 +451,16 @@ Refused, unavailable or stale startup acknowledgments leave ownership unconfirme
 in Problems and prevent shared promotion without discarding saved documents.
 Asset publication still requires its exact acknowledgment; an unavailable
 retention route never implies an empty complete set. Restoration
-and crash-safe local writes remain synchronous; newly created durable holders and
-the synchronous `openDocument` API are not certified by this startup check.
+and crash-safe local writes remain synchronous; newly created durable holders
+are not certified by this startup check.
+
+Invalid or linked stored output counts remain openable for correction with
+incomplete ownership. Their known asset roots are retained, but compilation and
+publication remain refused until the output contract is repaired. Invalid stored
+dynamic member and choice identities still refuse admission.
+Document opening tolerates replacement of a registry by identical schema and
+capability content while ownership is pending. Changed schemas, capabilities,
+connection lifetimes, documents and open intents still invalidate that admission.
 Ordinary native dispatch selects admission from its candidate; complete
 frontend retention and collection remain disabled. The legacy bridge keeps
 its existing non-retained opening behavior.

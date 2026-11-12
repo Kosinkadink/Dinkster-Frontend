@@ -2234,7 +2234,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [previewTick, setPreviewTick] = createSolidSignal(0)
   const previewLoader = createPreviewLoader({
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
-    executionAssetReader: (execution, digests) => props.app.executionAssetReader(execution, digests),
+    executionAssetReader: (execution, digests, holder) => props.app.executionAssetReader(execution, digests, holder),
     readFile3dAsset: (ref, asset, signal) => props.app.readFile3dAssetForExecution(ref, asset, signal),
     assetUrlForInput: (digest) => {
       const tab = activeTab()
@@ -2242,9 +2242,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const backend = props.app.backendForTab(tab)
       return backend.protocol === 'dinkster' ? backend.connection.assetUrl(digest) : undefined
     },
-    inputAssetReader: (digest) => {
+    inputAssetReader: (digest, holder) => {
       const tab = activeTab()
-      return tab === undefined ? undefined : props.app.workflowAssetReader(tab, digest)
+      return tab === undefined ? undefined : props.app.workflowAssetReader(tab, digest, holder)
     },
     onDecoded: () => setPreviewTick((v) => v + 1),
     validateMediaRendition: validateBrowserMediaRendition,
