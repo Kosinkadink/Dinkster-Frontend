@@ -25,6 +25,7 @@
   min-height: 0;
   padding: 12px;
   overflow: auto;
+  scroll-padding-block: 12px;
 }
 
 .painter-widget-editor > .product-action-footer {
