@@ -46,10 +46,9 @@ async function openMidgraphDoc(page: Page, asset: { digest: string; size: number
   const contract = await page.evaluate(() => {
     const schemas = window.__dinksterTest!.app.backends.get()[0]!.registry.get()!.schemas as ReadonlyMap<string, NodeSchema>
     const load = [...schemas].find(([id]) => id.endsWith('.load_image'))!
-    const save = [...schemas].find(([id]) => id.endsWith('.save_image'))!
     const output = (name: string): string => load[1].items.find((item) =>
       item.kind === 'output' && item.type.kind === 'concrete' && item.type.name.toLowerCase().split('.').at(-1) === name)!.id
-    return { load: load[0], save: save[0], image: output('image'), mask: output('mask') }
+    return { load: load[0], image: output('image'), mask: output('mask') }
   })
   const opened = await page.evaluate(async ({ digest, size, contract }) => {
     const app = window.__dinksterTest!.app
@@ -63,13 +62,12 @@ async function openMidgraphDoc(page: Page, asset: { digest: string; size: number
         id: 'g0', name: 'root',
         nodes: {
           li: { id: 'li', type: contract.load, values: { image: { digest, name: 'e2e.png', size, mediaType: 'image/png', virtualPath: '' } } },
-          pi: { id: 'pi', type: contract.save, values: {} },
           delay: { id: 'delay', type: 'dev.execution.sleep', values: { value: 1, seconds: 2 } },
         },
-        links: { l1: { id: 'l1', from: { node: 'li', port: contract.image }, to: { node: 'pi', port: 'images' } } },
+        links: {},
         nets: {}, reroutes: {}, nextOrdinal: 3,
       } },
-      view: { graphs: { g0: { nodes: { li: { position: { x: 80, y: 120 } }, pi: { position: { x: 420, y: 120 } }, delay: { position: { x: 80, y: 500 } } } } } },
+      view: { graphs: { g0: { nodes: { li: { position: { x: 80, y: 120 } }, delay: { position: { x: 80, y: 500 } } } } } },
     }, 'Mid-graph Tensor Preview', backend, () => true)
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     return tab !== undefined
@@ -93,9 +91,9 @@ test.beforeEach(async ({ page }) => {
     if (!response.ok) return false
     const nodes = (await response.json() as { nodes?: Record<string, unknown> }).nodes ?? {}
     return Object.keys(nodes).some((id) => id.endsWith('.load_image')) &&
-      Object.keys(nodes).some((id) => id.endsWith('.save_image')) && 'dev.execution.sleep' in nodes
+      'dev.execution.sleep' in nodes
   }, {
-    message: `native backend at ${NATIVE_BACKEND} must compose dinkster.load_image and dinkster.save_image`,
+    message: `native backend at ${NATIVE_BACKEND} must compose dinkster.load_image and dev.execution.sleep`,
     timeout: 30_000,
   }).toBe(true)
 
@@ -162,7 +160,7 @@ test('a preferred IMAGE is retried after a running-job refusal crosses terminal 
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     await app.queue(app.activeTab()!, { kind: 'partial', targets: [
-      { instancePath: [], node: 'pi' as never }, { instancePath: [], node: 'delay' as never },
+      { instancePath: [], node: 'li' as never }, { instancePath: [], node: 'delay' as never },
     ] })
   })
   await testInfo.attach('submit-observations', { body: JSON.stringify({ observations, problems: await page.evaluate(() => window.__dinksterTest!.app.problems.get()) }, null, 2), contentType: 'application/json' })
