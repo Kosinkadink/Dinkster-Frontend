@@ -10,7 +10,7 @@
 ## Asset reference repair planner
 
 - What and purpose: a planner described atomic asset-reference substitutions with document preconditions and undo.
-- Why off main: only its own tests call it; the product does not offer or execute this repair plan. Existing asset retention and import resolution remain.
+- Why off main: only its own tests call the planner; the product does not offer or execute this repair plan. The separately used AssetRef type moves unchanged to `packages/core/src/format/document.ts` and remains publicly exported. Existing asset retention and import resolution remain.
 - Kept code: [draft-frontend-unused-code-before-removal-781](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-frontend-unused-code-before-removal-781), commit `69758c644068c0465e6d9a0ae39dd44145a3cd8d`. Paths: `packages/core/src/asset-ref-repair.ts`, `packages/core/test/asset-ref-repair.test.ts`, export in `packages/core/src/index.ts`.
 - Return condition: a real repair UI owns the full validation/apply/undo contract and has a served asset authority to validate replacements. Prove an actual missing-asset repair and one-step undo, including refusal after document drift.
 
