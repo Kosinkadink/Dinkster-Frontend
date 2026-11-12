@@ -27,17 +27,11 @@ or graph navigation changes, or after the originating canvas unmounts.
 Creation uses ordinary application dispatch, which selects retained admission
 when its candidate requires it.
 
-The starter body declares its boundary ports immediately:
+The starter body is valid immediately:
 
 - Map passes each element through the served Float primitive and gathers its output.
 - Fold adds each element to the integer state using the served Math Expression node (`a + b`, integer output).
 - While passes its state through the served Float primitive. Its Boolean primitive starts false, so an untouched body terminates rather than looping indefinitely.
-
-Map and while bodies use `dinkster.utilities.primitive_float` with its `value`
-input and `FLOAT` output. While continuation uses
-`dinkster.utilities.primitive_boolean` with its `BOOLEAN` output. A backend
-must provide the starter nodes before the body can execute; the fold helper
-`std.math.add_ints` remains a withdrawn draft.
 
 ## Edit roles and configuration
 
