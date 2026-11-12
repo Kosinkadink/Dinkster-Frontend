@@ -3467,7 +3467,7 @@ export class AppState {
     // Mirror tab, document, and active-tab changes back into storage.
     this.tabs.subscribe(() => {
       for (const [controller, { tab }] of this.submissionWorlds) {
-        if (!this.tabs.get().includes(tab)) controller.abort()
+        if (this.liveTabContinuing(tab.store) === undefined) controller.abort()
       }
       this.selectExtensionWorld()
       this.watchTabDocuments()
@@ -9835,6 +9835,11 @@ export class AppState {
       }
       const sourceDocument = await sourceDocumentPromise
       if (lease.signal.aborted) return
+      // Shared authority can adopt this editing session after queue entry.
+      // Independent replacements do not have a recorded continuation.
+      const current = this.liveTabContinuing(tab.store)
+      if (current === undefined) return
+      tab = current
       // The advisory source-document upload is an await between compile and
       // POST. If the document changed there, re-run only the conservative
       // wire-15 mode gate against current state; identical document objects
