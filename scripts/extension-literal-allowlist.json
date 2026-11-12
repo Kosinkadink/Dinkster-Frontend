@@ -11,7 +11,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 962,
+      "line": 964,
       "column": 11,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -19,7 +19,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 995,
+      "line": 997,
       "column": 9,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -27,7 +27,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 1096,
+      "line": 1098,
       "column": 9,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -35,7 +35,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 1108,
+      "line": 1110,
       "column": 10,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -43,7 +43,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5372,
+      "line": 5579,
       "column": 38,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -51,7 +51,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5698,
+      "line": 5981,
       "column": 34,
       "symbol": "widgetType:COMPOSITOR",
       "issue": 122
@@ -59,7 +59,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5756,
+      "line": 6039,
       "column": 36,
       "symbol": "widgetType:CURVE",
       "issue": 122
@@ -67,7 +67,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 5839,
+      "line": 6122,
       "column": 34,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -75,7 +75,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 7116,
+      "line": 7420,
       "column": 38,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -243,7 +243,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/AssetWidgetEditor.tsx",
-      "line": 439,
+      "line": 446,
       "column": 7,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -251,7 +251,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/AssetWidgetEditor.tsx",
-      "line": 473,
+      "line": 480,
       "column": 9,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -259,7 +259,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/editors/AssetWidgetEditor.tsx",
-      "line": 563,
+      "line": 570,
       "column": 9,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -693,7 +693,7 @@
     {
       "kind": "nodeIdLiteral",
       "path": "packages/app/src/app-state.ts",
-      "line": 723,
+      "line": 725,
       "column": 45,
       "symbol": "dinkster.utilities.primitive_float",
       "issue": 813
@@ -701,7 +701,7 @@
     {
       "kind": "nodeIdLiteral",
       "path": "packages/app/src/app-state.ts",
-      "line": 733,
+      "line": 735,
       "column": 38,
       "symbol": "dinkster.utilities.comfy_math_expression",
       "issue": 813
@@ -709,7 +709,7 @@
     {
       "kind": "nodeIdLiteral",
       "path": "packages/app/src/app-state.ts",
-      "line": 735,
+      "line": 737,
       "column": 38,
       "symbol": "dinkster.utilities.primitive_int",
       "issue": 813
@@ -717,7 +717,7 @@
     {
       "kind": "nodeIdLiteral",
       "path": "packages/app/src/app-state.ts",
-      "line": 736,
+      "line": 738,
       "column": 38,
       "symbol": "dinkster.utilities.primitive_int",
       "issue": 813
@@ -725,7 +725,7 @@
     {
       "kind": "nodeIdLiteral",
       "path": "packages/app/src/app-state.ts",
-      "line": 753,
+      "line": 755,
       "column": 38,
       "symbol": "dinkster.utilities.primitive_float",
       "issue": 813
@@ -733,7 +733,7 @@
     {
       "kind": "nodeIdLiteral",
       "path": "packages/app/src/app-state.ts",
-      "line": 754,
+      "line": 756,
       "column": 38,
       "symbol": "dinkster.utilities.primitive_boolean",
       "issue": 813

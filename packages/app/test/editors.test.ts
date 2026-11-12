@@ -1,3 +1,4 @@
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 /**
  * EditorRegistry (editors.ts): the center-region editor seam. A tab is
  * conceptually (document, editorKind); the shell resolves the active tab's
@@ -172,7 +173,7 @@ describe('Tab editorKind', () => {
   })
 
   it('every tab STARTS as a graph-editor tab, and the app exposes the registry', () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     expect(app.tabs.get().length).toBeGreaterThan(0)
     for (const tab of app.tabs.get()) expect(tab.editorKind).toBe(GRAPH_EDITOR_KIND)
     // The registry itself is empty until the shell registers core kinds
@@ -181,7 +182,7 @@ describe('Tab editorKind', () => {
   })
 
   it('preserves live descriptor getters registered through frontend doors', () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     let title = 'Initial title'
     app.frontendDoors.panel('live-panel', {
       get title() { return title },
@@ -197,7 +198,7 @@ describe('Tab editorKind', () => {
   })
 
   it('opens a synthetic pack editor through its binding and registers its panel', () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const provider = () => ({ version: 1 as const, root: { kind: 'text' as const, key: 'proof', text: 'Pack surface' } })
     const unregisterCoreBinding = app.frontendDoors.editorBinding('builtin.synthetic-node', {
       editor: GRAPH_EDITOR_KIND, match: { nodeId: 'synthetic.node' }, priority: 100,
@@ -242,7 +243,7 @@ describe('Tab editorKind', () => {
   })
 
   it('setTabEditorKind swaps the projection but keeps id, session, and view state', () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     app.settings.set('features.appView.enabled', true)
     const tab = app.tabs.get()[0]!
     app.setTabEditorKind(tab.id, APP_EDITOR_KIND)
@@ -263,7 +264,7 @@ describe('Tab editorKind', () => {
   })
 
   it('same-kind and unknown-tab switches are no-ops (no tab replacement)', () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const before = app.tabs.get()
     app.setTabEditorKind(before[0]!.id, GRAPH_EDITOR_KIND) // already graph
     app.setTabEditorKind('no-such-tab', APP_EDITOR_KIND)
@@ -272,7 +273,7 @@ describe('Tab editorKind', () => {
 
   it('frozen execution tabs refuse editor-kind switches', async () => {
     const app = createWorkflowApp(null)
-    app.openDocument(seedBasic, 'Basic')
+    await app.openDocument(seedBasic, 'Basic')
     const basic = app.activeTab()!
     app.registry.set(historicalRegistry(asConnectionId('local')))
     const result = app.compileTab(basic)
@@ -287,7 +288,7 @@ describe('Tab editorKind', () => {
 
   it('setTabAppArrange toggles per tab, keeps the session, and never persists', () => {
     g.localStorage = makeStorage()
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     app.createWorkflow()
     const [tab, other] = app.tabs.get()
     if (!tab || !other) throw new Error('fixture needs two tabs')
@@ -317,7 +318,7 @@ describe('Tab editorKind', () => {
 
   it('frozen execution tabs refuse arrange mode', async () => {
     const app = createWorkflowApp(null)
-    app.openDocument(seedBasic, 'Basic')
+    await app.openDocument(seedBasic, 'Basic')
     const basic = app.activeTab()!
     app.registry.set(historicalRegistry(asConnectionId('local')))
     const result = app.compileTab(basic)
@@ -374,11 +375,11 @@ describe('Tab editorKind', () => {
     expect(app.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(GRAPH_EDITOR_KIND)
   })
 
-  it.each(['link', 'net'] as const)('refuses editing a curve driven through a %s', (topology) => {
-    const app = new AppState()
+  it.each(['link', 'net'] as const)('refuses editing a curve driven through a %s', async (topology) => {
+    const app = prepareWorkflowApp(new AppState())
     app.registry.set(buildDinksterRegistry(asConnectionId('local'), curvePayload()))
     const curveEdge = { from: { node: 'other', port: 'curve' }, to: { node: 'editor', port: 'curve' } }
-    expect(app.openDocument({
+    expect((await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: `curve-driven-${topology}`, root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
@@ -398,7 +399,7 @@ describe('Tab editorKind', () => {
         reroutes: {}, nextOrdinal: 1,
       } },
       view: { graphs: {} },
-    }, 'Curve target')).toEqual([])
+    }, 'Curve target'))).toEqual([])
     const tab = app.activeTab()!
     expect(app.curveTargetForInput(tab, 'g0', 'editable', 'curve')).toMatchObject({
       nodeId: 'editable', inputId: 'curve', instancePath: [],
@@ -419,12 +420,12 @@ describe('Tab editorKind', () => {
           widget: { type: 'ASSET', accept: ['image/png'] } }],
       } },
     } as unknown as DinksterNodesPayload))
-    expect(app.openDocument({
+    expect((await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'image-admission', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         image: { id: 'image', type: 'ImageInput', values: { image: { digest: `blake3:${'a'.repeat(64)}`, name: 'a.png', size: 10, mediaType: 'image/png', virtualPath: '' } } },
       }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } }, view: { graphs: {} },
-    }, 'Image admission')).toEqual([])
+    }, 'Image admission'))).toEqual([])
     const tab = app.activeTab()!
     const target = app.imageTargetForInput(tab, 'g0', 'image', 'image')!
     expect(app.openImageEditor(target)).toBe(true)
@@ -435,7 +436,7 @@ describe('Tab editorKind', () => {
       await acknowledgment
       return { ...owner, ...declaration, revision: declaration.revision + 1 }
     })
-    const admission = app.retainEditorAssets(opened, app.backendForTab(tab), target.sourceRef)
+    const admission = app.retainEditorAssets(opened, app.backendForTab(tab), target.sourceRef, () => true)
     const refused = expect(admission).rejects.toThrow('Editor source changed')
     app.closeImageEditor(opened)
     accept()
@@ -443,10 +444,10 @@ describe('Tab editorKind', () => {
     app.dispose()
   })
 
-  it('refuses a COMPOSITOR input driven only in one subgraph occurrence', () => {
-    const app = new AppState()
+  it('refuses a COMPOSITOR input driven only in one subgraph occurrence', async () => {
+    const app = prepareWorkflowApp(new AppState())
     app.registry.set(buildDinksterRegistry(asConnectionId('local'), compositorPayload()))
-    expect(app.openDocument({
+    expect((await app.openDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
       lineage: 'compositor-occurrence-target',
@@ -481,7 +482,7 @@ describe('Tab editorKind', () => {
         },
       },
       view: { graphs: {} },
-    }, 'Occurrence compositor')).toEqual([])
+    }, 'Occurrence compositor'))).toEqual([])
     const tab = app.activeTab()!
     expect(app.compositorTargetForInput(
       tab, 'body', 'compositor', 'recipe', ['instance'],
@@ -530,7 +531,7 @@ describe('Tab editorKind', () => {
   })
 
   it('clears session-only editor targets on editor switch or tab close', () => {
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     const tab = app.tabs.get()[0]!
     const imageTarget = {
       tabId: tab.id, graphId: tab.store.doc.root, nodeId: 'n0', inputId: 'image',
@@ -572,7 +573,7 @@ describe('Tab editorKind', () => {
 
   it.each([IMAGE_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND])('clears a %s session when another tab activates and never persists it', (kind) => {
     g.localStorage = makeStorage()
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     app.createWorkflow()
     const [tab, other] = app.tabs.get()
     if (!tab || !other) throw new Error('fixture needs two tabs')
@@ -613,7 +614,7 @@ describe('Tab editorKind', () => {
 
   it('editorKind persists (non-graph only) and restores across a reload', () => {
     g.localStorage = makeStorage()
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     app.settings.set('features.appView.enabled', true)
     const tab = app.tabs.get()[0]!
     app.setTabEditorKind(tab.id, APP_EDITOR_KIND)
@@ -628,17 +629,17 @@ describe('Tab editorKind', () => {
       if (r.title !== tab.title) expect(r.editorKind).toBeUndefined()
     }
     // Reload: the restored tab reopens in the app view.
-    const app2 = new AppState()
+    const app2 = prepareWorkflowApp(new AppState())
     expect(app2.tabs.get().find((t) => t.id === tab.id)?.editorKind).toBe(APP_EDITOR_KIND)
   })
 
-  it('App View is default-off and falls back on restore without changing authored data', () => {
+  it('App View is default-off and falls back on restore without changing authored data', async () => {
     g.localStorage = makeStorage()
-    const author = new AppState()
+    const author = prepareWorkflowApp(new AppState())
     expect(author.appViewEnabled).toBe(false)
     expect(author.commands.get('view.toggleAppView')).toBeUndefined()
     expect(author.keybindings.match({ key: 'v', altKey: true } as KeyboardEvent)).toBeUndefined()
-    author.openDocument(seedBasic, 'Basic')
+    await author.openDocument(seedBasic, 'Basic')
     const tab = author.activeTab()!
     author.setTabEditorKind(tab.id, APP_EDITOR_KIND)
     expect(author.activeTab()!.editorKind).toBe(GRAPH_EDITOR_KIND)
@@ -652,7 +653,7 @@ describe('Tab editorKind', () => {
     author.dispose()
     g.localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: {} }))
 
-    const restored = new AppState()
+    const restored = prepareWorkflowApp(new AppState())
     expect(restored.activeTab()!.editorKind).toBe(GRAPH_EDITOR_KIND)
     expect(restored.activeTab()!.store.doc.ext?.['dinkster.exposed']).toEqual(exposed)
     restored.settings.set('features.appView.enabled', true)
@@ -670,16 +671,17 @@ describe('Tab editorKind', () => {
 
   it('an unknown persisted editorKind is preserved, not silently coerced to graph', () => {
     g.localStorage = makeStorage()
-    const app = new AppState()
+    const app = prepareWorkflowApp(new AppState())
     app.flushPersistTabs()
     const raw = JSON.parse(globalThis.localStorage!.getItem(TABS_KEY)!) as {
       tabs: { editorKind?: string }[]
     }
     raw.tabs[0]!.editorKind = 'compositor' // e.g. from an unloaded extension
+    g.localStorage = makeStorage()
     globalThis.localStorage!.setItem(TABS_KEY, JSON.stringify(raw))
     // The shell renders its "No editor registered" fallback for this kind;
     // the user's choice survives until the kind's provider returns.
-    const app2 = new AppState()
+    const app2 = prepareWorkflowApp(new AppState())
     expect(app2.tabs.get()[0]!.editorKind).toBe('compositor')
   })
 })

@@ -281,17 +281,24 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       const current = assetSelection()
       const candidate = change(current)
       let reader = selectionReader
-      if ((!selectionAdmitted() && candidate.length > 0) || candidate.some((ref) => !current.some((held) => held.digest === ref.digest))) {
+      if ((!selectionAdmitted() && candidate.length > 0) ||
+        candidate.some((ref) => !current.some((held) => held.digest === ref.digest)) ||
+        current.some((ref) => !candidate.some((held) => held.digest === ref.digest))) {
         reader = await props.app.retainPickerAssets(ed.tab, uploadBackend, candidate)
       }
       if (!live || props.app.backendForTab(ed.tab) !== uploadBackend || activeProjectId() !== project) return false
       if (reader?.current() === false) throw new Error('Picker selection changed; reopen the asset picker')
-      selectionReader = reader
-      setAssetSelection(candidate)
-      setSelectionAdmitted(true)
-      setAssetError(undefined)
-      published()
-      return true
+      const publish = (): boolean => {
+        if (!live || props.app.backendForTab(ed.tab) !== uploadBackend || activeProjectId() !== project) return false
+        selectionReader = reader
+        setAssetSelection(candidate)
+        setSelectionAdmitted(true)
+        setAssetError(undefined)
+        published()
+        return true
+      }
+      return selectionReader && reader && selectionReader !== reader
+        ? props.app.replacePickerAssets(selectionReader, reader, publish) : publish()
     }).catch((error: unknown) => {
       if (live) setAssetError(error instanceof Error ? error.message : String(error))
       return false

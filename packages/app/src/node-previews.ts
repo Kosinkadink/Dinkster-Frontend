@@ -522,8 +522,8 @@ export function createPreviewLoader(deps: {
   assetUrlForExecution: (ref: ExecutionState['ref'], digest: string) => string
   /** Current editable tab's native asset URL; undefined on non-native tabs. */
   assetUrlForInput: (digest: string) => string | undefined
-  inputAssetReader?: (digest: string) => PreviewSource['assetReader']
-  executionAssetReader?: (execution: ExecutionState, digests: readonly string[]) => PreviewSource['assetReader']
+  inputAssetReader?: (digest: string, holder: object) => PreviewSource['assetReader']
+  executionAssetReader?: (execution: ExecutionState, digests: readonly string[], holder: object) => PreviewSource['assetReader']
   readFile3dAsset?: (execution: ExecutionState['ref'], asset: Readonly<Record<string, Json>>, signal?: AbortSignal) => Promise<ArrayBuffer | undefined>
   /** A finished async decode: re-assemble the preview map. */
   onDecoded: () => void
@@ -542,6 +542,7 @@ export function createPreviewLoader(deps: {
   const imageRefusals = new Map<string, string>()
   const requests = new Map<string, { readonly key: string; readonly controller: AbortController }>()
   const file3dResources = new WeakMap<NodePreview, () => void>()
+  const assetReaderHolder = {}
   let disposed = false
 
   const release = (preview: NodePreview): void => {
@@ -772,6 +773,7 @@ export function createPreviewLoader(deps: {
     executedImageInventory(exec, {
       runtimeIds,
       assetUrlForExecution: deps.assetUrlForExecution,
+      ...(deps.executionAssetReader === undefined ? {} : { executionAssetReader: deps.executionAssetReader }),
     })
 
   return {
@@ -837,7 +839,7 @@ export function createPreviewLoader(deps: {
       const ownedSource = (source: PreviewSource, digests: readonly string[]): PreviewSource | undefined => {
         if (deps.executionAssetReader === undefined) return source
         const execution = source.runtimeId === undefined ? exec : executionOwners?.get(source.runtimeId) ?? exec
-        const owner = deps.executionAssetReader(execution, digests)
+        const owner = deps.executionAssetReader(execution, digests, assetReaderHolder)
         if (owner === undefined) return undefined
         return {
           ...source,
@@ -937,7 +939,7 @@ export function createPreviewLoader(deps: {
       }
       const url = deps.assetUrlForInput(digest)
       if (url === undefined) return undefined
-      const owner = deps.inputAssetReader?.(digest)
+      const owner = deps.inputAssetReader?.(digest, assetReaderHolder)
       if (deps.inputAssetReader !== undefined && owner === undefined) return undefined
       const key = mediaKind !== 'image' ? directMediaKey(digest, mediaType, url) : `asset:${digest}`
       return {

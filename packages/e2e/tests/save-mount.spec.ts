@@ -136,8 +136,8 @@ test('SaveImage and SaveVideo contract fixtures render mount beside filename_pre
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('2 node schemas')
   await expect.poll(() => page.evaluate(() => !!window.__dinksterTest?.app.activeTab())).toBe(true)
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'canonical-save-contract', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         image: { id: 'image', type: 'SaveImage', values: { filename_prefix: 'images/session' } },
@@ -196,8 +196,8 @@ test('schema adjacency keeps separate prefix and mount controls through selectio
   ] } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'mount-contract', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         save: { id: 'save', type: 'SaveContractFixture', values: { prefix: 'frames/session', quality: 73 } },
@@ -255,11 +255,11 @@ test('schema adjacency keeps separate prefix and mount controls through selectio
   expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes))).toEqual(['save'])
   await expect(page.getByTestId('save-target-editor')).toHaveCount(0)
   await page.setViewportSize({ width: 1440, height: 900 })
-  const connectedDiagnostics = await page.evaluate(() => {
+  const connectedDiagnostics = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const doc = app.activeTab()!.store.doc
     const graph = doc.graphs.g0!
-    return app.openDocument(JSON.parse(JSON.stringify({
+    return (await app.openDocument(JSON.parse(JSON.stringify({
       ...doc,
       lineage: 'connected-mount-contract',
       graphs: { g0: { ...graph,
@@ -270,7 +270,7 @@ test('schema adjacency keeps separate prefix and mount controls through selectio
       view: { graphs: { g0: { nodes: {
         save: { position: { x: 60, y: 60 } }, source: { position: { x: 540, y: 260 } },
       } } } },
-    })), 'Connected mount contract')
+    })), 'Connected mount contract'))
   })
   expect(connectedDiagnostics).toEqual([])
   await expect.poll(() => page.evaluate(() => {
@@ -301,8 +301,8 @@ test('nested save presentation qualifies adjacent controls without reordering st
   } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'nested-mount-contract', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         save: { id: 'save', type: 'NestedSaveFixture', values: { 'mode.prefix': 'nested/session', 'mode.quality': 73 } },

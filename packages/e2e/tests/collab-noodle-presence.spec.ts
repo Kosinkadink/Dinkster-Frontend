@@ -47,7 +47,7 @@ test('a remote link drag paints a presence noodle and clears on release', async 
         registry.resolve('dinkster.image.preview_image') !== undefined
     })))
     const openFailures = await owner.evaluate(
-      (document) => window.__dinksterTest!.app.openDocument(document, 'Collab noodle presence'),
+      async (document) => (await window.__dinksterTest!.app.openDocument(document, 'Collab noodle presence')),
       fixture,
     )
     expect(openFailures).toEqual([])

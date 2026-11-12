@@ -26,9 +26,9 @@ async function prepare(page: Page): Promise<void> {
 
 test('dense minimap keeps nodes visible and the viewport stroke inside its canvas', async ({ page }) => {
   await prepare(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const bridge = window.__dinksterTest!
-    const diagnostics = bridge.app.openDocument(
+    const diagnostics = await bridge.app.openDocument(
       bridge.syntheticWorkflow({ chains: 8, chainLength: 8, reroutes: true, groups: true }),
       'Dense minimap proof',
     )

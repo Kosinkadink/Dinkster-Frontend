@@ -224,13 +224,14 @@ export function CompositorEditor(props: { readonly app: AppState; readonly host?
     const editing = session
     let pending = true
     onCleanup(() => { pending = false })
-    void props.app.retainEditorAssets(request, props.app.backendForTab(tab), current.state).then(() => {
-      if (!pending || !live || session !== editing || target() !== request || runtime() !== current) return
+    void props.app.retainEditorAssets(request, props.app.backendForTab(tab), current.state, () => {
+      if (!pending || !live || session !== editing || target() !== request || runtime() !== current) return false
       const value = copyConfiguredCompositorRecipe(current.state)
       initializedTarget = request
       openedDocumentDigest = current.state.documentDigest
       setDraft(value)
       setSelectedId(value.layers.at(-1)?.id)
+      return true
     }).catch((cause) => {
       if (pending && live && session === editing && target() === request) {
         setError(cause instanceof Error ? cause.message : message('compositor.error.refused'))

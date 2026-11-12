@@ -17,8 +17,8 @@ for (const connected of [false, true]) test(`Painter ${connected ? 'connected fi
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
   await waitForStartupOwnership(page)
-  await page.evaluate((connected) => {
-    window.__dinksterTest!.app.openDocument({
+  await page.evaluate(async (connected) => {
+    await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'painter-live', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'Painting',
@@ -105,13 +105,13 @@ for (const connected of [false, true]) test(`Painter ${connected ? 'connected fi
   await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.paint!.values.mask)).toBeUndefined()
   if (!connected) {
-    const imported = await page.evaluate((asset) => {
+    const imported = await page.evaluate(async (asset) => {
       const app = window.__dinksterTest!.app
       const workflow = (mask: string) => ({ version: 0.4, nodes: [{ id: 1, type: 'Painter', pos: [100, 100], size: [400, 360],
         widgets_values: [mask, 128, 64, '#123456'] }], links: [] })
-      const emptyErrors = app.openDocument(workflow(''), 'Empty imported painting')
+      const emptyErrors = (await app.openDocument(workflow(''), 'Empty imported painting'))
       const emptyValues = app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values
-      const errors = app.openDocument(workflow(asset.name), 'Imported painting filename')
+      const errors = (await app.openDocument(workflow(asset.name), 'Imported painting filename'))
       window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
       return { emptyErrors, emptyValues, errors }
     }, asset as { name: string })
