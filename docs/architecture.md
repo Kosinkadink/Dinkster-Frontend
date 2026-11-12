@@ -503,6 +503,15 @@ Concrete nodes use occurrence-aware schemas, including a region's list-valued
 element inputs; definition-only boundary types do not describe those values.
 Standard NUMBER widgets are asset-free metadata; unknown widget kinds still
 make the census incomplete.
+Retained MARKDOWN, BUTTON and CAMERA_ANGLE_VIEW values use their declared
+STRING binding. MULTI_COMBO, COLORS and LIST require their declared primitive
+list bindings; embedded objects do not become asset-free by appearing in a list.
+SAVE_TARGET accepts only null or the closed mount/prefix record, and BOUNDING_BOX
+accepts only its four finite coordinates. AUDIO_RECORD and WEBCAM retain exact
+asset references with the matching media type, or accept null when cleared.
+IMAGECOMPARE and RESOLUTION_PREVIEW accept their null presentation state.
+Open-ended LOAD_3D and VIDEO_EDIT records remain incomplete and retain any known
+embedded roots; editor acceptance is not an ownership guarantee.
 Dynamic inputs use canonical elaborated identities: stored inactive combo branches,
 disconnected slot dependents and persisted family members contribute roots, while
 defaults come only from the active interface. Historical connectivity changes

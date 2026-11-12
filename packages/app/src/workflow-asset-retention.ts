@@ -54,6 +54,7 @@ import {
   type TypeExpr,
   type WorkflowDocument,
 } from '@dinkster/core'
+import { isSaveTarget } from '@dinkster/widgets'
 import { isAssetRef } from './image-editor.js'
 import { activeProjectId, scopedStorageKey } from './projects.js'
 import { imageDocumentDigest } from './image-document-local.js'
@@ -75,7 +76,27 @@ const widgetTypes = new Map<string, readonly string[] | undefined>([
   ['STRING', undefined], ['INT', undefined], ['FLOAT', undefined], ['NUMBER', undefined],
   ['BOOLEAN', undefined], ['COMBO', undefined], ['ASSET', undefined], ['MOUNT', ['STRING']],
   ['COLOR', ['COLOR', 'STRING']], ['COMPOSITOR', ['COMPOSITOR']], ['CURVE', ['CURVE']],
+  ['MARKDOWN', ['STRING']], ['BUTTON', ['STRING']], ['CAMERA_ANGLE_VIEW', ['STRING']],
+  ['IMAGECOMPARE', ['IMAGECOMPARE']], ['RESOLUTION_PREVIEW', ['RESOLUTION_PREVIEW']],
+  ['MULTI_COMBO', undefined], ['COLORS', undefined], ['LIST', undefined],
+  ['SAVE_TARGET', ['SAVE_TARGET']], ['BOUNDING_BOX', ['BOUNDING_BOX']],
+  ['AUDIO_RECORD', undefined], ['WEBCAM', undefined], ['LOAD_3D', undefined], ['VIDEO_EDIT', undefined],
 ])
+
+function widgetBindingSupported(type: TypeExpr, widgetType: string): boolean {
+  if (!widgetTypes.has(widgetType)) return false
+  if (widgetType === 'MULTI_COMBO' || widgetType === 'COLORS' || widgetType === 'LIST') {
+    return type.kind === 'list' && type.element.kind === 'concrete' &&
+      (widgetType === 'MULTI_COMBO' ? type.element.name === 'COMBO'
+        : widgetType === 'COLORS' ? type.element.name === 'STRING'
+          : ['STRING', 'INT', 'FLOAT'].includes(type.element.name))
+  }
+  if (widgetType === 'AUDIO_RECORD' || widgetType === 'WEBCAM') {
+    return type.kind === 'asset' || type.kind === 'concrete' && ['ASSET', widgetType].includes(type.name)
+  }
+  const socketTypes = widgetTypes.get(widgetType)
+  return socketTypes === undefined || type.kind === 'concrete' && socketTypes.includes(type.name)
+}
 
 function assetFreeDynamicState(value: unknown, depth = 0): boolean {
   if (depth > MAX_DYNAMIC_STATE_DEPTH || typeof value !== 'object' || value === null || Array.isArray(value)) return false
@@ -148,6 +169,11 @@ function censusWorkflowAssetRoots(
     if (namedAsset && value === null) return true
     // Asset widgets can hold unresolved imported names, never a certified digest set.
     if (namedAsset && typeof value === 'string') { complete = false; return false }
+    if (widgetType !== undefined && widgetTypes.has(widgetType) && !widgetBindingSupported(type, widgetType)) {
+      complete = false
+      opaqueRoots(value)
+      return false
+    }
     const typed = parseTypedLiteralWire(value)
     const socketTypes = widgetTypes.get(widgetType ?? '')
     const color = socketTypes?.includes('COLOR') === true || (type.kind === 'concrete' && type.name === 'COLOR')
@@ -201,14 +227,36 @@ function censusWorkflowAssetRoots(
         })
       if (!valid) { complete = false; opaqueRoots(value) }
       return valid
-    } else if (socketTypes !== undefined && (type.kind !== 'concrete' || !socketTypes.includes(type.name) ||
-      (value !== null && typeof value !== 'string'))) {
+    } else if (widgetType === 'AUDIO_RECORD' || widgetType === 'WEBCAM') {
+      const valid = value === null || isAssetRef(value) &&
+        value.mediaType.startsWith(widgetType === 'AUDIO_RECORD' ? 'audio/' : 'image/')
+      if (valid && value !== null) digests.add(value.digest)
+      if (!valid) { complete = false; opaqueRoots(value) }
+      return valid
+    } else if (widgetType === 'LOAD_3D' || widgetType === 'VIDEO_EDIT') {
+      // These editors preserve open-ended imported records, not a closed ownership contract.
       complete = false
       opaqueRoots(value)
       return false
-    } else if (socketTypes !== undefined && value === null) {
-      // The default output mount is a selection sentinel, not an asset identity.
+    } else if (widgetType === 'MULTI_COMBO' || widgetType === 'COLORS') {
+      const valid = Array.isArray(value) && value.every((entry) => typeof entry === 'string')
+      if (!valid) { complete = false; opaqueRoots(value) }
+      return valid
+    } else if (widgetType === 'SAVE_TARGET' || widgetType === 'BOUNDING_BOX') {
+      const record = typeof value === 'object' && value !== null && !Array.isArray(value)
+        ? value as { readonly [key: string]: Json } : undefined
+      const valid = widgetType === 'SAVE_TARGET' ? value === null || isSaveTarget(value)
+        : record !== undefined && Object.keys(record).length === 4 && ['x', 'y', 'width', 'height'].every((key) =>
+          typeof record[key] === 'number' && Number.isFinite(record[key]))
+      if (!valid) { complete = false; opaqueRoots(value) }
+      return valid
+    } else if (value === null && ['BUTTON', 'IMAGECOMPARE', 'RESOLUTION_PREVIEW', 'MOUNT'].includes(widgetType ?? '')) {
       return true
+    } else if (socketTypes !== undefined && (type.kind !== 'concrete' || !socketTypes.includes(type.name) ||
+      typeof value !== 'string')) {
+      complete = false
+      opaqueRoots(value)
+      return false
     } else if (!supported(type)) {
       complete = false
       opaqueRoots(value)
@@ -333,10 +381,8 @@ function censusWorkflowAssetRoots(
     const inputs = unsupportedDormant.length > 0 ? [...elabInputsOf(stored), ...elabInputsOf(active)] : elabInputsOf(stored)
     for (const input of inputs) {
       const { spec } = input
-      const socketTypes = widgetTypes.get(spec.widget?.widgetType ?? '')
       if (spec.ext !== undefined && Object.keys(spec.ext).some((key) => key !== 'default')) complete = false
-      if (spec.widget !== undefined && (!widgetTypes.has(spec.widget.widgetType) ||
-        (socketTypes !== undefined && (spec.type.kind !== 'concrete' || !socketTypes.includes(spec.type.name))))) {
+      if (spec.widget !== undefined && !widgetBindingSupported(spec.type, spec.widget.widgetType)) {
         complete = false
         incompleteDiagnostics.push({ severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
           refs: [{ graphId: graph.id, nodeId: node.id }],

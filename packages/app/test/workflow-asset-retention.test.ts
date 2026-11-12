@@ -3072,6 +3072,69 @@ describe('workflow candidate admission', () => {
       .toEqual({ complete: true, digests: ['e', 'f'].map((letter) => asset(letter).digest) })
   })
 
+  it.each(['default', 'stored', 'embedded-asset', 'extra-target-field', 'wrong-list-socket'] as const)(
+    'censuses real retained widget declarations without guessing ownership: %s', (scenario) => {
+      const local = session([])
+      const registry = buildDinksterRegistry(asConnectionId('retention'), { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: {
+        Loader: { version: 1, idempotent: true, interface: [
+          { role: 'input', id: 'selections', required: true,
+            type: { kind: 'list', element: { kind: 'concrete', types: ['COMBO'] } },
+            default: ['red', 'blue'], widget: { type: 'MULTI_COMBO', options: ['red', 'green', 'blue'] } },
+          { role: 'input', id: 'markdown', required: true, type: { kind: 'concrete', types: ['STRING'] },
+            default: '# Try Markdown', widget: { type: 'MARKDOWN' } },
+          { role: 'input', id: 'colors', required: true,
+            type: { kind: 'list', element: { kind: 'concrete', types: [scenario === 'wrong-list-socket' ? 'ASSET' : 'STRING'] } },
+            default: ['#ff6600', '#2255aa'], widget: { type: 'COLORS' } },
+          { role: 'input', id: 'button', required: true, type: { kind: 'concrete', types: ['STRING'] },
+            default: '', widget: { type: 'BUTTON', display_name: 'Open node help', command: 'node.help' } },
+          { role: 'input', id: 'items', required: true,
+            type: { kind: 'list', element: { kind: 'concrete', types: ['STRING'] } },
+            default: ['first', 'second'], widget: { type: 'STRING', multiline: true } },
+          { role: 'input', id: 'target', required: true, type: { kind: 'concrete', types: ['SAVE_TARGET'] },
+            default: null, widget: { type: 'SAVE_TARGET', suffix: '.pgm' } },
+        ] },
+      } })
+      expect(registry.resolve('Loader')?.items).toHaveLength(6)
+      const values = scenario === 'default' ? {} : {
+        selections: ['green'], markdown: '**Edited**', colors: ['#123456'], button: null,
+        items: scenario === 'embedded-asset' ? [asset('c')] : ['third'],
+        target: { mount: 'outputs', prefix: 'gallery/image',
+          ...(scenario === 'extra-target-field' ? { hidden: asset('d') } : {}) },
+      }
+      const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+        n0: { id: asNodeId('n0'), type: 'Loader', values },
+      } } } }
+      const roots = workflowAssetRoots(document, local.historySnapshot(), registry.resolve)
+      expect(roots.complete).toBe(scenario === 'default' || scenario === 'stored')
+      expect(roots.digests).toEqual(scenario === 'embedded-asset' ? [asset('c').digest]
+        : scenario === 'extra-target-field' ? [asset('d').digest] : [])
+    },
+  )
+
+  it.each([
+    { widgetType: 'AUDIO_RECORD', value: { ...asset('a'), mediaType: 'audio/wav' }, complete: true, digests: [asset('a').digest] },
+    { widgetType: 'WEBCAM', value: { ...asset('b'), mediaType: 'image/png' }, complete: true, digests: [asset('b').digest] },
+    { widgetType: 'AUDIO_RECORD', value: null, complete: true, digests: [] },
+    { widgetType: 'WEBCAM', value: { ...asset('b'), mediaType: 'audio/wav' }, complete: false, digests: [asset('b').digest] },
+    { widgetType: 'IMAGECOMPARE', value: null, complete: true, digests: [] },
+    { widgetType: 'RESOLUTION_PREVIEW', value: null, complete: true, digests: [] },
+    { widgetType: 'BOUNDING_BOX', value: { x: 7, y: 13, width: 64, height: 32 }, complete: true, digests: [] },
+    { widgetType: 'BOUNDING_BOX', value: { x: 7, y: 13, width: 64, height: 32, hidden: asset('c') }, complete: false, digests: [asset('c').digest] },
+    { widgetType: 'LOAD_3D', value: { model: asset('d') }, complete: false, digests: [asset('d').digest] },
+    { widgetType: 'VIDEO_EDIT', value: { trim: { start_time: 1, duration: 3 }, hidden: asset('e') }, complete: false, digests: [asset('e').digest] },
+  ])('keeps $widgetType ownership closed for $value', ({ widgetType, value, complete, digests }) => {
+    const local = session([])
+    const candidate: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'value', optional: true,
+      type: { kind: 'concrete', name: widgetType }, widget: { widgetType, options: {} },
+    }] }
+    const document: WorkflowDocument = { ...local.doc, graphs: { g0: { ...local.doc.graphs.g0!, nodes: {
+      n0: { id: asNodeId('n0'), type: 'Loader', values: { value: value as core.Json } },
+    } } } }
+    const roots = workflowAssetRoots(document, local.historySnapshot(), () => candidate)
+    expect(roots.complete).toBe(complete)
+    expect(roots.digests).toEqual(digests)
+  })
+
   it.each(['NUMBER', 'opaque'])('checks numeric widget metadata without accepting unknown kinds: %s', (widgetType) => {
     const local = session()
     const numeric: NodeSchema = { ...schema, items: [{ kind: 'input', id: 'value', optional: false,
