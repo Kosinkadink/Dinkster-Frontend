@@ -1,9 +1,14 @@
 import { createHash } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { basename } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 import { canonicalJson } from '@dinkster/core'
-import { selectProductOption, skipWithoutNativeCatalog } from './fixtures.js'
+import {
+  nativeTest as test,
+  selectProductOption,
+  skipWithoutNativeCatalog,
+  waitForStartupOwnership,
+} from './fixtures.js'
 
 // Exact native catalog of the backend pinned by the hosted workflows.
 const canonicalCatalogSha256 =
@@ -335,6 +340,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
       { timeout: 20_000 },
     )
     .toBe(698)
+  await waitForStartupOwnership(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument(
       {
@@ -407,6 +413,16 @@ test('hosted native stack proves live widget adoption and exact catalog absences
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
 
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        window
+          .__dinksterTest!.renderer!.getScene()
+          .nodes.map((node) => node.id)
+          .sort(),
+      ),
+    )
+    .toEqual(['checkpoint', 'media', 'round', 'sampler'])
   const cfg = await rowPoint(page, 'round', 'cfg')
   await page.mouse.click(cfg.x, cfg.y)
   const numberEditor = page.getByTestId('widget-editor').locator('input')
