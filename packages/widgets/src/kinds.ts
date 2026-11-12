@@ -167,6 +167,24 @@ export const resolutionKind: WidgetKind<null> = {
   defaultView: () => 'core.resolution',
 }
 
+type SaveTarget = { mount: string; prefix: string }
+
+export const isSaveTarget = (value: unknown): value is SaveTarget => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const target = value as Record<string, unknown>
+  return Object.keys(target).length === 2 && typeof target['mount'] === 'string' && /^[a-z0-9][a-z0-9-]*$/.test(target['mount'])
+    && typeof target['prefix'] === 'string' && target['prefix'] !== '' && !target['prefix'].includes('\\')
+    && target['prefix'].split('/').every((segment) => !['', '.', '..'].includes(segment))
+}
+
+export const saveTargetKind: WidgetKind<SaveTarget | null> = {
+  type: 'SAVE_TARGET',
+  valueSchema: { version: 1, validate: (value): value is SaveTarget | null => value === null || isSaveTarget(value) },
+  defaultValue: (spec) => isSaveTarget(spec.default) ? { ...spec.default } : null,
+  validate: () => [],
+  defaultView: () => 'core.saveTarget',
+}
+
 export type BoundingBox = { x: number; y: number; width: number; height: number }
 
 export const boundingBoxKind: WidgetKind<BoundingBox> = {
@@ -935,6 +953,13 @@ export const resolutionView: WidgetView<null> = {
       t('resolutionWidget.title'), state, 'widget.edit')
   },
 }
+export const saveTargetView: WidgetView<SaveTarget | null> = {
+  ...makeCompactView<SaveTarget | null>('core.saveTarget', 'SAVE_TARGET'),
+  drawCompact(ctx, value, spec, state) {
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
+      value === null ? t('saveTargetWidget.title') : `${value.mount}/${value.prefix}`, state, 'widget.edit')
+  },
+}
 export const videoEditView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.videoEdit', 'VIDEO_EDIT'),
   drawCompact(ctx, value, spec, state) {
@@ -990,11 +1015,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, cameraAngleKind, resolutionKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, cameraAngleKind, resolutionKind, saveTargetKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView, cameraAngleView, resolutionView]) {
+    multiSelectView, listView, colorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView, cameraAngleView, resolutionView, saveTargetView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

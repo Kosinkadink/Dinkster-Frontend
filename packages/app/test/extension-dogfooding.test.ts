@@ -54,6 +54,7 @@ describe('core extension door dogfooding', () => {
       'IMAGECOMPARE',
       'CAMERA_ANGLE_VIEW',
       'RESOLUTION_PREVIEW',
+      'SAVE_TARGET',
     ])
   })
 

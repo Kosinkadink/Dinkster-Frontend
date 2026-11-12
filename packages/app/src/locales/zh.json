@@ -1,5 +1,13 @@
 {
   "common.close": "关闭",
+  "saveTargetWidget.title": "保存目标",
+  "saveTargetWidget.mount": "可写挂载点",
+  "saveTargetWidget.prefix": "相对文件名前缀",
+  "saveTargetWidget.naming": "仅填写子文件夹与文件名主体。保存时自动添加编号和 {suffix}。",
+  "saveTargetWidget.invalid": "请输入相对前缀，不允许空路径段、点、父目录或反斜杠。",
+  "saveTargetWidget.noMounts": "没有就绪的可写挂载点。请在挂载设置中添加或重新连接可写文件夹。",
+  "saveTargetWidget.clear": "清除目标",
+  "saveTargetWidget.apply": "应用目标",
   "resolutionWidget.title": "分辨率预览",
   "resolutionWidget.dimensions": "{width} x {height} 像素",
   "resolutionWidget.ratio": "宽高比",

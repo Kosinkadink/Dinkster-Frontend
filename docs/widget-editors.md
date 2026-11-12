@@ -1,5 +1,12 @@
 # Widget compact controls and expanded editors
 
+SAVE_TARGET opens a ready writable mount selector and relative filename prefix.
+The writer adds the descriptor's suffix and numbering; no host path is stored
+in the graph. Empty, absolute, dot-segment and backslash prefixes cannot apply.
+Unavailable current mounts stay visible but cannot apply. The optional gallery
+destination also offers Clear destination; required save targets do not.
+Mount grants are checked again by the backend when it writes.
+
 RESOLUTION_PREVIEW opens a proportional rectangle and exact pixel dimensions
 from the node's aspect ratio, megapixels and rounding multiple. The named
 controls update that preview as a draft; Apply resolution writes the three

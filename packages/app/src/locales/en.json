@@ -1,5 +1,13 @@
 {
   "common.close": "Close",
+  "saveTargetWidget.title": "Save destination",
+  "saveTargetWidget.mount": "Writable mount",
+  "saveTargetWidget.prefix": "Relative filename prefix",
+  "saveTargetWidget.naming": "Subfolders and filename stem only. The writer adds numbering and {suffix}.",
+  "saveTargetWidget.invalid": "Enter a relative prefix with no empty, dot or parent segments and no backslashes.",
+  "saveTargetWidget.noMounts": "No ready writable mounts. Add or reconnect a writable folder in mount settings.",
+  "saveTargetWidget.clear": "Clear destination",
+  "saveTargetWidget.apply": "Apply destination",
   "resolutionWidget.title": "Resolution preview",
   "resolutionWidget.dimensions": "{width} x {height} pixels",
   "resolutionWidget.ratio": "Aspect ratio",

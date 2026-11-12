@@ -8,6 +8,63 @@ import { WidgetEditor, type WidgetEditorProps, type WidgetEditorState } from '..
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+it.each([false, true])('edits structured save destinations with writable grants and optional=%s', async (optional) => {
+  const schema = parseDinksterSchema('SaveTargetFixture', { interface: [
+    { role: 'input', id: 'target', type: { kind: 'concrete', types: ['dinkster.save_target'] }, required: !optional, widget: { type: 'SAVE_TARGET', suffix: '.pgm' } },
+  ] }).schema!
+  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema)
+  const store = new DocumentStore(imported.document!, coreCommandRegistry())
+  const tab = { store } as unknown as Tab
+  const registry = createWidgetRegistry()
+  const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
+    registryForTab: () => ({ resolve: () => schema }),
+    backendForTab: () => ({ protocol: 'dinkster', connection: { fetchMountSettings: async () => ({ outputMount: 'archive', mounts: [
+      { id: 'archive', mode: 'readwrite', state: 'ready' },
+      { id: 'reference', mode: 'read', state: 'ready' },
+      { id: 'offline', mode: 'readwrite', state: 'missing' },
+    ] }) } }),
+    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+  } as unknown as AppState
+  const root = document.createElement('div'); document.body.append(root)
+  const open = () => render(() => <WidgetEditor app={app} ed={{
+    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'target' }, label: 'Destination',
+    spec: inputsOf(schema)[0]!.widget, multiline: false, initial: store.doc.graphs.g0!.nodes.n1!.values.target ?? null,
+    rect: { x: 0, y: 0, width: 180, height: 24 },
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+  let dispose = open()
+  await vi.waitFor(() => expect(root.querySelector('[role="combobox"]')!.textContent).toContain('archive'))
+  ;(root.querySelector('[role="combobox"]') as HTMLButtonElement).click()
+  expect(Array.from(document.querySelectorAll('[role="option"]')).map((entry) => entry.textContent)).toEqual(['archive'])
+  ;(document.querySelector('[data-option-id="archive"]') as HTMLElement).click()
+  const before = store.doc.graphs.g0!.nodes.n1!.values
+  const prefix = root.querySelector<HTMLInputElement>('#save-target-prefix')!
+  expect(prefix.getAttribute('aria-labelledby')).toBeTruthy()
+  expect(root.textContent).toContain('numbering and .pgm')
+  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply destination')!
+  for (const value of ['', '/absolute', 'a//b', '.', 'a/../b', 'a/./b', 'a\\b', 'a/']) {
+    prefix.value = value; prefix.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(apply.disabled, value).toBe(true)
+  }
+  prefix.value = 'nested/frame'; prefix.dispatchEvent(new Event('input', { bubbles: true }))
+  expect(apply.disabled).toBe(false)
+  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
+  apply.click()
+  await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values.target).toEqual({ mount: 'archive', prefix: 'nested/frame' }))
+  expect(store.undo()).toBe(true)
+  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
+  expect(Array.from(root.querySelectorAll('button')).some((button) => button.textContent === 'Clear destination')).toBe(optional)
+  dispose()
+  if (optional) {
+    store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'target', value: { mount: 'archive', prefix: 'old' } } })
+    dispose = open()
+    Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Clear destination')!.click()
+    await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values.target).toBeNull())
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.n1!.values.target).toEqual({ mount: 'archive', prefix: 'old' })
+    dispose()
+  }
+})
+
 it('previews resolution with half-even rounding and edits descriptor-named siblings as one undo', async () => {
   const schema = parseDinksterSchema('ResolutionFixture', { interface: [
     { role: 'input', id: 'ratio', type: { kind: 'concrete', types: ['COMBO'] }, default: '1:1 (Square)', widget: { type: 'COMBO', options: ['1:1 (Square)', '16:9 (Widescreen)'] } },

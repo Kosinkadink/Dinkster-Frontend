@@ -12,6 +12,7 @@ import { MultiComboWidgetEditor } from './MultiComboWidgetEditor.js'
 import { MarkdownWidgetEditor } from './MarkdownWidgetEditor.js'
 import { MountWidgetEditor } from './MountWidgetEditor.js'
 import { ResolutionWidgetEditor } from './ResolutionWidgetEditor.js'
+import { SaveTargetWidgetEditor } from './SaveTargetWidgetEditor.js'
 import { ScalarWidgetEditor } from './ScalarWidgetEditor.js'
 import { VideoEditWidgetEditor } from './VideoEditWidgetEditor.js'
 import { WebcamWidgetEditor } from './WebcamWidgetEditor.js'
@@ -36,6 +37,7 @@ const coreWidgetEditors = new Map<string, unknown>([
   ['IMAGECOMPARE', ImageCompareWidgetEditor],
   ['CAMERA_ANGLE_VIEW', CameraAngleWidgetEditor],
   ['RESOLUTION_PREVIEW', ResolutionWidgetEditor],
+  ['SAVE_TARGET', SaveTargetWidgetEditor],
 ])
 
 export const coreEditorFor = (widgetType: string): unknown => coreWidgetEditors.get(widgetType)

@@ -72,6 +72,7 @@ const BACKEND_SERIAL_SPECS = [
   'image-compare-live.spec.ts',
   'camera-angle-live.spec.ts',
   'resolution-live.spec.ts',
+  'save-target-live.spec.ts',
   'video-edit.spec.ts',
   'glsl-shader.spec.ts',
   'executable-examples-live.spec.ts',
