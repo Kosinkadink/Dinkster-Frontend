@@ -139,7 +139,7 @@ export default defineConfig({
       timeout: 180_000,
     },
     {
-      command: `pnpm --filter @dinkster/app dev --host 127.0.0.1 --port ${frontendPort} --strictPort`,
+      command: `pnpm --filter @dinkster/app dev --mode test --host 127.0.0.1 --port ${frontendPort} --strictPort`,
       cwd: frontendRoot,
       env: {
         ...process.env,
@@ -150,7 +150,7 @@ export default defineConfig({
       timeout: 180_000,
     },
     {
-      command: `pnpm --filter @dinkster/app dev --host 127.0.0.1 --port ${nativeFrontendPort} --strictPort`,
+      command: `pnpm --filter @dinkster/app dev --mode test --host 127.0.0.1 --port ${nativeFrontendPort} --strictPort`,
       cwd: frontendRoot,
       env: {
         ...process.env,

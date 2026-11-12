@@ -23,7 +23,7 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
   },
   webServer: {
-    command: `DINKSTER_NATIVE_BACKEND=http://127.0.0.1:9 pnpm --filter @dinkster/app dev --host 127.0.0.1 --port ${frontendPort} --strictPort`,
+    command: `DINKSTER_NATIVE_BACKEND=http://127.0.0.1:9 pnpm --filter @dinkster/app dev --mode test --host 127.0.0.1 --port ${frontendPort} --strictPort`,
     url: `http://127.0.0.1:${frontendPort}`,
     reuseExistingServer: false,
     cwd: repoRoot,

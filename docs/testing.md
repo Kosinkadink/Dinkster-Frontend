@@ -67,6 +67,12 @@ core schema and event goldens run in fast and full unit suites, not again
 in the stock-backend browser job. `pnpm --filter @dinkster/app build`
 checks its emitted HTML, nonempty module entry and inline semantic-token
 content/order after Vite builds once; unit tests do not invoke a second build.
+The `production-build` browser keeper
+loads a separately built production app, checks that its shell and Settings
+work, and verifies that `window.__dinksterTest` is absent even with test-like
+URL parameters. Only Vite's explicit `--mode test` publishes the mutable app,
+canvas and synthetic-workload bridge. Browser configurations opt in to that
+mode; ordinary development and production builds do not expose it.
 The widget document-value matrix runs in core alongside its store contract.
 Execution and backend component tests check mounted labels, ownership and
 actions; the tooltip AST check only bans native HTML titles. The existing

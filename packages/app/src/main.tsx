@@ -41,9 +41,8 @@ const hideBoot = startBootIndicator({
   },
 })
 
-// Test bridge: lets Playwright inspect app state without poking DOM
-// internals. Read-only by convention; grows into the __comfyTest contract.
-// syntheticWorkflow rides along so perf specs generate workloads in-page.
+// The explicit test build exposes mutable app/canvas handles to Playwright.
+// Ordinary development and production builds do not publish this bridge.
 declare global {
   interface Window {
     __dinksterTestDefaultProtocol?: 'v1'
@@ -114,7 +113,9 @@ async function bootstrap(): Promise<void> {
   for (const line of desktopLogs.slice(-500)) app.recordHostLog('info', 'Local engine', line)
   const started = app.start()
 
-  window.__dinksterTest = { app, semanticDerivations: 0, syntheticWorkflow }
+  if (import.meta.env.MODE === 'test') {
+    window.__dinksterTest = { app, semanticDerivations: 0, syntheticWorkflow }
+  }
   render(() => <App
     app={app}
     {...(desktopWindow ? { desktopWindow } : {})}

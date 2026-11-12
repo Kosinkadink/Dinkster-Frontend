@@ -30,7 +30,7 @@ export default defineConfig({
       cwd: '../..',
     },
     {
-      command: `pnpm --filter @dinkster/app dev --host 127.0.0.1 --port ${frontendPort} --strictPort`,
+      command: `pnpm --filter @dinkster/app dev --mode test --host 127.0.0.1 --port ${frontendPort} --strictPort`,
       env: {
         ...process.env,
         DINKSTER_BACKEND: `http://127.0.0.1:${fixturePort}`,

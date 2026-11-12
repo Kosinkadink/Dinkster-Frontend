@@ -155,7 +155,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `pnpm --filter @dinkster/app dev --host 127.0.0.1 --port ${devPort} --strictPort`,
+      command: `pnpm --filter @dinkster/app dev --mode test --host 127.0.0.1 --port ${devPort} --strictPort`,
       url: `http://127.0.0.1:${devPort}`,
       reuseExistingServer: false,
       env: {
@@ -165,7 +165,7 @@ export default defineConfig({
       cwd: '../..',
     },
     {
-      command: `pnpm --filter @dinkster/app dev --host 127.0.0.1 --port ${nativeFrontendPort} --strictPort`,
+      command: `pnpm --filter @dinkster/app dev --mode test --host 127.0.0.1 --port ${nativeFrontendPort} --strictPort`,
       url: `http://127.0.0.1:${nativeFrontendPort}`,
       reuseExistingServer: false,
       env: {
