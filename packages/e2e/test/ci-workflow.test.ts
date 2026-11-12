@@ -594,8 +594,10 @@ describe('fast pull-request and full validation workflows', () => {
           'uv pip install --python .ci/ComfyUI/venv/bin/python',
         )
         expect(compatibilityInstall.run).toContain(
-          '--index https://download.pytorch.org/whl/cpu',
+          '--torch-backend cpu --default-index https://pypi.org/simple',
         )
+        expect(compatibilityInstall.run).not.toContain('--index ')
+        expect(compatibilityInstall.run).not.toContain('unsafe-best-match')
         expect(compatibilityInstall.run).toContain(
           '"comfy-kitchen==0.2.40" "comfy-aimdo==0.6.0"',
         )
