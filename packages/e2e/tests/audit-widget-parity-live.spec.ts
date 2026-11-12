@@ -7,7 +7,7 @@ import { selectProductOption, skipWithoutNativeCatalog } from './fixtures.js'
 
 // Exact native catalog of the backend pinned by the hosted workflows.
 const canonicalCatalogSha256 =
-  'bfba257759a86ced2d989148aeb934c9e5e6a849e6cbf24b79b49c1f4a472d31'
+  'b199947c80db2ff142405cf213da825442a5a7648d6c92b700d4c00436f138ab'
 const nativeBackend =
   process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -160,7 +160,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
     .update(canonicalJson(stableCatalog))
     .digest('hex')
   expect(catalogDigest).toBe(canonicalCatalogSha256)
-  expect(Object.keys(catalog.nodes)).toHaveLength(690)
+  expect(Object.keys(catalog.nodes)).toHaveLength(698)
   const inputs = widgets(catalog)
   const descriptors = inputs.flatMap(({ input }) =>
     widgetDescriptors(input.widget),
@@ -200,7 +200,12 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   ).toEqual({ type: 'STRING', multiline: true })
   expect(
     descriptors.filter((widget) => widget['type'] === 'MULTI_COMBO'),
-  ).toHaveLength(0)
+  ).toEqual([{ type: 'MULTI_COMBO', options: ['red', 'green', 'blue'] }])
+  expect(
+    inputs
+      .filter(({ input }) => input.widget?.['type'] === 'MULTI_COMBO')
+      .map(({ nodeType, input }) => `${nodeType}.${input.id}`),
+  ).toEqual(['dev.features.widget_kinds.selections'])
   expect(
     descriptors.filter(
       (widget) =>
@@ -329,7 +334,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
         ),
       { timeout: 20_000 },
     )
-    .toBe(690)
+    .toBe(698)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument(
       {
@@ -671,7 +676,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
       const banner = document.createElement('pre')
       banner.style.cssText =
         'position:fixed;right:320px;top:150px;width:520px;white-space:pre-wrap;overflow-wrap:anywhere;z-index:10000;background:#102030;color:#e8f4ff;padding:16px;border:2px solid #60a5fa'
-      banner.textContent = `current canonical catalog SHA-256: ${catalogDigest}\nFLOAT commit: 8.129 -> 8.13\ncanonical sampler: dinkster.sampling.k_sampler_advanced\nremote COMBO routes refreshed: 1/1\nsource upload: audit-wpar-source.png\ndynamic POST: ${expanded}\nplaceholder declarers: 0\nMULTI_COMBO declarers: 0\nremote policy declarers: 0`
+      banner.textContent = `current canonical catalog SHA-256: ${catalogDigest}\nFLOAT commit: 8.129 -> 8.13\ncanonical sampler: dinkster.sampling.k_sampler_advanced\nremote COMBO routes refreshed: 1/1\nsource upload: audit-wpar-source.png\ndynamic POST: ${expanded}\nplaceholder declarers: 0\nMULTI_COMBO declarers: 1 (dev.features.widget_kinds.selections)\nremote policy declarers: 0`
       document.body.appendChild(banner)
     },
     {
@@ -692,7 +697,7 @@ test('hosted native stack proves live widget adoption and exact catalog absences
       mediaUpload: Object.fromEntries(mediaUrl.searchParams),
       dynamicPrompt: submitted!.graph.nodes.encode.inputs.text,
       placeholderDeclarers: 0,
-      multiComboDeclarers: 0,
+      multiComboDeclarers: 1,
       remotePolicyDeclarers: 0,
       cancelledJob: { clientId: submitted!.clientId, jobId: submitted!.jobId },
     }),
