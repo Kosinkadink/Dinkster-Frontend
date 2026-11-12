@@ -1,10 +1,11 @@
 import { expect, test } from '@playwright/test'
-import { readFileSync } from 'node:fs'
+import seedBasic from '../../core/fixtures/workflows/seed-basic.json' with { type: 'json' }
 
 const BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
-const fixture = JSON.parse(
-  readFileSync(new URL('../../core/fixtures/workflows/seed-basic.json', import.meta.url), 'utf8'),
-) as unknown
+const fixture = structuredClone(seedBasic)
+fixture.graphs.g0.nodes.n0.type = 'dinkster.image.empty_image'
+fixture.graphs.g0.nodes.n1.type = 'dinkster.image.preview_image'
+fixture.graphs.g0.links.l2.from.port = 'IMAGE'
 
 test('a remote link drag paints a presence noodle and clears on release', async ({ browser }) => {
   const ownerContext = await browser.newContext()
@@ -42,8 +43,8 @@ test('a remote link drag paints a presence noodle and clears on release', async 
       const registry = app.backends.get().find((backend) => backend.protocol === 'dinkster')?.registry.get() as
         { resolve(type: string): unknown } | undefined
       return tab !== undefined && 'status' in tab.store &&
-        registry?.resolve('EmptyImage') !== undefined &&
-        registry.resolve('PreviewImage') !== undefined
+        registry?.resolve('dinkster.image.empty_image') !== undefined &&
+        registry.resolve('dinkster.image.preview_image') !== undefined
     })))
     const openFailures = await owner.evaluate(
       (document) => window.__dinksterTest!.app.openDocument(document, 'Collab noodle presence'),

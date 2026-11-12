@@ -33,6 +33,15 @@ test('renders both tabs on the canvas', async ({ page }) => {
 })
 
 test('queues the basic workflow and tracks it to completion with outputs', async ({ page }) => {
+  await waitForStartupOwnership(page)
+  expect(await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const document = structuredClone(app.activeTab()!.store.doc)
+    document.graphs.g0!.nodes.n0!.type = 'dinkster.image.empty_image'
+    document.graphs.g0!.nodes.n1!.type = 'dinkster.image.preview_image'
+    document.graphs.g0!.links.l2!.from.port = 'IMAGE'
+    return app.openDocument(document, 'Basic')
+  })).toEqual([])
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   await page.getByTestId('queue-button').click()
   const execution = page.getByTestId('execution-row').first()
