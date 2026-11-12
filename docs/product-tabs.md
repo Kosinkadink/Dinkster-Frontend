@@ -41,9 +41,8 @@ ready for vertical product surfaces and maps their navigation to Up and Down.
 
 `packages/app/test/ProductTabs.dom.test.tsx` proves ARIA wiring, controlled and
 uncontrolled behavior, disabled skipping, traversal, activation, and dynamic
-add/remove focus safety. `packages/e2e/tests/audit-tabs-proof.spec.ts` proves
-the keyboard, focus-visible, relationship, dynamic focus-repair, external-focus,
-and zero-document-revision contract in isolated Chromium.
+add/remove focus safety. The primitive is exercised in product dock surfaces;
+the standalone tabs proof page is not part of the application.
 
 The right dock zone consumes this primitive through `DockZoneHost`
 (`ShellChrome.tsx`): registered rail panels render as tabs with one visible
