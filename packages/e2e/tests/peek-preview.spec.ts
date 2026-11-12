@@ -15,10 +15,10 @@
  * Requires a native backend serving the dinkster-nodes-dev pack: the image scaffolding
  * nodes moved to the gated dev pack (dev.image.gradient, dev.image.invert)
  * and a plain dinkster-serve no longer composes them. Skips loudly when no
- * backend answers OR the dev nodes are absent, so the suite stays runnable
- * against ComfyUI alone or a non-dev native server.
+ * backend answers. A reachable backend missing required dev nodes fails.
  */
 import { expect, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -148,7 +148,7 @@ async function nudgeNode(page: Page): Promise<void> {
   await drag(page, p, { x: p.x + 4, y: p.y + 4 })
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   // Probe outside the skip calls: test.skip signals by throwing, so a skip
   // raised inside the try would be swallowed and remapped to 'unreachable'.
   let served: Record<string, unknown> | null = null
@@ -157,12 +157,7 @@ test.beforeEach(async ({ page }) => {
     if (probe.ok) served = (await probe.json() as { nodes?: Record<string, unknown> }).nodes ?? {}
   } catch { /* unreachable -> served stays null */ }
   test.skip(served === null, `no native Dinkster backend reachable at ${NATIVE_BACKEND} (set DINKSTER_NATIVE_BACKEND)`)
-  // A reachable server is not enough: the image scaffolding nodes are
-  // dev-gated, so a non-dev server answers 200 while missing everything
-  // this suite runs.
-  const missing = ['dev.image.gradient', 'dev.image.invert'].filter((id) => !(id in served!))
-  test.skip(missing.length > 0,
-    `native backend at ${NATIVE_BACKEND} lacks ${missing.join(', ')} - serve the dinkster-nodes-dev pack`)
+  requireBackendNodes(served!, ['dev.image.gradient', 'dev.image.invert'], testInfo)
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await addNativeBackend(page)

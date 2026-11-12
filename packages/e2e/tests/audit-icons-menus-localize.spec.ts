@@ -50,15 +50,15 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
         loopBody: {
           id: 'loopBody', name: 'Loop body',
           nodes: {
-            state: { id: 'state', type: 'dinkster.float', values: {} },
-            condition: { id: 'condition', type: 'dinkster.boolean', values: { value: true } },
+            state: { id: 'state', type: 'dinkster.utilities.primitive_float', values: {} },
+            condition: { id: 'condition', type: 'dinkster.utilities.primitive_boolean', values: { value: true } },
           },
           links: {}, nets: {}, reroutes: {},
           boundary: {
             inputs: [{ id: 'state', binds: { kind: 'port', node: 'state', port: 'value' } }],
             outputs: [
-              { id: 'result', binds: { kind: 'port', node: 'state', port: 'value' } },
-              { id: 'continue', binds: { kind: 'port', node: 'condition', port: 'value' } },
+              { id: 'result', binds: { kind: 'port', node: 'state', port: 'FLOAT' } },
+              { id: 'continue', binds: { kind: 'port', node: 'condition', port: 'BOOLEAN' } },
             ],
           },
           nextOrdinal: 2,

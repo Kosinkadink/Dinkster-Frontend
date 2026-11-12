@@ -12,7 +12,7 @@ import { nodeHasCommandRole, type CommandSchemaRole } from './schema-role.js'
 // NodeSchema.editorRole is authoritative; this id supports schemas without that field.
 const COMPOSITOR_ROLE: CommandSchemaRole = {
   role: 'compositor',
-  fallbackNodeId: 'CreateLayeredImage',
+  fallbackNodeId: 'dinkster.image.image_compositor',
 }
 
 const contextResolves = (doc: WorkflowDocument, graphId: string, instancePath: readonly string[]): boolean => {

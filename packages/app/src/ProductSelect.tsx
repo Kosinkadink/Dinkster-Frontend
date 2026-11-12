@@ -1,4 +1,4 @@
-import { createEffect, createSignal, createUniqueId, For, on, onCleanup, onMount, Show, type JSX } from 'solid-js'
+import { createEffect, createMemo, createSignal, createUniqueId, For, on, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { semanticDesignTokens } from '@dinkster/core'
 import { placeFloatingSurface } from './floating-surface.js'
@@ -42,6 +42,7 @@ export function ProductSelect<T>(props: {
   let live = true
   onCleanup(() => { live = false; generation++ })
 
+  const optionsById = createMemo(() => new Map(props.options.map((option) => [option.id, option])))
   const selectedIndex = (): number => props.options.findIndex((option) => option.id === props.selectedId)
   const selectedOption = (): ProductSelectOption<T> | undefined => props.options[selectedIndex()]
   const firstEnabled = (): number => props.options.findIndex((option) => option.disabled !== true)
@@ -302,26 +303,29 @@ export function ProductSelect<T>(props: {
               event.stopPropagation()
             }}
           >
-            <For each={props.options}>
-              {(option, index) => (
-                <div
-                  id={optionId(index())}
-                  classList={{
-                    'product-select-option': true,
-                    active: index() === activeIndex(),
-                    selected: option.id === props.selectedId,
-                    disabled: option.disabled === true,
-                  }}
-                  data-option-id={option.id}
-                  role="option"
-                  aria-selected={option.id === props.selectedId}
-                  aria-disabled={option.disabled === true || pending()}
-                  onPointerMove={() => { if (!pending() && option.disabled !== true) setActiveIndex(index()) }}
-                  onClick={() => choose(index())}
-                >
-                  {option.label}
-                </div>
-              )}
+            <For each={[...optionsById().keys()]}>
+              {(id, index) => {
+                const option = () => optionsById().get(id)!
+                return (
+                  <div
+                    id={optionId(index())}
+                    classList={{
+                      'product-select-option': true,
+                      active: index() === activeIndex(),
+                      selected: id === props.selectedId,
+                      disabled: option().disabled === true,
+                    }}
+                    data-option-id={id}
+                    role="option"
+                    aria-selected={id === props.selectedId}
+                    aria-disabled={option().disabled === true || pending()}
+                    onPointerMove={() => { if (!pending() && option().disabled !== true) setActiveIndex(index()) }}
+                    onClick={() => choose(index())}
+                  >
+                    {option().label}
+                  </div>
+                )
+              }}
             </For>
           </div>
         </Portal>
