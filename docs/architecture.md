@@ -1485,6 +1485,14 @@ data and is not emitted on the graph wire.
 - **execution UX implementation Named nets + execution UX**: named nets with hide/show rendering; multi-tab correctness; frozen views + diverged badges; reconnect/history reconciliation; collapsed-subgraph progress aggregation. Concurrent-execution UX: overlay binding/pinning switcher, executions rail with multiple in-flight runs. Multi-backend: BackendConnection UI (add/select connections, per-connection registries and queues, retarget-with-diagnostics). Control surfaces v1 (mode panel, group binding) and selectors (value + random policy, choice recorded in CompileArtifact).
 - **extension API implementation Extensibility + views foundation + polish**: freeze and document extension API v1 (registries + command API), informational deprecation badges, variadic/conditional subgraph boundaries exposed, app-view binding model (design + minimal proof), full importer diagnostics, accessibility completion, perf optimization against the budgets.
 
+## Saved image outputs
+
+The Outputs panel lists retained image files alongside tensor renditions. Saved
+files show the backend's content digest and written virtual path even when the
+save node returns only an IMAGE tensor. A file already represented by a typed
+asset from that node is listed once; files from different nodes retain their
+separate provenance.
+
 ## Key risks / open questions
 
 1. **Variadic/conditional subgraph boundaries** are exposure-deferred, but their representation, identities, and serialization are in the format from the initial contracts - the corner is designed out, the UI work is just later. Guard: never ship a boundary feature not already modeled in the format.

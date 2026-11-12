@@ -16,10 +16,10 @@
  * (that is the feature); runs there are e2e-produced. Requires a NATIVE
  * Dinkster backend serving the dinkster-nodes-dev pack: the driver node
  * lives in the gated dev pack and a plain dinkster-serve does not compose it.
- * Skips loudly when no backend answers OR the dev node is absent, so the
- * suite stays runnable against ComfyUI alone or a non-dev native server.
+ * Skips loudly when no backend answers. Missing required dev nodes fail.
  */
 import { expect, nativeTest, productOption, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -139,7 +139,7 @@ async function openRuns(page: Page): Promise<void> {
 const entryFor = (page: Page, jobId: string) =>
   page.getByTestId('collection-entry').filter({ hasText: jobId.slice(0, 8) })
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   // Probe outside the skip calls: test.skip signals by throwing, so a skip
   // raised inside the try would be swallowed and remapped to 'unreachable'.
   let served: Record<string, unknown> | null = null
@@ -151,10 +151,7 @@ test.beforeEach(async ({ page }) => {
     }
   } catch { /* unreachable -> served stays null */ }
   test.skip(served === null, `no native Dinkster backend reachable at ${NATIVE_BACKEND} (set DINKSTER_NATIVE_BACKEND)`)
-  // A reachable server is not enough: the driver node is dev-gated, so a
-  // non-dev server answers 200 while missing the node every test queues.
-  test.skip(!('dev.image.gradient' in served!),
-    `native backend at ${NATIVE_BACKEND} lacks dev.image.gradient - serve the dinkster-nodes-dev pack`)
+  requireBackendNodes(served!, ['dev.image.gradient'], testInfo)
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await addNativeBackend(page)

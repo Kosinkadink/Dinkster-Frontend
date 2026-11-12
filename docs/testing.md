@@ -81,6 +81,13 @@ values select hosted images for main validation, schedules, and manual runs.
 
 ## Full validation
 
+The live image upload proof requires `dinkster.image.load_image` and
+`dinkster.image.save_image` from the same-origin catalog and fails with the
+missing node IDs when either is absent. Its execution graph connects the
+loader's `IMAGE` output to the saver's `images` input; upload byte equality,
+canonical asset references, export/reopen and completed execution remain
+required.
+
 The hosted guide backend composes only `packages/e2e/fixtures/guide-pack`,
 a node-free pack with one guide, in a separate library. Its port defaults to
 the native backend port plus two (`DINKSTER_E2E_GUIDE_PORT` overrides it).
@@ -193,6 +200,8 @@ schemas and API routes. The shared fixture does not select a stock protocol,
 block native discovery, or add backend settings responses. App View remains an
 explicit per-test option, and spec-local routes take precedence over context
 routes. No standing development server is reused or stopped.
+Product option fixtures resolve controls by option ID rather than global list
+position so collection updates cannot redirect a pending selection.
 Palette surface fixtures await startup ownership before publishing schemas or
 opening their document so they do not invalidate the restored inventory's acknowledgment.
 Remote combo refresh proof waits for the previous option to detach and the
