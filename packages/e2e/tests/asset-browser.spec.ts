@@ -398,6 +398,10 @@ test('selected image assets preview immediately inside the node and follow impor
     }, 'Imported Asset Browser')
   }, imported)
   await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
+  await expect.poll(() => page.evaluate(() => {
+    const store = window.__dinksterTest!.app.activeTab()!.store
+    return 'status' in store && (store.status as { get(): string }).get() === 'live'
+  })).toBe(true)
   await expect.poll(async () => (await previewState()).preview?.width).toBe(320)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.imported!.values.image)).toEqual(imported)
   const accessiblePreview = page.getByTestId('canvas-preview-a11y')
