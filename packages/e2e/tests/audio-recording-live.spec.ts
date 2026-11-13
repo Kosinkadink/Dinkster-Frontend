@@ -8,6 +8,9 @@ import { requireBackendNodes } from './required-nodes.js'
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const PHYSICAL_MICROPHONE = process.env['DINKSTER_PHYSICAL_MICROPHONE']
 
+test.skip(PHYSICAL_MICROPHONE === undefined,
+  'Browser Opus recording is nonblocking under https://github.com/Kosinkadink/comfy-vibe-station/issues/868')
+
 interface UploadedAsset {
   readonly digest: string
   readonly name: string
