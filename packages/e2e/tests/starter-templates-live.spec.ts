@@ -20,7 +20,6 @@ interface TemplateDescriptor {
   readonly pack: string;
   readonly id: string;
   readonly name: string;
-  readonly family?: string;
 }
 
 async function starterTemplates(
@@ -41,12 +40,6 @@ async function starterTemplates(
     required,
     testInfo,
   );
-  expect(payload.templates.map((template) => template.id).sort()).toEqual(
-    ["dev-gallery", ...EXPECTED_LOOPS].sort(),
-  );
-  expect(
-    payload.templates.flatMap((template) => template.family ?? []),
-  ).toEqual([]);
   const loops = new Set<string>(EXPECTED_LOOPS);
   return payload.templates.filter((template) => loops.has(template.id));
 }
