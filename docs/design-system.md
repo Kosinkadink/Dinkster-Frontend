@@ -7,8 +7,9 @@ canvas fits the D's horizontal edges and centers it vertically; the artwork,
 colors and proportions match `branding/svg/dinkster-symbol-color.svg`.
 Shared branding and desktop icons retain their original framing.
 
-The app serves `/favicon.ico` plus SVG and 32px PNG references. Touch and
-manifest icons use the same favicon-specific exports. Vite serves those files
+The app serves `/favicon.ico` plus SVG and 32px PNG references. The 180px
+Apple touch icon uses the same D at 90% width on opaque dark `#111316`;
+manifest icons use transparent 192px and 512px exports. Vite serves those files
 in development and includes them in production builds. Regenerate with
 `python branding/sources/export_favicons.py --inkscape /path/to/inkscape` using
 Inkscape 1.2.2. The exporter changes only the SVG viewBox, renders each PNG

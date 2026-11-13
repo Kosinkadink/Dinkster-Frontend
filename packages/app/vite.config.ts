@@ -17,7 +17,7 @@ const manifest = JSON.stringify({
   short_name: 'Dinkster',
   start_url: './',
   display: 'standalone',
-  icons: [256, 512].map((size) => ({
+  icons: [192, 512].map((size) => ({
     src: `./branding/favicon/${size}.png`,
     sizes: `${size}x${size}`,
     type: 'image/png',

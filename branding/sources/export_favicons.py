@@ -4,10 +4,11 @@ import argparse
 import re
 import struct
 import subprocess
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SIZES = (16, 24, 32, 48, 64, 128, 256, 512, 1024)
+SIZES = (16, 24, 32, 48, 64, 128, 192, 256, 512, 1024)
 
 
 def main():
@@ -54,7 +55,39 @@ def main():
             ],
             check=True,
         )
-    frames = {size: (output / f"{size}.png").read_bytes() for size in SIZES if size <= 256}
+    # iOS needs an opaque background and a little inset around the same artwork.
+    inset_width = width / 0.9
+    with tempfile.TemporaryDirectory() as temporary:
+        touch_svg = Path(temporary) / "touch.svg"
+        touch_svg.write_text(
+            re.sub(
+                r'viewBox="[^"]+"',
+                f'viewBox="{x + (width - inset_width) / 2:g} '
+                f'{top + (width - inset_width) / 2:g} {inset_width:g} {inset_width:g}"',
+                svg.read_text(encoding="utf-8"),
+                count=1,
+            ),
+            encoding="utf-8",
+        )
+        subprocess.run(
+            [
+                args.inkscape,
+                str(touch_svg),
+                "--export-type=png",
+                "--export-area-page",
+                "--export-width=180",
+                "--export-height=180",
+                "--export-background=#111316",
+                "--export-background-opacity=1",
+                f"--export-filename={output / '180.png'}",
+            ],
+            check=True,
+        )
+    frames = {
+        size: (output / f"{size}.png").read_bytes()
+        for size in SIZES
+        if size <= 256 and size != 192
+    }
     directory = bytearray(struct.pack("<HHH", 0, 1, len(frames)))
     offset = 6 + 16 * len(frames)
     for size, data in frames.items():
