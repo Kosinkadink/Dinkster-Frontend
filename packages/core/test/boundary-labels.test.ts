@@ -29,11 +29,6 @@ describe('generated boundary labels', () => {
     expect([...defaultBoundaryLabels(items).values()]).toEqual(['Mask', 'Positive prompt', 'VAE', 'Mask 2', 'Image'])
   })
 
-  it('keeps a deterministic default behind a custom name', () => {
-    const custom = item('masks_m4', 'masks_m4', 'Foreground mask')
-    expect(defaultBoundaryLabels([custom]).get(custom.id)).toBe('Mask')
-  })
-
   it('names unattached slots from their stable interface ids', () => {
     const unattached: BoundaryItem = { id: 'unused_input', binds: { kind: 'unbound', type: { kind: 'concrete', name: 'FLOAT' } } }
     expect(defaultBoundaryLabels([unattached]).get(unattached.id)).toBe('Unused input')

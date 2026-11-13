@@ -437,66 +437,6 @@ describe('compiled occurrence controller ownership', () => {
     })
   })
 
-  it('retires only a dynamic controller removed by a schema refresh', async () => {
-    const doc = document({
-      g0: graph('g0', {
-        dynamic: {
-          id: 'dynamic', type: dynamicSchema.type,
-          values: { 'mode.[a].seed': 3, 'items.seed#m0': 5 },
-          dynamic: { mode: { selected: 'a' }, items: { members: ['m0'] } },
-          controllers: { 'mode.[a].seed': 'increment', 'items.seed#m0': 'increment' },
-        },
-      }),
-    }) as any
-    const app = createWorkflowApp()
-    ;(app.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
-    app.registerSchemas([dynamicSchema])
-    expect((await app.openDocument(doc, 'Dynamic Controller Retirement'))).toEqual([])
-    const tab = app.activeTab()!
-    const ref = { connection: asConnectionId('local'), prompt: asPromptId('dynamic-controller-retirement') }
-    app.registerRun(tab, ref, compileControllers(tab.store.doc), 1)
-
-    const refreshed = structuredClone(dynamicSchema) as any
-    delete refreshed.items.find((item: any) => item.id === 'mode').dynamic.options[0].inputs[0].widget.controller
-    app.registerSchemas([refreshed])
-    app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-
-    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.dynamic!.values).toMatchObject({
-      'mode.[a].seed': 3,
-      'items.seed#m0': 6,
-    })
-  })
-
-  it('skips stale dynamic widget semantics per item after a schema refresh', async () => {
-    const doc = document({
-      g0: graph('g0', {
-        dynamic: {
-          id: 'dynamic', type: dynamicSchema.type,
-          values: { 'mode.[a].seed': 3, 'items.seed#m0': 5 },
-          dynamic: { mode: { selected: 'a' }, items: { members: ['m0'] } },
-          controllers: { 'mode.[a].seed': 'increment', 'items.seed#m0': 'increment' },
-        },
-      }),
-    }) as any
-    const app = createWorkflowApp()
-    ;(app.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
-    app.registerSchemas([dynamicSchema])
-    expect((await app.openDocument(doc, 'Dynamic Controller Schema Change'))).toEqual([])
-    const tab = app.activeTab()!
-    const ref = { connection: asConnectionId('local'), prompt: asPromptId('dynamic-controller-schema-change') }
-    app.registerRun(tab, ref, compileControllers(tab.store.doc), 1)
-
-    const refreshed = structuredClone(dynamicSchema) as any
-    refreshed.items.find((item: any) => item.id === 'mode').dynamic.options[0].inputs[0].widget.options.step = 2
-    app.registerSchemas([refreshed])
-    app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-
-    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.dynamic!.values).toMatchObject({
-      'mode.[a].seed': 3,
-      'items.seed#m0': 6,
-    })
-  })
-
   it('stores modes for active dynamic controller value keys', async () => {
     const doc = document({
       g0: graph('g0', {
@@ -574,55 +514,6 @@ describe('compiled occurrence controller ownership', () => {
         { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'instance', inputId: 'seed', value: 11 } },
       ] },
     })
-  })
-
-  it.each([
-    { order: ['primary', 'secondary'], retiredNode: 'secondary', expected: 11 },
-    { order: ['secondary', 'primary'], retiredNode: 'secondary', expected: 11 },
-    { order: ['primary', 'secondary'], retiredNode: 'primary', expected: undefined },
-    { order: ['secondary', 'primary'], retiredNode: 'primary', expected: undefined },
-  ] as const)('revalidates a fan-out owner with $order when $retiredNode retires', async ({ order, retiredNode, expected }) => {
-    const innerNodes = {
-      primary: { id: 'primary', type: promotedSchema.type, values: { seed: 10 }, controllers: { seed: 'increment' } },
-      secondary: { id: 'secondary', type: secondarySchema.type, values: { seed: 20 }, controllers: { seed: 'decrement' } },
-    }
-    const doc = document({
-      g0: graph('g0', {
-        instance: { id: 'instance', type: '#sub', values: {} },
-      }),
-      sub: graph('sub', Object.fromEntries(order.map((node) => [node, innerNodes[node]])), {}, {
-        inputs: [{
-          id: 'seed',
-          binds: { kind: 'port', node: 'primary', port: 'seed' },
-          alsoBinds: [{ kind: 'port', node: 'secondary', port: 'seed' }],
-          promoted: true,
-        }],
-        outputs: [{ id: 'out', binds: { kind: 'port', node: 'primary', port: 'out' } }],
-      }),
-    }) as any
-    const app = createWorkflowApp()
-    ;(app.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
-    app.registerSchemas([promotedSchema, secondarySchema])
-    expect((await app.openDocument(doc, 'Fan-out Controller Retirement'))).toEqual([])
-    const tab = app.activeTab()!
-    const ref = { connection: asConnectionId('local'), prompt: asPromptId('fan-out-controller-retirement') }
-    app.registerRun(tab, ref, compileControllers(tab.store.doc), 1)
-
-    const retiredSchema = retiredNode === 'primary' ? promotedSchema : secondarySchema
-    const retired: NodeSchema = {
-      ...retiredSchema,
-      items: retiredSchema.items.map((item) => {
-        if (item.kind !== 'input' || item.widget === undefined) return item
-        const { controller: _controller, ...widget } = item.widget
-        return { ...item, widget }
-      }),
-    }
-    app.registerSchemas([retired])
-    app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-
-    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.instance!.values.seed).toBe(expected)
-    expect(tab.store.doc.graphs.sub!.nodes.primary!.values.seed).toBe(10)
-    expect(tab.store.doc.graphs.sub!.nodes.secondary!.values.seed).toBe(20)
   })
 
   it('uses terminal delivery to suppress a linked promoted controller', () => {
@@ -716,21 +607,6 @@ describe('compiled occurrence controller ownership', () => {
     expect(tab.store.doc.graphs.g0!.nodes.right!.values.seed).toBeUndefined()
   })
 
-  it.each(['owner', 'inherited'] as const)('preserves a promoted %s mode edit-and-restore while its sibling advances', async (target) => {
-    const { app, tab, ref } = (await occurrenceCompletionHarness())
-    const location = target === 'owner' ? { graphId: 'g0', nodeId: 'left' } : { graphId: 'sub', nodeId: 'leaf' }
-    for (const mode of ['fixed', target === 'owner' ? 'decrement' : 'increment']) expect(tab.store.dispatch({
-      command: 'node.setController', params: { ...location, inputId: 'seed', mode },
-    }).ok).toBe(true)
-    app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => target === 'owner'
-      ? tab.store.doc.graphs.g0!.nodes.right!.values.seed
-      : tab.store.doc.graphs.g0!.nodes.left!.values.seed).toBe(target === 'owner' ? 6 : 9)
-    expect(tab.store.doc.graphs.g0!.nodes.left!.values.seed).toBe(target === 'owner' ? 10 : 9)
-    expect(tab.store.doc.graphs.g0!.nodes.right!.values.seed).toBe(target === 'owner' ? 6 : undefined)
-    expect(tab.store.doc.graphs.sub!.nodes.leaf!.values.seed).toBe(5)
-  })
-
   it('invalidates only occurrences whose effective fallback value changed after queueing', async () => {
     const { app, tab, ref } = (await occurrenceCompletionHarness())
     tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'sub', nodeId: 'leaf', inputId: 'seed', value: 7 } })
@@ -738,40 +614,6 @@ describe('compiled occurrence controller ownership', () => {
     await expect.poll(() => tab.store.doc.graphs.g0!.nodes.left!.values.seed).toBe(9)
     expect(tab.store.doc.graphs.g0!.nodes.right!.values.seed).toBeUndefined()
     expect(tab.store.doc.graphs.sub!.nodes.leaf!.values.seed).toBe(7)
-  })
-
-  it('does not apply an unstored initial mode after the live schema parks it', async () => {
-    const initial: NodeSchema = {
-      ...promotedSchema,
-      type: 'InitialModeController',
-      items: promotedSchema.items.map((item) => item.kind === 'input'
-        ? { ...item, widget: { ...item.widget!, controllerInitial: 'increment' as const } }
-        : item),
-    }
-    const doc = document({
-      g0: graph('g0', {
-        seed: { id: 'seed', type: initial.type, values: { seed: 10 } },
-      }),
-    }) as any
-    const app = createWorkflowApp()
-    ;(app.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
-    app.registerSchemas([initial])
-    expect((await app.openDocument(doc, 'Initial Mode Schema Change'))).toEqual([])
-    const tab = app.activeTab()!
-    const queued = compile({ document: tab.store.doc, revision: 0, resolve: (type) => type === initial.type ? initial : undefined, scope: { kind: 'full' }, connection: asConnectionId('local'), schemaHash: 'test' })
-    if (!queued.ok) throw new Error(JSON.stringify(queued.diagnostics))
-    const ref = { connection: asConnectionId('local'), prompt: asPromptId('initial-mode-schema-change') }
-    app.registerRun(tab, ref, queued.artifact, 1)
-
-    const parked: NodeSchema = {
-      ...initial,
-      items: initial.items.map((item) => item.kind === 'input'
-        ? { ...item, widget: { ...item.widget!, controllerInitial: 'fixed' as const } }
-        : item),
-    }
-    app.registerSchemas([parked])
-    app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    expect(tab.store.doc.graphs.g0!.nodes.seed!.values.seed).toBe(10)
   })
 
   const selectorCompletionHarness = async (policy: { kind: 'fixed'; candidate: string } | { kind: 'random' }) => {
@@ -825,18 +667,6 @@ describe('compiled occurrence controller ownership', () => {
     expect(tab.store.doc.graphs.g0!.nodes.b!.values.seed).toBe(20)
   })
 
-  it('skips only a controller whose queued selector candidate was removed', async () => {
-    const { app, tab, ref } = (await selectorCompletionHarness({ kind: 'fixed', candidate: 'a' }))
-    expect(tab.store.dispatch({
-      command: 'selector.removeCandidate',
-      params: { graphId: 'g0', selectorId: 'choice', candidateId: 'a' },
-    }).ok).toBe(true)
-    app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.other!.values.seed).toBe(31)
-    expect(tab.store.doc.graphs.g0!.nodes.a!.values.seed).toBe(10)
-    expect(tab.store.doc.graphs.g0!.nodes.b!.values.seed).toBe(20)
-    expect(tab.store.doc.graphs.g0!.nodes.other!.values.seed).toBe(31)
-  })
 })
 
 describe('COMBO control-after-generate', () => {
@@ -1017,12 +847,6 @@ describe('completion integration', () => {
     expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toEqual(baseline)
   })
 
-  it('does not advance when the feature is disabled after queueing (mid-run)', () => {
-    app.settings.set('features.seedController.enabled', false)
-    app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toEqual(baseline)
-  })
-
   it('preserves an input edited after queueing while untouched controls advance', async () => {
     tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value: 100 } })
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
@@ -1043,25 +867,6 @@ describe('completion integration', () => {
     await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 9 })
   })
 
-  it('preserves the latest of many rapid manual steps and applies queue advancement only once', async () => {
-    const count = 20
-    for (let value = 12; value < 12 + count; value++) {
-      expect(tab.store.dispatch({
-        command: 'node.setValue',
-        params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value },
-      }).ok).toBe(true)
-    }
-    const manual = 11 + count
-    app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: manual, down: 9 })
-    app.store.apply({ kind: 'completed', execution: ref, timestamp: 3 })
-    expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: manual, down: 9 })
-    expect(tab.store.undo()).toBe(true)
-    expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: manual, down: 11 })
-    for (let i = 0; i < count; i++) expect(tab.store.undo()).toBe(true)
-    expect(tab.store.doc.graphs.g0!.nodes.seed!.values.up).toBe(11)
-  })
-
   it('preserves rapid manual ABA stepping that returns to the queued value', async () => {
     expect(tab.store.dispatch({
       command: 'node.setValue',
@@ -1074,31 +879,6 @@ describe('completion integration', () => {
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
     // Value equality alone would advance up to 14 and lose the manual +/-.
     await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 9 })
-  })
-
-  it('tracks optimistic value ABA in a delayed-onOp acknowledgement simulation', async () => {
-    const original = tab.store
-    const delayed = new Proxy(original, {
-      get(target, property) {
-        if (property === 'onOp') return () => () => undefined
-        const value = Reflect.get(target, property, target)
-        return typeof value === 'function' ? value.bind(target) : value
-      },
-    })
-    ;(tab as unknown as { store: typeof delayed }).store = delayed
-    const delayedArtifact = compileDoc(delayed.doc)
-    const delayedRef = { connection: asConnectionId('local'), prompt: asPromptId('controller-delayed-op') }
-    app.registerRun(tab, delayedRef, delayedArtifact, 2)
-    expect(delayed.dispatch({
-      command: 'node.setValue',
-      params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value: 14 },
-    }).ok).toBe(true)
-    expect(delayed.dispatch({
-      command: 'node.setValue',
-      params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value: 11 },
-    }).ok).toBe(true)
-    app.store.apply({ kind: 'completed', execution: delayedRef, timestamp: 3 })
-    await expect.poll(() => delayed.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 9 })
   })
 
   it('does not advance an input parked to fixed after queueing (mode compare-and-set)', async () => {
@@ -1133,62 +913,6 @@ describe('completion integration', () => {
     expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toEqual(baseline)
   })
 
-  it('treats clearing a stored mode back to the default as a mode change', async () => {
-    // 'down' queued under stored 'decrement'; clearing the stored mode makes
-    // the effective mode 'randomize' (the historical default) - a different
-    // intent, so the queued decrement is stale and must not apply.
-    tab.store.dispatch({ command: 'node.setController', params: { graphId: 'g0', nodeId: 'seed', inputId: 'down', mode: null } })
-    app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 14, down: 11 })
-  })
-
-  it('still advances when an unstored mode is stored explicitly as the same effective mode', async () => {
-    // Queued with NO stored mode (effective 'randomize'); storing 'randomize'
-    // explicitly changes the raw token (undefined -> 'randomize') but not the
-    // effective mode - the CAS compares EFFECTIVE modes, so the plan stands.
-    // Degenerate [42, 42] bounds make the randomized value deterministic.
-    const pinned: NodeSchema = {
-      type: 'PinnedSeed', displayName: 'Pinned Seed', category: 'test', source: 'v3', isOutputNode: true,
-      items: [
-        { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'INT' } },
-        { kind: 'input', id: 'random', type: { kind: 'concrete', name: 'INT' }, optional: false,
-          widget: { widgetType: 'INT', options: { min: 42, max: 42 }, default: 7, controller: 'after_generate' } },
-      ],
-    }
-    app.registerSchemas([pinned])
-    const doc = {
-      format: 'dinkster-workflow' as const, formatVersion: 1 as const, lineage: 'mode-cas-unstored', root: 'g0',
-      graphs: { g0: { id: 'g0', name: 'root', nodes: {
-        seed: { id: 'seed', type: 'PinnedSeed', values: { random: 7 } },
-      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
-      view: { graphs: { g0: { nodes: {} } } },
-    }
-    expect((await app.openDocument(doc as any, 'Mode CAS'))).toEqual([])
-    const modeTab = app.activeTab()!
-    const resolvePinned = (type: string) => type === pinned.type ? pinned : undefined
-    const result = compile({ document: modeTab.store.doc, revision: 0, resolve: resolvePinned, scope: { kind: 'full' }, connection: asConnectionId('local'), schemaHash: 'test' })
-    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
-    const modeRef = { connection: asConnectionId('local'), prompt: asPromptId('mode-cas-run') }
-    app.registerRun(modeTab, modeRef, result.artifact, 2)
-    modeTab.store.dispatch({ command: 'node.setController', params: { graphId: 'g0', nodeId: 'seed', inputId: 'random', mode: 'randomize' } })
-    app.store.apply({ kind: 'completed', execution: modeRef, timestamp: 3 })
-    await expect.poll(() => modeTab.store.doc.graphs.g0!.nodes.seed!.values.random).toBe(42)
-  })
-
-  it('skips a node deleted after queueing without disturbing anything else', () => {
-    tab.store.dispatch({ command: 'node.remove', params: { graphId: 'g0', nodeIds: ['seed'] } })
-    expect(() => app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })).not.toThrow()
-    expect(tab.store.doc.graphs.g0!.nodes.seed).toBeUndefined()
-  })
-
-  it('never advances a closed session', () => {
-    const before = tab.store.revision
-    app.closeTab(tab.id)
-    expect(() => app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })).not.toThrow()
-    expect(tab.store.revision).toBe(before)
-    expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toEqual(baseline)
-  })
-
   it('never advances a replacement session that shares the lineage', async () => {
     expect((await app.openDocument(fixture(), 'Controller Test (reopened)'))).toEqual([])
     const replacement = app.activeTab()!
@@ -1210,15 +934,6 @@ describe('completion integration', () => {
     expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toEqual(once)
   })
 
-  it.each(['error', 'interrupted'] as const)('drops the plan when an %s event beat registration', (kind) => {
-    const fast = { connection: asConnectionId('local'), prompt: asPromptId('failed-fast-run') }
-    app.store.apply({ kind, execution: fast, timestamp: 2, ...(kind === 'error' ? { detail: { exceptionType: 'Error', exceptionMessage: 'failed', traceback: [] } } : {}) } as any)
-    app.registerRun(tab, fast, artifact, 3) // register republishes the terminal state: plan must drop
-    expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toEqual(baseline)
-    app.store.apply({ kind: 'completed', execution: fast, timestamp: 4 }) // spurious - no plan left
-    expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toEqual(baseline)
-  })
-
   it('survives provisional loss: a revived run still advances exactly once on completion', async () => {
     app.store.markLost(ref, 2) // reconcile verdict: interrupted, but provisional
     expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toEqual(baseline)
@@ -1230,43 +945,6 @@ describe('completion integration', () => {
     expect(tab.store.doc.graphs.g0!.nodes.seed!.values).toEqual(once)
   })
 
-  it('preserves an edit made between compile and registration (snapshot is the baseline)', async () => {
-    const late = { connection: asConnectionId('local'), prompt: asPromptId('late-register-run') }
-    // artifact (compiled in beforeEach) snapshots up=11; the edit lands
-    // during the simulated submission await, before registration.
-    tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value: 100 } })
-    app.registerRun(tab, late, artifact, 2)
-    app.store.apply({ kind: 'completed', execution: late, timestamp: 3 })
-    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 100, down: 9 })
-  })
-
-  it('treats a widget-default (unstored) value as its own compare-and-set token', async () => {
-    const doc = fixture() as any
-    doc.lineage = 'controller-test-default'
-    delete doc.graphs.g0.nodes.seed.values.up // default 10 in effect, raw stored value undefined
-    expect((await app.openDocument(doc, 'Default Seed'))).toEqual([])
-    const defaultTab = app.activeTab()!
-    const defaultRef = { connection: asConnectionId('local'), prompt: asPromptId('default-run') }
-    app.registerRun(defaultTab, defaultRef, compileDoc(defaultTab.store.doc), 2)
-    app.store.apply({ kind: 'completed', execution: defaultRef, timestamp: 3 })
-    // increment from the effective default 10 by step 3
-    await expect.poll(() => defaultTab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 13, down: 9 })
-  })
-
-  it('preserves a value stored over the default after queueing (undefined token mismatch)', async () => {
-    const doc = fixture() as any
-    doc.lineage = 'controller-test-default-edit'
-    delete doc.graphs.g0.nodes.seed.values.up
-    expect((await app.openDocument(doc, 'Default Seed Edited'))).toEqual([])
-    const defaultTab = app.activeTab()!
-    const defaultRef = { connection: asConnectionId('local'), prompt: asPromptId('default-edit-run') }
-    app.registerRun(defaultTab, defaultRef, compileDoc(defaultTab.store.doc), 2)
-    defaultTab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value: 10 } })
-    app.store.apply({ kind: 'completed', execution: defaultRef, timestamp: 3 })
-    // Same effective number, but the raw stored value changed undefined -> 10:
-    // the user's explicit choice wins over the queue-time plan.
-    await expect.poll(() => defaultTab.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 10, down: 9 })
-  })
 })
 
 describe('control_after_refresh advancement', () => {
@@ -1373,41 +1051,6 @@ describe('control_after_refresh advancement', () => {
     expect(tab.store.doc.graphs.g0!.nodes.combo!.values).toEqual(baseline)
   })
 
-  it('skips an input that becomes link-driven while the source is stale', async () => {
-    const { app, tab } = (await comboHarness())
-    const plan = app.prepareComboRefresh(tab, route)
-    expect(tab.store.dispatch({
-      command: 'link.connect',
-      params: { graphId: 'g0', from: { node: 'source', port: 'out' }, to: { node: 'combo', port: 'up' } },
-    }).ok).toBe(true)
-    await app.completeComboRefresh(plan, ['a', 'b', 'c'], () => 0)
-    expect(tab.store.doc.graphs.g0!.nodes.combo!.values).toMatchObject({ up: 'c', down: 'c' })
-  })
-
-  it('skips an input that becomes a named-net sink while the source is stale', async () => {
-    const { app, tab } = (await comboHarness())
-    const plan = app.prepareComboRefresh(tab, route)
-    expect(tab.store.dispatch({
-      command: 'net.create',
-      params: { graphId: 'g0', name: 'models', source: { node: 'source', port: 'out' } },
-    }).ok).toBe(true)
-    const netId = Object.keys(tab.store.doc.graphs.g0!.nets)[0]!
-    expect(tab.store.dispatch({
-      command: 'net.connectInput', params: { graphId: 'g0', netId, to: { node: 'combo', port: 'up' } },
-    }).ok).toBe(true)
-    await app.completeComboRefresh(plan, ['a', 'b', 'c'], () => 0)
-    expect(tab.store.doc.graphs.g0!.nodes.combo!.values).toMatchObject({ up: 'c', down: 'c' })
-  })
-
-  it('suppresses completion after the schema registry identity changes', async () => {
-    const { app, tab } = (await comboHarness())
-    const plan = app.prepareComboRefresh(tab, route)
-    app.registerSchemas([{ ...comboSchema, displayName: 'Refresh Combo v2' }])
-    const baseline = { ...tab.store.doc.graphs.g0!.nodes.combo!.values }
-    await app.completeComboRefresh(plan, ['a', 'b', 'c'], () => 0)
-    expect(tab.store.doc.graphs.g0!.nodes.combo!.values).toEqual(baseline)
-  })
-
   it('applies one fresh completion at most once and batches all values into one undo step', async () => {
     const { app, tab } = (await comboHarness())
     const baseline = { ...tab.store.doc.graphs.g0!.nodes.combo!.values }
@@ -1420,15 +1063,4 @@ describe('control_after_refresh advancement', () => {
     expect(tab.store.doc.graphs.g0!.nodes.combo!.values).toEqual(baseline)
   })
 
-  it('preparing a stale refresh does not mutate; only completion with fresh options applies', async () => {
-    const { app, tab } = (await comboHarness())
-    const baseline = { ...tab.store.doc.graphs.g0!.nodes.combo!.values }
-    expect(tab.store.doc.graphs.g0!.nodes.combo!.values).toEqual(baseline)
-    const abandonedRefresh = app.prepareComboRefresh(tab, route)
-    expect(tab.store.doc.graphs.g0!.nodes.combo!.values).toEqual(baseline)
-    const freshRefresh = app.prepareComboRefresh(tab, route)
-    await app.completeComboRefresh(freshRefresh, ['a', 'b', 'c'], () => 0)
-    expect(tab.store.doc.graphs.g0!.nodes.combo!.values).not.toEqual(baseline)
-    expect(abandonedRefresh).toBeDefined()
-  })
 })

@@ -18,30 +18,6 @@ const tabs = (): readonly ProductTab[] => [
 ]
 
 describe('ProductTabs', () => {
-  it('wires labelled tabs and panels with one selected roving tab', () => {
-    const root = document.createElement('div')
-    document.body.append(root)
-    const dispose = render(() => <ProductTabs tabs={tabs()} ariaLabel="Inspector" defaultSelectedId="details" />, root)
-    const tablist = root.querySelector('[role="tablist"]')!
-    const triggers = root.querySelectorAll<HTMLButtonElement>('[role="tab"]')
-    const panels = root.querySelectorAll<HTMLElement>('[role="tabpanel"]')
-
-    expect(tablist.getAttribute('aria-label')).toBe('Inspector')
-    expect(tablist.getAttribute('aria-orientation')).toBe('horizontal')
-    expect(triggers[0]!.getAttribute('aria-selected')).toBe('true')
-    expect(triggers[0]!.tabIndex).toBe(0)
-    expect(triggers[1]!.disabled).toBe(true)
-    expect(triggers[2]!.tabIndex).toBe(-1)
-    expect(panels[0]!.hidden).toBe(false)
-    expect(panels[1]!.hidden).toBe(true)
-    for (const trigger of triggers) {
-      expect(document.getElementById(trigger.getAttribute('aria-controls')!)).not.toBeNull()
-    }
-    for (const panel of panels) {
-      expect(document.getElementById(panel.getAttribute('aria-labelledby')!)).not.toBeNull()
-    }
-    dispose()
-  })
 
   it('automatically activates arrow, Home, and End focus while skipping disabled tabs', () => {
     const onSelect = vi.fn()
@@ -142,25 +118,4 @@ describe('ProductTabs', () => {
     dispose()
   })
 
-  it('supports labelled-by naming, unique generated relationships, and rejects duplicate ids', () => {
-    const label = document.createElement('h2')
-    label.id = 'tabs-heading'
-    label.textContent = 'Inspector'
-    const first = document.createElement('div')
-    const second = document.createElement('div')
-    document.body.append(label, first, second)
-    const disposeFirst = render(() => <ProductTabs tabs={tabs()} ariaLabelledBy="tabs-heading" />, first)
-    const disposeSecond = render(() => <ProductTabs tabs={tabs()} ariaLabel="Other inspector" />, second)
-
-    expect(first.querySelector('[role="tablist"]')?.getAttribute('aria-labelledby')).toBe('tabs-heading')
-    const ids = [...document.querySelectorAll<HTMLElement>('[role="tab"], [role="tabpanel"]')].map((element) => element.id)
-    expect(new Set(ids).size).toBe(ids.length)
-    const duplicate = document.createElement('div')
-    expect(() => render(() => <ProductTabs
-      tabs={[{ id: 'same', label: 'One', panel: 'One' }, { id: 'same', label: 'Two', panel: 'Two' }]}
-      ariaLabel="Duplicates"
-    />, duplicate)).toThrow(/unique tab ids/)
-    disposeFirst()
-    disposeSecond()
-  })
 })

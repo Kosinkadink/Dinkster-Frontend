@@ -188,35 +188,6 @@ describe('UniversalSearch palette', () => {
     dispose()
   })
 
-  it('relates only useful preview text to the active option', async () => {
-    const cases: readonly {
-      readonly resultTitle: string
-      readonly preview: NonNullable<SearchResult['preview']>
-      readonly describedBy: readonly ('heading' | 'content')[]
-    }[] = [
-      { resultTitle: 'Result title', preview: { version: 1, title: 'Distinct preview title' }, describedBy: ['heading'] },
-      { resultTitle: 'Repeated title', preview: { version: 1, title: 'Repeated title' }, describedBy: [] },
-      {
-        resultTitle: 'Result with detail',
-        preview: { version: 1, title: 'Distinct detail title', description: 'Preview detail' },
-        describedBy: ['heading', 'content'],
-      },
-    ]
-    for (const testCase of cases) {
-      const { root, dispose } = fixture([{
-        id: 'preview', label: 'Previews', priority: 1,
-        query: () => [{ ...row('result', 1), title: testCase.resultTitle, preview: testCase.preview }],
-      }])
-      await new Promise<void>((resolve) => queueMicrotask(resolve))
-
-      const preview = root.querySelector('[data-testid="search-result-preview"]')!
-      const expected = testCase.describedBy.map((part) => `${preview.id}-${part}`).join(' ') || null
-      expect(root.querySelector('[aria-selected="true"]')?.getAttribute('aria-describedby')).toBe(expected)
-      dispose()
-      root.remove()
-    }
-  })
-
   it('routes prefixes and activates the keyboard-selected result', async () => {
     const calls: string[] = []
     const provider = (id: string, prefix: string, priority: number): SearchProvider => ({

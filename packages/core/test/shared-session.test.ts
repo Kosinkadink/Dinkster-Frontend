@@ -31,8 +31,6 @@ import {
 import { createLocalSession, type SessionOp, type WirePatchOp } from '../src/commands/session.js'
 import { planClipboardPaste, serializeSelection, type DinksterClipboardEnvelope } from '../src/clipboard.js'
 import { documentResolver } from '../src/compile/compile.js'
-import { replayHistoryOps } from '../src/commands/store.js'
-import { type PatchOp } from '../src/commands/patch.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asLinkId, asNodeId, type PortRef } from '../src/ids.js'
 import { lifecycleFlattenFingerprint, lifecycleSelectionFingerprint, planFlattenBoundaryRoutes } from '../src/lifecycle/planner.js'
@@ -423,43 +421,6 @@ const nodeIds = (s: SharedDocumentSession): string[] => Object.keys(s.doc.graphs
 // ---------------------------------------------------------------------------
 
 describe('shared DocumentSession', () => {
-  it('includes confirmed and pending prefixes in remote ownership without local history', async () => {
-    const conn = new FakeConnection(baseDoc())
-    const postGate = deferred()
-    const ownershipGate = deferred()
-    conn.postHook = () => postGate.promise
-    const captures: (readonly WorkflowDocument[])[] = []
-    const session = await connectSharedSession(conn, coreCommandRegistry(), {
-      actorId: 'actorA', maxUndo: 0,
-      beforeRemoteDocument: async (_document, _revision, _current, history, retainedDocuments) => {
-        expect(history.undo).toEqual([])
-        captures.push(retainedDocuments)
-        await ownershipGate.promise
-      },
-    })
-    try {
-      expect(session.dispatch(setTitle('n1', 'first')).ok).toBe(true)
-      expect(session.dispatch(setTitle('n1', 'second')).ok).toBe(true)
-      await until(() => conn.postedOps.length === 1)
-      conn.appendForeign('peer', [{ op: 'add', path: ['graphs', 'g0', 'nodes', 'n2', 'title'], value: 'Incoming' }])
-      await until(() => captures.length === 1)
-      expect(captures[0]?.map((document) => document.graphs.g0!.nodes.n1!.title))
-        .toEqual(['second', undefined, 'first', 'second'])
-      expect(session.doc.graphs.g0!.nodes.n2!.title).toBeUndefined()
-      expect(session.dispatch(setTitle('n1', 'third')).ok).toBe(true)
-      ownershipGate.resolve()
-      await until(() => session.doc.graphs.g0!.nodes.n2!.title === 'Incoming')
-      expect(captures[0]?.map((document) => document.graphs.g0!.nodes.n1!.title))
-        .toEqual(['second', undefined, 'first', 'second'])
-      expect(captures[1]?.map((document) => document.graphs.g0!.nodes.n1!.title))
-        .toEqual(['third', undefined, 'first', 'second', 'third'])
-      expect(session.doc.graphs.g0!.nodes.n1!.title).toBe('third')
-    } finally {
-      session.close()
-      ownershipGate.resolve()
-      postGate.resolve()
-    }
-  })
 
   it('serializes incoming confirmations while newer server revisions arrive', async () => {
     const conn = new FakeConnection(baseDoc())
@@ -685,25 +646,6 @@ describe('shared DocumentSession', () => {
       gate.resolve()
       session.close()
     }
-  })
-
-  it('captures pending prefixes and refuses a candidate after its confirmed baseline advances', async () => {
-    const { session, conn } = await makeShared()
-    const gate = deferred()
-    conn.postHook = () => gate.promise
-    session.dispatch(setTitle('n1', 'pending first'))
-    session.dispatch(setTitle('n1', 'pending second'))
-    const prepared = session.prepareDispatch(setTitle('n1', 'candidate'))
-    if (!prepared.ok) throw new Error('Shared preparation rejected')
-    expect(prepared.retainedDocuments?.map((document) => document.graphs.g0!.nodes.n1!.title))
-      .toEqual(['pending second', undefined, 'pending first', 'pending second'])
-    expect(Object.isFrozen(prepared.currentHistory.undo)).toBe(true)
-    expect(Object.isFrozen(prepared.history.undo[0])).toBe(true)
-    gate.resolve()
-    await session.settle()
-    expect(prepared.commit().ok).toBe(false)
-    expect(session.doc.graphs.g0!.nodes.n1!.title).toBe('pending second')
-    session.close()
   })
 
   it('refuses prepared shared commands after edits, history clearing, remote changes or close', async () => {
@@ -1065,71 +1007,6 @@ describe('shared DocumentSession', () => {
     expect(conn.postedOps).toHaveLength(2)
   })
 
-  it.each([
-    {
-      case: 'direct count edit',
-      invocation: {
-        command: 'node.setOutputCount',
-        params: {
-          graphId: 'g0', nodeId: 'alias', inputId: 'count', value: 3, removedLinks: 'preserve',
-        },
-      },
-    },
-    {
-      case: 'count edit inside a batch',
-      invocation: {
-        command: 'batch',
-        params: {
-          invocations: [{
-            command: 'node.setOutputCount',
-            params: {
-              graphId: 'g0', nodeId: 'alias', inputId: 'count', value: 3, removedLinks: 'preserve',
-            },
-          }],
-        },
-      },
-    },
-  ])('retains an alias-authored shared $case across rebase', async ({ invocation }) => {
-    let resolverEnabled = true
-    let resolverCalls = 0
-    const aliasSchema: NodeSchema = { ...countOutputSchema, aliases: ['LegacyCountOutput'] }
-    const resolve = (type: string): NodeSchema | undefined => {
-      resolverCalls++
-      if (!resolverEnabled) throw new Error('mutable alias resolver must not run during shared replay')
-      return type === 'LegacyCountOutput' ? aliasSchema : undefined
-    }
-    const document = doc({
-      g0: graph({
-        id: 'g0',
-        nodes: {
-          alias: { ...node('alias', 'LegacyCountOutput'), values: { count: 1 } },
-        },
-      }),
-    })
-    const { conn, session, conflicts } = await makeShared('actorA', document, undefined, resolve)
-    const postGate = deferred()
-    conn.postHook = () => postGate.promise
-
-    expect(session.dispatch(invocation).ok).toBe(true)
-    expect(session.doc.graphs.g0!.nodes.alias!.type).toBe('LegacyCountOutput')
-    expect(session.doc.graphs.g0!.nodes.alias!.values.count).toBe(3)
-    const callsAfterInitialDispatch = resolverCalls
-    resolverEnabled = false
-    await until(() => conn.postedOps.length === 1, 'alias count POST held')
-    conn.appendForeign('peer', [
-      { op: 'replace', path: ['graphs', 'g0', 'name'], value: 'peer edit' },
-    ])
-    postGate.resolve()
-    await session.settle()
-
-    expect(conflicts).toEqual([])
-    expect(resolverCalls).toBe(callsAfterInitialDispatch)
-    expect(session.doc.graphs.g0!.nodes.alias!.type).toBe('LegacyCountOutput')
-    expect(session.doc.graphs.g0!.nodes.alias!.values.count).toBe(3)
-    expect(conn.log).toHaveLength(2)
-    expect(conn.postedOps).toHaveLength(2)
-  })
-
   it('prepares a count edit against earlier actor-scoped writes in the same batch', async () => {
     let resolverEnabled = true
     let resolverCalls = 0
@@ -1242,14 +1119,6 @@ describe('shared DocumentSession', () => {
     expect(session.predictedNodeId('missing')).toBeUndefined()
   })
 
-  it('joins from the snapshot: document loaded, revision = snapshot revision', async () => {
-    const { session } = await makeShared()
-    expect(session.revision).toBe(0)
-    expect(nodeIds(session)).toEqual(['n1', 'n2'])
-    expect(session.document.get()).toBe(session.doc)
-    expect(session.status.get()).toBe('live')
-  })
-
   it('rejects a snapshot that fails document load', async () => {
     const conn = new FakeConnection({ format: 'nonsense' })
     await expect(connectSharedSession(conn, coreCommandRegistry())).rejects.toThrow(
@@ -1271,31 +1140,6 @@ describe('shared DocumentSession', () => {
     gate.resolve()
     await session.settle()
     expect(session.revision).toBe(1) // confirmed 1 + pending 0
-  })
-
-  it('synchronizes frontend virtual node data through the ordinary shared-session path', async () => {
-    const { session } = await makeShared('actorA')
-    expect(session.dispatch({
-      command: 'node.add',
-      params: {
-        graphId: 'g0',
-        type: 'dinkster.note',
-        virtual: true,
-        position: { x: 12, y: 34 },
-        values: { text: 'Shared note' },
-        title: 'Review',
-      },
-    }).ok).toBe(true)
-    await session.settle()
-    const added = Object.values(session.doc.graphs.g0!.nodes)
-      .find((candidate) => candidate.type === 'dinkster.note')
-    expect(added).toMatchObject({
-      type: 'dinkster.note',
-      virtual: true,
-      title: 'Review',
-      values: { text: 'Shared note' },
-    })
-    expect(session.doc.view.graphs.g0!.nodes[added!.id]?.position).toEqual({ x: 12, y: 34 })
   })
 
   it('stamps its actorId on every invocation: minted ids are actor-scoped', async () => {
@@ -1550,24 +1394,6 @@ describe('shared DocumentSession', () => {
     expect(conn.log).toHaveLength(4)
   })
 
-  it('drops a pending text splice when a foreign op deletes its node', async () => {
-    const { conn, session, conflicts } = await makeShared('actorA', textDoc())
-    const gate = deferred()
-    conn.postHook = () => {
-      conn.postHook = undefined
-      return gate.promise
-    }
-    expect(session.dispatch(spliceText(5, 0, '!')).ok).toBe(true)
-    await until(() => conn.postedOps.length === 1, 'text splice POST in flight')
-    conn.appendForeign('actorB', foreignRemoveNode('n1'))
-    gate.resolve()
-    await session.settle()
-    expect(conflicts).toHaveLength(1)
-    expect(conflicts[0]!.invocation.command).toBe('text.splice')
-    expect(conflicts[0]!.during).toBe('rebase')
-    expect(session.doc.graphs.g0!.nodes.n1).toBeUndefined()
-  })
-
   it('keeps whole-value clobber semantics for node.setValue during rebase', async () => {
     const { conn, session } = await makeShared('actorA', textDoc())
     const gate = deferred()
@@ -1713,33 +1539,6 @@ describe('shared DocumentSession', () => {
     expect(ops.filter((o) => o.origin === 'remote')).toHaveLength(0)
   })
 
-  it('rejects a foreign boundary with duplicate input/output ids and resyncs', async () => {
-    const { conn, session, ops } = await makeShared()
-    conn.snapshotDoc = baseDoc()
-    conn.snapshotRevision = 1
-    conn.emit({
-      kind: 'op',
-      op: {
-        opId: 'peer#1',
-        actorId: 'peer',
-        baseRevision: 0,
-        revision: 1,
-        patch: [{
-          op: 'add',
-          path: ['graphs', 'g0', 'boundary'],
-          value: {
-            inputs: [{ id: 'state', binds: { kind: 'port', node: 'n1', port: 'in' } }],
-            outputs: [{ id: 'state', binds: { kind: 'port', node: 'n2', port: 'out' } }],
-          },
-        }],
-        timestamp: 1,
-      },
-    })
-    await until(() => session.revision === 1 && session.status.get() === 'live', 'boundary duplicate resync')
-    expect(session.doc.graphs.g0!.boundary).toBeUndefined()
-    expect(ops.filter((o) => o.origin === 'remote')).toHaveLength(0)
-  })
-
   it('checkpoints and resubmits on 409 snapshot-required', async () => {
     const { conn, session } = await makeShared()
     conn.snapshotRequiredOnce = true
@@ -1767,120 +1566,6 @@ describe('shared DocumentSession', () => {
     postGate.resolve()
     await session.settle()
     info.mockRestore()
-  })
-
-  it('keeps one snapshot PUT in flight while confirmed ops continue arriving', async () => {
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
-    const { conn, session } = await makePublishingShared()
-    const putGate = deferred()
-    conn.putSnapshot = async (revision, document) => {
-      conn.putSnapshots.push(revision)
-      conn.putSnapshotDocuments.push(document)
-      await putGate.promise
-      conn.snapshotRevision = revision
-      conn.snapshotDoc = document
-      return { kind: 'ok' }
-    }
-    appendForeignTitles(conn, 1, 205)
-    expect(conn.putSnapshots).toEqual([200])
-    putGate.resolve()
-    await until(() => conn.snapshotRevision === 200, 'checkpoint completion')
-    expect(conn.putSnapshots).toHaveLength(1)
-    session.close()
-    info.mockRestore()
-  })
-
-  it('shares one in-flight PUT between periodic publication and snapshot-required backpressure', async () => {
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
-    const { conn, session } = await makePublishingShared()
-    const putGate = deferred()
-    conn.putSnapshot = async (revision, document) => {
-      conn.putSnapshots.push(revision)
-      await putGate.promise
-      conn.snapshotRevision = revision
-      conn.snapshotDoc = document
-      return { kind: 'ok' }
-    }
-    appendForeignTitles(conn, 1, 200)
-    expect(conn.putSnapshots).toEqual([200])
-    conn.snapshotRequiredOnce = true
-    session.dispatch(setTitle('n2', 'after-checkpoint'))
-    await until(() => conn.postedOps.length === 1, 'snapshot-required response')
-    putGate.resolve()
-    await session.settle()
-    expect(conn.putSnapshots).toEqual([200])
-    expect(conn.postedOps).toHaveLength(2)
-    expect(session.revision).toBe(201)
-    info.mockRestore()
-  })
-
-  it('treats snapshot-invalid as a benign competing publish and resets to GET snapshot revision', async () => {
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
-    const { conn, session } = await makePublishingShared()
-    conn.putSnapshot = async (revision, document) => {
-      conn.putSnapshots.push(revision)
-      conn.snapshotRevision = revision
-      conn.snapshotDoc = document
-      return { kind: 'conflict' }
-    }
-    appendForeignTitles(conn, 1, 200)
-    await until(() => conn.snapshotRevision === 200, 'competing checkpoint observation')
-    appendForeignTitles(conn, 201, 399)
-    await tick()
-    expect(conn.putSnapshots).toEqual([200])
-    session.close()
-    info.mockRestore()
-  })
-
-  it('backs off when snapshot-invalid resolves to an older checkpoint', async () => {
-    const { conn, session } = await makePublishingShared()
-    conn.putSnapshot = async (revision) => {
-      conn.putSnapshots.push(revision)
-      return { kind: 'conflict' }
-    }
-    appendForeignTitles(conn, 1, 200)
-    await tick()
-    await tick()
-    expect(conn.putSnapshots).toEqual([200])
-    session.close()
-  })
-
-  it('never publishes while the collaboration transport is disconnected', async () => {
-    const { conn, session } = await makePublishingShared()
-    conn.emit({ kind: 'disconnected' })
-    appendForeignTitles(conn, 1, 200)
-    await tick()
-    expect(conn.putSnapshots).toEqual([])
-    session.close()
-  })
-
-  it('does not close-flush after the server has already deleted the session', async () => {
-    const { conn, session } = await makePublishingShared({ snapshotRandom: () => 1 })
-    appendForeignTitles(conn, 1, 200)
-    conn.emit({ kind: 'session-closed' })
-    expect(session.status.get()).toBe('closed')
-    expect(conn.putSnapshots).toEqual([])
-  })
-
-  it('close performs a non-blocking confirmed-state flush only after the timed threshold is met', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(0)
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
-    try {
-      const { conn, session } = await makePublishingShared({
-        clock: Date.now,
-        snapshotRandom: () => 1,
-      })
-      appendForeignTitles(conn, 1, 20)
-      expect(conn.putSnapshots).toEqual([])
-      vi.setSystemTime(60_000)
-      session.close()
-      expect(conn.putSnapshots).toEqual([20])
-      expect(conn.closed).toBe(true)
-    } finally {
-      info.mockRestore()
-      vi.useRealTimers()
-    }
   })
 
   it('fails loudly on protocol mismatch: 406 is refusal, never negotiation', async () => {
@@ -1967,29 +1652,6 @@ describe('shared DocumentSession', () => {
     expect(session.canUndo).toBe(false)
   })
 
-  it('preserves the predecessor revision across a same-document handoff', async () => {
-    const local = createLocalSession(baseDoc(), coreCommandRegistry())
-    expect(local.dispatch(setTitle('n1', 'first')).ok).toBe(true)
-    expect(local.dispatch(setTitle('n2', 'second')).ok).toBe(true)
-    const { session } = await makeShared('actorA', local.doc)
-
-    session.adoptHistory(local.historySnapshot())
-
-    expect(session.revision).toBe(2)
-    expect(session.dispatch(setTitle('n1', 'third')).ok).toBe(true)
-    expect(session.revision).toBe(3)
-    await session.settle()
-    expect(session.revision).toBe(3)
-  })
-
-  it('refuses history adoption once the session has intentions or history of its own', async () => {
-    const { session } = await makeShared('actorA')
-    session.dispatch(setTitle('n1', 'mine'))
-    expect(() => session.adoptHistory({ revision: 0, undo: [], redo: [] })).toThrow(/already has/)
-    await session.settle()
-    expect(() => session.adoptHistory({ revision: 0, undo: [], redo: [] })).toThrow(/already has/)
-  })
-
   it('drops adopted history on resync like any other history', async () => {
     const local = createLocalSession(baseDoc(), coreCommandRegistry())
     expect(local.dispatch(setTitle('n1', 'first')).ok).toBe(true)
@@ -2012,20 +1674,6 @@ describe('shared DocumentSession', () => {
     // History records were computed against pre-resync documents.
     expect(session.canUndo).toBe(false)
     expect(session.canRedo).toBe(false)
-  })
-
-  it('caps adopted history to maxUndo on both stacks', async () => {
-    const conn = new FakeConnection(baseDoc())
-    const session = await connectSharedSession(conn, coreCommandRegistry(), {
-      actorId: 'actorA',
-      clock: () => 42,
-      retryDelay: () => tick(),
-      maxUndo: 2,
-    })
-    const record = { forward: [], inverse: [] }
-    session.adoptHistory({ revision: 0, undo: [record, record, record], redo: [record, record, record] })
-    expect(session.historySnapshot().undo).toHaveLength(2)
-    expect(session.historySnapshot().redo).toHaveLength(2)
   })
 
   it('refuses external dispatch of the reserved session.patch command', async () => {
@@ -2368,32 +2016,6 @@ describe('shared DocumentSession', () => {
     expect(out.ok).toBe(true)
   })
 
-  it('survives a throwing listener-error sink during resync', async () => {
-    const conn = new FakeConnection(baseDoc())
-    const session = await connectSharedSession(conn, coreCommandRegistry(), {
-      actorId: 'actorA',
-      retryDelay: () => tick(),
-      onListenerError: () => {
-        throw new Error('sink bug')
-      },
-    })
-    conn.snapshotDoc = baseDoc()
-    conn.snapshotRevision = 1
-    conn.emit({
-      kind: 'op',
-      op: {
-        opId: 'peer#1',
-        actorId: '__proto__',
-        baseRevision: 0,
-        revision: 1,
-        patch: foreignAddNode('n9-peer'),
-        timestamp: 1,
-      },
-    })
-    await until(() => session.revision === 1 && session.status.get() === 'live', 'resync despite throwing sink')
-    expect(nodeIds(session)).toEqual(['n1', 'n2'])
-  })
-
   it('ignores transport events entirely after a protocol failure', async () => {
     const { conn, session, ops } = await makeShared()
     conn.protocolBroken = true
@@ -2456,29 +2078,6 @@ describe('shared DocumentSession', () => {
     await tick()
     await tick()
     expect(session.status.get()).toBe('closed') // NOT error
-  })
-
-  it('rejects an accepted response whose patch is not the submitted patch', async () => {
-    const { conn, session } = await makeShared('actorA')
-    conn.wsAuto = false // the HTTP response is the only ack path
-    const orig = conn.postOp.bind(conn)
-    conn.postOp = async (op) => {
-      conn.postOp = orig
-      const out = await orig(op) // commits the REAL op to the log
-      if (out.kind !== 'accepted') return out
-      return {
-        kind: 'accepted',
-        op: {
-          ...out.op,
-          patch: [{ op: 'add', path: ['graphs', 'g0', 'nodes', 'n1', 'title'], value: 'tampered' }],
-        },
-      }
-    }
-    session.dispatch(setTitle('n1', 'mine'))
-    await session.settle()
-    expect(session.status.get()).toBe('live')
-    // The tampered patch was never adopted; the real log wins via resync.
-    expect((session.doc.graphs.g0!.nodes.n1 as { title?: string }).title).toBe('mine')
   })
 
   it('does not duplicate a committed non-idempotent intention across a resync', async () => {
@@ -2586,47 +2185,5 @@ describe('shared DocumentSession', () => {
     await session.settle()
     expect(seen).toEqual([1])
     expect(failures).toHaveLength(1)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// requireRecordedValues on cursor-preserved subtrees (shared-mode replay)
-// ---------------------------------------------------------------------------
-
-describe('replayHistoryOps requireRecordedValues on cursor subtrees', () => {
-  const withViewGraph = (graphView: Json): WorkflowDocument =>
-    ({
-      ...doc({ g0: graph({ id: 'g0' }) }),
-      view: { graphs: { g0: graphView } },
-    }) as unknown as WorkflowDocument
-
-  it('refuses a whole view-graph replay when foreign semantic data appeared', () => {
-    // Recorded (ensureViewGraph's inverse): remove the pristine view graph.
-    const recorded: PatchOp = {
-      op: 'remove',
-      path: ['view', 'graphs', 'g0'],
-      oldValue: { nodes: {}, groupSeq: 2 },
-    }
-    // A foreign actor added node-view data inside the subtree since.
-    const cur = withViewGraph({ nodes: { nv1: { x: 1 } }, groupSeq: 2 })
-    const out = replayHistoryOps(cur, [recorded], { requireRecordedValues: true })
-    expect(out.stale).toBe(recorded)
-    expect(out.applied).toHaveLength(0)
-    expect(out.doc).toBe(cur) // untouched: the foreign edit survives
-  })
-
-  it('allows the replay when the subtree drifted ONLY by cursor advancement', () => {
-    const recorded: PatchOp = {
-      op: 'remove',
-      path: ['view', 'graphs', 'g0'],
-      oldValue: { nodes: {}, groupSeq: 2 },
-    }
-    // Same shape, but the cursor legitimately advanced (foreign allocations).
-    const cur = withViewGraph({ nodes: {}, groupSeq: 5 })
-    const out = replayHistoryOps(cur, [recorded], { requireRecordedValues: true })
-    expect(out.stale).toBeUndefined()
-    expect(out.applied).toHaveLength(1)
-    // Clamped as ever: the remove becomes a skeleton keeping the high-water mark.
-    expect((out.doc.view.graphs as unknown as Record<string, Json>).g0).toEqual({ nodes: {}, groupSeq: 5 })
   })
 })

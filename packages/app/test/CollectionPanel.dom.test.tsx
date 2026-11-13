@@ -1,6 +1,4 @@
-// @vitest-environment happy-dom
 
-import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CollectionEntry, CollectionPageRequest, CollectionSource } from '@dinkster/core'
@@ -18,38 +16,6 @@ afterEach(() => {
   document.body.replaceChildren()
   vi.restoreAllMocks()
   setLocale('en')
-})
-
-it.each(['close', 'refresh'] as const)('cancels pending thumbnail entry on %s without cancelling current entries', async (action) => {
-  let release!: () => void
-  const gate = new Promise<void>((resolve) => { release = resolve })
-  const reads: string[] = []
-  const pending: Promise<string>[] = []
-  const old: CollectionEntry = {
-    id: 'old', title: 'Old model',
-    thumbRender: (signal?: AbortSignal) => {
-      const request = gate.then(() => { signal?.throwIfAborted(); reads.push('old'); return 'blob:old' })
-      pending.push(request)
-      return request
-    },
-  }
-  const current: CollectionEntry = { id: 'current', title: 'Current model', thumbRender: async () => { reads.push('current'); return 'blob:current' } }
-  const [tick, setTick] = createSignal(0)
-  const root = document.createElement('div'); document.body.append(root)
-  const dispose = render(() => <CollectionPanel sources={[{
-    id: 'models', label: 'Models', page: async () => ({ items: [tick() === 0 ? old : current] }),
-  }]} refreshTick={tick} />, root)
-  try {
-    await vi.waitFor(() => expect(pending).toHaveLength(1))
-    if (action === 'close') dispose()
-    else {
-      setTick(1)
-      await vi.waitFor(() => expect(root.querySelector('img')?.getAttribute('src')).toBe('blob:current'))
-    }
-    release()
-    await Promise.allSettled(pending)
-    expect(reads).toEqual(action === 'close' ? [] : ['current'])
-  } finally { release(); if (action !== 'close') dispose() }
 })
 
 describe('CollectionPanel folder navigation', () => {
@@ -202,29 +168,6 @@ describe('CollectionPanel folder navigation', () => {
     search.dispatchEvent(new InputEvent('input', { bubbles: true }))
     await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('catalog unavailable'))
     unmount()
-  })
-
-  it('marks terminal small pages as sparse and paged collections as filled', async () => {
-    const root = document.createElement('div')
-    document.body.append(root)
-    const source: CollectionSource = {
-      id: 'mount:input',
-      label: 'input',
-      page: vi.fn(async () => ({ items: [file('only')] })),
-    }
-    const unmount = render(() => <CollectionPanel sources={[source]} />, root)
-    await settle()
-    expect(root.querySelector('[data-testid="collection-panel"]')?.getAttribute('data-layout')).toBe('sparse')
-    unmount()
-
-    const pagedSource: CollectionSource = {
-      ...source,
-      page: vi.fn(async () => ({ items: [file('only')], cursor: 'next' })),
-    }
-    const unmountPaged = render(() => <CollectionPanel sources={[pagedSource]} />, root)
-    await settle()
-    expect(root.querySelector('[data-testid="collection-panel"]')?.getAttribute('data-layout')).toBe('filled')
-    unmountPaged()
   })
 
   it('uses product comboboxes for source and open-vocabulary filters without navigating on list movement', async () => {

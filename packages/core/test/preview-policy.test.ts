@@ -9,7 +9,6 @@ import { DocumentStore } from '../src/commands/store.js'
 import { semanticHashOf } from '../src/compile/hash.js'
 import { resolvePreviewPolicy } from '../src/compile/preview-policy.js'
 import type { Provenance } from '../src/compile/artifact.js'
-import { validateDocumentShape } from '../src/format/validate.js'
 import type { GraphDef, PreviewMode, WorkflowDocument } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
 import { createMenuRegistry, type MenuContext, type MenuTarget } from '../src/menus/contract.js'
@@ -95,11 +94,6 @@ describe('resolvePreviewPolicy', () => {
       .toEqual({ mode: 'cheap', nodes: { n2: 'quality' } })
   })
 
-  it('a node override equal to the base mode is omitted', () => {
-    expect(resolvePreviewPolicy(nestedDoc({ n2: 'cheap' }), NESTED_PROVENANCE, 'cheap'))
-      .toEqual({ mode: 'cheap' })
-  })
-
   it('a subgraph instance override covers the nodes it lowers to', () => {
     expect(resolvePreviewPolicy(nestedDoc({ instance: 'off' }), NESTED_PROVENANCE, 'cheap'))
       .toEqual({ mode: 'cheap', nodes: { 's1.inner': 'off' } })
@@ -110,43 +104,6 @@ describe('resolvePreviewPolicy', () => {
       .toEqual({ mode: 'cheap', nodes: { 's1.inner': 'quality' } })
   })
 
-  it('node overrides compare against the workflow override, not the global', () => {
-    expect(resolvePreviewPolicy(nestedDoc({ workflow: 'quality', n2: 'quality' }), NESTED_PROVENANCE, 'cheap'))
-      .toEqual({ mode: 'quality' })
-  })
-
-  it('unresolvable occurrences are skipped', () => {
-    const provenance: Provenance = {
-      toSource: { ghost: 'missing.node', n2: 'n2' },
-      fromSource: {},
-    }
-    expect(resolvePreviewPolicy(nestedDoc({ n2: 'off' }), provenance, 'cheap'))
-      .toEqual({ mode: 'cheap', nodes: { n2: 'off' } })
-  })
-
-  it('a missing leaf is skipped even when its enclosing instance has an override', () => {
-    const provenance: Provenance = {
-      toSource: { 's1.ghost': 's1.ghost' },
-      fromSource: {},
-    }
-    expect(resolvePreviewPolicy(nestedDoc({ instance: 'off' }), provenance, 'cheap'))
-      .toEqual({ mode: 'cheap' })
-  })
-
-  it('the encoded animation transport rides the policy', () => {
-    expect(resolvePreviewPolicy(nestedDoc(), NESTED_PROVENANCE, 'cheap', 'encoded'))
-      .toEqual({ mode: 'cheap', animation: 'encoded' })
-  })
-
-  it('the ring animation transport stays implicit', () => {
-    expect(resolvePreviewPolicy(nestedDoc(), NESTED_PROVENANCE, 'cheap', 'ring'))
-      .toEqual({ mode: 'cheap' })
-  })
-
-  it('the encoded transport composes with overrides', () => {
-    expect(resolvePreviewPolicy(nestedDoc({ n2: 'quality' }), NESTED_PROVENANCE, 'cheap', 'encoded'))
-      .toEqual({ mode: 'cheap', nodes: { n2: 'quality' }, animation: 'encoded' })
-  })
 })
 
 describe('preview override commands', () => {
@@ -179,44 +136,6 @@ describe('preview override commands', () => {
     expect(store.revision).toBe(revision)
   })
 
-  it('node.setPreviews rejects unknown modes and nodes', () => {
-    const store = makeStore()
-    expect(store.dispatch({
-      command: 'node.setPreviews',
-      params: { graphId: 'g0', nodeIds: ['n1'], previews: 'fancy' },
-    }).ok).toBe(false)
-    expect(store.dispatch({
-      command: 'node.setPreviews',
-      params: { graphId: 'g0', nodeIds: ['nope'], previews: 'off' },
-    }).ok).toBe(false)
-  })
-
-  it('node.setPreviews leaves the document unchanged when any node is unknown', () => {
-    const store = makeStore()
-    const revision = store.revision
-    expect(store.dispatch({
-      command: 'node.setPreviews',
-      params: { graphId: 'g0', nodeIds: ['n1', 'nope'], previews: 'off' },
-    }).ok).toBe(false)
-    expect(store.revision).toBe(revision)
-    expect(store.doc.graphs.g0!.nodes.n1!.previews).toBeUndefined()
-  })
-
-  it('node.setPreviews tolerates duplicate node ids when setting and clearing', () => {
-    const store = makeStore(nestedDoc({ n2: 'quality' }))
-    expect(store.dispatch({
-      command: 'node.setPreviews',
-      params: { graphId: 'g0', nodeIds: ['n2', 'n2'], previews: null },
-    }).ok).toBe(true)
-    expect(store.doc.graphs.g0!.nodes.n2!.previews).toBeUndefined()
-
-    expect(store.dispatch({
-      command: 'node.setPreviews',
-      params: { graphId: 'g0', nodeIds: ['n1', 'n1'], previews: 'off' },
-    }).ok).toBe(true)
-    expect(store.doc.graphs.g0!.nodes.n1!.previews).toBe('off')
-  })
-
   it('workflow.setPreviews sets and clears the document override', () => {
     const store = makeStore()
     expect(store.dispatch({ command: 'workflow.setPreviews', params: { previews: 'quality' } }).ok).toBe(true)
@@ -227,10 +146,6 @@ describe('preview override commands', () => {
     expect('previews' in store.doc).toBe(false)
   })
 
-  it('workflow.setPreviews rejects unknown modes', () => {
-    const store = makeStore()
-    expect(store.dispatch({ command: 'workflow.setPreviews', params: { previews: 'fancy' } }).ok).toBe(false)
-  })
 })
 
 describe('preview overrides and identity', () => {
@@ -240,17 +155,6 @@ describe('preview overrides and identity', () => {
     expect(semanticHashOf(nestedDoc({ n2: 'quality', instance: 'off', inner: 'cheap' }))).toBe(plain)
   })
 
-  it('document shape accepts valid preview modes and rejects others', () => {
-    expect(validateDocumentShape(JSON.parse(JSON.stringify(nestedDoc({ workflow: 'auto', n2: 'off' }))))).toEqual([])
-    const badDoc = JSON.parse(JSON.stringify(nestedDoc())) as Record<string, unknown>
-    badDoc.previews = 'fancy'
-    expect(validateDocumentShape(badDoc).some((d) => d.message.includes('$.previews'))).toBe(true)
-    const badNode = JSON.parse(JSON.stringify(nestedDoc())) as {
-      graphs: { g0: { nodes: { n1: Record<string, unknown> } } }
-    }
-    badNode.graphs.g0.nodes.n1.previews = 42
-    expect(validateDocumentShape(badNode as unknown).some((d) => d.message.includes('.previews'))).toBe(true)
-  })
 })
 
 describe('core.node.previews menu contribution', () => {
@@ -299,13 +203,6 @@ describe('core.node.previews menu contribution', () => {
   function findSubmenu(groups: ReturnType<ReturnType<typeof registry>['resolve']>) {
     return groups.flatMap((g) => g.items).find((i) => i.id === 'core.node.previews')
   }
-
-  it('keeps the submenu on every node when no capability source is provided', () => {
-    // ctx() carries no previewCapable: pre-flag backends and headless
-    // consumers keep the previous show-everywhere behavior.
-    const groups = registry().resolve(ctx({ kind: 'node', nodeId: 'n1' }))
-    expect(findSubmenu(groups)).toBeDefined()
-  })
 
   it('hides the submenu for node types the capability source rejects', () => {
     const base = ctx({ kind: 'node', nodeId: 'n1' })

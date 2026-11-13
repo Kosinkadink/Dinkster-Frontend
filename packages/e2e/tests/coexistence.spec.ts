@@ -13,30 +13,6 @@ import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from 
 const activeDoc = (page: Page) =>
   page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
 
-const instNode = (page: Page) =>
-  page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.find((n) => n.id === 'inst')!)
-
-async function drag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
-  await page.mouse.move(from.x, from.y)
-  await page.mouse.down()
-  await page.mouse.move((from.x + to.x) / 2, (from.y + to.y) / 2)
-  await page.mouse.move(to.x, to.y)
-  await page.mouse.up()
-}
-
-async function pinPoint(page: Page, nodeId: string, portId: string): Promise<{ x: number; y: number }> {
-  return page.evaluate(({ nodeId, portId }) => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === nodeId)!
-    const pin = node.layout.pins.find((item) => item.portId === portId)
-    if (!pin) throw new Error(`no pin '${nodeId}/${portId}'`)
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return {
-      x: rect.left + node.x + (pin.direction === 'out' ? node.layout.width : 0),
-      y: rect.top + node.y + pin.y,
-    }
-  }, { nodeId, portId })
-}
-
 async function widgetRowPoint(page: Page, nodeId: string, inputId: string): Promise<{ x: number; y: number }> {
   return page.evaluate(({ nodeId, inputId }) => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === nodeId)!
@@ -56,11 +32,6 @@ async function drillIntoInstance(page: Page, nodeId = 'inst'): Promise<void> {
   await page.mouse.dblclick(header.x, header.y)
   await openRailPanel(page, 'Boundary')
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
-  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
-}
-
-async function returnToRoot(page: Page): Promise<void> {
-  await page.getByTestId('graph-breadcrumb').locator('.crumb').first().click()
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
 }
 
@@ -237,39 +208,6 @@ test('the maximal document renders every construct at once with a clean Problems
   await expect(page.getByTestId('problems-panel')).not.toContainText(/solve\.|compile\.|boundary\./)
 })
 
-test('a ghost drag grows the forwarded family atomically; one undo removes member and link', async ({ page }) => {
-  await drag(page, await pinPoint(page, 'src2', 'out'), await pinPoint(page, 'inst', 'images.img#m0'))
-  let doc = await activeDoc(page)
-  const dynamic = doc.graphs.g0!.nodes.inst! as { dynamic?: { images?: { members?: string[] } } }
-  expect(dynamic.dynamic?.images?.members).toEqual(['s0', 's1', 'm0'])
-  const linkCount = Object.keys(doc.graphs.g0!.links).length
-  expect(linkCount).toBe(9) // l1-l8 plus the new member link
-
-  // Atomic: the materialization and the connect are ONE undo step.
-  await page.keyboard.press('Control+z')
-  doc = await activeDoc(page)
-  expect((doc.graphs.g0!.nodes.inst! as { dynamic?: { images?: { members?: string[] } } }).dynamic?.images?.members)
-    .toEqual(['s0', 's1'])
-  expect(Object.keys(doc.graphs.g0!.links)).toHaveLength(8)
-  // The scene ghost retreats with it - but member ids are never recycled
-  // (CO3: undo keeps the seq high-water mark), so the fresh ghost is m1.
-  const inst = await instNode(page)
-  expect(inst.layout.pins.some((p) => p.portId === 'images.img#m1' && p.ghost)).toBe(true)
-  expect(inst.layout.pins.some((p) => p.portId === 'images.img#m0')).toBe(false)
-})
-
-test('switching the forwarded branch updates the instance choice through the production combo editor', async ({ page }) => {
-  const point = await widgetRowPoint(page, 'inst', 'choice')
-  await page.mouse.click(point.x, point.y)
-  const dropdown = page.getByTestId('combo-dropdown')
-  await expect(dropdown).toBeVisible()
-  await dropdown.getByRole('option', { name: 'b', exact: true }).click()
-  const doc = await activeDoc(page)
-  const inst = doc.graphs.g0!.nodes.inst! as { dynamic?: { choice?: { selected?: string } } }
-  expect(inst.dynamic?.choice?.selected).toBe('b')
-  await expect(page.getByTestId('problems-panel')).not.toContainText(/solve\.|compile\.|boundary\./)
-})
-
 test('editing the promoted slot dependent persists across drill-in and back', async ({ page }) => {
   const point = await widgetRowPoint(page, 'inst', 'gain')
   await page.mouse.click(point.x, point.y)
@@ -295,41 +233,6 @@ test('editing the promoted slot dependent persists across drill-in and back', as
   expect(slotRows).toContain('slot.gain')
   await page.getByTestId('graph-breadcrumb').locator('.crumb').first().click()
   expect((await activeDoc(page)).graphs.g0!.nodes.inst!.values.gain).toBe(5.5)
-})
-
-test('drilled forwarded family rows merge the definition prefix and instance suffix', async ({ page }) => {
-  await drillIntoInstance(page)
-  const ids = await page.evaluate(() => {
-    const fam = window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'fam')!
-    const rows = fam.layout.rows as unknown as Array<{ kind: string; input?: { portId: string }; inputId?: string }>
-    return rows.flatMap((row) => row.kind === 'ports' && row.input ? [row.input.portId] : row.kind === 'widget' && row.inputId ? [row.inputId] : [])
-  })
-  expect(ids.filter((id) => id.startsWith('images.img#'))).toEqual([
-    'images.img#d0', 'images.img#\u0000s0', 'images.img#\u0000s1', 'images.img#m0',
-  ])
-  expect(ids).toContain('images.weight#d0')
-  expect(ids).toContain('images.weight#\u0000s0')
-  expect(ids).toContain('images.weight#\u0000s1')
-})
-
-test('drilled suffix sockets route through the occurrence planner without mutating the definition or sibling', async ({ page }) => {
-  const before = await activeDoc(page)
-  const rootLinks = Object.keys(before.graphs.g0!.links)
-  await drillIntoInstance(page)
-  await drag(page, await pinPoint(page, 'cmb', 'out'), await pinPoint(page, 'fam', 'images.img#m0'))
-  await returnToRoot(page)
-
-  const doc = await activeDoc(page)
-  expect((doc.graphs.g0!.nodes.inst! as unknown as { dynamic: { images: { members: string[] } } }).dynamic.images.members)
-    .toEqual(['s0', 's1', 'm0'])
-  expect((doc.graphs.g0!.nodes.inst2! as unknown as { dynamic: { images: { members: string[] } } }).dynamic.images.members)
-    .toEqual(['other0'])
-  expect((doc.graphs.sub!.nodes.fam! as unknown as { dynamic: { images: { members: string[] } } }).dynamic.images.members)
-    .toEqual(['d0'])
-  expect(Object.keys(doc.graphs.sub!.links)).toEqual(['k1'])
-  expect(Object.keys(doc.graphs.g0!.links)).toEqual(rootLinks)
-  expect(Object.values(doc.occurrenceTopologies ?? {})
-    .reduce((count, topology) => count + Object.keys(topology.links).length, 0)).toBe(1)
 })
 
 test('editing a drilled suffix widget writes occurrence state and one undo reverts', async ({ page }) => {

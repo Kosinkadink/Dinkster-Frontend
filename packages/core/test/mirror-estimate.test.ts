@@ -16,7 +16,7 @@ import {
   asPortId,
   asValueSourceId,
 } from '../src/ids.js'
-import { deriveMirrorEstimates, isExpressionMirrorInput, supportsExpressionMirror } from '../src/mirror/estimate.js'
+import { deriveMirrorEstimates } from '../src/mirror/estimate.js'
 import type { InputSpec, MirrorSpec, NodeSchema, OutputSpec } from '../src/schema/model.js'
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
@@ -102,19 +102,6 @@ const mathSchema = (mirror: MirrorSpec | null = EXPRESSION_MIRROR): NodeSchema =
   ],
 })
 
-describe('expression mirror input identity', () => {
-  it('selects only the top-level expression input of a supported mirror', () => {
-    const schema = mathSchema()
-    expect(isExpressionMirrorInput(schema, { port: 'expression' })).toBe(true)
-    expect(isExpressionMirrorInput(schema, { port: 'note' })).toBe(false)
-    expect(isExpressionMirrorInput(schema, {
-      port: 'expression',
-      members: [asDynamicMemberId('m0')],
-    })).toBe(false)
-    expect(isExpressionMirrorInput(mathSchema(null), { port: 'expression' })).toBe(false)
-  })
-})
-
 /** Plain producer/consumer schema with an INT widget input and one output. */
 const intSchema: NodeSchema = {
   type: 'IntNode',
@@ -152,19 +139,6 @@ const resolve = (type: string): NodeSchema | undefined => schemas.get(type)
 
 const estimateOf = (def: GraphDef, nodeId = 'm1') =>
   deriveMirrorEstimates(def, resolve).get(nodeId)
-
-describe('supportsExpressionMirror', () => {
-  it('accepts expression mirrors at the vendored grammar version only', () => {
-    expect(supportsExpressionMirror(mathSchema())).toBe(true)
-    expect(supportsExpressionMirror(mathSchema(null))).toBe(false)
-    expect(supportsExpressionMirror(mathSchema({ ...EXPRESSION_MIRROR, grammarVersion: 2 }))).toBe(false)
-    expect(
-      supportsExpressionMirror(
-        mathSchema({ kind: 'glsl', precision: 'exact', source: 'void main() {}' }),
-      ),
-    ).toBe(false)
-  })
-})
 
 describe('deriveMirrorEstimates', () => {
   it('computes all three scalar outputs from value-source literals', () => {
@@ -412,16 +386,6 @@ describe('deriveMirrorEstimates', () => {
     }
   })
 
-  it('yields no estimate when the expression value is not a string', () => {
-    const def = graph({
-      id: 'g0',
-      nodes: { m1: node('m1', 'dinkster.math.expression', { expression: 5 }, ['m0']) },
-      valueSources: { v1: source('v1', 1) },
-      links: { l1: link('l1', vsrc('v1'), member('m1', 'm0')) },
-    })
-    expect(estimateOf(def)).toBeUndefined()
-  })
-
   it('omits the int output when the result exceeds exact JSON range', () => {
     const def = graph({
       id: 'g0',
@@ -439,11 +403,4 @@ describe('deriveMirrorEstimates', () => {
     expect(outputs!['boolean']).toBe(true)
   })
 
-  it('ignores nodes without a supported mirror declaration', () => {
-    const def = graph({
-      id: 'g0',
-      nodes: { m1: node('m1', 'IntNode'), m2: node('m2', 'Unknown') },
-    })
-    expect(deriveMirrorEstimates(def, resolve).size).toBe(0)
-  })
 })

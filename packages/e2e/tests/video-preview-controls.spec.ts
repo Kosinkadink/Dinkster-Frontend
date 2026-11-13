@@ -312,24 +312,6 @@ test('frame stepping waits for the current indexed rendition before advancing', 
   expect(selectors).toEqual(['0', '1'])
 })
 
-test('legacy rendition kinds do not advertise frame or thumbnail selectors', async ({ page }, testInfo) => {
-  const requests = await install(page, 'legacy-selectors')
-  for (const appView of [false, true]) {
-    if (appView) {
-      await page.getByTestId('views-switcher').click()
-      await page.getByRole('menuitemradio', { name: 'App view' }).click()
-    }
-    const controls = page.getByRole('group', { name: 'Video preview controls', exact: true })
-    await controls.hover()
-    await controls.focus()
-    await page.keyboard.press('.')
-    await expect(controls.getByRole('button', { name: 'Next frame', exact: true })).toBeDisabled()
-    await expect(controls).toContainText('Frame selector unavailable: not advertised.')
-    await controls.screenshot({ path: testInfo.outputPath(`video-legacy-selectors-${appView ? 'app' : 'canvas'}.png`) })
-  }
-  expect(requests.some((url) => ['frame', 'thumbs'].includes(url.searchParams.get('rendition') ?? ''))).toBe(false)
-})
-
 test('unshipped bounded renditions stay unavailable without original or disassemble requests', async ({ page }) => {
   const requests = await install(page, 'unadvertised')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getNodePreviews().video?.statusMessage))

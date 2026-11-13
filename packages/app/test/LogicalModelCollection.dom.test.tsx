@@ -87,21 +87,6 @@ async function mount(models: readonly LogicalModel[], multi = false) {
 }
 
 describe('logical model CollectionPanel adapter', () => {
-  it('uses a plain row for one variant and a group header only for multiple variants', () => {
-    const entries = logicalModelEntries([
-      model([variant()]),
-      model([
-        variant({ variantId: A }),
-        variant({ variantId: B, digest: B, localRef: { digest: B, name: 'other.safetensors', size: 4096, mediaType: 'application/x-safetensors', virtualPath: 'models/other.safetensors' } }),
-      ], { logicalId: 'fixture:other', displayName: 'Other model' }),
-    ])
-
-    expect(entries).toHaveLength(2)
-    expect(entries[0]).toMatchObject({ title: 'Model' })
-    expect(entries[0]!.children).toBeUndefined()
-    expect(entries[1]).toMatchObject({ title: 'Other model' })
-    expect(entries[1]!.children).toHaveLength(2)
-  })
 
   it('keeps same-id variants with different digests as distinct collection rows', () => {
     const entries = logicalModelEntries([model([

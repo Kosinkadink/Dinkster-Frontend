@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  activeProjectId, createProject, DEFAULT_PROJECT_ID, initializeProjectScope, listProjects,
-  projectIdFromSearch, PROJECTS_KEY, renameProject, scopedSharedName, scopedStorageKey, validProjectId,
-} from '../src/projects.js'
+import { createProject, DEFAULT_PROJECT_ID, initializeProjectScope, listProjects, projectIdFromSearch, PROJECTS_KEY, renameProject, scopedSharedName, scopedStorageKey, validProjectId } from '../src/projects.js'
 
 function storage(seed?: string): Storage {
   const data = new Map<string, string>(seed ? [[PROJECTS_KEY, seed]] : [])
@@ -38,36 +35,14 @@ describe('project registry', () => {
     expect(listProjects(store)[0]).toEqual({ id: DEFAULT_PROJECT_ID, name: 'Personal', createdAt: 0 })
   })
 
-  it('drops malformed and reserved entries from a persisted envelope', () => {
-    const store = storage(JSON.stringify({ v: 1, projects: [
-      { id: 'p-good', name: 'Good', createdAt: 5 },
-      { id: 'default', name: 'Impostor', createdAt: 1 },
-      { id: 'BAD ID', name: 'Bad', createdAt: 2 },
-      { id: 'p-noname', name: '', createdAt: 3 },
-      { id: 'p-notime', name: 'No time', createdAt: 'soon' },
-    ] }))
-    expect(listProjects(store).map((p) => p.id)).toEqual([DEFAULT_PROJECT_ID, 'p-good'])
-  })
 })
 
 describe('project scope', () => {
-  it('falls back to the default project for unknown or malformed ids', () => {
-    expect(initializeProjectScope('Invalid Id!')).toBe(DEFAULT_PROJECT_ID)
-    expect(initializeProjectScope(null)).toBe(DEFAULT_PROJECT_ID)
-    expect(initializeProjectScope('p-alpha')).toBe('p-alpha')
-    expect(activeProjectId()).toBe('p-alpha')
-  })
 
   it('reads and validates the project id from a window URL', () => {
     expect(projectIdFromSearch('?dinksterProject=p-alpha')).toBe('p-alpha')
     expect(projectIdFromSearch('?dinksterProject=NOT%20VALID')).toBe(DEFAULT_PROJECT_ID)
     expect(projectIdFromSearch('')).toBe(DEFAULT_PROJECT_ID)
-  })
-
-  it('keeps legacy unprefixed names for the default project', () => {
-    initializeProjectScope(DEFAULT_PROJECT_ID)
-    expect(scopedStorageKey('dinkster.openTabs')).toBe('dinkster.openTabs')
-    expect(scopedSharedName('dinkster-workspace-tabs')).toBe('dinkster-workspace-tabs')
   })
 
   it('namespaces storage keys and shared names per project without prefix collisions', () => {

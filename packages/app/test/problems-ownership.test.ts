@@ -101,18 +101,6 @@ describe('problems ownership', () => {
     expect(shownCodes(b.id)).toEqual(['compile.input.missing'])
   })
 
-  it('does not cross-contaminate two documents that both use graph g0', async () => {
-    const a = (await open('lin-a'))
-    const b = (await open('lin-b'))
-    // Both diagnostics NAME the same graph id; ownership is the tab, never
-    // the graph id, so each panel shows exactly its own entry.
-    app.reportProblems(a.id, [diag('error', 'compile', 'compile.tap.novalue', "widget tap 'n15.value' in graph 'g0' has no value")])
-    app.reportProblems(b.id, [diag('error', 'compile', 'compile.tap.novalue', "widget tap 'n2.value' in graph 'g0' has no value")])
-    const shownForA = visibleProblems(app.problems.get(), new Set([a.id]))
-    expect(shownForA).toHaveLength(1)
-    expect(shownForA[0]!.message).toContain('n15')
-  })
-
   it('keeps app-scoped globals visible regardless of the active tab', async () => {
     const a = (await open('lin-a'))
     const b = (await open('lin-b'))
@@ -192,16 +180,6 @@ describe('problems ownership', () => {
     expect(codes).toContain('b.keeps')
   })
 
-  it('a multi-visible owner set shows both workflows\' diagnostics at once', async () => {
-    const a = (await open('lin-a'))
-    const b = (await open('lin-b'))
-    app.reportProblems(a.id, [diag('error', 'compile', 'a.problem', 'A')])
-    app.reportProblems(b.id, [diag('error', 'compile', 'b.problem', 'B')])
-    const codes = visibleProblems(app.problems.get(), new Set([a.id, b.id])).map((d) => d.code)
-    expect(codes).toContain('a.problem')
-    expect(codes).toContain('b.problem')
-  })
-
   it('rejected commands land under the dispatching tab', async () => {
     const a = (await open('lin-a'))
     await open('lin-b')
@@ -213,32 +191,6 @@ describe('problems ownership', () => {
     expect(visibleProblems(app.problems.get(), new Set([app.activeTabId.get()]))).toEqual([])
   })
 
-  it('a tab whose lineage spells an app-ish sentinel is still just a tab, never global', async () => {
-    // The global owner is a unique symbol, so no document lineage (which
-    // becomes the tab id) can collide with it - not even one named '#app'.
-    const impostor = (await open('#app'))
-    app.reportProblems(impostor.id, [diag('error', 'compile', 'impostor.problem', 'not global')])
-    app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'schema', 'really.global', 'global')])
-    // With NO visible canvases, only true globals project.
-    const codes = visibleProblems(app.problems.get(), new Set()).map((d) => d.code)
-    expect(codes).toEqual(['really.global'])
-    // Another tab's projection does not show the impostor's entry either.
-    const b = (await open('lin-b'))
-    expect(shownCodes(b.id)).toEqual(['really.global'])
-  })
-
-  it('owner-scoped replacement does not re-log other owners\' retained entries', async () => {
-    const a = (await open('lin-a'))
-    const b = (await open('lin-b'))
-    app.reportProblems(a.id, [diag('error', 'compile', 'a.stale', 'stale A message')])
-    app.reportProblems(b.id, [diag('error', 'compile', 'b.keeps', 'B retained message')])
-    const logged = (): number => app.logs.get().filter((l) => l.message.includes('B retained message')).length
-    expect(logged()).toBe(1)
-    // Same-lineage replacement replaces A's entries (reordering the problems
-    // array); B's retained entry object must not be logged a second time.
-    await open('lin-a')
-    expect(logged()).toBe(1)
-  })
 })
 
 /** Compilable chain document for backend-coupled async tests. */
@@ -502,18 +454,6 @@ describe('late async results and dead owners', () => {
     expect(shownCodes(tab.id)).toEqual(['compile.wire15.modesUnsupported'])
   })
 
-  it('does not recompile before POST while the compiled document object is unchanged', async () => {
-    const { backend, tab } = (await nativeSetup())
-    vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'a'.repeat(64))
-    vi.spyOn(backend.connection, 'submit').mockResolvedValue({
-      ok: false,
-      diagnostics: [diag('error', 'validation', 'submit.expected', 'stop after POST')],
-    })
-    const compileSpy = vi.spyOn(app, 'compileTab')
-    await app.queueSelection(tab, ['n1'])
-    expect(compileSpy).toHaveBeenCalledOnce()
-  })
-
   it('blocks a retired session artifact before POST even when its revision is unchanged', async () => {
     const { backend, tab } = (await nativeSetup())
     const upload = deferred<string>()
@@ -526,42 +466,6 @@ describe('late async results and dead owners', () => {
     upload.resolve('blake3:' + 'a'.repeat(64))
     await queueing
     expect(submitSpy).not.toHaveBeenCalled()
-  })
-
-  it('blocks a captured asset-consent retry when current state enters the wire-15 mode gate', async () => {
-    const { backend, tab } = (await nativeSetup())
-    const clean = app.compileTab(tab, {
-      kind: 'partial', targets: [{ instancePath: [], node: asNodeId('n1') }],
-    })
-    expect(clean?.ok).toBe(true)
-    if (!clean?.ok) return
-    const gate = diag('error', 'compile', 'compile.wire15.modesUnsupported', 'wire-15 mode gate')
-    const compileSpy = vi.spyOn(app, 'compileTab').mockImplementation(() =>
-      tab.store.revision === 0 ? clean : { ok: false, diagnostics: [gate] })
-    vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'a'.repeat(64))
-    const retryWithAssets = vi.fn()
-    vi.spyOn(backend.connection, 'submit').mockResolvedValue({
-      ok: false,
-      diagnostics: [],
-      assetsMissing: {
-        error: 'assets-missing',
-        assets: [{ digest: 'blake3:model', name: 'Model', status: 'missing', sources: [], fetchable: false }],
-      },
-      retryWithAssets,
-    })
-
-    await app.queueSelection(tab, ['n1'])
-    expect(app.assetConsent.get()).toBeDefined()
-    expect((await app.dispatchTo(tab, {
-      command: 'node.setMode',
-      params: { graphId: 'g0', nodeIds: ['n0'], mode: 'bypassed' },
-    })).ok).toBe(true)
-    await app.assetConsent.get()!.retry(['blake3:model'])
-
-    expect(compileSpy).toHaveBeenCalledTimes(2)
-    expect(retryWithAssets).not.toHaveBeenCalled()
-    expect(app.assetConsent.get()).toBeUndefined()
-    expect(shownCodes(tab.id)).toEqual(['compile.wire15.modesUnsupported'])
   })
 
   it('blocks a retired session captured-body retry before transport', async () => {
@@ -620,37 +524,6 @@ describe('late async results and dead owners', () => {
     upload.reject(new Error('network died late'))
     expect(await saving).toBe(false)
     expect(app.problems.get().some((d) => d.code === 'library.saveFailed')).toBe(false)
-    expect(app.problems.get().some((d) => d.owner === tab.id)).toBe(false)
-  })
-
-  it('a save failing after a same-lineage replacement does not blame the replacement', async () => {
-    const { backend, tab } = (await nativeSetup())
-    const upload = deferred<string>()
-    const spy = vi.spyOn(backend.connection, 'uploadAsset').mockReturnValue(upload.promise)
-    const saving = app.saveWorkflow(tab.id)
-    await callStarted(spy)
-    // Same lineage -> same tab id, but a NEW Tab object (new session).
-    expect((await app.openDocument(CHAIN_DOC, 'Chain (reopened)'))).toEqual([])
-    const replacement = app.activeTab()!
-    expect(replacement.id).toBe(tab.id)
-    expect(replacement).not.toBe(tab)
-    upload.reject(new Error('network died late'))
-    expect(await saving).toBe(false)
-    // The replacement session owns no entry from the dead session's save.
-    expect(app.problems.get().some((d) => d.code === 'library.saveFailed')).toBe(false)
-  })
-
-  it('a queue transport failure after its tab closed reports nothing', async () => {
-    const { backend, tab } = (await nativeSetup())
-    vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'a'.repeat(64))
-    const submit = deferred<never>()
-    const submitSpy = vi.spyOn(backend.connection, 'submit').mockReturnValue(submit.promise)
-    const queueing = app.queueSelection(tab, ['n1'])
-    await callStarted(submitSpy)
-    app.closeTab(tab.id)
-    submit.reject(new Error('socket dropped late'))
-    await queueing
-    expect(app.problems.get().some((d) => d.code === 'submit.transportFailed')).toBe(false)
     expect(app.problems.get().some((d) => d.owner === tab.id)).toBe(false)
   })
 

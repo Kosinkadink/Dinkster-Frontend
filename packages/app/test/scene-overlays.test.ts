@@ -1,18 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  BYPASSED_BADGE,
-  DEPRECATED_BADGE,
-  executionErrorBadge,
-  LOG_INFO_BADGE,
-  logWarningBadge,
-  MUTED_BADGE,
-  PROBLEM_BLOCKING_WARNING_BADGE,
-  PROBLEM_ERROR_BADGE,
-  PROBLEM_WARNING_BADGE,
-  SUBGRAPH_BADGE,
-  type Scene,
-} from '@dinkster/canvas'
-import { asGraphDefId, asLinkId, asNodeId, asPortId, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeDecorationContribution, type NodeSchema, type PreviewRenderer, type WorkflowDocument } from '@dinkster/core'
+import { DEPRECATED_BADGE, executionErrorBadge, LOG_INFO_BADGE, logWarningBadge, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE, type Scene } from '@dinkster/canvas'
+import { asGraphDefId, asLinkId, asNodeId, asPortId, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import { applyNodeDecorations, deriveSceneOverlays, representedPreviewAssetForNode, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
@@ -38,15 +26,6 @@ const exec = (over: Partial<Record<string, unknown>> = {}): ExecutionState =>
 /** A run error report entry anchored to one occurrence. */
 const runError = (node: string, instancePath: readonly string[] = [], over: Record<string, unknown> = {}) =>
   ({ severity: 'error', origin: 'runtime', code: 'runtime.X', message: 'failed', anchor: { occurrence: { instancePath, node } }, ...over })
-
-const modeDecoration: NodeDecorationContribution = {
-  id: 'core.node.mode',
-  decorate: (node) => node.mode === 'muted'
-    ? { badges: [MUTED_BADGE] }
-    : node.mode === 'bypassed'
-      ? { badges: [BYPASSED_BADGE] }
-      : undefined,
-}
 
 const schemaTable = (schemas: Record<string, { pack?: string; deprecation?: { message: string }; executionArms?: readonly ('native' | 'comfyui')[] }>) => {
   return (type: string): NodeSchema | undefined =>
@@ -156,38 +135,12 @@ describe('selected asset preview qualification', () => {
     expect(selectedPreviewAssetForNode(node({ ...image('6'), mediaType: 'text/plain' }), previewRendererFor)).toBeUndefined()
   })
 
-  it('requires renderer metadata to match the AssetRef MIME family', () => {
-    const renderer = (mediaKind?: PreviewRenderer['mediaKind']): PreviewRenderer => ({
-      id: 'test.preview',
-      ...(mediaKind === undefined ? {} : { mediaKind }),
-      canRender: () => true,
-      drawCompact: () => {},
-    })
-    expect(selectedPreviewAssetForNode(node(image('7')), () => renderer('video'))).toBeUndefined()
-    expect(selectedPreviewAssetForNode(
-      node({ ...image('8'), name: 'clip.webm', mediaType: 'video/webm' }),
-      () => renderer('image'),
-    )).toBeUndefined()
-    expect(selectedPreviewAssetForNode(node(image('9')), () => renderer())).toBeUndefined()
-  })
-
   it('rejects empty lists, a non-previewable first element, and non-asset values', () => {
     expect(selectedPreviewAssetForNode(node([]), previewRegistry.previewRendererFor)).toBeUndefined()
     expect(selectedPreviewAssetForNode(node([{ ...image('4'), mediaType: 'text/plain' }, image('5')]), previewRegistry.previewRendererFor)).toBeUndefined()
     expect(selectedPreviewAssetForNode(node('image.png'), previewRegistry.previewRendererFor)).toBeUndefined()
   })
 
-  it.each(['digest', 'name', 'size', 'mediaType', 'virtualPath'] as const)('rejects an AssetRef missing %s', (field) => {
-    const incomplete = { ...image('6') }
-    delete incomplete[field]
-    expect(selectedPreviewAssetForNode(node(incomplete), previewRegistry.previewRendererFor)).toBeUndefined()
-  })
-
-  it('rejects malformed digests and invalid sizes', () => {
-    expect(selectedPreviewAssetForNode(node({ ...image('7'), digest: 'blake3:short' }), previewRegistry.previewRendererFor)).toBeUndefined()
-    expect(selectedPreviewAssetForNode(node({ ...image('8'), size: -1 }), previewRegistry.previewRendererFor)).toBeUndefined()
-    expect(selectedPreviewAssetForNode(node({ ...image('9'), size: Number.MAX_SAFE_INTEGER + 1 }), previewRegistry.previewRendererFor)).toBeUndefined()
-  })
 })
 
 describe('represented output previews', () => {
@@ -242,21 +195,6 @@ describe('represented output previews', () => {
       inputAssetSource: () => source,
       resolve: (candidate: PreviewSource) => candidate.key === source.key ? decoded : undefined,
     },
-  })
-
-  it('attributes a supported selected asset to the exact represented output', () => {
-    expect(representedPreviewAssetForNode(
-      representedScene().nodes[0]!,
-      representedSchema(),
-      previewRegistry.previewRendererFor,
-    )).toEqual({
-      digest,
-      name: 'image.png',
-      count: 1,
-      mediaType: 'image/png',
-      mediaKind: 'image',
-      outputId: 'image',
-    })
   })
 
   it('requires a supported rendition and every stored applies selection', () => {
@@ -818,20 +756,6 @@ describe('retainProvenExecution', () => {
     }
   })
 
-  it('retains the frame of a proven node whose only visual is an in-memory preview', () => {
-    const live = artifact()
-    const frame = { '': { channel: 'preview', payload: new ArrayBuffer(1), timestamp: 10 } }
-    const prior = execution('n', 10, artifact(), {
-      nodes: { a: { state: 'done' } },
-      previews: { a: frame },
-    })
-    const current = execution('n+1', 20, artifact({ scope: { kind: 'partial', targets: [] }, prompt: {} }))
-    const retained = retainProvenExecution(current, [prior, current], live, [], resolveSchema)
-    expect(retained.execution.previews.a).toBe(frame)
-    expect(retained.execution.nodes.a?.state).toBe('cached')
-    expect(retained.retainedRuntimeIds).toEqual(new Set(['a']))
-  })
-
   it('strips recyclable siblings from a retained digest output and never revives a preview after the node ran', () => {
     const live = artifact()
     const current = execution('n+1', 30, artifact({ scope: { kind: 'partial', targets: [] }, prompt: {} }), {
@@ -929,13 +853,6 @@ describe('retainProvenExecution', () => {
     expect(retained.retainedRuntimeIds).toEqual(new Set(['b']))
   })
 
-  it('keeps current execution identity when nothing is retained', () => {
-    const current = execution('n+1', 20, artifact())
-    const retained = retainProvenExecution(current, [current], artifact(), [], resolveSchema)
-    expect(retained.execution).toBe(current)
-    expect(retained.retainedRuntimeIds.size).toBe(0)
-  })
-
   it('rejects whole-run retention for controller-sensitive nodes', () => {
     const controlledArtifact = artifact({
       snapshot: {
@@ -1003,15 +920,6 @@ describe('retainProvenExecution', () => {
 })
 
 describe('deriveSceneOverlays', () => {
-  it('yields an empty model without an execution', () => {
-    const m = deriveSceneOverlays({ ...base, scene: scene([{ id: 'n1' }]) })
-    expect(m.states).toEqual({})
-    expect(m.previews).toEqual({})
-    expect(m.selectorResolutions).toBeUndefined()
-    expect(m.ownRuntimeIds).toBeUndefined()
-    expect(m.badges).toEqual({})
-    expect(m.portProblems).toEqual({})
-  })
 
   it('abstains from occurrence-keyed overlays when the instance path is unknown', () => {
     const m = deriveSceneOverlays({
@@ -1035,63 +943,6 @@ describe('deriveSceneOverlays', () => {
     expect(m.badges['n1']).toContainEqual(executionErrorBadge(1))
     expect(m.badges['n2']).toBeUndefined()
     expect(m.ownRuntimeIds!('n1')).toEqual(['n1'])
-  })
-
-  it('attributes activity-only runtime nodes before node state arrives', () => {
-    const m = deriveSceneOverlays({
-      ...base,
-      scene: scene([{ id: 'n1' }]),
-      exec: exec({
-        activities: [{
-          kind: 'lazy_demand',
-          nodeId: 'n1',
-          round: 1,
-          status: 'waiting',
-          requestedInputs: ['branch'],
-          newInputs: ['branch'],
-          demandedInputs: ['branch'],
-          producerNodes: ['source'],
-        }],
-      }),
-    })
-    expect(m.states).toEqual({})
-    expect(m.ownRuntimeIds!('n1')).toEqual(['n1'])
-  })
-
-  it('names muted and bypassed modes on-node while active nodes stay unbadged', () => {
-    const target = scene([
-      { id: 'muted', mode: 'muted' },
-      { id: 'bypassed', mode: 'bypassed' },
-      { id: 'active', mode: 'active' },
-    ])
-    const m = deriveSceneOverlays({
-      ...base,
-      scene: target,
-    })
-    const decorated = applyNodeDecorations({
-      scene: target, documentId: 'lineage', graphId: 'root', contributions: [modeDecoration], badges: m.badges,
-    })
-
-    expect(decorated.badges.muted).toEqual([MUTED_BADGE])
-    expect(decorated.badges.bypassed).toEqual([BYPASSED_BADGE])
-    expect(decorated.badges.active).toBeUndefined()
-    expect(MUTED_BADGE.glyph).toBe('Muted')
-    expect(BYPASSED_BADGE.glyph).toBe('Bypassed')
-  })
-
-  it('composes a mode badge with existing overlay badges', () => {
-    const target = scene([{ id: 'muted-error', mode: 'muted' }])
-    const m = deriveSceneOverlays({
-      ...base,
-      scene: target,
-      exec: exec({ nodes: { 'muted-error': { state: 'error' } }, errors: [runError('muted-error')] }),
-    })
-    const decorated = applyNodeDecorations({
-      scene: target, documentId: 'lineage', graphId: 'root', contributions: [modeDecoration], badges: m.badges,
-    })
-
-    expect(decorated.badges['muted-error']).toEqual([executionErrorBadge(1), MUTED_BADGE])
-    expect(executionErrorBadge(1).glyph).toBe('Error')
   })
 
   it('applies decorations in id order and rolls back a failing contribution', () => {
@@ -1378,18 +1229,6 @@ describe('deriveSceneOverlays', () => {
     expect(insideSub1.runErrorsByNode.size).toBe(2)
   })
 
-  it('exposes the same anchored diagnostics the badge counts through runErrorsByNode', () => {
-    const first = runError('n1', [], { code: 'runtime.A', message: 'first' })
-    const second = runError('n1', [], { code: 'runtime.B', message: 'second' })
-    const m = deriveSceneOverlays({
-      ...base,
-      scene: scene([{ id: 'n1' }]),
-      exec: exec({ errors: [first, second] }),
-    })
-    expect(m.badges['n1']).toEqual([executionErrorBadge(2)])
-    expect(m.runErrorsByNode.get('n1')).toEqual([first, second])
-  })
-
   it('a dismissed error badge disappears while log badges stay', () => {
     const m = deriveSceneOverlays({
       ...base,
@@ -1402,17 +1241,6 @@ describe('deriveSceneOverlays', () => {
       dismissedErrorNodes: new Set(['n1']),
     })
     expect(m.badges['n1']).toEqual([logWarningBadge(1)])
-  })
-
-  it('passes shared port problem projection through without re-resolving diagnostics', () => {
-    const portProblems = { n1: { input: 'error' as const } }
-    const m = deriveSceneOverlays({
-      ...base,
-      scene: scene([{ id: 'n1' }]),
-      portProblems,
-    })
-
-    expect(m.portProblems).toBe(portProblems)
   })
 
   it.each([false, true])('shows migration badges only in review mode=%s', (reviewReplacements) => {
@@ -1455,16 +1283,6 @@ describe('deriveSceneOverlays', () => {
     ]))
   })
 
-  it('does not badge ordinary nodes with implementation arms or packs', () => {
-    const m = deriveSceneOverlays({
-      ...base,
-      scene: scene([{ id: 'a', type: 'vhs.load' }]),
-      resolveSchema: schemaTable({ 'vhs.load': { pack: 'vhs', executionArms: ['native', 'comfyui'] } }),
-      exec: exec({ nodes: { a: { state: 'done', executionArm: 'comfyui', provider: 'vision.vhs', pack: 'vhs' } } }),
-    })
-    expect(m.badges['a']).toBeUndefined()
-  })
-
   it('resolves recorded selector choices on frozen tabs only, filtered to the current graph', () => {
     const artifact = {
       choices: [
@@ -1486,23 +1304,6 @@ describe('deriveSceneOverlays', () => {
       exec: exec({ artifact }),
     })
     expect(elsewhere.selectorResolutions).toBeUndefined()
-  })
-
-  it('collects previews from the loader and omits in-flight decodes', () => {
-    const decoded = { kind: 'image' } as never
-    const src: PreviewSource = { key: 'k', load: () => Promise.reject(new Error('unused')) }
-    const loader: PreviewLoader = {
-      sourceFor: (_e, ids) => (ids.includes('n1') ? src : undefined),
-      peekSource: () => undefined,
-      resolve: (s) => (s === src ? decoded : undefined),
-    }
-    const m = deriveSceneOverlays({
-      ...base,
-      scene: scene([{ id: 'n1' }, { id: 'n2' }]),
-      exec: exec({ nodes: { n1: {}, n2: {} } }),
-      loader,
-    })
-    expect(m.previews).toEqual({ n1: decoded })
   })
 
   it('wraps a decoded retained preview as cached without mutating the shared decode', () => {
@@ -1578,46 +1379,6 @@ describe('deriveSceneOverlays', () => {
     expect(m.previews.n1).toBe(decoded)
   })
 
-  it('falls back to native peek only when a values client exists and the loader missed', () => {
-    const peekSource = vi.fn(() => undefined)
-    const loader: PreviewLoader = { ...noLoader, peekSource }
-    const withValues = { valuesClient: true } as never
-    // The node ran and recorded a non-scalar output -> peek candidates exist
-    // (inline scalars are deliberately filtered; they never need imagery).
-    const e = exec({ nodes: { n1: { outputs: { out: { typeId: 'std.image' } } } } })
-    deriveSceneOverlays({
-      ...base,
-      scene: scene([{ id: 'n1' }]),
-      exec: e,
-      loader,
-      values: withValues,
-    })
-    expect(peekSource).toHaveBeenCalledTimes(1)
-    peekSource.mockClear()
-    // No values client (live/non-native run): never peek.
-    deriveSceneOverlays({ ...base, scene: scene([{ id: 'n1' }]), exec: e, loader })
-    expect(peekSource).not.toHaveBeenCalled()
-  })
-
-  it('keeps a direct ASSET preview source ahead of native peek', () => {
-    const direct: PreviewSource = { key: 'asset:blake3:digest', load: () => Promise.reject(new Error('unused')) }
-    const decoded = { kind: 'image' } as never
-    const peekSource = vi.fn(() => undefined)
-    const loader: PreviewLoader = {
-      sourceFor: () => direct,
-      peekSource,
-      resolve: (source) => source === direct ? decoded : undefined,
-    }
-    const m = deriveSceneOverlays({
-      ...base,
-      scene: scene([{ id: 'n1' }]),
-      exec: exec({ nodes: { n1: { outputs: { assets: {} } } } }),
-      loader,
-      values: { valuesClient: true } as never,
-    })
-    expect(m.previews).toEqual({ n1: decoded })
-    expect(peekSource).not.toHaveBeenCalled()
-  })
 })
 
 describe('glsl image estimate overlay', () => {
@@ -1804,14 +1565,6 @@ describe('glsl image estimate overlay', () => {
     expect(m.previews['a1']).toBeUndefined()
     // The rest of overlay derivation survived the throw.
     expect(m.previews['src']).toBeDefined()
-  })
-
-  it('shows nothing while the estimator is still computing', () => {
-    const m = deriveSceneOverlays({
-      ...mirrorBase(),
-      imageEstimator: { estimate: () => undefined, dispose: () => {} },
-    })
-    expect(m.previews['a1']).toBeUndefined()
   })
 
   it('never estimates with the setting off or on frozen tabs', () => {

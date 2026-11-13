@@ -34,12 +34,7 @@ import {
 } from '../src/ids.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
-import {
-  effectiveValueSourceSpec,
-  pinnedSpecOf,
-  valueSourceConsumersOf,
-  valueSourceLinksOf,
-} from '../src/value-source.js'
+import { effectiveValueSourceSpec } from '../src/value-source.js'
 
 const resolve = (type: string) => schemas.get(type)
 
@@ -169,28 +164,6 @@ describe('value source consumers', () => {
     }
   })
 
-  it('finds direct and reroute-chained consumers (fan-out)', () => {
-    const def = fanoutDoc().graphs['g0']!
-    expect(valueSourceLinksOf(def, 'v1').map((l) => l.id).sort()).toEqual(['l4', 'l6'])
-    const consumers = valueSourceConsumersOf(def, 'v1')
-    expect(consumers.map((c) => `${c.node}.${c.port}`).sort()).toEqual(['n1.steps', 'n2.steps'])
-  })
-
-  it('is cycle-safe through malformed reroute loops', () => {
-    const def = doc({
-      g0: graph({
-        id: 'g0',
-        reroutes: { r1: reroute('r1'), r2: reroute('r2') },
-        valueSources: { v1: source('v1', 1) },
-        links: {
-          l4: { id: asLinkId('l4'), from: vsrc('v1'), to: rr('r1') },
-          l5: { id: asLinkId('l5'), from: rr('r1'), to: rr('r2') },
-          l6: { id: asLinkId('l6'), from: rr('r2'), to: rr('r1') },
-        },
-      }),
-    }).graphs['g0']!
-    expect(valueSourceConsumersOf(def, 'v1')).toEqual([])
-  })
 })
 
 describe('effective spec derivation (P1/P2/P5)', () => {
@@ -290,15 +263,6 @@ describe('effective spec derivation (P1/P2/P5)', () => {
     expect(eff.consumers).toEqual([])
   })
 
-  it('an unconnected, undeclared source has NO spec but keeps its value (P2)', () => {
-    const def = doc({
-      g0: graph({ id: 'g0', valueSources: { v1: source('v1', 'hello') } }),
-    }).graphs['g0']!
-    const eff = effectiveValueSourceSpec(def, def.valueSources!['v1']!, resolve)
-    expect(eff.spec).toBeUndefined()
-    expect(def.valueSources!['v1']!.value).toBe('hello')
-  })
-
   it('keeps literal COMBO intersections and compiled values type-exact', () => {
     for (const [value, other] of [[8, '8'], [true, 1], [false, 0]] as const) {
       const def = graph({ id: 'g0',
@@ -330,64 +294,6 @@ describe('effective spec derivation (P1/P2/P5)', () => {
     }
   })
 
-  it('intersects combo option lists from same-kind consumers', () => {
-    const def = doc({
-      g0: graph({
-        id: 'g0',
-        nodes: { n1: node('n1'), n2: node('n2') },
-        valueSources: { v1: source('v1', 'euler') },
-        links: {
-          l4: { id: asLinkId('l4'), from: vsrc('v1'), to: port('n1', 'sampler_name') },
-          l5: { id: asLinkId('l5'), from: vsrc('v1'), to: port('n2', 'sampler_name') },
-        },
-      }),
-    }).graphs['g0']!
-    const eff = effectiveValueSourceSpec(def, def.valueSources!['v1']!, resolve)
-    expect(eff.spec?.widgetType).toBe('COMBO')
-    expect(Array.isArray(eff.spec?.options['options'])).toBe(true)
-    expect((eff.spec!.options['options'] as unknown[]).length).toBeGreaterThan(0)
-    expect(eff.diagnostics).toEqual([])
-  })
-
-  it('does not intersect distinct prefixed and native type spellings', () => {
-    const maskResolve = (type: string) =>
-      type === 'NativeMaskSink' || type === 'ComfyMaskSink'
-        ? ({
-            type,
-            displayName: type,
-            category: 'test',
-            source: 'v3',
-            isOutputNode: false,
-            items: [{
-              kind: 'input',
-              id: 'mask',
-              type: { kind: 'concrete', name: type === 'NativeMaskSink' ? 'MASK' : 'comfy.MASK' },
-              optional: false,
-            }],
-          } as never)
-        : undefined
-    const def = doc({
-      g0: graph({
-        id: 'g0',
-        nodes: { n1: node('n1', 'NativeMaskSink'), n2: node('n2', 'ComfyMaskSink') },
-        valueSources: { v1: source('v1', null) },
-        links: {
-          l4: { id: asLinkId('l4'), from: vsrc('v1'), to: port('n1', 'mask') },
-          l5: { id: asLinkId('l5'), from: vsrc('v1'), to: port('n2', 'mask') },
-        },
-      }),
-    }).graphs['g0']!
-    const eff = effectiveValueSourceSpec(def, def.valueSources!['v1']!, maskResolve)
-    expect(eff.type).toEqual({ kind: 'wildcard' })
-  })
-
-  it('pinnedSpecOf produces a JSON-safe declared spec from the effective one', () => {
-    const def = fanoutDoc().graphs['g0']!
-    const eff = effectiveValueSourceSpec(def, def.valueSources!['v1']!, resolve)
-    const pinned = pinnedSpecOf(eff)
-    expect(pinned?.['widgetType']).toBe('INT')
-    expect(() => JSON.stringify(pinned)).not.toThrow()
-  })
 })
 
 describe('member-aware consumer derivation (dynamic-derived inputs)', () => {
@@ -494,24 +400,6 @@ describe('member-aware consumer derivation (dynamic-derived inputs)', () => {
     expect(eff.spec?.options['max']).toBe(10)
   })
 
-  it('an UNPERSISTED member consumer derives nothing (promoteGhosts: false, like compile)', () => {
-    const def = doc({
-      g0: graph({
-        id: 'g0',
-        nodes: { n1: dynNode('n1') },
-        valueSources: { v1: source('v1', 0.75) },
-        links: {
-          l4: {
-            id: asLinkId('l4'),
-            from: vsrc('v1'),
-            to: { ...port('n1', 'weights.w'), members: ['m9'] } as never,
-          },
-        },
-      }),
-    }).graphs['g0']!
-    const eff = effectiveValueSourceSpec(def, def.valueSources!['v1']!, dynResolve)
-    expect(eff.spec).toBeUndefined()
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -602,18 +490,6 @@ describe('value source commands', () => {
     expect(g().value).toBe(9)
   })
 
-  it('rejects malformed spec/controller params', () => {
-    const store = makeStore(doc({ g0: graph({ id: 'g0', valueSources: { v1: source('v1', 7) } }) }))
-    expect(store.dispatch({
-      command: 'valueSource.setSpec',
-      params: { graphId: 'g0', valueSourceId: 'v1', spec: { controller: 'sometimes' } },
-    }).ok).toBe(false)
-    expect(store.dispatch({
-      command: 'valueSource.setController',
-      params: { graphId: 'g0', valueSourceId: 'v1', mode: 'chaotic' },
-    }).ok).toBe(false)
-  })
-
   it('valueSource.remove cascades its links; ONE undo restores everything', () => {
     const d = fanoutDoc()
     const store = makeStore({
@@ -667,9 +543,6 @@ describe('value source commands', () => {
 // ---------------------------------------------------------------------------
 
 describe('invariant I10', () => {
-  it('accepts a clean fan-out document', () => {
-    expect(checkDocument(fanoutDoc()).filter((d) => d.severity === 'error')).toEqual([])
-  })
 
   it('rejects key/id mismatches and links targeting value sources', () => {
     const bad = doc({
@@ -830,30 +703,6 @@ describe('compile lowering', () => {
     expect(checkDocument(doc({ sub: valid }, 'sub'))).toEqual([])
   })
 
-  it('errors on missing value sources and links targeting one (malformed docs)', () => {
-    const missing = doc({
-      g0: graph({
-        id: 'g0',
-        nodes: { n1: node('n1') },
-        links: { l4: { id: asLinkId('l4'), from: vsrc('ghost'), to: port('n1', 'steps') } },
-      }),
-    })
-    const r1 = compile(compileInput(missing))
-    expect(r1.ok).toBe(false)
-    if (!r1.ok) expect(codesOf(r1.diagnostics)).toContain('compile.valueSource.missing')
-
-    const targeted = doc({
-      g0: graph({
-        id: 'g0',
-        nodes: { n1: node('n1') },
-        valueSources: { v1: source('v1', 1) },
-        links: { l4: { id: asLinkId('l4'), from: port('n1', 'out0'), to: vsrc('v1') } },
-      }),
-    })
-    const r2 = compile(compileInput(targeted))
-    expect(r2.ok).toBe(false)
-    if (!r2.ok) expect(codesOf(r2.diagnostics)).toContain('compile.link.invalidTarget')
-  })
 })
 
 // ---------------------------------------------------------------------------

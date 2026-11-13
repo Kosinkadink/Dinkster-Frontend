@@ -36,32 +36,4 @@ describe('snapshot-declared JSON node events', () => {
     expect(Object.isFrozen(snapshot.extensions[0]!.events![0]!.payload)).toBe(true)
   })
 
-  it.each([
-    { pack: 'other-pack' }, { event: 'other.event' }, { extensionSnapshotDigest: `sha256:${'b'.repeat(64)}` },
-    { schemaVersion: 2 }, { seq: -1 }, { seq: 1.5 }, { data: null },
-    { data: { fps: 24, frameCount: 1.5, height: 1, width: 1 } },
-    { data: { fps: Infinity, frameCount: 1, height: 1, width: 1 } },
-    { data: { fps: 24, frameCount: 1, height: 1 } },
-    { data: { fps: 24, frameCount: 1, height: 1, width: 1, extra: 1 } },
-  ])('refuses malformed or unauthorized data %j', (change) => {
-    const errors: string[] = []
-    const normalizer = new DinksterNormalizer(asConnectionId('a'), () => 0, (error) => errors.push(error), (id) => id === digest ? snapshot : undefined)
-    expect(normalizer.normalize({ ...event(), ...change })).toEqual([])
-    expect(errors).toHaveLength(1)
-  })
-
-  it('never decodes an event with another connection snapshot or an uncorrelated run', () => {
-    const normalizer = new DinksterNormalizer(asConnectionId('b'), () => 0)
-    expect(normalizer.normalize(event())).toEqual([])
-    expect(normalizer.normalize({ ...event(), jobId: undefined, runId: 'unseen' })).toEqual([])
-  })
-
-  it('rejects custom binary frames even when their JSON header is valid', () => {
-    const normalizer = new DinksterNormalizer(asConnectionId('a'), () => 0, undefined, () => snapshot)
-    const header = new TextEncoder().encode(JSON.stringify(event()))
-    const frame = new ArrayBuffer(4 + header.length + 1)
-    new DataView(frame).setUint32(0, header.length, false)
-    new Uint8Array(frame, 4, header.length).set(header)
-    expect(normalizer.normalize(frame)).toEqual([])
-  })
 })

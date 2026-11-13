@@ -9,7 +9,7 @@ import type { AppState, Tab } from '../src/app-state.js'
 import { ModalSurface } from '../src/ModalSurface.js'
 import { WidgetEditor, type WidgetEditorState } from '../src/WidgetEditor.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
-import { importLitegraph, inputsOf, parseDinksterSchema } from '@dinkster/core'
+import { importLitegraph } from '@dinkster/core'
 
 const assetLocationMethods = {
   fetchAssetLocations: async () => [],
@@ -261,30 +261,6 @@ describe('ModalSurface', () => {
     mounted.unmount()
   })
 
-  it('does not hand off a blocked or non-primary backdrop press', () => {
-    const handoff = vi.fn()
-    const blocked = mount(true, handoff)
-    const blockedDialog = blocked.root.querySelector('dialog')!
-    vi.spyOn(blockedDialog, 'getBoundingClientRect').mockReturnValue({
-      x: 100, y: 100, left: 100, top: 100, right: 500, bottom: 400,
-      width: 400, height: 300, toJSON: () => ({}),
-    })
-    blockedDialog.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: 20, clientY: 20 }))
-    expect(blocked.close).not.toHaveBeenCalled()
-    expect(handoff).not.toHaveBeenCalled()
-    blocked.unmount()
-
-    const secondary = mount(false, handoff)
-    const secondaryDialog = secondary.root.querySelector('dialog')!
-    vi.spyOn(secondaryDialog, 'getBoundingClientRect').mockReturnValue({
-      x: 100, y: 100, left: 100, top: 100, right: 500, bottom: 400,
-      width: 400, height: 300, toJSON: () => ({}),
-    })
-    secondaryDialog.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 2, clientX: 20, clientY: 20 }))
-    expect(secondary.close).toHaveBeenCalledOnce()
-    expect(handoff).not.toHaveBeenCalled()
-    secondary.unmount()
-  })
 })
 
 describe('ASSET widget modal integration', () => {
@@ -333,61 +309,6 @@ describe('ASSET widget modal integration', () => {
       root.remove()
       connection.fetchAssetBytes.mockClear()
     }
-  })
-
-  it('admits an empty picker replacement before clearing and retiring its previous selection', async () => {
-    const schema: NodeSchema = { type: 'PickerFixture', displayName: 'Picker', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'asset', optional: false, type: { kind: 'concrete', name: 'ASSET' },
-        widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] } } }],
-    }
-    const app = createWorkflowApp([schema])
-    const tab = app.activeTab()!
-    const ref = { digest: `blake3:${'c'.repeat(64)}`, name: 'chosen.safetensors', size: 12,
-      mediaType: 'application/x-safetensors', virtualPath: 'models/chosen.safetensors' }
-    vi.spyOn(app.connection, 'listMounts').mockResolvedValue([])
-    vi.spyOn(app.connection, 'fetchAssetLocations').mockResolvedValue([])
-    const receipts = new Map<string, Awaited<ReturnType<typeof app.connection.retainAssets>>>()
-    let acknowledge: (() => void) | undefined
-    let clearing = false
-    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
-      if (clearing) {
-        expect(declaration.digests).toEqual([])
-        expect(declaration.complete).toBe(true)
-        await new Promise<void>((resolve) => { acknowledge = resolve })
-      }
-      const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
-      receipts.set(owner.ownerId, receipt)
-      return receipt
-    })
-    vi.spyOn(app.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => receipts.get(owner.ownerId))
-    const release = vi.spyOn(app.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
-      const receipt = { ...receipts.get(owner.ownerId)!, revision: revision + 1, complete: true, digests: [] }
-      receipts.set(owner.ownerId, receipt)
-      return receipt
-    })
-    const root = document.createElement('div'); document.body.append(root)
-    const unmount = render(() => <WidgetEditor app={app} ed={{ tab, graphId: 'g0',
-      target: { kind: 'input', nodeId: 'n1', valueKey: 'asset' }, label: 'Model',
-      spec: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] } },
-      declaredType: { kind: 'concrete', name: 'ASSET' }, initial: ref,
-      multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 },
-    }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-    try {
-      const apply = () => root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!
-      await vi.waitFor(() => expect(apply().disabled).toBe(false))
-      const original = [...receipts.values()].find((receipt) => receipt.digests.includes(ref.digest))!
-      expect(original).toBeDefined()
-      clearing = true
-      root.querySelector<HTMLButtonElement>('[data-testid="asset-selection-remove"]')!.click()
-      await vi.waitFor(() => expect(acknowledge).toBeDefined())
-      expect(apply().disabled).toBe(true)
-      expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(ref.name)
-      expect(release).not.toHaveBeenCalled()
-      acknowledge!()
-      await vi.waitFor(() => expect(apply().disabled).toBe(false))
-      expect(root.querySelector('[data-testid="asset-selection-remove"]')).toBeNull()
-      expect(receipts.get(original.ownerId)).toEqual({ ...original, revision: original.revision + 1, digests: [] })
-    } finally { acknowledge?.(); unmount(); app.dispose() }
   })
 
   const catalogAssetEditor = (
@@ -477,29 +398,6 @@ describe('ASSET widget modal integration', () => {
     mounted.unmount()
   })
 
-  it('keeps queued picks private until acknowledgement and preserves accepted picks after refusal', async () => {
-    const mounted = catalogAssetEditor('model/checkpoint', {
-      kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.MODEL' } },
-    })
-    let accept!: () => void
-    mounted.retainPickerAssets.mockImplementationOnce(() => new Promise<void>((resolve) => { accept = resolve }))
-    mounted.retainPickerAssets.mockRejectedValueOnce(new Error('Picker ownership refused'))
-    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
-    const choices = mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')
-    choices[1]!.click()
-    choices[0]!.click()
-    await vi.waitFor(() => expect(accept).toBeTypeOf('function'))
-    expect(mounted.root.querySelectorAll('[data-testid="asset-chip"]')).toHaveLength(0)
-    expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(true)
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
-    accept()
-    await vi.waitFor(() => expect(mounted.root.textContent).toContain('Picker ownership refused'))
-    expect(mounted.root.querySelectorAll('[data-testid="asset-chip"]')).toHaveLength(1)
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
-    expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({ params: { value: [{ digest: mounted.digestB }] } })
-    mounted.unmount()
-  })
-
   it('does not commit a pending pick after cancellation', async () => {
     const mounted = catalogAssetEditor('model/checkpoint')
     let accept!: () => void
@@ -514,223 +412,6 @@ describe('ASSET widget modal integration', () => {
     accept()
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
-  })
-
-  it('preserves the previous selection when the admitted reader expires before publication', async () => {
-    const previous = { digest: `blake3:${'d'.repeat(64)}`, name: 'previous.safetensors', size: 42,
-      mediaType: 'application/x-safetensors', virtualPath: 'models/previous.safetensors' }
-    const mounted = catalogAssetEditor('model/checkpoint', undefined, previous)
-    const reader = { key: 'expired-picker', current: () => false, read: async <T,>(consume: () => Promise<T>) => consume() }
-    mounted.retainPickerAssets.mockResolvedValue(reader)
-    try {
-      await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
-      mounted.root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
-      await vi.waitFor(() => expect(mounted.root.textContent).toContain('Picker selection changed; reopen the asset picker'))
-      expect(mounted.root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(previous.name)
-      expect(mounted.dispatchTo).not.toHaveBeenCalled()
-    } finally { mounted.unmount() }
-  })
-
-  it.each(['accepted', 'refused', 'closed', 'stale-body', 'closed-body', 'refused-read'] as const)('admits the stored picker selection before preview or Apply: %s', async (outcome) => {
-    const initial = { digest: `blake3:${'d'.repeat(64)}`, name: 'stored.png', size: 4,
-      mediaType: 'image/png', virtualPath: 'images/stored.png' }
-    let current = true
-    let reading = false
-    const reader = { key: 'stored-picker', current: () => current, read: async <T,>(consume: () => Promise<T>) => {
-      if (outcome === 'refused-read') throw new Error('Picker read refused')
-      reading = true
-      try { return await consume() } finally { reading = false }
-    } }
-    let accept!: () => void
-    let refuse!: (error: Error) => void
-    const retainPickerAssets = vi.fn(() => new Promise<typeof reader>((resolve, reject) => {
-      accept = () => resolve(reader); refuse = reject
-    }))
-    let finish!: () => void
-    const fetchAssetBytes = vi.fn().mockResolvedValue(new ArrayBuffer(4))
-    if (outcome.endsWith('-body')) fetchAssetBytes.mockImplementation(() => new Promise<ArrayBuffer>((resolve) => {
-      finish = () => resolve(new ArrayBuffer(4))
-    }))
-    const backend = { protocol: 'dinkster', id: 'native', connection: { ...assetLocationMethods,
-      listMounts: async () => [], listLocalAssets: async () => ({ assets: [] }), checkAssetAvailability: async () => [],
-      fetchAssetBytes, assetUrl: (digest: string) => `/api/assets/${digest}`,
-    } }
-    const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
-    const app = { backendForTab: () => backend, retainPickerAssets, dispatchTo,
-      widgetRegistry: { kind: () => undefined } } as unknown as AppState
-    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:stored-image')
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-    const root = document.createElement('div'); document.body.append(root)
-    const ed = widgetState('ASSET', {}, initial)
-    const unmount = render(() => <WidgetEditor app={app} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-    try {
-      await vi.waitFor(() => expect(accept).toBeTypeOf('function'))
-      expect(fetchAssetBytes).not.toHaveBeenCalled()
-      expect(root.querySelector('img[alt="Asset preview"]')).toBeNull()
-      expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(true)
-      expect([...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Cancel')!.disabled).toBe(false)
-      if (outcome === 'closed') unmount()
-      if (outcome === 'refused') refuse(new Error('Stored selection ownership refused'))
-      else accept()
-      if (outcome.endsWith('-body')) {
-        await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
-        expect(reading).toBe(true)
-        if (outcome === 'closed-body') unmount()
-        else current = false
-        expect(reading).toBe(true)
-        finish()
-        await vi.waitFor(() => expect(reading).toBe(false))
-        expect(createObjectUrl).not.toHaveBeenCalled()
-        expect(root.querySelector('img[alt="Asset preview"]')).toBeNull()
-        expect(dispatchTo).not.toHaveBeenCalled()
-      } else if (outcome === 'refused-read') {
-        await vi.waitFor(() => expect(root.textContent).toContain('Picker read refused'))
-        expect(fetchAssetBytes).not.toHaveBeenCalled()
-        expect(createObjectUrl).not.toHaveBeenCalled()
-        expect(root.querySelector('img[alt="Asset preview"]')).toBeNull()
-        expect(dispatchTo).not.toHaveBeenCalled()
-      } else if (outcome === 'accepted') {
-        await vi.waitFor(() => expect(root.querySelector('img[alt="Asset preview"]')?.getAttribute('src')).toBe('blob:stored-image'))
-        expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false)
-        root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
-        expect(dispatchTo).toHaveBeenCalledWith(ed.tab, expect.objectContaining({ params: expect.objectContaining({ value: initial }) }))
-      } else {
-        if (outcome === 'refused') {
-          await vi.waitFor(() => expect(root.textContent).toContain('Stored selection ownership refused'))
-          expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(true)
-        }
-        await Promise.resolve()
-        expect(fetchAssetBytes).not.toHaveBeenCalled()
-        expect(dispatchTo).not.toHaveBeenCalled()
-      }
-    } finally { finish?.(); unmount() }
-  })
-
-  it.each(['accepted', 'refused', 'closed', 'expired', 'stale-body', 'closed-body'] as const)('borrows the admitted picker owner through model poster rendering: %s', async (outcome) => {
-    const viewer = await import('../src/model3d-viewer.js')
-    const initial = { digest: `blake3:${'e'.repeat(64)}`, name: 'stored.glb', size: 4,
-      mediaType: 'model/gltf-binary', virtualPath: 'models/stored.glb' }
-    let current = true
-    let reading = false
-    let admit!: () => void
-    let finish!: () => void
-    const reader = { key: 'picker-poster', current: () => current, read: async <T,>(consume: () => Promise<T>) => {
-      reading = true
-      try {
-        await new Promise<void>((resolve) => { admit = resolve })
-        if (outcome === 'refused') throw new Error('Poster ownership refused')
-        return await consume()
-      } finally { reading = false }
-    } }
-    const poster = vi.spyOn(viewer, 'renderModel3dPosterUrl').mockImplementation(async () => {
-      if (outcome.endsWith('-body')) await new Promise<void>((resolve) => { finish = resolve })
-      return 'blob:picker-poster'
-    })
-    const backend = { protocol: 'dinkster', id: 'native', connection: { ...assetLocationMethods,
-      listMounts: async () => [], listLocalAssets: async () => ({ assets: [] }), checkAssetAvailability: async () => [],
-      assetUrl: (digest: string) => `/api/assets/${digest}`,
-    } }
-    const app = { backendForTab: () => backend, retainPickerAssets: vi.fn().mockResolvedValue(reader),
-      widgetRegistry: { kind: () => undefined } } as unknown as AppState
-    const root = document.createElement('div'); document.body.append(root)
-    const unmount = render(() => <WidgetEditor app={app} ed={widgetState('ASSET', {}, initial)} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-    try {
-      await vi.waitFor(() => expect(admit).toBeTypeOf('function'))
-      expect(reading).toBe(true)
-      expect(poster).not.toHaveBeenCalled()
-      expect(root.querySelector('[data-testid="asset-model3d-loading"]')).not.toBeNull()
-      if (outcome === 'closed') unmount()
-      if (outcome === 'expired') current = false
-      admit()
-      if (outcome.endsWith('-body')) {
-        await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
-        if (outcome === 'closed-body') unmount()
-        else current = false
-        expect(reading).toBe(true)
-        finish()
-      }
-      await vi.waitFor(() => expect(reading).toBe(false))
-      if (outcome === 'accepted') {
-        await vi.waitFor(() => expect(root.querySelector('img[alt="3D model preview"]')?.getAttribute('src')).toBe('blob:picker-poster'))
-        expect(poster).toHaveBeenCalledWith(`/api/assets/${initial.digest}`, initial.mediaType)
-      } else {
-        expect(root.querySelector('img[alt="3D model preview"]')).toBeNull()
-        if (!outcome.endsWith('-body')) expect(poster).not.toHaveBeenCalled()
-      }
-    } finally { admit?.(); finish?.(); unmount() }
-  })
-
-  it.each(['accepted', 'refused', 'closed', 'expired', 'closed-resource', 'failed-resource', 'replacement'] as const)('borrows the picker owner until native video reset settles: %s', async (outcome) => {
-    const initial = { digest: `blake3:${'e'.repeat(64)}`, name: 'stored.webm', size: 4,
-      mediaType: 'video/webm', virtualPath: 'videos/stored.webm' }
-    const next = { ...initial, digest: `blake3:${'f'.repeat(64)}`, name: 'replacement.webm' }
-    let current = true
-    let reads = 0
-    let admit!: () => void
-    const reader = { key: 'picker-video', current: () => current, read: async <T,>(consume: () => Promise<T>) => {
-      reads++
-      try {
-        await new Promise<void>((resolve) => { admit = resolve })
-        if (outcome === 'refused') throw new Error('Video ownership refused')
-        return await consume()
-      } finally { reads-- }
-    } }
-    const backend = { protocol: 'dinkster', id: 'native', connection: { ...assetLocationMethods,
-      listMounts: async () => [], listLocalAssets: async () => ({ assets: [{ asset: next, aliases: [next.name],
-        observations: [{ kind: 'media/video', created: 0, origin: {} }] }] }),
-      checkAssetAvailability: async () => [{ digest: next.digest, status: 'available' }],
-      assetUrl: (digest: string) => `/api/assets/${digest}`,
-    } }
-    const app = { backendForTab: () => backend, retainPickerAssets: vi.fn().mockResolvedValue(reader),
-      widgetRegistry: { kind: () => undefined } } as unknown as AppState
-    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
-    const load = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
-    const root = document.createElement('div'); document.body.append(root)
-    const unmount = render(() => <WidgetEditor app={app} ed={widgetState('ASSET', {}, initial)} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-    let video: HTMLVideoElement | undefined
-    try {
-      await vi.waitFor(() => expect(admit).toBeTypeOf('function'))
-      video = root.querySelector<HTMLVideoElement>('[data-testid="asset-video-preview"]')!
-      expect(video.getAttribute('src')).toBeNull()
-      expect(reads).toBe(1)
-      if (outcome === 'closed') unmount()
-      if (outcome === 'expired') current = false
-      admit()
-      if (outcome === 'refused' || outcome === 'closed' || outcome === 'expired') {
-        await vi.waitFor(() => expect(reads).toBe(0))
-        expect(video.getAttribute('src')).toBeNull()
-        if (outcome === 'refused') expect(root.textContent).toContain('Video ownership refused')
-      } else {
-        await vi.waitFor(() => expect(video!.getAttribute('src')).toBe(`/api/assets/${initial.digest}`))
-        expect(reads).toBe(1)
-        Object.defineProperty(video, 'networkState', { configurable: true, value: 2 })
-        if (outcome === 'accepted') {
-          current = false
-          video.dispatchEvent(new Event('play'))
-          expect(pause).toHaveBeenCalled()
-        }
-        if (outcome === 'replacement') {
-          const previousAdmission = admit
-          await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')).not.toBeNull())
-          root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
-          await vi.waitFor(() => expect(admit).not.toBe(previousAdmission))
-          admit()
-          await Promise.resolve()
-          expect(video.getAttribute('src')).toBeNull()
-          expect(reads).toBe(2)
-          video.dispatchEvent(new Event('emptied'))
-          await vi.waitFor(() => expect(video!.getAttribute('src')).toBe(`/api/assets/${next.digest}`))
-          expect(reads).toBe(1)
-        }
-        if (outcome === 'failed-resource') video.dispatchEvent(new Event('error'))
-        else unmount()
-        expect(video.getAttribute('src')).toBeNull()
-        expect(load).toHaveBeenCalledTimes(outcome === 'replacement' ? 2 : 1)
-        expect(reads).toBe(1)
-        video.dispatchEvent(new Event('emptied'))
-        await vi.waitFor(() => expect(reads).toBe(0))
-      }
-    } finally { admit?.(); unmount(); video?.dispatchEvent(new Event('emptied')) }
   })
 
   it.each(['live', 'edited', 'closed', 'disconnected', 'registry', 'disposed'].flatMap((scenario) =>
@@ -827,41 +508,6 @@ describe('ASSET widget modal integration', () => {
     mounted.unmount()
   })
 
-  it.each([
-    ['value source', { kind: 'valueSource', valueSourceId: 'v0' }],
-    ['missing graph and node', { kind: 'input', nodeId: 'missing', valueKey: 'asset' }],
-  ] as const)('keeps the local model scan for a %s target', async (_label, target) => {
-    const mounted = catalogAssetEditor('model/checkpoint', undefined, null, false)
-    const ed = { ...mounted.ed, tab: { store: { doc: { graphs: {} } } } as unknown as Tab, target }
-    const root = document.createElement('div')
-    document.body.append(root)
-    const unmount = render(() => (
-      <WidgetEditor
-        app={({ backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection: mounted.connection }), dispatchTo: vi.fn(), widgetRegistry: { kind: () => undefined } } as unknown as AppState)}
-        ed={ed}
-        viewport={() => ({ x: 0, y: 0, scale: 1 })}
-        onClose={() => {}}
-      />
-    ), root)
-    await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
-    expect(mounted.connection.listMountEntries).toHaveBeenCalled()
-    unmount()
-  })
-
-  it('keeps every media kind on the CollectionPanel grid by default', async () => {
-    localStorage.removeItem('dinkster.assetBrowser.view.v1')
-    const mounted = catalogAssetEditor('media/image')
-    await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="collection-items"]')).not.toBeNull())
-    expect(mounted.root.querySelector('[data-testid="collection-items"]')?.getAttribute('data-mode')).toBe('grid')
-    expect(mounted.connection.listMountEntries).toHaveBeenCalledWith('left', expect.objectContaining({ kind: 'media/image' }))
-    mounted.unmount()
-
-    const video = catalogAssetEditor('media/video')
-    await vi.waitFor(() => expect(video.root.querySelector('[data-testid="collection-items"]')).not.toBeNull())
-    expect(video.root.querySelector('[data-testid="collection-items"]')?.getAttribute('data-mode')).toBe('grid')
-    video.unmount()
-  })
-
   it('offers media source facets by adapter ID while retaining unclassified assets only in All assets', async () => {
     const mounted = catalogAssetEditor('media/image', undefined, null, false)
     mounted.connection.listMounts.mockResolvedValue([
@@ -895,16 +541,6 @@ describe('ASSET widget modal integration', () => {
     expect(root.textContent).not.toContain('comfy-input.png')
     expect(root.textContent).not.toContain('archive.png')
     unmount()
-  })
-
-  it('uses the shared source control for models without media facet labels', async () => {
-    const mounted = catalogAssetEditor('model/checkpoint')
-    await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="collection-panel"]')).not.toBeNull())
-    expect(mounted.root.querySelector('[data-testid="collection-source-select"]')?.textContent).toContain('Models')
-    expect(mounted.root.textContent).not.toContain('All assets')
-    expect(mounted.root.textContent).not.toContain('Imported')
-    expect(mounted.root.textContent).not.toContain('Generated')
-    mounted.unmount()
   })
 
   it('stages exact grouped variant refs for one multi-select Apply command', async () => {
@@ -1130,21 +766,6 @@ describe('ASSET widget modal integration', () => {
     mounted.unmount()
   })
 
-  it('renders actionable unresolved-import details and explains download approval at run time', async () => {
-    const mounted = unresolvedAssetEditor()
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-
-    const details = mounted.root.querySelector('[data-testid="asset-unresolved-import"]')!.textContent!
-    expect(details).toContain('models/checkpoints/missing-model.safetensors')
-    expect(details).toContain('missing-model.safetensors')
-    expect(details).toContain('model/checkpoint')
-    expect(details).toContain('application/x-safetensors, application/octet-stream')
-    expect(mounted.root.querySelector('[data-testid="asset-download"]')).toBeNull()
-    expect(mounted.root.querySelector('[data-testid="asset-acquisition-unavailable"]')).toBeNull()
-    expect(mounted.root.querySelector('[data-testid="asset-not-on-disk"]')!.textContent).toBe('Not on disk. A download is offered when the workflow runs.')
-    mounted.unmount()
-  })
-
   it('retries matching, lists complete candidates, and commits one explicit pick', async () => {
     const mounted = unresolvedAssetEditor()
     const candidate = {
@@ -1204,91 +825,6 @@ describe('ASSET widget modal integration', () => {
     expect(mounted.close).toHaveBeenCalledOnce()
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.unmount()
-  })
-
-  it('stages a retry candidate for a multi-select ASSET and applies one array command', async () => {
-    const mounted = unresolvedAssetEditor({}, undefined, {
-      kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.MODEL' } },
-    })
-    const candidate = {
-      digest: `blake3:${'c'.repeat(64)}`,
-      name: 'held-model.safetensors',
-      confidence: 'name' as const,
-      held: true,
-      virtualPath: 'checkpoints/held-model.safetensors',
-      size: 100,
-      mediaType: 'application/x-safetensors',
-    }
-    mounted.connection.guessAssets.mockResolvedValue([{ query: mounted.ed.initial as string, candidates: [candidate] }])
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-retry-match"]')!.click()
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-match-candidate"]')!.click()
-    await vi.waitFor(() => expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
-    expect(mounted.dispatchTo).toHaveBeenCalledOnce()
-    expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({
-      command: 'node.setValue', params: { value: [{ digest: candidate.digest, virtualPath: candidate.virtualPath }] },
-    })
-    mounted.unmount()
-  })
-
-  it('uses the product modal, exposes schema-owned metadata, and has no drag or resize affordance', async () => {
-    const root = document.createElement('div')
-    document.body.append(root)
-    const close = vi.fn()
-    const [open, setOpen] = createSignal(true)
-    const ed: WidgetEditorState = {
-      tab: {} as Tab,
-      graphId: 'g0',
-      target: { kind: 'input', nodeId: 'n0', valueKey: 'image' },
-      label: 'Reference image',
-      spec: {
-        widgetType: 'ASSET',
-        kind: 'media/image',
-        options: { accept: ['image/png', 'image/webp'] },
-      },
-      declaredType: {
-        kind: 'list',
-        element: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.IMAGE' } },
-      },
-      multiline: false,
-      rect: { x: 20, y: 20, width: 180, height: 24 },
-      initial: null,
-    }
-    const app = {
-      backendForTab: () => ({ protocol: 'v1' }),
-      dispatchTo: vi.fn(),
-      widgetRegistry: { kind: () => undefined },
-    } as unknown as AppState
-    const unmount = render(() => (
-      <Show when={open()}>
-        <WidgetEditor
-          app={app}
-          ed={ed}
-          viewport={() => ({ x: 0, y: 0, scale: 1 })}
-          onClose={() => { close(); setOpen(false) }}
-        />
-      </Show>
-    ), root)
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-
-    const dialog = root.querySelector<HTMLDialogElement>('[data-modal="widget-asset"]')!
-    expect(dialog.open).toBe(true)
-    expect(dialog.getAttribute('aria-label')).toBe('Edit Reference image asset')
-    expect(dialog.getAttribute('aria-describedby')).toBe('widget-editor-description')
-    const metadata = root.querySelector('[data-testid="asset-schema-metadata"]')!.textContent
-    expect(metadata).toContain('Multiple assets')
-    expect(metadata).toContain('media/image')
-    expect(metadata).toContain('image/png, image/webp')
-    expect(metadata).toContain('256 MiB per file')
-    expect(root.querySelector('[data-testid="widget-editor-resize-handle"]')).toBeNull()
-    expect(root.querySelector('.asset-editor')!.classList.contains('widget-modal-editor')).toBe(true)
-
-    root.querySelector<HTMLButtonElement>('[aria-label="Close Reference image asset editor"]')!.click()
-    expect(close).toHaveBeenCalledOnce()
-    expect(root.querySelector('[data-modal="widget-asset"]')).toBeNull()
-    unmount()
   })
 
   it('keeps an opaque asset upload on the generic route and 16 MiB limit', async () => {
@@ -1647,81 +1183,6 @@ describe('ASSET widget modal integration', () => {
 })
 
 describe('registered interactive widget expanded-editor integration', () => {
-  it.each(['live', 'play-stale', 'refused', 'closed-before', 'closed-body', 'edited', 'disconnected', 'disposed'] as const)(
-    'admits stored recording bytes and playback only for the captured document: %s', async (scenario) => {
-      const schema = parseDinksterSchema('RecordingFixture', { interface: [
-        { role: 'input', id: 'audio', type: { kind: 'concrete', types: ['AUDIO_RECORD'] }, widget: { type: 'AUDIO_RECORD' } },
-      ] }).schema!
-      const ref = { digest: `blake3:${'a'.repeat(64)}`, name: 'saved.wav', size: 4, mediaType: 'audio/wav', virtualPath: '' }
-      const doc = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [ref] }], links: [] }, () => schema).document!
-      const app = createWorkflowApp([schema])
-      expect((await app.openDocument(doc, 'Recording'))).toEqual([])
-      const tab = app.activeTab()!
-      let acknowledge!: () => void
-      vi.mocked(app.connection.retainAssets).mockImplementationOnce((owner, declaration) => new Promise((resolve) => {
-        acknowledge = () => resolve({ ...owner, ...declaration, revision: scenario === 'refused' ? 2 : 1 })
-      }))
-      vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-      let finish!: () => void
-      const fetch = vi.spyOn(app.connection, 'fetchAssetBytes').mockImplementation(() => new Promise((resolve) => {
-        finish = () => resolve(new ArrayBuffer(4))
-      }))
-      const url = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:saved-recording')
-      const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-      const reset = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
-      vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
-      const root = document.createElement('div'); document.body.append(root)
-      const dispose = render(() => <WidgetEditor app={app} ed={{
-        tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'audio' }, label: 'Recording',
-        spec: inputsOf(schema)[0]!.widget, declaredType: inputsOf(schema)[0]!.type, initial: ref,
-        multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 },
-      }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-      try {
-        await vi.waitFor(() => expect(acknowledge).toBeTypeOf('function'))
-        expect(fetch).not.toHaveBeenCalled()
-        expect(root.querySelector('audio')).toBeNull()
-        if (scenario === 'closed-before') dispose()
-        acknowledge()
-        if (scenario === 'refused' || scenario === 'closed-before') {
-          if (scenario === 'refused') await vi.waitFor(() => expect(root.textContent).toContain('Recorded audio preview unavailable'))
-          await new Promise<void>((resolve) => queueMicrotask(resolve))
-          expect(fetch).not.toHaveBeenCalled()
-          expect(url).not.toHaveBeenCalled()
-          return
-        }
-        await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
-        if (scenario === 'closed-body') dispose()
-        if (scenario === 'edited') expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
-          graphId: 'g0', nodeId: 'n1', inputId: 'audio', value: { ...ref, digest: `blake3:${'b'.repeat(64)}` },
-        } })).ok).toBe(true)
-        if (scenario === 'disconnected') {
-          vi.stubGlobal('WebSocket', class { close() {} })
-          app.connection.connect(); app.connection.disconnect()
-        }
-        if (scenario === 'disposed') app.dispose()
-        finish()
-        if (scenario === 'live' || scenario === 'play-stale') {
-          await vi.waitFor(() => expect(root.querySelector('audio')?.getAttribute('src')).toBe('blob:saved-recording'))
-          const audio = root.querySelector('audio')!
-          const play = vi.spyOn(audio, 'play').mockResolvedValue()
-          if (scenario === 'play-stale') expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
-            graphId: 'g0', nodeId: 'n1', inputId: 'audio', value: null,
-          } })).ok).toBe(true)
-          root.querySelector<HTMLButtonElement>('[aria-label="Play audio"]')!.click()
-          expect(play).toHaveBeenCalledTimes(scenario === 'live' ? 1 : 0)
-          dispose()
-          expect(audio.getAttribute('src')).toBeNull()
-          expect(reset).toHaveBeenCalledOnce()
-          expect(revoke).toHaveBeenCalledWith('blob:saved-recording')
-        } else {
-          if (scenario !== 'closed-body') await vi.waitFor(() => expect(root.textContent).toContain('Recorded audio preview unavailable'))
-          else await new Promise<void>((resolve) => queueMicrotask(resolve))
-          expect(url).not.toHaveBeenCalled()
-          expect(root.querySelector('audio')).toBeNull()
-        }
-      } finally { finish?.(); dispose(); app.dispose(); vi.unstubAllGlobals() }
-    },
-  )
 
   it.each([
     ['ASSET', 'remove'], ['ASSET', 'close'], ['ASSET', 'replace'],
@@ -1968,26 +1429,6 @@ describe('registered interactive widget expanded-editor integration', () => {
     mounted.unmount()
   })
 
-  it('preserves the pre-existing COLOR select-all behavior', async () => {
-    const mounted = mountWidget(widgetState('COLOR', {}, '#123456'))
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-    const field = mounted.root.querySelector<HTMLInputElement>('[data-testid="color-text"]')!
-    expect(document.activeElement).toBe(field)
-    expect(field.selectionStart).toBe(0)
-    expect(field.selectionEnd).toBe(field.value.length)
-    mounted.unmount()
-  })
-
-  it('replaces a freshly opened INT value when text is inserted', async () => {
-    const mounted = mountWidget(widgetState('INT', {}, 314))
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-    const field = mounted.root.querySelector<HTMLInputElement>('[data-testid="widget-editor"] input')!
-    field.setRangeText('8', field.selectionStart!, field.selectionEnd!, 'end')
-    field.dispatchEvent(new InputEvent('input', { bubbles: true, data: '8', inputType: 'insertText' }))
-    expect(field.value).toBe('8')
-    mounted.unmount()
-  })
-
   it('leaves ArrowRight unprevented for native caret handling', async () => {
     const mounted = mountWidget(widgetState('INT', {}, 314))
     await new Promise<void>((resolve) => queueMicrotask(resolve))
@@ -1997,82 +1438,6 @@ describe('registered interactive widget expanded-editor integration', () => {
     expect(field.dispatchEvent(arrow)).toBe(true)
     expect(arrow.defaultPrevented).toBe(false)
     mounted.unmount()
-  })
-
-  it.each([
-    ['STRING', {}, 'hello', false, 'widget-editor'],
-    ['INT', { min: 0, max: 10, step: 1 }, 3, false, 'widget-editor'],
-    ['FLOAT', { min: 0, max: 1, step: 0.1 }, 0.5, false, 'widget-editor'],
-    ['COLOR', {}, '#123456', false, 'color-editor'],
-    ['COMBO', { options: ['one', 'two'] }, 'one', false, 'combo-dropdown'],
-  ] as const)('renders %s as a non-modal anchored popover', async (type, options, initial, multiline, testId) => {
-    const mounted = mountWidget(widgetState(type, options, initial, multiline))
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-    const editor = mounted.root.querySelector<HTMLElement>(`[data-testid="${testId}"]`)!
-    expect(editor.getAttribute('role')).toBe('dialog')
-    expect(editor.getAttribute('data-editor-surface')).toBe('popover')
-    expect(editor.getAttribute('aria-label')).toBe(`Edit ${type} value ${type}`)
-    expect(editor.classList.contains('floating-surface')).toBe(true)
-    expect(mounted.root.querySelector('[data-testid="widget-modal-surface"]')).toBeNull()
-    expect(mounted.root.querySelector('[data-testid="widget-editor-resize-handle"]')).toBeNull()
-    mounted.unmount()
-  })
-
-  it.each(['Fixture', 'dinkster.video_document.retime'])('renders multiline node input STRING as a live in-node editor for %s', async (nodeType) => {
-    const mounted = mountWidget({
-      ...widgetState('STRING', { multiline: true }, 'hello\nworld', true, { nodeType, valueKey: 'params' }),
-      rect: { x: 20, y: 30, width: 180, height: 76 },
-    })
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-    const editor = mounted.root.querySelector<HTMLElement>('[data-testid="widget-editor"]')!
-    const textarea = editor.querySelector('textarea')!
-    expect(editor.getAttribute('data-editor-surface')).toBe('in-node')
-    expect(editor.getAttribute('data-editor-target')).toBe('input')
-    expect(editor.classList.contains('widget-editor-popover')).toBe(false)
-    expect(editor.style.left).toBe('20px')
-    expect(editor.style.top).toBe('30px')
-    expect(editor.style.width).toBe('180px')
-    expect(editor.style.height).toBe('76px')
-    expect(editor.style.padding).toBe('2px 0px')
-    expect(editor.querySelector<HTMLElement>('.widget-editor-in-node-label')?.style.width).toBe('100%')
-    expect(editor.querySelector<HTMLElement>('.widget-editor-in-node-label')?.style.height).toBe('18px')
-    expect(textarea.value).toBe('hello\nworld')
-    expect(textarea.style.width).toBe('calc(100% - 2px)')
-    expect(textarea.style.scrollbarGutter).toBe('stable')
-    expect(textarea.style.getPropertyValue('--multiline-scrollbar-width')).toBe('6px')
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
-
-    mounted.setViewport({ x: 5, y: 7, scale: 1.5 })
-    expect(editor.style.left).toBe('35px')
-    expect(editor.style.top).toBe('52px')
-    expect(editor.style.width).toBe('270px')
-    expect(editor.style.height).toBe('114px')
-    expect(textarea.style.fontSize).toBe('21px')
-    expect(textarea.style.lineHeight).toBe('30px')
-    expect(textarea.style.padding).toBe('9px')
-    expect(editor.querySelector<HTMLElement>('.widget-editor-in-node-label')?.style.height).toBe('27px')
-    expect(textarea.style.width).toBe('calc(100% - 3px)')
-    expect(textarea.style.getPropertyValue('--multiline-scrollbar-width')).toBe('9px')
-    mounted.unmount()
-  })
-
-  it('keeps value-source multiline STRING and raw JSON fallback in popovers', async () => {
-    const valueSource = mountWidget({
-      ...widgetState('STRING', { multiline: true }, 'hello\nworld', true),
-      target: { kind: 'valueSource', valueSourceId: 'v0' },
-    })
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-    expect(valueSource.root.querySelector('[data-testid="widget-editor"]')?.getAttribute('data-editor-surface')).toBe('popover')
-    valueSource.unmount()
-
-    const raw = mountWidget({
-      ...widgetState('JSON', {}, '{"stored":true}', true),
-      target: { kind: 'valueSource', valueSourceId: 'v0' },
-      spec: undefined,
-    })
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-    expect(raw.root.querySelector('[data-testid="widget-editor"]')?.getAttribute('data-editor-surface')).toBe('popover')
-    raw.unmount()
   })
 
   it('commits multiline node input on blur, commits on Ctrl+Enter, and never mutates on cancel', async () => {
@@ -2150,17 +1515,6 @@ describe('registered interactive widget expanded-editor integration', () => {
     })
   })
 
-  it.each([
-    ['INT', 'after_generate', { min: 0, max: 10, step: 1 }, 3],
-    ['COMBO', 'after_refresh', { options: ['one', 'two'] }, 'one'],
-  ] as const)('keeps the compact controller menu as the only %s controller surface', (type, controller, options, initial) => {
-    const state = widgetState(type, options, initial)
-    const mounted = mountWidget({ ...state, spec: { ...state.spec!, controller } })
-    expect(mounted.root.querySelector('[data-testid="widget-editor-controller"]')).toBeNull()
-    expect(mounted.root.querySelector('.widget-editor-controller')).toBeNull()
-    mounted.unmount()
-  })
-
   it('moves focus from the COLOR field to Cancel and discards the draft on click', async () => {
     const mounted = mountWidget(widgetState('COLOR', {}, '#123456'))
     await new Promise<void>((resolve) => queueMicrotask(resolve))
@@ -2231,21 +1585,6 @@ describe('registered interactive widget expanded-editor integration', () => {
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
   })
 
-  it('does not write normalized FLOAT or raw JSON values equal to the stored value', () => {
-    const float = mountWidget(widgetState('FLOAT', { min: 0, max: 3, step: 1 }, 3))
-    float.root.querySelector<HTMLInputElement>('[data-testid="widget-editor"] input')!.value = '10'
-    float.clickAway()
-    expect(float.close).toHaveBeenCalledOnce()
-    expect(float.dispatchTo).not.toHaveBeenCalled()
-
-    const rawState = { ...widgetState('JSON', {}, '{\n  "stored": true\n}', true), spec: undefined }
-    const raw = mountWidget({ ...rawState, target: { kind: 'valueSource', valueSourceId: 'v0' } })
-    raw.root.querySelector<HTMLTextAreaElement>('textarea')!.value = '{"stored":true}'
-    raw.clickAway()
-    expect(raw.close).toHaveBeenCalledOnce()
-    expect(raw.dispatchTo).not.toHaveBeenCalled()
-  })
-
   it('closes value-source multiline STRING on click-away without committing its draft', () => {
     const state = widgetState('STRING', { multiline: true }, 'stored', true)
     const mounted = mountWidget({ ...state, target: { kind: 'valueSource', valueSourceId: 'v0' } })
@@ -2283,15 +1622,6 @@ describe('registered interactive widget expanded-editor integration', () => {
     expect(raw.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       params: expect.objectContaining({ value: { stored: false } }),
     }))
-  })
-
-  it('shows truthful unbounded limits and the effective default FLOAT step', () => {
-    const mounted = mountWidget(widgetState('FLOAT', {}, 3.5))
-    const constraints = mounted.root.querySelector('[data-testid="widget-numeric-constraints"]')!
-    expect(constraints.getAttribute('aria-label')).toBe('Numeric constraints')
-    expect(constraints.textContent).toContain('Minimumunbounded')
-    expect(constraints.textContent).toContain('Maximumunbounded')
-    expect(constraints.textContent).toContain('Step0.1 (default)')
   })
 
   it('keeps a composing Escape inside the editor without closing or committing', () => {

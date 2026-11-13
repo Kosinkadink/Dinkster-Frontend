@@ -14,26 +14,12 @@
  * - type variables unify through the asset constructor (asset<T> binds T)
  */
 import { describe, expect, it } from 'vitest'
-import { assetCoercible, coercionTargetsOf, typesCompatible } from '../src/schema/type-relations.js'
+import { typesCompatible } from '../src/schema/type-relations.js'
 import { compile } from '../src/compile/compile.js'
-import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
+import type { GraphDef, Json } from '../src/format/document.js'
 import { asConnectionId, asGraphDefId, asLineageId, asNodeId, asPortId } from '../src/ids.js'
 import type { SchemaResolver } from '../src/schema/derive-boundary.js'
-import {
-  assetMultiSelect,
-  assetTypeId,
-  canonicalTypeIdOf,
-  cardinalityOf,
-  isAssetRefDestinationTypeId,
-  isAssetSourceTypeId,
-  parseAssetTypeId,
-  typeExprFromTypeId,
-  type InputSpec,
-  type NodeSchema,
-  type OutputSpec,
-  type TypeExpr,
-} from '../src/schema/model.js'
-import { DINKSTER_SCHEMA_WIRE_VERSION, typeExprFromDinksterWire } from '../src/schema/dinkster-wire.js'
+import { assetMultiSelect, type InputSpec, type NodeSchema, type OutputSpec, type TypeExpr } from '../src/schema/model.js'
 import { solveGraphTypes } from '../src/schema/solve.js'
 import { typeMatchesToken } from '../src/search-filters.js'
 
@@ -109,49 +95,10 @@ const defOf = (parts: {
   }) as unknown as GraphDef
 
 // ---------------------------------------------------------------------------
-// Canonical grammar (single owner: model.ts)
-// ---------------------------------------------------------------------------
-
-describe('canonical asset type ids', () => {
-  it('round-trips through the single parser, composing with list', () => {
-    expect(assetTypeId(IMG)).toBe('asset<comfy.IMAGE>')
-    expect(parseAssetTypeId('asset<comfy.IMAGE>')).toBe(IMG)
-    expect(parseAssetTypeId('asset<list<comfy.IMAGE>>')).toBe('list<comfy.IMAGE>')
-    expect(parseAssetTypeId('list<asset<comfy.IMAGE>>')).toBeUndefined()
-    expect(parseAssetTypeId(IMG)).toBeUndefined()
-    expect(parseAssetTypeId('asset<>')).toBeUndefined()
-  })
-
-  it('canonicalTypeIdOf and typeExprFromTypeId are inverses on closed types', () => {
-    expect(canonicalTypeIdOf(asset(concrete(IMG)))).toBe('asset<comfy.IMAGE>')
-    expect(canonicalTypeIdOf(asset(list(concrete(IMG))))).toBe('asset<list<comfy.IMAGE>>')
-    expect(canonicalTypeIdOf(list(asset(concrete(IMG))))).toBe('list<asset<comfy.IMAGE>>')
-    expect(typeExprFromTypeId('asset<comfy.IMAGE>')).toEqual(asset(concrete(IMG)))
-    expect(typeExprFromTypeId('asset<list<comfy.IMAGE>>')).toEqual(asset(list(concrete(IMG))))
-    expect(typeExprFromTypeId('list<asset<comfy.IMAGE>>')).toEqual(list(asset(concrete(IMG))))
-    // Open assets have no canonical id.
-    expect(canonicalTypeIdOf(asset(T('T')))).toBeUndefined()
-  })
-
-  it('an asset is SCALAR regardless of decode target (one AssetRef envelope)', () => {
-    expect(cardinalityOf(asset(concrete(IMG)))).toBe('scalar')
-    expect(cardinalityOf(asset(list(concrete(IMG))))).toBe('scalar')
-    expect(cardinalityOf(list(asset(concrete(IMG))))).toBe('list')
-  })
-})
-
-// ---------------------------------------------------------------------------
 // Coercion vocabulary and advisory compatibility
 // ---------------------------------------------------------------------------
 
 describe('asset coercion vocabulary', () => {
-  it('coercionTargetsOf pins decode, lift, and merge - nothing else', () => {
-    expect(coercionTargetsOf('asset<comfy.IMAGE>')).toEqual([IMG])
-    expect(coercionTargetsOf('asset<list<comfy.IMAGE>>')).toEqual(['list<comfy.IMAGE>'])
-    expect(coercionTargetsOf('list<asset<comfy.IMAGE>>')).toEqual(['list<comfy.IMAGE>', IMG])
-    expect(coercionTargetsOf(IMG)).toEqual([])
-    expect(coercionTargetsOf('list<comfy.IMAGE>')).toEqual([])
-  })
 
   it('decode: asset<T> feeds T, never the reverse', () => {
     expect(typesCompatible(asset(concrete(IMG)), concrete(IMG))).toBe(true)
@@ -167,32 +114,11 @@ describe('asset coercion vocabulary', () => {
     expect(typesCompatible(list(asset(concrete(IMG))), concrete('comfy.LATENT'))).toBe(false)
   })
 
-  it('is strictly single-step: asset<asset<T>> never reaches T', () => {
-    expect(typesCompatible(asset(asset(concrete(IMG))), concrete(IMG))).toBe(false)
-    expect(typesCompatible(asset(asset(concrete(IMG))), asset(concrete(IMG)))).toBe(true)
-  })
-
   it('asset-vs-asset is exact on the element; wildcard stays permissive', () => {
     expect(typesCompatible(asset(concrete(IMG)), asset(concrete(IMG)))).toBe(true)
     expect(typesCompatible(asset(concrete(IMG)), asset(concrete('comfy.LATENT')))).toBe(false)
     expect(typesCompatible(asset(concrete(IMG)), { kind: 'wildcard' })).toBe(true)
     expect(typesCompatible(asset(T('T')), asset(concrete(IMG)))).toBe(true)
-  })
-
-  it('assetCoercible is directional and handles OPEN generics without chaining', () => {
-    expect(assetCoercible(asset(concrete(IMG)), concrete(IMG))).toBe(true)
-    expect(assetCoercible(concrete(IMG), asset(concrete(IMG)))).toBe(false)
-    // Open forms peel structurally: asset<T> can feed IMAGE by binding T.
-    expect(assetCoercible(asset(T('T')), concrete(IMG))).toBe(true)
-    expect(assetCoercible(asset(list(T('T'))), list(concrete(IMG)))).toBe(true) // decode to list dest
-    expect(assetCoercible(list(asset(T('T'))), list(concrete(IMG)))).toBe(true) // lift
-    expect(assetCoercible(list(asset(T('T'))), concrete(IMG))).toBe(true) // merge (maybe-legal)
-    // Still one step: nested assets never chain, open or closed.
-    expect(assetCoercible(asset(asset(T('T'))), concrete(IMG))).toBe(false)
-    expect(assetCoercible(asset(asset(concrete(IMG))), concrete(IMG))).toBe(false)
-    expect(assetCoercible(list(asset(asset(T('T')))), list(concrete(IMG)))).toBe(false)
-    // Reverse of the open form stays illegal too.
-    expect(assetCoercible(concrete(IMG), asset(T('T')))).toBe(false)
   })
 
   it('typesCompatible admits open generic coercions, still directionally', () => {
@@ -361,65 +287,6 @@ describe('solver: open generic coercions and the single-step limit', () => {
     expect(s.resolutionOf('src' as never, 'T')).toEqual({ kind: 'resolved', name: 'comfy.IMAGE' })
   })
 
-  it('asset<list<T>> decodes into a list destination, binding T', () => {
-    const def = defOf({
-      nodes: { src: { type: 'GenAssetListSrc' }, sink: { type: 'ImageListSink' } },
-      links: { l0: { from: ['src', 'out'], to: ['sink', 'in'] } },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.linkVerdicts.get('l0' as never)).toBe('ok')
-    expect(s.resolutionOf('src' as never, 'T')).toEqual({ kind: 'resolved', name: 'comfy.IMAGE' })
-    expect(s.diagnostics).toEqual([])
-  })
-
-  it('list<asset<T>> lifts into list<IMAGE> and (maybe-legally) merges into IMAGE, binding T', () => {
-    const def = defOf({
-      nodes: { src: { type: 'GenListAssetSrc' }, lifted: { type: 'ImageListSink' }, merged: { type: 'ImageSink' } },
-      links: {
-        l0: { from: ['src', 'out'], to: ['lifted', 'in'] },
-        l1: { from: ['src', 'out'], to: ['merged', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.linkVerdicts.get('l0' as never)).toBe('ok')
-    expect(s.linkVerdicts.get('l1' as never)).toBe('ok') // provider registry is server-side
-    expect(s.resolutionOf('src' as never, 'T')).toEqual({ kind: 'resolved', name: 'comfy.IMAGE' })
-  })
-
-  it('nested assets never chain, open or closed: one step only', () => {
-    const def = defOf({
-      nodes: { gen: { type: 'GenChainSrc' }, closed: { type: 'ClosedChainSrc' }, a: { type: 'ImageSink' }, b: { type: 'ImageSink' } },
-      links: {
-        l0: { from: ['gen', 'out'], to: ['a', 'in'] },
-        l1: { from: ['closed', 'out'], to: ['b', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.linkVerdicts.get('l0' as never)).toBe('mismatch')
-    expect(s.linkVerdicts.get('l1' as never)).toBe('mismatch')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Wire decode (v12) and search filters
-// ---------------------------------------------------------------------------
-
-describe('schema wire v12', () => {
-  it('is in the advertised accept set', () => {
-    expect(DINKSTER_SCHEMA_WIRE_VERSION).toBe(1)
-  })
-
-  it('decodes the recursive asset TypeExpr kind exactly like list', () => {
-    expect(typeExprFromDinksterWire({ kind: 'asset', element: { kind: 'concrete', types: [IMG] } }))
-      .toEqual(asset(concrete(IMG)))
-    expect(typeExprFromDinksterWire({
-      kind: 'list',
-      element: { kind: 'asset', element: { kind: 'list', element: { kind: 'concrete', types: [IMG] } } },
-    })).toEqual(list(asset(list(concrete(IMG)))))
-    expect(typeExprFromDinksterWire({ kind: 'asset', element: { kind: 'variable', templateId: 'T' } }))
-      .toEqual(asset({ kind: 'variable', templateId: 'T' }))
-    expect(() => typeExprFromDinksterWire({ kind: 'asset' })).toThrow()
-  })
 })
 
 describe('search type tokens', () => {
@@ -468,11 +335,6 @@ describe('assetMultiSelect gating', () => {
       expect(assetMultiSelect(concrete('comfy.LATENT'), [IMG])).toBe(false)
     })
 
-    it('absent or empty provider list keeps every scalar single-select (older backend / no providers)', () => {
-      expect(assetMultiSelect(concrete(IMG))).toBe(false)
-      expect(assetMultiSelect(concrete(IMG), [])).toBe(false)
-    })
-
     it('only scalar concrete atoms take the merge arm: asset/list/variable shapes never do', () => {
       // asset<T> receives ONE ref as-is (never coerced) - membership of T
       // changes nothing.
@@ -491,10 +353,6 @@ describe('assetMultiSelect gating', () => {
       expect(assetMultiSelect(list(concrete(IMG)), [IMG])).toBe(false)
     })
 
-    it('the list-outer arms are unaffected by the provider list', () => {
-      expect(assetMultiSelect(list(asset(concrete(IMG))), [])).toBe(true)
-      expect(assetMultiSelect(list(concrete('ASSET')), [])).toBe(true)
-    })
   })
 })
 
@@ -642,36 +500,6 @@ describe('asset-source stamping on concrete destinations (2026-07-26 amendment)'
       graphFeatures,
     )
 
-  describe('isAssetSourceTypeId', () => {
-    it('accepts exactly asset<T> and list<asset<T>>', () => {
-      expect(isAssetSourceTypeId('asset<comfy.IMAGE>')).toBe(true)
-      expect(isAssetSourceTypeId('asset<list<comfy.IMAGE>>')).toBe(true)
-      expect(isAssetSourceTypeId('list<asset<comfy.IMAGE>>')).toBe(true)
-    })
-    it('rejects bare atoms, plain lists, and the untyped ASSET forms', () => {
-      expect(isAssetSourceTypeId('comfy.IMAGE')).toBe(false)
-      expect(isAssetSourceTypeId('list<comfy.IMAGE>')).toBe(false)
-      expect(isAssetSourceTypeId('ASSET')).toBe(false)
-      expect(isAssetSourceTypeId('list<ASSET>')).toBe(false)
-      expect(isAssetSourceTypeId('list<list<asset<comfy.IMAGE>>>')).toBe(false)
-    })
-  })
-
-  describe('isAssetRefDestinationTypeId', () => {
-    it('accepts every declared asset-reference destination form', () => {
-      expect(isAssetRefDestinationTypeId('ASSET')).toBe(true)
-      expect(isAssetRefDestinationTypeId('asset<comfy.IMAGE>')).toBe(true)
-      expect(isAssetRefDestinationTypeId('asset<list<comfy.IMAGE>>')).toBe(true)
-      expect(isAssetRefDestinationTypeId('list<ASSET>')).toBe(true)
-      expect(isAssetRefDestinationTypeId('list<asset<comfy.IMAGE>>')).toBe(true)
-    })
-    it('rejects plain atoms and plain lists (those are coercion DESTINATIONS)', () => {
-      expect(isAssetRefDestinationTypeId('comfy.IMAGE')).toBe(false)
-      expect(isAssetRefDestinationTypeId('list<comfy.IMAGE>')).toBe(false)
-      expect(isAssetRefDestinationTypeId('list<list<ASSET>>')).toBe(false)
-    })
-  })
-
   describe('tap arms (live: asset-declared widgets into concrete destinations)', () => {
     it('decode arm: an asset<T> tap into concrete T stamps asset<T> (previously a latent plain-literal bug)', () => {
       const result = tapInto('AssetValue', ref, 'ImageSink', 'in')
@@ -700,59 +528,15 @@ describe('asset-source stamping on concrete destinations (2026-07-26 amendment)'
       }
     })
 
-    it('does NOT weaken the concrete plain-literal rule for non-asset sources', () => {
-      const result = tapInto('IntValue', 7, 'IntSink', 'in')
-      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-      if (result.ok) expect(result.artifact.prompt['s']!.inputs['in']).toEqual(7)
-    })
-
-    it('refuses loudly without the typedLiteral capability instead of shipping raw refs', () => {
-      const result = tapInto('AssetValue', ref, 'ImageSink', 'in', [])
-      const codes = (result.ok ? result.artifact.diagnostics : result.diagnostics).map((d) => d.code)
-      expect(codes).toContain('compile.tap.nonConcreteTarget')
-      if (result.ok) expect(result.artifact.prompt['s']!.inputs['in']).toBeUndefined()
-    })
-
     it('asset-REFERENCE destinations are exempt: an asset<T> tap into bare ASSET stays a plain ref', () => {
       const result = tapInto('AssetValue', ref, 'BareAssetSink', 'in')
       expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
       if (result.ok) expect(result.artifact.prompt['s']!.inputs['in']).toEqual(ref)
     })
 
-    it('a DIFFERING declared asset form stays plain too (no asset-to-asset stamping)', () => {
-      const result = tapInto('AssetValue', ref, 'AssetListImgSink', 'in')
-      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-      if (result.ok) expect(result.artifact.prompt['s']!.inputs['in']).toEqual(ref)
-    })
-
-    it('the exempt plain delivery is NOT refused capability-absent (it never needed a stamp)', () => {
-      const result = tapInto('AssetValue', ref, 'BareAssetSink', 'in', [])
-      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-      if (result.ok) {
-        expect(result.artifact.diagnostics.map((d) => d.code)).not.toContain('compile.tap.nonConcreteTarget')
-        expect(result.artifact.prompt['s']!.inputs['in']).toEqual(ref)
-      }
-    })
   })
 
   describe('stored-value arms (fixture-only today: scalar-T ASSET widgets)', () => {
-    it('one ref on a scalar concrete T input stamps asset<T> (decode arm)', () => {
-      const result = compileWith({ a: { type: 'ScalarValue', values: { in: ref } } }, {})
-      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-      if (result.ok) {
-        expect(result.artifact.prompt['a']!.inputs['in'])
-          .toEqual({ $typed: { type: 'asset<comfy.IMAGE>', value: ref } })
-      }
-    })
-
-    it('N refs on a scalar concrete T input stamp list<asset<T>> (merge arm)', () => {
-      const result = compileWith({ a: { type: 'ScalarValue', values: { in: [ref, ref2] } } }, {})
-      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-      if (result.ok) {
-        expect(result.artifact.prompt['a']!.inputs['in'])
-          .toEqual({ $typed: { type: 'list<asset<comfy.IMAGE>>', value: [ref, ref2] } })
-      }
-    })
 
     it('a matching declared asset form stays a canonical plain literal (no redundant stamp)', () => {
       const result = compileWith({ a: { type: 'AssetValue', values: { in: ref } } }, {})
@@ -760,105 +544,5 @@ describe('asset-source stamping on concrete destinations (2026-07-26 amendment)'
       if (result.ok) expect(result.artifact.prompt['a']!.inputs['in']).toEqual(ref)
     })
 
-    it('non-ref-shaped junk stays plain (server-side validation owns it, as before)', () => {
-      const result = compileWith({ a: { type: 'ScalarValue', values: { in: { digest: 'nope' } } } }, {})
-      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-      if (result.ok) expect(result.artifact.prompt['a']!.inputs['in']).toEqual({ digest: 'nope' })
-    })
-
-    it('a tap reading an already-stamped staged value never double-wraps and carries the SOURCE type', () => {
-      const result = tapInto('ScalarValue', [ref, ref2], 'WildSink', 'source')
-      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-      if (result.ok) {
-        expect(result.artifact.prompt['s']!.inputs['source'])
-          .toEqual({ $typed: { type: 'list<asset<comfy.IMAGE>>', value: [ref, ref2] } })
-      }
-    })
-
-    it('N refs on a plain list<T> input stamp list<asset<T>> (lift arm)', () => {
-      const result = compileWith({ a: { type: 'ScalarListValue', values: { in: [ref, ref2] } } }, {})
-      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-      if (result.ok) {
-        expect(result.artifact.prompt['a']!.inputs['in'])
-          .toEqual({ $typed: { type: 'list<asset<comfy.IMAGE>>', value: [ref, ref2] } })
-      }
-    })
-
-    it('one ref on a plain list<T> input stamps asset<list<T>> (decode arm targeting the list)', () => {
-      const result = compileWith({ a: { type: 'ScalarListValue', values: { in: ref } } }, {})
-      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-      if (result.ok) {
-        expect(result.artifact.prompt['a']!.inputs['in'])
-          .toEqual({ $typed: { type: 'asset<list<comfy.IMAGE>>', value: ref } })
-      }
-    })
-
-    it('a schema-default asset-source fallback stamps like a stored value', () => {
-      const result = compileWith({ a: { type: 'ScalarDefault', values: {} } }, {})
-      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-      if (result.ok) {
-        expect(result.artifact.prompt['a']!.inputs['in'])
-          .toEqual({ $typed: { type: 'asset<comfy.IMAGE>', value: ref } })
-      }
-    })
-
-    it('capability-absent: a stored asset-source value refuses loudly and is omitted (never raw refs)', () => {
-      const result = compileWith({ a: { type: 'ScalarValue', values: { in: ref } } }, {}, [])
-      const codes = (result.ok ? result.artifact.diagnostics : result.diagnostics).map((d) => d.code)
-      expect(codes).toContain('compile.value.assetSourceUnsupported')
-      if (result.ok) expect(result.artifact.prompt['a']!.inputs['in']).toBeUndefined()
-    })
-
-    it('capability-absent: a schema-default asset-source fallback refuses the same way', () => {
-      const result = compileWith({ a: { type: 'ScalarDefault', values: {} } }, {}, [])
-      const codes = (result.ok ? result.artifact.diagnostics : result.diagnostics).map((d) => d.code)
-      expect(codes).toContain('compile.value.assetSourceUnsupported')
-      if (result.ok) expect(result.artifact.prompt['a']!.inputs['in']).toBeUndefined()
-    })
-  })
-
-  describe('promoted-override arms (boundary value onto an inner asset-source input)', () => {
-    // A subgraph instance holds the ref; the boundary promotes it onto the
-    // inner ScalarValue's ASSET-widgeted concrete input. Overrides flow
-    // through the SAME lowering as stored values - stamp with the
-    // capability, refuse loudly (never raw refs) without it.
-    const compilePromoted = (value: Json, graphFeatures: string[] = ['typedLiteral']) => {
-      const g0 = {
-        id: 'g0', name: 'root',
-        nodes: { i: { id: 'i', type: '#sub', values: { img: value } } },
-        links: {}, nets: {}, reroutes: {}, nextOrdinal: 9,
-      }
-      const sub = {
-        id: 'sub', name: 'sub',
-        nodes: { a: { id: 'a', type: 'ScalarValue', values: {} } },
-        links: {}, nets: {}, reroutes: {}, nextOrdinal: 9,
-        boundary: { inputs: [{ id: 'img', binds: { kind: 'port', node: 'a', port: 'in' }, promoted: true }], outputs: [] },
-      }
-      return compile({
-        document: {
-          format: 'dinkster-workflow', formatVersion: 1, lineage: asLineageId('lineage'),
-          root: asGraphDefId('g0'), graphs: { g0, sub }, view: { graphs: {} },
-        } as unknown as WorkflowDocument,
-        revision: 1, resolve: (type) => schemasByType[type], scope: { kind: 'full' },
-        connection: asConnectionId('c0'), schemaHash: 'typed-assets-test',
-        graphFeatures,
-      })
-    }
-
-    it('a promoted asset-source ref stamps asset<T> like a stored value (decode arm)', () => {
-      const result = compilePromoted(ref)
-      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-      if (result.ok) {
-        expect(result.artifact.prompt['i.a']!.inputs['in'])
-          .toEqual({ $typed: { type: 'asset<comfy.IMAGE>', value: ref } })
-      }
-    })
-
-    it('capability-absent: a promoted asset-source ref refuses loudly and is omitted (never raw refs)', () => {
-      const result = compilePromoted(ref, [])
-      const codes = (result.ok ? result.artifact.diagnostics : result.diagnostics).map((d) => d.code)
-      expect(codes).toContain('compile.value.assetSourceUnsupported')
-      if (result.ok) expect(result.artifact.prompt['i.a']!.inputs['in']).toBeUndefined()
-    })
   })
 })

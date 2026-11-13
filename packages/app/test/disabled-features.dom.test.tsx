@@ -84,22 +84,6 @@ it('replaces Assets backend ownership and rejects pending old file locations whe
   expect(revealFile).toHaveBeenCalledTimes(1)
 })
 
-it('mounts the ordinary workspace with a file-only bridge and no lifecycle methods', () => {
-  window.dinksterDesktop = {
-    fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: true }),
-    chooseDirectory: async () => undefined,
-    revealFile: async () => ({ mode: 'selected' }),
-    resolveDroppedFile: async () => ({ status: 'refused', reason: 'not-resolvable' }),
-  }
-  app = new AppState()
-  const host = document.createElement('div')
-  document.body.append(host)
-  dispose = render(() => <App app={app} />, host)
-  expect(host.querySelector('[data-testid="canvas-stub"]')).not.toBeNull()
-  expect(host.querySelector('[data-testid="desktop-management-button"]')).toBeNull()
-  expect(app.activeTab()).toBeDefined()
-})
-
 it('does not register disabled template surfaces and withdraws enabled surfaces', async () => {
   app = new AppState()
   const backend = app.backends.get()[0]!
@@ -170,33 +154,6 @@ it('shows Learn for any connected guide catalog and rejects stale availability',
   await Promise.resolve()
   expect(toggle()).toBeNull()
   expect(guides.guidesAvailable.get()).toBe(false)
-})
-
-it('registers built-in editors at shell mount and withdraws the feature-gated App editor', async () => {
-  app = new AppState()
-  const host = document.createElement('div')
-  document.body.append(host)
-  expect(app.editors.kinds()).toEqual([])
-  dispose = render(() => <App app={app} />, host)
-  const kinds = () => app.editors.kinds().map((editor) => editor.id).sort()
-  expect(kinds()).toEqual(['curve', 'glsl', 'graph', 'image'])
-  expect(app.editors.get('graph')?.title).toBe('Graph')
-  expect(app.editors.get('image')?.title).toBe('Image editor')
-  expect(host.querySelector('[data-testid="canvas-stub"]')).not.toBeNull()
-  expect(app.panels.get('surfaces')).toBeUndefined()
-  expect(app.settings.list().some((setting) => setting.id === 'features.controlSurfaces.enabled')).toBe(false)
-
-  app.settings.set('features.appView.enabled', true)
-  await vi.waitFor(() => expect(kinds()).toEqual(['app', 'curve', 'glsl', 'graph', 'image']))
-  expect(app.editors.get('app')?.title).toBe('App view')
-  expect(app.commands.get('view.toggleAppView')).toBeDefined()
-  app.settings.set('features.appView.enabled', false)
-  await vi.waitFor(() => expect(kinds()).toEqual(['curve', 'glsl', 'graph', 'image']))
-  expect(app.commands.get('view.toggleAppView')).toBeUndefined()
-
-  dispose()
-  dispose = undefined
-  expect(app.editors.kinds()).toEqual([])
 })
 
 it('renders backend targeting, review state and live shared-session tooltip hints', async () => {

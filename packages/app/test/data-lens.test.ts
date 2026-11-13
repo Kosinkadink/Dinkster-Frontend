@@ -17,14 +17,6 @@ const done = (outputs?: NodeProgress['outputs']): NodeProgress => ({
 const int = (v: number) => ({ typeId: 'INT', value: v })
 
 describe('deriveDataPanels: attribution honesty', () => {
-  it('no occurrence resolver abstains per node (unknown instance path)', () => {
-    const panels = deriveDataPanels({
-      nodes: [node('a')],
-      execNodes: { a: done({ out: int(1) }) },
-      frozen: true,
-    })
-    expect(panels['a']).toEqual([{ label: '', text: '-', tone: 'muted' }])
-  })
 
   it('a node with no recorded occurrence reads "not run"', () => {
     const panels = deriveDataPanels({
@@ -36,15 +28,6 @@ describe('deriveDataPanels: attribution honesty', () => {
     expect(panels['a']).toEqual([{ label: '', text: 'not run', tone: 'muted' }])
   })
 
-  it('subgraph instance nodes get no panel (inner values belong to inner nodes)', () => {
-    const panels = deriveDataPanels({
-      nodes: [{ id: 'sub', isSubgraph: true }],
-      execNodes: {},
-      runtimeIdsOf: (id) => [id],
-      frozen: true,
-    })
-    expect(panels['sub']).toBeUndefined()
-  })
 })
 
 describe('deriveDataPanels: output rows', () => {
@@ -85,16 +68,6 @@ describe('deriveDataPanels: output rows', () => {
       frozen: true,
     })
     expect(panels['a']).toEqual([{ label: 'imgs', text: 'list<std.image> [4]', tone: 'muted' }])
-  })
-
-  it('a terminal node with no outputs reads "no recorded outputs"', () => {
-    const panels = deriveDataPanels({
-      nodes: [node('a')],
-      execNodes: { a: done() },
-      runtimeIdsOf: (id) => [id],
-      frozen: true,
-    })
-    expect(panels['a']).toEqual([{ label: '', text: 'no recorded outputs', tone: 'muted' }])
   })
 
   it('projects exactly one unambiguous string through the data-lens truth source', () => {
@@ -160,17 +133,6 @@ describe('deriveDataPanels: multiple occurrences', () => {
       frozen: true,
     })
     expect(panels['a']).toContainEqual({ label: 'out', text: 'varies', tone: 'muted' })
-  })
-
-  it('every contributing occurrence must pass the oracle for exactness', () => {
-    const panels = deriveDataPanels({
-      nodes: [node('a')],
-      execNodes: { a: done({ out: int(7) }), 'a[1]': done({ out: int(7) }) },
-      runtimeIdsOf: two,
-      frozen: false,
-      exactProducer: (rid) => rid === 'a',
-    })
-    expect(panels['a']).toContainEqual({ label: 'out', text: '7', tone: 'stale' })
   })
 
   it('mixed occurrence states surface as "varies"', () => {

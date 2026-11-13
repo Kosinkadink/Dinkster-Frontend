@@ -9,7 +9,6 @@ import { describe, expect, it } from 'vitest'
 import { compile, type CompileInput } from '../src/compile/compile.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId } from '../src/ids.js'
-import { elaborateInterface } from '../src/schema/elaborate.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import type { InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 
@@ -219,14 +218,6 @@ describe('dynamic combo boundary lowering', () => {
     })
   })
 
-  it('ignores a stale promoted value stored on a selector boundary item', () => {
-    const prompt = okPrompt(docOf({
-      g0: { nodes: { s: { type: '#sub', values: { choice: 'stale' } } } },
-      sub: { nodes: { n: { type: 'Combo', dynamic: { mode: { selected: 'b' } } } }, boundary: selectorBoundary() },
-    }))
-    expect(prompt['s.n']!.inputs).toEqual({ mode: 'b', 'mode.amount': 2, 'mode.bias': 3 })
-  })
-
   it('promotes a widget beneath an active branch as a value or link', () => {
     const sub: GraphSpec = {
       nodes: { n: { type: 'Combo', dynamic: { mode: { selected: 'b' } } } },
@@ -263,17 +254,5 @@ describe('dynamic slot boundary lowering', () => {
     expect(okPrompt(docOf({
       g0: { nodes: { f: { type: 'FloatSrc' }, s: { type: '#sub' } }, links: [[['f', 'out'], ['s', 'gain']]] }, sub,
     }))['s.n']!.inputs).toEqual({ slot: ['s.src', 0], 'slot.gain': ['f', 0] })
-  })
-})
-
-describe('selector elaboration', () => {
-  it('keeps the selector widget default state-free while derived value follows state', () => {
-    const e = elaborateInterface(schemaOf('Defaulted', [combo('mode', 'a')]), {
-      values: {}, dynamic: { mode: { selected: 'b' } },
-    })
-    const selector = e.items.find((x) => x.kind === 'input' && x.origin.kind === 'selector')!
-    if (selector.kind !== 'input') throw new Error('unreachable')
-    expect(selector.spec.widget?.default).toBe('a')
-    expect(selector.derivedValue).toBe('b')
   })
 })

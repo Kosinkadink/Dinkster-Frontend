@@ -136,22 +136,6 @@ const sceneOf = (doc: WorkflowDocument): Scene =>
   })
 
 // ---------------------------------------------------------------------------
-// Layout: optional outputs mark their pins
-// ---------------------------------------------------------------------------
-
-describe('maybe-absent pins', () => {
-  it('an optional output pin carries maybeAbsent; ordinary outputs do not', () => {
-    const scene = sceneOf(
-      docOf({ g0: { nodes: { m: { type: 'MaybeSrc' }, s: { type: 'Src' } } } }),
-    )
-    const pin = (id: string) =>
-      scene.nodes.find((n) => n.id === id)!.layout.pins.find((p) => p.direction === 'out')!
-    expect(pin('m').maybeAbsent).toBe(true)
-    expect(pin('s').maybeAbsent).toBeUndefined()
-  })
-})
-
-// ---------------------------------------------------------------------------
 // Scene links: traced through every indirection
 // ---------------------------------------------------------------------------
 

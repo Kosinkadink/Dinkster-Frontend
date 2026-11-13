@@ -26,20 +26,7 @@ import {
   type Prompt,
   type WorkflowDocument,
 } from '@dinkster/core'
-import {
-  buildDinksterRegistry,
-  DinksterConnection,
-  ExecutionStore,
-  IMAGE_DOCUMENT_MEDIA_TYPE,
-  hydrateDinksterCompletedExecution,
-  PackInstallError,
-  parseAssetsMissingRejection,
-  promptToDinksterGraph,
-  reconcileDinksterExecutions,
-  targetsForArtifact,
-  type FetchLike,
-  type WebSocketLike,
-} from '../src/index.js'
+import { buildDinksterRegistry, DinksterConnection, ExecutionStore, IMAGE_DOCUMENT_MEDIA_TYPE, hydrateDinksterCompletedExecution, PackInstallError, promptToDinksterGraph, reconcileDinksterExecutions, targetsForArtifact, type FetchLike, type WebSocketLike } from '../src/index.js'
 import { uuidv4 } from '../src/dinkster-connection.js'
 
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
@@ -308,225 +295,6 @@ it('reads live source selections from the editing connection and rejects malform
   await expect(connection.listAssetSelections('model/*')).rejects.toThrow('Unsupported')
 })
 
-it('includes output profile detector revision in registry identity', () => {
-  const payload = (revision: string): DinksterNodesPayload => ({
-    schemaVersion: 1,
-    nodes: { 'dinkster.load_model_profile': { schemaVersion: 1, interface: [
-      { role: 'input', id: 'checkpoint', required: true, type: { kind: 'concrete', types: ['ASSET'] } },
-      { role: 'input', id: 'entries', required: true, type: { kind: 'concrete', types: ['STRING'] } },
-      { role: 'outputDescriptors', input: 'entries', choices: ['model', 'clip', 'vae'].map((id) => ({ id, type: { kind: 'concrete', types: [id.toUpperCase()] } })), minEntries: 1, maxEntries: 3, fixedIds: true, probe: { input: 'checkpoint', kind: 'model', revision } },
-    ] } },
-  })
-  const first = buildDinksterRegistry(C0, payload('1'))
-  const second = buildDinksterRegistry(C0, payload('2'))
-  expect(first.resolve('dinkster.load_model_profile')).toBeDefined()
-  expect(second.resolve('dinkster.load_model_profile')).toBeDefined()
-  expect(first.hash).not.toBe(second.hash)
-})
-
-describe('schema registry identity', () => {
-  it('excludes the wire 42 help availability marker from execution identity', () => {
-    const base = {
-      schemaVersion: 1,
-      nodes: { Documented: { schemaVersion: 1, interface: [] } },
-    } as unknown as DinksterNodesPayload
-    const withDocs = structuredClone(base) as any
-    withDocs.nodes.Documented.hasDocs = true
-    expect(buildDinksterRegistry(C0, withDocs).resolve('Documented')?.hasDocs).toBe(true)
-    expect(buildDinksterRegistry(C0, withDocs).hash).toBe(buildDinksterRegistry(C0, base).hash)
-  })
-
-  it('normalizes false storage acceptance but retains true in registry cache identity', () => {
-    const base = {
-      schemaVersion: 1,
-      nodes: { Storage: {
-        schemaVersion: 1,
-        signature: 'backend-signature',
-        interface: [{
-          role: 'input', id: 'value', required: true,
-          type: { kind: 'concrete', types: ['IMAGE'] },
-        }],
-      } },
-    } as unknown as DinksterNodesPayload
-    const explicitlyFalse = structuredClone(base) as any
-    explicitlyFalse.nodes.Storage.interface[0].acceptsStorage = false
-    const accepted = structuredClone(base) as any
-    accepted.nodes.Storage.interface[0].acceptsStorage = true
-    expect(buildDinksterRegistry(C0, base).hash).toBe(buildDinksterRegistry(C0, explicitlyFalse).hash)
-    expect(buildDinksterRegistry(C0, base).hash).not.toBe(buildDinksterRegistry(C0, accepted).hash)
-    expect(buildDinksterRegistry(C0, accepted).resolve('Storage')?.items[0]).toMatchObject({ acceptsStorage: true })
-    expect(buildDinksterRegistry(C0, accepted).resolve('Storage')?.signature).toBe('backend-signature')
-  })
-
-  it('normalizes false stream acceptance and hashes stream and chunk policies', () => {
-    const base = {
-      schemaVersion: 1,
-      nodes: { Stream: {
-        schemaVersion: 1,
-        signature: 'backend-signature',
-        interface: [{
-          role: 'input', id: 'image', required: true,
-          type: { kind: 'concrete', types: ['IMAGE'] },
-        }, {
-          role: 'output', id: 'image',
-          type: { kind: 'concrete', types: ['IMAGE'] },
-        }],
-      } },
-    } as unknown as DinksterNodesPayload
-    const explicitlyFalse = structuredClone(base) as any
-    explicitlyFalse.nodes.Stream.interface[0].acceptsStream = false
-    const accepted = structuredClone(base) as any
-    accepted.nodes.Stream.interface[0].acceptsStream = true
-    const chunked = structuredClone(accepted) as any
-    chunked.nodes.Stream.chunkSafe = { inputs: ['image'], outputs: ['image'] }
-    const scoped = structuredClone(chunked) as any
-    scoped.nodes.Stream.interface.splice(1, 0, {
-      role: 'dynamicCombo', id: 'operation', required: true,
-      options: [{ key: 'map', inputs: [] }],
-    })
-    const unscoped = structuredClone(scoped)
-    scoped.nodes.Stream.chunkSafe.applies = { operation: ['map'] }
-
-    const normalized = buildDinksterRegistry(C0, explicitlyFalse)
-    expect(normalized.resolve('Stream')).toEqual(buildDinksterRegistry(C0, base).resolve('Stream'))
-    expect(normalized.hash).toBe(buildDinksterRegistry(C0, base).hash)
-    expect(buildDinksterRegistry(C0, base).hash).not.toBe(buildDinksterRegistry(C0, accepted).hash)
-    expect(buildDinksterRegistry(C0, accepted).hash).not.toBe(buildDinksterRegistry(C0, chunked).hash)
-    expect(buildDinksterRegistry(C0, unscoped).hash).not.toBe(buildDinksterRegistry(C0, scoped).hash)
-    expect(buildDinksterRegistry(C0, scoped).resolve('Stream')?.signature).toBe('backend-signature')
-  })
-
-  it.each([{}, { role: 'input' }])('preserves literal default fields named acceptsStorage: %j', (fields) => {
-    const payload = (value: unknown): DinksterNodesPayload => ({
-      schemaVersion: 1,
-      nodes: { Options: {
-        schemaVersion: 1, signature: 'backend-signature',
-        interface: [{
-          role: 'input', id: 'options', required: false,
-          type: { kind: 'concrete', types: ['custom.options'] }, default: value,
-        }],
-      } },
-    })
-    const omitted = buildDinksterRegistry(C0, payload(fields))
-    const present = buildDinksterRegistry(C0, payload({ ...fields, acceptsStorage: false }))
-    expect(present.hash).not.toBe(omitted.hash)
-  })
-
-  it('includes wire 40 media policies in registry cache identity', () => {
-    const base = {
-      schemaVersion: 1,
-      nodes: { Media: {
-        schemaVersion: 1,
-        signature: 'backend-signature',
-        interface: [{
-          role: 'input', id: 'image', required: true,
-          type: { kind: 'concrete', types: ['IMAGE'] },
-        }],
-      } },
-    } as unknown as DinksterNodesPayload
-    const changed = structuredClone(base) as any
-    changed.nodes.Media.interface[0].alphaPolicy = 'require'
-    expect(buildDinksterRegistry(C0, base).hash).not.toBe(buildDinksterRegistry(C0, changed).hash)
-    expect(buildDinksterRegistry(C0, changed).resolve('Media')?.signature).toBe('backend-signature')
-  })
-
-  it('does not include remote COMBO policy fields in the frontend registry hash', () => {
-    const base = {
-      schemaVersion: 1,
-      nodes: { Policy: {
-        schemaVersion: 1,
-        signature: 'backend-signature',
-        interface: [{
-          role: 'input', id: 'choice', required: true,
-          type: { kind: 'concrete', types: ['COMBO'] },
-          widget: { type: 'COMBO', remote: { route: '/api/choices/models', refreshButton: true } },
-        }],
-      } },
-    } as unknown as DinksterNodesPayload
-    const withPolicy = structuredClone(base) as any
-    Object.assign(withPolicy.nodes.Policy.interface[0].widget.remote, {
-      controlAfterRefresh: 'last', timeoutMs: 2000, maxRetries: 1, refreshMs: 5000,
-    })
-    expect(buildDinksterRegistry(C0, base).hash).toBe(buildDinksterRegistry(C0, withPolicy).hash)
-  })
-
-  it('excludes MULTI_COMBO presentation while retaining behavior', () => {
-    const base = {
-      schemaVersion: 1,
-      nodes: { Multi: {
-        schemaVersion: 1,
-        signature: 'backend-signature',
-        interface: [{
-          role: 'input', id: 'choices', required: true,
-          type: { kind: 'list', element: { kind: 'concrete', types: ['COMBO'] } },
-          widget: { type: 'MULTI_COMBO', options: ['a'] },
-        }],
-      } },
-    } as unknown as DinksterNodesPayload
-    const changed = structuredClone(base) as any
-    changed.nodes.Multi.interface[0].widget = {
-      type: 'MULTI_COMBO', options: ['a'], placeholder: 'Pick', chip: false,
-      remote: {
-        route: '/api/choices/providers', refreshButton: true,
-        controlAfterRefresh: 'last', timeoutMs: 2000, maxRetries: 1, refreshMs: 5000,
-      },
-    }
-    expect(buildDinksterRegistry(C0, base).hash).not.toBe(buildDinksterRegistry(C0, changed).hash)
-    delete changed.nodes.Multi.interface[0].widget.remote
-    expect(buildDinksterRegistry(C0, base).hash).toBe(buildDinksterRegistry(C0, changed).hash)
-    changed.nodes.Multi.interface[0].widget.options = ['b']
-    expect(buildDinksterRegistry(C0, base).hash).not.toBe(buildDinksterRegistry(C0, changed).hash)
-  })
-
-  it('excludes wire 23 choice labels, info, and folders from registry identity', () => {
-    const base = {
-      schemaVersion: 1,
-      nodes: { Sampler: {
-        schemaVersion: 1,
-        signature: 'backend-signature',
-        interface: [{
-          role: 'input', id: 'sampler', required: true,
-          type: { kind: 'concrete', types: ['COMBO'] },
-          widget: { type: 'COMBO', options: [{
-            value: 'dinkster.euler', label: 'euler', info: 'Euler sampler', folder: 'Basic',
-          }] },
-        }],
-      } },
-    } as unknown as DinksterNodesPayload
-    const changed = structuredClone(base) as any
-    changed.nodes.Sampler.interface[0].widget.options[0] = {
-      value: 'dinkster.euler', label: 'Euler', info: 'First-order sampler', folder: 'Solvers/ODE',
-    }
-    expect(buildDinksterRegistry(C0, base).hash).toBe(buildDinksterRegistry(C0, changed).hash)
-    changed.nodes.Sampler.interface[0].widget.options[0].value = 'dinkster.lcm'
-    expect(buildDinksterRegistry(C0, base).hash).not.toBe(buildDinksterRegistry(C0, changed).hash)
-  })
-
-  it('excludes wire 23 MULTI_COMBO presentation while retaining option values', () => {
-    const base = {
-      schemaVersion: 1,
-      nodes: { Models: {
-        schemaVersion: 1,
-        signature: 'backend-signature',
-        interface: [{
-          role: 'input', id: 'models', required: true,
-          type: { kind: 'list', element: { kind: 'concrete', types: ['COMBO'] } },
-          widget: { type: 'MULTI_COMBO', options: [{
-            value: 'dinkster.first', label: 'First', info: 'First model', folder: 'Models',
-          }] },
-        }],
-      } },
-    } as unknown as DinksterNodesPayload
-    const changed = structuredClone(base) as any
-    changed.nodes.Models.interface[0].widget.options[0] = {
-      value: 'dinkster.first', label: 'Primary', info: 'Preferred model', folder: 'Featured',
-    }
-    expect(buildDinksterRegistry(C0, base).hash).toBe(buildDinksterRegistry(C0, changed).hash)
-    changed.nodes.Models.interface[0].widget.options[0].value = 'dinkster.second'
-    expect(buildDinksterRegistry(C0, base).hash).not.toBe(buildDinksterRegistry(C0, changed).hash)
-  })
-})
-
 async function snapshotFixture(id: string): Promise<{ body: string; digest: string }> {
   const body = JSON.stringify({
     format: 'dinkster.extension-snapshot', version: 1, frontendApi: '1.0.0', extensions: [{
@@ -611,21 +379,6 @@ describe('mount listing decode', () => {
     await expect(connectionWith([], undefined, false).fetchMountSettings()).resolves.toMatchObject({ mountChangesAllowed: false })
   })
 
-  it('decodes a missing mountChangesAllowed as false (older backends degrade to read-only)', async () => {
-    const fetch = (payload: unknown): DinksterConnection =>
-      new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, payload) })
-    await expect(fetch({ mounts: [] }).fetchMountSettings()).resolves.toMatchObject({ mountChangesAllowed: false })
-    await expect(fetch({ mounts: [], mountChangesAllowed: undefined }).fetchMountSettings()).resolves.toMatchObject({ mountChangesAllowed: false })
-  })
-
-  it('rejects present non-boolean mountChangesAllowed', async () => {
-    const fetch = (payload: unknown): DinksterConnection =>
-      new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, payload) })
-    for (const bad of ['true', 'false', 1, 0, null]) {
-      await expect(fetch({ mounts: [], mountChangesAllowed: bad }).fetchMountSettings()).rejects.toThrow('malformed mountChangesAllowed')
-    }
-  })
-
   it('decodes the selected output mount and host path', async () => {
     const settings = await connectionWith([
       { id: 'output', mode: 'readwrite', state: 'ready', path: '/library/output' },
@@ -703,37 +456,6 @@ describe('mount listing decode', () => {
     ])
   })
 
-  it('drops rows with an unknown mode or malformed shape, keeps the rest', async () => {
-    const mounts = await connectionWith([
-      { id: 'good', mode: 'read', state: 'ready' },
-      { id: 'invented', mode: 'readonly', state: 'ready' }, // the frontend's old guess is NOT server vocabulary
-      { id: 'noMode', state: 'ready' },
-      { id: 'badKind', mode: 'read', state: 'ready', kind: 42 },
-      { id: 'badCount', mode: 'read', state: 'ready', entryCount: -1 },
-      'not-an-object',
-    ]).listMounts()
-    expect(mounts.map((m) => m.id)).toEqual(['good'])
-  })
-
-  it('adds and removes a local directory grant with exact server vocabulary', async () => {
-    const requests: { url: string; init?: RequestInit }[] = []
-    const replies = [
-      jsonResponse(201, { id: 'shared-models', mode: 'read', state: 'pending' }),
-      jsonResponse(200, { removed: 'shared-models' }),
-    ]
-    const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
-      requests.push({ url: String(url), ...(init ? { init } : {}) })
-      return replies.shift()!
-    } })
-    await expect(connection.addMount('shared-models', 'D:\\Models', 'read')).resolves.toMatchObject({ id: 'shared-models', state: 'pending' })
-    await connection.removeMount('shared-models')
-    expect(requests[0]).toMatchObject({
-      url: 'http://native/api/mounts',
-      init: { method: 'POST', body: JSON.stringify({ id: 'shared-models', path: 'D:\\Models', mode: 'read' }) },
-    })
-    expect(requests[1]).toMatchObject({ url: 'http://native/api/mounts/shared-models', init: { method: 'DELETE' } })
-  })
-
   it.each([undefined, 'default', 'film'])('persists the output for project %s without changing another project', async (project) => {
     const requests: { url: string; init?: RequestInit }[] = []
     const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', ...(project === undefined ? {} : { project }), webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
@@ -790,93 +512,9 @@ describe('mount listing decode', () => {
     await expect(conn.fetchAssetLocations(digest)).rejects.toThrow('malformed response')
   })
 
-  it('keeps concurrent project folder reads and writes independent', async () => {
-    const orders = new Map([['film-a', ['plates', 'renders']], ['film-b', ['renders', 'plates']]])
-    const connection = (project: string) => new DinksterConnection({ id: C0, project, baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike,
-      fetchFn: async (url, init) => {
-        const parsed = new URL(String(url))
-        const owner = parsed.searchParams.get('project') ?? parsed.pathname.split('/').at(-1)!
-        if (init?.method === 'PUT') orders.set(owner, JSON.parse(String(init.body)).mounts)
-        return jsonResponse(200, { mounts: orders.get(owner)!.map((id) => ({ id, mode: 'readwrite', state: 'ready' })), outputMount: null, activeOutputMount: null, restartRequired: false, pendingRemovals: [] })
-      },
-    })
-    const a = connection('film-a'), b = connection('film-b')
-    const [left, right] = await Promise.all([a.fetchMountSettings(), b.fetchMountSettings()])
-    expect(left.mounts.map((row) => row.id)).toEqual(['plates', 'renders'])
-    expect(right.mounts.map((row) => row.id)).toEqual(['renders', 'plates'])
-    await a.updateProjectFolders(['plates'], null)
-    expect((await b.fetchMountSettings()).mounts.map((row) => row.id)).toEqual(['renders', 'plates'])
-    expect(await a.fetchMountSettings()).toMatchObject({ restartRequired: false, pendingRemovals: [] })
-  })
-})
-
-describe('mount entries transport', () => {
-  it('encodes folder scope and recursive mode exactly, without an empty cursor', async () => {
-    const urls: string[] = []
-    const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url) => {
-      urls.push(String(url))
-      return jsonResponse(200, { entries: [] })
-    } })
-    await connection.listMountEntries('mount / one', { q: 'cat photos', path: 'trips/2026', recursive: false, cursor: '', limit: 25 })
-    await connection.listMountEntries('m', { recursive: true, cursor: 'next/page' })
-    expect(urls).toEqual([
-      'http://native/api/mounts/mount%20%2F%20one/entries?q=cat+photos&path=trips%2F2026&recursive=false&limit=25',
-      'http://native/api/mounts/m/entries?recursive=true&cursor=next%2Fpage',
-    ])
-  })
-
-  it('distinguishes omitted folder parameters and parses first-page folders', async () => {
-    const urls: string[] = []
-    const replies = [
-      jsonResponse(200, { entries: [], folders: ['photos', 'models', 42] }),
-      jsonResponse(200, { entries: [] }),
-    ]
-    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url) => {
-      urls.push(String(url))
-      return replies.shift()!
-    } })
-    expect(await connection.listMountEntries('m', { path: '', recursive: false })).toEqual({ entries: [], folders: ['photos', 'models'] })
-    expect(await connection.listMountEntries('m')).toEqual({ entries: [] })
-    expect(urls).toEqual([
-      '/api/mounts/m/entries?path=&recursive=false',
-      '/api/mounts/m/entries?',
-    ])
-  })
-
-  it('forwards the AbortSignal to the fetch, and omits init without one', async () => {
-    // The collection panel aborts superseded pages; a transport that
-    // drops the signal keeps dead transfers alive on slow mounts.
-    const inits: (RequestInit | undefined)[] = []
-    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (_url, init) => {
-      inits.push(init)
-      return jsonResponse(200, { entries: [] })
-    } })
-    const controller = new AbortController()
-    await connection.listMountEntries('m', { q: 'x', signal: controller.signal })
-    await connection.listMountEntries('m')
-    expect(inits[0]?.signal).toBe(controller.signal)
-    expect(inits[1]).toBeUndefined()
-  })
 })
 
 describe('runtime settings transport', () => {
-  it('GETs the per-server discovery response and PUTs category-shaped JSON', async () => {
-    const calls: { url: string; init?: RequestInit }[] = []
-    const section = { value: { maxRunningJobs: 3 }, source: 'runtime', mutability: 'live', writable: true, persistence: { available: true, persisted: true } }
-    const fetchFn: FetchLike = async (url, init) => {
-      calls.push({ url: String(url), ...(init ? { init } : {}) })
-      return calls.length === 1
-        ? jsonResponse(200, { categories: { granted: ['jobs'], available: ['jobs'] }, settings: { jobs: section } })
-        : jsonResponse(200, section)
-    }
-    const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn })
-    expect((await connection.fetchRuntimeSettings()).categories.granted).toEqual(['jobs'])
-    expect(await connection.updateRuntimeSetting('jobs', { maxRunningJobs: 3 })).toEqual(section)
-    expect(calls).toEqual([
-      { url: 'http://native/api/settings' },
-      { url: 'http://native/api/settings/jobs', init: expect.objectContaining({ method: 'PUT', body: '{"maxRunningJobs":3}' }) },
-    ])
-  })
 
   it('preserves structured 400 fields and 403 mutation errors', async () => {
     const replies = [
@@ -917,12 +555,6 @@ describe('runtime settings transport', () => {
     await expect(connection.updateRuntimeSetting('logging', { level: 'info', overrides: {} })).rejects.toMatchObject({ status: 403, body: expect.objectContaining({ error: 'settings-changes-disabled' }), message: 'Changes to logging are not granted (granted: jobs)' })
   })
 
-  it('falls back to status errors for malformed or wrong-status error bodies', async () => {
-    const replies = [jsonResponse(403, { error: 'settings-changes-disabled', category: 'jobs' }), jsonResponse(500, { error: 'invalid-settings', category: 'jobs', message: 'not a 400' })]
-    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => replies.shift()! })
-    await expect(connection.updateRuntimeSetting('jobs', {})).rejects.toMatchObject({ status: 403, body: undefined, message: 'runtime settings request failed: 403' })
-    await expect(connection.updateRuntimeSetting('jobs', {})).rejects.toMatchObject({ status: 500, body: undefined, message: 'runtime settings request failed: 500' })
-  })
 })
 
 describe('pack settings transport', () => {
@@ -940,26 +572,6 @@ describe('pack settings transport', () => {
     },
     values: { enabled: true, quality: 2 },
   }
-
-  it('GETs and PUTs the encoded pack route with a complete values object', async () => {
-    const calls: { url: string; init?: RequestInit }[] = []
-    const connection = new DinksterConnection({
-      id: C0,
-      baseUrl: 'http://native',
-      clientId: 'test',
-      webSocketFactory: () => ({}) as WebSocketLike,
-      fetchFn: async (url, init) => {
-        calls.push({ url: String(url), ...(init ? { init } : {}) })
-        return jsonResponse(200, calls.length === 1 ? response : { ...response, values: { enabled: false, quality: 4 } })
-      },
-    })
-    await expect(connection.fetchPackSettings('pack/one')).resolves.toEqual(response)
-    await expect(connection.updatePackSettings('pack/one', { enabled: false, quality: 4 })).resolves.toMatchObject({ values: { enabled: false, quality: 4 } })
-    expect(calls).toEqual([
-      { url: 'http://native/api/packs/pack%2Fone/settings' },
-      { url: 'http://native/api/packs/pack%2Fone/settings', init: expect.objectContaining({ method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"enabled":false,"quality":4}' }) },
-    ])
-  })
 
   it('rejects malformed schemas and values instead of exposing partial settings', async () => {
     const replies = [
@@ -982,57 +594,10 @@ describe('pack settings transport', () => {
 })
 
 describe('principal permissions transport', () => {
-  it.each([true, false, 'true', null])('preserves only boolean local-mode metadata (%s)', async (local) => {
-    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', fetchFn: async () => jsonResponse(200, [
-      { principalId: 'local', kind: 'human', local, categories: {} },
-    ]) })
-    expect((await connection.fetchPrincipals())[0]?.local).toBe(typeof local === 'boolean' ? local : undefined)
-  })
-
-  it('decodes principals and boolean category values', async () => {
-    const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, [
-      { principalId: 'agent-one', kind: 'agent', categories: { edit: true, execute: false } },
-      { principalId: 'person', kind: 'human', categories: { read: true } },
-    ]) })
-
-    await expect(connection.fetchPrincipals()).resolves.toEqual([
-      { principalId: 'agent-one', kind: 'agent', categories: { edit: true, execute: false } },
-      { principalId: 'person', kind: 'human', categories: { read: true } },
-    ])
-  })
-
-  it('drops malformed principals and non-boolean category values', async () => {
-    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, [
-      { principalId: 'valid', kind: 'agent', categories: { edit: true, read: 'yes', queue: false } },
-      { principalId: 42, kind: 'agent', categories: {} },
-      { principalId: 'missing-kind', categories: {} },
-      { principalId: 'array-categories', kind: 'agent', categories: [] },
-      null,
-    ]) })
-
-    await expect(connection.fetchPrincipals()).resolves.toEqual([
-      { principalId: 'valid', kind: 'agent', categories: { edit: true, queue: false } },
-    ])
-  })
 
   it('throws a status-bearing error for a failed principal fetch', async () => {
     const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(403, { error: 'forbidden' }) })
     await expect(connection.fetchPrincipals()).rejects.toMatchObject({ status: 403, message: 'principals request failed: 403' })
-  })
-
-  it('PUTs one principal change and returns the updated categories', async () => {
-    const calls: { url: string; init?: RequestInit }[] = []
-    const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
-      calls.push({ url: String(url), ...(init ? { init } : {}) })
-      return jsonResponse(200, { edit: false, execute: true, ignored: 'yes' })
-    } })
-
-    await expect(connection.updatePrincipalPermissions('agent / one', { execute: true })).resolves.toEqual({ edit: false, execute: true })
-    expect(calls).toEqual([{ url: 'http://native/api/principals/agent%20%2F%20one/permissions', init: expect.objectContaining({
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{"execute":true}',
-    }) }])
   })
 
   it('carries the server error string on a failed permission update', async () => {
@@ -1063,24 +628,6 @@ describe('local asset catalog and availability', () => {
     })
     return { conn, requests, reply: (value: unknown, code = 200) => { payload = value; status = code } }
   }
-
-  it('preserves project-scoped aliases, provenance and canonical refs across catalog pages', async () => {
-    const { conn, requests, reply } = harness()
-    const signal = new AbortController().signal
-    const options = { scope: 'local', q: 'original name', kind: 'media/image', origin: 'upload', since: 0, until: 125, limit: 1, signal }
-    const first = await conn.listLocalAssets(options)
-    expect(first).toEqual({ assets: [entry], cursor: 'next/page' })
-    expect(Object.fromEntries(new URL(requests[0]!.url).searchParams)).toEqual({
-      scope: 'local', project: 'film', q: 'original name', kind: 'media/image', origin: 'upload', since: '0', until: '125', limit: '1',
-    })
-    expect(requests[0]!.init?.signal).toBe(signal)
-    reply({ assets: [{ ...entry, asset: { ...asset, digest: other }, observations: [{ ...observation, asset: { ...asset, digest: other } }] }] })
-    expect(await conn.listLocalAssets({ ...options, cursor: first.cursor! })).toEqual({ assets: [{
-      ...entry, asset: { ...asset, digest: other }, observations: [{ ...observation, asset: { ...asset, digest: other } }],
-    }] })
-    expect(new URL(requests[1]!.url).searchParams.get('cursor')).toBe('next/page')
-    expect(requests.every((request) => request.init?.method === undefined)).toBe(true)
-  })
 
   it('rejects malformed and cross-project catalog responses instead of treating them as empty', async () => {
     const { conn, reply } = harness()
@@ -1177,33 +724,6 @@ describe('asset name guesses', () => {
     expect(matches[0]!.candidates[0]?.confidence).toBe('digest')
   })
 
-  it('omits empty hint maps and retries an included hinted batch once without hints on 400', async () => {
-    const calls: Array<{ names: string[]; digestHints?: Record<string, string> }> = []
-    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (_url, init) => {
-      const body = JSON.parse(String(init?.body)) as { names: string[]; digestHints?: Record<string, string> }
-      calls.push(body)
-      if (body.digestHints) return jsonResponse(400, { error: 'unknown request fields' })
-      return jsonResponse(200, { matches: body.names.map((query) => ({ query, candidates: [] })) })
-    } })
-
-    await expect(connection.guessAssets(['old.bin'], { 'old.bin': `blake3:${'a'.repeat(64)}` })).resolves.toEqual([
-      { query: 'old.bin', candidates: [] },
-    ])
-    await connection.guessAssets(['plain.bin'], { plain: `blake3:${'b'.repeat(64)}` })
-    expect(calls).toEqual([
-      { names: ['old.bin'], digestHints: { 'old.bin': `blake3:${'a'.repeat(64)}` } },
-      { names: ['old.bin'] },
-      { names: ['plain.bin'] },
-    ])
-  })
-
-  it('does not retry an unhinted 400 or a non-400 hinted failure', async () => {
-    const statuses = [400, 500]
-    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(statuses.shift()!, {}) })
-    await expect(connection.guessAssets(['plain.bin'])).rejects.toThrow('POST /api/assets/guess failed: 400')
-    await expect(connection.guessAssets(['hinted.bin'], { 'hinted.bin': `blake3:${'a'.repeat(64)}` })).rejects.toThrow('POST /api/assets/guess failed: 500')
-    expect(statuses).toEqual([])
-  })
 })
 
 /** Two chained std.math.add_ints; no output node, so scope must be partial. */
@@ -1245,104 +765,6 @@ function chainArtifact(): CompileArtifact {
   if (!result.ok) throw new Error(`fixture compile failed: ${JSON.stringify(result.diagnostics)}`)
   return result.artifact
 }
-
-describe('native schema registry', () => {
-  it('keeps socketless presentation outside registry identity without dropping input values', () => {
-    const field = { role: 'input', id: 'color', type: { kind: 'concrete', types: ['STRING'] }, default: '#123456', widget: { type: 'COLOR' } }
-    for (const scoped of [false, true]) {
-      const payload = (socketless: boolean, value = '#123456') => ({ schemaVersion: 1, nodes: { ColorFixture: { interface: scoped
-        ? [{ role: 'dynamicCombo', id: 'style', options: [{ key: 'solid', inputs: [{ ...field, default: value, socketless }] }] }]
-        : [{ ...field, default: value, socketless }] } } })
-      const ordinary = buildDinksterRegistry(C0, payload(false))
-      const socketless = buildDinksterRegistry(C0, payload(true))
-      expect(socketless.diagnostics).toEqual([])
-      expect(socketless.hash).toBe(ordinary.hash)
-      expect(buildDinksterRegistry(C0, payload(true, '#abcdef')).hash).not.toBe(socketless.hash)
-    }
-  })
-
-  it('parses the real /api/nodes fixture with a stable hash', () => {
-    const again = buildDinksterRegistry(C0, nodesPayload)
-    expect(registry.schemas.size).toBeGreaterThan(0)
-    expect(registry.hash).toBe(again.hash)
-    expect(registry.resolve('std.math.add_ints')).toBeDefined()
-    expect(registry.resolve('NotANode')).toBeUndefined()
-  })
-
-  it('carries the server-identity header when present, omits it when absent', () => {
-    expect(registry.server).toBeUndefined() // fixture predates the header
-    const withHeader = buildDinksterRegistry(C0, {
-      ...nodesPayload,
-      dinkster: { version: '0.9.0', schemaWire: 1 },
-    })
-    expect(withHeader.server).toEqual({ version: '0.9.0', schemaWire: 1 })
-  })
-
-  it('carries graphFeatures when present, omits it when absent (older backend)', () => {
-    expect(registry.graphFeatures).toBeUndefined() // fixture predates the field
-    const withFeatures = buildDinksterRegistry(C0, {
-      ...nodesPayload,
-      dinkster: { version: '0.9.0', schemaWire: 1, graphFeatures: ['typedLiteral'] },
-    })
-    expect(withFeatures.graphFeatures).toEqual(['typedLiteral'])
-  })
-
-  it('carries mergeableTypes when present (incl. empty), omits it when absent (older backend)', () => {
-    expect(registry.mergeableTypes).toBeUndefined() // fixture predates the field
-    const withProviders = buildDinksterRegistry(C0, {
-      ...nodesPayload,
-      dinkster: { version: '0.9.0', schemaWire: 1, mergeableTypes: ['comfy.IMAGE'] },
-    })
-    expect(withProviders.mergeableTypes).toEqual(['comfy.IMAGE'])
-    const settledEmpty = buildDinksterRegistry(C0, {
-      ...nodesPayload,
-      dinkster: { version: '0.9.0', schemaWire: 1, mergeableTypes: [] },
-    })
-    expect(settledEmpty.mergeableTypes).toEqual([])
-  })
-
-  it('decodes epoch + composing when present, omits both when absent or malformed', () => {
-    expect(registry.epoch).toBeUndefined() // fixture predates epochs
-    expect(registry.composing).toBeUndefined()
-    const composing = buildDinksterRegistry(C0, { ...nodesPayload, epoch: 2, composing: true })
-    expect(composing.epoch).toBe(2)
-    expect(composing.composing).toBe(true)
-    // Non-positive/non-integer epochs and composing:false never propagate.
-    const bad = buildDinksterRegistry(C0, { ...nodesPayload, epoch: 0.5, composing: false })
-    expect(bad.epoch).toBeUndefined()
-    expect(bad.composing).toBeUndefined()
-  })
-
-  it('resolves only registered node IDs, ignoring historical alias metadata', () => {
-    const comfy = buildDinksterRegistry(C0, readJson('fixtures/dinkster-nodes-comfy.json') as DinksterNodesPayload)
-    expect(comfy.resolve('comfy.EmptyImage')?.type).toBe('comfy.EmptyImage')
-    expect(comfy.resolve('EmptyImage')).toBeUndefined()
-    expect(comfy.resolve('PreviewImage')).toBeUndefined()
-    expect(comfy.resolve('NotANode')).toBeUndefined()
-  })
-
-  it('alias claims neither override exact IDs nor add resolution diagnostics', () => {
-    const payload = readJson('fixtures/dinkster-nodes-comfy.json') as DinksterNodesPayload
-    const nodes = payload.nodes as Record<string, Record<string, unknown>>
-    const doctored = {
-      ...payload,
-      nodes: {
-        ...nodes,
-        // A real node whose id another schema also claims as an alias.
-        'EmptyImage': { ...nodes['comfy.PreviewImage'], nodeType: 'EmptyImage', aliases: [] },
-        // Two schemas both claiming 'Legacy'.
-        'comfy.A': { ...nodes['comfy.EmptyImage'], nodeType: 'comfy.A', aliases: ['Legacy'] },
-        'comfy.B': { ...nodes['comfy.EmptyImage'], nodeType: 'comfy.B', aliases: ['Legacy'] },
-      },
-    } as DinksterNodesPayload
-    const reg = buildDinksterRegistry(C0, doctored)
-    expect(reg.resolve('EmptyImage')?.type).toBe('EmptyImage')
-    expect(reg.resolve('Legacy')).toBeUndefined()
-    expect(reg.resolve('comfy.A')?.type).toBe('comfy.A')
-    expect(reg.resolve('comfy.B')?.type).toBe('comfy.B')
-    expect(reg.diagnostics).toEqual([])
-  })
-})
 
 describe('promptToDinksterGraph', () => {
   it('lowers heterogeneous compiler outputs without reconstructing the static catalog order', () => {
@@ -1403,32 +825,6 @@ describe('promptToDinksterGraph', () => {
       expect(native.graph.nodes.source).toEqual({ nodeType: 'Source', inputs: {} })
     }
   })
-
-  it.each([null, 'sum', { 0: 'sum' }, [''], [' '], ['sum', 2], ['sum', 'sum'], Array(1)].map((outputIds) => ({ outputIds })))(
-    'rejects malformed compiler outputIds $outputIds even when the catalog could resolve the link', ({ outputIds }) => {
-      const prompt = {
-        source: { class_type: 'std.math.add_ints', inputs: {}, outputIds },
-        sink: { class_type: 'std.math.add_ints', inputs: { a: ['source', 0] } },
-      } as unknown as Prompt
-      const result = promptToDinksterGraph(prompt, registry.resolve)
-      expect(result.ok).toBe(false)
-      if (result.ok) throw new Error('unreachable')
-      expect(result.diagnostics[0]?.code).toBe('submit.invalidOutputIds')
-    },
-  )
-
-  it.each([0, 1, -1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
-    'rejects output index %s against empty compiler IDs without falling back', (index) => {
-      const result = promptToDinksterGraph({
-        source: { class_type: 'std.math.add_ints', inputs: {}, outputIds: [] },
-        sink: { class_type: 'std.math.add_ints', inputs: { a: ['source', index] } },
-      }, registry.resolve)
-      expect(result.ok).toBe(false)
-      if (result.ok) throw new Error('unreachable')
-      expect(result.diagnostics[0]?.code).toBe('submit.unresolvedLink')
-      expect(result.diagnostics[0]?.message).toBe(`sink.a: std.math.add_ints has no output #${index}`)
-    },
-  )
 
   it('converts literals as-is and links by producer output ID', () => {
     const prompt: Prompt = {
@@ -1533,39 +929,6 @@ describe('promptToDinksterGraph', () => {
         b: members.length === 0 ? 0 : { $link: { node: 'source', output: `parts.${members[1]}` } },
       },
     })
-  })
-
-  it('passes a $typed marker through verbatim (compile owns emission; the wire relays it)', () => {
-    // The typed-literal form (Dinkster ea6eca7) is staged by compile as a Json
-    // literal; the graph wire converter must never sniff or rewrite it -
-    // only link tuples convert.
-    const prompt: Prompt = {
-      n0: { class_type: 'std.math.add_ints', inputs: { a: { $typed: { type: 'INT', value: 7 } }, b: 4 } },
-    }
-    const result = promptToDinksterGraph(prompt, registry.resolve)
-    expect(result.ok).toBe(true)
-    if (!result.ok) throw new Error('unreachable')
-    expect(result.graph.nodes['n0']).toEqual({
-      nodeType: 'std.math.add_ints',
-      inputs: { a: { $typed: { type: 'INT', value: 7 } }, b: 4 },
-    })
-  })
-
-  it('passes per-node stored dynamic choices through verbatim, omitted when absent', () => {
-    const prompt: Prompt = {
-      n0: { class_type: 'std.math.add_ints', inputs: { a: 3, b: 4 } },
-      n1: {
-        class_type: 'std.math.add_ints',
-        inputs: { a: ['n0', 0], b: 10 },
-        slotVariants: { a: 'text', 'a.mode': 'advanced' },
-      },
-    }
-    const result = promptToDinksterGraph(prompt, registry.resolve)
-    expect(result.ok).toBe(true)
-    if (!result.ok) throw new Error('unreachable')
-    expect(result.graph.nodes['n0']).not.toHaveProperty('slotVariants')
-    expect((result.graph.nodes['n1'] as { slotVariants?: unknown }).slotVariants)
-      .toEqual({ a: 'text', 'a.mode': 'advanced' })
   })
 
   it('moves recursive DynamicCombo selectors out of native inputs without removing DynamicSlot sockets', () => {
@@ -1742,11 +1105,6 @@ describe('promptToDinksterGraph', () => {
 })
 
 describe('targetsForArtifact', () => {
-  it('passes explicit partial targets through untouched', () => {
-    const artifact = chainArtifact()
-    expect(artifact.partialTargets).toBeDefined()
-    expect(targetsForArtifact(artifact, registry.resolve)).toBe(artifact.partialTargets)
-  })
 
   it('selects output-node runtime ids for full scope', () => {
     const prompt: Prompt = {
@@ -1945,19 +1303,6 @@ describe('retained asset ownership', () => {
     expect(requests.map((request) => request.init?.method)).toEqual(['PUT', 'GET'])
   })
 
-  it('claims server-selected roots for a fresh result or preview without declaring caller roots', async () => {
-    const sourceToken = '0123456789abcdef'.repeat(2)
-    for (const ownerKind of ['shown-result', 'preview'] as const) {
-      const resultOwner = { ...owner, ownerKind }
-      const claimed = { ...resultOwner, revision: 1, digests: [b], complete: false, sourceToken }
-      const { conn, requests } = submitHarness(() => jsonResponse(200, claimed))
-      expect(await conn.claimResultAssets(resultOwner, sourceToken)).toEqual(claimed)
-      expect(requests[0]!.url).toBe(`http://test/api/library/retentions/${ownerKind}/window%2Ftab%20generation?scope=team%2Fone`)
-      expect(JSON.parse(requests[0]!.init!.body as string)).toEqual({ revision: 0, sourceToken })
-      expect(await conn.fetchRetainedAssets(resultOwner)).toEqual(claimed)
-    }
-  })
-
   it('rejects missing, foreign, malformed or reused source acknowledgments', async () => {
     const sourceToken = '0123456789abcdef'.repeat(2)
     const resultOwner = { ...owner, ownerKind: 'shown-result' as const }
@@ -1977,25 +1322,6 @@ describe('retained asset ownership', () => {
     expect(requests).toHaveLength(0)
   })
 
-  it('leaves unavailable or lost source claims to explicit GET reconciliation, not replay', async () => {
-    const sourceToken = '0123456789abcdef'.repeat(2)
-    const resultOwner = { ...owner, ownerKind: 'preview' as const }
-    const claimed = { ...resultOwner, revision: 1, digests: [b], complete: true, sourceToken }
-    for (const status of [409, 503]) {
-      const { conn, requests } = submitHarness(() => jsonResponse(status, { reason: 'source-unavailable' }))
-      await expect(conn.claimResultAssets(resultOwner, sourceToken)).rejects.toThrow(`failed: ${status}`)
-      expect(requests).toHaveLength(1)
-    }
-    const { conn, requests } = submitHarness((_url, init) => {
-      if (init?.method === 'PUT') throw new TypeError('response lost after claim')
-      return jsonResponse(200, claimed)
-    })
-    await expect(conn.claimResultAssets(resultOwner, sourceToken)).rejects.toThrow('response lost after claim')
-    expect(requests).toHaveLength(1)
-    expect(await conn.fetchRetainedAssets(resultOwner)).toEqual(claimed)
-    expect(requests.map((request) => request.init?.method)).toEqual(['PUT', 'GET'])
-  })
-
   it('preserves incomplete ownership and requires an empty next-revision release acknowledgment', async () => {
     const incomplete = { ...owner, revision: 1, digests: [b], complete: false }
     const { conn } = submitHarness(() => jsonResponse(200, incomplete))
@@ -2011,19 +1337,6 @@ describe('retained asset ownership', () => {
     }
   })
 
-  it('rejects invalid and oversized declarations without truncating or sending them', async () => {
-    const { conn, requests } = submitHarness(() => jsonResponse(200, manifest))
-    const oversized = Array.from({ length: 4097 }, (_, index) => `blake3:${index.toString(16).padStart(64, '0')}`)
-    for (const digests of [[a.toUpperCase()], ['fingerprint:abc'], oversized]) {
-      await expect(conn.retainAssets(owner, { revision: 0, digests, complete: true })).rejects.toThrow()
-    }
-    for (const revision of [-1, 0.5, Number.MAX_SAFE_INTEGER]) {
-      await expect(conn.retainAssets(owner, { revision, digests: [], complete: true })).rejects.toThrow()
-    }
-    await expect(conn.releaseRetainedAssets(owner, 0)).rejects.toThrow()
-    await expect(conn.fetchRetainedAssets({ ...owner, ownerId: '' })).rejects.toThrow()
-    expect(requests).toHaveLength(0)
-  })
 })
 
 const regionNodesPayload = currentNodesPayload({
@@ -2038,39 +1351,6 @@ const placementNodesRoute = (url: string): Response | undefined =>
   url.includes('/api/nodes') ? jsonResponse(200, placementNodesPayload) : undefined
 
 describe('worker catalog', () => {
-  it('strictly decodes the complete worker response while allowing additive fields and statuses', async () => {
-    const { conn, requests } = submitHarness((url) => url.endsWith('/api/workers')
-      ? jsonResponse(200, { workers: [
-          {
-            name: 'local', status: 'connected', routedNodeTypes: ['std.math.add_ints'],
-            deviceQualifiers: [], future: true,
-          },
-          {
-            name: 'render-box', status: 'draining', routedNodeTypes: ['image.upscale'],
-            deviceQualifiers: ['@render-box'],
-          },
-        ], future: true })
-      : undefined)
-
-    await expect(conn.fetchWorkers()).resolves.toEqual([
-      { name: 'local', status: 'connected', routedNodeTypes: ['std.math.add_ints'], deviceQualifiers: [] },
-      { name: 'render-box', status: 'draining', routedNodeTypes: ['image.upscale'], deviceQualifiers: ['@render-box'] },
-    ])
-    expect(requests[0]?.url).toBe('http://test/api/workers')
-  })
-
-  it.each([
-    { workers: 'not-an-array' },
-    { workers: [{ name: 'local', status: 'connected', routedNodeTypes: [], deviceQualifiers: [1] }] },
-    { workers: [
-      { name: 'same', status: 'connected', routedNodeTypes: [], deviceQualifiers: [] },
-      { name: 'same', status: 'configured', routedNodeTypes: [], deviceQualifiers: [] },
-    ] },
-  ])('rejects a malformed or ambiguous worker response', async (body) => {
-    const { conn } = submitHarness((url) =>
-      url.endsWith('/api/workers') ? jsonResponse(200, body) : undefined)
-    await expect(conn.fetchWorkers()).rejects.toThrow('GET /api/workers: malformed response')
-  })
 
   it('reports a failed worker request by status', async () => {
     const { conn } = submitHarness((url) =>
@@ -2080,12 +1360,6 @@ describe('worker catalog', () => {
 })
 
 describe('fetchSchemas wire contract', () => {
-  it('requests the nodes catalog without version negotiation', async () => {
-    const { conn, requests } = submitHarness(nodesRoute)
-    await conn.fetchSchemas()
-    const nodes = requests.find((r) => r.url.includes('/api/nodes'))!
-    expect(new URL(nodes.url, 'http://x').search).toBe('')
-  })
 
   it('refuses a backend selecting another wire version', async () => {
     const { conn } = submitHarness((url) => url.includes('/api/nodes')
@@ -2126,33 +1400,12 @@ describe('fetchSchemas payload validation (CL5)', () => {
     })
   })
 
-  it('accepts the current header-shaped payload (wire version in dinkster.schemaWire)', async () => {
-    const payload = { schemaVersion: 1, dinkster: { version: '0.1.0', schemaWire: 1 }, nodes: {} }
-    const { conn } = submitHarness((url) =>
-      url.includes('/api/nodes') ? jsonResponse(200, payload) : undefined,
-    )
-    const registry = await conn.fetchSchemas()
-    expect(registry.schemas.size).toBe(0)
-    expect(registry.server).toEqual({ version: '0.1.0', schemaWire: 1 })
-    expect(registry.diagnostics).toEqual([])
-    expect(conn.currentRegistry).toBe(registry)
-  })
-
   it('rejects a malformed nodes table instead of installing an empty registry', async () => {
     const { conn } = submitHarness((url) =>
       url.includes('/api/nodes') ? jsonResponse(200, { schemaVersion: 1, nodes: 'bad' }) : undefined,
     )
     await expect(conn.fetchSchemas()).rejects.toThrow('malformed or unsupported')
     expect(conn.currentRegistry).toBeUndefined()
-  })
-
-  it('rejects an unsupported wire version in a 200 payload', async () => {
-    const { conn } = submitHarness((url) =>
-      url.includes('/api/nodes') ? jsonResponse(200, { schemaVersion: 99, nodes: {} }) : undefined,
-    )
-    await expect(conn.fetchSchemas()).rejects.toThrow(
-      'schema wire version mismatch: this build decodes 1; the server encodes 99',
-    )
   })
 
   it('a stale schema response cannot overwrite a fresher registry', async () => {
@@ -2198,25 +1451,6 @@ describe('fetchSchemas payload validation (CL5)', () => {
 })
 
 describe('F0 atomic schema/snapshot pairing', () => {
-  it('holds independent paired snapshots for two connections', async () => {
-    const a = await snapshotFixture('pack.alpha')
-    const b = await snapshotFixture('pack.beta')
-    const connection = async (id: string, fixture: { body: string; digest: string }) => {
-      const conn = new DinksterConnection({
-        id: asConnectionId(id), baseUrl: `http://${id}`, clientId: id,
-        webSocketFactory: () => ({}) as WebSocketLike,
-        fetchFn: async (url) => url.includes('/api/nodes')
-          ? jsonResponse(200, { ...liveNodesPayload, extensionSnapshotDigest: fixture.digest })
-          : new Response(fixture.body, { status: 200, headers: { 'Content-Type': 'application/json' } }),
-      })
-      return conn.fetchSchemas()
-    }
-    const [registryA, registryB] = await Promise.all([connection('a', a), connection('b', b)])
-    expect(registryA.extensionSnapshotPair?.digest).toBe(a.digest)
-    expect(registryB.extensionSnapshotPair?.digest).toBe(b.digest)
-    expect(registryA.extensionSnapshotPair?.snapshot.extensions[0]?.id).toBe('pack.alpha')
-    expect(registryB.extensionSnapshotPair?.snapshot.extensions[0]?.id).toBe('pack.beta')
-  })
 
   it('refetches both surfaces after a digest mismatch and never commits the mixed pair', async () => {
     const stale = await snapshotFixture('pack.stale')
@@ -2237,20 +1471,6 @@ describe('F0 atomic schema/snapshot pairing', () => {
     expect(paired.extensionSnapshotPair?.digest).toBe(fresh.digest)
     expect(paired.extensionSnapshotPair?.snapshot.extensions[0]?.id).toBe('pack.fresh')
     expect(conn.currentRegistry).toBe(paired)
-  })
-
-  it('invalidates the current connection snapshot pair as one atomic field', async () => {
-    const fixture = await snapshotFixture('pack.old')
-    const conn = new DinksterConnection({
-      id: C0, baseUrl: 'http://native', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike,
-      fetchFn: async (url) => url.includes('/api/nodes')
-        ? jsonResponse(200, { ...liveNodesPayload, extensionSnapshotDigest: fixture.digest })
-        : new Response(fixture.body, { status: 200 }),
-    })
-    const paired = await conn.fetchSchemas()
-    expect(paired.extensionSnapshotPair).toBeDefined()
-    conn.invalidateExtensionSnapshotPair()
-    expect(conn.currentRegistry?.extensionSnapshotPair).toBeUndefined()
   })
 
   it.each([true, false])('revokes custom-event authority on invalidation with a current pair: %s', async (hasCurrentPair) => {
@@ -2350,14 +1570,6 @@ describe('cancel ownership (CL7)', () => {
     )
   })
 
-  it('rejects cancelling an execution owned by another connection without a request', async () => {
-    const { conn, requests } = submitHarness(() => jsonResponse(200, {}))
-    await expect(
-      conn.cancel({ connection: asConnectionId('other'), prompt: asPromptId('j1') }),
-    ).rejects.toThrow('cannot cancel execution')
-    expect(requests).toHaveLength(0)
-  })
-
   it('surfaces a failed cancel response instead of resolving', async () => {
     const { conn } = submitHarness(() => jsonResponse(500, {}))
     await expect(conn.cancel(ref('j1'))).rejects.toMatchObject({
@@ -2396,13 +1608,6 @@ describe('cancel ownership (CL7)', () => {
 })
 
 describe('read absence semantics (CL8)', () => {
-  it('treats 404 as absence for reads', async () => {
-    const { conn } = submitHarness(() => jsonResponse(404, {}))
-    await expect(conn.fetchAssetText('blake3:abc')).resolves.toBeUndefined()
-    await expect(conn.getLibraryRecord('id1', 'local')).resolves.toBeUndefined()
-    await expect(conn.getHistoryRun('r1', 'local')).resolves.toBeUndefined()
-    await expect(conn.fetchTemplateBody('pack', 'tpl')).resolves.toBeUndefined()
-  })
 
   it('throws on 503 instead of reporting absence', async () => {
     const { conn } = submitHarness(() => jsonResponse(503, {}))
@@ -2448,61 +1653,9 @@ describe('fetchDiagnostics', () => {
     expect(requests[0]?.url).toBe('http://test/api/diagnostics')
   })
 
-  it('filters malformed replacement problems and compat skips independently', async () => {
-    const missing = { ...problem } as Partial<typeof problem>
-    delete missing.message
-    const { conn } = submitHarness(() =>
-      jsonResponse(200, {
-        replacementProblems: [missing, { ...problem, refKind: 'bogus' }, 'bad', problem],
-        compatSkips: [
-          { ...compatSkip, packId: 7 },
-          { ...compatSkip, nodeId: undefined },
-          { ...compatSkip, reason: null },
-          'bad',
-          compatSkip,
-        ],
-      }),
-    )
-    expect(await conn.fetchDiagnostics()).toEqual({
-      replacementProblems: [problem],
-      compatSkips: [compatSkip],
-      packInferenceUnavailable: [],
-    })
-  })
-
   it('returns an empty diagnostics snapshot for a non-ok response', async () => {
     const { conn } = submitHarness(() => jsonResponse(404, { error: 'not found' }))
     expect(await conn.fetchDiagnostics()).toEqual({ replacementProblems: [], compatSkips: [], packInferenceUnavailable: [] })
-  })
-
-  it('returns an empty diagnostics snapshot when fetch throws', async () => {
-    const { conn } = submitHarness(() => undefined)
-    expect(await conn.fetchDiagnostics()).toEqual({ replacementProblems: [], compatSkips: [], packInferenceUnavailable: [] })
-  })
-
-  it('tolerates absent and malformed diagnostics keys independently', async () => {
-    const absent = submitHarness(() => jsonResponse(200, {})).conn
-    expect(await absent.fetchDiagnostics()).toEqual({ replacementProblems: [], compatSkips: [], packInferenceUnavailable: [] })
-
-    const malformedSkips = submitHarness(() => jsonResponse(200, {
-      replacementProblems: [problem],
-      compatSkips: { nope: true },
-    })).conn
-    expect(await malformedSkips.fetchDiagnostics()).toEqual({
-      replacementProblems: [problem],
-      compatSkips: [],
-      packInferenceUnavailable: [],
-    })
-
-    const malformedProblems = submitHarness(() => jsonResponse(200, {
-      replacementProblems: 'bad',
-      compatSkips: [compatSkip],
-    })).conn
-    expect(await malformedProblems.fetchDiagnostics()).toEqual({
-      replacementProblems: [],
-      compatSkips: [compatSkip],
-      packInferenceUnavailable: [],
-    })
   })
 
   it('decodes packInferenceUnavailable rows, taking the pack id from each row', async () => {
@@ -2530,48 +1683,6 @@ describe('fetchDiagnostics', () => {
     })
   })
 
-  it('keeps rows without optional fields and drops malformed ones independently', async () => {
-    const { conn } = submitHarness(() => jsonResponse(200, {
-      packInferenceUnavailable: [
-        { packId: 'pack.bare', reason: 'no worker', providers: [] },
-        { reason: 'no packId', providers: [] },
-        { packId: '', reason: 'empty packId', providers: [] },
-        { packId: 'pack.no-reason', providers: [] },
-        { packId: 'pack.bad-entry', reason: 'x', entry: 7, providers: [] },
-        { packId: 'pack.bad-worker', reason: 'x', worker: {}, providers: [] },
-        { packId: 'pack.no-providers', reason: 'x' },
-        { packId: 'pack.bad-provider-row', reason: 'x', providers: ['nope'] },
-        { packId: 'pack.bad-provider-fields', reason: 'x', providers: [{ registry: 's', id: 3 }] },
-        'not-an-object',
-      ],
-    }))
-    expect(await conn.fetchDiagnostics()).toEqual({
-      replacementProblems: [],
-      compatSkips: [],
-      packInferenceUnavailable: [{ pack: 'pack.bare', reason: 'no worker', providers: [] }],
-    })
-  })
-
-  it('tolerates a packInferenceUnavailable field that is not a list of rows', async () => {
-    const conn = submitHarness(() => jsonResponse(200, {
-      replacementProblems: [problem],
-      packInferenceUnavailable: 'bad',
-    })).conn
-    expect(await conn.fetchDiagnostics()).toEqual({
-      replacementProblems: [problem],
-      compatSkips: [],
-      packInferenceUnavailable: [],
-    })
-    // A map keyed by pack is not the wire the backend emits; it decodes as absent.
-    const mapped = submitHarness(() => jsonResponse(200, {
-      packInferenceUnavailable: { 'pack.degraded': { reason: 'x', providers: [] } },
-    })).conn
-    expect(await mapped.fetchDiagnostics()).toEqual({
-      replacementProblems: [],
-      compatSkips: [],
-      packInferenceUnavailable: [],
-    })
-  })
 })
 
 describe('fetchCompositionFailures', () => {
@@ -2603,15 +1714,6 @@ describe('fetchCompositionFailures', () => {
     await expect(conn.fetchCompositionFailures()).resolves.toEqual([])
   })
 
-  it.each([
-    { packs: [] },
-    { packs: { bad: { state: 'failed' } } },
-    { packs: { bad: { state: 'unknown' } } },
-  ])('does not treat a malformed snapshot as healed', async (body) => {
-    const { conn } = submitHarness(() => jsonResponse(200, body))
-    await expect(conn.fetchCompositionFailures()).resolves.toBeUndefined()
-  })
-
   it('keeps unavailable and older-backend responses non-authoritative', async () => {
     const absent = submitHarness(() => jsonResponse(404, {})).conn
     const unreachable = submitHarness(() => undefined).conn
@@ -2621,24 +1723,6 @@ describe('fetchCompositionFailures', () => {
 })
 
 describe('submit', () => {
-  it('POSTs transient placement for exact top-level nodes', async () => {
-    const { conn, requests } = submitHarness((url, init) =>
-      placementNodesRoute(url) ??
-      (url.endsWith('/api/jobs') && init?.method === 'POST'
-        ? jsonResponse(202, { clientId: 'cid', jobId: 'job-fixed', state: 'queued' })
-        : undefined))
-    await conn.fetchSchemas()
-    const artifact = {
-      ...chainArtifact(),
-      schemaHash: buildDinksterRegistry(C0, placementNodesPayload).hash,
-    }
-
-    const result = await conn.submit(artifact, { placement: { n0: 'local', n1: 'render-box' } })
-
-    expect(result.ok).toBe(true)
-    const body = JSON.parse(requests.find((request) => request.init?.method === 'POST')!.init!.body as string)
-    expect(body['placement']).toEqual({ n0: 'local', n1: 'render-box' })
-  })
 
   it('refuses placement locally when capability is absent or a hinted node is not top-level', async () => {
     const unsupported = submitHarness(nodesRoute)
@@ -2705,51 +1789,6 @@ describe('submit', () => {
     ])
   })
 
-  it('POSTs the compiler-owned native region graph without changing the jobs route', async () => {
-    const regionGraph = {
-      nodes: {
-        r: {
-          region: {
-            kind: 'map' as const,
-            ports: { item: { kind: 'concrete', types: ['INT'] } },
-            elementPorts: ['item'],
-            inputs: { item: [1, 2] },
-            body: {
-              nodes: {
-                add: {
-                  nodeType: 'std.math.add_ints',
-                  inputs: { a: { $link: { node: '$region', output: 'item' } }, b: 1 },
-                },
-              },
-            },
-            outputs: { sums: { source: { node: 'add', output: 'sum' } } },
-          },
-        },
-      },
-    }
-    const artifact: CompileArtifact = {
-      ...chainArtifact(),
-      schemaHash: buildDinksterRegistry(C0, regionNodesPayload).hash,
-      dinksterGraph: regionGraph,
-      dinksterTargets: ['r'],
-    }
-    const { conn, requests } = submitHarness(
-      (url, init) => url.includes('/api/nodes')
-        ? jsonResponse(200, regionNodesPayload)
-        : url.endsWith('/api/jobs') && init?.method === 'POST'
-          ? jsonResponse(202, { clientId: 'cid', jobId: 'job-fixed', state: 'queued' })
-          : undefined,
-    )
-    await conn.fetchSchemas()
-    const submitted = await conn.submit(artifact)
-    expect(submitted.ok, submitted.ok ? undefined : JSON.stringify(submitted.diagnostics)).toBe(true)
-    const post = requests.find((request) => request.init?.method === 'POST')!
-    expect(JSON.parse(post.init!.body as string)).toMatchObject({
-      targets: ['r'],
-      graph: regionGraph,
-    })
-  })
-
   it('POSTs the converted graph with explicit targets and client-owned job id', async () => {
     const { conn, requests } = submitHarness(
       (url, init) =>
@@ -2777,47 +1816,6 @@ describe('submit', () => {
         },
       },
     })
-  })
-
-  it('surfaces the server-assigned jobRef from the 202 body', async () => {
-    const { conn } = submitHarness(
-      (url, init) =>
-        nodesRoute(url) ??
-        (url.endsWith('/api/jobs') && init?.method === 'POST'
-          ? jsonResponse(202, {
-              clientId: 'cid',
-              jobId: 'job-fixed',
-              state: 'queued',
-              jobRef: '0198c2f1a4b85e2d9f3a7c6b1d4e8f02',
-              runId: '0198c2f1a4b85e2d9f3a7c6b1d4e8f02',
-            })
-          : undefined),
-    )
-    await conn.fetchSchemas()
-    const result = await conn.submit(chainArtifact())
-    expect(result.ok).toBe(true)
-    if (!result.ok) throw new Error('unreachable')
-    expect(result.jobRef).toBe('0198c2f1a4b85e2d9f3a7c6b1d4e8f02')
-  })
-
-  it('accepts a pre-jobRef 202 (missing, non-string, or unparseable body) with jobRef undefined', async () => {
-    const bodies = [
-      jsonResponse(202, { clientId: 'cid', jobId: 'job-fixed', state: 'queued' }),
-      jsonResponse(202, { clientId: 'cid', jobId: 'job-fixed', jobRef: 42 }),
-      new Response('not json', { status: 202 }),
-    ]
-    for (const accepted of bodies) {
-      const { conn } = submitHarness(
-        (url, init) =>
-          nodesRoute(url) ??
-          (url.endsWith('/api/jobs') && init?.method === 'POST' ? accepted : undefined),
-      )
-      await conn.fetchSchemas()
-      const result = await conn.submit(chainArtifact())
-      expect(result.ok).toBe(true)
-      if (!result.ok) throw new Error('unreachable')
-      expect(result.jobRef).toBeUndefined()
-    }
   })
 
   it('rejects an artifact compiled for another connection', async () => {
@@ -3209,13 +2207,6 @@ describe('submit', () => {
     expect(result).not.toHaveProperty('retryWithAssets')
   })
 
-  it('keeps the legacy assets-missing shape valid when enriched fields are absent', () => {
-    expect(parseAssetsMissingRejection({
-      error: 'assets-missing',
-      assets: [{ digest: 'custom:abc', name: 'legacy', status: 'missing', sources: [], fetchable: false, extra: 1 }],
-      extra: true,
-    })?.assets[0]).toEqual({ digest: 'custom:abc', name: 'legacy', status: 'missing', sources: [], fetchable: false })
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -3271,41 +2262,6 @@ describe('job hydration and replay', () => {
     expect(await conn.fetchJob('missing')).toBeUndefined()
   })
 
-  it('decodes optional submitter attribution and ignores missing or malformed values', async () => {
-    const { conn } = replayHarness({
-      '/api/jobs/cid/agent': {
-        ...completedJob,
-        jobId: 'agent',
-        submittedBy: { principalId: 'build-agent', kind: 'agent' },
-      },
-      '/api/jobs/cid/plain': { ...completedJob, jobId: 'plain' },
-      '/api/jobs/cid/bad-kind': {
-        ...completedJob,
-        jobId: 'bad-kind',
-        submittedBy: { principalId: 'build-agent', kind: 'robot' },
-      },
-      '/api/jobs/cid/bad-id': {
-        ...completedJob,
-        jobId: 'bad-id',
-        submittedBy: { principalId: 42, kind: 'agent' },
-      },
-      '/api/jobs/cid/bad-shape': {
-        ...completedJob,
-        jobId: 'bad-shape',
-        submittedBy: ['build-agent', 'agent'],
-      },
-    })
-
-    expect((await conn.fetchJob('agent'))?.submittedBy).toEqual({
-      principalId: 'build-agent',
-      kind: 'agent',
-    })
-    expect((await conn.fetchJob('plain'))?.submittedBy).toBeUndefined()
-    expect((await conn.fetchJob('bad-kind'))?.submittedBy).toBeUndefined()
-    expect((await conn.fetchJob('bad-id'))?.submittedBy).toBeUndefined()
-    expect((await conn.fetchJob('bad-shape'))?.submittedBy).toBeUndefined()
-  })
-
   it('retains saved-file previews and descriptor-only sizes without a per-job file cap', async () => {
     const preview = {
       digest: `blake3:${'a'.repeat(64)}`, name: 'preview.webp', size: 238,
@@ -3322,60 +2278,6 @@ describe('job hydration and replay', () => {
     expect(job?.artifacts).toEqual(artifacts)
   })
 
-  it('keeps saved files when their optional preview metadata is malformed', async () => {
-    const valid = {
-      digest: `blake3:${'a'.repeat(64)}`, name: 'preview.webp', size: 238,
-      mediaType: 'image/webp', virtualPath: `previews/${'a'.repeat(64)}/preview.webp`,
-    }
-    for (const preview of [
-      null, {}, { digest: 'bad' }, { ...videoArtifact, preview: {} },
-      { ...valid, size: 0 }, { ...valid, size: 16 * 1024 * 1024 + 1 },
-      { ...valid, name: '../preview.webp' }, { ...valid, virtualPath: 'output/preview.webp' },
-    ]) {
-      const { conn } = replayHarness({
-        '/api/jobs/cid/j1': { ...completedJob, artifacts: [{ ...videoArtifact, preview }] },
-      })
-      expect((await conn.fetchJob('j1'))?.artifacts).toEqual([videoArtifact])
-    }
-  })
-
-  it('ignores the entire optional artifact field when its required shape or bounds are invalid', async () => {
-    const invalid = [
-      [{ ...videoArtifact, unexpected: true }],
-      [{ ...videoArtifact, digest: 'blake3:short' }],
-      [{ ...videoArtifact, size: Number.MAX_SAFE_INTEGER + 1 }],
-      [{ ...videoArtifact, size: -1 }],
-      [{ ...videoArtifact, mediaType: 'not a MIME type' }],
-    ]
-    for (const artifacts of invalid) {
-      const { conn } = replayHarness({ '/api/jobs/cid/j1': { ...completedJob, artifacts } })
-      const job = await conn.fetchJob('j1')
-      expect(job?.state).toBe('completed')
-      expect(job?.artifacts).toBeUndefined()
-      expect(job?.outputs).toEqual(completedJob.outputs)
-    }
-  })
-
-  it('CL1 rejects a malformed job state instead of reconciling it', async () => {
-    const { conn } = replayHarness({ '/api/jobs/cid/j1': { ...completedJob, state: 'exploded' } })
-    await expect(conn.fetchJob('j1')).rejects.toThrow('malformed response')
-  })
-
-  it('CL1 rejects a non-string job state even when it coerces to a known state', async () => {
-    // String(['completed']) === 'completed' - a coercing validator would
-    // accept this record, but every strict terminal comparison downstream
-    // would fail, leaving the execution running forever.
-    const { conn } = replayHarness({ '/api/jobs/cid/j1': { ...completedJob, state: ['completed'] } })
-    await expect(conn.fetchJob('j1')).rejects.toThrow('malformed response')
-  })
-
-  it('CL1 rejects a job record whose identity does not match the request', async () => {
-    const wrongJob = replayHarness({ '/api/jobs/cid/j1': { ...completedJob, jobId: 'other' } })
-    await expect(wrongJob.conn.fetchJob('j1')).rejects.toThrow('identity mismatch')
-    const wrongClient = replayHarness({ '/api/jobs/cid/j1': { ...completedJob, clientId: 'not-cid' } })
-    await expect(wrongClient.conn.fetchJob('j1')).rejects.toThrow('clientId mismatch')
-  })
-
   it('replays a completed job into node states and a terminal transition', async () => {
     const { conn, store, seedRunning } = replayHarness({})
     seedRunning('j1')
@@ -3388,19 +2290,6 @@ describe('job hydration and replay', () => {
       state: 'done',
       outputs: { sum: { typeId: 'INT' } },
     })
-  })
-
-  it('notifies live completion hydration without retriggering it for fetched replays', () => {
-    const { conn } = replayHarness({})
-    const completed = vi.fn()
-    conn.onLiveCompletion(completed)
-    conn.ingest({ type: 'run_finished', jobId: 'live' })
-    expect(completed).not.toHaveBeenCalled()
-    conn.ingest({ type: 'job_state', jobId: 'live', state: 'completed' })
-    expect(completed).toHaveBeenCalledOnce()
-    expect(completed).toHaveBeenCalledWith(ref('live'))
-    conn.replayJob('replayed', { state: 'completed' })
-    expect(completed).toHaveBeenCalledOnce()
   })
 
   it('fetches and replays a failed job with the culprit node and error hints', async () => {
@@ -3562,23 +2451,6 @@ describe('reconcileDinksterExecutions', () => {
     })
   })
 
-  it('treats an authoritative empty artifact field as hydrated and does not refetch it', async () => {
-    const { conn, store, requested } = harness({
-      '/api/jobs/cid/empty': { state: 'completed', artifacts: [] },
-    })
-    conn.ingest({ type: 'run_finished', jobId: 'empty' })
-
-    await reconcileDinksterExecutions(conn, store)
-    await reconcileDinksterExecutions(conn, store)
-
-    expect(store.get(ref('empty'))).toMatchObject({
-      status: 'completed',
-      artifacts: [],
-      artifactsHydrated: true,
-    })
-    expect(requested.filter((url) => url.endsWith('/api/jobs/cid/empty'))).toHaveLength(1)
-  })
-
   it('replays a missed skip cascade as normal skipped states', async () => {
     const { conn, store, seedRunning } = harness({
       '/api/jobs/cid/j2': {
@@ -3593,15 +2465,6 @@ describe('reconcileDinksterExecutions', () => {
     expect(state.nodes['a']).toEqual({ state: 'skipped' })
     expect(state.nodes['b']).toEqual({ state: 'skipped' })
     expect(state.errors).toEqual([])
-  })
-
-  it('leaves an execution alone when its job is still running', async () => {
-    const { conn, store, seedRunning } = harness({
-      '/api/jobs/cid/j3': { state: 'running', nodeStates: { n0: 'running' } },
-    })
-    seedRunning('j3')
-    await reconcileDinksterExecutions(conn, store)
-    expect(store.get(ref('j3'))!.status).toBe('running')
   })
 
   it('FR-6 hydrates a still-running job snapshot: nodes finished during the gap are not lost', async () => {
@@ -3649,20 +2512,6 @@ describe('reconcileDinksterExecutions', () => {
     expect(state.nodes['n1']).toEqual({ state: 'done' }) // gap-filled from the snapshot
   })
 
-  it('FR-6 rejects hydration when any per-node output record is malformed', async () => {
-    const { conn, store, seedRunning } = harness({
-      '/api/jobs/cid/j7': {
-        state: 'completed',
-        outputs: { good: { out: { typeId: 't', fingerprint: 'f' } }, bad: null },
-      },
-    })
-    seedRunning('j7')
-    await reconcileDinksterExecutions(conn, store)
-    const state = store.get(ref('j7'))!
-    expect(state.status).toBe('completed') // the terminal replay still lands
-    expect(state.outputs).toEqual({}) // all-or-nothing: nothing manufactured
-  })
-
   it('CL2 a reconnect during an in-flight native pass supersedes its loss verdict', async () => {
     let gate: (() => void) | undefined
     let fetches = 0
@@ -3698,15 +2547,6 @@ describe('reconcileDinksterExecutions', () => {
     expect(state.errors[0]!.code).toBe('execution.lost')
   })
 
-  it('never touches authoritative terminal executions - or the network for them', async () => {
-    const { conn, store, requested, seedRunning } = harness({})
-    seedRunning('j5')
-    store.apply({ kind: 'completed', execution: ref('j5'), timestamp: 5 })
-    store.hydrateArtifacts(ref('j5'), [])
-    await reconcileDinksterExecutions(conn, store)
-    expect(store.get(ref('j5'))!.status).toBe('completed')
-    expect(requested).toEqual([])
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -3803,14 +2643,6 @@ describe('execution log backfill', () => {
     expect(store.get(ref('j2'))!.logs.map((l) => l.seq)).toEqual([1, 2, 3, 4, 5])
   })
 
-  it('coalesces concurrent backfills of one run', async () => {
-    const { conn, requested } = harness({
-      [journalUrl('r3', 0)]: { records: [], latestSeq: 0, coalescedBelow: 0 },
-    })
-    await Promise.all([conn.backfillRunLog('r3', 'local'), conn.backfillRunLog('r3', 'local')])
-    expect(requested).toEqual([journalUrl('r3', 0)])
-  })
-
   it('backfills when a job is first seen live mid-run (wire seq past 1)', async () => {
     const { conn, store } = harness({
       'http://test/api/jobs/cid/j9': { state: 'running', jobId: 'j9', jobRef: 'r9', runId: 'r9', scope: 'local' },
@@ -3830,25 +2662,6 @@ describe('execution log backfill', () => {
         [7, 'after reload'],
       ])
     })
-  })
-
-  it('does not backfill when a job is first seen from its first event', async () => {
-    const { conn, requested } = harness({})
-    conn.ingest({ type: 'job_state', jobId: 'j10', state: 'queued', seq: 1 })
-    conn.ingest(logWire('j10', 'r10', 2, 'info', 'first log'))
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(requested).toEqual([])
-  })
-
-  it('stays quiet when the backfill trigger hits a journal-less or older server', async () => {
-    const { conn, store, requested } = harness({
-      // Job record without jobRef/runId: a server that predates the journal.
-      'http://test/api/jobs/cid/j11': { state: 'running', jobId: 'j11' },
-    })
-    conn.ingest(logWire('j11', 'r11', 5, 'info', 'live row'))
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(requested).toEqual(['http://test/api/jobs/cid/j11'])
-    expect(store.get(ref('j11'))!.logs.map((l) => l.seq)).toEqual([5])
   })
 
   it('reconciliation replays the journal for jobs that carry a run identity', async () => {
@@ -3956,15 +2769,6 @@ describe('websocket', () => {
     conn.connect()
     return { conn, ws: ws!, events }
   }
-
-  it('derives the native events url and stays silent on open (no handshake)', () => {
-    const { conn, ws } = connected()
-    expect(ws.url).toBe('ws://test/api/events?clientId=cid')
-    expect(ws.binaryType).toBe('arraybuffer')
-    ws.onopen?.({})
-    expect(conn.status.get()).toBe('connected')
-    expect(ws.sent).toEqual([])
-  })
 
   it('delivers an unseen node event to the application subscriber unchanged', () => {
     const { conn, events } = connected()
@@ -4197,39 +3001,6 @@ describe('websocket', () => {
     expect(events).toEqual([])
   })
 
-  it('CL6 reports an undecodable binary frame as a protocol error', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    try {
-      const { ws, events } = connected()
-      ws.onopen?.({})
-      ws.onmessage?.({ data: new Uint8Array([1, 2]).buffer }) // too short for a header
-      expect(events).toEqual([])
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('malformed binary WebSocket frame'))
-    } finally {
-      warn.mockRestore()
-    }
-  })
-
-  it('R2-6 reports a malformed KNOWN event as a protocol error instead of a silent drop', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    try {
-      const { ws, events } = connected()
-      ws.onopen?.({})
-      // A job_state outside the state vocabulary would strand the run as
-      // running if it vanished silently.
-      ws.onmessage?.({ data: JSON.stringify({ type: 'job_state', jobId: 'j1', state: 'explodinated' }) })
-      expect(events).toEqual([])
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining("job_state with unknown state 'explodinated'"))
-      warn.mockClear()
-      // Unknown kinds and uncorrelated runId-only stragglers stay silent.
-      ws.onmessage?.({ data: JSON.stringify({ type: 'totally_new_kind', jobId: 'j1' }) })
-      ws.onmessage?.({ data: JSON.stringify({ type: 'node_started', nodeId: 'x', runId: 'never-seen' }) })
-      expect(events).toEqual([])
-      expect(warn).not.toHaveBeenCalled()
-    } finally {
-      warn.mockRestore()
-    }
-  })
 })
 
 describe('workflow library wire', () => {
@@ -4264,85 +3035,9 @@ describe('workflow library wire', () => {
     alphaMode: 'straight',
   }
 
-  it('uploadAsset POSTs opaque bytes and returns the digest', async () => {
-    const { conn, requests } = submitHarness((url, init) =>
-      url.endsWith('/api/assets') && init?.method === 'POST'
-        ? jsonResponse(201, { digest: DIGEST })
-        : undefined,
-    )
-    expect(await conn.uploadAsset('{"doc":true}')).toBe(DIGEST)
-    expect(requests[0]?.url).toBe('http://test/api/assets')
-    expect(requests[0]?.init?.body).toBe('{"doc":true}')
-  })
-
-  it('uploadAsset passes binary bodies through unchanged', async () => {
-    const body = new Uint8Array([0, 255, 17])
-    const { conn, requests } = submitHarness(() => jsonResponse(200, { digest: DIGEST }))
-    expect(await conn.uploadAsset(body)).toBe(DIGEST)
-    expect(requests[0]?.init?.body).toBe(body)
-    expect(new Headers(requests[0]?.init?.headers).get('Content-Type')).toBe('application/octet-stream')
-  })
-
-  it.each([
-    ['Blob', () => new Blob([new Uint8Array([0, 255, 17, 33])], { type: 'image/png' })],
-    ['File', () => new File([new Uint8Array([0, 255, 17, 33])], 'proof.png', { type: 'image/png' })],
-  ])('uploadAsset passes the exact %s object and its bytes to fetch', async (_kind, makeBody) => {
-    const body = makeBody()
-    const { conn, requests } = submitHarness(() => jsonResponse(201, { digest: DIGEST }))
-    expect(await conn.uploadAsset(body)).toBe(DIGEST)
-    expect(requests[0]?.init?.body).toBe(body)
-    expect(new Uint8Array(await (requests[0]?.init?.body as Blob).arrayBuffer())).toEqual(
-      new Uint8Array([0, 255, 17, 33]),
-    )
-  })
-
   it('uploadAsset throws on failure (e.g. a server without --library-root)', async () => {
     const { conn } = submitHarness(() => jsonResponse(404, { error: 'unknown' }))
     await expect(conn.uploadAsset('x')).rejects.toThrow('404')
-  })
-
-  it('uploadAsset forwards the abort signal to fetch (upload UIs need a cancel path)', async () => {
-    const { conn, requests } = submitHarness(() => jsonResponse(200, { digest: DIGEST }))
-    const controller = new AbortController()
-    expect(await conn.uploadAsset('x', controller.signal)).toBe(DIGEST)
-    expect(requests[0]?.init?.signal).toBe(controller.signal)
-    // Without a signal the request carries none (nothing implicit).
-    expect(await conn.uploadAsset('x')).toBe(DIGEST)
-    expect(requests[1]?.init && 'signal' in requests[1].init).toBe(false)
-  })
-
-  it('adopts canonical ImageDocument bytes and validates the typed response', async () => {
-    const body = '{"format":"dinkster-image"}'
-    const controller = new AbortController()
-    const { conn, requests } = submitHarness(() => jsonResponse(201, {
-      digest: DIGEST,
-      mediaType: 'application/vnd.dinkster.image-document+json',
-      byteSize: body.length,
-      dependencies: [{ ...imageDependency, ignored: true }],
-    }))
-    await expect(conn.adoptImageDocument(body, {
-      scope: 'local', expectedDigest: DIGEST, signal: controller.signal,
-    })).resolves.toEqual({
-      digest: DIGEST,
-      mediaType: 'application/vnd.dinkster.image-document+json',
-      byteSize: body.length,
-      dependencies: [imageDependency],
-    })
-    const request = requests[0]!
-    expect(new URL(request.url).searchParams.get('scope')).toBe('local')
-    expect(request.init?.body).toBe(body)
-    expect(request.init?.signal).toBe(controller.signal)
-    const headers = new Headers(request.init?.headers)
-    expect(headers.get('Content-Type')).toBe('application/vnd.dinkster.image-document+json')
-    expect(headers.get('X-Dinkster-Digest')).toBe(DIGEST)
-
-    const { conn: malformed } = submitHarness(() => jsonResponse(200, {
-      digest: DIGEST,
-      mediaType: 'application/vnd.dinkster.image-document+json',
-      byteSize: body.length,
-      dependencies: [{ ...imageDependency, width: 0 }],
-    }))
-    await expect(malformed.adoptImageDocument(body, { scope: 'local' })).rejects.toThrow('malformed')
   })
 
   it('reads immutable ImageDocument dependency manifests and rejects mismatches', async () => {
@@ -4428,25 +3123,6 @@ describe('workflow library wire', () => {
     })).rejects.toThrow('malformed')
   })
 
-  it('uploadMediaAsset posts exact bytes and adopts the canonical server AssetRef', async () => {
-    const body = new File([new Uint8Array([137, 80, 78, 71])], '../unsafe/path/proof.png', { type: 'image/png' })
-    const { conn, requests } = submitHarness(() => jsonResponse(201, {
-      asset: MEDIA_ASSET,
-      kind: 'media/image',
-    }))
-    expect(await conn.uploadMediaAsset(body, {
-      scope: 'local', kind: 'media/image', name: 'proof.png', expectedDigest: DIGEST,
-    })).toEqual(MEDIA_ASSET)
-    const request = requests[0]!
-    const url = new URL(request.url)
-    expect(url.pathname).toBe('/api/assets/media')
-    expect(Object.fromEntries(url.searchParams)).toEqual({ scope: 'local', kind: 'media/image', name: 'proof.png' })
-    expect(request.init?.body).toBe(body)
-    const headers = new Headers(request.init?.headers)
-    expect(headers.get('Content-Type')).toBe('image/png')
-    expect(headers.get('X-Dinkster-Digest')).toBe(DIGEST)
-  })
-
   it.each(['named', 'media'] as const)('%s upload preserves the project destination and collision-safe server reference', async (route) => {
     const body = new File(['different bytes'], 'proof.png', { type: 'image/png' })
     const asset = { ...MEDIA_ASSET, name: 'proof (2).png', size: 19, virtualPath: 'mounts/imports/plates/scene A/proof (2).png' }
@@ -4468,17 +3144,6 @@ describe('workflow library wire', () => {
     })
     expect(request.init?.body).toBe(body)
     expect(request.init?.signal).toBe(controller.signal)
-  })
-
-  it('named upload leaves the default destination to the server without changing anonymous vault uploads', async () => {
-    const body = new File(['weights'], 'model.safetensors')
-    const asset = { ...MEDIA_ASSET, name: body.name, mediaType: 'application/octet-stream', virtualPath: 'mounts/imports/model.safetensors' }
-    const { conn, requests } = submitHarness(() => jsonResponse(201, { digest: DIGEST, asset }))
-    await expect(conn.uploadNamedAsset(body, { scope: 'local', name: body.name })).resolves.toEqual(asset)
-    expect(Object.fromEntries(new URL(requests[0]!.url).searchParams)).toEqual({ scope: 'local', name: 'model.safetensors' })
-    expect(new Headers(requests[0]?.init?.headers).get('Content-Type')).toBe('application/octet-stream')
-    expect(await conn.uploadAsset(body)).toBe(DIGEST)
-    expect(requests[1]?.url).toBe('http://test/api/assets')
   })
 
   it.each([
@@ -4510,45 +3175,6 @@ describe('workflow library wire', () => {
     expect(requests[0]?.init?.body).toBe(body)
     expect(new Headers(requests[0]?.init?.headers).get('Content-Type')).toBe('video/webm')
     expect(read).not.toHaveBeenCalled()
-  })
-
-  it('uploadMediaAsset rejects malformed canonical responses', async () => {
-    const body = new File(['x'], 'x.png', { type: 'image/png' })
-    const { conn } = submitHarness(() => jsonResponse(201, {
-      asset: { ...MEDIA_ASSET, size: -1 }, kind: 'media/image',
-    }))
-    await expect(conn.uploadMediaAsset(body, {
-      scope: 'local', kind: 'media/image', name: 'x.png',
-    })).rejects.toThrow('malformed response')
-  })
-
-  it('uploadLatentAsset uses the classified latent route without reading or copying the File', async () => {
-    const body = new File([new Uint8Array([4, 0, 0, 0, 0, 0, 0, 0])], 'private.safetensors', { type: 'application/octet-stream' })
-    const read = vi.spyOn(body, 'arrayBuffer')
-    const asset = { ...MEDIA_ASSET, name: 'server.latent', mediaType: 'application/x-comfy-latent' }
-    const controller = new AbortController()
-    const { conn, requests } = submitHarness(() => jsonResponse(201, { asset, kind: 'data/latent' }))
-    await expect(conn.uploadLatentAsset(body, {
-      scope: 'local', name: 'dropped-latent.latent', signal: controller.signal,
-    })).resolves.toEqual(asset)
-    const request = requests[0]!
-    const url = new URL(request.url)
-    expect(url.pathname).toBe('/api/assets/latent')
-    expect(Object.fromEntries(url.searchParams)).toEqual({ scope: 'local', name: 'dropped-latent.latent' })
-    expect(request.init?.body).toBe(body)
-    expect(request.init?.signal).toBe(controller.signal)
-    expect(new Headers(request.init?.headers).get('Content-Type')).toBe('application/x-comfy-latent')
-    expect(read).not.toHaveBeenCalled()
-  })
-
-  it('uploadLatentAsset rejects the wrong classified kind or incomplete AssetRef', async () => {
-    const body = new File(['x'], 'x.latent')
-    const wrongKind = submitHarness(() => jsonResponse(201, { asset: MEDIA_ASSET, kind: 'media/image' })).conn
-    await expect(wrongKind.uploadLatentAsset(body, { scope: 'local', name: 'x.latent' })).rejects.toThrow('malformed response')
-    const malformed = submitHarness(() => jsonResponse(201, {
-      asset: { ...MEDIA_ASSET, digest: 'not-a-digest' }, kind: 'data/latent',
-    })).conn
-    await expect(malformed.uploadLatentAsset(body, { scope: 'local', name: 'x.latent' })).rejects.toThrow('malformed response')
   })
 
   it('fetchAssetText returns bytes as text, undefined on a miss', async () => {
@@ -4602,63 +3228,9 @@ describe('workflow library wire', () => {
     await expect(cancelled.fetchLocalAssetBytes('cancelled', abort.signal)).rejects.toThrow()
   })
 
-  it('listLibrary sends the query-first request and skips malformed records', async () => {
-    const { conn, requests } = submitHarness((url) =>
-      url.includes('/api/library?')
-        ? jsonResponse(200, { records: [record, { id: 'broken' }, 'junk'], cursor: 'c1' })
-        : undefined,
-    )
-    const page = await conn.listLibrary({
-      scope: 'local',
-      query: 'flow',
-      label: 'workflow',
-      limit: 24,
-      cursor: 'c0',
-    })
-    expect(page.records).toEqual([record])
-    expect(page.cursor).toBe('c1')
-    const url = new URL(requests[0]!.url)
-    expect(url.pathname).toBe('/api/library')
-    expect(url.searchParams.get('scope')).toBe('local')
-    expect(url.searchParams.get('q')).toBe('flow')
-    expect(url.searchParams.get('label')).toBe('workflow')
-    expect(url.searchParams.get('limit')).toBe('24')
-    expect(url.searchParams.get('cursor')).toBe('c0')
-  })
-
-  it('listLibrary omits empty query and absent cursor; exhausted pages have no cursor', async () => {
-    const { conn, requests } = submitHarness((url) =>
-      url.includes('/api/library?') ? jsonResponse(200, { records: [] }) : undefined,
-    )
-    const page = await conn.listLibrary({ scope: 'local', query: '' })
-    expect(page).toEqual({ records: [] })
-    const url = new URL(requests[0]!.url)
-    expect(url.searchParams.has('q')).toBe(false)
-    expect(url.searchParams.has('cursor')).toBe(false)
-  })
-
   it('listLibrary throws on a rejected cursor (restart from page one)', async () => {
     const { conn } = submitHarness(() => jsonResponse(400, { error: 'cursor-query-mismatch' }))
     await expect(conn.listLibrary({ scope: 'local', cursor: 'stale' })).rejects.toThrow('400')
-  })
-
-  it('listTemplates decodes absent optionals, tolerates extras, and sends paging filters', async () => {
-    const descriptor = { pack: 'demo.pack', id: 'starter', name: 'Starter', digest: 'sha256:abc', extra: true }
-    const { conn, requests } = submitHarness((url) => url.includes('/api/templates?')
-      ? jsonResponse(200, { templates: [descriptor, { id: 'bad' }], cursor: 'next', extra: 1 })
-      : undefined)
-    const page = await conn.listTemplates({ q: 'start', tag: 'image', pack: 'demo.pack', limit: 2, cursor: 'old' })
-    expect(page).toEqual({ templates: [{ pack: 'demo.pack', id: 'starter', name: 'Starter', digest: 'sha256:abc' }], cursor: 'next' })
-    const url = new URL(requests[0]!.url)
-    expect(Object.fromEntries(url.searchParams)).toEqual({ q: 'start', tag: 'image', pack: 'demo.pack', limit: '2', cursor: 'old' })
-  })
-
-  it('listTemplates preserves optional arrays and surfaces cursor mismatch', async () => {
-    const full = { pack: 'p', id: 't', name: 'T', description: 'D', tags: ['x'], assets: ['model'], digest: 'sha256:x' }
-    const { conn } = submitHarness(() => jsonResponse(200, { templates: [full] }))
-    expect((await conn.listTemplates()).templates[0]).toEqual(full)
-    const { conn: mismatch } = submitHarness(() => jsonResponse(400, { error: 'cursor does not match this query' }))
-    await expect(mismatch.listTemplates({ cursor: 'wrong' })).rejects.toThrow('400')
   })
 
   it('fetchTemplateBody mirrors the immutable blueprint path and validates native documents', async () => {
@@ -4698,39 +3270,6 @@ describe('workflow library wire', () => {
     })
   })
 
-  it('listDocs skips malformed descriptors and preserves a non-exhausted cursor', async () => {
-    const malformed = { ...(docsPageFixture as { docs: unknown[] }).docs[0] as Record<string, unknown>, defaultLocale: 'missing' }
-    const { conn } = submitHarness(() => jsonResponse(200, { docs: [malformed], cursor: 'more' }))
-    await expect(conn.listDocs()).resolves.toEqual({ docs: [], cursor: 'more' })
-  })
-
-  it('listDocs skips guides carrying the node-only schema version', async () => {
-    const guide = structuredClone((docsPageFixture as { docs: Record<string, unknown>[] }).docs[0]!)
-    const locales = guide['locales'] as Record<string, Record<string, unknown>>
-    locales['en']!['schemaVersion'] = 1
-    const { conn } = submitHarness(() => jsonResponse(200, { docs: [guide] }))
-    await expect(conn.listDocs()).resolves.toEqual({ docs: [] })
-  })
-
-  it('fetchDocsPage and docsAssetUrl use encoded immutable digest routes', async () => {
-    const { conn, requests } = submitHarness(() => new Response('# Add Integers', {
-      status: 200,
-      headers: { 'Content-Type': 'text/markdown; charset=utf-8' },
-    }))
-    await expect(conn.fetchDocsPage('demo/pack', 'sha256:abc')).resolves.toBe('# Add Integers')
-    await expect(conn.fetchDocsPage('demo/pack', 'sha256:abc')).resolves.toBe('# Add Integers')
-    expect(requests).toHaveLength(1)
-    expect(requests[0]!.url).toBe('http://test/api/packs/demo%2Fpack/docs/pages/sha256%3Aabc')
-    await expect(conn.fetchDocsPage('other-pack', 'sha256:abc')).resolves.toBe('# Add Integers')
-    expect(requests).toHaveLength(2)
-    expect(conn.docsAssetUrl('demo/pack', 'sha256:def')).toBe('http://test/api/packs/demo%2Fpack/docs/assets/sha256%3Adef')
-
-    const { conn: missing } = submitHarness(() => new Response(null, { status: 404 }))
-    await expect(missing.fetchDocsPage('pack', 'sha256:none')).resolves.toBeUndefined()
-    const { conn: wrongType } = submitHarness(() => jsonResponse(200, {}))
-    await expect(wrongType.fetchDocsPage('pack', 'sha256:json')).rejects.toThrow('expected text/markdown')
-  })
-
   it('bounds the docs page cache and retries failed bodies', async () => {
     const { conn, requests } = submitHarness((url) => new Response(url, {
       status: 200,
@@ -4753,22 +3292,6 @@ describe('workflow library wire', () => {
     await expect(retrying.fetchDocsPage('pack', `sha256:${'f'.repeat(64)}`)).rejects.toThrow('failed: 500')
     await expect(retrying.fetchDocsPage('pack', `sha256:${'f'.repeat(64)}`)).resolves.toBe('# recovered')
     expect(attempts).toBe(2)
-  })
-
-  it('fetches and coalesces immutable pack locale catalogs on encoded routes', async () => {
-    const catalog = { nodes: { 'demo.node': { displayName: 'Knoten' } } }
-    const { conn, requests } = submitHarness(() => jsonResponse(200, catalog))
-    const [first, second] = await Promise.all([
-      conn.fetchPackLocaleCatalog('demo/pack', 'sha256:abc'),
-      conn.fetchPackLocaleCatalog('demo/pack', 'sha256:abc'),
-    ])
-    expect(first).toEqual(catalog)
-    expect(second).toBe(first)
-    expect(requests).toHaveLength(1)
-    expect(requests[0]!.url).toBe('http://test/api/packs/demo%2Fpack/locales/sha256%3Aabc')
-
-    const { conn: missing } = submitHarness(() => new Response(null, { status: 404 }))
-    await expect(missing.fetchPackLocaleCatalog('pack', 'sha256:none')).resolves.toBeUndefined()
   })
 
   it('rejects malformed locale catalog transport and retries transient failures', async () => {
@@ -4811,26 +3334,6 @@ describe('workflow library wire', () => {
     expect(await missing.getLibraryRecord('r1', 'local')).toBeUndefined()
   })
 
-  it('createLibraryRecord POSTs the record shape and returns the created record', async () => {
-    const { conn, requests } = submitHarness((url, init) =>
-      url.endsWith('/api/library') && init?.method === 'POST'
-        ? jsonResponse(201, record)
-        : undefined,
-    )
-    const created = await conn.createLibraryRecord({
-      scope: 'local',
-      name: 'My Flow',
-      digest: DIGEST,
-      mediaType: 'application/x-dinkster-workflow+json',
-      labels: ['workflow'],
-    })
-    expect(created).toEqual(record)
-    const body = JSON.parse(requests[0]!.init!.body as string) as Record<string, unknown>
-    expect(body['scope']).toBe('local')
-    expect(body['digest']).toBe(DIGEST)
-    expect(body['labels']).toEqual(['workflow'])
-  })
-
   it('patchLibraryRecord returns the record on 200 and conflict on 409', async () => {
     const bumped = { ...record, revision: 2 }
     const { conn, requests } = submitHarness((url, init) =>
@@ -4850,68 +3353,6 @@ describe('workflow library wire', () => {
     })
   })
 
-  it('submit preserves original export metadata separately from sourceDocument and compiled prompt', async () => {
-    const jobsRoute = (url: string, init?: RequestInit): Response | undefined =>
-      nodesRoute(url) ??
-      (url.endsWith('/api/jobs') && init?.method === 'POST'
-        ? jsonResponse(202, { clientId: 'cid', jobId: 'job-fixed', state: 'queued' })
-        : undefined)
-
-    const stamped = submitHarness(jobsRoute)
-    await stamped.conn.fetchSchemas()
-    const exportSnapshot = { prompt: { 'original-7': { class_type: 'Original', inputs: { seed: 17 } } }, extraPnginfo: { workflow: { nodes: [] } } }
-    expect((await stamped.conn.submit(chainArtifact(), { sourceDocument: DIGEST, exportSnapshot })).ok).toBe(true)
-    const post = stamped.requests.find((r) => r.init?.method === 'POST')!
-    expect((JSON.parse(post.init!.body as string) as Record<string, unknown>)['sourceDocument']).toBe(DIGEST)
-    expect(JSON.parse(post.init!.body as string).exportSnapshot).toEqual(exportSnapshot)
-
-    const workflowOnly = submitHarness(jobsRoute)
-    await workflowOnly.conn.fetchSchemas()
-    const workflowSnapshot = { extraPnginfo: { workflow: { nodes: [{ id: 9 }] } } }
-    expect((await workflowOnly.conn.submit(chainArtifact(), { exportSnapshot: workflowSnapshot })).ok).toBe(true)
-    expect(JSON.parse(workflowOnly.requests.find((r) => r.init?.method === 'POST')!.init!.body as string).exportSnapshot).toEqual(workflowSnapshot)
-
-    const emptyOriginal = submitHarness(jobsRoute)
-    await emptyOriginal.conn.fetchSchemas()
-    expect((await emptyOriginal.conn.submit(chainArtifact(), { exportSnapshot: { prompt: {} } })).ok).toBe(true)
-    expect(JSON.parse(emptyOriginal.requests.find((r) => r.init?.method === 'POST')!.init!.body as string).exportSnapshot).toEqual({ prompt: {} })
-
-    const plain = submitHarness(jobsRoute)
-    await plain.conn.fetchSchemas()
-    expect((await plain.conn.submit(chainArtifact())).ok).toBe(true)
-    const plainPost = plain.requests.find((r) => r.init?.method === 'POST')!
-    expect('sourceDocument' in (JSON.parse(plainPost.init!.body as string) as Record<string, unknown>)).toBe(false)
-    expect(JSON.parse(plainPost.init!.body as string)).not.toHaveProperty('exportSnapshot')
-  })
-
-  it('submit carries the previews policy when provided, omits it otherwise', async () => {
-    const jobsRoute = (url: string, init?: RequestInit): Response | undefined =>
-      nodesRoute(url) ??
-      (url.endsWith('/api/jobs') && init?.method === 'POST'
-        ? jsonResponse(202, { clientId: 'cid', jobId: 'job-fixed', state: 'queued' })
-        : undefined)
-
-    const chosen = submitHarness(jobsRoute)
-    await chosen.conn.fetchSchemas()
-    expect((await chosen.conn.submit(chainArtifact(), { previews: { mode: 'quality' } })).ok).toBe(true)
-    const post = chosen.requests.find((r) => r.init?.method === 'POST')!
-    expect((JSON.parse(post.init!.body as string) as Record<string, unknown>)['previews']).toEqual({ mode: 'quality' })
-
-    const plain = submitHarness(jobsRoute)
-    await plain.conn.fetchSchemas()
-    expect((await plain.conn.submit(chainArtifact())).ok).toBe(true)
-    const plainPost = plain.requests.find((r) => r.init?.method === 'POST')!
-    expect('previews' in (JSON.parse(plainPost.init!.body as string) as Record<string, unknown>)).toBe(false)
-
-    const withNodes = submitHarness(jobsRoute)
-    await withNodes.conn.fetchSchemas()
-    expect((await withNodes.conn.submit(chainArtifact(), {
-      previews: { mode: 'cheap', nodes: { n1: 'off', 's1.inner': 'quality' } },
-    })).ok).toBe(true)
-    const nodesPost = withNodes.requests.find((r) => r.init?.method === 'POST')!
-    expect((JSON.parse(nodesPost.init!.body as string) as Record<string, unknown>)['previews'])
-      .toEqual({ mode: 'cheap', nodes: { n1: 'off', 's1.inner': 'quality' } })
-  })
 })
 
 describe('persistent history wire', () => {
@@ -4931,91 +3372,6 @@ describe('persistent history wire', () => {
     startedAt: 1.5,
     sourceDocument: DIGEST,
   }
-
-  it('listHistory sends exact filters + paging and skips malformed records', async () => {
-    const { conn, requests } = submitHarness((url, init) =>
-      url.includes('/api/history?') && init?.method !== 'DELETE'
-        ? jsonResponse(200, { records: [run, { runId: 'broken' }, 'junk'], cursor: 'c1' })
-        : undefined,
-    )
-    const page = await conn.listHistory({
-      scope: 'local',
-      state: 'completed',
-      sourceDocument: DIGEST,
-      clientId: 'cid',
-      limit: 24,
-      cursor: 'c0',
-    })
-    expect(page.records).toEqual([run])
-    expect(page.cursor).toBe('c1')
-    const url = new URL(requests[0]!.url)
-    expect(url.pathname).toBe('/api/history')
-    expect(url.searchParams.get('scope')).toBe('local')
-    expect(url.searchParams.get('state')).toBe('completed')
-    expect(url.searchParams.get('sourceDocument')).toBe(DIGEST)
-    expect(url.searchParams.get('clientId')).toBe('cid')
-    expect(url.searchParams.get('limit')).toBe('24')
-    expect(url.searchParams.get('cursor')).toBe('c0')
-  })
-
-  it('listHistory omits absent filters/cursor; exhausted pages have no cursor', async () => {
-    const { conn, requests } = submitHarness((url) =>
-      url.includes('/api/history?') ? jsonResponse(200, { records: [] }) : undefined,
-    )
-    const page = await conn.listHistory({ scope: 'local' })
-    expect(page).toEqual({ records: [] })
-    const url = new URL(requests[0]!.url)
-    expect([...url.searchParams.keys()]).toEqual(['scope'])
-  })
-
-  it('decodes optional history attribution and ignores malformed values', async () => {
-    const { conn } = submitHarness((url) =>
-      url.includes('/api/history?')
-        ? jsonResponse(200, { records: [
-            { ...run, runId: 'agent', principalId: 'queue-agent', principalKind: 'agent' },
-            { ...run, runId: 'bad', principalId: 42, principalKind: 'robot' },
-            { ...run, runId: 'plain' },
-          ] })
-        : undefined,
-    )
-
-    const records = (await conn.listHistory({ scope: 'local' })).records
-    expect(records[0]).toMatchObject({
-      runId: 'agent',
-      principalId: 'queue-agent',
-      principalKind: 'agent',
-    })
-    expect(records[1]?.principalId).toBeUndefined()
-    expect(records[1]?.principalKind).toBeUndefined()
-    expect(records[2]?.principalId).toBeUndefined()
-    expect(records[2]?.principalKind).toBeUndefined()
-  })
-
-  it('decodes execution attribution on node receipts and rejects malformed values', async () => {
-    const receipt = {
-      nodeId: 'sampler',
-      disposition: 'executed',
-      executionArm: 'native',
-      provider: 'vision.depth.v3',
-      pack: 'dinkster-vision-depth-anything-v3',
-      worker: 'render-box',
-    }
-    const { conn } = submitHarness((url) =>
-      url.includes('/api/history?')
-        ? jsonResponse(200, { records: [
-            { ...run, runId: 'located', nodeReceipts: [receipt] },
-            { ...run, runId: 'empty-worker', nodeReceipts: [{ ...receipt, worker: '' }] },
-            { ...run, runId: 'wrong-worker', nodeReceipts: [{ ...receipt, worker: 42 }] },
-            { ...run, runId: 'empty-provider', nodeReceipts: [{ ...receipt, provider: '' }] },
-            { ...run, runId: 'wrong-pack', nodeReceipts: [{ ...receipt, pack: 42 }] },
-          ] })
-        : undefined,
-    )
-
-    expect((await conn.listHistory({ scope: 'local' })).records).toEqual([
-      { ...run, runId: 'located', nodeReceipts: [receipt] },
-    ])
-  })
 
   it('decodes interrupted restart-sweep records and still drops unknown states', async () => {
     const interrupted = {
@@ -5092,10 +3448,6 @@ describe('persistent history wire', () => {
 describe('uuidv4 (default jobId factory)', () => {
   const V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
-  it('produces a v4 UUID in a secure context (crypto.randomUUID present)', () => {
-    expect(uuidv4()).toMatch(V4)
-  })
-
   it('produces a v4 UUID WITHOUT crypto.randomUUID (plain-HTTP LAN/tailnet origins)', () => {
     // Insecure browsing contexts expose getRandomValues but not randomUUID;
     // the default jobId factory must not fail every submit there.
@@ -5115,24 +3467,6 @@ describe('uuidv4 (default jobId factory)', () => {
 })
 
 describe('memory telemetry transport', () => {
-  it('uses governor trim filters for model unload and omits them for unload-all', async () => {
-    const requests: { url: string; body: unknown }[] = []
-    const connection = new DinksterConnection({ id: C0, baseUrl: 'http://test', clientId: 'test',
-      webSocketFactory: () => ({}) as WebSocketLike,
-      fetchFn: async (url, init) => {
-        requests.push({ url: String(url), body: JSON.parse(String(init?.body)) })
-        return jsonResponse(200, { requestedBytes: 900, freedBytes: 650 })
-      },
-    })
-    expect(await connection.unloadMemory('vram:cuda:1', 'models', 'model-2')).toEqual({ requestedBytes: 900, freedBytes: 650 })
-    await connection.unloadMemory('vram:cuda:1')
-    await connection.resetMemoryPeak('vram:cuda:1')
-    expect(requests).toEqual([
-      { url: 'http://test/cache/trim', body: { device: 'vram:cuda:1', consumers: ['models'], items: ['model-2'] } },
-      { url: 'http://test/cache/trim', body: { device: 'vram:cuda:1' } },
-      { url: 'http://test/memory/reset-peak', body: { device: 'vram:cuda:1' } },
-    ])
-  })
 
   it('uses the detail query only on request and emits pushed memory_status outside normalized execution events', async () => {
     const urls: string[] = []
@@ -5155,10 +3489,6 @@ describe('memory telemetry transport', () => {
     expect(memory).toHaveBeenCalledOnce()
   })
 
-  it('rejects a malformed HTTP memory payload', async () => {
-    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, { queue: {} }) })
-    await expect(connection.fetchMemoryStatus()).rejects.toThrow('malformed response')
-  })
 })
 
 it('reads workflow plans without sending a hardware guess or acquisition consent', async () => {

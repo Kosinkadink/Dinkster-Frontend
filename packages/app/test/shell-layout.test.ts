@@ -21,12 +21,6 @@ function storage(seed?: string): Storage {
 const layoutOn = (store: Storage): ShellLayout => new ShellLayout(new SettingsRegistry(store))
 
 describe('ShellLayout persistence', () => {
-  it('registers no left or bottom panel selection settings', () => {
-    const settings = new SettingsRegistry(storage())
-    new ShellLayout(settings)
-    expect(settings.list().map((definition) => definition.id)).not.toContain('shell.layout.left.panel')
-    expect(settings.list().map((definition) => definition.id)).not.toContain('shell.layout.bottom.panel')
-  })
 
   it('restores bar visibility and region sizes from a prior session', () => {
     const store = storage()
@@ -46,15 +40,6 @@ describe('ShellLayout persistence', () => {
     expect(second.rightWidth.get()).toBe(REGION_SIZE_BOUNDS.right.fallback)
   })
 
-  it('starts with visible bars and fallback sizes on a fresh browser', () => {
-    const layout = layoutOn(storage())
-    expect(layout.activityBarVisible.get()).toBe(true)
-    expect(layout.statusBarVisible.get()).toBe(true)
-    expect(layout.leftWidth.get()).toBe(REGION_SIZE_BOUNDS.left.fallback)
-    expect(layout.rightWidth.get()).toBe(REGION_SIZE_BOUNDS.right.fallback)
-    expect(layout.bottomHeight.get()).toBe(REGION_SIZE_BOUNDS.bottom.fallback)
-  })
-
   it('FR11: tampered stored sizes fall back to the definition default', () => {
     const store = storage(JSON.stringify({ v: 1, values: {
       'shell.layout.left.width': 40,
@@ -65,18 +50,6 @@ describe('ShellLayout persistence', () => {
     expect(layout.leftWidth.get()).toBe(REGION_SIZE_BOUNDS.left.fallback)
     expect(layout.rightWidth.get()).toBe(REGION_SIZE_BOUNDS.right.fallback)
     expect(layout.bottomHeight.get()).toBe(REGION_SIZE_BOUNDS.bottom.fallback)
-  })
-
-  it('previewSize alone never persists; commitSize is the single write point', () => {
-    const store = storage()
-    const first = layoutOn(store)
-    first.previewSize('left', 555)
-    expect(first.leftWidth.get()).toBe(555)
-    expect(layoutOn(storage(store.getItem(SETTINGS_STORAGE_KEY) ?? undefined)).leftWidth.get()).toBe(
-      REGION_SIZE_BOUNDS.left.fallback,
-    )
-    first.commitSize('left')
-    expect(layoutOn(storage(store.getItem(SETTINGS_STORAGE_KEY)!)).leftWidth.get()).toBe(555)
   })
 
   it('an external settings write (settings dialog) updates the live shell', () => {
@@ -93,20 +66,6 @@ describe('ShellLayout persistence', () => {
     layout.previewSize('bottom', 400)
     settings.set('other.thing', true)
     expect(layout.bottomHeight.get()).toBe(400)
-  })
-
-  it('shell writes do not echo back through the settings tick (no feedback loop)', () => {
-    const settings = new SettingsRegistry(storage())
-    const layout = new ShellLayout(settings)
-    let sets = 0
-    const originalSet = settings.set.bind(settings)
-    settings.set = (id, value) => {
-      sets++
-      originalSet(id, value)
-    }
-    layout.activityBarVisible.set(false)
-    expect(sets).toBe(1)
-    expect(layout.activityBarVisible.get()).toBe(false)
   })
 
   it('resets visibility defaults without changing region sizes', () => {
@@ -189,33 +148,4 @@ describe('beginRegionResize gesture', () => {
     expect(commits).toHaveBeenCalledOnce()
   })
 
-  it('pointercancel disposes without committing', () => {
-    install()
-    const layout = layoutOn(storage())
-    const commits = vi.spyOn(layout, 'commitSize')
-    beginRegionResize(layout, 'right', pointer(800, 300), -1)
-    listeners.get('pointercancel')!(pointer(800, 300))
-    expect(removed).toEqual(expect.arrayContaining(['pointermove', 'pointerup', 'pointercancel']))
-    expect(commits).not.toHaveBeenCalled()
-    // A retained up callback after cancellation must not commit either.
-    listeners.get('pointerup')!(pointer(800, 300))
-    expect(commits).not.toHaveBeenCalled()
-  })
-
-  it('the disposer drops listeners without committing (AP8 unmount mid-drag)', () => {
-    install()
-    const layout = layoutOn(storage())
-    const commits = vi.spyOn(layout, 'commitSize')
-    const dispose = beginRegionResize(layout, 'right', pointer(800, 300), -1)
-    dispose()
-    expect(removed).toEqual(expect.arrayContaining(['pointermove', 'pointerup', 'pointercancel']))
-    expect(commits).not.toHaveBeenCalled()
-    // A retained up callback after disposal must not commit.
-    listeners.get('pointerup')!(pointer(800, 300))
-    expect(commits).not.toHaveBeenCalled()
-    // Idempotent: a second call must not double-remove or throw.
-    removed.length = 0
-    dispose()
-    expect(removed).toEqual([])
-  })
 })

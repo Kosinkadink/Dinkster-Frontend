@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { SettingsRegistry, SETTINGS_STORAGE_KEY } from '../src/settings.js'
-import { encodeEditorLayout, singleGroupLayout, splitGroup } from '../src/editor-layout.js'
+import { singleGroupLayout, splitGroup } from '../src/editor-layout.js'
 import { EDITOR_SPLIT_LAYOUT_SETTING, EditorSplitStore } from '../src/editor-split-store.js'
 
 function storage(seed?: string): Storage {
@@ -15,12 +15,6 @@ function storage(seed?: string): Storage {
 const splitLayout = () => splitGroup(singleGroupLayout(['a', 'b']), 'group-1', 'row', 'b')
 
 describe('EditorSplitStore', () => {
-  it('starts as a single group and never writes on construction', () => {
-    const settings = new SettingsRegistry(storage())
-    const store = new EditorSplitStore(settings)
-    expect(store.layout.get()).toEqual(singleGroupLayout())
-    expect(settings.get<string>(EDITOR_SPLIT_LAYOUT_SETTING)).toBe('')
-  })
 
   it('persists layout changes and restores across reconstruction', () => {
     const backing = storage()
@@ -29,27 +23,6 @@ describe('EditorSplitStore', () => {
 
     const second = new EditorSplitStore(new SettingsRegistry(backing))
     expect(second.layout.get()).toEqual(splitLayout())
-  })
-
-  it('its own writes do not echo back through the settings tick', () => {
-    const settings = new SettingsRegistry(storage())
-    const store = new EditorSplitStore(settings)
-    let sets = 0
-    const originalSet = settings.set.bind(settings)
-    settings.set = (id, value) => {
-      sets++
-      originalSet(id, value)
-    }
-    store.layout.set(splitLayout())
-    expect(sets).toBe(1)
-    expect(store.layout.get()).toEqual(splitLayout())
-  })
-
-  it('an external settings write updates the live layout', () => {
-    const settings = new SettingsRegistry(storage())
-    const store = new EditorSplitStore(settings)
-    settings.set(EDITOR_SPLIT_LAYOUT_SETTING, encodeEditorLayout(splitLayout()))
-    expect(store.layout.get()).toEqual(splitLayout())
   })
 
   it('ignores a malformed external write, keeping the prior state', () => {

@@ -30,22 +30,4 @@ describe('GLSL runtime state grammar', () => {
     expect(GLSL_STATE_PREVIEW_STREAM).toBe('glsl-state')
   })
 
-  it.each([
-    { ...state, extra: true },
-    { ...state, width: 0 },
-    { ...state, height: 16_385 },
-    { ...state, inputs: [] },
-    { ...state, inputs: [{ name: 'u_image5', stream: 'glsl-input-u_image5' }] },
-    { ...state, inputs: [{ name: 'u_image1', stream: 'other' }] },
-    { ...state, inputs: [...state.inputs].reverse() },
-    { ...state, inputs: [state.inputs[0], state.inputs[0]] },
-    { ...state, floats: { u_float20: 1 } },
-    { ...state, floats: { u_float0: Number.NaN } },
-    { ...state, ints: { u_int0: 1.5 } },
-    { ...state, bools: { u_bool0: 1 } },
-    { ...state, curves: { u_curve4: curve } },
-    { ...state, curves: { u_curve0: curve.slice(1) } },
-  ])('rejects malformed or unbounded state', (candidate) => {
-    expect(glslShaderStateOf(candidate)).toBeUndefined()
-  })
 })

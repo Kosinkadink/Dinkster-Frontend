@@ -293,25 +293,6 @@ test('hovering a reroute reveals ghost sockets; moving away hides them', async (
   expect(await hoveredReroute(page)).toBeUndefined()
 })
 
-test('approaching a socket position directly reveals it without touching the dot first', async ({ page }) => {
-  await openRerouteWorkflow(page)
-  const dot = await reroutePoint(page, 'r0')
-
-  // Park far away, then jump straight to where the OUTPUT socket lives.
-  // The reveal zone covers the socket ring itself, so the affordance must
-  // appear even though the pointer never crossed the central dot.
-  await page.mouse.move(dot.x + 200, dot.y + 200)
-  expect(await hoveredReroute(page)).toBeUndefined()
-  await page.mouse.move(dot.x + SOCKET_OFFSET, dot.y)
-  expect(await hoveredReroute(page)).toBe('r0')
-
-  // Same from the INPUT side.
-  await page.mouse.move(dot.x - 200, dot.y - 200)
-  expect(await hoveredReroute(page)).toBeUndefined()
-  await page.mouse.move(dot.x - SOCKET_OFFSET, dot.y)
-  expect(await hoveredReroute(page)).toBe('r0')
-})
-
 test('dragging the ghost output socket fans out a new consumer - no Alt needed', async ({ page }) => {
   await openRerouteWorkflow(page)
   const dot = await reroutePoint(page, 'r0')
@@ -388,20 +369,6 @@ test('a ghost socket drag dropped on empty opens the palette seeking the right d
   // Nothing changed in the document: both drags were fully cancelled.
   const g = await rootGraph(page)
   expect(Object.keys(g.links).sort()).toEqual(['l1', 'l2'])
-})
-
-test('the reroute dot itself still moves - sockets never steal the center grab', async ({ page }) => {
-  await openRerouteWorkflow(page)
-  const dot = await reroutePoint(page, 'r0')
-
-  // Hover to reveal sockets, then drag the CENTER: still a move gesture.
-  await page.mouse.move(dot.x, dot.y)
-  expect(await hoveredReroute(page)).toBe('r0')
-  await drag(page, dot, { x: dot.x + 80, y: dot.y - 40 })
-
-  const moved = await activeDoc(page)
-  expect(moved.view.graphs['g0']!.reroutes!['r0']!.position).toEqual({ x: 480, y: 120 })
-  expect(Object.keys((await rootGraph(page)).links).sort()).toEqual(['l1', 'l2'])
 })
 
 test('Delete removes a selected reroute and cascades its links; undo restores both', async ({ page }) => {

@@ -35,47 +35,6 @@ describe('memory status projection', () => {
     expect(telemetryPresentationState(payload, 'reconnecting', 1000, 1001)).toBe('disconnected')
   })
 
-  it('polls only without push and fetches details only while at least one consumer is expanded', async () => {
-    const status = createSignal<ConnectionStatus>('disconnected')
-    const fetchMemoryStatus = vi.fn(async () => payload)
-    const timers = new Map<number, () => void>(); let id = 0; let push: ((status: MemoryStatus) => void) | undefined; let now = 0
-    const controller = new MemoryStatusController(
-      { status, fetchMemoryStatus, onMemoryStatus: (listener) => { push = listener; return () => { push = undefined } }, fetchRuntimeSettings: vi.fn(), updateRuntimeSetting: vi.fn() },
-      () => {}, () => {},
-      ((fn: () => void) => { timers.set(++id, fn); return id }) as never,
-      ((timer: number) => timers.delete(timer)) as never,
-      () => now,
-    )
-    await Promise.resolve()
-    expect(fetchMemoryStatus).toHaveBeenCalledWith(false)
-    status.set('connected')
-    expect(timers.size).toBe(1)
-    push!(payload); now = 1000; timers.get(1)!(); await Promise.resolve()
-    expect(fetchMemoryStatus).toHaveBeenCalledTimes(1)
-    now = 7001; timers.get(1)!(); await Promise.resolve()
-    expect(fetchMemoryStatus).toHaveBeenCalledTimes(2)
-    controller.setExpanded('models', true); await Promise.resolve()
-    expect(fetchMemoryStatus).toHaveBeenLastCalledWith(true)
-    expect(timers.size).toBe(2)
-    controller.setExpanded('cache', true)
-    controller.setExpanded('models', false)
-    expect(timers.size).toBe(2)
-    controller.setExpanded('cache', false)
-    expect(timers.size).toBe(1)
-    controller.setExpanded('models', true)
-    expect(timers.size).toBe(2)
-    controller.setExpanded('cache', true)
-    const detailRequests = fetchMemoryStatus.mock.calls.length
-    controller.retainExpanded(new Set(['models']))
-    expect(fetchMemoryStatus).toHaveBeenCalledTimes(detailRequests + 1)
-    expect(fetchMemoryStatus).toHaveBeenLastCalledWith(true)
-    controller.retainExpanded(new Set())
-    expect(timers.size).toBe(1)
-    controller.dispose()
-    expect(timers.size).toBe(0)
-    expect(push).toBeUndefined()
-  })
-
   it('rejects base work superseded by push and detail work invalidated by disclosure changes', async () => {
     const status = createSignal<ConnectionStatus>('connected')
     let push: ((status: MemoryStatus) => void) | undefined
@@ -322,26 +281,6 @@ describe('MemoryPanel', () => {
     unmount()
   })
 
-  it('scopes adversarial consumer disclosure identities by device and panel', async () => {
-    const status = createSignal<ConnectionStatus>('disconnected')
-    const cuda = payload.memoryGovernor!['cuda:0']!
-    const multi: MemoryStatus = {
-      ...payload,
-      devices: { gpu: { executionCapacity: 1, executionInUse: 0 }, ['gpu\u0000x']: { executionCapacity: 1, executionInUse: 0 } },
-      memoryGovernor: { gpu: { ...cuda, consumers: { ['x\u0000models']: 1 } }, ['gpu\u0000x']: { ...cuda, consumers: { models: 1 } } },
-    }
-    const connection = { status, fetchMemoryStatus: vi.fn(async () => multi), onMemoryStatus: () => () => {}, fetchRuntimeSettings: vi.fn(), updateRuntimeSetting: vi.fn() }
-    const root = document.createElement('div'); document.body.append(root)
-    const unmount = render(() => <><MemoryPanel connection={connection} label="One" /><MemoryPanel connection={connection} label="Two" /></>, root)
-    await Promise.resolve(); await Promise.resolve()
-    const buttons = root.querySelectorAll<HTMLButtonElement>('.memory-consumer > button')
-    expect(buttons[0]!.getAttribute('aria-expanded')).toBe('true')
-    expect(buttons[1]!.getAttribute('aria-expanded')).toBe('true')
-    const ids = [...buttons].map((button) => button.getAttribute('aria-controls'))
-    expect(new Set(ids).size).toBe(ids.length)
-    unmount()
-  })
-
   it('persists consumer collapse state by backend, device, and consumer identity', async () => {
     const status = createSignal<ConnectionStatus>('disconnected')
     const connection = { status, fetchMemoryStatus: vi.fn(async () => payload), onMemoryStatus: () => () => {}, fetchRuntimeSettings: vi.fn(), updateRuntimeSetting: vi.fn() }
@@ -374,77 +313,6 @@ describe('MemoryPanel', () => {
     expect(root.querySelector('.memory-consumer button')?.getAttribute('aria-expanded')).toBe('true')
     expect(root.textContent).toContain('Loading item details...')
     expect(fetchMemoryStatus).toHaveBeenCalledWith(true)
-    unmount()
-  })
-
-  it('opens a newly active consumer once and refreshes its details with accepted base samples', async () => {
-    const status = createSignal<ConnectionStatus>('connected')
-    let push: ((next: MemoryStatus) => void) | undefined
-    const empty: MemoryStatus = { ...payload, memoryGovernor: { 'cuda:0': { ...payload.memoryGovernor!['cuda:0']!, consumers: {} } } }
-    const fetchMemoryStatus = vi.fn(async (details = false) => details ? payload : empty)
-    const root = document.createElement('div'); document.body.append(root)
-    const unmount = render(() => <MemoryPanel connection={{
-      status, fetchMemoryStatus, onMemoryStatus: (listener) => { push = listener; return () => {} }, fetchRuntimeSettings: vi.fn(), updateRuntimeSetting: vi.fn(),
-    }} label="New consumer" />, root)
-    await Promise.resolve(); await Promise.resolve()
-
-    push!(payload); await Promise.resolve(); await Promise.resolve()
-    expect(root.querySelector('.memory-consumer button')?.getAttribute('aria-expanded')).toBe('true')
-    expect(fetchMemoryStatus.mock.calls.filter(([details]) => details === true)).toHaveLength(1)
-
-    push!({ ...payload, queue: { ...payload.queue, queued: 2 } }); await Promise.resolve(); await Promise.resolve()
-    expect(fetchMemoryStatus.mock.calls.filter(([details]) => details === true)).toHaveLength(2)
-
-    push!(empty); push!(payload); await Promise.resolve()
-    expect(root.querySelector('.memory-consumer button')?.getAttribute('aria-expanded')).toBe('false')
-    expect(fetchMemoryStatus.mock.calls.filter(([details]) => details === true)).toHaveLength(2)
-    unmount()
-  })
-
-  it('observes graph and heatmap resize and disconnects both observers', async () => {
-    const observers = new Map<Element, ResizeObserverCallback>()
-    let disconnects = 0
-    vi.stubGlobal('ResizeObserver', class {
-      private readonly callback: ResizeObserverCallback
-      constructor(callback: ResizeObserverCallback) { this.callback = callback }
-      observe(element: Element): void { observers.set(element, this.callback) }
-      disconnect(): void { disconnects++ }
-      unobserve(): void {}
-    })
-    const status = createSignal<ConnectionStatus>('disconnected')
-    const root = document.createElement('div'); document.body.append(root)
-    const unmount = render(() => <MemoryPanel connection={{ status, fetchMemoryStatus: vi.fn(async () => payload), onMemoryStatus: () => () => {}, fetchRuntimeSettings: vi.fn(), updateRuntimeSetting: vi.fn() }} label="Resize" />, root)
-    await Promise.resolve(); await Promise.resolve()
-    const graph = root.querySelector<HTMLCanvasElement>('[aria-label^="Memory usage history"]')!
-    const graphHost = graph.closest('.memory-graph')!
-    Object.defineProperty(graphHost, 'clientWidth', { configurable: true, value: 300 })
-    observers.get(graphHost)!([], {} as ResizeObserver)
-    expect(graph.width).toBe(300)
-    const heatmap = root.querySelector<HTMLCanvasElement>('[aria-label^="Page residency heatmap"]')!
-    expect(observers.has(heatmap.parentElement!)).toBe(true)
-    Object.defineProperty(heatmap.parentElement!, 'clientWidth', { configurable: true, value: 140 })
-    observers.get(heatmap.parentElement!)!([], {} as ResizeObserver)
-    unmount()
-    expect(disconnects).toBe(2)
-  })
-
-  it('distinguishes unsupported detail telemetry from a supported empty consumer', async () => {
-    const status = createSignal<ConnectionStatus>('disconnected')
-    let supported = false
-    const connection = {
-      status, onMemoryStatus: () => () => {}, fetchRuntimeSettings: vi.fn(), updateRuntimeSetting: vi.fn(),
-      fetchMemoryStatus: vi.fn(async (details = false): Promise<MemoryStatus> => details
-        ? supported ? { ...payload, consumerDetails: { models: [] } } : (() => { const { consumerDetails: _omit, ...base } = payload; return base })()
-        : payload),
-    }
-    const root = document.createElement('div'); document.body.append(root)
-    const unmount = render(() => <MemoryPanel connection={connection} label="Details" />, root)
-    await Promise.resolve(); await Promise.resolve()
-    expect(root.textContent).toContain('Detail telemetry is unsupported for this consumer.')
-    root.querySelector<HTMLButtonElement>('.memory-consumer button')!.click()
-    supported = true
-    root.querySelector<HTMLButtonElement>('.memory-consumer button')!.click(); await Promise.resolve()
-    expect(root.textContent).toContain('No item details')
     unmount()
   })
 

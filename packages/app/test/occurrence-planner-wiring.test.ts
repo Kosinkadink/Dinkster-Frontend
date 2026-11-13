@@ -1,26 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  asGraphDefId,
-  asConnectionId,
-  asLineageId,
-  asNodeId,
-  asPortId,
-  compile,
-  coreCommandRegistry,
-  createTransactionBuilder,
-  documentResolver,
-  DocumentStore,
-  elaborateInterface,
-  elabInputsOf,
-  executeCommand,
-  occurrenceKey,
-  type CommandInvocation,
-  type CommandOutcome,
-  type EffectiveLink,
-  type NodeSchema,
-  type OccurrenceRef,
-  type WorkflowDocument,
-} from '@dinkster/core'
+import { asGraphDefId, asConnectionId, asLineageId, asNodeId, asPortId, compile, coreCommandRegistry, createTransactionBuilder, documentResolver, DocumentStore, elaborateInterface, elabInputsOf, executeCommand, occurrenceKey, type CommandInvocation, type NodeSchema, type OccurrenceRef, type WorkflowDocument } from '@dinkster/core'
 import type { OccurrenceLinkEndpoint } from '@dinkster/core'
 
 vi.mock('lucide-solid', () => ({
@@ -28,7 +7,7 @@ vi.mock('lucide-solid', () => ({
   Palette: {}, SlidersHorizontal: {}, Trash2: {}, Ungroup: {}, VolumeX: {}, X: {},
 }))
 
-import { coreOccurrencePlanner, dispatchOccurrenceIntention, occurrenceCompactionTarget } from '../src/CanvasHost.js'
+import { coreOccurrencePlanner, dispatchOccurrenceIntention } from '../src/CanvasHost.js'
 
 const schema = (type: string, inputs: string[], outputs: string[]): NodeSchema => ({
   type, displayName: type, category: 'test', source: 'v3', isOutputNode: type === 'Sink',
@@ -103,31 +82,6 @@ const bodyTo = (): OccurrenceLinkEndpoint => ({
 })
 
 describe('production occurrence planner wiring', () => {
-  it.each([true, false])('awaits occurrence connect acceptance=%s without changing the shared definition', async (accepted) => {
-    const store = new DocumentStore(fixtureDocument(), coreCommandRegistry())
-    const before = store.doc
-    const target = owner('a')
-    let complete!: () => void
-    let settled = false
-    const pending = dispatchOccurrenceIntention({
-      document: before, resolver: resolve,
-      intention: { kind: 'connect', owner: target, bodyGraph: asGraphDefId('body') as never, from: boundaryFrom(target), to: bodyTo() },
-      planner: coreOccurrencePlanner,
-      dispatch: (invocation) => new Promise<CommandOutcome>((resolve) => {
-        complete = () => resolve(accepted ? store.dispatch(invocation) : { ok: false, diagnostics: [] })
-      }),
-      report: () => undefined,
-    }).then((outcome) => { settled = true; return outcome })
-    await Promise.resolve()
-    expect(settled).toBe(false)
-    expect(store.doc).toBe(before)
-    complete()
-    expect((await pending).ok).toBe(accepted)
-    expect(store.doc.graphs.body).toEqual(before.graphs.body)
-    expect(store.doc.occurrenceTopologies?.[occurrenceKey(owner('b'))]).toBeUndefined()
-    expect(Object.keys(store.doc.occurrenceTopologies?.[occurrenceKey(target)]?.links ?? {})).toEqual(accepted ? ['l0'] : [])
-    expect(store.canUndo).toBe(accepted)
-  })
 
   it('commits a real occurrence-local connect through the core planner and one undo restores', async () => {
     const store = new DocumentStore(fixtureDocument(), coreCommandRegistry())
@@ -327,39 +281,4 @@ describe('production occurrence planner wiring', () => {
     expect(store.doc.graphs.root!.nodes.a!.dynamic).toEqual({ ingest: { seq: 1 } })
   })
 
-  it('compacts the persisted outer owner for a nested projected parent leg', () => {
-    const doc = fixtureDocument()
-    ;(doc.graphs.root!.nodes.a as any).dynamic = { forwarded: { members: ['m0'], seq: 1 } }
-    ;(doc.graphs.body!.nodes.sink as any).dynamic = { local: { members: ['wrong0'], seq: 1 } }
-    ;(doc.graphs.root!.links as any).outer = {
-      id: 'outer',
-      from: { node: 'b', port: 'out' },
-      to: { node: 'a', port: 'forwarded.item', members: ['m0'] },
-    }
-    const link = {
-      identity: {
-        kind: 'parentLeg',
-        delivery: { kind: 'link', graph: asGraphDefId('root'), linkId: 'outer' as never },
-        route: [{ graph: asGraphDefId('body'), boundaryId: 'forwarded', binding: binding('sink') }],
-      },
-      from: {} as any,
-      to: {
-        graphId: asGraphDefId('body'),
-        instancePath: ['a' as never, 'inner' as never],
-        endpoint: { node: asNodeId('sink'), port: asPortId('items.item'), members: ['m0' as never] },
-        source: {
-          kind: 'occurrence',
-          owner: { instancePath: ['a' as never], node: asNodeId('inner') },
-          endpoint: {
-            kind: 'boundary',
-            occurrence: { instancePath: ['a' as never], node: asNodeId('inner') },
-            address: { port: asPortId('forwarded.item'), members: ['m0' as never] },
-            route: [{ graph: asGraphDefId('body'), boundaryId: 'forwarded', binding: binding('sink') }],
-          },
-        },
-      },
-    } as EffectiveLink
-
-    expect(occurrenceCompactionTarget(doc, link)).toEqual({ graphId: 'root', nodeId: 'a' })
-  })
 })

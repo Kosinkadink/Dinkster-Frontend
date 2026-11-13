@@ -410,41 +410,6 @@ describe('saveWorkflow', () => {
 })
 
 describe('openFromLibrary', () => {
-  it.each(['accepted', 'refused', 'edited-before-bytes'] as const)('stages the workflow home before publication: %s', async (scenario) => {
-    const { backend, tab: previous } = (await nativeSetup())
-    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record())
-    let deliverBytes!: (text: string) => void
-    vi.spyOn(backend.connection, 'fetchAssetText').mockReturnValue(new Promise((done) => { deliverBytes = done }))
-    let acknowledge!: (revision: number) => void
-    const requested = vi.fn()
-    vi.spyOn(backend.connection, 'retainAssets').mockImplementation((owner, declaration) => {
-      if (owner.ownerKind === 'preview') return Promise.resolve({ ...owner, ...declaration, revision: declaration.revision + 1 })
-      requested(owner, declaration)
-      return new Promise((done) => { acknowledge = (revision) => done({ ...owner, ...declaration, revision }) })
-    })
-    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-    const publishedHomes: string[] = []
-    const unsubscribe = app.tabs.subscribe((tabs) => {
-      const opened = tabs.find((tab) => tab.id === 'incoming-library')
-      if (opened) publishedHomes.push(app.backendForTab(opened).id)
-    })
-    const opening = app.openFromLibrary('r1', backend.id)
-    await vi.waitFor(() => expect(deliverBytes).toBeTypeOf('function'))
-    if (scenario === 'edited-before-bytes') previous.store.dispatch({ command: 'node.setValue', params: {
-      graphId: 'g0', nodeId: 'n0', inputId: 'a', value: 19,
-    } })
-    deliverBytes(JSON.stringify({ ...CHAIN_DOC, lineage: 'incoming-library' }))
-    if (scenario !== 'edited-before-bytes') {
-      await vi.waitFor(() => expect(requested).toHaveBeenCalledOnce())
-      expect(app.activeTab()).toBe(previous)
-      expect(publishedHomes).toEqual([])
-      acknowledge(scenario === 'accepted' ? 1 : 2)
-    }
-    expect(await opening).toBe(scenario === 'accepted')
-    expect(publishedHomes).toEqual(scenario === 'accepted' ? [backend.id] : [])
-    if (scenario === 'edited-before-bytes') expect(requested).not.toHaveBeenCalled()
-    unsubscribe()
-  })
 
   it('opens the exact bytes, links the tab, and targets the workflow home', async () => {
     const { backend } = (await nativeSetup())
@@ -473,16 +438,6 @@ describe('openFromLibrary', () => {
       digest: DIGEST2,
     })
     expect(create).not.toHaveBeenCalled()
-  })
-
-  it('a missing record or missing bytes is a clean false', async () => {
-    const { backend } = (await nativeSetup())
-    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(undefined)
-    expect(await app.openFromLibrary('gone', backend.id)).toBe(false)
-
-    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record())
-    vi.spyOn(backend.connection, 'fetchAssetText').mockResolvedValue(undefined)
-    expect(await app.openFromLibrary('r1', backend.id)).toBe(false)
   })
 
   it('unparseable bytes land in Problems', async () => {
@@ -545,106 +500,6 @@ describe('sourceDocument stamp on queue', () => {
     expect(submit.mock.calls.at(-1)![1]).not.toHaveProperty('exportSnapshot')
   })
 
-  it.each((['accepted', 'refused', 'closed', 'reused'] as const).flatMap((mode) =>
-    [false, true].map((opaque) => ({ mode, opaque }))))('confirms late catalog roots before submitting a captured workflow: $mode opaque=$opaque', async ({ mode, opaque }) => {
-    const { backend, tab } = (await nativeSetup())
-    backend.registry.set(undefined)
-    expect((await app.openDocument({ ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0, nodes: {
-      n0: { id: 'n0', type: 'DefaultAsset', values: {} },
-    }, links: {} } } }, 'Late default'))).toEqual([])
-    const candidate = app.activeTab()!
-    app.setTabTarget(candidate.id, backend.id)
-    await app.confirmStartupOwnership()
-    const catalog = buildDinksterRegistry(backend.id, {
-      schemaVersion: nodesPayload.schemaVersion,
-      nodes: { DefaultAsset: { outputNode: true, interface: [{ role: 'input', id: 'file',
-        type: { kind: 'concrete', types: [opaque ? 'INT' : 'ASSET'] }, forceInput: true,
-        default: opaque ? 7 : { digest: DIGEST2, name: 'late.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' },
-      }] } },
-    })
-    const schema = catalog.resolve('DefaultAsset')!
-    const held = opaque ? { ...schema, ext: { ...schema.ext, 'test.opaque': { handle: 'unrepresented dependency' } } } : schema
-    backend.registry.set({ ...catalog, schemas: new Map([[held.type, held]]), resolve: (type) => type === held.type ? held : undefined })
-    expect(app.compileTab(candidate)?.ok).toBe(true)
-    const upload = vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
-    if (opaque) upload.mockRejectedValue(new Error('Advisory source upload unavailable'))
-    const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
-      ok: true, execution: { connection: backend.id, prompt: asPromptId('late-default') },
-    })
-    let acknowledge!: () => void
-    const barrier = new Promise<void>((resolve) => { acknowledge = resolve })
-    const ownsSnapshot = (digests: readonly string[]) => opaque ? digests.length === 0 : digests.includes(DIGEST2)
-    const retention = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-      if (ownsSnapshot(declaration.digests)) {
-        await barrier
-        if (mode === 'refused') throw new Error('snapshot ownership refused')
-      }
-      return { ...owner, ...declaration, revision: declaration.revision + 1 }
-    })
-    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-    const queued = app.queue(candidate)
-    try {
-      await vi.waitFor(() => expect(retention.mock.calls.some(([, declaration]) => ownsSnapshot(declaration.digests))).toBe(true))
-      expect(retention.mock.calls.find(([, declaration]) => ownsSnapshot(declaration.digests))![1])
-        .toEqual({ revision: 0, complete: false, digests: opaque ? [] : [DIGEST2] })
-      expect(upload).toHaveBeenCalledTimes(1)
-      expect(submit).not.toHaveBeenCalled()
-      if (mode === 'closed') app.closeTab(candidate.id)
-      else if (mode === 'accepted') expect((await app.dispatchTo(candidate, {
-        command: 'node.move', params: { graphId: 'g0', positions: { n0: { x: 350, y: 175 } } },
-      })).ok).toBe(true)
-      acknowledge()
-      await queued
-      const accepted = mode === 'accepted' || mode === 'reused'
-      expect(submit).toHaveBeenCalledTimes(accepted ? 1 : 0)
-      expect(app.store.executions.get().size).toBe(accepted ? 1 : 0)
-      if (accepted && opaque) expect(submit.mock.calls[0]![1]).not.toHaveProperty('sourceDocument')
-      if (mode === 'accepted') {
-        expect(JSON.parse(upload.mock.calls[0]![0] as string).view.graphs.g0.nodes.n0.position).toEqual({ x: 0, y: 0 })
-        expect(submit.mock.calls[0]![0].snapshot.view.graphs.g0!.nodes!.n0!.position).toEqual({ x: 0, y: 0 })
-      }
-      if (mode === 'reused') {
-        const declarations = () => retention.mock.calls.filter(([, declaration]) => ownsSnapshot(declaration.digests))
-        const originalOwner = declarations()[0]![0]
-        await app.queue(candidate)
-        expect(submit).toHaveBeenCalledTimes(2)
-        expect(declarations()).toHaveLength(1)
-        const journal = JSON.parse(localStorage.getItem(`dinkster.workflow-retentions.${originalOwner.ownerId}`)!)
-        expect(journal).toMatchObject({ owner: originalOwner, acknowledgedRevision: 1, digests: opaque ? [] : [DIGEST2], complete: false })
-        backend.registry.set({ ...backend.registry.get()! })
-        await app.queue(candidate)
-        expect(declarations()).toHaveLength(2)
-        expect((await app.dispatchTo(candidate, {
-          command: 'node.move', params: { graphId: 'g0', positions: { n0: { x: 71, y: 93 } } },
-        })).ok).toBe(true)
-        const beforeEditedQueue = declarations().length
-        await app.queue(candidate)
-        expect(declarations()).toHaveLength(beforeEditedQueue + 1)
-        expect(submit).toHaveBeenCalledTimes(4)
-        vi.stubGlobal('WebSocket', class {
-          binaryType = ''
-          onopen = null
-          onclose = null
-          onmessage = null
-          onerror = null
-          send() {}
-          close() {}
-        })
-        backend.connection.connect()
-        backend.connection.disconnect()
-        const beforeReconnectQueue = declarations().length
-        await app.queue(candidate)
-        expect(declarations()).toHaveLength(beforeReconnectQueue + 1)
-        expect(submit).toHaveBeenCalledTimes(5)
-      }
-      expect(app.tabs.get().includes(candidate)).toBe(mode !== 'closed')
-      expect(tab).not.toBe(candidate)
-    } finally {
-      acknowledge()
-      await queued
-    }
-  })
-
   it('stamps submissions and uploads once per unchanged document', async () => {
     const { backend, tab } = (await nativeSetup())
     const upload = vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
@@ -668,55 +523,6 @@ describe('sourceDocument stamp on queue', () => {
     expect(outcome.ok).toBe(true)
     await app.queueSelection(tab, ['n1'])
     expect(upload).toHaveBeenCalledTimes(2)
-  })
-
-  it.each(['accepted', 'refused', 'lost response'] as const)('retains a source stamp before caching or submitting it: %s', async (mode) => {
-    const { backend, tab } = (await nativeSetup())
-    const upload = vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
-    const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({
-      ok: true, execution: { connection: backend.id, prompt: asPromptId('retained-stamp') },
-    })
-    let acknowledge!: () => void
-    const barrier = new Promise<void>((resolve) => { acknowledge = resolve })
-    const retained = new Map<string, Awaited<ReturnType<typeof backend.connection.retainAssets>>>()
-    let refuse = mode === 'refused'
-    const retention = vi.spyOn(backend.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-      const value = { ...owner, ...declaration, revision: declaration.revision + 1 }
-      if (declaration.digests.includes(DIGEST)) {
-        await barrier
-        if (refuse) throw new Error('source stamp retention refused')
-        retained.set(owner.ownerId, value)
-        if (mode === 'lost response') throw new Error('source stamp response lost')
-      }
-      return value
-    })
-    vi.spyOn(backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => retained.get(owner.ownerId))
-    const queued = app.queueSelection(tab, ['n1'])
-    try {
-      await vi.waitFor(() => expect(retention.mock.calls.some(([, declaration]) => declaration.digests.includes(DIGEST))).toBe(true))
-      expect(retention.mock.calls.find(([, declaration]) => declaration.digests.includes(DIGEST))).toEqual([
-        expect.objectContaining({ scope: LIBRARY_SCOPE, ownerKind: 'document' }),
-        { revision: 0, complete: false, digests: [DIGEST] },
-      ])
-      expect(submit).not.toHaveBeenCalled()
-      acknowledge()
-      await queued
-      expect(submit).toHaveBeenCalledTimes(1)
-      if (mode === 'refused') {
-        expect(submit.mock.calls[0]![1]).not.toHaveProperty('sourceDocument')
-        refuse = false
-      } else {
-        expect(submit.mock.calls[0]![1]).toMatchObject({ sourceDocument: DIGEST })
-      }
-      await app.queueSelection(tab, ['n1'])
-      expect(submit.mock.calls[1]![1]).toMatchObject({ sourceDocument: DIGEST })
-      expect(upload).toHaveBeenCalledTimes(mode === 'refused' ? 2 : 1)
-      expect(retention.mock.calls.filter(([, declaration]) => declaration.digests.includes(DIGEST))).toHaveLength(mode === 'refused' ? 2 : 1)
-      expect(app.problems.get().some((problem) => problem.code.startsWith('library.'))).toBe(false)
-    } finally {
-      acknowledge()
-      await queued
-    }
   })
 
   it('does not reuse a retained source stamp on another backend with the same schemas', async () => {

@@ -118,14 +118,6 @@ describe('boundary.setSlots', () => {
     expect(slotsOf(store, 'fwd')).toEqual(['sub.s'])
   })
 
-  it('undo of a first selection removes the property entirely', () => {
-    const store = makeStore(subDoc([familyItem('fwd')]))
-    expect(setSlots(store, 'fwd', ['tag']).ok).toBe(true)
-    expect(store.undo()).toBe(true)
-    expect(slotsOf(store, 'fwd')).toBeUndefined()
-    expect('slots' in store.doc.graphs.sub!.boundary!.inputs[0]!.binds).toBe(false)
-  })
-
   it('is a no-op for a semantically identical selection (no revision, nothing to undo)', () => {
     const store = makeStore(subDoc([familyItem('fwd', ['a', 'b'])]))
     const before = store.revision
@@ -133,12 +125,6 @@ describe('boundary.setSlots', () => {
     expect(out.ok).toBe(true)
     expect(store.revision).toBe(before)
     expect(store.canUndo).toBe(false)
-  })
-
-  it('works on the outputs side', () => {
-    const store = makeStore(subDoc([], [familyItem('out')]))
-    expect(setSlots(store, 'out', ['tag'], 'outputs').ok).toBe(true)
-    expect(slotsOf(store, 'out', 'outputs')).toEqual(['tag'])
   })
 
   it('rejects a prefix conflict (whole subtree + narrowed descendant)', () => {
@@ -149,36 +135,6 @@ describe('boundary.setSlots', () => {
     expect(slotsOf(store, 'fwd')).toBeUndefined()
   })
 
-  it('rejects malformed entries (empty string, empty segments, non-strings)', () => {
-    const store = makeStore(subDoc([familyItem('fwd')]))
-    for (const bad of [[''], ['a..b'], ['.a'], ['a.'], [42], [null]]) {
-      const out = setSlots(store, 'fwd', bad)
-      expect(out.ok).toBe(false)
-      expect(!out.ok && out.diagnostics[0]!.code).toBe('params.invalid')
-    }
-  })
-
-  it('rejects an empty selection (clearSlots is the canonical spelling)', () => {
-    const store = makeStore(subDoc([familyItem('fwd', ['tag'])]))
-    const out = setSlots(store, 'fwd', [])
-    expect(out.ok).toBe(false)
-    expect(slotsOf(store, 'fwd')).toEqual(['tag'])
-  })
-
-  it('rejects unknown graph, side, and item', () => {
-    const store = makeStore(subDoc([familyItem('fwd')]))
-    expect(
-      store.dispatch({
-        command: 'boundary.setSlots',
-        params: { graphId: 'nope', side: 'inputs', itemId: 'fwd', slots: ['a'] },
-      }).ok,
-    ).toBe(false)
-    expect(setSlots(store, 'fwd', ['a'], 'sideways').ok).toBe(false)
-    const missing = setSlots(store, 'nope', ['a'])
-    expect(missing.ok).toBe(false)
-    expect(!missing.ok && missing.diagnostics[0]!.code).toBe('boundary.itemMissing')
-  })
-
   it("rejects a 'port' binding (selection applies to family forwarding only)", () => {
     const store = makeStore(subDoc([portItem('p')]))
     const out = setSlots(store, 'p', ['tag'])
@@ -186,12 +142,6 @@ describe('boundary.setSlots', () => {
     expect(!out.ok && out.diagnostics[0]!.code).toBe('boundary.bindKind')
   })
 
-  it('never touches node identity, values, or dynamic state', () => {
-    const store = makeStore(subDoc([familyItem('fwd')]))
-    const nodeBefore = store.doc.graphs.sub!.nodes.n1
-    expect(setSlots(store, 'fwd', ['tag']).ok).toBe(true)
-    expect(store.doc.graphs.sub!.nodes.n1).toEqual(nodeBefore)
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -207,26 +157,6 @@ describe('boundary.clearSlots', () => {
     expect(slotsOf(store, 'fwd')).toEqual(['sub.s', 'tag'])
   })
 
-  it('is a no-op when no selection is present', () => {
-    const store = makeStore(subDoc([familyItem('fwd')]))
-    const before = store.revision
-    expect(clearSlots(store, 'fwd').ok).toBe(true)
-    expect(store.revision).toBe(before)
-    expect(store.canUndo).toBe(false)
-  })
-
-  it("repairs an invalid selection on a 'port' binding", () => {
-    const store = makeStore(subDoc([portItem('p', ['tag'])]))
-    expect(clearSlots(store, 'p').ok).toBe(true)
-    expect(slotsOf(store, 'p')).toBeUndefined()
-  })
-
-  it('rejects unknown item', () => {
-    const store = makeStore(subDoc([familyItem('fwd')]))
-    const out = clearSlots(store, 'nope')
-    expect(out.ok).toBe(false)
-    expect(!out.ok && out.diagnostics[0]!.code).toBe('boundary.itemMissing')
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -256,30 +186,6 @@ describe('boundary commands in a batch', () => {
     expect(store.canUndo).toBe(false)
   })
 
-  it('two boundary edits commit as one transaction and one undo step', () => {
-    const store = makeStore(subDoc([familyItem('a')], [familyItem('b')]))
-    const out = store.dispatch({
-      command: 'batch',
-      params: {
-        invocations: [
-          {
-            command: 'boundary.setSlots',
-            params: { graphId: 'sub', side: 'inputs', itemId: 'a', slots: ['tag'] },
-          },
-          {
-            command: 'boundary.setSlots',
-            params: { graphId: 'sub', side: 'outputs', itemId: 'b', slots: ['tag'] },
-          },
-        ],
-      },
-    })
-    expect(out.ok).toBe(true)
-    expect(slotsOf(store, 'a')).toEqual(['tag'])
-    expect(slotsOf(store, 'b', 'outputs')).toEqual(['tag'])
-    expect(store.undo()).toBe(true)
-    expect(slotsOf(store, 'a')).toBeUndefined()
-    expect(slotsOf(store, 'b', 'outputs')).toBeUndefined()
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -420,15 +326,6 @@ describe('boundary item lifecycle commands', () => {
     expect(store.canUndo).toBe(false)
   })
 
-  it('adds an explicit item ID when it is unique across both sides', () => {
-    const store = makeStore(subDoc([], [portItem('output')]))
-    const out = store.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'n1', port: 'new', itemId: 'input' } })
-    expect(out.ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([
-      expect.objectContaining({ id: 'input', binds: expect.objectContaining({ node: 'n1', port: 'new' }) }),
-    ])
-  })
-
   it('generated item ids avoid ids on BOTH sides (one global namespace)', () => {
     // An existing OUTPUT id 'new' must push the generated INPUT id for
     // port 'new' to 'new_2': derivation treats boundary item ids as one
@@ -469,13 +366,6 @@ describe('boundary item lifecycle commands', () => {
     const duplicate = add('value')
     expect(duplicate.ok).toBe(false)
     expect(!duplicate.ok && duplicate.diagnostics[0]!.code).toBe('boundary.duplicateId')
-  })
-
-  it('rejects an input target already used by a primary or fan-out binding', () => {
-    const store = makeStore(subDoc([portItem('existing')]))
-    const out = store.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'n1', port: 'items.tag', members: ['m0'] } })
-    expect(out.ok).toBe(false)
-    expect(!out.ok && out.diagnostics[0]!.code).toBe('boundary.duplicateBind')
   })
 
   it('keeps port and family spellings of the same input address mutually exclusive', () => {

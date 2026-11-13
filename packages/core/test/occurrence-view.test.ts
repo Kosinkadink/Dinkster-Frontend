@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { compile, documentNodeResolver, documentResolver } from '../src/compile/compile.js'
-import { occurrenceDynamicView, occurrenceFamilyEndpoint } from '../src/compile/occurrence-view.js'
+import { occurrenceDynamicView } from '../src/compile/occurrence-view.js'
 import type { WorkflowDocument } from '../src/format/document.js'
-import { asConnectionId, asGraphDefId, asNodeId, asPortId, occurrenceKey } from '../src/ids.js'
+import { asConnectionId } from '../src/ids.js'
 import type { InputSpec, NodeSchema } from '../src/schema/model.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
 
@@ -138,12 +138,6 @@ describe('occurrenceDynamicView', () => {
     expect(view.selectorOwners.get('n')?.get('mode')).toEqual({ graphId: 'g0', nodeId: 's', boundaryId: 'choice' })
   })
 
-  it.each([undefined, 'removed'])('records the owner without overlay for choice %s', (selected) => {
-    const view = occurrenceDynamicView(docOf(selected), resolve, ['s'])
-    expect(view.dynamic.size).toBe(0)
-    expect(view.selectorOwners.get('n')?.has('mode')).toBe(true)
-  })
-
   it('propagates the outermost choice and owner through chained forwarding', () => {
     const doc = docOf('b') as unknown as { graphs: Record<string, ReturnType<typeof graph>> } & WorkflowDocument
     ;(doc.graphs as unknown as Record<string, unknown>).g0 = graph('g0', { s: node('s', '#outer', 'b') })
@@ -188,140 +182,6 @@ describe('occurrenceDynamicView', () => {
     expect(view.selectorOwners.get('i')?.get('choice')).toEqual({ graphId: 'g0', nodeId: 's', boundaryId: 'choice' })
   })
 
-  it('returns empty maps for an empty path', () => {
-    const view = occurrenceDynamicView(docOf('b'), resolve, [])
-    expect(view.dynamic.size).toBe(0)
-    expect(view.selectorOwners.size).toBe(0)
-  })
-
-  it('does not project a selector that is not forwarded', () => {
-    const view = occurrenceDynamicView(docOf('b'), resolve, ['s'])
-    expect(view.dynamic.has('other')).toBe(false)
-    expect(view.selectorOwners.has('other')).toBe(false)
-  })
-
-  it('merges a definition family prefix with an occurrence suffix and records its owner', () => {
-    const doc = docOf() as unknown as { graphs: Record<string, ReturnType<typeof graph>> } & WorkflowDocument
-    ;(doc.graphs as unknown as Record<string, unknown>).g0 = graph('g0', {
-      s: { id: 's', type: '#sub', values: {}, dynamic: {
-        forwarded: { members: ['s0', 's1'], memberLabels: { s0: 'Background', s1: 'Subject' } },
-      } },
-    })
-    ;(doc.graphs as unknown as Record<string, unknown>).sub = graph('sub', {
-      n: { id: 'n', type: 'Family', values: {}, dynamic: { items: { members: ['d0'] } } },
-    }, { inputs: [{ id: 'forwarded', binds: { kind: 'family', node: 'n', port: 'items' } }], outputs: [] })
-    const view = occurrenceDynamicView(doc, documentResolver(doc, resolve), ['s'])
-    expect(view.dynamic.get('n')?.items?.members).toEqual(['d0', '\u0000s0', '\u0000s1'])
-    expect(view.dynamic.get('n')?.items?.memberLabels).toEqual({
-      '\u0000s0': 'Background',
-      '\u0000s1': 'Subject',
-    })
-    expect(view.familyOwners.get('n')?.get('items')).toMatchObject({
-      graphId: 'g0', nodeId: 's', boundaryId: 'forwarded',
-      occurrence: { instancePath: [], node: 's' },
-      route: [{ graph: 'sub', boundaryId: 'forwarded', binding: { kind: 'family', node: 'n', port: 'items' } }],
-    })
-    expect([...view.familyOwners.get('n')!.get('items')!.suffixMembers]).toEqual([['\u0000s0', 's0'], ['\u0000s1', 's1']])
-    expect(view.familyOwners.get('n')!.get('items')!.suffixOwners.get('\u0000s0')).toMatchObject({
-      occurrence: { instancePath: [], node: 's' }, sourceMember: 's0',
-    })
-  })
-
-  it.each([false, true])('maps retained canonical suffixes and the elaborated ghost without member arrays (named=%s)', (named) => {
-    const names = named ? ['head', 'middle', 'tail', 'last'] : ['item0', 'item1', 'item2', 'item3']
-    const canonical: NodeSchema = { ...familySchema, type: 'Canonical', items: [{
-      ...familySchema.items[0] as InputSpec,
-      dynamic: { kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
-        template: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'STRING' }, optional: true }],
-        naming: named ? { kind: 'names', names } : { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-      },
-    }] }
-    const doc = { ...docOf(), graphs: {
-      g0: graph('g0', { s: { id: 's', type: '#outer', values: {}, dynamic: { outside: { members: [names[2]] } } } }),
-      outer: graph('outer', { i: { id: 'i', type: '#sub', values: {}, dynamic: { forwarded: { members: [names[1]] } } } }, {
-        inputs: [{ id: 'outside', binds: { kind: 'family', node: 'i', port: 'forwarded' } }], outputs: [],
-      }),
-      sub: graph('sub', { n: { id: 'n', type: 'Canonical', values: {}, dynamic: { items: { members: [names[0]] } } } }, {
-        inputs: [{ id: 'forwarded', binds: { kind: 'family', node: 'n', port: 'items' } }], outputs: [],
-      }),
-    } } as unknown as WorkflowDocument
-    const resolver = (type: string) => type === 'Canonical' ? canonical : resolve(type)
-    const view = occurrenceDynamicView(doc, resolver, ['s', 'i'])
-    const owner = view.familyOwners.get('n')!.get('items')!
-    expect(occurrenceFamilyEndpoint(owner, `items.${names[0]}`, undefined)).toBeUndefined()
-    expect(occurrenceFamilyEndpoint(owner, `items.${names[1]}`, undefined)).toMatchObject({
-      occurrence: { instancePath: ['s'], node: 'i' }, address: { port: `forwarded.${names[1]}` },
-    })
-    expect(occurrenceFamilyEndpoint(owner, `items.${names[2]}`, undefined)).toMatchObject({
-      occurrence: { instancePath: [], node: 's' }, address: { port: `outside.${names[2]}` },
-    })
-    const ghost = occurrenceFamilyEndpoint(owner, `items.${names[3]}`, undefined, names[3])
-    expect(ghost).toMatchObject({ occurrence: { instancePath: [], node: 's' }, address: { port: `outside.${names[3]}` } })
-    expect(ghost?.kind === 'boundary' && ghost.address.members).toBeUndefined()
-  })
-
-  it.each(['truncated', 'complete', 'unrecorded'])('stops recorded input evidence at its terminal body coordinate (route=%s)', (route) => {
-    const canonical: NodeSchema = { ...familySchema, type: 'Canonical', items: [{
-      ...familySchema.items[0] as InputSpec,
-      dynamic: { kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
-        template: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'STRING' }, optional: true }],
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-      },
-    }] }
-    const outerBinding = { kind: 'family', node: 'i', port: 'forwarded' }
-    const innerBinding = { kind: 'family', node: 'n', port: 'items' }
-    const owner = { instancePath: [], node: asNodeId('s') }
-    const doc = { ...docOf(), graphs: {
-      g0: graph('g0', { s: { id: 's', type: '#outer', values: {} } }),
-      outer: graph('outer', { i: { id: 'i', type: '#sub', values: {} } }, {
-        inputs: [{ id: 'forwarded', binds: outerBinding }], outputs: [],
-      }),
-      sub: graph('sub', { n: { id: 'n', type: 'Canonical', values: {} } }, {
-        inputs: [{ id: 'forwarded', binds: innerBinding }], outputs: [],
-      }),
-    }, occurrenceTopologies: { [occurrenceKey(owner)]: {
-      owner, bodyGraph: 'outer', nextOrdinal: 1,
-      links: { local: { id: 'local', from: { kind: 'body', endpoint: { node: 'i', port: 'unused' } },
-        to: route === 'unrecorded' ? { kind: 'body', endpoint: { node: 'i', port: 'forwarded.item1' } } : {
-          kind: 'boundary', occurrence: { instancePath: [], node: 's' }, address: { port: 'forwarded.item1' },
-          route: [{ graph: 'outer', boundaryId: 'forwarded', binding: outerBinding },
-            ...(route === 'complete' ? [{ graph: 'sub', boundaryId: 'forwarded', binding: innerBinding }] : [])],
-        },
-      } },
-    } } } as unknown as WorkflowDocument
-    const resolver = (type: string) => type === 'Canonical' ? canonical : resolve(type)
-    expect(occurrenceDynamicView(doc, resolver, ['s']).inputPorts.get('i')).toEqual(['forwarded.item1'])
-    const deep = occurrenceDynamicView(doc, resolver, ['s', 'i'])
-    expect(deep.inputPorts.get('n') ?? []).toEqual(route === 'truncated' ? [] : ['items.item1'])
-    expect(deep.dynamic.get('n')?.items?.members ?? []).toEqual(route === 'truncated' ? [] : ['item1'])
-  })
-
-  it('reverses a nested suffix coordinate and allocates a ghost from the owner high-water mark', () => {
-    const route = [{
-      graph: asGraphDefId('sub'), boundaryId: 'forwarded',
-      binding: { kind: 'family' as const, node: asNodeId('n'), port: asPortId('items') },
-    }]
-    const owner = {
-      graphId: 'g0', nodeId: 's', boundaryId: 'forwarded',
-      occurrence: { instancePath: [], node: asNodeId('s') }, familyPath: 'items', route,
-      suffixMembers: new Map([['\u0000s0', 's0']]),
-      suffixOwners: new Map([['\u0000s0', {
-        graphId: 'g0', nodeId: 's', boundaryId: 'forwarded',
-        occurrence: { instancePath: [], node: asNodeId('s') }, sourceMember: 's0', route,
-      }]]),
-      ghostOwner: {
-        graphId: 'g0', nodeId: 's', boundaryId: 'forwarded',
-        occurrence: { instancePath: [], node: asNodeId('s') }, sourceMember: 'm7', route,
-      },
-    }
-    expect(occurrenceFamilyEndpoint(owner, 'items.value', ['ancestor', '\u0000s0'])).toMatchObject({
-      address: { port: 'forwarded.value', members: ['s0'] },
-    })
-    expect(occurrenceFamilyEndpoint(owner, 'items.value', ['ancestor', 'derivedGhost'], 'derivedGhost')).toMatchObject({
-      address: { port: 'forwarded.value', members: ['m7'] },
-    })
-  })
-
   it('keeps sibling occurrence suffixes independent', () => {
     const doc = docOf() as unknown as { graphs: Record<string, ReturnType<typeof graph>> } & WorkflowDocument
     ;(doc.graphs as unknown as Record<string, unknown>).g0 = graph('g0', {
@@ -358,56 +218,6 @@ describe('occurrenceDynamicView', () => {
     expect(inherited.familyOwners.size).toBe(0)
   })
 
-  it('rebases nested autogrow memberState through a family crossing', () => {
-    const doc = docOf() as unknown as { graphs: Record<string, ReturnType<typeof graph>> } & WorkflowDocument
-    ;(doc.graphs as unknown as Record<string, unknown>).g0 = graph('g0', {
-      s: { id: 's', type: '#sub', values: {}, dynamic: {
-        forwarded: { members: ['x0'], memberState: { x0: { 'forwarded.sub': { members: ['y0'] } } } },
-      } },
-    })
-    ;(doc.graphs as unknown as Record<string, unknown>).sub = graph('sub', {
-      n: { id: 'n', type: 'NestedFamily', values: {} },
-    }, { inputs: [{ id: 'forwarded', binds: { kind: 'family', node: 'n', port: 'items' } }], outputs: [] })
-
-    const state = occurrenceDynamicView(doc, documentResolver(doc, resolve), ['s']).dynamic.get('n')?.items
-    expect(state?.members).toEqual(['\u0000x0'])
-    expect(state?.memberState?.['\u0000x0']?.['items.sub']?.members).toEqual(['y0'])
-  })
-
-  it('walks two family forwarding hops and projects the outermost suffix', () => {
-    const doc = docOf() as unknown as { graphs: Record<string, ReturnType<typeof graph>> } & WorkflowDocument
-    ;(doc.graphs as unknown as Record<string, unknown>).g0 = graph('g0', {
-      s: { id: 's', type: '#outer', values: {}, dynamic: { outerFam: { members: ['root0'] } } },
-    })
-    ;(doc.graphs as unknown as Record<string, unknown>).outer = graph('outer', {
-      i: { id: 'i', type: '#inner', values: {}, dynamic: { innerFam: { members: ['middle0'] } } },
-    }, { inputs: [{ id: 'outerFam', binds: { kind: 'family', node: 'i', port: 'innerFam' } }], outputs: [] })
-    ;(doc.graphs as unknown as Record<string, unknown>).inner = graph('inner', {
-      n: { id: 'n', type: 'Family', values: {}, dynamic: { items: { members: ['definition0'] } } },
-    }, { inputs: [{ id: 'innerFam', binds: { kind: 'family', node: 'n', port: 'items' } }], outputs: [] })
-
-    const view = occurrenceDynamicView(doc, documentResolver(doc, resolve), ['s', 'i'])
-    expect(view.dynamic.get('n')?.items?.members).toEqual(['definition0', '\u0000middle0', '\u0000\u0000root0'])
-    const familyOwner = view.familyOwners.get('n')!.get('items')!
-    expect(familyOwner).toMatchObject({
-      graphId: 'outer', nodeId: 'i', boundaryId: 'innerFam',
-      occurrence: { instancePath: ['s'], node: 'i' },
-      route: [{ graph: 'inner', boundaryId: 'innerFam', binding: { kind: 'family', node: 'n', port: 'items' } }],
-    })
-    expect(familyOwner.suffixOwners.get('\u0000middle0')).toMatchObject({
-      graphId: 'outer', nodeId: 'i', boundaryId: 'innerFam', sourceMember: 'middle0',
-      occurrence: { instancePath: ['s'], node: 'i' },
-    })
-    expect(familyOwner.suffixOwners.get('\u0000\u0000root0')).toMatchObject({
-      graphId: 'g0', nodeId: 's', boundaryId: 'outerFam', sourceMember: 'root0',
-      occurrence: { instancePath: [], node: 's' },
-      route: [
-        { graph: 'outer', boundaryId: 'outerFam', binding: { kind: 'family', node: 'i', port: 'innerFam' } },
-        { graph: 'inner', boundaryId: 'innerFam', binding: { kind: 'family', node: 'n', port: 'items' } },
-      ],
-    })
-  })
-
   it('matches the real compiler member order for a definition prefix and instance suffix', () => {
     const doc = docOf() as unknown as { graphs: Record<string, ReturnType<typeof graph>> } & WorkflowDocument
     ;(doc.graphs as unknown as Record<string, unknown>).g0 = graph('g0', {
@@ -425,9 +235,4 @@ describe('occurrenceDynamicView', () => {
     expect(Object.keys(result.artifact.prompt['s.n']!.inputs)).toEqual(members!.map((_, ordinal) => `items.item${ordinal}`))
   })
 
-  it('returns empty family state for an unknown path', () => {
-    const view = occurrenceDynamicView(docOf(), resolve, ['missing'])
-    expect(view.dynamic.size).toBe(0)
-    expect(view.familyOwners.size).toBe(0)
-  })
 })

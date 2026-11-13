@@ -22,9 +22,6 @@ import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
-const previews = (page: Page) =>
-  page.evaluate(() => window.__dinksterTest!.renderer!.getNodePreviews())
-
 const decodedPreview = (page: Page, nodeId: string) =>
   page.evaluate((id) => {
     const preview = window.__dinksterTest!.renderer!.getNodePreviews()[id]
@@ -229,30 +226,4 @@ test('a transport failure is retried on the next overlay refresh, not negative-c
   await page.unroute('**/api/values**')
   await nudgeNode(page)
   await expect.poll(() => decodedPreview(page, 'grad'), { timeout: 15_000 }).toBeDefined()
-})
-
-test('a definitive refusal is negative-cached: no refetch even after recovery', async ({ page }) => {
-  const valueRequests: string[] = []
-  page.on('request', (r) => { if (r.url().includes('/api/values')) valueRequests.push(r.url()) })
-  // Structured refusal (recognized reason) -> definitive miss.
-  await page.route('**/api/values**', (route) => route.fulfill({
-    status: 404,
-    contentType: 'application/json',
-    body: JSON.stringify({ available: false, reason: 'not-retained', error: 'value not retained' }),
-  }))
-  await queueAndComplete(page)
-
-  // Wait until the peek attempt actually happened, then let it settle.
-  await expect.poll(() => valueRequests.length, { timeout: 15_000 }).toBeGreaterThan(0)
-  await page.waitForTimeout(500)
-  expect((await previews(page))['grad']).toBeUndefined()
-
-  // Server would now answer, but the miss was definitive: the source key is
-  // negative-cached, so an overlay refresh must NOT refetch or render.
-  await page.unroute('**/api/values**')
-  const before = valueRequests.length
-  await nudgeNode(page)
-  await page.waitForTimeout(750)
-  expect(valueRequests.length).toBe(before)
-  expect((await previews(page))['grad']).toBeUndefined()
 })

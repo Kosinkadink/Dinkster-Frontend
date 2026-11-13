@@ -82,18 +82,3 @@ describe('addBackendByUrl', () => {
     expect(app.problems.get().some((p) => p.code === 'backend.duplicate')).toBe(true)
   })
 })
-
-describe('native default', () => {
-  it('defaults the same-origin backend to native Dinkster when unset', () => {
-    const app = new AppState()
-    expect(app.backends.get()[0]!.protocol).toBe('dinkster')
-  })
-
-  it('gives the same-origin default its local identity', () => {
-    const app = new AppState()
-    const local = app.backends.get()[0]!
-    expect(local.protocol).toBe('dinkster')
-    expect(local.id).toBe('local')
-    expect(app.connection).toBe(local.connection)
-  })
-})

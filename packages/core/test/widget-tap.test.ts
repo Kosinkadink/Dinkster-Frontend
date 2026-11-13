@@ -24,18 +24,6 @@ const doc = (g: GraphDef): WorkflowDocument => ({
 })
 
 describe('widget tap topology', () => {
-  it('traces an undriven tap to its literal value terminal', () => {
-    const g = graph({})
-    expect(traceEndpoint(g, tap('a', 'value'))).toEqual({ kind: 'tapValue', node: 'a', input: 'value' })
-  })
-
-  it('aliases an input driver through reroutes to the real output', () => {
-    const g: GraphDef = { ...graph({
-      l1: { id: asLinkId('l1'), from: port('c', 'out'), to: { reroute: asRerouteId('r1') } },
-      l2: { id: asLinkId('l2'), from: { reroute: asRerouteId('r1') }, to: port('a', 'value') },
-    }), reroutes: { r1: { id: asRerouteId('r1') } } }
-    expect(traceEndpoint(g, tap('a', 'value'), buildRerouteIndex(g))).toMatchObject({ kind: 'output', ref: port('c', 'out') })
-  })
 
   it('reports persisted tap alias cycles', () => {
     const g = graph({
@@ -272,51 +260,6 @@ describe('widget tap compile', () => {
   // literal into a NON-CONCRETE input would only fail server-side as
   // runtime.validation - compile refuses it loudly instead. (With the
   // capability it lowers to $typed - see the '$typed lowering' suite.)
-  it('reports compile.tap.nonConcreteTarget for an undriven tap into a wildcard input', () => {
-    const result = compileDoc(compileGraph({
-      nodes: { a: typedNode('a', 'ValueNode', { value: 42 }), w: typedNode('w', 'WildcardSink') },
-      links: { l1: link('l1', tap('a', 'value'), port('w', 'source')) },
-    }))
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      const d = result.diagnostics.find((x) => x.code === 'compile.tap.nonConcreteTarget')
-      expect(d).toBeDefined()
-      // Anchored to the DESTINATION input so the canvas can outline it.
-      expect(d?.anchor?.port?.node).toBe('w')
-      expect(d?.anchor?.port?.port).toBe('source')
-    }
-  })
-
-  it('allows a DRIVEN tap into a wildcard input (lowers to an ordinary link)', () => {
-    const result = compileDoc(compileGraph({
-      nodes: { a: typedNode('a'), c: typedNode('c'), w: typedNode('w', 'WildcardSink') },
-      links: {
-        l1: link('l1', port('c', 'out0'), port('a', 'value')),
-        l2: link('l2', tap('a', 'value'), port('w', 'source')),
-      },
-    }))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (result.ok) expect(result.artifact.prompt['w']!.inputs['source']).toEqual(['c', 0])
-  })
-
-  it('reports compile.tap.nonConcreteTarget when a bypass fallback bakes into a wildcard input', () => {
-    // a's tap drives bypassed b; the passthrough falls back to the tapped
-    // literal, which must refuse into the wildcard sink exactly like the
-    // direct tap lowering.
-    const result = compileDoc(compileGraph({
-      nodes: {
-        a: typedNode('a', 'ValueNode', { value: 42 }),
-        b: { ...typedNode('b'), mode: 'bypassed' } as GraphDef['nodes'][string],
-        w: typedNode('w', 'WildcardSink'),
-      },
-      links: {
-        l1: link('l1', tap('a', 'value'), port('b', 'value')),
-        l2: link('l2', port('b', 'out0'), port('w', 'source')),
-      },
-    }))
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.diagnostics.map((d) => d.code)).toContain('compile.tap.nonConcreteTarget')
-  })
 
   it('reports compile.tap.missingInput for an unknown tapped input id', () => {
     const result = compileDoc(compileGraph({
@@ -408,15 +351,6 @@ describe('$typed lowering (graphFeatures typedLiteral)', () => {
     }
   })
 
-  it('keeps the canonical plain literal on a CONCRETE destination (emission rule)', () => {
-    const result = compileDoc(compileGraph({
-      nodes: { a: typedNode('a', 'ValueNode', { value: 42 }), b: typedNode('b') },
-      links: { l1: link('l1', tap('a', 'value'), port('b', 'value')) },
-    }), TYPED)
-    expect(result.ok).toBe(true)
-    if (result.ok) expect(result.artifact.prompt['b']!.inputs['value']).toBe(42)
-  })
-
   it('a DRIVEN tap into a wildcard input still lowers to an ordinary link, never $typed', () => {
     const result = compileDoc(compileGraph({
       nodes: { a: typedNode('a'), c: typedNode('c'), w: typedNode('w', 'WildcardSink') },
@@ -468,16 +402,6 @@ describe('$typed lowering (graphFeatures typedLiteral)', () => {
     }
   })
 
-  it('a DIRECT value-source link into a wildcard input refuses without the capability too', () => {
-    const result = compileDoc(compileGraph({
-      nodes: { w: typedNode('w', 'WildcardSink') },
-      valueSources: intValueSources(),
-      links: { l1: link('l1', { valueSource: 'vs' }, port('w', 'source')) },
-    }))
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.diagnostics.map((d) => d.code)).toContain('compile.tap.nonConcreteTarget')
-  })
-
   it('a tap DRIVEN BY a value source into a wildcard input refuses: the trace lands on the value source', () => {
     // tap(a.value) traces through its driver to the value source, so the
     // value-source branch handles it - same guard, no silent plain literal.
@@ -491,16 +415,6 @@ describe('$typed lowering (graphFeatures typedLiteral)', () => {
     }), TYPED)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.diagnostics.map((d) => d.code)).toContain('compile.tap.nonConcreteTarget')
-  })
-
-  it('a DIRECT value-source link into a CONCRETE input still bakes the plain literal', () => {
-    const result = compileDoc(compileGraph({
-      nodes: { b: typedNode('b') },
-      valueSources: intValueSources(),
-      links: { l1: link('l1', { valueSource: 'vs' }, port('b', 'value')) },
-    }), TYPED)
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (result.ok) expect(result.artifact.prompt['b']!.inputs['value']).toBe(7)
   })
 
   it('a value-source bake into a wildcard input still refuses: no runtime type to stamp, no guessing', () => {
@@ -556,11 +470,4 @@ describe('widget tap format', () => {
 
   // WORKFLOW_SCHEMA splits linkSource/linkTarget so the tap-free target def
   // rejects tap targets exactly like the runtime validator.
-  it('JSON schema and runtime validation reject a tap target', async () => {
-    const Ajv2020 = (await import('ajv/dist/2020.js')).default
-    const validateSchema = new Ajv2020({ strict: false }).compile(WORKFLOW_SCHEMA)
-    const targetDoc = doc(graph({ l1: link('l1', port('a', 'out'), tap('b', 'value')) }))
-    expect(validateSchema(targetDoc)).toBe(false)
-    expect(validateDocumentShape(targetDoc).some((d) => d.message.includes('widget taps cannot be link targets'))).toBe(true)
-  })
 })

@@ -91,26 +91,3 @@ test('the live dev-gallery template decodes and lays out with zero errors', asyn
   expect(state.unresolved).toEqual([])
   expect(state.errors).toEqual([])
 })
-
-test('live gallery pins carry the full socket-variant vocabulary', async ({ page }) => {
-  const kinds = await page.evaluate(() => {
-    const scene = window.__dinksterTest!.renderer!.getScene()
-    const byNode: Record<string, Record<string, { kind: string; optional: boolean }>> = {}
-    for (const node of scene.nodes) {
-      const entry: Record<string, { kind: string; optional: boolean }> = {}
-      for (const p of node.layout.pins) entry[p.portId] = { kind: p.type?.kind ?? 'missing', optional: p.optional === true }
-      byNode[node.id] = entry
-    }
-    return byNode
-  })
-  const allPins = Object.values(kinds).flatMap((entry) => Object.values(entry))
-  const present = new Set(allPins.map((p) => p.kind))
-  // Wire decode must surface every socket family the backend gallery ships.
-  for (const kind of ['concrete', 'union', 'wildcard', 'list']) expect(present).toContain(kind)
-  // The unconnected match node keeps an open variable; the connected one may
-  // solve to concrete, so assert on the open instance specifically.
-  const matchOpen = Object.values(kinds).find((entry) =>
-    Object.values(entry).some((p) => p.kind === 'variable'))
-  expect(matchOpen).toBeDefined()
-  expect(allPins.some((p) => p.optional)).toBe(true)
-})

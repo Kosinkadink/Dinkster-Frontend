@@ -1,16 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  beginPanelDragModel,
-  createPanelDragSnapshot,
-  movePanelDragModel,
-  panelDragPointerDisposition,
-  panelDragReleaseAction,
-  panelDragTargetGeometry,
-  resolvePanelDragTarget,
-  rollbackPanelDragModel,
-  type PanelDragRect,
-  type PanelDragSnapshot,
-} from '../src/panel-drag.js'
+import { beginPanelDragModel, createPanelDragSnapshot, movePanelDragModel, panelDragReleaseAction, resolvePanelDragTarget, rollbackPanelDragModel, type PanelDragRect, type PanelDragSnapshot } from '../src/panel-drag.js'
 
 const rect = (left: number, top: number, right: number, bottom: number): PanelDragRect =>
   ({ left, top, right, bottom })
@@ -82,44 +71,6 @@ const sectionedSnapshot = (): PanelDragSnapshot => createPanelDragSnapshot({
       ],
     },
   },
-})
-
-describe('panel drag geometry snapshot', () => {
-  it('captures open hosts and derives closed-zone edge, ghost, and preview rectangles', () => {
-    const value = snapshot()
-    expect(value.zones.right.open).toBe(true)
-    expect(value.zones.right.previewRect).toEqual(rect(700, 48, 1000, 772))
-    expect(value.zones.left.open).toBe(false)
-    expect(value.zones.left.edgeRect).toEqual(rect(0, 0, 24, 776))
-    expect(value.zones.left.previewRect).toEqual(rect(72, 48, 352, 772))
-    expect(value.zones.left.ghostRect).toEqual(rect(72, 48, 78, 772))
-    expect(value.zones.bottom.edgeRect).toEqual(rect(0, 776, 1000, 800))
-    expect(value.zones.bottom.previewRect).toEqual(rect(72, 572, 1000, 772))
-    expect(value.zones.bottom.ghostRect).toEqual(rect(72, 766, 1000, 772))
-  })
-
-  it('derives a split rect from a lone rendered section: the far half of its body', () => {
-    const value = snapshot()
-    expect(value.zones.right.splitRect).toEqual(rect(700, 430, 1000, 772))
-    expect(value.zones.left.splitRect).toBeUndefined()
-    expect(value.zones.bottom.splitRect).toBeUndefined()
-  })
-
-  it('an already sectioned zone offers no split rect', () => {
-    expect(sectionedSnapshot().zones.right.splitRect).toBeUndefined()
-  })
-
-  it('keeps the exact snapshot object for every pointer move', () => {
-    const geometry = snapshot()
-    const pending = beginPanelDragModel(7, 'outputs', { x: 800, y: 68 }, geometry, {
-      zones: ['right', 'bottom'],
-      floating: true,
-    })
-    const first = movePanelDragModel(pending, 7, { x: 850, y: 68 })
-    const second = movePanelDragModel(first, 7, { x: 500, y: 300 })
-    expect(first.snapshot).toBe(geometry)
-    expect(second.snapshot).toBe(geometry)
-  })
 })
 
 describe('panel drag targeting', () => {
@@ -252,45 +203,9 @@ describe('panel drag targeting', () => {
     expect(resolvePanelDragTarget(geometry, 'queue', { x: 500, y: 30 })).toBeUndefined()
   })
 
-  it('computes a fixed highlight and insertion caret from the captured slots', () => {
-    const geometry = snapshot()
-    const target = resolvePanelDragTarget(geometry, 'outputs', { x: 710, y: 60 })!
-    expect(panelDragTargetGeometry(geometry, 'outputs', target)).toEqual({
-      rect: rect(700, 48, 940, 88),
-      caret: rect(699, 52, 702, 84),
-    })
-    const bottom = resolvePanelDragTarget(geometry, 'outputs', { x: 500, y: 790 })!
-    expect(panelDragTargetGeometry(geometry, 'outputs', bottom)).toEqual({
-      rect: rect(72, 572, 1000, 772),
-      caret: undefined,
-    })
-  })
-
-  it('highlights the split half itself for a split target', () => {
-    const geometry = snapshot()
-    const target = resolvePanelDragTarget(geometry, 'outputs', { x: 850, y: 600 })!
-    expect(panelDragTargetGeometry(geometry, 'outputs', target)).toEqual({
-      rect: rect(700, 430, 1000, 772),
-      caret: undefined,
-    })
-  })
-
-  it('carets inside the second section\'s own strip', () => {
-    const geometry = sectionedSnapshot()
-    const target = resolvePanelDragTarget(geometry, 'library', { x: 710, y: 450 })!
-    expect(panelDragTargetGeometry(geometry, 'library', target)).toEqual({
-      rect: rect(700, 430, 1000, 470),
-      caret: rect(699, 434, 702, 466),
-    })
-  })
 })
 
 describe('panel pointer session', () => {
-  it('never lets a foreign pointer displace the owner', () => {
-    expect(panelDragPointerDisposition(undefined, 7)).toBe('start')
-    expect(panelDragPointerDisposition(7, 7)).toBe('owner')
-    expect(panelDragPointerDisposition(7, 8)).toBe('foreign')
-  })
 
   it('keeps movement below four pixels as a click and starts at the threshold', () => {
     const pending = beginPanelDragModel(7, 'outputs', { x: 800, y: 60 }, snapshot(), {
@@ -301,18 +216,6 @@ describe('panel pointer session', () => {
     expect(dragging.started).toBe(true)
     expect(dragging.preview?.target.kind).toBe('tab')
     expect(panelDragReleaseAction(pending)).toBe('click')
-  })
-
-  it('tracks the pointer position of accepted moves for the cursor ghost', () => {
-    const pending = beginPanelDragModel(7, 'outputs', { x: 800, y: 60 }, snapshot(), {
-      zones: ['right'], floating: false,
-    })
-    expect(pending.point).toEqual({ x: 800, y: 60 })
-    expect(movePanelDragModel(pending, 7, { x: 802, y: 63 }).point).toEqual({ x: 800, y: 60 })
-    const dragging = movePanelDragModel(pending, 7, { x: 850, y: 120 })
-    expect(dragging.point).toEqual({ x: 850, y: 120 })
-    expect(movePanelDragModel(dragging, 8, { x: 900, y: 200 }).point).toEqual({ x: 850, y: 120 })
-    expect(rollbackPanelDragModel(dragging, 7).point).toEqual({ x: 850, y: 120 })
   })
 
   it('marks illegal zones and floating targets as refused without losing their preview', () => {

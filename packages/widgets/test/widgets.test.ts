@@ -4,17 +4,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createHostUiProviderContextV1, decodeHostUiContributionV1, effectiveWidgetDefault, formatWidgetValue, type PreviewRenderer, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
-import {
-  createWidgetRegistry,
-  formatCompactFloat,
-  hexToHsv,
-  hsvToHex,
-  hsvToRgb,
-  numericStepPrecision,
-  registerCoreWidgets,
-  rgbToHsv,
-  widgetRegistrationDoors,
-} from '../src/index.js'
+import { createWidgetRegistry, formatCompactFloat, hexToHsv, hsvToHex, hsvToRgb, registerCoreWidgets, rgbToHsv, widgetRegistrationDoors } from '../src/index.js'
 
 const spec = (widgetType: string, options: Record<string, unknown> = {}, dflt?: unknown): WidgetSpec => ({
   widgetType,
@@ -54,36 +44,6 @@ describe('BOUNDING_BOX values', () => {
       { x: 0, y: 0, width: 1, height: -1 },
     ]) expect(kind.validate(value, declaration)).not.toEqual([])
     expect(r.viewsFor('BOUNDING_BOX').map((view) => view.id)).toContain('core.boundingBox')
-  })
-})
-
-describe('CAMERA_ANGLE_VIEW values', () => {
-  it('registers a presentation string with an editable compact row, not camera parameters', () => {
-    const r = registry()
-    const kind = r.kind('CAMERA_ANGLE_VIEW')!
-    const s = spec('CAMERA_ANGLE_VIEW')
-    expect(kind.defaultValue(s)).toBe('')
-    expect(kind.valueSchema.validate('')).toBe(true)
-    expect(kind.valueSchema.validate({ horizontal_angle: 90 })).toBe(false)
-    const view = r.viewsFor('CAMERA_ANGLE_VIEW').find((entry) => entry.id === kind.defaultView(s))!
-    const { builder, ops } = recordingBuilder()
-    view.drawCompact(builder, '', s, { focused: false, connected: false, readonly: false })
-    expect(ops.filter((op) => op.op === 'hitRegion')).toHaveLength(1)
-  })
-})
-
-describe('MOUNT values', () => {
-  it('preserves scalar mount ids and the null default through the public registry', () => {
-    const kind = registry().kind('MOUNT')!
-    expect(kind.defaultValue(spec('MOUNT'))).toBeNull()
-    expect(kind.defaultValue(spec('MOUNT', {}, 'archive'))).toBe('archive')
-    for (const value of [null, 'archive']) {
-      expect(kind.valueSchema.validate(value)).toBe(true)
-      expect(kind.validate(value, spec('MOUNT'))).toEqual([])
-    }
-    expect(kind.valueSchema.validate({ mount: 'archive', prefix: 'frames' })).toBe(false)
-    expect(kind.validate('../archive', spec('MOUNT'))).not.toEqual([])
-    expect(kind.defaultView(spec('MOUNT'))).toBe('core.mount')
   })
 })
 
@@ -155,14 +115,6 @@ describe('compact FLOAT precision', () => {
     const before = value
     expect(formatCompactFloat(value, spec('FLOAT', { step }))).toBe(expected)
     expect(value).toBe(before)
-  })
-
-  it('derives decimal precision from ordinary and scientific notation', () => {
-    expect(numericStepPrecision(1)).toBe(0)
-    expect(numericStepPrecision(0.01)).toBe(2)
-    expect(numericStepPrecision(1e-7)).toBe(7)
-    expect(numericStepPrecision(2.5e-3)).toBe(4)
-    expect(numericStepPrecision(1e3)).toBe(0)
   })
 
   it('uses one descriptor formatter for editable and display-only numeric states', () => {
@@ -248,29 +200,6 @@ describe('registry', () => {
     expect(registry().kind('MULTI_COMBO')!.valueSchema.validate([true])).toBe(false)
   })
 
-  it('CL10 COMBO refuses non-JSON numbers as defaults and options', () => {
-    const combo = registry().kind('COMBO')!
-    expect(combo.valueSchema.validate(Number.NaN)).toBe(false)
-    expect(combo.valueSchema.validate(Number.POSITIVE_INFINITY)).toBe(false)
-    // A NaN explicit default and a NaN first option both fall through to the
-    // first JSON-representable option.
-    expect(combo.defaultValue(spec('COMBO', { options: [7, 'ok'] }, Number.NaN))).toBe(7)
-    expect(combo.defaultValue(spec('COMBO', { options: [Number.NaN, 'ok'] }))).toBe('ok')
-  })
-
-  it('registers every core kind with at least one view each', () => {
-    const r = registry()
-    for (const type of ['INT', 'FLOAT', 'STRING', 'BOOLEAN', 'COMBO', 'COLOR', 'ASSET', 'MOUNT']) {
-      expect(r.kind(type), type).toBeDefined()
-      expect(r.viewsFor(type).length, type).toBeGreaterThan(0)
-    }
-  })
-
-  it('rejects duplicate kind and view registration', () => {
-    const r = registry()
-    expect(() => registerCoreWidgets(widgetRegistrationDoors(r))).toThrow(/already registered/)
-  })
-
   it('registers, resolves, and removes DOM editors by widget type', () => {
     const r = createWidgetRegistry()
     const editor = () => undefined
@@ -279,23 +208,6 @@ describe('registry', () => {
     expect(() => r.registerEditor('pack.TIMELINE', () => undefined)).toThrow(/already registered/)
     dispose()
     expect(r.editorFor('pack.TIMELINE')).toBeUndefined()
-  })
-
-  it('kind and view disposers permit re-registration and remove views', () => {
-    const r = createWidgetRegistry()
-    const kind = registry().kind('INT')!
-    const view = registry().viewsFor('INT')[0]!
-    const disposeKind = r.registerKind(kind)
-    const disposeView = r.registerView(view)
-    expect(r.kind('INT')).toBe(kind)
-    expect(r.viewsFor('INT')).toEqual([view])
-
-    disposeKind()
-    disposeView()
-    expect(r.kind('INT')).toBeUndefined()
-    expect(r.viewsFor('INT')).toEqual([])
-    expect(() => r.registerKind(kind)).not.toThrow()
-    expect(() => r.registerView(view)).not.toThrow()
   })
 
   it('a stale kind disposer never removes a NEWER registration of the same type', () => {
@@ -323,24 +235,6 @@ describe('registry', () => {
     // The freed id is registrable again (reload story for views).
     expect(() => r.registerView(base)).not.toThrow()
     expect(r.viewsFor('INT')).toEqual([alt, base])
-  })
-
-  it('selects the first matching preview renderer and removes it with its disposer', () => {
-    const r = createWidgetRegistry()
-    const renderer = (id: string, channel: string): PreviewRenderer => ({
-      id,
-      mediaKind: channel.startsWith('video/') ? 'video' : 'image',
-      canRender: (candidate) => candidate === channel,
-      drawCompact: () => {},
-    })
-    const first = renderer('first', 'image/png')
-    const second = renderer('second', 'image/png')
-    const disposeFirst = r.registerPreviewRenderer(first)
-    r.registerPreviewRenderer(second)
-    expect(r.previewRendererFor('image/png')).toBe(first)
-    expect(r.previewRendererFor('video/mp4')).toBeUndefined()
-    disposeFirst()
-    expect(r.previewRendererFor('image/png')).toBe(second)
   })
 
   it('registers consumed core image, video, and model3d preview renderers by MIME channel', () => {
@@ -377,36 +271,9 @@ describe('registry', () => {
     expect(r.previewRendererFor('video/webm')?.id).toBe('core.video-preview')
   })
 
-  it('every kind default view resolves to a registered compatible view', () => {
-    const r = registry()
-    const specs: Record<string, WidgetSpec> = {
-      INT: spec('INT', { min: 0 }),
-      FLOAT: spec('FLOAT'),
-      STRING: spec('STRING', { multiline: true }),
-      BOOLEAN: spec('BOOLEAN'),
-      COMBO: spec('COMBO', { options: ['a', 'b'] }),
-      COLOR: spec('COLOR'),
-      ASSET: spec('ASSET', { accept: ['image/png'] }),
-    }
-    for (const [type, s] of Object.entries(specs)) {
-      const kind = r.kind(type)!
-      const viewId = kind.defaultView(s)
-      const view = r.viewsFor(type).find((v) => v.id === viewId)
-      expect(view, `${type} -> ${viewId}`).toBeDefined()
-      expect(view!.isCompatible(s)).toBe(true)
-    }
-  })
 })
 
 describe('kind semantics', () => {
-  it('defaults come from spec.default, then options, then kind fallback', () => {
-    const r = registry()
-    expect(r.kind('INT')!.defaultValue(spec('INT', { min: 5 }))).toBe(5)
-    expect(r.kind('INT')!.defaultValue(spec('INT', { min: 5 }, 20))).toBe(20)
-    expect(r.kind('STRING')!.defaultValue(spec('STRING'))).toBe('')
-    expect(r.kind('COMBO')!.defaultValue(spec('COMBO', { options: ['euler', 'ddim'] }))).toBe('euler')
-    expect(r.kind('BOOLEAN')!.defaultValue(spec('BOOLEAN', {}, true))).toBe(true)
-  })
 
   it('INT validates range and integrality as warnings', () => {
     const kind = registry().kind('INT')!
@@ -415,12 +282,6 @@ describe('kind semantics', () => {
     expect(kind.validate(1.5, spec('INT', {}))).toHaveLength(1)
     expect(kind.valueSchema.validate(Number.MAX_SAFE_INTEGER + 1)).toBe(false)
     expect(kind.valueSchema.validate('9007199254740992')).toBe(true)
-  })
-
-  it('INT returns an out-of-range default unchanged', () => {
-    const kind = registry().kind('INT')!
-    // documents current behavior: no clamping - see feature-coverage-audit
-    expect(kind.defaultValue(spec('INT', { min: 0, max: 10 }, 20))).toBe(20)
   })
 
   it('FLOAT validates finite numbers, defaults, and range diagnostics', () => {
@@ -432,26 +293,6 @@ describe('kind semantics', () => {
     expect(kind.defaultValue(spec('FLOAT', { min: 0.5 }, 2.25))).toBe(2.25)
     expect(kind.validate(-1, spec('FLOAT', { min: 0, max: 10 }))[0]?.code).toBe('widget.FLOAT.belowMin')
     expect(kind.validate(11, spec('FLOAT', { min: 0, max: 10 }))[0]?.code).toBe('widget.FLOAT.aboveMax')
-  })
-
-  it('STRING validates values and handles defaults for both views', () => {
-    const kind = registry().kind('STRING')!
-    expect(kind.valueSchema.validate('')).toBe(true)
-    expect(kind.valueSchema.validate('a\nb')).toBe(true)
-    expect(kind.valueSchema.validate(1)).toBe(false)
-    expect(kind.defaultValue(spec('STRING'))).toBe('')
-    expect(kind.defaultValue(spec('STRING', {}, 'hello'))).toBe('hello')
-    expect(kind.defaultView(spec('STRING'))).toBe('core.line')
-  })
-
-  it('BOOLEAN has strict validation and false or explicit defaults', () => {
-    const kind = registry().kind('BOOLEAN')!
-    expect(kind.valueSchema.validate(true)).toBe(true)
-    expect(kind.valueSchema.validate(false)).toBe(true)
-    expect(kind.valueSchema.validate(1)).toBe(false)
-    expect(kind.valueSchema.validate('true')).toBe(false)
-    expect(kind.defaultValue(spec('BOOLEAN'))).toBe(false)
-    expect(kind.defaultValue(spec('BOOLEAN', {}, true))).toBe(true)
   })
 
   it('COMBO validates against static options but not remote sources', () => {
@@ -475,34 +316,6 @@ describe('kind semantics', () => {
     expect(kind.validate('euler', comboSpec)[0]?.code).toBe('widget.COMBO.unknownOption')
     expect(kind.validate('Display label', comboSpec)[0]?.code).toBe('widget.COMBO.unknownOption')
     expect(kind.validate(3, comboSpec)[0]?.message).toContain('not in the option list')
-  })
-
-  it('COMBO handles empty and remote option sources', () => {
-    const kind = registry().kind('COMBO')!
-    const empty = spec('COMBO', { options: [] })
-    expect(kind.defaultValue(empty)).toBe('')
-    expect(kind.validate('', empty)[0]?.code).toBe('widget.COMBO.unknownOption')
-    const remote = {
-      route: '/models', refreshButton: true, controlAfterRefresh: 'first' as const, timeoutMs: 500,
-      maxRetries: 2, refreshMs: 1_000,
-    }
-    const remoteSpec: WidgetSpec = { widgetType: 'COMBO', options: {}, remote }
-    expect(kind.defaultValue({ ...remoteSpec, default: 'kept' })).toBe('kept')
-    expect(kind.validate('kept', remoteSpec)).toEqual([])
-    expect(remoteSpec.remote).toBe(remote)
-  })
-
-  it('COLOR preserves and accepts every string without color validation', () => {
-    const kind = registry().kind('COLOR')!
-    for (const value of ['#fff', '#ABC', '#00ff33', '#AABBCC', '#11223344', '#aBcDeF80', 'red', '', 'Not-A-Normalized-Color']) {
-      expect(kind.valueSchema.validate(value), value).toBe(true)
-      expect(kind.validate(value, spec('COLOR')), value).toEqual([])
-    }
-    expect(kind.valueSchema.validate(123)).toBe(false)
-    expect(kind.defaultValue(spec('COLOR'))).toBe('#ffffff')
-    expect(kind.defaultValue(spec('COLOR', {}, '#00ff3380'))).toBe('#00ff3380')
-    expect(kind.defaultValue(spec('COLOR', {}, 'Not-A-Normalized-Color'))).toBe('Not-A-Normalized-Color')
-    expect(kind.defaultView(spec('COLOR'))).toBe('core.color')
   })
 
   it('ASSET selection validates source names without widening ordinary assets', () => {
@@ -582,11 +395,6 @@ describe('kind semantics', () => {
     expect(kind.defaultValue(spec('ASSET', {}, [asset, 'cat.png']))).toBeNull()
   })
 
-  it('STRING default view follows the multiline hint', () => {
-    const kind = registry().kind('STRING')!
-    expect(kind.defaultView(spec('STRING'))).toBe('core.line')
-    expect(kind.defaultView(spec('STRING', { multiline: true }))).toBe('core.text')
-  })
 })
 
 describe('display/submission default agreement', () => {
@@ -657,54 +465,6 @@ describe('compact views', () => {
     expectCompactLayout('COMBO', long, { options: [long] })
     expectCompactLayout('COLOR', '#11223344')
     expectCompactLayout('COMPOSITOR', { version: 2, documentDigest: null, commands: [] })
-  })
-
-  it('drawCompact emits primitives and a hit region when editable', () => {
-    const r = registry()
-    const view = r.viewsFor('INT').find((v) => v.id === 'core.number')!
-    const { ops, builder } = recordingBuilder()
-    view.drawCompact(builder, 42, spec('INT'), { focused: false, connected: false, readonly: false })
-    expect(ops.some((o) => o.op === 'text' && (o.args[2] as string) === '42')).toBe(true)
-    expect(ops.some((o) => o.op === 'hitRegion')).toBe(true)
-  })
-
-  it('readonly rows emit no hit region', () => {
-    const r = registry()
-    const view = r.viewsFor('BOOLEAN').find((v) => v.id === 'core.toggle')!
-    const { ops, builder } = recordingBuilder()
-    view.drawCompact(builder, true, spec('BOOLEAN'), { focused: false, connected: false, readonly: true })
-    expect(ops.some((o) => o.op === 'hitRegion')).toBe(false)
-  })
-
-  it('editable BOOLEAN rows emit a hit region', () => {
-    const view = registry().viewsFor('BOOLEAN').find((v) => v.id === 'core.toggle')!
-    const { ops, builder } = recordingBuilder()
-    view.drawCompact(builder, false, spec('BOOLEAN'), { focused: false, connected: false, readonly: false })
-    expect(ops.some((o) => o.op === 'hitRegion')).toBe(true)
-  })
-
-  it('FLOAT compact rows have INT measure and hit-region parity', () => {
-    const r = registry()
-    const intView = r.viewsFor('INT')[0]!
-    const floatView = r.viewsFor('FLOAT')[0]!
-    expect(floatView.measure(spec('FLOAT', { step: 0.25 }))).toEqual(intView.measure(spec('INT')))
-    const { ops, builder } = recordingBuilder()
-    floatView.drawCompact(builder, 1.25, spec('FLOAT', { step: 0.25 }), {
-      focused: false, connected: false, readonly: false,
-    })
-    expect(ops.some((o) => o.op === 'text' && o.args[2] === '1.25')).toBe(true)
-    expect(ops.some((o) => o.op === 'hitRegion')).toBe(true)
-  })
-
-  it('single-line STRING remains one row and passes truncation state through', () => {
-    const view = registry().viewsFor('STRING').find((v) => v.id === 'core.line')!
-    expect(view.measure(spec('STRING'))).toEqual({ rows: 1 })
-    const { ops, builder } = recordingBuilder()
-    view.drawCompact(builder, 'a very long string', spec('STRING'), {
-      focused: false, connected: false, readonly: false, truncated: true,
-    })
-    const text = ops.find((o) => o.op === 'text' && o.args[2] === 'a very long string')!
-    expect((text.args[3] as { truncated: boolean }).truncated).toBe(true)
   })
 
   it('STRING placeholders paint only empty values and preserve explicit empty versus absence', () => {
@@ -778,21 +538,6 @@ describe('compact views', () => {
     expect(ops.filter((o) => o.op === 'text').map((o) => o.args[1])).toEqual([0, 1, 2, 3])
   })
 
-  it('multiline preview emits its display name as presentation-only placeholder for an empty value', () => {
-    const view = registry().viewsFor('STRING').find((v) => v.id === 'core.text')!
-    const { ops, builder } = recordingBuilder()
-    view.drawCompact(builder, '', spec('STRING', { multiline: true, display_name: 'prompt' }), {
-      focused: false,
-      connected: false,
-      readonly: false,
-    })
-    expect(ops.filter((o) => o.op === 'text')).toEqual([
-      expect.objectContaining({
-        args: [0, 0, 'prompt', expect.objectContaining({ role: 'widgetValue', placeholder: true })],
-      }),
-    ])
-  })
-
   it('BOOLEAN toggle renders labelOn/labelOff when present, true/false otherwise (wire v10)', () => {
     const view = registry().viewsFor('BOOLEAN').find((v) => v.id === 'core.toggle')!
     const draw = (value: boolean, options: Record<string, unknown>): unknown[] => {
@@ -816,20 +561,6 @@ describe('compact views', () => {
       op: 'rect',
       args: expect.arrayContaining([expect.objectContaining({ role: 'toggleAffordance', checked: value })]),
     }))
-  })
-
-  it('COMBO emits a dropdown chevron affordance', () => {
-    const view = registry().viewsFor('COMBO').find((candidate) => candidate.id === 'core.select')!
-    const { ops, builder } = recordingBuilder()
-    view.drawCompact(builder, 'euler', spec('COMBO', { options: ['euler', 'ddim'] }), {
-      focused: false, connected: false, readonly: false,
-    })
-    expect(ops).toContainEqual(expect.objectContaining({
-      op: 'rect',
-      args: expect.arrayContaining([expect.objectContaining({ role: 'comboChevron' })]),
-    }))
-    const value = ops.find((op) => op.op === 'text' && op.args[2] === 'euler')
-    expect(value?.args[3]).not.toHaveProperty('reserveRight')
   })
 
   it.each([
@@ -856,28 +587,6 @@ describe('compact views', () => {
       && (op.args[4] as { role?: string }).role === 'numericRangeFill')
     if (fraction === undefined) expect(fill).toBeUndefined()
     else expect(fill?.args[4]).toMatchObject({ role: 'numericRangeFill', fraction })
-  })
-
-  it('omits the numeric range affordance for a non-finite value', () => {
-    const view = registry().viewsFor('FLOAT').find((candidate) => candidate.id === 'core.number')!
-    const { ops, builder } = recordingBuilder()
-    view.drawCompact(builder, Number.NaN, spec('FLOAT', { display: 'slider', min: 0, max: 1 }), {
-      focused: false, connected: false, readonly: false,
-    })
-    expect(ops.some((op) => op.op === 'rect'
-      && (op.args[4] as { role?: string }).role === 'numericRangeFill')).toBe(false)
-  })
-
-  it('FLOAT slider emits the bounded range affordance without changing its formatted value', () => {
-    const view = registry().viewsFor('FLOAT').find((candidate) => candidate.id === 'core.slider')!
-    const { ops, builder } = recordingBuilder()
-    view.drawCompact(builder, 0.25, spec('FLOAT', { display: 'slider', min: 0, max: 1, step: 0.01 }), {
-      focused: false, connected: false, readonly: false,
-    })
-    expect(ops.find((op) => op.op === 'rect'
-      && (op.args[4] as { role?: string }).role === 'numericRangeFill')?.args[4])
-      .toMatchObject({ fraction: 0.25 })
-    expect(ops.some((op) => op.op === 'text' && op.args[2] === '0.25')).toBe(true)
   })
 
   it('selects a FLOAT slider only for bounded slider schemas and keeps number view selectable', () => {

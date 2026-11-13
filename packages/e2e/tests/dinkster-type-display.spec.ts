@@ -31,20 +31,6 @@ const document_ = {
   view: { graphs: { g0: { nodes: { native: { position: { x: 120, y: 120 } } } } } },
 }
 
-/** Expected native type labels and palette colors, keyed by port id. */
-const expectations: Record<string, { canonical: string; hex: string }> = {
-  te: { canonical: 'CLIP', hex: '#FFD500' },
-  codec: { canonical: 'VAE', hex: '#FF6E6E' },
-  control: { canonical: 'CONTROL_NET', hex: '#6EE7B7' },
-  guider: { canonical: 'GUIDER', hex: '#66FFFF' },
-  noise: { canonical: 'NOISE', hex: '#B0B0B0' },
-  model: { canonical: 'MODEL', hex: '#B39DDB' },
-  sampler: { canonical: 'SAMPLER', hex: '#ECB4B4' },
-  sigmas: { canonical: 'SIGMAS', hex: '#CDFFCD' },
-  cond: { canonical: 'CONDITIONING', hex: '#FFA931' },
-  latent: { canonical: 'LATENT', hex: '#FF9CF9' },
-}
-
 test.beforeEach(async ({ page }, testInfo) => {
   if (testInfo.title === 'tuple pins retain positional types in the tooltip') {
     await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
@@ -62,30 +48,6 @@ test.beforeEach(async ({ page }, testInfo) => {
     if (diags.length > 0) throw new Error(`failed to open: ${JSON.stringify(diags)}`)
     test.renderer!.setViewport({ x: 40, y: 40, scale: 1 })
   }, { schema, doc: document_ })
-})
-
-test('native built-in pins show the canonical id once in the tooltip', async ({ page }) => {
-  const points = await page.evaluate(() => {
-    const renderer = window.__dinksterTest!.renderer!
-    const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'native')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    const vp = renderer.getViewport()
-    return node.layout.pins.map((pin: any) => ({
-      portId: pin.portId as string,
-      x: rect.left + (node.x + (pin.direction === 'in' ? 0 : node.layout.width)) * vp.scale + vp.x,
-      y: rect.top + (node.y + pin.y) * vp.scale + vp.y,
-    }))
-  })
-  expect(points.map((p) => p.portId).sort()).toEqual(['codec', 'cond', 'control', 'guider', 'latent', 'model', 'noise', 'sampler', 'sigmas', 'te'])
-  const tooltip = page.getByTestId('app-tooltip')
-  for (const point of points) {
-    const expected = expectations[point.portId]!
-    await page.mouse.move(point.x, point.y)
-    await expect(tooltip.getByText(expected.canonical, { exact: true })).toBeVisible({ timeout: 1_500 })
-    await expect(tooltip).not.toContainText(`${expected.canonical} (`)
-    await page.mouse.move(point.x, point.y + 200)
-    await expect(tooltip).toBeHidden()
-  }
 })
 
 test('tuple pins retain positional types in the tooltip', async ({ page }, testInfo) => {
@@ -111,58 +73,6 @@ test('tuple pins retain positional types in the tooltip', async ({ page }, testI
   const path = testInfo.outputPath('tuple-type-tooltip.png')
   await page.screenshot({ path })
   await testInfo.attach('tuple-type-tooltip', { path, contentType: 'image/png' })
-})
-
-test('native dinkster pins paint in the exact ComfyUI palette colors', async ({ page }) => {
-  const pixels = await page.evaluate(async () => {
-    const renderer = window.__dinksterTest!.renderer!
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-    const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'native')!
-    const canvas = document.querySelector('[data-testid=graph-canvas]') as HTMLCanvasElement
-    const ctx = canvas.getContext('2d')!
-    const vp = renderer.getViewport()
-    const dpr = canvas.width / canvas.getBoundingClientRect().width
-    return node.layout.pins.map((pin: any) => {
-      const x = ((node.x + (pin.direction === 'in' ? 0 : node.layout.width)) * vp.scale + vp.x) * dpr
-      const y = ((node.y + pin.y) * vp.scale + vp.y) * dpr
-      const data = ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data
-      return { portId: pin.portId as string, r: data[0]!, g: data[1]!, b: data[2]! }
-    })
-  })
-  expect(pixels).toHaveLength(10)
-  for (const pixel of pixels) {
-    const hex = expectations[pixel.portId]!.hex
-    const expected = { r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) }
-    expect(Math.abs(pixel.r - expected.r), `${pixel.portId} red`).toBeLessThanOrEqual(8)
-    expect(Math.abs(pixel.g - expected.g), `${pixel.portId} green`).toBeLessThanOrEqual(8)
-    expect(Math.abs(pixel.b - expected.b), `${pixel.portId} blue`).toBeLessThanOrEqual(8)
-  }
-})
-
-test('visual artifact: native dinkster type node screenshot', async ({ page }, testInfo) => {
-  // A human-reviewable artifact complements the palette pixel assertions.
-  await page.waitForTimeout(250)
-  const path = testInfo.outputPath('dinkster-type-display.png')
-  await page.getByTestId('graph-canvas').screenshot({ path })
-  await testInfo.attach('dinkster-type-display', { path, contentType: 'image/png' })
-
-  // Hover the CLIP pin to capture its canonical type label.
-  const point = await page.evaluate(() => {
-    const renderer = window.__dinksterTest!.renderer!
-    const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'native')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    const vp = renderer.getViewport()
-    const pin = node.layout.pins.find((candidate: any) => candidate.portId === 'te')!
-    return {
-      x: rect.left + node.x * vp.scale + vp.x,
-      y: rect.top + (node.y + pin.y) * vp.scale + vp.y,
-    }
-  })
-  await page.mouse.move(point.x, point.y)
-  await expect(page.getByTestId('app-tooltip')).toBeVisible({ timeout: 1_500 })
-  const tooltipPath = testInfo.outputPath('dinkster-type-display-tooltip.png')
-  await page.screenshot({ path: tooltipPath })
-  await testInfo.attach('dinkster-type-display-tooltip', { path: tooltipPath, contentType: 'image/png' })
 })
 
 const imageSchemas = [

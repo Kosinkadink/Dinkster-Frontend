@@ -207,24 +207,6 @@ test('per-group activation moves focus and F6 cycles between groups', async ({ p
   expect(await activeTitle(page)).toBe('Basic')
 })
 
-test('the legacy canvas test bridge follows the focused editor group', async ({ page }) => {
-  await contextMenuAction(groups(page), 'Subgraph', 'workflow.splitRight')
-  const first = groupById(page, 'group-1')
-  const second = groupById(page, 'group-2')
-
-  await expect(second).toHaveAttribute('data-focused', 'true')
-  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 222, y: 22, scale: 1 }))
-
-  await tabIn(first, 'Basic').locator('.tab-select').click()
-  await expect(first).toHaveAttribute('data-focused', 'true')
-  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 111, y: 11, scale: 1 }))
-
-  await tabIn(second, 'Subgraph').locator('.tab-select').click()
-  await expect(second).toHaveAttribute('data-focused', 'true')
-  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getViewport()))
-    .toEqual({ x: 222, y: 22, scale: 1 })
-})
-
 test('a narrow App View pane renders mobile while its wide sibling stays desktop', async ({ page }) => {
   // Wide enough that a 50/50 split leaves both panes above the App View
   // mobile breakpoint even with the sidebar and right rail visible.

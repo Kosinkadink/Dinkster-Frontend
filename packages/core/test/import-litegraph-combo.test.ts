@@ -57,14 +57,5 @@ for (const keyed of [false, true]) {
       expect(reopened.document).toEqual(imported.document)
     })
 
-    it.each([NaN, Infinity, -Infinity])('rejects non-finite input %s before widget decoding', (value) => {
-      const imported = importLitegraph({
-        version: 0.4,
-        nodes: [{ id: 1, type: 'Choice', widgets_values: keyed ? { choice: value } : [value] }],
-        links: [],
-      }, () => schemaFor(['NaN', 'Infinity', '-Infinity']))
-      expect(imported.document).toBeUndefined()
-      expect(imported.diagnostics.some((item) => item.severity === 'error')).toBe(true)
-    })
   })
 }

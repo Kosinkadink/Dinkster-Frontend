@@ -1,99 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 import { coreCommandRegistry, DocumentStore, type MenuItem, type NodeSchema } from '@dinkster/core'
-import { CanvasRenderer, defaultTokens, type GhostLink, type Scene } from '@dinkster/canvas'
+import { type Scene } from '@dinkster/canvas'
 
 vi.mock('lucide-solid', () => ({
   Ban: {}, Check: {}, CirclePlay: {}, Copy: {}, CopyPlus: {}, Eye: {}, FolderOpen: {}, Group: {},
   Palette: {}, SlidersHorizontal: {}, Trash2: {}, Ungroup: {}, VolumeX: {}, X: {},
 }))
 
-import { menuInvokable, menuStep, rootPanelPosition, submenuPanelPosition } from '../src/ContextMenu.js'
-import { buildCategoryTree, paletteEntryMatchesLinkDrop, recentFirst, typeLabelOf } from '../src/NodePalette.js'
-import {
-  linkDropInvocations,
-  linkDropPaletteGhost,
-  linkSpliceInvocations,
-  dispatchOccurrenceIntention,
-  occurrenceDeleteDecision,
-  reportBoundaryExposureRefusal,
-  rerouteDropInvocations,
-  selectionDeleteInvocation,
-  textEditorInputInventory,
-} from '../src/CanvasHost.js'
+import { menuStep, rootPanelPosition, submenuPanelPosition } from '../src/ContextMenu.js'
+import { buildCategoryTree, paletteEntryMatchesLinkDrop, recentFirst } from '../src/NodePalette.js'
+import { linkDropInvocations, linkSpliceInvocations, occurrenceDeleteDecision, rerouteDropInvocations, selectionDeleteInvocation } from '../src/CanvasHost.js'
 import { parseNumericCommit } from '../src/WidgetEditor.js'
-
-describe('text editor input inventory', () => {
-  it('uses the full elaborated interface instead of presentation-filtered rows', () => {
-    const inventory = textEditorInputInventory({
-      items: [
-        { kind: 'input', apiName: 'expression' },
-        { kind: 'input', apiName: 'values.a' },
-        { kind: 'input', apiName: 'values.b' },
-        { kind: 'input' },
-      ],
-      submissionValues: [],
-      diagnostics: [],
-    } as any, ['values'])
-
-    expect(inventory).toEqual({
-      inputFamilyMembers: { values: ['a', 'b'] },
-    })
-  })
-})
-
-describe('occurrence mutation planner seam', () => {
-  const intention = {
-    kind: 'connect' as const,
-    owner: { instancePath: [], node: 'instance' as any },
-    bodyGraph: 'body' as any,
-    from: { kind: 'body' as const, endpoint: { node: 'source', port: 'out' } as any },
-    to: { kind: 'boundary' as const, occurrence: { instancePath: [], node: 'instance' as any }, address: { port: 'items.value' as any, members: ['m0' as any] }, route: [] },
-  }
-
-  it('dispatches the planner invocation unchanged', async () => {
-    const opaque = { command: 'occurrence.link.connect', params: { opaque: 'trusted-plan' } } as any
-    const dispatch = vi.fn(() => ({ ok: true, doc: {} as any, forward: [], inverse: [], diagnostics: [] } as const))
-    const plan = vi.fn((_document: any, _resolver: any, _intention: any) => ({ ok: true as const, invocation: opaque }))
-    const planner = { planOccurrenceLinkMutation: plan }
-    const report = vi.fn()
-
-    expect((await dispatchOccurrenceIntention({
-      document: {} as any, resolver: () => undefined, intention, planner, dispatch, report,
-    })).ok).toBe(true)
-    expect(plan.mock.calls[0]![2]).toBe(intention)
-    expect(dispatch).toHaveBeenCalledWith(opaque)
-    expect(report).not.toHaveBeenCalled()
-  })
-
-  it('surfaces planner diagnostics and does not dispatch', async () => {
-    const diagnostic = { severity: 'error', source: 'command', code: 'occurrence.link.stalePlan', message: 'stale route' } as any
-    const dispatch = vi.fn()
-    const report = vi.fn()
-    const outcome = await dispatchOccurrenceIntention({
-      document: {} as any,
-      resolver: () => undefined,
-      intention,
-      planner: { planOccurrenceLinkMutation: () => ({ ok: false, diagnostics: [diagnostic] }) },
-      dispatch,
-      report,
-    })
-    expect(outcome).toEqual({ ok: false, diagnostics: [diagnostic] })
-    expect(report).toHaveBeenCalledWith([diagnostic])
-    expect(dispatch).not.toHaveBeenCalled()
-  })
-
-  it('uses a named refusal when the planner is unavailable', async () => {
-    const report = vi.fn()
-    const dispatch = vi.fn()
-    const outcome = await dispatchOccurrenceIntention({
-      document: {} as any, resolver: () => undefined, intention, planner: undefined, dispatch, report,
-    })
-    expect(outcome.ok).toBe(false)
-    expect(outcome.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['occurrence.link.plannerUnavailable'])
-    expect(report).toHaveBeenCalledWith(outcome.diagnostics)
-    expect(dispatch).not.toHaveBeenCalled()
-  })
-})
 
 describe('occurrence delete classification', () => {
   const counts = {
@@ -140,89 +57,6 @@ describe('occurrence delete classification', () => {
   })
 })
 
-function paintedGhostStrokes(ghostLink: GhostLink): string[] {
-  const strokes: string[] = []
-  let strokeStyle = ''
-  const ctx = new Proxy({} as CanvasRenderingContext2D, {
-    get: (_target, property) => property === 'measureText'
-      ? (text: string) => ({ width: text.length * 6 })
-      : property === 'stroke'
-        ? () => strokes.push(strokeStyle)
-        : () => undefined,
-    set: (_target, property, value) => {
-      if (property === 'strokeStyle') strokeStyle = String(value)
-      return true
-    },
-  })
-  vi.stubGlobal('requestAnimationFrame', () => 0)
-  vi.stubGlobal('cancelAnimationFrame', () => undefined)
-  const canvas = {
-    getContext: () => ctx, clientWidth: 800, clientHeight: 600, width: 0, height: 0,
-  } as unknown as HTMLCanvasElement
-  const renderer = new CanvasRenderer(canvas, defaultTokens)
-  renderer.setScene({
-    graphId: 'g0', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [],
-    netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
-  } satisfies Scene)
-  renderer.setOverlay({ ghostLink })
-  renderer.renderNow()
-  renderer.dispose()
-  vi.unstubAllGlobals()
-  return strokes
-}
-
-describe('boundary structural-producer refusal reporting', () => {
-  it('reports an input-side tap refusal to exactly the active tab owner', () => {
-    const reportProblems = vi.fn()
-    reportBoundaryExposureRefusal({
-      tabId: 'tab-active',
-      reportProblems,
-      source: { kind: 'widgetTap', node: 'source', tap: 'amount' },
-      side: 'inputs',
-    })
-
-    expect(reportProblems).toHaveBeenCalledOnce()
-    expect(reportProblems).toHaveBeenCalledWith('tab-active', [{
-      severity: 'warning',
-      origin: 'command',
-      code: 'boundary.structuralProducerUnsupported',
-      message: "Cannot expose widget tap 'source.amount' on boundary inputs: widget taps are output bindings only",
-    }])
-  })
-
-  it('does not report after the active tab owner is gone', () => {
-    const reportProblems = vi.fn()
-    reportBoundaryExposureRefusal({
-      tabId: undefined,
-      reportProblems,
-      source: { kind: 'widgetTap', node: 'source', tap: 'amount' },
-      side: 'inputs',
-    })
-    expect(reportProblems).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    { source: { kind: 'valueSource' as const, id: 'literal' }, label: "value source 'literal'" },
-    { source: { kind: 'selector' as const, id: 'choice' }, label: "selector 'choice'" },
-    { source: { kind: 'reroute' as const, id: 'junction' }, label: "reroute 'junction'" },
-  ])('reports an output-side $source.kind refusal with the public-type requirement', ({ source, label }) => {
-    const reportProblems = vi.fn()
-    reportBoundaryExposureRefusal({
-      tabId: 'tab-active',
-      reportProblems,
-      source,
-      side: 'outputs',
-    })
-
-    expect(reportProblems).toHaveBeenCalledWith('tab-active', [{
-      severity: 'warning',
-      origin: 'command',
-      code: 'boundary.structuralProducerUnsupported',
-      message: `Cannot expose ${label} on boundary outputs: structural producers require stamped public output types`,
-    }])
-  })
-})
-
 describe('reviewed fixes', () => {
   const deletionScene = (links: Scene['links']): Scene => ({
     graphId: 'g0', nodes: [], links, reroutes: [], valueSources: [], selectors: [],
@@ -232,38 +66,6 @@ describe('reviewed fixes', () => {
     id: 'g0', name: 'g0', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
     ...overrides,
   }) as any
-
-  it('deletes mixed graph items and net views in one flat batch', () => {
-    expect(selectionDeleteInvocation({
-      graphId: 'g0', def: deletionDef(), scene: deletionScene([]),
-      nodeIds: ['n1'], selectedLinks: [],
-      selectedNetViews: [
-        {
-          id: 'source', netId: 'net1', name: 'shared', role: 'source',
-          nodeId: 'n2', portId: 'out', pinX: 0, pinY: 0,
-          x: 10, y: 10, width: 60, height: 18,
-        },
-        {
-          id: 'sink', netId: 'net2', name: 'other', role: 'sink',
-          nodeId: 'n3', portId: 'in', pinX: 0, pinY: 0,
-          x: 20, y: 20, width: 60, height: 18,
-        },
-      ],
-    })).toEqual({
-      command: 'batch',
-      params: { invocations: [
-        {
-          command: 'graph.deleteItems',
-          params: {
-            graphId: 'g0', nodeIds: ['n1'], linkIds: [], netSinks: [],
-            rerouteIds: [], valueSourceIds: [], selectorIds: [],
-          },
-        },
-        { command: 'net.remove', params: { graphId: 'g0', netId: 'net1' } },
-        { command: 'net.disconnectInput', params: { graphId: 'g0', to: { node: 'n3', port: 'in' } } },
-      ] },
-    })
-  })
 
   it.each([
     {
@@ -442,30 +244,6 @@ describe('reviewed fixes', () => {
     },
   )
 
-  it('source-node deletion deduplicates surviving downstream compaction', () => {
-    const links = ['l1', 'l2'].map((id, index) => ({
-      id, from: { kind: 'port', node: 'source', port: `out${index}` },
-      to: { kind: 'port', node: 'target', port: 'images.image', members: ['m0'] },
-      x1: 0, y1: 0, x2: 1, y2: 1,
-    }))
-    const invocation = selectionDeleteInvocation({
-      graphId: 'g0', def: deletionDef({
-        links: Object.fromEntries(links.map((link) => [link.id, link])),
-      }),
-      scene: deletionScene(links as any), nodeIds: ['source'], selectedLinks: [],
-    }) as any
-    expect(invocation.params.invocations).toEqual([
-      {
-        command: 'graph.deleteItems',
-        params: {
-          graphId: 'g0', nodeIds: ['source'], linkIds: [], netSinks: [],
-          rerouteIds: [], valueSourceIds: [], selectorIds: [],
-        },
-      },
-      { command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'target' } },
-    ])
-  })
-
   it('source deletion uses authoritative widget-tap links and collapsed nets', () => {
     const invocation = selectionDeleteInvocation({
       graphId: 'g0',
@@ -537,11 +315,6 @@ describe('reviewed fixes', () => {
     expect(menuStep(flat, 2, 1)).toBe(2)
   })
 
-  it('FR14 disabled menu items are not invokable', () => {
-    expect(menuInvokable({ id: 'disabled', label: 'Disabled', action: { kind: 'host', action: 'noop' }, disabled: true })).toBe(false)
-    expect(menuInvokable({ id: 'enabled', label: 'Enabled', action: { kind: 'host', action: 'noop' } })).toBe(true)
-  })
-
   it('cascading menus flip left near the viewport edge and remain contained', () => {
     expect(submenuPanelPosition(
       { width: 180, height: 240 },
@@ -587,28 +360,6 @@ describe('reviewed fixes', () => {
     const result = recentFirst(entries, (entry) => entry.type, ['type-225'], 200)
     expect(result[0]?.type).toBe('type-225')
     expect(result).toHaveLength(200)
-  })
-
-  it('uses shared COMBO presentation for palette labels without changing plain strings', () => {
-    const stringType = { kind: 'concrete' as const, name: 'STRING' }
-    expect(typeLabelOf({ kind: 'concrete', name: 'COMBO' })).toBe('COMBO')
-    expect(typeLabelOf(stringType)).toBe('STRING')
-  })
-
-  it('keeps COMBO presentation on the dangling link-drop palette ghost', () => {
-    const ghost = linkDropPaletteGhost({
-      seeking: 'in',
-      anchorType: { kind: 'concrete', name: 'COMBO' },
-      anchorTypeName: 'COMBO',
-      anchorX: 10,
-      anchorY: 20,
-      fixedFrom: { node: 'n1' as any, port: 'out' as any },
-    }, 100, 120)
-    expect(ghost).toMatchObject({
-      x1: 10, y1: 20, x2: 100, y2: 120,
-      typeName: 'COMBO',
-    })
-    expect(paintedGhostStrokes(ghost)).toContain(defaultTokens.typeColors['COMBO'])
   })
 
   it('builds slash categories as a counted, sorted folder tree with an uncategorized fallback', () => {

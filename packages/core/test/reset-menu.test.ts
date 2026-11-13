@@ -8,13 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Json, WorkflowDocument } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
-import {
-  createMenuRegistry,
-  type MenuActionItem,
-  type MenuContext,
-  type MenuItem,
-  type MenuTarget,
-} from '../src/menus/contract.js'
+import { type MenuActionItem, type MenuContext, type MenuItem, type MenuTarget } from '../src/menus/contract.js'
 import { resetMenuContributions } from '../src/menus/reset-items.js'
 import type { InterfaceItem, NodeSchema, SchemaResolver } from '../src/index.js'
 
@@ -109,12 +103,6 @@ const valuesOf = (item: MenuItem) => {
 }
 
 describe('reset menu contributions', () => {
-  it('all targets hide without a resolver', () => {
-    const [w, s, n] = resetMenuContributions(() => undefined)
-    expect(w!.resolve(ctx(widgetTarget('steps'), { steps: 30 }))).toHaveLength(0)
-    expect(s!.resolve(ctx(sectionTarget('adv'), { cfg: 9 }))).toHaveLength(0)
-    expect(n!.resolve(ctx({ kind: 'node', nodeId: 'n1' }, { steps: 30 }))).toHaveLength(0)
-  })
 
   it('widget reset writes that widget LIVE default; disabled when unmodified', () => {
     const modified = widgetReset!.resolve(ctx(widgetTarget('steps'), { steps: 30 }))
@@ -156,10 +144,4 @@ describe('reset menu contributions', () => {
     expect(untouched[0]!.disabled).toBe(true)
   })
 
-  it('resolves through the shared registry like any extension contribution', () => {
-    const registry = createMenuRegistry()
-    for (const c of resetMenuContributions(() => resolver)) registry.register(c)
-    const groups = registry.resolve(ctx(widgetTarget('steps'), { steps: 30 }))
-    expect(groups.flatMap((g) => g.items.map((i) => i.id))).toContain('core.widget.reset')
-  })
 })

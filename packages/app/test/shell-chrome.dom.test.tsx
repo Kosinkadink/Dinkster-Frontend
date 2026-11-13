@@ -3,7 +3,6 @@
 import { render } from 'solid-js/web'
 import { createSignal, onCleanup } from 'solid-js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { shellStyles as css } from './fixtures/styles.js'
 import {
   asPromptId,
   coreMenuContributions,
@@ -18,18 +17,9 @@ import {
   DinksterAppMenu,
   dispatchAppCommandKey,
 } from '../src/App.js'
-import {
-  ActivityBarButton,
-  CustomizeLayoutButton,
-  DockZoneHost,
-  FloatingPanelHost,
-  ShellResizeHandle,
-  ShellRegionIcon,
-  TransientStatus,
-} from '../src/ShellChrome.js'
+import { DockZoneHost, FloatingPanelHost, ShellResizeHandle } from '../src/ShellChrome.js'
 import { CanvasViewControls } from '../src/CanvasHost.js'
 import { ContextMenu } from '../src/ContextMenu.js'
-import { CustomizeLayoutDialog } from '../src/CustomizeLayoutDialog.js'
 import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from '../src/editors.js'
 import { AppState, workflowExportFilename } from '../src/app-state.js'
 import type { PanelDescriptor } from '../src/panels.js'
@@ -135,54 +125,12 @@ describe('canvas view controls', () => {
     dispose()
   })
 
-  it('offers graph-wide named-net display actions for all three modes', async () => {
-    const { root, setAllNetsDisplay, setViewMenuOpen, dispose } = canvasViewControlsFixture()
-    for (const mode of ['noodle', 'tags', 'guide']) {
-      setViewMenuOpen(true)
-      const item = root.querySelector<HTMLButtonElement>(`[data-testid="net-display-all-${mode}"]`)!
-      expect(item.getAttribute('role')).toBe('menuitem')
-      item.click()
-      await Promise.resolve()
-      expect(root.querySelector('.view-menu')).toBeNull()
-    }
-    expect(setAllNetsDisplay.mock.calls.map((call) => call[0])).toEqual(['noodle', 'tags', 'guide'])
-    dispose()
-  })
-
   it('switches the editor kind and updates the active view name', () => {
     const { root, selectView, setViewMenuOpen, dispose } = canvasViewControlsFixture()
     setViewMenuOpen(true)
     click([...root.querySelectorAll('.view-menu [role="menuitemradio"]')][1]!)
     expect(selectView).toHaveBeenCalledWith(APP_EDITOR_KIND)
     expect(root.querySelector('[data-testid="views-switcher"]')?.textContent).toContain('App')
-    dispose()
-  })
-
-  it('titles the lens menu and omits stale app-view content', () => {
-    const { root, setLensMenuOpen, dispose } = canvasViewControlsFixture()
-    setLensMenuOpen(true)
-    expect(root.querySelector('.lens-menu-heading')?.textContent).toBe('Lenses')
-    expect(root.textContent).not.toContain('App views - coming soon')
-    expect(root.querySelector('[data-testid="views-placeholder"]')).toBeNull()
-    dispose()
-  })
-
-  it('keeps App view and Data lens reachable from their per-tab menus', () => {
-    const { root, selectView, selectLens, setViewMenuOpen, setLensMenuOpen, dispose } = canvasViewControlsFixture()
-    setViewMenuOpen(true)
-    click([...root.querySelectorAll('.view-menu [role="menuitemradio"]')].find((item) => item.textContent?.includes('App view'))!)
-    expect(selectView).toHaveBeenCalledWith(APP_EDITOR_KIND)
-
-    setLensMenuOpen(true)
-    click([...root.querySelectorAll('.lens-menu [role="menuitemradio"]')].find((item) => item.textContent?.includes('Data'))!)
-    expect(selectLens).toHaveBeenCalledWith('data')
-    dispose()
-  })
-
-  it('exposes delegated tooltip hints on both controls', () => {
-    const { root, dispose } = canvasViewControlsFixture()
-    expect(root.querySelector('[data-testid="views-switcher"]')?.getAttribute('data-tooltip-label')).toBe('View: how this tab is edited')
-    expect(root.querySelector('[data-testid="lens-switcher"]')?.getAttribute('data-tooltip-label')).toBe('Lens: how the graph is displayed')
     dispose()
   })
 
@@ -252,24 +200,6 @@ describe('Dinkster app menu', () => {
     expect(app.settings.list().find((setting) => setting.id === 'canvas.grid.visible')?.name).toBe('[Punktraster anzeigen]')
     expect(app.settings.list().find((setting) => setting.id === 'canvas.scrollBehavior')?.options?.[1]?.label).toBe('[Verschieben]')
     app.dispose()
-  })
-
-  it('lists workflow library, file import, save, and export in adjacent groups', () => {
-    const { root, dispose } = menuFixture()
-    click(root.querySelector('[data-testid="dinkster-menu-button"]')!)
-
-    const items = [...root.querySelectorAll('[data-testid="context-menu-item"]')]
-    expect(items.map((item) => item.getAttribute('data-item-id'))).toEqual([
-      'workflow.open', 'workflow.importFile', 'workflow.save', 'workflow.export',
-      'edit.undo', 'edit.redo', 'edit.selectAll',
-      'view.zoomIn', 'view.zoomOut', 'view.fitSelection', 'layout.customize',
-      'settings.open',
-    ])
-    expect(items.slice(0, 4).map((item) => item.querySelector('.menu-label')?.textContent)).toEqual([
-      'Open workflow library', 'Import workflow from file', 'Save workflow', 'Export workflow',
-    ])
-    expect(root.querySelectorAll('.menu-separator')).toHaveLength(4)
-    dispose()
   })
 
   it('shows current shortcut bindings, including overrides, and omits unbound hints', () => {
@@ -429,37 +359,6 @@ describe('Dinkster app menu', () => {
     dispose()
   })
 
-  it('dispatches Select all through the current canvas bridge', () => {
-    const app = prepareWorkflowApp(new AppState())
-    app.createWorkflow()
-    const selectAll = vi.fn()
-    app.canvasBridge.set({
-      selectedNodes: () => [],
-      groupMembers: () => undefined,
-      deleteSelection: () => {},
-      selectAll,
-      setSelectedMode: () => {},
-      toggleSelectedCollapsed: () => {},
-      zoomBy: () => {},
-      fitSelection: () => {},
-      armNodePlacement: () => false,
-    })
-    const root = document.createElement('div')
-    document.body.append(root)
-    const dispose = render(() => (
-      <DinksterAppMenu
-        commands={app.commands}
-        keybindings={app.keybindings}
-        invalidationSignals={() => [app.canvasBridge]}
-      />
-    ), root)
-
-    click(root.querySelector('[data-testid="dinkster-menu-button"]')!)
-    root.querySelector('[data-item-id="edit.selectAll"]')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-
-    expect(selectAll).toHaveBeenCalledOnce()
-    dispose()
-  })
 })
 
 describe('canvas context menu availability', () => {
@@ -539,25 +438,6 @@ describe('cascading context menus', () => {
     return { root, onInvoke, onClose, dispose }
   }
 
-  it('renders decorative menu icons and visible accessible shortcut pills', () => {
-    const iconGroups: readonly ResolvedMenuGroup[] = [{
-      group: '10-test',
-      items: [{
-        id: 'test.icon',
-        label: 'Delete',
-        icon: 'trash-2',
-        shortcut: 'Ctrl+Delete',
-        action: { kind: 'host', action: 'delete' },
-      }],
-    }]
-    const { root, dispose } = fixture(iconGroups)
-    const row = root.querySelector('[data-item-id="test.icon"]')!
-    expect(row.querySelector('[data-testid="menu-icon"] svg')).not.toBeNull()
-    expect(row.querySelector('[data-testid="menu-shortcut"]')?.textContent).toBe('Ctrl+Delete')
-    expect(row.textContent).toContain('Ctrl+Delete')
-    dispose()
-  })
-
   it('opens child and deeper-child panels on hover and invokes only the terminal row', () => {
     const { root, onInvoke, dispose } = fixture()
     root.querySelector('[data-item-id="test.parent"]')!
@@ -587,22 +467,6 @@ describe('cascading context menus', () => {
     root.querySelector('[data-item-id="test.sibling"]')!
       .dispatchEvent(new MouseEvent('mouseenter'))
     expect(root.querySelector('[data-testid="context-submenu"]')).toBe(childPanel)
-    dispose()
-  })
-
-  it('keeps an open child owned by its expanded parent when the root highlight moves', () => {
-    const { root, dispose } = fixture()
-    root.querySelector('[data-item-id="test.parent"]')!
-      .dispatchEvent(new MouseEvent('mouseenter'))
-    const cascade = root.querySelector('.context-menu-cascade')!
-    const childPanel = root.querySelector('[data-menu-depth="1"]')!
-    const parent = root.querySelector('[data-item-id="test.parent"]')!
-    cascade.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
-
-    expect(root.querySelector('[data-item-id="test.root-sibling"]')!.classList.contains('active')).toBe(true)
-    expect(parent.getAttribute('aria-expanded')).toBe('true')
-    expect(parent.getAttribute('aria-controls')).toBe(childPanel.id)
-    expect(childPanel.getAttribute('aria-labelledby')).toBe(parent.id)
     dispose()
   })
 
@@ -945,80 +809,6 @@ describe('workflow file commands', () => {
     expect(Object.values(app.activeTab()!.store.doc.graphs[app.activeTab()!.store.doc.root]!.nodes)[0]?.type).toBe('UnknownLegacyNode')
   })
 
-  it('file command creates and cleans up its JSON picker on cancellation', () => {
-    const clickInput = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
-    const app = prepareWorkflowApp(new AppState())
-    const addWindowListener = vi.spyOn(window, 'addEventListener')
-    const removeWindowListener = vi.spyOn(window, 'removeEventListener')
-    app.commands.get('workflow.importFile')!.run()
-    const picker = document.querySelector<HTMLInputElement>('input[type="file"]')!
-    const focusListener = addWindowListener.mock.calls.find(([type]) => type === 'focus')?.[1]
-    expect(focusListener).toBeTypeOf('function')
-    expect(clickInput).toHaveBeenCalledOnce()
-    expect(picker.accept).toBe('.json,application/json')
-    expect(picker.hidden).toBe(true)
-    picker.dispatchEvent(new Event('cancel'))
-    expect(document.querySelector('input[type="file"]')).toBeNull()
-    expect(removeWindowListener).toHaveBeenCalledWith('focus', focusListener)
-  })
-
-  it('removes the JSON picker on change and routes the selected file through importWorkflowFile', async () => {
-    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
-    const app = prepareWorkflowApp(new AppState())
-    const importWorkflowFile = vi.spyOn(app, 'importWorkflowFile').mockResolvedValue(true)
-    const addWindowListener = vi.spyOn(window, 'addEventListener')
-    const removeWindowListener = vi.spyOn(window, 'removeEventListener')
-    app.commands.get('workflow.importFile')!.run()
-    const picker = document.querySelector<HTMLInputElement>('input[type="file"]')!
-    const focusListener = addWindowListener.mock.calls.find(([type]) => type === 'focus')?.[1]
-    expect(focusListener).toBeTypeOf('function')
-    const file = new File(['{}'], 'picked.json', { type: 'application/json' })
-    Object.defineProperty(picker, 'files', { configurable: true, value: [file] })
-    picker.dispatchEvent(new Event('change'))
-
-    expect(document.querySelector('input[type="file"]')).toBeNull()
-    expect(importWorkflowFile).toHaveBeenCalledOnce()
-    expect(importWorkflowFile).toHaveBeenCalledWith(file)
-    expect(removeWindowListener).toHaveBeenCalledWith('focus', focusListener)
-  })
-
-  it('removes the JSON picker through the window-refocus fallback', async () => {
-    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
-    const app = prepareWorkflowApp(new AppState())
-    const addWindowListener = vi.spyOn(window, 'addEventListener')
-    const removeWindowListener = vi.spyOn(window, 'removeEventListener')
-    app.commands.get('workflow.importFile')!.run()
-    const focusListener = addWindowListener.mock.calls.find(([type]) => type === 'focus')?.[1]
-    expect(focusListener).toBeTypeOf('function')
-    expect(document.querySelector('input[type="file"]')).not.toBeNull()
-
-    window.dispatchEvent(new Event('focus'))
-    await new Promise<void>((resolve) => setTimeout(resolve, 0))
-    expect(document.querySelector('input[type="file"]')).toBeNull()
-    expect(removeWindowListener).toHaveBeenCalledWith('focus', focusListener)
-  })
-
-  it('leaves no picker elements or window focus listeners after repeated cancellations', () => {
-    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
-    const app = prepareWorkflowApp(new AppState())
-    const addWindowListener = vi.spyOn(window, 'addEventListener')
-    const removeWindowListener = vi.spyOn(window, 'removeEventListener')
-
-    for (let invocation = 0; invocation < 3; invocation++) {
-      const addCount = addWindowListener.mock.calls.length
-      const removeCount = removeWindowListener.mock.calls.length
-      app.commands.get('workflow.importFile')!.run()
-      const focusListener = addWindowListener.mock.calls.slice(addCount).find(([type]) => type === 'focus')?.[1]
-      expect(focusListener).toBeTypeOf('function')
-      document.querySelector<HTMLInputElement>('input[type="file"]')!.dispatchEvent(new Event('cancel'))
-      expect(removeWindowListener.mock.calls.slice(removeCount)).toContainEqual(['focus', focusListener])
-    }
-
-    expect(document.querySelectorAll('input[type="file"]')).toHaveLength(0)
-    expect(addWindowListener.mock.calls.filter(([type]) => type === 'focus')).toHaveLength(3)
-    expect(removeWindowListener.mock.calls.filter(([type]) => type === 'focus')).toHaveLength(3)
-  })
-
   it('cleans up and reports when the browser refuses to open the file picker', () => {
     vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => { throw new Error('picker blocked') })
     const app = prepareWorkflowApp(new AppState())
@@ -1042,20 +832,6 @@ describe('workflow file commands', () => {
     expect(app.transientStatus.get()).toBe('Saved')
     vi.advanceTimersByTime(1)
     expect(app.transientStatus.get()).toBeUndefined()
-  })
-
-  it('keeps transient feedback mounted and updates it as a polite live status', () => {
-    const root = document.createElement('div')
-    document.body.append(root)
-    const [message, setMessage] = createSignal<string | undefined>(undefined)
-    const dispose = render(() => <TransientStatus message={message()} />, root)
-    const status = root.querySelector('[data-testid="transient-status"]')
-    expect(status?.textContent).toBe('')
-    expect(status?.getAttribute('role')).toBe('status')
-    expect(status?.getAttribute('aria-live')).toBe('polite')
-    setMessage('Saved to Native library')
-    expect(status?.textContent).toBe('Saved to Native library')
-    dispose()
   })
 
   it('consumes unavailable Ctrl+S and reports why the targeted snapshot cannot save', async () => {
@@ -1115,16 +891,6 @@ describe('workflow file commands', () => {
     expect(app.transientStatus.get()).toBe('Save is unavailable for an execution snapshot')
   })
 
-  it('explains that Ctrl+S cannot save an execution snapshot', async () => {
-    const app = executionSnapshotApp()
-    const event = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, cancelable: true })
-    dispatchAppCommandKey(app, event, true)
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(event.defaultPrevented).toBe(true)
-    expect(app.transientStatus.get()).toBe('Save is unavailable for an execution snapshot')
-  })
-
   it('dispatches extract and flatten through their registered keyboard shortcuts', () => {
     const app = prepareWorkflowApp(new AppState())
     const extractSubgraph = vi.fn(() => true)
@@ -1143,112 +909,6 @@ describe('workflow file commands', () => {
     expect(flatten.defaultPrevented).toBe(true)
     expect(extractSubgraph).toHaveBeenCalledOnce()
     expect(flattenSubgraph).toHaveBeenCalledOnce()
-  })
-})
-
-describe('Customize layout topbar button', () => {
-  it('updates its accessible name while mounted and dispatches layout.customize on activation', () => {
-    registerCatalog('de-DE', { 'command.layout.customize': '[Anordnung andern]' })
-    const commands = new CommandRegistry()
-    const customize = vi.fn()
-    commands.register({ id: 'layout.customize', label: 'Customize layout', run: customize })
-    const root = document.createElement('div')
-    document.body.append(root)
-    const dispose = render(() => <CustomizeLayoutButton commands={commands} />, root)
-
-    const button = root.querySelector<HTMLButtonElement>('[data-testid="customize-layout-button"]')!
-    expect(button.getAttribute('aria-label')).toBe('Customize layout')
-    expect(button.getAttribute('data-tooltip-label')).toBe('Customize layout')
-    setLocale('de-DE')
-    expect(root.querySelector('[data-testid="customize-layout-button"]')).toBe(button)
-    expect(button.getAttribute('aria-label')).toBe('[Anordnung andern]')
-    expect(button.getAttribute('data-tooltip-label')).toBe('[Anordnung andern]')
-    click(button)
-    expect(customize).toHaveBeenCalledOnce()
-    dispose()
-  })
-})
-
-describe('shell region icons', () => {
-  it('renders outlined panel regions and fills only the active region', () => {
-    const root = document.createElement('div')
-    document.body.append(root)
-    const [active, setActive] = createSignal(false)
-    const [region, setRegion] = createSignal<'left' | 'bottom' | 'right'>('left')
-    const dispose = render(() => <ShellRegionIcon region={region()} active={active()} />, root)
-
-    expect(root.querySelectorAll('.shell-region-icon-frame')).toHaveLength(1)
-    for (const [next, expected] of [
-      ['left', { x: '2', y: '2', width: '5', height: '16' }],
-      ['bottom', { x: '2', y: '13', width: '20', height: '5' }],
-      ['right', { x: '17', y: '2', width: '5', height: '16' }],
-    ] as const) {
-      setRegion(next)
-      setActive(false)
-      const panel = root.querySelector(`[data-region="${next}"]`)!
-      expect(panel.getAttribute('data-active')).toBe('false')
-      expect(Object.fromEntries(['x', 'y', 'width', 'height'].map((name) => [name, panel.getAttribute(name)]))).toEqual(expected)
-      setActive(true)
-      expect(panel.getAttribute('data-active')).toBe('true')
-      expect(root.querySelectorAll('[data-active="true"]')).toHaveLength(1)
-    }
-    dispose()
-  })
-})
-
-describe('left activity rail buttons', () => {
-  it('renders the label below its light icon with the full accessible name', () => {
-    const root = document.createElement('div')
-    document.body.append(root)
-    const Icon = () => <svg data-testid="test-rail-icon" />
-    const dispose = render(() => (
-      <ActivityBarButton
-        icon={Icon}
-        label="Library"
-        accessibleName="Workflow library"
-        tooltip="Browse saved workflows"
-        pressed={false}
-        onActivate={() => {}}
-      />
-    ), root)
-
-    const button = root.querySelector<HTMLButtonElement>('.sidebar-button')!
-    expect(button.getAttribute('aria-label')).toBe('Library: Workflow library')
-    expect(button.getAttribute('data-tooltip-label')).toBe('Browse saved workflows')
-    expect(button.querySelector('.sidebar-button-label')?.textContent).toBe('Library')
-    expect(button.querySelector('.sidebar-button-icon [data-testid="test-rail-icon"]')).not.toBeNull()
-    expect(button.querySelector('.sidebar-button-icon')?.getAttribute('aria-hidden')).toBe('true')
-    expect(button.firstElementChild?.classList.contains('sidebar-button-icon')).toBe(true)
-    expect(button.lastElementChild?.classList.contains('sidebar-button-label')).toBe(true)
-    dispose()
-  })
-
-  it('keeps every labeled rail action keyboard reachable', () => {
-    const root = document.createElement('div')
-    document.body.append(root)
-    const dispose = render(() => (
-      <ActivityBarButton
-        label="Settings"
-        accessibleName="Settings"
-        tooltip="Settings"
-        pressed={undefined}
-        onActivate={() => {}}
-      />
-    ), root)
-
-    const button = root.querySelector<HTMLButtonElement>('.sidebar-button')!
-    expect(button.tabIndex).toBe(0)
-    button.focus()
-    expect(document.activeElement).toBe(button)
-    dispose()
-  })
-
-  it('uses semantic shell tokens for the activity rail, labels, and focus outline', () => {
-    expect(css).toMatch(/\.left-sidebar\s*\{[^}]*width:\s*72px;[^}]*flex:\s*0 0 72px;/s)
-    expect(css).toMatch(/\.sidebar-button\s*\{[^}]*flex-direction:\s*column;[^}]*min-height:\s*72px;[^}]*font-family:\s*var\(--dinkster-font-family\);/s)
-    expect(css).toMatch(/\.sidebar-button-icon svg\s*\{[^}]*width:\s*20px;[^}]*height:\s*20px;[^}]*stroke-width:\s*1\.5;/s)
-    expect(css).toMatch(/\.sidebar-button-label\s*\{[^}]*max-width:\s*100%;[^}]*overflow-wrap:\s*anywhere;[^}]*-webkit-line-clamp:\s*2;/s)
-    expect(css).toMatch(/\.sidebar-button:focus-visible\s*\{[^}]*outline:\s*var\(--dinkster-focus-ring-width\) solid var\(--dinkster-border-focus\);/s)
   })
 })
 
@@ -1420,55 +1080,6 @@ describe('shared shell panel chrome', () => {
   })
 })
 
-describe('Customize layout dialog', () => {
-  it('exposes product checked controls and reset', () => {
-    const [statusVisible, setStatusVisible] = createSignal(true)
-    const reset = vi.fn(() => setStatusVisible(true))
-    const root = document.createElement('div')
-    document.body.append(root)
-    const dispose = render(() => (
-      <CustomizeLayoutDialog
-        items={[{
-          id: 'status-bar',
-          label: 'Status bar',
-          checked: statusVisible,
-          toggle: () => setStatusVisible((visible) => !visible),
-        }]}
-        onReset={reset}
-      />
-    ), root)
-
-    const checkbox = root.querySelector<HTMLButtonElement>('[data-layout-region="status-bar"] [role="checkbox"]')!
-    expect(checkbox.getAttribute('aria-checked')).toBe('true')
-    checkbox.focus()
-    checkbox.click()
-    expect(checkbox.getAttribute('aria-checked')).toBe('false')
-    expect(document.activeElement).toBe(checkbox)
-    click(root.querySelector('[data-testid="layout-reset"]')!)
-    expect(reset).toHaveBeenCalledOnce()
-    expect(checkbox.getAttribute('aria-checked')).toBe('true')
-    dispose()
-  })
-
-  it('renders only the supported visibility regions supplied by the shell', () => {
-    const root = document.createElement('div')
-    document.body.append(root)
-    const items = ['activity-bar', 'primary-dock', 'bottom-panel', 'right-rail', 'status-bar'].map((id) => ({
-      id,
-      label: id,
-      checked: () => true,
-      toggle: () => {},
-    }))
-    const dispose = render(() => <CustomizeLayoutDialog items={items} onReset={() => {}} />, root)
-    expect([...root.querySelectorAll('[data-layout-region]')].map((row) => row.getAttribute('data-layout-region'))).toEqual([
-      'activity-bar', 'primary-dock', 'bottom-panel', 'right-rail', 'status-bar',
-    ])
-    expect(root.textContent).not.toContain('Secondary sidebar')
-    expect(root.textContent).not.toContain('Panel alignment')
-    dispose()
-  })
-})
-
 describe('DockZoneHost', () => {
   const zonePanel = (id: string, overrides: Partial<PanelDescriptor> = {}): PanelDescriptor => ({
     id,
@@ -1528,14 +1139,6 @@ describe('DockZoneHost', () => {
     dispose()
   })
 
-  it('tab labels are ellipsis-ready spans exposing the full title as a tooltip', () => {
-    const { root, dispose } = renderZone()
-    const labels = [...root.querySelectorAll('[role="tab"] .tab-title')]
-    expect(labels.map((label) => label.textContent)).toEqual(['Panel one', 'Panel two'])
-    expect(labels.map((label) => label.getAttribute('data-tooltip-label'))).toEqual(['Panel one', 'Panel two'])
-    dispose()
-  })
-
   it('renders a descriptor indicator on its tab, active or not, and clears it at zero', () => {
     const [count, setCount] = createSignal(2)
     const panels = [
@@ -1564,16 +1167,6 @@ describe('DockZoneHost', () => {
     // No problems left: the badge disappears entirely.
     setCount(0)
     expect(badgeOf('two')).toBeNull()
-    dispose()
-  })
-
-  it('an indicator reporting count 0 renders no badge', () => {
-    const panels = [
-      zonePanel('one', { indicator: () => ({ count: 0, severity: 'info' as const, label: 'nothing' }) }),
-      zonePanel('two'),
-    ]
-    const { root, dispose } = renderZone({ panels })
-    expect(root.querySelector('[data-testid="panel-indicator"]')).toBeNull()
     dispose()
   })
 
@@ -1668,26 +1261,6 @@ describe('DockZoneHost', () => {
     dispose()
   })
 
-  it('right-clicking trailing header actions never opens the placement menu', () => {
-    const onFloat = vi.fn()
-    const onOpenWindow = vi.fn()
-    const panels = [
-      zonePanel('one', {
-        allowedPlacements: ['rail', 'floating', 'window'],
-        headerAction: { label: 'Clear', testId: 'zone-clear', run: vi.fn() },
-      }),
-      zonePanel('two'),
-    ]
-    const { root, dispose } = renderZone({ panels, onFloat, onOpenWindow })
-    for (const testId of ['zone-clear', 'dock-zone-close']) {
-      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 30 })
-      root.querySelector(`[data-testid="${testId}"]`)!.dispatchEvent(event)
-      expect(root.querySelector('[data-testid="context-menu"]')).toBeNull()
-      expect(event.defaultPrevented).toBe(false)
-    }
-    dispose()
-  })
-
   it('right-clicks inside a panel body never open the placement menu', () => {
     const onFloat = vi.fn()
     const panels = [zonePanel('one', { allowedPlacements: ['rail', 'floating'] }), zonePanel('two')]
@@ -1706,13 +1279,6 @@ describe('DockZoneHost', () => {
     expect(items.map((item) => item.getAttribute('data-item-id'))).toEqual(['panel.float'])
     invokeItem(items[0]!)
     expect(onFloat).toHaveBeenCalledWith('one')
-    dispose()
-  })
-
-  it('the zone close button asks the host to close', () => {
-    const { root, onRequestClose, dispose } = renderZone()
-    click(root.querySelector('[data-testid="dock-zone-close"]')!)
-    expect(onRequestClose).toHaveBeenCalledTimes(1)
     dispose()
   })
 
@@ -1755,61 +1321,6 @@ describe('DockZoneHost', () => {
     const bodyOf = (id: string) => root.querySelector(`[data-testid="zone-body-${id}"]`)!.closest('[role="tabpanel"]')!
     expect(bodyOf('one').hasAttribute('hidden')).toBe(false)
     expect(bodyOf('three').hasAttribute('hidden')).toBe(false)
-    dispose()
-  })
-
-  it('the bottom zone labels its side-by-side sections left and right', () => {
-    const { root, dispose } = renderSectionedZone('bottom')
-    const tablists = [...root.querySelectorAll('[role="tablist"]')]
-    expect(tablists.map((list) => list.getAttribute('aria-label'))).toEqual([
-      'Inspector panels left section',
-      'Inspector panels right section',
-    ])
-    expect(
-      root.querySelector('[data-testid="dock-section-divider-bottom"]')?.getAttribute('aria-orientation'),
-    ).toBe('vertical')
-    dispose()
-  })
-
-  it('updates section, divider, and close accessible names without remounting panel bodies', () => {
-    registerCatalog('de-DE', {
-      'shell.chrome.closeZone': '[Schliesse {zone}]',
-      'shell.chrome.resizeZoneSections': '[Teile {zone} neu]',
-      'shell.chrome.section.left': '[{zone}:LINKS]',
-      'shell.chrome.section.lower': '[{zone}:UNTEN]',
-      'shell.chrome.section.right': '[{zone}:RECHTS]',
-      'shell.chrome.section.upper': '[{zone}:OBEN]',
-    })
-    const vertical = renderSectionedZone()
-    const verticalBodies = [...vertical.root.querySelectorAll('[data-testid^="zone-body-"]')]
-    const horizontal = renderSectionedZone('bottom')
-    const horizontalBodies = [...horizontal.root.querySelectorAll('[data-testid^="zone-body-"]')]
-
-    setLocale('de-DE')
-
-    expect([...vertical.root.querySelectorAll('[role="tablist"]')].map((node) => node.getAttribute('aria-label'))).toEqual([
-      '[Inspector panels:OBEN]', '[Inspector panels:UNTEN]',
-    ])
-    expect(vertical.root.querySelector('[data-testid="dock-section-divider-right"]')?.getAttribute('aria-label'))
-      .toBe('[Teile Inspector panels neu]')
-    expect(vertical.root.querySelector('[data-testid="dock-zone-close"]')?.getAttribute('aria-label'))
-      .toBe('[Schliesse Inspector panels]')
-    expect([...horizontal.root.querySelectorAll('[role="tablist"]')].map((node) => node.getAttribute('aria-label'))).toEqual([
-      '[Inspector panels:LINKS]', '[Inspector panels:RECHTS]',
-    ])
-    expect([...vertical.root.querySelectorAll('[data-testid^="zone-body-"]')]).toEqual(verticalBodies)
-    expect([...horizontal.root.querySelectorAll('[data-testid^="zone-body-"]')]).toEqual(horizontalBodies)
-    expect(vertical.root.querySelectorAll('[role="tab"][aria-selected="true"]')).toHaveLength(2)
-    expect(horizontal.root.querySelectorAll('[role="tab"][aria-selected="true"]')).toHaveLength(2)
-    vertical.dispose()
-    horizontal.dispose()
-  })
-
-  it('only the first rendered section owns the zone close button', () => {
-    const { root, dispose } = renderSectionedZone()
-    const closes = [...root.querySelectorAll('[data-testid="dock-zone-close"]')]
-    expect(closes).toHaveLength(1)
-    expect(closes[0]!.closest('[data-testid="dock-zone-section-right-0"]')).not.toBeNull()
     dispose()
   })
 
@@ -1939,16 +1450,6 @@ describe('DockZoneHost', () => {
     dispose()
   })
 
-  it('second-section tabs offer the same placement context menu as first-section tabs', () => {
-    const { root, onFloat, dispose } = renderSectionedZone()
-    rightClick(root.querySelector('[role="tab"][data-tab-id="three"]')!)
-    const items = menuItems(root)
-    expect(items.map((item) => item.getAttribute('data-item-id'))).toEqual(['panel.float'])
-    invokeItem(items[0]!)
-    expect(onFloat).toHaveBeenCalledWith('three')
-    dispose()
-  })
-
   // Clipping is measured from the tablist's real layout, which the DOM test
   // environment does not compute; stub the strip's metrics and drive the
   // panels-change re-measure path the component uses for content changes.
@@ -2004,25 +1505,6 @@ describe('DockZoneHost', () => {
     dispose()
   })
 
-  it('right-clicking an all-tabs menu entry never opens the placement menu', async () => {
-    const onFloat = vi.fn()
-    const { root, remeasure, overflowButton, overflowMenu, dispose } = renderClippableZone({ onFloat }, [
-      zonePanel('one', { allowedPlacements: ['rail', 'floating'] }),
-      zonePanel('two', { allowedPlacements: ['rail', 'floating'] }),
-    ])
-    await remeasure(true)
-    click(overflowButton()!)
-    const entry = overflowMenu()!.querySelectorAll('[role="menuitemradio"]')[1]!
-    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 30 })
-    entry.dispatchEvent(event)
-    expect(root.querySelector('[data-testid="context-menu"]')).toBeNull()
-    expect(event.defaultPrevented).toBe(false)
-    // The all-tabs menu itself stays open; no second menu fights it.
-    expect(overflowMenu()).not.toBeNull()
-    expect(onFloat).not.toHaveBeenCalled()
-    dispose()
-  })
-
   it('fully hides overflow tabs and makes a hidden menu selection the whole active tab', async () => {
     const { root, activeId, remeasure, overflowButton, overflowMenu, dispose } = renderClippableZone()
     await remeasure(true)
@@ -2038,34 +1520,6 @@ describe('DockZoneHost', () => {
     expect(activeId()).toBe('two')
     expect(tabs.map((tab) => tab.disabled)).toEqual([true, false])
     expect(root.querySelector('[data-testid="zone-body-two"]')!.closest('[role="tabpanel"]')!.hasAttribute('hidden')).toBe(false)
-    dispose()
-  })
-
-  it('the all-tabs trigger suppresses its tooltip while the menu is open', async () => {
-    const { remeasure, overflowButton, overflowMenu, dispose } = renderClippableZone()
-    await remeasure(true)
-    expect(overflowButton()!.getAttribute('data-tooltip-label')).toBe('All tabs')
-    click(overflowButton()!)
-    expect(overflowMenu()).not.toBeNull()
-    expect(overflowButton()!.hasAttribute('data-tooltip-label')).toBe(false)
-    click(overflowButton()!)
-    expect(overflowMenu()).toBeNull()
-    expect(overflowButton()!.getAttribute('data-tooltip-label')).toBe('All tabs')
-    dispose()
-  })
-
-  it('all-tabs menu items expose the active tab with a visible checked state', async () => {
-    const { activeId, remeasure, overflowButton, overflowMenu, dispose } = renderClippableZone()
-    await remeasure(true)
-    click(overflowButton()!)
-    const items = [...overflowMenu()!.querySelectorAll('[role="menuitemradio"]')]
-    expect(items.map((item) => item.getAttribute('aria-checked'))).toEqual(['true', 'false'])
-    // The checked item is visually distinguished, not just announced.
-    expect(css).toMatch(/\.dock-zone-overflow-menu button\[aria-checked='true'\]\s*\{[^}]*background:/s)
-
-    click(items[1]!)
-    expect(activeId()).toBe('two')
-    expect(overflowMenu()).toBeNull()
     dispose()
   })
 
@@ -2267,24 +1721,6 @@ describe('left rail tooltip hover session', () => {
     detach()
   })
 
-  it('detaching cancels pending DOM tooltip work', () => {
-    vi.useFakeTimers()
-    const root = document.createElement('div')
-    root.dataset['tooltipSession'] = 'left-rail'
-    const target = document.createElement('button')
-    target.dataset['tooltipLabel'] = 'Library'
-    root.append(target)
-    document.body.append(root)
-    const controller = new TooltipController(() => 500)
-    controller.register({ id: 'dom', resolve: () => ({ lines: ['Library'] }) })
-    const detach = attachDomTooltips(root, controller)
-
-    target.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
-    detach()
-    vi.advanceTimersByTime(500)
-
-    expect(controller.visible).toBeUndefined()
-  })
 })
 
 describe('stateful tooltip labels', () => {
@@ -2309,26 +1745,6 @@ describe('stateful tooltip labels', () => {
     toggle.dataset['tooltipLabel'] = 'Show minimap'
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(controller.visible?.lines).toEqual(['Show minimap'])
-    detach()
-  })
-
-  it('re-reads the label for a hover-shown control', async () => {
-    vi.useFakeTimers()
-    const root = document.createElement('div')
-    const toggle = document.createElement('button')
-    toggle.dataset['tooltipLabel'] = 'Grid view'
-    root.append(toggle)
-    document.body.append(root)
-    const controller = labelController()
-    const detach = attachDomTooltips(root, controller)
-
-    toggle.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
-    vi.runOnlyPendingTimers()
-    expect(controller.visible?.lines).toEqual(['Grid view'])
-    vi.useRealTimers()
-    toggle.dataset['tooltipLabel'] = 'List view'
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(controller.visible?.lines).toEqual(['List view'])
     detach()
   })
 

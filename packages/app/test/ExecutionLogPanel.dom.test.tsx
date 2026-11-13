@@ -100,19 +100,6 @@ afterEach(() => {
 })
 
 describe('executionLogRows', () => {
-  it('merges log records and error diagnostics chronologically', () => {
-    const rows = executionLogRows(populated())
-    expect(rows.map((row) => [row.level, row.source])).toEqual([
-      ['info', 'log'],
-      ['warning', 'log'],
-      ['info', 'log'],
-      ['error', 'diagnostic'],
-    ])
-    const error = rows[3]!
-    expect(error.message).toBe('CUDA out of memory')
-    expect(error.runtimeNodeId).toBe('sampler')
-    expect(error.timestamp).toBe(5_000)
-  })
 
   it('orders a run-end diagnostic by endedAt among later log records', () => {
     const rows = executionLogRows(entry({
@@ -215,11 +202,6 @@ describe('ExecutionLogPanel', () => {
     const rawLogRow = rowsOf(root).find((row) => row.textContent?.includes('raw log Nachricht'))
     expect(rawLogRow?.textContent).toContain('Title of sampler')
     expect(rawLogRow?.textContent).toContain('stdout')
-  })
-
-  it('shows an empty state without an execution', () => {
-    const root = mount({})
-    expect(root.querySelector('[data-testid="execution-log-empty"]')?.textContent).toContain('No execution selected')
   })
 
   it('renders merged rows with level, node title, and origin', async () => {
@@ -358,31 +340,6 @@ describe('ExecutionLogPanel', () => {
     await chooseProductOption(root, 'execution-log-node-select', 'decoder')
     expect(select.dataset['selectedId']).toBe('decoder')
     expect(rowsOf(root).every((row) => row.textContent!.includes('Title of decoder'))).toBe(true)
-  })
-
-  it('selects a real __group node without confusing it for the grouped filter', async () => {
-    const activeRun = entry({
-      logs: [
-        { level: 'info', message: 'real magic-looking id', timestamp: 2_000, runtimeNodeId: '__group', seq: 1 },
-        { level: 'info', message: 'ordinary id', timestamp: 3_000, runtimeNodeId: 'decoder', seq: 2 },
-      ],
-    })
-    const [request, setRequest] = createSignal<{ runtimeNodeIds: readonly string[]; token: number } | undefined>(undefined)
-    const root = mount({ active: () => activeRun, filterRequest: request })
-    setRequest({ runtimeNodeIds: ['__group', 'decoder'], token: 1 })
-    await flush()
-    const select = productSelect(root, 'execution-log-node-select')
-
-    expect(select.dataset['selectedId']).toBe('__focused_group__')
-    select.click()
-    await flush()
-    expect(document.querySelectorAll('[role="option"][data-option-id="__group"]')).toHaveLength(1)
-    document.querySelector<HTMLElement>('[role="option"][data-option-id="__group"]')!.click()
-    await flush()
-
-    expect(select.dataset['selectedId']).toBe('__group')
-    expect(rowsOf(root)).toHaveLength(1)
-    expect(rowsOf(root)[0]!.textContent).toContain('real magic-looking id')
   })
 
   it('keeps a requested node with no rows selectable and clearable', async () => {

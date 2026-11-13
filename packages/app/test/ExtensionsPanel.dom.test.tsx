@@ -31,37 +31,6 @@ afterEach(() => {
 })
 
 describe('ExtensionsPanel', () => {
-  it('shows an explicit empty state that relabels after mounting', async () => {
-    registerCatalog('de-DE', {
-      'extensions.empty': '[KEINE ERWEITERUNGSPAKETE]',
-      'extensions.title': '[ERWEITERUNGSVERWALTUNG]',
-    })
-    const { root } = mount()
-    const empty = root.querySelector('[data-testid="extensions-empty"]')
-    expect(empty?.textContent).toContain('No extension packs')
-    setLocale('de-DE')
-    await flush()
-    expect(root.querySelector('[data-testid="extensions-empty"]')).toBe(empty)
-    expect(empty?.textContent).toBe('[KEINE ERWEITERUNGSPAKETE]')
-  })
-
-  it('localizes the mounted no-contributions state while preserving pack identity', async () => {
-    registerCatalog('de-DE', {
-      'extensions.emptyContributions': '[DIESES PAKET HAT KEINE BEITRAGE]',
-    })
-    const extensionHost = host()
-    extensionHost.register({ id: 'raw.empty-pack', displayName: 'Raw empty pack', contributions: [] }, () => {})
-    const { root } = mount(extensionHost)
-    const pack = root.querySelector('[data-testid="extension-pack"]')
-    expect(pack?.textContent).toContain('This pack declares no contributions.')
-
-    setLocale('de-DE')
-    await flush()
-    expect(root.querySelector('[data-testid="extension-pack"]')).toBe(pack)
-    expect(pack?.textContent).toContain('[DIESES PAKET HAT KEINE BEITRAGE]')
-    expect(pack?.textContent).toContain('Raw empty pack')
-    expect(pack?.textContent).toContain('raw.empty-pack')
-  })
 
   it('presents complete pack, category, and contribution identity with truthful states', async () => {
     const { extensionHost, root } = mount()

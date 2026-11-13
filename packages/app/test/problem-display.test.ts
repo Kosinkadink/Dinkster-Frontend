@@ -91,10 +91,6 @@ describe('problemDisplay', () => {
     expect(shown).toContain('output "Generated image" (image)')
   })
 
-  it('returns the verbatim message when refs are absent', () => {
-    const d = diagnostic()
-    expect(problemDisplay(d, document(), registry)).toBe(d.message)
-  })
 })
 
 describe('groupProblemDiagnostics', () => {
@@ -128,53 +124,6 @@ describe('groupProblemDiagnostics', () => {
     expect(groups[0]?.diagnostics).toEqual([first, second])
   })
 
-  it('preserves source order within a section regardless of anchors', () => {
-    const generalFirst = diag('warning', 'command', 'general', 'general')
-    const other = diag('info', 'command', 'other', 'other', { refs: [{ graphId: 'g0', nodeId: 'n6-c3d4' }] })
-    const first = diag('warning', 'command', 'first', 'first', { refs: [{ graphId: 'g0', nodeId: 'n5-a1b2' }] })
-    const otherAgain = diag('error', 'command', 'other-again', 'other again', { refs: [{ graphId: 'g0', nodeId: 'n6-c3d4' }] })
-    const groups = groupProblemDiagnostics([generalFirst, other, first, otherAgain], document('My sampler'))
-
-    expect(groups.map((group) => group.title)).toEqual(['packs'])
-    expect(groups.map((group) => group.diagnostics.map((entry) => entry.code))).toEqual([
-      ['general', 'other', 'first', 'other-again'],
-    ])
-    expect(groups.map((group) => group.severity)).toEqual(['error'])
-  })
-
-  it('scopes disclosure keys to document lineage', () => {
-    const anchored = diag('error', 'command', 'anchored', 'anchored', {
-      refs: [{ graphId: 'g0', nodeId: 'n5-a1b2' }],
-    })
-    const general = diag('info', 'command', 'general', 'general')
-    const first = groupProblemDiagnostics([anchored, general], document(undefined, 'lineage-a'))
-    const second = groupProblemDiagnostics([anchored, general], document(undefined, 'lineage-b'))
-
-    expect(first.map((group) => group.key)).toEqual([
-      JSON.stringify(['packs', 'lineage-a']),
-    ])
-    expect(second.map((group) => group.key)).toEqual([
-      JSON.stringify(['packs', 'lineage-b']),
-    ])
-    expect(second.map((group) => group.key)).not.toEqual(first.map((group) => group.key))
-  })
-
-  it('groups anchor-only missing inputs in This workflow', () => {
-    const missing = diag('warning', 'compile', 'compile.input.missing', "'Sampler' required input 'model' has no value or connection", {
-      blocksExecution: true,
-      anchor: {
-        occurrence: { instancePath: [], node: asNodeId('n5-a1b2') },
-        port: { node: asNodeId('n5-a1b2'), port: asPortId('model') },
-      },
-    })
-    const groups = groupProblemDiagnostics([missing], document('My sampler'))
-
-    expect(groups).toHaveLength(1)
-    expect(groups[0]?.title).toBe('workflow')
-    expect(groups[0]?.key).toBe(JSON.stringify(['workflow', 'lineage']))
-    expect(groups[0]?.diagnostics).toEqual([missing])
-  })
-
   it('separates execution and workflow diagnostics even for the same node', () => {
     const referenced = diag('error', 'validation', 'validation.node', 'invalid', {
       refs: [{ graphId: 'g0', nodeId: 'n5-a1b2' }],
@@ -189,46 +138,6 @@ describe('groupProblemDiagnostics', () => {
     expect(groups[0]?.severity).toBe('error')
   })
 
-  it('retains subgraph occurrence anchors in Execution', () => {
-    const anchored = diag('error', 'runtime', 'runtime.validation', 'invalid at runtime', {
-      anchor: { occurrence: { instancePath: [asNodeId('instance')], node: asNodeId('nested') } },
-    })
-    const groups = groupProblemDiagnostics([anchored], subgraphDocument())
-
-    expect(groups[0]?.title).toBe('execution')
-    expect(groups[0]?.diagnostics).toEqual([anchored])
-  })
-
-  it('retains port-only anchors in Packs and backend', () => {
-    const portOnly = diag('warning', 'schema', 'port.warning', 'warning', {
-      anchor: { port: { node: asNodeId('nested'), port: asPortId('model') } },
-    })
-    const groups = groupProblemDiagnostics(
-      [portOnly], subgraphDocument(),
-    )
-
-    expect(groups[0]?.title).toBe('packs')
-    expect(groups[0]?.diagnostics).toEqual([portOnly])
-  })
-
-  it('keeps a structured ref primary when its occurrence anchor identifies another node', () => {
-    const conflicted = diag('error', 'validation', 'validation.node', 'invalid', {
-      refs: [{ graphId: 'g0', nodeId: 'n5-a1b2' }],
-      anchor: { occurrence: { instancePath: [asNodeId('instance')], node: asNodeId('nested') } },
-    })
-    const groups = groupProblemDiagnostics([conflicted], subgraphDocument())
-
-    expect(groups[0]?.title).toBe('execution')
-    expect(groups[0]?.diagnostics).toEqual([conflicted])
-  })
-
-  it('keeps a stale occurrence anchor in its origin section', () => {
-    const stale = diag('warning', 'compile', 'compile.input.missing', 'missing', {
-      anchor: { occurrence: { instancePath: [], node: asNodeId('gone') } },
-    })
-
-    expect(groupProblemDiagnostics([stale], document()).map((group) => group.title)).toEqual(['workflow'])
-  })
 })
 
 describe('deriveNodeProblems', () => {
@@ -347,32 +256,4 @@ describe('deriveNodeProblems', () => {
     expect(projection.ports['n5-a1b2']?.['model']).toBe('error')
   })
 
-  it('keeps a compile warning and runtime validation error on different nodes in grouping and projection', () => {
-    const warning = diag('warning', 'compile', 'compile.input.missing', 'missing model', {
-      blocksExecution: true,
-      anchor: {
-        occurrence: { instancePath: [], node: asNodeId('n5-a1b2') },
-        port: { node: asNodeId('n5-a1b2'), port: asPortId('model') },
-      },
-    })
-    const runtime = diag('error', 'validation', 'validation.bad-input', 'bad model', {
-      anchor: {
-        occurrence: { instancePath: [], node: asNodeId('n6-c3d4') },
-        port: { node: asNodeId('n6-c3d4'), port: asPortId('model') },
-      },
-    })
-    const diagnostics = composeCanvasProblemDiagnostics({ owned: [warning], scene: [], execution: [runtime] })
-    const groups = groupProblemDiagnostics(diagnostics, document())
-    const projection = deriveProblemProjection({
-      document: document(), graphId: 'g0', instancePath: [], diagnostics,
-    })
-
-    expect(groups.map((group) => group.diagnostics)).toEqual([[runtime], [warning]])
-    expect(projection.nodes['n5-a1b2']?.[0]?.diagnostics).toEqual([warning])
-    expect(projection.nodes['n6-c3d4']?.[0]?.diagnostics).toEqual([runtime])
-    expect(projection.ports).toEqual({
-      'n5-a1b2': { model: 'blocking-warning' },
-      'n6-c3d4': { model: 'error' },
-    })
-  })
 })

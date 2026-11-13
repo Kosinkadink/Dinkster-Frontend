@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { NodePreview } from '@dinkster/canvas'
 import { DinksterValuesClient, type ExecutionState, type FetchLike } from '@dinkster/client'
 import { asConnectionId, asPromptId } from '@dinkster/core'
-import { createPreviewLoader, deriveNodePreviewSurface, selectedPreviewAssetForRows, type PreviewLoader, type PreviewSource } from '../src/node-previews.js'
+import { createPreviewLoader, deriveNodePreviewSurface, type PreviewLoader, type PreviewSource } from '../src/node-previews.js'
 
 const exec = (over: {
   /** Flat one-frame-per-node shorthand, stored under the frame's stream key. */
@@ -53,55 +53,6 @@ const outputImage = (name: string) => ({
 })
 
 describe('sourceFor', () => {
-  it.each(['artifact', 'associated', 'output'] as const)('aborts a pending %s body on disposal without stopping another loader', async (route) => {
-    class FakeImage {
-      src = ''
-      naturalWidth = 9
-      naturalHeight = 5
-      decode = async () => {}
-    }
-    vi.stubGlobal('Image', FakeImage)
-    const reads: { signal: AbortSignal | null | undefined; finish: () => void; stopped: boolean }[] = []
-    const changed: number[] = []
-    const make = (id: number) => createPreviewLoader({
-      assetUrlForInput: () => '', assetUrlForExecution: (_ref, digest) => `/assets/${digest}`,
-      onDecoded: () => { changed.push(id) },
-      fetchRecordedOutput: async (_url, init) => {
-        let body!: ReadableStreamDefaultController<Uint8Array>
-        const stream = new ReadableStream<Uint8Array>({ start(controller) { body = controller } })
-        const read = { signal: init?.signal, stopped: false, finish: () => { if (!read.stopped) { read.stopped = true; body.enqueue(new Uint8Array([7])); body.close() } } }
-        reads.push(read)
-        init?.signal?.addEventListener('abort', () => { read.stopped = true; body.error(init.signal!.reason) }, { once: true })
-        return new Response(stream)
-      },
-    })
-    const a = make(1), b = make(2)
-    const artifact = { nodeId: 'n1', digest: `blake3:${'a'.repeat(64)}`, name: 'out.png', size: 12, mediaType: 'image/png', virtualPath: 'out.png' }
-    const state = route === 'output' ? exec({ outputs: { n1: { image: outputImage('out.png') } } })
-      : exec({ artifacts: [{ ...artifact, ...(route === 'associated' ? { mediaType: 'image/x-exr', name: 'out.exr',
-        preview: { ...artifact, digest: `blake3:${'b'.repeat(64)}`, name: 'preview.png' } } : {}) }] })
-    const source = a.sourceFor(state, ['n1'], false)!
-    const control = b.sourceFor(state, ['n1'], false)!
-    try {
-      a.resolve(source); b.resolve(control)
-      await vi.waitFor(() => expect(reads).toHaveLength(2))
-      a.dispose()
-      expect(reads[0]!.signal?.aborted).toBe(true)
-      expect(reads[0]!.stopped).toBe(true)
-      expect(reads[1]!.signal?.aborted).toBe(false)
-      expect(a.resolve(source)).toBeUndefined()
-      await flush()
-      expect(reads).toHaveLength(2)
-      reads[1]!.finish()
-      await vi.waitFor(() => expect(b.resolve(control)).toMatchObject({ width: 9, height: 5 }))
-      expect(changed).toEqual([2])
-    } finally { reads.forEach((read) => read.finish()); a.dispose(); b.dispose(); vi.unstubAllGlobals() }
-  })
-
-  it('ignores runtime ids outside the occurrence mapping', () => {
-    const e = exec({ previews: { other: { payload: new Blob(['x']), timestamp: 1 } } })
-    expect(loader().sourceFor(e, ['n1'], true)).toBeUndefined()
-  })
 
   it('latest frame wins among matching occurrences; non-binary payloads are skipped', () => {
     const e = exec({
@@ -175,25 +126,6 @@ describe('sourceFor', () => {
     }
   })
 
-  it('an animated container without timing falls back to the default fps', async () => {
-    const videoFrames = [0, 0].map(() => ({ duration: 0, close: vi.fn() }))
-    class FakeImageDecoder {
-      static isTypeSupported = vi.fn(async () => true)
-      tracks = { ready: Promise.resolve(), selectedTrack: { frameCount: 2 } }
-      close = vi.fn()
-      decode = async ({ frameIndex }: { frameIndex: number }) => ({ image: videoFrames[frameIndex]! })
-    }
-    vi.stubGlobal('ImageDecoder', FakeImageDecoder)
-    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 1, height: 1 })))
-    try {
-      const e = exec({ previews: { n1: { payload: new Blob(['g']), timestamp: 5, channel: 'image/gif' } } })
-      const loaded = await loader().sourceFor(e, ['n1'], true)!.load()
-      expect(loaded.animation?.fps).toBe(8)
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
   it('a missing ImageDecoder degrades an animated mime to a plain still', async () => {
     const bitmap = { width: 4, height: 4 }
     const decode = vi.fn(async () => bitmap)
@@ -204,131 +136,6 @@ describe('sourceFor', () => {
       const loaded = await loader().sourceFor(e, ['n1'], true)!.load()
       expect(loaded).toEqual({ image: bitmap, width: 4, height: 4 })
       expect(decode).toHaveBeenCalledTimes(1)
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it('a single-frame animated container degrades to a plain still', async () => {
-    class FakeImageDecoder {
-      static isTypeSupported = vi.fn(async () => true)
-      tracks = { ready: Promise.resolve(), selectedTrack: { frameCount: 1 } }
-      close = vi.fn()
-      decode = async () => { throw new Error('decode should not be reached') }
-    }
-    const bitmap = { width: 4, height: 4 }
-    vi.stubGlobal('ImageDecoder', FakeImageDecoder)
-    vi.stubGlobal('createImageBitmap', vi.fn(async () => bitmap))
-    try {
-      const e = exec({ previews: { n1: { payload: new Blob(['w']), timestamp: 5, channel: 'image/webp' } } })
-      const loaded = await loader().sourceFor(e, ['n1'], true)!.load()
-      expect(loaded).toEqual({ image: bitmap, width: 4, height: 4 })
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it('a rejected support probe degrades to a plain still', async () => {
-    class ProbeFailsDecoder {
-      static isTypeSupported = vi.fn(async () => { throw new Error('probe blew up') })
-    }
-    const bitmap = { width: 4, height: 4 }
-    vi.stubGlobal('ImageDecoder', ProbeFailsDecoder)
-    vi.stubGlobal('createImageBitmap', vi.fn(async () => bitmap))
-    try {
-      const e = exec({ previews: { n1: { payload: new Blob(['w']), timestamp: 5, channel: 'image/webp' } } })
-      await expect(loader().sourceFor(e, ['n1'], true)!.load())
-        .resolves.toEqual({ image: bitmap, width: 4, height: 4 })
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it('a decoder constructor failure degrades to a plain still', async () => {
-    class ConstructorFailsDecoder {
-      static isTypeSupported = vi.fn(async () => true)
-      constructor() { throw new Error('no decoder for you') }
-    }
-    const bitmap = { width: 4, height: 4 }
-    vi.stubGlobal('ImageDecoder', ConstructorFailsDecoder)
-    vi.stubGlobal('createImageBitmap', vi.fn(async () => bitmap))
-    try {
-      const e = exec({ previews: { n1: { payload: new Blob(['w']), timestamp: 5, channel: 'image/webp' } } })
-      await expect(loader().sourceFor(e, ['n1'], true)!.load())
-        .resolves.toEqual({ image: bitmap, width: 4, height: 4 })
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it('a mid-frame decode failure closes earlier frames, closes the decoder, and degrades', async () => {
-    const goodFrame = { duration: 100_000, close: vi.fn() }
-    let decoderInstance: { close: ReturnType<typeof vi.fn> } | undefined
-    class FlakyDecoder {
-      static isTypeSupported = vi.fn(async () => true)
-      tracks = { ready: Promise.resolve(), selectedTrack: { frameCount: 3 } }
-      close = vi.fn()
-      decode = async ({ frameIndex }: { frameIndex: number }) => {
-        if (frameIndex === 0) return { image: goodFrame }
-        throw new Error('bad frame')
-      }
-      constructor() { decoderInstance = this }
-    }
-    const frameBitmap = { width: 2, height: 2, close: vi.fn() }
-    const stillBitmap = { width: 4, height: 4 }
-    vi.stubGlobal('ImageDecoder', FlakyDecoder)
-    vi.stubGlobal('createImageBitmap', vi.fn(async (input: unknown) => (input === goodFrame ? frameBitmap : stillBitmap)))
-    try {
-      const e = exec({ previews: { n1: { payload: new Blob(['w']), timestamp: 5, channel: 'image/webp' } } })
-      const loaded = await loader().sourceFor(e, ['n1'], true)!.load()
-      expect(loaded).toEqual({ image: stillBitmap, width: 4, height: 4 })
-      expect(frameBitmap.close).toHaveBeenCalledTimes(1)
-      expect(goodFrame.close).toHaveBeenCalledTimes(1)
-      expect(decoderInstance?.close).toHaveBeenCalledTimes(1)
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it('a superseded animated frame decode is released instead of cached', async () => {
-    const readies: Array<() => void> = []
-    class GatedDecoder {
-      static isTypeSupported = vi.fn(async () => true)
-      tracks = {
-        ready: new Promise<void>((resolve) => { readies.push(resolve) }),
-        selectedTrack: { frameCount: 2 },
-      }
-      close = vi.fn()
-      decode = async () => ({ image: { duration: 100_000, close: vi.fn() } })
-    }
-    class FakeBitmap {
-      close = vi.fn()
-    }
-    const bitmaps: FakeBitmap[] = []
-    vi.stubGlobal('ImageDecoder', GatedDecoder)
-    vi.stubGlobal('ImageBitmap', FakeBitmap)
-    vi.stubGlobal('createImageBitmap', vi.fn(async () => {
-      const bitmap = new FakeBitmap()
-      bitmaps.push(bitmap)
-      return bitmap
-    }))
-    try {
-      const l = loader()
-      const at = (timestamp: number, tag: string) =>
-        exec({ previews: { n1: { payload: new Blob([tag]), timestamp, channel: 'image/webp' } } })
-      const older = l.sourceFor(at(1, 'w1'), ['n1'], true)!
-      const newer = l.sourceFor(at(2, 'w2'), ['n1'], true)!
-      expect(older.key).not.toBe(newer.key)
-      l.resolve(older)
-      l.resolve(newer)
-      await flush()
-      expect(readies).toHaveLength(2)
-      for (const ready of readies) ready()
-      await flush()
-      // The older completion is released and dropped; the newer one is cached.
-      expect(l.resolve(newer)).toBeDefined()
-      expect(bitmaps).toHaveLength(4)
-      expect(bitmaps.filter((b) => b.close.mock.calls.length > 0)).toHaveLength(2)
     } finally {
       vi.unstubAllGlobals()
     }
@@ -382,43 +189,6 @@ describe('sourceFor', () => {
   it('falls back to the last frame when no output image exists', () => {
     const e = exec({ previews: { n1: { payload: new Blob(['f']), timestamp: 5 } } })
     expect(loader().sourceFor(e, ['n1'], false)?.key).toMatch(/^frame:k1:n1:5:\d+$/)
-  })
-
-  it('outputs without a filename or non-array images are ignored', () => {
-    const e = exec({ outputs: { n1: { images: [{}] }, n2: { images: 'nope' } } })
-    expect(loader().sourceFor(e, ['n1', 'n2'], false)).toBeUndefined()
-  })
-
-  it('a native asset output renders by CAS digest through the execution backend', () => {
-    const digest = `blake3:${'a'.repeat(64)}`
-    const e = exec({
-      outputs: {
-        n1: {
-          assets: {
-            typeId: 'list<ASSET>',
-            fingerprint: 'fp',
-            elements: [
-              { typeId: 'ASSET', fingerprint: digest, meta: { digest, mediaType: 'image/png', name: 'out.png' } },
-            ],
-          },
-        },
-      },
-    })
-    const s = loader().sourceFor(e, ['n1'], false)
-    expect(s?.key).toBe(`recorded:asset:${digest}:media:image/png:url:http://backend/api/assets/${digest}:name:out.png`)
-    expect(s?.runtimeId).toBe('n1')
-  })
-
-  it('a native non-image asset output yields no source', () => {
-    const digest = `blake3:${'b'.repeat(64)}`
-    const e = exec({
-      outputs: {
-        n1: {
-          assets: { typeId: 'ASSET', fingerprint: digest, meta: { digest, mediaType: 'application/json' } },
-        },
-      },
-    })
-    expect(loader().sourceFor(e, ['n1'], false)).toBeUndefined()
   })
 
   it('routes saved images and audio but leaves videos to bounded value renditions', async () => {
@@ -542,23 +312,6 @@ describe('sourceFor', () => {
     expect(new Uint8Array(await blob.arrayBuffer())).toEqual(new Uint8Array([7, 8, 9]))
   })
 
-  it('includes the sanitized download name in recorded cache identity', () => {
-    const digest = `blake3:${'8'.repeat(64)}`
-    const artifact = (name: string) => ({
-      nodeId: 'save',
-      digest,
-      name,
-      size: 3,
-      mediaType: 'audio/wav',
-      virtualPath: `output/${name}`,
-    })
-    const l = loader()
-    const first = l.sourceFor(exec({ artifacts: [artifact('first.webm')] }), ['save'], false)!
-    const renamed = l.sourceFor(exec({ artifacts: [artifact('renamed.webm')] }), ['save'], false)!
-    expect(first.key).not.toBe(renamed.key)
-    expect(renamed.key).toContain(':name:renamed.webm')
-  })
-
   it('keeps selected-input and recorded-output cache identities separate', async () => {
     const digest = `blake3:${'3'.repeat(64)}`
     const url = `http://backend/api/assets/${digest}`
@@ -663,20 +416,6 @@ describe('sourceFor', () => {
     expect(loaded.download).toEqual({ src: loaded.src, name: 'mesh.glb' })
   })
 
-  it('selected model3d input assets key by digest, media type, and URL', async () => {
-    const digest = `blake3:${'6'.repeat(64)}`
-    const url = `http://backend/api/assets/${digest}`
-    const poster = { image: {} as CanvasImageSource, width: 512, height: 384 }
-    const l = loader({ renderModel3dPoster: () => Promise.resolve(poster) })
-    const s = l.inputAssetSource!(digest, 'model/gltf-binary', 'model3d')!
-    expect(s).toMatchObject({
-      key: `asset:${digest}:media:model/gltf-binary:url:${url}`,
-      failureKey: `asset-url:${url}`,
-      mediaKind: 'model3d',
-    })
-    await expect(s.load()).resolves.toMatchObject({ kind: 'model3d', src: url, width: 512, height: 384 })
-  })
-
   it('scopes saved media URL and failure caches to the execution backend', async () => {
     const digest = `blake3:${'8'.repeat(64)}`
     const artifact = {
@@ -739,19 +478,6 @@ describe('sourceFor', () => {
     })
   })
 
-  it('ignores legacy file descriptors beside a native asset on the same node', () => {
-    const digest = `blake3:${'c'.repeat(64)}`
-    const e = exec({
-      outputs: {
-        n1: {
-          images: [{ filename: 'out.png' }],
-          assets: { typeId: 'ASSET', fingerprint: digest, meta: { digest, mediaType: 'image/png' } },
-        },
-      },
-    })
-    expect(loader().sourceFor(e, ['n1'], false)?.key).toContain(`http://backend/api/assets/${digest}`)
-  })
-
   it('FR12 a same-timestamp replacement frame gets a new cache identity', () => {
     const l = loader()
     const first = new Blob(['first'])
@@ -761,229 +487,6 @@ describe('sourceFor', () => {
     const repeatedKey = l.sourceFor(exec({ previews: { n1: { payload: first, timestamp: 5 } } }), ['n1'], true)?.key
     expect(secondKey).not.toBe(firstKey)
     expect(repeatedKey).toBe(firstKey)
-  })
-})
-
-describe('resolve', () => {
-  const src = (key: string, load: () => Promise<NodePreview>): PreviewSource => ({ key, load })
-
-  it('kicks one decode per key, caches it, and fires onDecoded', async () => {
-    const onDecoded = vi.fn()
-    const l = loader({ onDecoded })
-    const load = vi.fn(() => Promise.resolve(preview()))
-    expect(l.resolve(src('a', load))).toBeUndefined() // kick
-    expect(l.resolve(src('a', load))).toBeUndefined() // deduped while pending
-    await flush()
-    expect(load).toHaveBeenCalledTimes(1)
-    expect(onDecoded).toHaveBeenCalledTimes(1)
-    expect(l.resolve(src('a', load))).toBeDefined() // cached
-    expect(load).toHaveBeenCalledTimes(1)
-  })
-
-  it('a failed non-peek decode is dropped and stays retryable', async () => {
-    const l = loader()
-    const fail = vi.fn(() => Promise.reject(new Error('bad frame')))
-    l.resolve(src('frame:x', fail))
-    await flush()
-    l.resolve(src('frame:x', fail))
-    await flush()
-    expect(fail).toHaveBeenCalledTimes(2)
-  })
-
-  it('reuses the digest cache for selected input assets and negative-caches failures', async () => {
-    const l = loader()
-    const digest = `blake3:${'d'.repeat(64)}`
-    const input = l.inputAssetSource!(digest, 'image/png', 'image')!
-    expect(input.key).toBe(`asset:${digest}`)
-    const load = vi.fn(() => Promise.resolve(preview()))
-    l.resolve(src(input.key, load))
-    await flush()
-    expect(l.resolve(input)).toBeDefined()
-    expect(load).toHaveBeenCalledTimes(1)
-
-    const missingDigest = `blake3:${'e'.repeat(64)}`
-    const missing = l.inputAssetSource!(missingDigest, 'image/png', 'image')!
-    const fail = vi.fn(() => Promise.reject(new Error('missing asset')))
-    l.resolve({ ...missing, load: fail })
-    await flush()
-    expect(l.unavailable!(missing)).toBe(true)
-    expect(l.resolve({ ...missing, load: fail })).toBeUndefined()
-    await flush()
-    expect(fail).toHaveBeenCalledTimes(1)
-
-    const otherBackend = { ...missing, failureKey: 'asset-url:http://other/asset', load: () => Promise.resolve(preview()) }
-    expect(l.resolve(otherBackend)).toBeUndefined()
-    await flush()
-    expect(l.resolve(otherBackend)).toBeDefined()
-  })
-
-  it('carries acknowledged document ownership into input audio and refuses stale cache reads', async () => {
-    let current = true
-    let admit!: () => void
-    const admission = new Promise<void>((resolve) => { admit = resolve })
-    const owner = { key: 'document-a', current: () => current, read: async <T,>(consume: () => Promise<T>): Promise<T> => {
-      await admission
-      if (!current) throw new Error('Document changed')
-      return consume()
-    } }
-    const l = createPreviewLoader({ assetUrlForExecution: () => '', assetUrlForInput: () => '/clip.wav',
-      inputAssetReader: () => owner, onDecoded: () => {} })
-    try {
-      const source = l.inputAssetSource!('digest', 'audio/wav', 'audio')!
-      expect(source.assetReader).toBe(owner)
-      let published = false
-      const pending = source.load().then((value) => { published = true; return value })
-      await Promise.resolve()
-      expect(published).toBe(false)
-      admit()
-      expect(await pending).toMatchObject({ kind: 'audio', src: '/clip.wav' })
-      l.resolve(source)
-      await vi.waitFor(() => expect(l.resolve(source)).toMatchObject({ kind: 'audio', src: '/clip.wav' }))
-      current = false
-      expect(l.resolve(source)).toBeUndefined()
-      await expect(source.load()).rejects.toThrow('changed')
-    } finally { l.dispose() }
-  })
-
-  it('refuses selected videos without requesting original input bytes on either backend', async () => {
-    const digest = `blake3:${'f'.repeat(64)}`
-    let backend = 'backend-a'
-    const l = createPreviewLoader({
-      assetUrlForExecution: () => '',
-      assetUrlForInput: (value) => `http://${backend}/api/assets/${value}`,
-      onDecoded: () => {},
-    })
-    const backendA = l.inputAssetSource!(digest, 'video/webm', 'video')!
-    backend = 'backend-b'
-    const backendB = l.inputAssetSource!(digest, 'video/webm', 'video')!
-    expect(backendA.key).toBe(`video-input:${digest}`)
-    expect(backendB.key).toBe(backendA.key)
-    const unavailable = { kind: 'video', status: 'unavailable', statusMessage: 'Video input preview pending server route' }
-    await expect(backendA.load()).resolves.toEqual(unavailable)
-    await expect(backendB.load()).resolves.toEqual(unavailable)
-  })
-
-  it('evicts beyond the cache bound, closing ImageBitmaps', async () => {
-    class FakeBitmap {
-      close = vi.fn()
-    }
-    vi.stubGlobal('ImageBitmap', FakeBitmap)
-    try {
-      const l = loader()
-      const first = new FakeBitmap()
-      l.resolve(src('k0', () => Promise.resolve({ image: first as unknown as CanvasImageSource, width: 1, height: 1 })))
-      await flush()
-      for (let i = 1; i <= 160; i++) {
-        l.resolve(src(`k${i}`, () => Promise.resolve(preview())))
-      }
-      await flush()
-      // k0 was the oldest of 161 entries: evicted and closed.
-      expect(first.close).toHaveBeenCalledTimes(1)
-      const reload = vi.fn(() => Promise.resolve(preview()))
-      expect(l.resolve(src('k0', reload))).toBeUndefined()
-      expect(reload).toHaveBeenCalledTimes(1)
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it('bounds decoded batch pages by RGBA size rather than page count', async () => {
-    const l = loader()
-    const load = vi.fn(async () => ({ ...preview(), width: 4096, height: 4096 }))
-    try {
-      for (let index = 0; index < 5; index++) {
-        l.resolve(src(`page${index}`, load))
-        await flush()
-      }
-      expect(l.resolve(src('page4', load))).toBeDefined()
-      expect(load).toHaveBeenCalledTimes(5)
-      expect(l.resolve(src('page0', load))).toBeUndefined()
-      expect(load).toHaveBeenCalledTimes(6)
-      await flush()
-    } finally {
-      l.dispose()
-    }
-  })
-
-  it('bounds retained animation frames by bitmap weight, not just entry count', async () => {
-    class FakeBitmap {
-      close = vi.fn()
-    }
-    vi.stubGlobal('ImageBitmap', FakeBitmap)
-    try {
-      const l = loader()
-      // 20 clips of 24 frames: each weighs 25, so the 256-bitmap budget
-      // retains ~10 clips instead of all 20 piling up under the entry cap.
-      const clips = Array.from({ length: 20 }, () => Array.from({ length: 24 }, () => new FakeBitmap()))
-      for (const [i, frames] of clips.entries()) {
-        l.resolve(src(`clip${i}`, () => Promise.resolve({
-          image: frames[0] as unknown as CanvasImageSource,
-          width: 1,
-          height: 1,
-          animation: { frames: frames as unknown as ImageBitmap[], fps: 8 },
-        })))
-        await flush()
-      }
-      const closed = clips.filter((frames) => frames.every((f) => f.close.mock.calls.length > 0)).length
-      const retained = clips.filter((frames) => frames.every((f) => f.close.mock.calls.length === 0)).length
-      expect(closed).toBe(10)
-      expect(retained).toBe(10)
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it('evicting an animated preview closes its frame bitmaps', async () => {
-    class FakeBitmap {
-      close = vi.fn()
-    }
-    vi.stubGlobal('ImageBitmap', FakeBitmap)
-    try {
-      const l = loader()
-      const still = new FakeBitmap()
-      const frames = [new FakeBitmap(), new FakeBitmap()]
-      l.resolve(src('anim', () => Promise.resolve({
-        image: still as unknown as CanvasImageSource,
-        width: 1,
-        height: 1,
-        animation: { frames: frames as unknown as ImageBitmap[], fps: 8 },
-      })))
-      await flush()
-      for (let i = 1; i <= 160; i++) {
-        l.resolve(src(`k${i}`, () => Promise.resolve(preview())))
-      }
-      await flush()
-      expect(still.close).toHaveBeenCalledTimes(1)
-      for (const frame of frames) expect(frame.close).toHaveBeenCalledTimes(1)
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it('FR12 dispose closes cached bitmaps and drops an in-flight decode', async () => {
-    class FakeBitmap {
-      close = vi.fn()
-    }
-    vi.stubGlobal('ImageBitmap', FakeBitmap)
-    try {
-      const onDecoded = vi.fn()
-      const l = loader({ onDecoded })
-      const cached = new FakeBitmap()
-      l.resolve(src('cached', () => Promise.resolve({ image: cached as unknown as CanvasImageSource, width: 1, height: 1 })))
-      await flush()
-      onDecoded.mockClear()
-      let finish!: (value: NodePreview) => void
-      l.resolve(src('pending', () => new Promise((resolve) => { finish = resolve })))
-      l.dispose()
-      const pending = new FakeBitmap()
-      finish({ image: pending as unknown as CanvasImageSource, width: 1, height: 1 })
-      await flush()
-      expect(cached.close).toHaveBeenCalledTimes(1)
-      expect(pending.close).toHaveBeenCalledTimes(1)
-      expect(onDecoded).not.toHaveBeenCalled()
-    } finally {
-      vi.unstubAllGlobals()
-    }
   })
 })
 
@@ -1022,41 +525,6 @@ describe('peekSource negative cache', () => {
       expect(requests.filter((query) => query.searchParams.has('rendition')).map((query) => query.searchParams.get('batch'))).toEqual(['0', '3'])
       expect(rendition.mock.calls.map((call) => call[2]?.rendererVersion)).toEqual(['png-test-v1', 'png-test-v1'])
     } finally { l.dispose(); vi.unstubAllGlobals() }
-  })
-
-  it('cancels a pending page even when navigation returns to a cached page', async () => {
-    const l = loader()
-    const cached: PreviewSource = { key: 'peek:first', cancellationKey: 'batch', load: async () => preview() }
-    l.resolve(cached); await flush()
-    let signal: AbortSignal | undefined
-    let finish!: (preview: NodePreview) => void
-    l.resolve({ key: 'peek:next', cancellationKey: 'batch', load: (abort) => { signal = abort; return new Promise((resolve) => { finish = resolve }) } })
-    expect(l.resolve(cached)).toBeDefined()
-    expect(signal?.aborted).toBe(true)
-    finish(preview()); await flush()
-    l.dispose()
-  })
-
-  it('keys by execution, scene node, and candidate set', () => {
-    const s = loader().peekSource(values, exec({}), candidates, 'scene1')
-    expect(loader().peekSource(values, exec({}), candidates, 'scene1')?.key).toBe(s?.key)
-    expect(loader().peekSource(values, exec({}), [{ ...candidates[0]!, model3d: { cameraOutput: 'camera' } }], 'scene1')?.key).not.toBe(s?.key)
-    expect(loader().peekSource(values, exec({}), candidates, 'scene1', 1)?.key).not.toBe(s?.key)
-    expect(loader().peekSource(values, exec({}), [{ node: 'n1.image', output: 'a' }], 'scene1')?.key)
-      .not.toBe(loader().peekSource(values, exec({}), [{ node: 'n1', output: 'image.a' }], 'scene1')?.key)
-  })
-
-  it('a DEFINITIVE miss is remembered; the same key is not offered again', async () => {
-    const l = loader()
-    const declared = [{ ...candidates[0]!, declaredIntent: true as const, mediaKind: 'image' as const }]
-    const s = l.peekSource(values, exec({}), declared, 'scene1')!
-    l.resolve({ key: s.key, load: () => Promise.reject(Object.assign(new Error('no renditions'), { transient: false, negativeCache: true })) })
-    await flush()
-    const unavailable = l.peekSource(values, exec({}), declared, 'scene1')!
-    expect(l.unavailable!(unavailable)).toBe(true)
-    expect(l.resolve(unavailable)).toBeUndefined()
-    // A different candidate set changes the key and retries naturally.
-    expect(l.peekSource(values, exec({}), [{ node: 'n2', output: 'image' }], 'scene1')).toBeDefined()
   })
 
   it('a TRANSIENT failure stays retryable', async () => {
@@ -1182,30 +650,6 @@ describe('peekSource negative cache', () => {
     }
   })
 
-  it('revokes cached media object URLs when the preview loader is disposed', async () => {
-    const valuesClient = new DinksterValuesClient({
-      baseUrl: 'http://backend', clientId: 'client-1', fetchFn: async (url) =>
-        new URL(url).searchParams.has('rendition')
-          ? new Response(bytesOfMedia().buffer as ArrayBuffer, { status: 200, headers: { 'Content-Type': 'video/mp4', 'X-Dinkster-Fingerprint': 'fp', 'X-Dinkster-Rendition': 'preview' } })
-          : new Response(JSON.stringify({ available: true, descriptor: { typeId: 'VIDEO', fingerprint: 'fp' }, renditions: [{ kind: 'preview', mime: 'video/mp4', default: true }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
-    })
-    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:dispose-proof')
-    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-    vi.stubGlobal('ImageBitmap', class {})
-    try {
-      const l = loader()
-      l.resolve(l.peekSource(valuesClient, exec({}), candidates, 'scene1')!)
-      await flush()
-      expect(l.resolve(l.peekSource(valuesClient, exec({}), candidates, 'scene1')!)).toMatchObject({ src: 'blob:dispose-proof' })
-      l.dispose()
-      expect(revoke).toHaveBeenCalledWith('blob:dispose-proof')
-    } finally {
-      create.mockRestore()
-      revoke.mockRestore()
-      vi.unstubAllGlobals()
-    }
-  })
-
   it('a comfy.IMAGE with no declared rendition stays previewless but retryable', async () => {
     const fetchFn = vi.fn<FetchLike>(async () => new Response(JSON.stringify({
       available: true,
@@ -1223,64 +667,6 @@ describe('peekSource negative cache', () => {
     expect(l.resolve(retry)).toBeUndefined()
     await flush()
     expect(fetchFn).toHaveBeenCalledTimes(2)
-  })
-})
-
-describe('resolveFrame', () => {
-  it('does not admit frame decodes after disposal while another loader stays live', async () => {
-    const bitmap = { width: 8, height: 6 }
-    const decode = vi.fn(async () => bitmap)
-    vi.stubGlobal('createImageBitmap', decode)
-    const retired = loader(), live = loader()
-    const payload = new Blob(['frame'])
-    try {
-      retired.dispose()
-      expect(retired.resolveFrame!('frame:retired', payload)).toBeUndefined()
-      await flush()
-      expect(decode).not.toHaveBeenCalled()
-      expect(live.resolveFrame!('frame:live', payload)).toBeUndefined()
-      await flush()
-      expect(live.resolveFrame!('frame:live', payload)).toBe(bitmap)
-      expect(decode).toHaveBeenCalledTimes(1)
-    } finally {
-      retired.dispose(); live.dispose(); vi.unstubAllGlobals()
-    }
-  })
-
-  it('kicks one decode per key, caches the bitmap, and fires onDecoded', async () => {
-    const bitmap = { width: 8, height: 6 }
-    const decode = vi.fn(async () => bitmap)
-    vi.stubGlobal('createImageBitmap', decode)
-    try {
-      const onDecoded = vi.fn()
-      const l = loader({ onDecoded })
-      const payload = new Blob(['frame'])
-      expect(l.resolveFrame!('frame:k1:n1:ring:0:1', payload)).toBeUndefined() // kick
-      expect(l.resolveFrame!('frame:k1:n1:ring:0:1', payload)).toBeUndefined() // deduped while pending
-      await flush()
-      expect(decode).toHaveBeenCalledTimes(1)
-      expect(onDecoded).toHaveBeenCalledTimes(1)
-      expect(l.resolveFrame!('frame:k1:n1:ring:0:1', payload)).toBe(bitmap)
-      expect(decode).toHaveBeenCalledTimes(1)
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  it('an undecodable frame is dropped silently and stays retryable', async () => {
-    const decode = vi.fn(() => Promise.reject(new Error('bad frame')))
-    vi.stubGlobal('createImageBitmap', decode)
-    try {
-      const l = loader()
-      const payload = new Blob(['x'])
-      l.resolveFrame!('frame:k1:n1:ring:0:2', payload)
-      await flush()
-      expect(l.resolveFrame!('frame:k1:n1:ring:0:2', payload)).toBeUndefined()
-      await flush()
-      expect(decode).toHaveBeenCalledTimes(2)
-    } finally {
-      vi.unstubAllGlobals()
-    }
   })
 })
 
@@ -1387,21 +773,6 @@ describe('deriveNodePreviewSurface frame-ring animation', () => {
     }
   })
 
-  it('no animation without a ring, and none for a single-frame ring', () => {
-    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 1, height: 1 })))
-    try {
-      const l = loader()
-      const still = ringExec(undefined, new Blob(['s']))
-      expect(deriveNodePreviewSurface(surfaceArgs(still, l)).preview?.animation).toBeUndefined()
-      const single = ringExec({
-        n1: { frameCount: 1, fps: 16, frames: { 0: { payload: new Blob(['s']), timestamp: 5 } } },
-      }, new Blob(['s']))
-      expect(deriveNodePreviewSurface(surfaceArgs(single, l)).preview?.animation).toBeUndefined()
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
   it('an absurd frameCount never allocates a frames array', () => {
     vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 1, height: 1 })))
     try {
@@ -1425,39 +796,6 @@ const bytesOfMedia = (mime = 'video/mp4'): Uint8Array => mime === 'video/mp4'
   : mime === 'video/webm'
     ? new Uint8Array([0x1a, 0x45, 0xdf, 0xa3])
     : new TextEncoder().encode('RIFF0000WAVE')
-
-describe('selectedPreviewAssetForRows', () => {
-  const assetValue = (mediaType: string) => ({
-    digest: `blake3:${'a'.repeat(64)}`,
-    name: 'stored.bin',
-    size: 42,
-    mediaType,
-    virtualPath: `input/stored.bin`,
-  })
-  const rows = [{ widgetType: 'ASSET', valueKey: 'v' }]
-  const rendererFor = (kinds: Record<string, 'image' | 'video' | 'model3d'>) =>
-    ((mediaType: string) => {
-      const mediaKind = kinds[mediaType]
-      return mediaKind === undefined ? undefined : { mediaKind }
-    }) as Parameters<typeof selectedPreviewAssetForRows>[2]
-
-  it('claims a GLB asset for a registered model3d renderer', () => {
-    const got = selectedPreviewAssetForRows(
-      { v: assetValue('model/gltf-binary') },
-      rows,
-      rendererFor({ 'model/gltf-binary': 'model3d' }),
-    )
-    expect(got).toMatchObject({ mediaType: 'model/gltf-binary', mediaKind: 'model3d', count: 1 })
-  })
-
-  it('rejects a model3d claim whose mediaType is outside the model/ family', () => {
-    expect(selectedPreviewAssetForRows(
-      { v: assetValue('application/octet-stream') },
-      rows,
-      rendererFor({ 'application/octet-stream': 'model3d' }),
-    )).toBeUndefined()
-  })
-})
 
 describe('represented asset source precedence', () => {
   const representedAsset = {

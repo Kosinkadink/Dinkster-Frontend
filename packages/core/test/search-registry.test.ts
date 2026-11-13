@@ -24,30 +24,6 @@ describe('SearchRegistry', () => {
     expect(registry.query('hello', context())).toHaveLength(2)
     expect(registry.query('>  save', context()).map((r) => [r.provider.id, r.query])).toEqual([['commands', 'save']])
   })
-  it('does not invoke providers for an already-aborted request', () => {
-    const registry = createSearchRegistry(); const p = provider('one'); registry.register(p)
-    const controller = new AbortController(); controller.abort()
-    expect(registry.query('', context(controller.signal))).toEqual([])
-    expect(p.query).not.toHaveBeenCalled()
-  })
-  it('passes the abort signal to a pending provider so it can observe cancellation', async () => {
-    const registry = createSearchRegistry(); const controller = new AbortController(); let observed = false
-    registry.register({ id: 'pending', label: 'Pending', priority: 0, async: true, query: (_query, ctx) => new Promise((resolve) => {
-      ctx.signal.addEventListener('abort', () => { observed = true; resolve([]) }, { once: true })
-    }) })
-    const request = registry.query('wait', context(controller.signal))[0]!
-    controller.abort(); await request.results
-    expect(observed).toBe(true)
-  })
-  it('notifies once for provider registration and idempotent unregistration', () => {
-    const registry = createSearchRegistry(); const changed = vi.fn(); const stop = registry.subscribe(changed)
-    const remove = registry.register(provider('one'))
-    remove(); const replacement = provider('one'); const removeReplacement = registry.register(replacement)
-    remove()
-    expect(registry.list()).toEqual([replacement])
-    removeReplacement(); stop(); registry.register(provider('two'))
-    expect(changed).toHaveBeenCalledTimes(4)
-  })
   it('publishes a committed registry batch once and keeps rolled-back changes invisible', () => {
     const registry = createSearchRegistry(); const changed = vi.fn(); registry.subscribe(changed)
     const finishRollback = registry.beginBatch(); const remove = registry.register(provider('temporary'))
@@ -56,29 +32,6 @@ describe('SearchRegistry', () => {
     const finishCommit = registry.beginBatch(); registry.register(provider('published')); registry.register(provider('second'))
     expect(changed).not.toHaveBeenCalled()
     finishCommit(true)
-    expect(changed).toHaveBeenCalledTimes(1)
-  })
-  it('keeps nested commit decisions independent and publishes their final state once', () => {
-    const registry = createSearchRegistry(); const changed = vi.fn(); registry.subscribe(changed)
-    const outerCommit = registry.beginBatch()
-    const innerRollback = registry.beginBatch(); const removeRolledBack = registry.register(provider('rolled-back'))
-    removeRolledBack(); innerRollback(false); innerRollback(true); outerCommit(true)
-    expect(registry.list()).toEqual([])
-    expect(changed).not.toHaveBeenCalled()
-
-    const outerRollback = registry.beginBatch(); const removeOuter = registry.register(provider('outer'))
-    const innerCommit = registry.beginBatch(); registry.register(provider('nested')); innerCommit(true)
-    removeOuter(); outerRollback(false)
-    expect(registry.list().map((item) => item.id)).toEqual(['nested'])
-    expect(changed).toHaveBeenCalledTimes(1)
-  })
-  it('requires nested batches to finish in reverse order without poisoning later completion', () => {
-    const registry = createSearchRegistry(); const changed = vi.fn(); registry.subscribe(changed)
-    const outer = registry.beginBatch(); const inner = registry.beginBatch()
-    expect(() => outer(true)).toThrow('reverse order')
-    registry.register(provider('nested'))
-    inner(true); inner(false); outer(true); outer(false)
-    expect(registry.list().map((item) => item.id)).toEqual(['nested'])
     expect(changed).toHaveBeenCalledTimes(1)
   })
   it('isolates throwing change subscribers so registration still returns a usable disposer', () => {

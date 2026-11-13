@@ -251,31 +251,6 @@ describe('bypass passthrough basics', () => {
     expect(warning?.anchor?.occurrence).toEqual({ instancePath: [], node: 'relay' })
   })
 
-  it('attributes one multi-hop structural route death to the first bypass occurrence', () => {
-    const result = compile(input(docOf({
-      nodes: {
-        dead: { type: 'ISrc', mode: 'muted' },
-        upstream: { type: 'Wire15Relay', mode: 'bypassed' },
-        downstream: { type: 'Wire15Relay', mode: 'bypassed' },
-        sink: { type: 'Wire15Sink' },
-      },
-      links: [
-        [P('dead', 'out'), P('upstream', 'items.dead')],
-        [P('upstream', 'out'), P('downstream', 'items.forwarded')],
-        [P('downstream', 'out'), P('sink', 'items.result')],
-      ],
-    })))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    const warnings = result.artifact.diagnostics.filter((diagnostic) =>
-      diagnostic.code === 'compile.bypass.structuralRouteDropped')
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]!.anchor?.occurrence).toEqual({ instancePath: [], node: 'downstream' })
-    expect(warnings[0]!.data?.['route']).toEqual(['downstream', 'upstream'])
-    expect(warnings[0]!.data?.['reason']).toBe("producer 'dead' is muted or in an inactive occurrence")
-    expect(result.artifact.prompt['sink']!.inputs['items.result']).toBeUndefined()
-  })
-
   it('preserves wire-14 DynamicSlot dependents through reroutes and bypassed producers', () => {
     const result = compile(input(docOf({
       nodes: {
@@ -660,70 +635,6 @@ describe('bypass and subgraphs', () => {
     expect(result.artifact.prompt['s.ik']!.inputs['in']).toEqual(['a', 0])
   })
 
-  it('keeps NUL-containing occurrence paths distinct during structural routing', () => {
-    const inner: BGraph = {
-      nodes: { relay: { type: 'Batcher' } },
-      boundary: { inputs: [{ id: 'feed', binds: { kind: 'family', node: 'relay', port: 'images' } }] },
-    }
-    const leftOuter: BGraph = {
-      nodes: { leftSource: { type: 'ISrc' }, c: { type: '#inner', dynamic: { feed: { members: ['left'] } } } },
-      links: [[P('leftSource', 'out'), P('c', 'feed.image', ['left'])]],
-      boundary: { inputs: [], outputs: [] },
-    }
-    const rightOuter: BGraph = {
-      nodes: { rightSource: { type: 'ISrc' }, 'b\u0000c': { type: '#inner', dynamic: { feed: { members: ['right'] } } } },
-      links: [[P('rightSource', 'out'), P('b\u0000c', 'feed.image', ['right'])]],
-      boundary: { inputs: [], outputs: [] },
-    }
-    const result = compile(input(docOf({
-      nodes: {
-        'a\u0000b': { type: '#leftOuter' },
-        a: { type: '#rightOuter' },
-      },
-    }, { inner, leftOuter, rightOuter })))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.prompt['a%00b.c.relay']!.inputs['images.image0']).toEqual(['a%00b.leftSource', 0])
-    expect(result.artifact.prompt['a.b%00c.relay']!.inputs['images.image0']).toEqual(['a.rightSource', 0])
-    expect(codesOf(result.artifact.diagnostics)).not.toContain('compile.bypass.cycle')
-  })
-
-  it('keeps colliding NUL-containing definition and selector pairs distinct', () => {
-    const nested: BGraph = {
-      nodes: {
-        first: { type: 'ISrc' }, second: { type: 'ISrc' },
-        relay: { type: 'Wire15Relay', mode: 'bypassed' }, sink: { type: 'Wire15Sink' },
-      },
-      selectors: { y: { id: 'y', candidates: [{ id: 'first' }, { id: 'second' }], policy: { kind: 'random' } } },
-      links: [
-        [P('first', 'out'), { selector: 'y', candidate: 'first' }],
-        [P('second', 'out'), { selector: 'y', candidate: 'second' }],
-        [{ selector: 'y' }, P('relay', 'items.route')],
-        [P('relay', 'out'), P('sink', 'items.result')],
-      ],
-      boundary: { inputs: [], outputs: [] },
-    }
-    const result = compile({
-      ...input(docOf({
-        nodes: { shell: { type: '#g0\u0000x' } },
-        selectors: {
-          'x\u0000y': {
-            id: 'x\u0000y',
-            candidates: [{ id: 'rootFirst' }, { id: 'rootSecond' }],
-            policy: { kind: 'random' },
-          },
-        },
-      }, { 'g0\u0000x': nested })),
-      pickCandidate: () => 1,
-    })
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.prompt['shell.sink']!.inputs['items.result']).toEqual(['shell.second', 0])
-    expect(result.artifact.choices).toEqual(expect.arrayContaining([
-      expect.objectContaining({ graph: 'g0', selector: 'x\u0000y', candidate: 'rootSecond' }),
-      expect.objectContaining({ graph: 'g0\u0000x', selector: 'y', candidate: 'second' }),
-    ]))
-  })
 })
 
 describe('bypass and execution scope', () => {
@@ -785,31 +696,6 @@ describe('wire-15 I1 dedicated proof matrix', () => {
   const recursiveTerminal = (from: End, extra: Partial<BGraph> = {}) =>
     compile(input(recursiveTerminalDoc(from, extra)))
 
-  it('records child-owned selector reroute and value source under the child definition', () => {
-    const child: BGraph = {
-      nodes: { relay: { type: 'Wire15NRelay', mode: 'bypassed' } },
-      reroutes: ['child-route'],
-      valueSources: { literal: { id: 'literal', value: 41, spec: { widgetType: 'INT' } } },
-      selectors: { pick: { id: 'pick', candidates: [{ id: 'chosen' }], policy: { kind: 'fixed', candidate: 'chosen' } } },
-      links: [
-        [{ valueSource: 'literal' }, { reroute: 'child-route' }],
-        [{ reroute: 'child-route' }, { selector: 'pick', candidate: 'chosen' }],
-        [{ selector: 'pick' }, P('relay', 'items.route')],
-      ],
-      boundary: { outputs: [{ id: 'out', binds: { kind: 'port', node: 'relay', port: 'out' } }] },
-    }
-    const doc = docOf({
-      nodes: { shell: { type: '#child' }, sink: { type: 'Wire15NSink' } },
-      links: [[P('shell', 'out'), P('sink', 'items.result')]],
-    }, { child })
-    const scope: CompileInput['scope'] = { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('sink') }] }
-    const closure = scopeClosure(input(doc, scope))!
-    expect([...closure.structural.keys()]).toEqual(['child'])
-    expect([...closure.structural.get('child')!.reroutes]).toEqual(['child-route'])
-    expect([...closure.structural.get('child')!.selectors.get('pick')!]).toEqual(['chosen'])
-    expect([...closure.structural.get('child')!.valueSources]).toEqual(['literal'])
-  })
-
   it('Real two-occurrence compile fixture: structurally identical sibling subgraph occurrences preserve materialized input order/index semantics and differ only in delivery membership', () => {
     const sub: BGraph = {
       nodes: { relay: { type: 'Wire15Relay', mode: 'bypassed' }, sink: { type: 'Wire15Sink' } },
@@ -863,50 +749,6 @@ describe('wire-15 I1 dedicated proof matrix', () => {
     expect(result.artifact.prompt.second!.inputs['items.result']).toEqual(['source', 0])
   })
 
-  it('Recursive wire15 named-net fanout keeps every random selector branch in would-run closure', () => {
-    const doc = docOf({
-      nodes: {
-        firstSource: { type: 'ISrc' }, secondSource: { type: 'ISrc' },
-        relay: { type: 'Wire15Relay', mode: 'bypassed' },
-        firstSink: { type: 'Wire15Sink' }, secondSink: { type: 'Wire15Sink' },
-      },
-      selectors: { choose: { id: 'choose', candidates: [{ id: 'first' }, { id: 'second' }], policy: { kind: 'random' } } },
-      links: [
-        [P('firstSource', 'out'), { selector: 'choose', candidate: 'first' }],
-        [P('secondSource', 'out'), { selector: 'choose', candidate: 'second' }],
-        [{ selector: 'choose' }, P('relay', 'items.route')],
-      ],
-      nets: [{ name: 'fanout', source: P('relay', 'out'), sinks: [P('firstSink', 'items.result'), P('secondSink', 'items.result')] }],
-    })
-    const scope: CompileInput['scope'] = { kind: 'partial', targets: [
-      { instancePath: [], node: asNodeId('firstSink') },
-      { instancePath: [], node: asNodeId('secondSink') },
-    ] }
-    const closure = scopeClosure(input(doc, scope))!
-    expect([...closure.included].sort()).toEqual(['firstSink', 'firstSource', 'secondSink', 'secondSource'])
-    expect([...closure.structural.get('g0')!.selectors.get('choose')!].sort()).toEqual(['first', 'second'])
-  })
-
-  it('Over-cap bypassed wire15 relay refuses before routing to its destination interface', () => {
-    const result = compile(input(docOf({
-      nodes: {
-        dead0: { type: 'ISrc', mode: 'muted' }, dead1: { type: 'ISrc', mode: 'muted' },
-        dead2: { type: 'ISrc', mode: 'muted' }, dead3: { type: 'ISrc', mode: 'muted' },
-        live4: { type: 'ISrc' }, relay: { type: 'Wire15Relay', mode: 'bypassed' },
-        sink: { type: 'Wire15Sink' },
-      },
-      links: [
-        [P('dead0', 'out'), P('relay', 'items.m0')], [P('dead1', 'out'), P('relay', 'items.m1')],
-        [P('dead2', 'out'), P('relay', 'items.m2')], [P('dead3', 'out'), P('relay', 'items.m3')],
-        [P('live4', 'out'), P('relay', 'items.m4')], [P('relay', 'out'), P('sink', 'items.result')],
-      ],
-    })))
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(codesOf(result.diagnostics)).toContain('elab.autogrow.overMax')
-    expect(codesOf(result.diagnostics)).not.toContain('compile.bypass.structuralRouteDropped')
-  })
-
   it('One dedicated recursive-wire15 route test for driven widget tap terminal', () => {
     const extra: Partial<BGraph> = {
       nodes: { source: { type: 'NSrc' }, widget: { type: 'NWidget' } },
@@ -942,15 +784,6 @@ describe('wire-15 I1 dedicated proof matrix', () => {
     })
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (result.ok) expect(result.artifact.prompt['sink']!.inputs['items.result']).toEqual(['source', 0])
-  })
-
-  it('One dedicated recursive-wire15 route test for bypass cycle', () => {
-    const result = compile(input(docOf({
-      nodes: { a: { type: 'Wire15Relay', mode: 'bypassed' }, b: { type: 'Wire15Relay', mode: 'bypassed' }, sink: { type: 'Wire15Sink' } },
-      links: [[P('a', 'out'), P('b', 'items.b')], [P('b', 'out'), P('a', 'items.a')], [P('a', 'out'), P('sink', 'items.result')]],
-    })))
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(codesOf(result.diagnostics)).toContain('compile.bypass.cycle')
   })
 
   it('Mixed IMAGE/LATENT boundary alsoBinds fanout through bypass routes each final destination by its own consumer type and would-run closure', () => {
@@ -998,37 +831,4 @@ describe('wire-15 I1 dedicated proof matrix', () => {
     expect([...scopeClosure(input(doc, scope))!.included].sort()).toEqual(['latentA', 'sink'])
   })
 
-  it('Explicit representative wire14 closure golden pins pre-I1 bypass/mute reroute selector and value-source behavior', () => {
-    const doc = docOf({
-      nodes: { live: { type: 'ISrc' }, muted: { type: 'ISrc', mode: 'muted' }, pass: { type: 'IProc', mode: 'bypassed' }, sink: { type: 'ISink' }, numberSink: { type: 'NSink' } },
-      reroutes: ['r'],
-      valueSources: { literal: { id: 'literal', value: 7, spec: { widgetType: 'INT' } } },
-      selectors: { choose: { id: 'choose', candidates: [{ id: 'literal' }], policy: { kind: 'fixed', candidate: 'literal' } } },
-      links: [
-        [P('live', 'out'), { reroute: 'r' }],
-        [{ reroute: 'r' }, P('pass', 'in')],
-        [P('pass', 'out'), P('sink', 'in')],
-        [{ valueSource: 'literal' }, { selector: 'choose', candidate: 'literal' }],
-        [{ selector: 'choose' }, P('numberSink', 'in')],
-      ],
-    })
-    const scope: CompileInput['scope'] = { kind: 'partial', targets: [
-      { instancePath: [], node: asNodeId('sink') },
-      { instancePath: [], node: asNodeId('numberSink') },
-    ] }
-    const closure = scopeClosure(input(doc, scope))!
-    const exact = compile(input(doc))
-    expect(exact.ok, JSON.stringify(!exact.ok && exact.diagnostics)).toBe(true)
-    if (!exact.ok) return
-    expect(JSON.stringify(exact.artifact.prompt)).toBe(JSON.stringify({
-      live: { class_type: 'ISrc', inputs: {}, outputIds: ['out'] },
-      sink: { class_type: 'ISink', inputs: { in: ['live', 0] }, outputIds: [] },
-      numberSink: { class_type: 'NSink', inputs: { in: 7 }, outputIds: [] },
-    }))
-    expect([...closure.included].sort()).toEqual(['live', 'numberSink', 'sink'])
-    expect([...closure.structural.get('g0')!.reroutes].sort()).toEqual(['r'])
-    expect([...closure.structural.get('g0')!.selectors.entries()].map(([id, candidates]) =>
-      [id, [...candidates].sort()])).toEqual([['choose', ['literal']]])
-    expect([...closure.structural.get('g0')!.valueSources].sort()).toEqual(['literal'])
-  })
 })

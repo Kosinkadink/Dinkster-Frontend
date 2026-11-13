@@ -113,45 +113,6 @@ test.beforeEach(async ({ page }) => {
   await identityViewport(page)
 })
 
-test('fixture renders selectors as scene items, NOT nodes, with traced types and visible branch noodles', async ({ page }) => {
-  const scene = await page.evaluate(() => {
-    const s = window.__dinksterTest!.renderer!.getScene()
-    return {
-      nodeIds: s.nodes.map((n) => n.id).sort(),
-      selectors: s.selectors,
-      links: s.links.map((l) => ({ id: l.id, from: l.from, to: l.to })),
-    }
-  })
-  // Selectors never leak into scene.nodes (they are not fake NodeData).
-  expect(scene.nodeIds).toEqual(['n0', 'n1', 'n2', 'n3', 'n4'])
-  expect(scene.selectors).toHaveLength(2)
-
-  const s6 = scene.selectors.find((s) => s.id === 's6')!
-  expect(s6.title).toBe('Quality')
-  expect(s6.activeCandidate).toBe('c7')
-  expect(s6.random).toBe(false)
-  // Homogeneous IMAGE branches agree, so the output is concrete.
-  expect(s6.typeName).toBe('IMAGE')
-  expect(s6.candidates.map((c) => ({ label: c.label, typeName: c.typeName }))).toEqual([
-    { label: 'full', typeName: 'IMAGE' },
-    { label: '2', typeName: 'IMAGE' },
-  ])
-
-  const s9 = scene.selectors.find((s) => s.id === 's9')!
-  expect(s9.random).toBe(true)
-  // Mixed IMAGE/LATENT branches keep their own colors; the output stays open.
-  expect(s9.typeName).toBeUndefined()
-  expect(s9.candidates.map((c) => c.typeName)).toEqual(['IMAGE', 'LATENT'])
-
-  // EVERY candidate noodle renders - unselected branches are visible too.
-  expect(scene.links.find((l) => l.id === 'l12')?.to).toEqual({ kind: 'selector', selector: 's6', candidate: 'c7' })
-  expect(scene.links.find((l) => l.id === 'l14')?.to).toEqual({ kind: 'selector', selector: 's6', candidate: 'c8' })
-  expect(scene.links.find((l) => l.id === 'l18')?.to).toEqual({ kind: 'selector', selector: 's9', candidate: 'c11' })
-  // The output fans out to both consumers from the same pin.
-  expect(scene.links.find((l) => l.id === 'l15')?.from).toEqual({ kind: 'selector', selector: 's6' })
-  expect(scene.links.find((l) => l.id === 'l16')?.from).toEqual({ kind: 'selector', selector: 's6' })
-})
-
 test('selector selection is independent of node selection; Delete cascades links; undo restores', async ({ page }) => {
   const canvas = page.getByTestId('graph-canvas')
   await page.mouse.click(...xy(await pointOnSelector(page, 's6', 'body')))

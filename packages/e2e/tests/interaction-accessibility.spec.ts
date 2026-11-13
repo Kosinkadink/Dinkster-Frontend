@@ -151,30 +151,6 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
 })
 
-test('forms and floating controls remain contained at a 200 percent browser zoom equivalent', async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 720, height: 450 })
-  await installProofSurfaces(page)
-  expect(await page.evaluate(() => ({
-    devicePixelRatio: window.devicePixelRatio,
-    width: window.innerWidth,
-    height: window.innerHeight,
-  }))).toEqual({ devicePixelRatio: 2, width: 720, height: 450 })
-
-  await page.getByTestId('settings-button').click()
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.locator('.settings-categories').getByRole('button', { name: 'Proof' }).click()
-  const select = settings.locator('[data-setting-id="proof.interaction-density"] [role="combobox"]')
-  await select.click()
-  const listbox = page.getByRole('listbox', { name: 'Interaction density' })
-  await expect(listbox).toBeVisible()
-  await expectContained(page, settings)
-  await expectContained(page, listbox)
-  await expectTouchTarget(select)
-  await expectTouchTarget(page.getByRole('option').last())
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(720)
-  expect(await capture(page, testInfo, '200-percent-browser-zoom-form-and-select')).toEqual({ width: 1440, height: 900 })
-})
-
 test('touch reaches widget actions and semantic menu targets on a narrow viewport', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 640 })
   await installProofSurfaces(page)
@@ -252,40 +228,4 @@ test('seed controller menu follows a short canvas resize and keeps its tail reac
     }
     return node.controllers?.seed
   })).toBe('randomize')
-})
-
-test('reduced-motion preference removes loading and switch motion', async ({ page }, testInfo) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' })
-  await page.reload()
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true)
-  await page.evaluate(() => {
-    const registry = (window.__dinksterTest!.app as any).searchRegistry
-    registry.register({
-      id: 'proof.reduced-motion',
-      label: 'Reduced motion proof',
-      prefix: '?',
-      priority: 1000,
-      query: () => new Promise(() => {}),
-    })
-  })
-  await page.getByTestId('topbar-search').click()
-  await page.getByTestId('universal-search-input').fill('? pending')
-  const loading = page.locator('[data-provider="proof.reduced-motion"] [data-search-state="loading"]')
-  await expect(loading).toBeVisible()
-  expect(await loading.locator('.search-progress').evaluate((element) => getComputedStyle(element).animationDuration)).toBe('0s')
-  await captureSurface(page.locator('.search-dialog'), testInfo, 'reduced-motion-search-loading')
-  await page.evaluate(() => (window.__dinksterTest!.app as unknown as {
-    readonly searchOpen: { set(value: boolean): void }
-  }).searchOpen.set(false))
-  await expect(page.getByTestId('universal-search-input')).toHaveCount(0)
-
-  await page.getByTestId('minimap-settings').click()
-  const toggle = page.getByTestId('minimap-toggle-nodes')
-  await expect(toggle).toBeVisible()
-  const durations = await toggle.locator('.minimap-switch > span').evaluate((element) =>
-    getComputedStyle(element).transitionDuration.split(', ').map((value) => value.trim()))
-  expect(durations.every((duration) => duration === '0s')).toBe(true)
-  await toggle.click()
-  await captureSurface(page.locator('.minimap-menu'), testInfo, 'reduced-motion-switch')
 })

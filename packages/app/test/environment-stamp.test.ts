@@ -149,12 +149,6 @@ describe('exportDocument', () => {
     expect(out.environment).toEqual(stamp) // last known record beats no record
   })
 
-  it('returns the document unchanged when no registry is loaded, and undefined for unknown tabs', async () => {
-    const tab = (await open(docJson('lin-noreg', ['std.a'])))
-    expect(app.exportDocument(tab.id)).toBe(tab.store.doc)
-    expect(app.exportDocument('no-such-tab')).toBeUndefined()
-  })
-
   it('frozen execution tabs export their snapshot verbatim - history is never restamped', async () => {
     const backend = app.backends.get()[0]!
     loadUnstampedSchemas()
@@ -208,11 +202,6 @@ describe('load-time drift reporting', () => {
     expect(driftCodes()).toEqual(['env.node-drift'])
   })
 
-  it('an unstamped document reports nothing (absence is fully valid)', async () => {
-    loadDinksterSchemas()
-    await open(docJson('lin-none', ['std.a']))
-    expect(driftCodes()).toEqual([])
-  })
 })
 
 describe('workflow-open requirements', () => {

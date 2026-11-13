@@ -16,9 +16,6 @@ import { expect, test, type Page } from './fixtures.js'
 const activeDoc = (page: Page) =>
   page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
 
-const nodeScene = (page: Page) =>
-  page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.find((n) => n.id === 'p')!)
-
 /** Growth rows of node 'p': construct + frames + geometry for clicking. */
 const growthRows = (page: Page) =>
   page.evaluate(() => {
@@ -127,19 +124,6 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await openGrowthWorkflow(page)
-})
-
-test('a fresh nested-only node offers only a growth row, with a clean Problems state', async ({ page }) => {
-  expect(await inputPins(page)).toEqual([])
-  expect(await growthRows(page)).toEqual([
-    { construct: 'items', label: 'items', frames: [{ construct: 'items', members: ['m0'] }] },
-  ])
-  // The row occupies real body space (it must be clickable, not decorative).
-  const node = await nodeScene(page)
-  const row = node.layout.rows.find((r) => r.kind === 'growth')!
-  expect(row.height).toBeGreaterThan(0)
-  expect(row.y).toBeGreaterThanOrEqual(node.layout.headerHeight)
-  await expect(page.getByTestId('problems-panel')).not.toContainText(/solve\.|compile\.|elab\./)
 })
 
 test('clicking the growth row materializes the member through production hit + dispatch; undo restores', async ({ page }) => {

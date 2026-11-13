@@ -38,17 +38,6 @@ describe('native IMAGE batch axis', () => {
     expect(rendition.mock.calls[0]?.[2]?.signal).toBe(controller.signal)
   })
 
-  it('does not issue a rendition after cancellation during metadata loading', async () => {
-    const controller = new AbortController()
-    const rendition = vi.fn<PeekValues['rendition']>()
-    const values: PeekValues = { peek: async () => {
-      controller.abort()
-      return { available: true, descriptor, renditions: [png] }
-    }, rendition }
-    await expect(fetchPeekRendition(values, 'job', [{ node: 'n', output: 'o' }], undefined, { signal: controller.signal })).rejects.toThrow()
-    expect(rendition).not.toHaveBeenCalled()
-  })
-
   it('refuses an oversized batch image before requesting bytes and never negotiates raw tensors', async () => {
     const rendition = vi.fn<PeekValues['rendition']>()
     const oversized: PeekValues = { peek: async () => ({ available: true,

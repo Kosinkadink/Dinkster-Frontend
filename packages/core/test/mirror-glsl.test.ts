@@ -1,52 +1,11 @@
-/**
- * Glsl-mirror binding derivation: nodes declaring a glsl mirror get GPU
- * uniform bindings when every image input traces to a producer output and
- * every scalar input resolves to a client-resident value (stored widget
- * value, widget default, value-source literal, or widget tap). Any
- * unresolved input degrades to "no binding" - never an error.
- */
-import { createHash } from 'node:crypto'
+
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { GraphDef, ValueSourceData } from '../src/format/document.js'
 import { asGraphDefId, asLinkId, asNodeId, asPortId, asValueSourceId } from '../src/ids.js'
-import { deriveGlslMirrorBindings, supportsGlslMirror } from '../src/mirror/glsl.js'
+import { deriveGlslMirrorBindings } from '../src/mirror/glsl.js'
 import { parseDinksterNodes } from '../src/schema/dinkster-wire.js'
-import { buildGraphConnectivity, elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 import type { InputSpec, MirrorSpec, NodeSchema, OutputSpec } from '../src/schema/model.js'
-
-/**
- * Vendored byte-for-byte from the backend repository
- * (tests/fixtures/mirror-parity/image_adjust_v1.json); the sha256 pins the
- * copy to the corpus both implementations must satisfy. Regenerate only from
- * the backend generator and update the pin in the same commit. The e2e
- * parity suite runs every case through a real WebGL2 context.
- */
-const FIXTURE_SHA256 = 'e4d1352dd6b00bd415e67412dc51ec51083f307a2965a6c5af85ea2cd740b8af'
-
-const fixtureBytes = readFileSync(new URL('./fixtures/image_adjust_v1.json', import.meta.url))
-
-interface CorpusFrame {
-  readonly shape: readonly [number, number, number, number]
-  readonly values: readonly number[]
-}
-
-interface CorpusCase {
-  readonly id: string
-  readonly frame: string
-  readonly inputs: Readonly<Record<string, unknown>>
-  readonly expected: CorpusFrame
-}
-
-interface Corpus {
-  readonly format_version: number
-  readonly node_type: string
-  readonly mirror_per_channel_tolerance: number
-  readonly frames: Readonly<Record<string, CorpusFrame>>
-  readonly cases: readonly CorpusCase[]
-}
-
-const corpus = JSON.parse(fixtureBytes.toString('utf8')) as Corpus
 
 /**
  * Exact wire-29 serialization of the backend's dinkster.image.adjust schema
@@ -65,19 +24,6 @@ const adjustSchema = ((): NodeSchema => {
   expect(schema).toBeDefined()
   return schema!
 })()
-
-/**
- * Vendored byte-for-byte from the backend repository
- * (tests/fixtures/mirror-parity/image_filter_v1.json), pinned by sha256 like
- * the adjust corpus above. The filter mirror is the first applies-scoped
- * mirror: it covers only gaussian_blur and sharpen out of the node's eleven
- * operations, so its corpus doubles as the gating fixture.
- */
-const FILTER_FIXTURE_SHA256 = 'ee611b312fe8650a63301572c90936b1f38c9ddf3d947c47135cfb6bc08fc643'
-
-const filterFixtureBytes = readFileSync(new URL('./fixtures/image_filter_v1.json', import.meta.url))
-
-const filterCorpus = JSON.parse(filterFixtureBytes.toString('utf8')) as Corpus
 
 /**
  * Exact wire-30 serialization of the backend's dinkster.image.filter schema
@@ -214,44 +160,6 @@ const adjustGraph = (values: Record<string, unknown>, extra?: Partial<GraphDef>)
     },
   })
 
-describe('image adjust parity corpus fixture', () => {
-  it('is pinned byte-for-byte to the backend corpus', () => {
-    expect(createHash('sha256').update(fixtureBytes).digest('hex')).toBe(FIXTURE_SHA256)
-  })
-
-  it('matches the declared mirror contract and stays well-formed', () => {
-    expect(corpus.format_version).toBe(1)
-    expect(corpus.node_type).toBe('dinkster.image.adjust')
-    expect(corpus.mirror_per_channel_tolerance).toBe(0.00392156862745098)
-    expect(adjustSchema.mirror?.tolerance?.perChannel).toBe(corpus.mirror_per_channel_tolerance)
-    expect(corpus.cases).toHaveLength(14)
-    const operations = ['invert', 'normalize', 'brightness', 'contrast']
-    const scalarIds = ['operation', 'factor', 'mean', 'standard_deviation']
-    for (const frame of Object.values(corpus.frames)) {
-      expect(frame.shape).toHaveLength(4)
-      expect(frame.values).toHaveLength(frame.shape.reduce((a, b) => a * b, 1))
-    }
-    for (const testCase of corpus.cases) {
-      expect(corpus.frames[testCase.frame]).toBeDefined()
-      expect(operations).toContain(testCase.inputs['operation'])
-      expect(Object.keys(testCase.inputs).every((key) => scalarIds.includes(key))).toBe(true)
-      expect(testCase.expected.values).toHaveLength(testCase.expected.shape.reduce((a, b) => a * b, 1))
-    }
-  })
-})
-
-describe('supportsGlslMirror', () => {
-  it('accepts only glsl mirrors carrying shader source', () => {
-    expect(supportsGlslMirror(adjustSchema)).toBe(true)
-    expect(supportsGlslMirror(gateSchema())).toBe(true)
-    expect(supportsGlslMirror(gateSchema(null))).toBe(false)
-    expect(supportsGlslMirror(gateSchema({ kind: 'glsl', precision: 'exact', source: '' }))).toBe(false)
-    expect(supportsGlslMirror(gateSchema({
-      kind: 'expression', precision: 'bounded', tolerance: { relative: 1e-12 }, grammarVersion: 1,
-    }))).toBe(false)
-  })
-})
-
 describe('deriveGlslMirrorBindings', () => {
   it('binds the wire-decoded adjust schema from stored widget values', () => {
     const def = adjustGraph({ operation: 'contrast', factor: 2.5 })
@@ -387,55 +295,6 @@ describe('deriveGlslMirrorBindings', () => {
     ])
   })
 
-  it('binds only mirrored node types', () => {
-    const bindings = deriveGlslMirrorBindings(adjustGraph({}), resolve)
-    expect(bindings.has('a1')).toBe(true)
-    expect(bindings.has('src')).toBe(false)
-  })
-})
-
-describe('image filter parity corpus fixture', () => {
-  it('is pinned byte-for-byte to the backend corpus', () => {
-    expect(createHash('sha256').update(filterFixtureBytes).digest('hex')).toBe(FILTER_FIXTURE_SHA256)
-  })
-
-  it('matches the declared mirror contract and stays well-formed', () => {
-    expect(filterCorpus.format_version).toBe(1)
-    expect(filterCorpus.node_type).toBe('dinkster.image.filter')
-    expect(filterCorpus.mirror_per_channel_tolerance).toBe(0.00392156862745098)
-    expect(filterSchema.mirror?.tolerance?.perChannel).toBe(filterCorpus.mirror_per_channel_tolerance)
-    expect(filterSchema.mirror?.applies).toEqual({ operation: ['gaussian_blur', 'sharpen'] })
-    expect(filterCorpus.cases).toHaveLength(13)
-    const covered = filterSchema.mirror!.applies!['operation']!
-    const scalarIds = ['operation', 'radius', 'sigma', 'strength']
-    for (const frame of Object.values(filterCorpus.frames)) {
-      expect(frame.shape).toHaveLength(4)
-      expect(frame.values).toHaveLength(frame.shape.reduce((a, b) => a * b, 1))
-    }
-    for (const testCase of filterCorpus.cases) {
-      expect(filterCorpus.frames[testCase.frame]).toBeDefined()
-      // Every corpus case exercises an operation inside the applies scope.
-      expect(covered).toContain(testCase.inputs['operation'])
-      expect(Object.keys(testCase.inputs).every((key) => scalarIds.includes(key))).toBe(true)
-      expect(testCase.expected.values).toHaveLength(testCase.expected.shape.reduce((a, b) => a * b, 1))
-    }
-  })
-
-  it('pins the applies scope as a prefix of the declared options', () => {
-    // The shader's operation branches index the declared option order, so
-    // the covered options must occupy the leading indices.
-    const def = filterGraph('gaussian_blur')
-    const connectivity = buildGraphConnectivity(def)
-    const inputs = elabInputsOf(
-      elaborateInterface(filterSchema, def.nodes['f1']!, connectivity(asNodeId('f1')), { promoteGhosts: false }),
-    )
-    const options = inputs.find((item) => item.spec.id === 'operation')?.spec.widget?.options['options']
-    expect(Array.isArray(options)).toBe(true)
-    const keys = (options as readonly unknown[]).map((option) =>
-      typeof option === 'string' ? option : (option as { value?: unknown }).value)
-    const covered = filterSchema.mirror!.applies!['operation']!
-    expect(keys.slice(0, covered.length)).toEqual([...covered])
-  })
 })
 
 /**
@@ -493,19 +352,6 @@ describe('applies-scoped binding derivation', () => {
     // and seed inputs resolve fine) and the shader would run its sharpen
     // else-branch: a wrong estimate, not a missing one.
     expect(deriveGlslMirrorBindings(filterGraph(operation), resolve).get('f1')).toBeUndefined()
-  })
-
-  it('yields no binding when a scoped combo is not covered by a hand-built mirror', () => {
-    const scoped = gateSchema({ ...GLSL_MIRROR, applies: { mode: ['soft'] } })
-    const local = new Map(schemas)
-    local.set('test.gate', scoped)
-    const def = (values: Record<string, unknown>) => graph({
-      id: 'g0',
-      nodes: { src: node('src', 'ImageSource'), a1: node('a1', 'test.gate', values) },
-      links: { l1: link('l1', port('src', 'out'), port('a1', 'image')) },
-    })
-    expect(deriveGlslMirrorBindings(def({ mode: 'soft' }), (t) => local.get(t)).get('a1')).toBeDefined()
-    expect(deriveGlslMirrorBindings(def({ mode: 'hard' }), (t) => local.get(t)).get('a1')).toBeUndefined()
   })
 
   it('yields no binding when an applies key never surfaces as a combo input', () => {

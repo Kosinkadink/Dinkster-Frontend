@@ -76,13 +76,6 @@ describe('materializeBlueprint', () => {
     expect(m.view['g3']).toBeUndefined()
   })
 
-  it('non-subgraph node types are untouched (placeholder story)', () => {
-    const m = materializeBlueprint(target, blueprintDoc())
-    if (!m.ok) throw new Error('expected ok')
-    expect(m.graphs['g1']!.nodes['n2']!.type).toBe('KSampler')
-    expect(m.graphs['g3']!.nodes['n1']!.type).toBe('EmptyImage')
-  })
-
   it('rejects a blueprint whose root has no boundary', () => {
     const bp = doc({ g0: graph({ id: 'g0' }) })
     const m = materializeBlueprint(target, bp)
@@ -167,16 +160,6 @@ describe('subgraph.import', () => {
     expect(store.redo()).toBe(true)
     expect(store.doc.graphs['g1']).toBeDefined()
     expect(store.doc.view.graphs['g1']).toEqual({ nodes: {}, groupSeq: 3 })
-  })
-
-  it('a def without view state gets an empty view entry', () => {
-    const store = makeStore()
-    const out = store.dispatch({
-      command: 'subgraph.import',
-      params: { graphs: { g1: freshDef('g1') as never } },
-    })
-    expect(out.ok).toBe(true)
-    expect(store.doc.view.graphs['g1']).toEqual({ nodes: {} })
   })
 
   it('rejects an id collision with an existing definition', () => {

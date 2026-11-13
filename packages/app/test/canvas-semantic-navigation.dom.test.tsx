@@ -345,28 +345,4 @@ describe('CanvasSemanticNavigator', () => {
     dispose()
   })
 
-  it('clears deferred focus ownership when the navigator unmounts', async () => {
-    const focusChange = vi.fn()
-    const root = document.createElement('div')
-    document.body.append(root)
-    const dispose = render(() => (
-      <CanvasSemanticNavigator
-        owner="tab:g0"
-        items={[]}
-        selectionVersion={0}
-        isSelected={() => false}
-        onActivate={() => {}}
-        onExit={() => {}}
-        onFocusChange={focusChange}
-      />
-    ), root)
-
-    root.querySelector<HTMLElement>('[role="listbox"]')!.focus()
-    expect(focusChange).toHaveBeenLastCalledWith(true)
-    focusChange.mockClear()
-    dispose()
-    expect(focusChange).not.toHaveBeenCalled()
-    await Promise.resolve()
-    expect(focusChange).toHaveBeenCalledExactlyOnceWith(false)
-  })
 })

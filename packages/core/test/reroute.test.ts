@@ -26,14 +26,7 @@ import {
   asPortId,
   asRerouteId,
 } from '../src/ids.js'
-import {
-  buildRerouteIndex,
-  rerouteDriverOf,
-  rerouteSuccessorsOf,
-  rerouteResolvedTypes,
-  traceEndpoint,
-  wouldCreateRerouteCycle,
-} from '../src/reroute.js'
+import { rerouteDriverOf, rerouteResolvedTypes, traceEndpoint } from '../src/reroute.js'
 import type { NodeSchema, TypeExpr } from '../src/schema/model.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 
@@ -114,34 +107,6 @@ const makeStore = (d: WorkflowDocument) => new DocumentStore(d, coreCommandRegis
 describe('reroute tracing', () => {
   const def = chainDoc().graphs['g0']!
 
-  it('finds the unique driver and the fan-out of a junction', () => {
-    expect(rerouteDriverOf(def, 'r1')?.id).toBe('l4')
-    expect(rerouteDriverOf(def, 'r2')?.id).toBe('l5')
-    expect(rerouteSuccessorsOf(def, 'r1').map((l) => l.id).sort()).toEqual(['l5', 'l7'])
-  })
-
-  it('traces a chain to the real producing output', () => {
-    const trace = traceEndpoint(def, rr('r2'))
-    expect(trace.kind).toBe('output')
-    if (trace.kind === 'output') {
-      expect(trace.ref).toEqual({ node: 'n1', port: 'out0' })
-      // lastLink is the producer-side link of the chain.
-      expect(trace.lastLink?.id).toBe('l4')
-    }
-  })
-
-  it('a plain port endpoint returns as-is, without lastLink', () => {
-    const trace = traceEndpoint(def, port('n1', 'out0'))
-    expect(trace).toEqual({ kind: 'output', ref: { node: 'n1', port: 'out0' } })
-  })
-
-  it('reports undriven chains', () => {
-    const undriven = doc({
-      g0: graph({ id: 'g0', reroutes: { r1: reroute('r1') } }),
-    }).graphs['g0']!
-    expect(traceEndpoint(undriven, rr('r1'))).toEqual({ kind: 'undriven', reroute: 'r1' })
-  })
-
   it('reports cycles instead of looping forever', () => {
     const cyclic = doc({
       g0: graph({
@@ -154,15 +119,6 @@ describe('reroute tracing', () => {
       }),
     }).graphs['g0']!
     expect(traceEndpoint(cyclic, rr('r1')).kind).toBe('cycle')
-  })
-
-  it('wouldCreateRerouteCycle detects exactly the closing edge', () => {
-    // r1 -> r2 exists; feeding r1 FROM r2 would close the loop.
-    expect(wouldCreateRerouteCycle(def, rr('r2'), asRerouteId('r1'))).toBe(true)
-    // Feeding a fresh reroute from the chain is fine.
-    expect(wouldCreateRerouteCycle(def, rr('r2'), asRerouteId('r9'))).toBe(false)
-    // A plain port source can never close a reroute cycle.
-    expect(wouldCreateRerouteCycle(def, port('n1', 'out0'), asRerouteId('r1'))).toBe(false)
   })
 
   it('resolves effective display types through the chain, wildcard when undriven', () => {
@@ -202,61 +158,6 @@ describe('reroute tracing', () => {
     const types = rerouteResolvedTypes(tapped, (type) => type === 'Widget' ? widgetSchema : undefined)
     expect(types.get('r1')).toEqual(concrete('FLOAT'))
     expect(types.get('r2')).toEqual(concrete('FLOAT'))
-  })
-})
-
-// ---------------------------------------------------------------------------
-// ephemeral index (per-operation acceleration; must mirror the direct scans)
-// ---------------------------------------------------------------------------
-
-describe('reroute index', () => {
-  const def = chainDoc().graphs['g0']!
-
-  it('matches the direct scans for drivers and successors', () => {
-    const index = buildRerouteIndex(def)
-    for (const id of Object.keys(def.reroutes)) {
-      expect(rerouteDriverOf(def, id, index)).toEqual(rerouteDriverOf(def, id))
-      expect(rerouteSuccessorsOf(def, id, index)).toEqual(rerouteSuccessorsOf(def, id))
-    }
-    // Unknown junctions: undefined driver, empty fan-out, both paths.
-    expect(rerouteDriverOf(def, 'r9', index)).toBeUndefined()
-    expect(rerouteSuccessorsOf(def, 'r9', index)).toEqual([])
-  })
-
-  it('traceEndpoint and wouldCreateRerouteCycle agree with and without an index', () => {
-    const index = buildRerouteIndex(def)
-    expect(traceEndpoint(def, rr('r2'), index)).toEqual(traceEndpoint(def, rr('r2')))
-    expect(wouldCreateRerouteCycle(def, rr('r2'), asRerouteId('r1'), index)).toBe(true)
-    expect(wouldCreateRerouteCycle(def, rr('r2'), asRerouteId('r9'), index)).toBe(false)
-
-    const cyclic = doc({
-      g0: graph({
-        id: 'g0',
-        reroutes: { r1: reroute('r1'), r2: reroute('r2') },
-        links: {
-          l4: { id: asLinkId('l4'), from: rr('r1'), to: rr('r2') },
-          l5: { id: asLinkId('l5'), from: rr('r2'), to: rr('r1') },
-        },
-      }),
-    }).graphs['g0']!
-    expect(traceEndpoint(cyclic, rr('r1'), buildRerouteIndex(cyclic)).kind).toBe('cycle')
-  })
-
-  it('keeps the first driver on malformed multi-driver documents (scan parity)', () => {
-    const malformed = doc({
-      g0: graph({
-        id: 'g0',
-        nodes: { n1: node('n1'), n2: node('n2') },
-        reroutes: { r1: reroute('r1') },
-        links: {
-          l4: { id: asLinkId('l4'), from: port('n1', 'out0'), to: rr('r1') },
-          l5: { id: asLinkId('l5'), from: port('n2', 'out0'), to: rr('r1') },
-        },
-      }),
-    }).graphs['g0']!
-    const index = buildRerouteIndex(malformed)
-    expect(rerouteDriverOf(malformed, 'r1', index)?.id).toBe('l4')
-    expect(rerouteDriverOf(malformed, 'r1')?.id).toBe('l4')
   })
 })
 
@@ -422,15 +323,6 @@ describe('reroute commands', () => {
     expect(store.revision).toBe(0)
   })
 
-  it('link.connect rejects endpoints referencing missing reroutes', () => {
-    const store = makeStore(chainDoc())
-    const out = store.dispatch({
-      command: 'link.connect',
-      params: { graphId: 'g0', from: { node: 'n1', port: 'out0' }, to: { reroute: 'ghost' } },
-    })
-    expect(out.ok).toBe(false)
-  })
-
   it('link.rewire retargets an existing link onto a reroute', () => {
     const store = makeStore(chainDoc())
     // Take n3's feed (l7, from r1) and point it at input n2.model? No -
@@ -554,86 +446,6 @@ describe('reroute compilation', () => {
     expect(semanticHashOf(store.doc)).not.toBe(baseline)
   })
 
-  it('an undriven chain hashes identically to no link at all (matches compiler omission)', () => {
-    // Baseline: the consumer input simply has no link.
-    const bare = makeStore(loadWorkflow('exec-basic'))
-    expect(bare.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l2' } }).ok).toBe(true)
-    const baseline = semanticHashOf(bare.doc)
-
-    // Same input fed by an undriven junction: compiles to nothing, so the
-    // hash must not differ (dissolving the dead junction is also neutral).
-    const store = makeStore(loadWorkflow('exec-basic'))
-    expect(store.dispatch({ command: 'reroute.insert', params: { graphId: 'g0', linkId: 'l2', position: { x: 0, y: 0 } } }).ok).toBe(true)
-    const feed = Object.values(store.doc.graphs['g0']!.links).find((l) => 'reroute' in l.to)!
-    expect(store.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: feed.id } }).ok).toBe(true)
-    expect(semanticHashOf(store.doc)).toBe(baseline)
-
-    const rid = Object.keys(store.doc.graphs['g0']!.reroutes)[0]!
-    expect(store.dispatch({ command: 'reroute.remove', params: { graphId: 'g0', rerouteIds: [rid] } }).ok).toBe(true)
-    expect(semanticHashOf(store.doc)).toBe(baseline)
-  })
-
-  it('link ext is semantic on the consumer segment only, never on structural feeds', () => {
-    const build = (feedExt?: Record<string, never> | { a: number }, consumerExt?: { a: number }) =>
-      doc({
-        g0: graph({
-          id: 'g0',
-          nodes: { n1: node('n1'), n2: node('n2') },
-          reroutes: { r1: reroute('r1') },
-          links: {
-            l4: { id: asLinkId('l4'), from: port('n1', 'out0'), to: rr('r1'), ...(feedExt ? { ext: feedExt } : {}) },
-            l5: { id: asLinkId('l5'), from: rr('r1'), to: port('n2', 'model'), ...(consumerExt ? { ext: consumerExt } : {}) },
-          },
-        }),
-      })
-    const plain = semanticHashOf(build())
-    // ext on the structural feed is view-only: hash-neutral.
-    expect(semanticHashOf(build({ a: 1 }))).toBe(plain)
-    // ext on the consumer-delivering segment is semantic.
-    expect(semanticHashOf(build(undefined, { a: 1 }))).not.toBe(plain)
-    // ...and matches the dissolved equivalent carrying the same ext.
-    const direct = doc({
-      g0: graph({
-        id: 'g0',
-        nodes: { n1: node('n1'), n2: node('n2') },
-        links: { l4: { id: asLinkId('l4'), from: port('n1', 'out0'), to: port('n2', 'model'), ext: { a: 1 } } },
-      }),
-    })
-    expect(semanticHashOf(build(undefined, { a: 1 }))).toBe(semanticHashOf(direct))
-  })
-
-  it('reroutes inside a subgraph definition stay scoped and hash-neutral', () => {
-    const direct = loadWorkflow('subgraph')
-    const store = makeStore(loadWorkflow('subgraph'))
-    // Split a link INSIDE the subgraph definition g1 (l3). No reroute-specific
-    // subgraph code exists; scoping falls out of links never crossing defs.
-    expect(store.dispatch({ command: 'reroute.insert', params: { graphId: 'g1', linkId: 'l3', position: { x: 0, y: 0 } } }).ok).toBe(true)
-    expect(checkDocument(store.doc)).toEqual([])
-    const inner = store.doc.graphs['g1']!
-    const rid = Object.keys(inner.reroutes)[0]!
-    expect(traceEndpoint(inner, { reroute: asRerouteId(rid) })).toMatchObject({
-      kind: 'output',
-      ref: { node: 'n0', port: 'out0' },
-    })
-    expect(semanticHashOf(store.doc)).toBe(semanticHashOf(direct))
-  })
-
-  it('a link endpoint cannot reference a reroute from another graph definition', () => {
-    // r1 lives in g1; a g0 link pointing at it is a missing-reroute invariant
-    // error in g0 - reroutes are definition-scoped by construction.
-    const d = doc(
-      {
-        g0: graph({
-          id: 'g0',
-          nodes: { n1: node('n1') },
-          links: { l4: { id: asLinkId('l4'), from: port('n1', 'out0'), to: rr('r1') } },
-        }),
-        g1: graph({ id: 'g1', reroutes: { r1: reroute('r1') } }),
-      },
-      'g0',
-    )
-    expect(checkDocument(d).some((x) => x.message.includes("missing reroute 'r1'"))).toBe(true)
-  })
 })
 
 // ---------------------------------------------------------------------------

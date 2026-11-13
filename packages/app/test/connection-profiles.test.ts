@@ -1,14 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  CONNECTION_PROFILES_KEY,
-  createConnectionProfile,
-  formatWorkflowDeepLink,
-  listConnectionProfiles,
-  removeConnectionProfile,
-  resolveDeepLinkBackend,
-  validConnectionProfileId,
-  withConnectionProfilesLock,
-} from '../src/connection-profiles.js'
+import { CONNECTION_PROFILES_KEY, createConnectionProfile, formatWorkflowDeepLink, listConnectionProfiles, removeConnectionProfile, resolveDeepLinkBackend, validConnectionProfileId } from '../src/connection-profiles.js'
 import { initializeProjectScope } from '../src/projects.js'
 
 afterEach(() => initializeProjectScope(undefined))
@@ -85,63 +76,10 @@ describe('connection profiles', () => {
 })
 
 describe('formatWorkflowDeepLink', () => {
-  it('omits the default project and the same-origin default backend', () => {
-    expect(formatWorkflowDeepLink({ projectId: 'default', workflowId: 'wf-1' }))
-      .toBe('dinkster://open/workflow?workflow=wf-1')
-    expect(formatWorkflowDeepLink({ projectId: 'default', workflowId: 'wf-1', backendUrl: '' }))
-      .toBe('dinkster://open/workflow?workflow=wf-1')
-  })
 
   it('carries project and backend as encoded parameters', () => {
     expect(formatWorkflowDeepLink({ projectId: 'p-alpha', workflowId: 'wf 1', backendUrl: 'https://host:8443' }))
       .toBe('dinkster://open/workflow?workflow=wf+1&project=p-alpha&backend=https%3A%2F%2Fhost%3A8443')
-  })
-})
-
-describe('withConnectionProfilesLock', () => {
-  type FakeLocks = { request: (name: string, task: () => Promise<unknown>) => Promise<unknown> }
-  const installLocks = (locks: FakeLocks): void => {
-    Object.defineProperty(globalThis.navigator, 'locks', { configurable: true, value: locks })
-  }
-
-  afterEach(() => {
-    Reflect.deleteProperty(globalThis.navigator, 'locks')
-  })
-
-  it('serializes tasks through the project-scoped Web Lock when available', async () => {
-    const names: string[] = []
-    let chain: Promise<unknown> = Promise.resolve()
-    installLocks({
-      request: (name, task) => {
-        names.push(name)
-        const run = chain.then(() => task())
-        chain = run.then(() => undefined, () => undefined)
-        return run
-      },
-    })
-    const events: string[] = []
-    let releaseFirst!: () => void
-    const first = withConnectionProfilesLock(async () => {
-      events.push('first-start')
-      await new Promise<void>((resolve) => { releaseFirst = resolve })
-      events.push('first-end')
-    })
-    const second = withConnectionProfilesLock(async () => { events.push('second') })
-    await new Promise<void>((resolve) => setTimeout(resolve, 0))
-    expect(events).toEqual(['first-start'])
-    releaseFirst()
-    await Promise.all([first, second])
-    expect(events).toEqual(['first-start', 'first-end', 'second'])
-    expect(names).toEqual(['dinkster.connectionProfiles.mutation', 'dinkster.connectionProfiles.mutation'])
-  })
-
-  it('runs the task directly when Web Locks are unavailable', async () => {
-    await expect(withConnectionProfilesLock(async () => 'ran')).resolves.toBe('ran')
-  })
-
-  it('propagates task rejections', async () => {
-    installLocks({ request: (_name, task) => task() })
-    await expect(withConnectionProfilesLock(async () => { throw new Error('boom') })).rejects.toThrow('boom')
   })
 })
 

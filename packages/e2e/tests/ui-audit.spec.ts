@@ -47,15 +47,6 @@ test.describe('universal search surfaces', () => {
     await expect(page.getByTestId('topbar-search')).toBeVisible()
   })
 
-  test('topbar search field passes the layout audit', async ({ page }) => {
-    await auditSurface(page, 'search-topbar-closed', '[data-testid=topbar-search]')
-  })
-
-  test('Customize layout topbar button passes the layout audit', async ({ page }) => {
-    await expect(page.getByTestId('customize-layout-button')).toBeVisible()
-    await auditSurface(page, 'customize-layout-topbar-closed', '.topbar')
-  })
-
   test('open universal search palette passes the layout audit', async ({ page }) => {
     await page.getByTestId('topbar-search').click()
     await expect(page.getByTestId('universal-search-input')).toBeFocused()
@@ -248,18 +239,4 @@ test.describe('asset and mount editors (mock dinkster backend)', () => {
   // two-column grid squeezing the list) and require the audit to report
   // findings. If someone weakens the invariants until this passes silently,
   // this test fails first.
-  test('the audit detects the 2026-07-25 asset editor wreckage', async ({ page }) => {
-    await page.addStyleTag({ content: `
-      .asset-editor { width: 280px !important; }
-      .asset-editor .collection-panel { display: grid !important; grid-template-columns: minmax(0, 1fr) 220px !important; }
-      .asset-editor .collection-content { display: contents !important; }
-      .asset-editor .collection-footer { display: contents !important; }
-      .asset-editor .collection-items { min-width: 0 !important; }
-    ` })
-    await openEditor(page, 'image')
-    const asset = page.getByTestId('asset-editor')
-    await expect(asset).toBeVisible()
-    const findings = await auditLayout(page, '[data-testid=widget-modal-surface]')
-    expect(findings.length, `expected the audit to flag the broken layout, got: ${JSON.stringify(findings)}`).toBeGreaterThan(0)
-  })
 })

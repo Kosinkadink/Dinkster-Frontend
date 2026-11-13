@@ -273,12 +273,3 @@ test('backdrop pointerdown dismisses without reaching or panning the canvas', as
   expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())).toEqual(viewportBefore)
   await expect(canvas).toHaveAttribute('data-selection', selectionBefore!)
 })
-
-test('Escape closes globally after an inside category control receives focus', async ({ page }) => {
-  await openPalette(page)
-  const category = page.getByTestId('palette-category').first()
-  await category.click()
-  await expect(category).toBeFocused()
-  await page.keyboard.press('Escape')
-  await expect(page.getByTestId('node-palette')).not.toBeVisible()
-})

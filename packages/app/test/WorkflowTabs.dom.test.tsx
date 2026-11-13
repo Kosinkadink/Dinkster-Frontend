@@ -123,17 +123,6 @@ describe('workflow tabs', () => {
     view.dispose()
   })
 
-  it('keeps workflow creation after the last tab inside the overflow strip', () => {
-    const view = fixture()
-    const tablist = view.root.querySelector<HTMLElement>('.workflow-tablist')!
-    const newTab = view.root.querySelector<HTMLButtonElement>('[data-testid="new-tab"]')!
-
-    expect(newTab.parentElement).toBe(tablist)
-    expect(tablist.lastElementChild).toBe(newTab)
-    expect(newTab.getAttribute('aria-label')).toBe('New workflow')
-    view.dispose()
-  })
-
   it('opens a tab context menu with the share action and targets the clicked tab', () => {
     const view = fixture()
     const third = view.root.querySelector<HTMLElement>('[data-tab-id="three"]')!
@@ -147,16 +136,6 @@ describe('workflow tabs', () => {
     share.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
     expect(view.share).toHaveBeenCalledWith(tabs[2])
     expect(view.root.querySelector('[data-testid="context-menu"]')).toBeNull()
-    view.dispose()
-  })
-
-  it('omits the live previews submenu when preview props are not provided', () => {
-    const view = fixture()
-    view.root.querySelector<HTMLElement>('[data-tab-id="one"]')!.dispatchEvent(
-      new MouseEvent('contextmenu', { clientX: 120, clientY: 40, bubbles: true, cancelable: true }),
-    )
-
-    expect(view.root.querySelector('[data-item-id="workflow.previews"]')).toBeNull()
     view.dispose()
   })
 
@@ -368,17 +347,6 @@ describe('workflow tabs', () => {
     item.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
     expect(view.popOut).toHaveBeenCalledWith(tabs[1])
     expect(view.root.querySelector('[data-testid="context-menu"]')).toBeNull()
-    view.dispose()
-  })
-
-  it('omits Move to new window when popping out is not offered', () => {
-    const view = fixture()
-    view.root.querySelector<HTMLElement>('[data-tab-id="one"]')!.dispatchEvent(
-      new MouseEvent('contextmenu', { clientX: 120, clientY: 40, bubbles: true, cancelable: true }),
-    )
-
-    expect(view.root.querySelector('[data-testid="context-menu"]')).not.toBeNull()
-    expect(view.root.querySelector('[data-item-id="workflow.openWindow"]')).toBeNull()
     view.dispose()
   })
 

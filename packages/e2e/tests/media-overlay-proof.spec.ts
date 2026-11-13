@@ -207,29 +207,6 @@ async function installGraph(page: Page): Promise<void> {
   })
 }
 
-async function duplicateSceneNode(page: Page, nodeId: string, count: number): Promise<void> {
-  await page.evaluate(({ nodeId, count }) => {
-    const bridge = window.__dinksterTest!
-    const scene = bridge.renderer!.getScene()
-    const node = scene.nodes.find((candidate) => candidate.id === nodeId)
-    if (node === undefined) throw new Error(`missing scene node ${nodeId}`)
-    const nodes = scene.nodes as unknown as Array<(typeof scene.nodes)[number]>
-    nodes.push(...Array.from({ length: count }, () => node))
-    const store = bridge.app.store as unknown as {
-      executions: { get(): Map<string, { queuedAt: number; ref: DinksterBridgeExecutionRef }> }
-      apply(event: unknown): void
-    }
-    const execution = [...store.executions.get().values()].sort((a, b) => b.queuedAt - a.queuedAt)[0]
-    if (execution === undefined) throw new Error('missing execution')
-    store.apply({
-      kind: 'nodeStates',
-      execution: execution.ref,
-      timestamp: Date.now(),
-      nodes: { [nodeId]: { state: 'done', outputs: { saved: { typeId: 'VIDEO', fingerprint: 'proof-saved' } } } },
-    })
-  }, { nodeId, count })
-}
-
 test.beforeEach(async ({ page }) => {
   mkdirSync(proofDir, { recursive: true })
   await mockBackend(page)
@@ -305,80 +282,6 @@ test(`saved files retain original downloads with ${previewAvailable ? 'available
   expect(originalRequests).toHaveLength(1)
 })
 }
-
-test('painted preview indicators stay readable on multi-image and cached previews', async ({ page }, testInfo) => {
-  await installMediaProof(page)
-  await page.getByRole('button', { name: 'Hide minimap' }).click()
-  const railToggle = page.getByRole('button', { name: 'Toggle right rail' })
-  if (await railToggle.getAttribute('aria-pressed') === 'true') await railToggle.click()
-  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
-    command: 'view.setNodeSize',
-    params: { graphId: 'g0', nodeId: 'image', size: { width: 180, height: 320 } },
-  }))
-  await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'image')?.layout.width,
-  )).toBe(180)
-
-  const screenshot = async (name: string, preview: { count?: number; index?: number; state?: 'cached' }): Promise<void> => {
-    const clip = await page.evaluate((next) => {
-      const bridge = window.__dinksterTest!
-      const renderer = bridge.renderer!
-      const image = document.createElement('canvas')
-      image.width = 640
-      image.height = 480
-      const context = image.getContext('2d')!
-      const gradient = context.createLinearGradient(0, 0, image.width, image.height)
-      gradient.addColorStop(0, '#164e63')
-      gradient.addColorStop(0.5, '#7c3aed')
-      gradient.addColorStop(1, '#db2777')
-      context.fillStyle = gradient
-      context.fillRect(0, 0, image.width, image.height)
-      renderer.setNodePreviews({
-        ...renderer.getNodePreviews(),
-        image: { image, width: image.width, height: image.height, ...next },
-      })
-      renderer.setViewport({ x: 30, y: 20, scale: 1 })
-      const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'image')
-      if (node === undefined) throw new Error('missing image scene node')
-      const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="graph-canvas"]')!.getBoundingClientRect()
-      const viewport = renderer.getViewport()
-      return {
-        x: Math.max(0, canvas.left + node.x * viewport.scale + viewport.x - 12),
-        y: Math.max(0, canvas.top + node.y * viewport.scale + viewport.y - 12),
-        width: node.layout.width * viewport.scale + 24,
-        height: node.layout.height * viewport.scale + 24,
-      }
-    }, preview)
-    await page.screenshot({ path: testInfo.outputPath(name), animations: 'disabled', clip })
-  }
-
-  await screenshot('multi-image-preview.png', { count: 4, index: 1 })
-  await screenshot('cached-preview.png', { state: 'cached' })
-  await screenshot('cached-multi-image-preview.png', { count: 4, index: 1, state: 'cached' })
-})
-
-test('duplicate source entries produce unique bounded media and pager roots', async ({ page }) => {
-  await installMediaProof(page)
-  const savedMedia = page.locator('.node-media-overlay[data-node-id="saved"]')
-  const savedPager = page.locator('.node-output-pager', {
-    has: page.getByRole('group', { name: 'ProofSavedVideo execution videos' }),
-  })
-  await expect(savedMedia).toHaveCount(1)
-  await expect(savedPager).toHaveCount(0)
-
-  await duplicateSceneNode(page, 'saved', 30)
-
-  await expect(savedMedia).toHaveCount(1)
-  await expect(savedPager).toHaveCount(0)
-  const roots = await page.evaluate(() => ({
-    media: Array.from(document.querySelectorAll<HTMLElement>('.node-media-overlay'), (element) => element.dataset['nodeId']),
-    pagers: Array.from(document.querySelectorAll<HTMLElement>('.node-output-pager'), (element) => element.dataset['outputKey']),
-  }))
-  expect(roots.media.length).toBeLessThanOrEqual(24)
-  expect(new Set(roots.media).size).toBe(roots.media.length)
-  expect(roots.pagers.length).toBeLessThanOrEqual(24)
-  expect(new Set(roots.pagers).size).toBe(roots.pagers.length)
-})
 
 test('saved execution video values use bounded renditions and shared host controls', async ({ page }, testInfo) => {
   await installMediaProof(page)

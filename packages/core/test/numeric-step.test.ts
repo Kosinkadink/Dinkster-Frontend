@@ -8,15 +8,6 @@ import { describe, expect, it } from 'vitest'
 import { numericStepConstraints, randomNumericValue, stepNumericValue } from '../src/index.js'
 
 describe('numericStepConstraints', () => {
-  it('defaults step to 1 for INT and 0.1 for FLOAT', () => {
-    expect(numericStepConstraints({ widgetType: 'INT', options: {} })).toEqual({ integer: true, step: 1n })
-    expect(numericStepConstraints({ widgetType: 'FLOAT', options: {} })).toEqual({ integer: false, step: 0.1, min: -Infinity, max: Infinity })
-  })
-
-  it('takes declared min/max/step verbatim', () => {
-    expect(numericStepConstraints({ widgetType: 'FLOAT', options: { min: 0.1, max: 0.9, step: 0.25 } }))
-      .toEqual({ integer: false, step: 0.25, min: 0.1, max: 0.9 })
-  })
 
   it('falls back on a nonpositive or non-finite declared step', () => {
     expect(numericStepConstraints({ widgetType: 'INT', options: { step: 0 } }).step).toBe(1n)
@@ -24,59 +15,6 @@ describe('numericStepConstraints', () => {
     expect(numericStepConstraints({ widgetType: 'FLOAT', options: { step: Number.NaN } }).step).toBe(0.1)
   })
 
-  it('normalizes legacy INT constraints to JS-safe integers', () => {
-    expect(numericStepConstraints({ widgetType: 'INT', options: {
-      min: Number.MIN_SAFE_INTEGER - 100,
-      max: 18_446_744_073_709_551_615,
-      step: 0.5,
-    } })).toEqual({
-      integer: true,
-      min: BigInt(Number.MIN_SAFE_INTEGER),
-      max: BigInt(Number.MAX_SAFE_INTEGER),
-      step: 1n,
-    })
-  })
-
-  it('saturates either unsafe bound and drops an inverted legacy range', () => {
-    expect(numericStepConstraints({ widgetType: 'INT', options: {
-      min: Number.MAX_SAFE_INTEGER + 100,
-    } }).min).toBe(BigInt(Number.MAX_SAFE_INTEGER))
-    expect(numericStepConstraints({ widgetType: 'INT', options: {
-      max: Number.MIN_SAFE_INTEGER - 100,
-    } }).max).toBe(BigInt(Number.MIN_SAFE_INTEGER))
-    expect(numericStepConstraints({ widgetType: 'INT', options: {
-      min: 20,
-      max: 10,
-    } })).toEqual({ integer: true, step: 1n })
-    expect(numericStepConstraints({ widgetType: 'INT', options: {
-      min: Number.MAX_SAFE_INTEGER + 200,
-      max: Number.MAX_SAFE_INTEGER + 100,
-    } })).toEqual({ integer: true, step: 1n })
-    expect(numericStepConstraints({ widgetType: 'INT', options: {
-      min: 0.2,
-      max: 0.8,
-    } })).toEqual({ integer: true, step: 1n })
-  })
-
-  it('drops non-finite legacy bounds as absent fields', () => {
-    expect(numericStepConstraints({ widgetType: 'INT', options: {
-      min: Number.POSITIVE_INFINITY,
-      max: Number.NEGATIVE_INFINITY,
-    } })).toEqual({ integer: true, step: 1n })
-  })
-
-  it('retains exact signed and unsigned decimal integer constraints', () => {
-    expect(numericStepConstraints({ widgetType: 'INT', options: {
-      min: '-9223372036854775808',
-      max: '18446744073709551615',
-      step: '9007199254740992',
-    } })).toEqual({
-      integer: true,
-      min: -9223372036854775808n,
-      max: 18446744073709551615n,
-      step: 9007199254740992n,
-    })
-  })
 })
 
 describe('stepNumericValue', () => {

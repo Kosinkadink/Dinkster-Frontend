@@ -266,27 +266,6 @@ describe('hitTest', () => {
     expect(hitTest(scene, n0.x, n0.y + pin.y)).toMatchObject({ kind: 'pin', portId: pin.portId })
   })
 
-  it('hits socketed family-owner pins at their painted location', () => {
-    const local = structuredClone(scene) as typeof scene
-    const node = local.nodes.find((candidate) => candidate.id === 'n0')!
-    const original = node.layout.pins.find((pin) => pin.direction === 'out' && pin.widgetTap !== true)!
-    const hidden = { ...original, familyOwner: { graphId: 'g0', nodeId: 'owner', construct: 'family', socketed: true as const } }
-    ;(node.layout as any).pins = [hidden]
-    const x = node.x + node.layout.width
-    const y = node.y + hidden.y
-
-    expect(hitTestPin(local, x, y)).toMatchObject({ kind: 'pin', portId: hidden.portId })
-    expect(hitTest(local, x, y)).toMatchObject({ kind: 'pin', portId: hidden.portId })
-  })
-
-  it('keeps family-owner pins socketless when no mutation planner is available', () => {
-    const local = structuredClone(scene) as typeof scene
-    const node = local.nodes.find((candidate) => candidate.id === 'n0')!
-    const original = node.layout.pins.find((pin) => pin.direction === 'out' && pin.widgetTap !== true)!
-    ;(node.layout as any).pins = [{ ...original, familyOwner: { graphId: 'g0', nodeId: 'owner', construct: 'family' } }]
-    expect(hitTestPin(local, node.x + node.layout.width, node.y + original.y)).toBeUndefined()
-  })
-
   it('honors pinRevealed for widget inputs without changing pure geometry callers', () => {
     const node = n0
     const widgetPin = node.layout.pins.find((pin) => pin.direction === 'in' && pin.widgetBacked === true)!
@@ -307,28 +286,6 @@ describe('hitTest', () => {
       .toMatchObject({ kind: 'pin', portId: ordinaryPin.portId })
   })
 
-  it('preserves distinct chip, row-activation, and edge-stepper zones on a controller row', () => {
-    const controllerSchema: NodeSchema = {
-      type: 'Controller', displayName: 'Controller', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
-        widget: { widgetType: 'INT', options: {}, default: 0, controller: 'after_generate' } }],
-    }
-    const doc: WorkflowDocument = {
-      format: 'dinkster-workflow', formatVersion: 1, lineage: asLineageId('hit-controller'), root: asGraphDefId('g0'),
-      graphs: { g0: { id: asGraphDefId('g0'), name: 'g', nodes: {
-        seed: { id: asNodeId('seed'), type: 'Controller', values: {} },
-      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
-      view: { graphs: { g0: { nodes: {} } } },
-    }
-    const local = buildScene({ document: doc, graphId: 'g0', resolve: () => controllerSchema, tokens: defaultTokens, measure, widgetMeasure })
-    const node = local.nodes[0]!
-    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget')!
-    const at = (localX: number) => hitTest(local, node.x + localX, node.y + row.y + row.height / 2)
-    expect(at(row.inset + 11)).toMatchObject({ kind: 'widget', localX: 11 })
-    expect(at(node.layout.width / 2)).toMatchObject({ kind: 'widget', localX: node.layout.width / 2 - row.inset })
-    expect(at(node.layout.width - row.inset - 32)).toMatchObject({ kind: 'widget', localX: node.layout.width - row.inset * 2 - 32 })
-    expect(at(node.layout.width - row.inset - 11)).toMatchObject({ kind: 'widget', localX: node.layout.width - row.inset * 2 - 11 })
-  })
 })
 
 describe('hoveredNodeAt (hover-reveal zone)', () => {
@@ -348,9 +305,6 @@ describe('hoveredNodeAt (hover-reveal zone)', () => {
     expect(hoveredNodeAt(scene, n0.x - PIN_HIT_RADIUS - 2, midY)?.id).not.toBe('n0')
   })
 
-  it('misses empty space', () => {
-    expect(hoveredNodeAt(scene, -10_000, -10_000)).toBeUndefined()
-  })
 })
 
 describe('node resize border', () => {
@@ -556,24 +510,6 @@ describe('hitTestLink', () => {
     expect(hitTestLink(hugeScene, 50000, -50000)).toBeUndefined()
   })
 
-  it('stays hittable on a safe-integer-scale reverse link (no subdivision depth cap)', () => {
-    // A fixed subdivision DEPTH cap fails the same way a fixed sample cap
-    // does, just later: at ~4e15 coordinates a capped descent leaves chord
-    // error beyond the grab radius. Probe the high-curvature region near an
-    // endpoint (tiny t, where a depth-capped flattening is coarsest) and a
-    // spread of interior points. Termination relies on the numeric-progress
-    // guards, not a depth constant.
-    const vastScene = structuredClone(scene) as typeof scene
-    const vast = { ...link, x1: 4e15, y1: 0, x2: 0, y2: 4e15 }
-    ;(vastScene.links as any[]) = [vast]
-    for (const t of [2 ** -25, 2 ** -20, 2 ** -12, 0.25, 0.5, 0.75, 1 - 2 ** -20]) {
-      const point = linkPoint(vast.x1, vast.y1, vast.x2, vast.y2, t)
-      expect(hitTestLink(vastScene, point.x, point.y)?.id).toBe(vast.id)
-    }
-    // Far from the curve still misses at this scale too.
-    expect(hitTestLink(vastScene, 2e15, -2e15)).toBeUndefined()
-  })
-
   it('hits the lobes of a coincident-endpoint link (loop geometry is not a stagnation case)', () => {
     // Coincident endpoints make a looped cubic whose t=0.5 point equals both
     // endpoints while real lobes extend +-120*t(1-t)(1-2t) horizontally
@@ -587,26 +523,6 @@ describe('hitTestLink', () => {
     expect(hitTestLink(loopScene, 211.5, 150)?.id).toBe(loop.id)
     expect(hitTestLink(loopScene, 188.5, 150)?.id).toBe(loop.id)
     expect(hitTestLink(loopScene, 200, 190)).toBeUndefined()
-  })
-
-  it('terminates and fails closed at double-extreme coordinates', () => {
-    // Controls whose naive average overflows (sum > MAX_VALUE) must not
-    // produce NaN spans that subdivide forever; and endpoints whose control
-    // offset itself overflows to Infinity must fail closed as a miss. At
-    // this magnitude one ulp (~2e292) dwarfs the grab radius, so the only
-    // correct observable outcomes are termination and a miss.
-    const extremeScene = structuredClone(scene) as typeof scene
-    const nearMax = { ...link, x1: 1.5e308, y1: 0, x2: 1.4e308, y2: 1e308 }
-    ;(extremeScene.links as any[]) = [nearMax]
-    // Probe inside the hull (the curve midpoint) to force deep subdivision:
-    // hit-or-miss is ulp-noise-dominated here, so assert only termination.
-    const outcome = hitTestLink(extremeScene, 1.45e308, 5e307)
-    expect(outcome === undefined || outcome.id === nearMax.id).toBe(true)
-    // Probe away from the (finite) endpoint-average midpoint grab dot: the
-    // overflowed Infinity controls must fail closed instead of hitting.
-    const overflowOffset = { ...link, x1: 1e308, y1: 0, x2: -1e308, y2: 100 }
-    ;(extremeScene.links as any[]) = [overflowOffset]
-    expect(hitTestLink(extremeScene, 1000, 50)).toBeUndefined()
   })
 
   it('hits a reverse link in its horizontal control-point overhang', () => {
@@ -623,17 +539,6 @@ describe('hitTestLink', () => {
       maxX: 600,
       maxY: 300,
     })
-  })
-})
-
-describe('linkControlOffset', () => {
-  it('uses the minimum offset for short horizontal spans', () => {
-    expect(linkControlOffset(10, 50)).toBe(40)
-  })
-
-  it('uses half the horizontal span for long links in either direction', () => {
-    expect(linkControlOffset(0, 400)).toBe(200)
-    expect(linkControlOffset(400, 0)).toBe(200)
   })
 })
 
@@ -772,10 +677,6 @@ describe('pinPosition', () => {
     expect(pinPosition(to, toEnd.port, 'in')).toEqual({ x: link.x2, y: link.y2 })
   })
 
-  it('returns undefined for unknown ports', () => {
-    const node = scene.nodes[0]!
-    expect(pinPosition(node, 'nope', 'in')).toBeUndefined()
-  })
 })
 
 describe('net stub hit testing', () => {

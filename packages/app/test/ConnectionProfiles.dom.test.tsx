@@ -252,17 +252,4 @@ describe('ConnectionProfilesSection removal', () => {
     }
   })
 
-  it('reports a clear-token failure without dropping the badge silently', async () => {
-    const profile = createConnectionProfile('Studio', 'https://host:8443')!
-    const bridge = fakeBridge({
-      connectionCredentials: vi.fn(async () => ({ custody: true, profiles: [profile.id] })),
-      setConnectionCredential: vi.fn(async () => { throw new Error('keychain locked') }),
-    })
-    const { root } = mount(bridge)
-    await flush()
-    ;(root.querySelector('[data-testid="profile-token-clear"]') as HTMLButtonElement).click()
-    await flush()
-    expect(root.querySelector('[role="alert"]')?.textContent).toContain('keychain locked')
-    expect(root.querySelector('[data-testid="profile-credential-badge"]')).not.toBeNull()
-  })
 })

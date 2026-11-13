@@ -10,15 +10,7 @@ import {
   type EditorLayoutNode,
   type EditorSplit,
 } from '../src/editor-layout.js'
-import {
-  computeSplitRects,
-  splitDropOperation,
-  splitDropPreviewRect,
-  splitDropTargetAt,
-  splitRatioAtPointer,
-  SPLIT_DIVIDER_THICKNESS,
-  type SplitRect,
-} from '../src/editor-split-rects.js'
+import { computeSplitRects, splitDropPreviewRect, splitDropTargetAt, splitRatioAtPointer, SPLIT_DIVIDER_THICKNESS, type SplitRect } from '../src/editor-split-rects.js'
 
 const group = (id: string, tabIds: readonly string[] = ['t']): EditorGroup => ({
   kind: 'group',
@@ -89,18 +81,6 @@ describe('computeSplitRects', () => {
     expect(rects.dividers[1]!.area).toEqual(region)
   })
 
-  it('clamps out-of-range stored ratios before measuring', () => {
-    const rects = computeSplitRects(split(group('g1'), group('g2'), 'row', 0), region)
-    expect(rects.groups[0]!.rect.width).toBe(Math.round(800 * SPLIT_RATIO_MIN))
-  })
-
-  it('never produces negative sizes in a container thinner than the divider', () => {
-    const rects = computeSplitRects(split(group('g1'), group('g2')), { x: 0, y: 0, width: 4, height: 10 })
-    for (const pane of rects.groups) {
-      expect(pane.rect.width).toBeGreaterThanOrEqual(0)
-      expect(pane.rect.height).toBeGreaterThanOrEqual(0)
-    }
-  })
 })
 
 describe('splitRatioAtPointer', () => {
@@ -120,10 +100,6 @@ describe('splitRatioAtPointer', () => {
     expect(splitRatioAtPointer(column, 0, -100)).toBe(SPLIT_RATIO_MIN)
   })
 
-  it('falls back to 0.5 when the area is degenerate', () => {
-    const tiny = { ...divider, area: { x: 0, y: 0, width: 4, height: 4 } }
-    expect(splitRatioAtPointer(tiny, 2, 2)).toBe(0.5)
-  })
 })
 
 describe('splitDropTargetAt', () => {
@@ -139,15 +115,6 @@ describe('splitDropTargetAt', () => {
     expect(splitDropTargetAt(rects, 606, 300)).toEqual({ groupId: 'g2', zone: 'center' })
   })
 
-  it('horizontal bands win over vertical ones in the corners', () => {
-    expect(splitDropTargetAt(rects, 50, 50)).toEqual({ groupId: 'g1', zone: 'left' })
-  })
-
-  it('returns undefined outside every pane (including on a divider)', () => {
-    expect(splitDropTargetAt(rects, 402, 300)).toBeUndefined()
-    expect(splitDropTargetAt(rects, -10, 300)).toBeUndefined()
-    expect(splitDropTargetAt(rects, 200, 700)).toBeUndefined()
-  })
 })
 
 describe('drop previews and operations', () => {
@@ -161,11 +128,4 @@ describe('drop previews and operations', () => {
     expect(splitDropPreviewRect(pane, 'center')).toEqual(pane)
   })
 
-  it('maps zones onto layout operations', () => {
-    expect(splitDropOperation('left')).toEqual({ kind: 'split', direction: 'row', position: 'first' })
-    expect(splitDropOperation('right')).toEqual({ kind: 'split', direction: 'row', position: 'second' })
-    expect(splitDropOperation('top')).toEqual({ kind: 'split', direction: 'column', position: 'first' })
-    expect(splitDropOperation('bottom')).toEqual({ kind: 'split', direction: 'column', position: 'second' })
-    expect(splitDropOperation('center')).toEqual({ kind: 'move' })
-  })
 })

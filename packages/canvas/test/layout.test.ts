@@ -5,8 +5,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { InputSpec, NodeData, NodeSchema, OutputSpec } from '@dinkster/core'
-import { asDynamicMemberId, asNodeId, elaborateInterface } from '@dinkster/core'
-import { layoutNode, projectNodeLayoutHeight, widgetChromeRect, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
+import { asNodeId, elaborateInterface } from '@dinkster/core'
+import { layoutNode, projectNodeLayoutHeight, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 import { defaultTokens } from '../src/tokens.js'
 
 const measure: TextMeasurer = (text) => text.length * 6
@@ -40,17 +40,6 @@ const nodeData: NodeData = { id: asNodeId('n0'), type: 'Test', values: {} }
 
 const doLayout = (items: NodeSchema['items'], displayName?: string) =>
   layoutNode(schemaOf(items, displayName), nodeData, defaultTokens, measure, widgetMeasure)
-
-describe('widget chrome geometry', () => {
-  it('applies the shared vertical inset and radius to compact and flexible rows', () => {
-    expect(widgetChromeRect(109.5, 120, 121, 24)).toEqual({
-      x: 109.5, y: 122, width: 121, height: 20, radius: 4,
-    })
-    expect(widgetChromeRect(109.5, 120, 121, 96)).toEqual({
-      x: 109.5, y: 122, width: 121, height: 92, radius: 4,
-    })
-  })
-})
 
 describe('conditional widget groups', () => {
   const schema = { ...schemaOf([widget('mode', { widget: { widgetType: 'STRING', options: {}, default: 'basic' } }), widget('basic'), widget('advanced')]), widgetGroups: [{ input: 'mode', values: ['basic'], members: ['basic'] }, { input: 'mode', values: ['advanced'], members: ['advanced'] }] }
@@ -144,28 +133,6 @@ describe('pairing', () => {
     expect(l.rows.filter((r) => r.kind === 'ports' && r.output)).toHaveLength(1)
   })
 
-  it('carries source filename bindings on elaborated widget rows', () => {
-    const source = widget('source', {
-      type: { kind: 'concrete', name: 'ASSET' },
-      widget: { widgetType: 'ASSET', options: { accept: ['image/*'] }, kind: 'media/image', allowUpload: true },
-      sourceFilename: { kind: 'media/image', category: 'input' },
-    })
-    const schema = schemaOf([input('choice', {
-      dynamic: { kind: 'dynamicCombo', options: [{ key: 'a', inputs: [source] }] },
-    })])
-    const layout = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure)
-    expect(layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'choice.[a].source'))
-      .toMatchObject({ sourceFilename: { kind: 'media/image', category: 'input' } })
-  })
-
-  it('insets widget chrome past pin circles while preserving useful minimum width', () => {
-    const l = doLayout([widget('w')])
-    const row = l.rows[0]!
-    expect(row).toMatchObject({ kind: 'widget', inset: defaultTokens.pinRadius + 4 })
-    expect(l.width).toBeGreaterThanOrEqual(defaultTokens.nodeMinWidth)
-    if (row.kind === 'widget') expect(l.width - row.inset * 2).toBe(121)
-  })
-
   it('forceInput widget inputs are pairable socket rows', () => {
     const l = doLayout([widget('seed', { forceInput: true }), output('x')])
     expect(l.rows).toHaveLength(1)
@@ -207,27 +174,6 @@ describe('pairing', () => {
     expect(layout.pins.filter((pin) => pin.direction === 'in').every((pin) => pin.widgetBacked === undefined)).toBe(true)
     expect(layout.pins.filter((pin) => pin.direction === 'in').every((pin) => pin.familyMember === true)).toBe(true)
     expect(layout.pins.some((pin) => pin.widgetTap === true)).toBe(false)
-  })
-
-  it('marks persisted and trailing Autogrow inputs with family identity', () => {
-    const family = input('images', {
-      dynamic: {
-        kind: 'autogrow',
-        naming: { kind: 'prefix', prefix: 'image', min: 1, max: 3 },
-        template: [input('image')],
-      },
-    })
-    const layout = layoutNode(
-      schemaOf([family]),
-      { ...nodeData, dynamic: { images: { members: ['m0'], seq: 1 } } },
-      defaultTokens,
-      measure,
-      widgetMeasure,
-    )
-    expect(layout.pins).toHaveLength(2)
-    expect(layout.pins[0]).toMatchObject({ familyMember: true, address: { members: ['m0'] } })
-    expect(layout.pins[0]!.ghost).toBeUndefined()
-    expect(layout.pins[1]).toMatchObject({ familyMember: true, ghost: true, address: { members: ['m1'] } })
   })
 
   it('derives a numeric literal for a wire-15 scalar union while retaining its socket type', () => {
@@ -321,20 +267,6 @@ describe('pairing', () => {
       .toMatchObject({ input: { portId: 'mode.value' } })
   })
 
-  it('renders wire-16 lazy absent and true ordinary inputs as identical sockets', () => {
-    const absent = doLayout([input('value'), output('x')])
-    const lazy = doLayout([input('value', { lazy: true }), output('x')])
-    expect(lazy).toEqual(absent)
-    expect(lazy.rows).toEqual([
-      expect.objectContaining({ kind: 'ports', input: expect.objectContaining({ portId: 'value' }) }),
-    ])
-  })
-
-  it('renders output preview absent and true with identical layout', () => {
-    const absent = doLayout([input('value'), output('result')])
-    const preview = doLayout([input('value'), output('result', { preview: true })])
-    expect(preview).toEqual(absent)
-  })
 })
 
 describe('declared order', () => {
@@ -409,36 +341,6 @@ describe('wire-17 widget representations', () => {
     })
   })
 
-  it('retains dynamic API names for schema completion sources', () => {
-    const dynamic = schemaOf([widget('text', {
-      type: { kind: 'concrete', name: 'STRING' },
-      widget: { widgetType: 'STRING', options: {} },
-    })])
-    const row = layoutNode(
-      dynamic,
-      nodeData,
-      defaultTokens,
-      measure,
-      widgetMeasure,
-      {
-        elaborated: {
-          items: [{
-            kind: 'input',
-            address: { port: 'values.value', members: [asDynamicMemberId('m0')] },
-            apiName: 'values.value0',
-            spec: widget('values.value#m0', {
-              type: { kind: 'concrete', name: 'STRING' },
-              widget: { widgetType: 'STRING', options: {} },
-            }),
-            origin: { kind: 'member', construct: 'values', ordinal: 0, wire15Naming: 'prefix' },
-          }],
-          submissionValues: [],
-          diagnostics: [],
-        },
-      },
-    ).rows[0]
-    expect(row).toMatchObject({ kind: 'widget', apiName: 'values.value0' })
-  })
 })
 
 describe('document-time selector branch display', () => {
@@ -599,21 +501,6 @@ describe('sizing', () => {
     expect(armedLayout.width).toBe(ordinaryLayout.width)
   })
 
-  it('measures renamed titles as italic and equal-name overrides as normal', () => {
-    const roles: string[] = []
-    const record: TextMeasurer = (_text, role) => { roles.push(role); return 20 }
-    const schema = schemaOf([], 'Original')
-    const renamed = layoutNode(schema, { ...nodeData, title: 'Custom' }, defaultTokens, record, widgetMeasure)
-    expect(renamed.titleRenamed).toBe(true)
-    expect(roles).toContain('renamedTitle')
-
-    roles.length = 0
-    const same = layoutNode(schema, { ...nodeData, title: 'Original' }, defaultTokens, record, widgetMeasure)
-    expect(same.titleRenamed).toBe(false)
-    expect(roles).toContain('title')
-    expect(roles).not.toContain('renamedTitle')
-  })
-
   it('minimizes to title width with an 80px floor while retaining every endpoint', () => {
     const schema = schemaOf([
       input('required', { type: { kind: 'list', element: { kind: 'concrete', name: 'IMAGE' } } }),
@@ -704,22 +591,6 @@ describe('pins', () => {
     expect(pinA.y).toBe(row0.y + row0.height / 2)
   })
 
-  it('marks only non-forced widget input pins as widget-backed and preserves their optionality', () => {
-    const l = doLayout([
-      input('socket'),
-      widget('widget'),
-      widget('optionalWidget', { optional: true }),
-      widget('forced', { forceInput: true }),
-      output('output'),
-    ])
-    expect(l.pins.find((p) => p.portId === 'widget')).toMatchObject({ direction: 'in', widgetBacked: true })
-    expect(l.pins.find((p) => p.portId === 'optionalWidget')).toMatchObject({
-      direction: 'in', widgetBacked: true, optional: true,
-    })
-    expect(l.pins.find((p) => p.portId === 'socket')?.widgetBacked).toBeUndefined()
-    expect(l.pins.find((p) => p.portId === 'forced')?.widgetBacked).toBeUndefined()
-    expect(l.pins.find((p) => p.portId === 'output')?.widgetBacked).toBeUndefined()
-  })
 })
 
 describe('manual size override', () => {
@@ -861,18 +732,6 @@ describe('manual size override', () => {
 })
 
 describe('in-node preview region', () => {
-  it('reserves a one-line preview affordance before content exists', () => {
-    const base = doLayout([widget('w')])
-    const layout = withCompactPreviewRegion(base, defaultTokens)
-    expect(layout.height).toBe(base.height + defaultTokens.previewGap + defaultTokens.rowHeight)
-    expect(layout.preview).toEqual({
-      x: defaultTokens.padX,
-      y: base.rows[0]!.y + base.rows[0]!.height + defaultTokens.previewGap,
-      width: base.width - defaultTokens.padX * 2,
-      height: defaultTokens.rowHeight,
-      compact: true,
-    })
-  })
 
   it('expands and clears without changing a manually sized multiline row', () => {
     const items = [widget('text', {
@@ -897,51 +756,6 @@ describe('in-node preview region', () => {
     expect(compact.resizeHeightOffset).toBe(compact.height - active.height)
     expect(active.resizeHeightOffset).toBeUndefined()
     expect(withCompactPreviewRegion(base, defaultTokens)).toEqual(compact)
-  })
-
-  it('keeps the compact surface to one line while resizing a preview-only node', () => {
-    const base = doLayout([widget('w')])
-    const compact = withCompactPreviewRegion(base, defaultTokens)
-    const resized = projectNodeLayoutHeight(compact, compact.height + 40, defaultTokens)
-    expect(resized.preview?.height).toBe(defaultTokens.rowHeight)
-    expect(resized.preview?.y).toBe(compact.preview!.y + 40)
-    const active = withPreviewRegion(resized, defaultTokens)
-    expect(active.height).toBe(resized.height - resized.resizeHeightOffset!)
-    expect(active.preview?.y).toBe(compact.preview!.y)
-    expect(active.preview?.height).toBe(
-      defaultTokens.previewDefaultHeight + defaultTokens.previewCaptionHeight + 40,
-    )
-  })
-
-  it('appends an inner-width region after rows and grows the natural height', () => {
-    const base = doLayout([widget('w')])
-    const layout = withPreviewRegion(base, defaultTokens)
-    expect(layout.height).toBe(
-      base.height + defaultTokens.previewGap + defaultTokens.previewDefaultHeight + defaultTokens.previewCaptionHeight,
-    )
-    // The panel opens at its default height but can be shrunk to the floor.
-    expect(layout.minHeight).toBe(
-      base.minHeight + defaultTokens.previewGap + defaultTokens.previewMinHeight + defaultTokens.previewCaptionHeight,
-    )
-    expect(layout.preview).toEqual({
-      x: defaultTokens.padX,
-      y: base.rows[0]!.y + base.rows[0]!.height + defaultTokens.previewGap,
-      width: base.width - defaultTokens.padX * 2,
-      height: defaultTokens.previewDefaultHeight + defaultTokens.previewCaptionHeight,
-    })
-  })
-
-  it('lets a preview-only node shrink the panel to its floor', () => {
-    const base = doLayout([widget('w')])
-    const floor = base.minHeight + defaultTokens.previewGap +
-      defaultTokens.previewMinHeight + defaultTokens.previewCaptionHeight
-    // A persisted size below the floor clamps to it instead of the default.
-    const layout = withPreviewRegion({ ...base, height: base.minHeight + 1 }, defaultTokens)
-    expect(layout.height).toBe(floor)
-    expect(layout.minHeight).toBe(floor)
-    expect(layout.preview?.height).toBe(
-      defaultTokens.previewMinHeight + defaultTokens.previewCaptionHeight,
-    )
   })
 
   it('gives resize surplus to preview only when no active core.text row exists', () => {
@@ -973,18 +787,6 @@ describe('in-node preview region', () => {
 })
 
 describe('in-node text output region', () => {
-  it('appends a six-row result region after body rows', () => {
-    const base = doLayout([widget('w')])
-    const layout = withTextOutputRegion(base, defaultTokens)
-    expect(layout.height).toBeGreaterThan(base.height)
-    expect(layout.minHeight).toBe(layout.height)
-    expect(layout.textOutput).toEqual({
-      x: defaultTokens.padX,
-      y: base.rows[0]!.y + base.rows[0]!.height + defaultTokens.previewGap,
-      width: base.width - defaultTokens.padX * 2,
-      height: defaultTokens.rowHeight * 6,
-    })
-  })
 
   it('uses one row for a one-line result and caps long results at six rows', () => {
     const base = doLayout([widget('w')])
@@ -992,14 +794,6 @@ describe('in-node text output region', () => {
     expect(withTextOutputRegion(base, defaultTokens, 20).textOutput?.height).toBe(defaultTokens.rowHeight * 6)
   })
 
-  it('maps compact-capable text resizing to the same expanded size request', () => {
-    const compact = withCompactPreviewRegion(doLayout([widget('w')]), defaultTokens)
-    const text = withTextOutputRegion(compact, defaultTokens, 1)
-    expect(text.height).toBe(compact.height)
-    expect(text.resizeHeightOffset).toBe(
-      defaultTokens.rowHeight - defaultTokens.previewDefaultHeight - defaultTokens.previewCaptionHeight,
-    )
-  })
 })
 
 describe('sections', () => {

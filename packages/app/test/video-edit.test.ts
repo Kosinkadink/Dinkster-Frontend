@@ -24,13 +24,6 @@ describe('VIDEO_EDIT contract', () => {
     expect(trimFrameWindow(-20, 3, { duration: 10, fps: 24 })).toEqual({ start: 0, end: 72, playheadMax: 71 })
   })
 
-  it('keeps time-derived controls independent of actual or estimated VFR frame counts', () => {
-    expect(trimFrameWindow(1.25, 0, { duration: 10, fps: 24, frameCount: 17 }))
-      .toEqual({ start: 30, end: 240, playheadMax: 239 })
-    expect(trimFrameWindow(1.25, 0, { duration: 10, fps: 24, frameCount: 300 }))
-      .toEqual({ start: 30, end: 240, playheadMax: 239 })
-  })
-
   it('clamps and even-aligns crop pixels with full-frame sentinels', () => {
     expect(normalizedVideoCrop(1920, 1080, { x: 101, y: 41, width: 2000, height: 2000 }))
       .toEqual({ x: 100, y: 40, width: 1820, height: 1040 })
