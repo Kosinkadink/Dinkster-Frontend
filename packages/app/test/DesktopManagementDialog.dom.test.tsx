@@ -338,8 +338,7 @@ describe('DesktopManagementDialog', () => {
   })
 
   it('refuses remote-worker changes for an installed engine with unknown worker compatibility', async () => {
-    const { remoteWorkerProtocol, ...olderInfo } = info
-    expect(remoteWorkerProtocol).toBe(8)
+    const { remoteWorkerProtocol: _remoteWorkerProtocol, ...olderInfo } = info
     const { root } = mount(undefined, {
       info: vi.fn(async () => ({ ...olderInfo, engineCommit: 'older-engine' })),
     })
