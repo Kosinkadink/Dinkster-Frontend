@@ -89,7 +89,7 @@ jobs:
 
           root = Path('.ci/Dinkster').resolve()
           with subprocess.Popen([
-              str(root / '.venv/bin/dinkster-serve'),
+              str(root / '.venv/bin/python'), '-m', 'dinkster.serve',
               '--host', '127.0.0.1', '--port', '15432',
               '--engine-variant', 'linux-cpu',
               '--pack', str(root / 'packages/dinkster-nodes-dev/dinkster-pack.toml'),
