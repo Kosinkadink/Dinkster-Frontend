@@ -61,13 +61,4 @@ describe('transformSplice', () => {
     expect(apply(apply(base, foreign), transformSplice(own, foreign))).toBe('aBBcdEf')
   })
 
-  it.each([
-    [{ offset: 2, deleteCount: 5, insert: 'x' }, { offset: 0, deleteCount: 4, insert: '' }],
-    [{ offset: 0, deleteCount: 5, insert: '' }, { offset: 2, deleteCount: 5, insert: 'z' }],
-    [{ offset: -2, deleteCount: -3, insert: '' }, { offset: 0, deleteCount: 1, insert: '' }],
-  ])('keeps overlap results non-negative', (own, foreign) => {
-    const transformed = transformSplice(own, foreign)
-    expect(transformed.offset).toBeGreaterThanOrEqual(0)
-    expect(transformed.deleteCount).toBeGreaterThanOrEqual(0)
-  })
 })

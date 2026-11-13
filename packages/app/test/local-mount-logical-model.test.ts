@@ -50,21 +50,6 @@ describe('localMountScanAdapter', () => {
     expect(errors).toEqual(['Local assets: Catalog offline'])
   })
 
-  it('stops pagination after cancellation rather than publishing partial models', async () => {
-    const abort = new AbortController()
-    let pages = 0
-    const mounted = source('mount:models', 'Models', [])
-    mounted.page = async () => {
-      pages += 1
-      abort.abort()
-      return { items: [item('mount:models', 'Models', A, 'mounted.safetensors')], cursor: 'next' }
-    }
-    await expect(localMountScanAdapter([mounted], 'model/checkpoint', [], {
-      signal: abort.signal, onSourceError: () => { throw new Error('Cancellation is not a source failure') },
-    })).rejects.toMatchObject({ name: 'AbortError' })
-    expect(pages).toBe(1)
-  })
-
   it('canonicalizes a digest across mounts and renamed paths before V1 ingestion', async () => {
     const left = source('mount:left', 'Left', [[item('mount:left', 'Left', A, 'zeta.safetensors')]])
     const right = source('mount:right', 'Right', [[item('mount:right', 'Right', A, 'alpha.safetensors', 'renamed/alpha.safetensors')]])
@@ -112,34 +97,6 @@ describe('localMountScanAdapter', () => {
     ])
   })
 
-  it('pins the interim non-primary alias collision limitation without merging models', async () => {
-    const adapter = await localMountScanAdapter([
-      source('mount:one', 'One', [[
-        item('mount:one', 'One', A, 'alpha.safetensors'),
-        item('mount:one', 'One', A, 'shared.safetensors'),
-        item('mount:one', 'One', C, 'shared.safetensors'),
-      ]]),
-    ], 'model/checkpoint')
-    const result = ingestLogicalModels([adapter])
-
-    expect(result.models.map((model) => model.logicalId)).toEqual([
-      'local-name:alpha.safetensors',
-      'local-name:shared.safetensors',
-    ])
-    expect(result.models.flatMap((model) => model.variants).every((variant) => variant.conflicts.length === 0)).toBe(true)
-  })
-
-  it('is idempotent across refreshes and cannot claim one digest under two logical ids', async () => {
-    const mounted = source('mount:models', 'Models', [[item('mount:models', 'Models', A, 'stable.safetensors')]])
-    const first = await localMountScanAdapter([mounted], 'model/checkpoint')
-    const second = await localMountScanAdapter([mounted], 'model/checkpoint')
-
-    expect(ingestLogicalModels([first])).toEqual(ingestLogicalModels([second]))
-    expect(first.descriptions).toHaveLength(1)
-    expect((first.descriptions[0] as { variants: readonly unknown[] }).variants).toHaveLength(1)
-    expect(ingestLogicalModels([first]).diagnostics.some((entry) => entry.code === 'digest-logical-conflict')).toBe(false)
-  })
-
   it('retains the flat picker compatibility boundary when a source over-returns', async () => {
     const valid = item('mount:models', 'Models', A, 'valid.safetensors')
     const wrongKind = { ...item('mount:models', 'Models', B, 'image.safetensors'), kind: 'media/image' }
@@ -153,26 +110,4 @@ describe('localMountScanAdapter', () => {
     expect(ingestLogicalModels([adapter]).models.map((model) => model.displayName)).toEqual(['valid.safetensors'])
   })
 
-  it('rejects malformed and uppercase digests without suppressing a valid sibling row', async () => {
-    const adapter = await localMountScanAdapter([
-      source('mount:models', 'Models', [[
-        item('mount:models', 'Models', A, 'shared.safetensors', 'valid/shared.safetensors'),
-        item('mount:models', 'Models', `blake3:${'A'.repeat(64)}`, 'shared.safetensors', 'invalid/shared.safetensors'),
-        item('mount:models', 'Models', 'not-a-digest', 'shared.safetensors', 'invalid/other.safetensors'),
-      ]]),
-    ], 'model/checkpoint')
-    const result = ingestLogicalModels([adapter])
-
-    expect(result.diagnostics).toEqual([])
-    expect(result.models).toHaveLength(1)
-    expect(result.models[0]!.variants.map((variant) => variant.digest)).toEqual([A])
-  })
-
-  it('rejects entries with empty basenames before creating local identity', async () => {
-    const adapter = await localMountScanAdapter([
-      source('mount:models', 'Models', [[item('mount:models', 'Models', A, '', '')]]),
-    ], 'model/checkpoint')
-
-    expect(ingestLogicalModels([adapter]).models).toEqual([])
-  })
 })

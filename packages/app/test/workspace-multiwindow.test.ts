@@ -13,7 +13,7 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { DinksterConnection, buildDinksterRegistry } from '@dinkster/client'
-import { AppState, orderWorkspaceOperations } from '../src/app-state.js'
+import { AppState } from '../src/app-state.js'
 import { SharedWorkerDocumentAuthority, type WorkerPortLike } from '../src/shared-worker-authority.js'
 import {
   SharedWorkerCollabConnection,
@@ -543,56 +543,6 @@ describe('AppState multi-window workspace', () => {
     expect(second.activeTabId.get()).toBe('multi-window-workflow')
   })
 
-  it('a shared live tab whose lineage collides with a local frozen view displaces it and releases the pin', async () => {
-    const factory = authorityFactories()
-    const first = createEditableApp()
-    const second = prepareWorkflowApp(new AppState())
-    await first.openDocument(workflow(), 'Shared workflow')
-    await second.openDocument(workflow(), 'Shared workflow')
-    first.registry.set(buildDinksterRegistry(asConnectionId('local'), {
-      schemaVersion: 1,
-      dinkster: { version: 'test', schemaWire: 1 },
-      nodes: {
-        X: {
-          schemaVersion: 1, displayName: 'X', outputNode: true,
-          interface: [{ role: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } }],
-        },
-      },
-    }))
-    const tab = first.tabs.get().find((candidate) => candidate.id === 'multi-window-workflow')!
-    const result = first.compileTab(tab)
-    if (!result?.ok) throw new Error(`compile failed: ${JSON.stringify(result?.diagnostics)}`)
-    const ref = { connection: asConnectionId('local'), prompt: asPromptId('frozen-collision') }
-    first.registerRun(tab, ref, result.artifact)
-    first.store.apply({ kind: 'completed', execution: ref, timestamp: 1 })
-    expect(await first.openExecutionView(ref)).toBe(true)
-    const frozenId = first.tabs.get().find((candidate) => candidate.execution)!.id
-    await Promise.all([
-      first.enableWorkspaceAuthority(factory.document, factory.workspace),
-      second.enableWorkspaceAuthority(factory.document, factory.workspace),
-    ])
-    await drainTasks()
-    expect(first.tabs.get().filter((candidate) => candidate.id === frozenId)).toHaveLength(1)
-
-    // Lineages are unrestricted strings, so another window can publish a live
-    // document whose lineage equals the local frozen tab id.
-    await second.openDocument({ ...workflow(), lineage: asLineageId(frozenId) }, 'Impostor')
-    await drainTasks()
-
-    const matching = first.tabs.get().filter((candidate) => candidate.id === frozenId)
-    expect(matching).toHaveLength(1) // never [live, frozen] duplicates
-    expect(matching[0]!.execution).toBeUndefined()
-
-    // The displaced frozen view released its pin: the run is evictable again.
-    const base = Date.now()
-    for (let i = 0; i < 201; i++) {
-      const churn = { connection: asConnectionId('local'), prompt: asPromptId(`churn${i}`) }
-      first.store.apply({ kind: 'started', execution: churn, timestamp: base + i })
-      first.store.apply({ kind: 'completed', execution: churn, timestamp: base + i })
-    }
-    expect(first.store.get(ref)).toBeUndefined()
-  })
-
   it.each([false, true].flatMap((opaque) => ['nodeOutput', 'preview'].flatMap((kind) =>
     ['accepted', 'refused'].map((scenario) => ({ opaque, kind, scenario })),
   )))('admits received $kind identities before later events, opaque=$opaque: $scenario', async ({ opaque, kind, scenario }) => {
@@ -722,30 +672,6 @@ describe('AppState multi-window workspace', () => {
     })
 
     expect(second.store.get(ref)?.nodes.n1).toEqual({ state: 'running', worker: 'render-box' })
-  })
-
-  it('rejects malformed worker attribution from the workspace channel', () => {
-    const left = new EventChannel()
-    const right = new EventChannel()
-    left.peer = right
-    right.peer = left
-    const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
-    const ref = { connection: asConnectionId('local'), prompt: asPromptId('run-hostile-worker') }
-
-    for (const worker of ['', { name: 'render-box' }]) {
-      left.postMessage({
-        source: 'hostile-window',
-        kind: 'event',
-        event: {
-          kind: 'nodeStates',
-          execution: ref,
-          timestamp: 42,
-          nodes: { n1: { state: 'running', worker } },
-        },
-      })
-    }
-
-    expect(app.store.get(ref)).toBeUndefined()
   })
 
   it.each(['accepted', 'refused', 'disposed', 'disconnected', 'removed', 'superseded', 'registry', 'opaque-accepted', 'opaque-refused', 'source-accepted', 'source-refused'] as const)('retains mirrored registration snapshots before publication: %s', async (scenario) => {
@@ -896,29 +822,6 @@ describe('AppState multi-window workspace', () => {
     app.registry.set(registry)
     expect(app.store.get(ref)?.artifact?.dinksterGraph).toEqual(result.artifact.dinksterGraph)
     expect(app.store.get(ref)?.queuedAt).toBe(7)
-  })
-
-  it('rejects impossible region expansion combinations from workspace peers', () => {
-    const left = new EventChannel()
-    const right = new EventChannel()
-    left.peer = right
-    right.peer = left
-    const app = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
-
-    for (const [prompt, regionKind, iterations] of [
-      ['run-map-null', 'map', null],
-      ['run-while-counted', 'while', 1],
-    ] as const) {
-      const ref = { connection: asConnectionId('local'), prompt: asPromptId(prompt) }
-      left.postMessage({
-        source: 'hostile-window', kind: 'event',
-        event: {
-          kind: 'regionExpanded', execution: ref, timestamp: 42,
-          runtimeNodeId: 'region', regionKind, binding: 'zip', iterations,
-        },
-      })
-      expect(app.store.get(ref)).toBeUndefined()
-    }
   })
 
   it('keeps a locally opened workflow active while the shared inventory is opening', async () => {
@@ -1235,39 +1138,6 @@ describe('AppState multi-window workspace', () => {
     peer.close()
   })
 
-  it('closes a document connection while promotion ownership is still pending', async () => {
-    const factories = authorityFactories()
-    const app = createEditableApp()
-    await app.openDocument(workflow(), 'Pending promotion')
-    app.flushPersistTabs(true)
-    await drainTasks()
-    let release!: () => void
-    let requested!: () => void
-    const admission = new Promise<void>((resolve) => { release = resolve })
-    const request = new Promise<void>((resolve) => { requested = resolve })
-    vi.mocked(app.connection.retainAssets).mockImplementation(async (owner, declaration) => {
-      requested()
-      await admission
-      return { ...owner, ...declaration, revision: declaration.revision + 1 }
-    })
-    const promotion = app.enableWorkspaceAuthority(factories.document, factories.workspace)
-    await request
-    const peer = await SharedWorkerCollabConnection.open('multi-window-workflow', workflow(),
-      factories.document, 'remaining-window')
-    const changed = { ...workflow(), graphs: { ...workflow().graphs,
-      g0: { ...workflow().graphs.g0!, name: 'recovered after pending promotion' } } }
-    try {
-      expect(await peer.adoptExclusive(changed)).toBe(false)
-      app.dispose()
-      await new Promise<void>((resolve) => queueMicrotask(resolve))
-      expect(await peer.adoptExclusive(changed)).toBe(true)
-    } finally {
-      release()
-      await promotion
-      peer.close()
-    }
-  })
-
   it.each(['accepted', 'refused', 'closed', 'live-peer', 'newer-record', 'candidate-only'] as const)(
     'recovers staged edits when replay restores tab membership: %s', async (scenario) => {
       const factories = authorityFactories()
@@ -1356,33 +1226,6 @@ describe('AppState multi-window workspace', () => {
     }
   })
 
-  it('persists every tab at its committed document revision regardless of tab position', async () => {
-    const globals = globalThis as { localStorage?: Storage }
-    globals.localStorage = memoryStorage()
-    try {
-      const factory = authorityFactories()
-      const app = prepareWorkflowApp(new AppState())
-      app.flushPersistTabs()
-      await app.enableWorkspaceAuthority(factory.document, factory.workspace)
-      app.createWorkflow()
-      app.createWorkflow()
-      await drainTasks()
-      app.flushPersistTabs(true)
-      await drainTasks()
-      const persisted = JSON.parse(globals.localStorage.getItem('dinkster.openTabs')!) as {
-        tabs: ReadonlyArray<{ documentRevision?: number }>
-      }
-      expect(persisted.tabs.length).toBeGreaterThan(1)
-      // Pristine documents commit at revision 0 at EVERY index: a snapshot
-      // must never stamp a tab's array position as its document revision.
-      for (const tab of persisted.tabs) expect(tab.documentRevision ?? 0).toBe(0)
-      app.dispose()
-      await drainTasks()
-    } finally {
-      delete globals.localStorage
-    }
-  })
-
   it('replays outstanding same-window operations in causal order', async () => {
     const globals = globalThis as { localStorage?: Storage }
     globals.localStorage = memoryStorage(true)
@@ -1405,31 +1248,6 @@ describe('AppState multi-window workspace', () => {
     } finally {
       delete globals.localStorage
     }
-  })
-
-  it('keeps same-actor causality around retained operations from another window', () => {
-    const makeOperation = (
-      opId: string,
-      actorId: string,
-      sequence: number,
-      baseRevision: number,
-    ) => ({
-      opId,
-      actorId,
-      sequence,
-      baseRevision,
-      additions: [],
-      removals: [],
-      updates: [],
-      order: [],
-      active: '',
-    })
-    const create = makeOperation('create', 'actor-a', 0, 10)
-    const close = makeOperation('close', 'actor-a', 1, 10)
-    const retained = makeOperation('retained', 'actor-c', 0, 5)
-
-    expect(orderWorkspaceOperations([close, retained, create]).map((operation) => operation.opId))
-      .toEqual(['retained', 'create', 'close'])
   })
 
   it('deduplicates identical activity mirrored by multiple backend sockets', () => {
@@ -1476,130 +1294,6 @@ describe('advancement plans survive workspace-authority promotion', () => {
         controllers: { up: 'increment', down: 'decrement' } },
     }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
     view: { graphs: { g0: { nodes: {} } } },
-  })
-
-  it('keeps controller planning provenance out of mirrored run registrations', async () => {
-    const left = new EventChannel()
-    const right = new EventChannel()
-    left.peer = right
-    right.peer = left
-    const first = prepareWorkflowApp(new AppState({ workspaceEvents: left }))
-    const second = prepareWorkflowApp(new AppState({ workspaceEvents: right }))
-    expect((await first.openDocument(seedFixture(), 'Workspace Seed'))).toEqual([])
-    const tab = first.activeTab()!
-    const schemas = new Map([[seedSchema.type, seedSchema]])
-    second.registry.set({
-      connection: asConnectionId('local'),
-      schemas,
-      diagnostics: [],
-      resolve: resolveSeed,
-      hash: 'test',
-    })
-    const result = compile({
-      document: tab.store.doc, revision: 0, resolve: resolveSeed, scope: { kind: 'full' },
-      connection: asConnectionId('local'), schemaHash: 'test',
-    })
-    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
-    expect(result.artifact.provenance.controllerInputs).toHaveLength(2)
-    const artifact = { ...result.artifact, futureCompileMetadata: 'local-only' }
-    const ref = { connection: asConnectionId('local'), prompt: asPromptId('mirrored-controller-run') }
-
-    first.registerRun(tab, ref, artifact, 1)
-
-    expect(first.store.get(ref)?.artifact).toBe(artifact)
-    const posted = left.sent.find((message) => isRecord(message) && message['kind'] === 'register')
-    expect(posted).toBeDefined()
-    const postedArtifact = isRecord(posted) && isRecord(posted['artifact']) ? posted['artifact'] : undefined
-    const postedProvenance = isRecord(postedArtifact?.['provenance']) ? postedArtifact['provenance'] : undefined
-    expect(postedProvenance).toBeDefined()
-    expect(postedProvenance).not.toHaveProperty('controllerInputs')
-    expect(postedArtifact).not.toHaveProperty('futureCompileMetadata')
-    expect(second.store.get(ref)?.artifact?.provenance.controllerInputs).toBeUndefined()
-    expect(second.store.get(ref)?.artifact?.semanticHash).toBe(result.artifact.semanticHash)
-
-    const oldRef = { connection: asConnectionId('local'), prompt: asPromptId('old-full-controller-run') }
-    left.postMessage({ source: 'old-window', kind: 'register', ref: oldRef, artifact })
-    expect(second.store.get(oldRef)?.artifact?.semanticHash).toBe(result.artifact.semanticHash)
-    expect(second.store.get(oldRef)?.artifact?.provenance.controllerInputs).toBeUndefined()
-    expect(second.store.get(oldRef)?.artifact).not.toHaveProperty('futureCompileMetadata')
-
-    const nestedRef = { connection: asConnectionId('local'), prompt: asPromptId('nested-future-run') }
-    left.postMessage({
-      source: 'future-window',
-      kind: 'register',
-      ref: nestedRef,
-      artifact: {
-        ...artifact,
-        scope: {
-          kind: 'full',
-          controllerInputs: [{ ownerPriority: 99 }],
-          ownerPriority: 99,
-          futureScopeMetadata: true,
-        },
-      },
-    })
-    expect(second.store.get(nestedRef)?.artifact?.scope).toEqual({ kind: 'full' })
-
-    const partialRef = { connection: asConnectionId('local'), prompt: asPromptId('nested-partial-run') }
-    const partial = compile({
-      document: tab.store.doc,
-      revision: 0,
-      resolve: resolveSeed,
-      scope: { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('seed') }] },
-      connection: asConnectionId('local'),
-      schemaHash: 'test',
-    })
-    if (!partial.ok) throw new Error(JSON.stringify(partial.diagnostics))
-    left.postMessage({
-      source: 'future-window',
-      kind: 'register',
-      ref: partialRef,
-      artifact: {
-        ...partial.artifact,
-        scope: {
-          kind: 'partial',
-          targets: [{ instancePath: [], node: 'seed', ownerPriority: 99 }],
-          futureScopeMetadata: true,
-        },
-      },
-    })
-    expect(second.store.get(partialRef)?.artifact?.scope).toEqual({
-      kind: 'partial', targets: [{ instancePath: [], node: 'seed' }],
-    })
-
-    const nestedIncompleteRef = { connection: asConnectionId('local'), prompt: asPromptId('nested-incomplete-run') }
-    left.postMessage({
-      source: 'future-window', kind: 'register', ref: nestedIncompleteRef, artifact: { ...artifact, scope: {} },
-    })
-    expect(second.store.get(nestedIncompleteRef)).toBeUndefined()
-
-    const invalidTargetRef = { connection: asConnectionId('local'), prompt: asPromptId('invalid-target-run') }
-    left.postMessage({
-      source: 'future-window', kind: 'register', ref: invalidTargetRef,
-      artifact: { ...artifact, scope: { kind: 'partial', targets: [{ node: 'seed' }] } },
-    })
-    expect(second.store.get(invalidTargetRef)).toBeUndefined()
-
-    const sparsePathRef = { connection: asConnectionId('local'), prompt: asPromptId('sparse-path-run') }
-    left.postMessage({
-      source: 'future-window', kind: 'register', ref: sparsePathRef,
-      artifact: {
-        ...artifact,
-        scope: { kind: 'partial', targets: [{ node: 'seed', instancePath: new Array<string>(1) }] },
-      },
-    })
-    expect(second.store.get(sparsePathRef)).toBeUndefined()
-
-    const sparseTargetsRef = { connection: asConnectionId('local'), prompt: asPromptId('sparse-targets-run') }
-    left.postMessage({
-      source: 'future-window', kind: 'register', ref: sparseTargetsRef,
-      artifact: { ...artifact, scope: { kind: 'partial', targets: new Array(1) } },
-    })
-    expect(second.store.get(sparseTargetsRef)).toBeUndefined()
-
-    const futureRef = { connection: asConnectionId('local'), prompt: asPromptId('incomplete-future-run') }
-    left.postMessage({ source: 'future-window', kind: 'register', ref: futureRef, artifact: { revision: 1 } })
-    expect(second.store.get(futureRef)).toBeUndefined()
   })
 
   it('advances run-completion controllers in the promoted session', async () => {

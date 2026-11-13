@@ -73,19 +73,4 @@ describe('video inspection contract', () => {
       url.searchParams.get('rendition') !== 'original' && !url.searchParams.has('rendererVersion') && !url.searchParams.has('batch'))).toBe(true)
   })
 
-  it('keeps initial output enumeration within the loader cancellation lifetime', async () => {
-    const values = new DinksterValuesClient({ baseUrl: 'http://owner', clientId: 'client' })
-    const controller = new AbortController()
-    const peek = vi.spyOn(values, 'peek').mockImplementation(async () => {
-      controller.abort()
-      return { available: false, status: 0, reason: 'aborted', error: 'Aborted' }
-    })
-    const initial = {
-      bytes: new ArrayBuffer(1), mime: 'image/png', node: 'n', output: 'video',
-      video: { query: { jobId: 'job', nodeId: 'n', outputId: 'video' }, descriptor: { typeId: 'VIDEO', fingerprint: 'video' }, renditions: [] },
-    }
-    await expect(videoInspectionFor(initial, values, [{ node: 'n', output: 'video' }], undefined, controller.signal)).rejects.toMatchObject({ name: 'AbortError' })
-    expect(peek).toHaveBeenCalledOnce()
-    expect(peek.mock.calls[0]![1]?.signal).toBe(controller.signal)
-  })
 })

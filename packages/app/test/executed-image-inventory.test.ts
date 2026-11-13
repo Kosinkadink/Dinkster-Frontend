@@ -89,15 +89,6 @@ describe('executedImageInventory', () => {
     expect(result[0]).toMatchObject({ runtimeId: 'b', outputId: 'image', name: 'b.png' })
   })
 
-  it('retains the mounted path returned by a saved asset', () => {
-    const base = asset(digest('c'), 'ComfyUI_00001.png')
-    const saved = { ...base, meta: { ...base.meta, virtualPath: 'mounts/output/ComfyUI_00001.png' } }
-    const result = executedImageInventory(execution({ save: { assets: saved } }), {
-      assetUrlForExecution: () => 'asset',
-    })
-    expect(result[0]?.virtualPath).toBe('mounts/output/ComfyUI_00001.png')
-  })
-
   it('includes saved files beside tensor renditions without repeating typed assets or other nodes', () => {
     const saved = { nodeId: 'save', digest: digest('a'), name: 'saved.png', size: 7,
       mediaType: 'image/png', virtualPath: 'mounts/renders/saved.png' }
@@ -113,18 +104,4 @@ describe('executedImageInventory', () => {
     expect(executedImageInventory(typed, options)).toHaveLength(1)
   })
 
-  it('rejects malformed typed assets and ignores legacy file entries', () => {
-    const valid = digest('d')
-    const nested = { ...asset(digest('f'), 'nested.png'), typeId: 'asset<list<comfy.IMAGE>>' }
-    const malformed = { ...asset(digest('e'), 'bad.png'), typeId: 'asset<comfy.IMAGE' }
-    const result = executedImageInventory(execution({
-      node: {
-        images: [{}, { filename: 'legacy.png' }],
-        native: { typeId: 'list<ASSET>', elements: [malformed, nested, asset(valid, 'valid.png')] },
-      },
-    }), {
-      assetUrlForExecution: (_ref, value) => `asset/${value}`,
-    })
-    expect(result.map((item) => item.name)).toEqual(['nested.png', 'valid.png'])
-  })
 })

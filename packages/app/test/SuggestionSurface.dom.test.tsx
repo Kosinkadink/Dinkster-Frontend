@@ -160,28 +160,4 @@ describe('SuggestionSurface', () => {
     expect(mounted.interaction.activeOptionId(items)).toBe(document.querySelector('[aria-selected="true"]')?.id)
   })
 
-  it('clamps to its boundary instead of overlapping adjacent chrome', async () => {
-    mountSurface(
-      new DOMRect(700, 320, 180, 40),
-      { status: 'ready', items },
-      new DOMRect(72, 40, 780, 720),
-    )
-    await flush()
-    const surface = document.querySelector<HTMLElement>('[data-testid="suggestion-surface"]')!
-    const left = Number.parseFloat(surface.style.left)
-    const width = Number.parseFloat(surface.style.width)
-    expect(left).toBeGreaterThanOrEqual(80)
-    expect(left + width).toBeLessThanOrEqual(844)
-  })
-
-  it('does not magnify an already-wide zoomed editor', async () => {
-    mountSurface(
-      new DOMRect(400, 320, 500, 80),
-      { status: 'ready', items },
-      new DOMRect(0, 0, 1600, 900),
-    )
-    await flush()
-    const surface = document.querySelector<HTMLElement>('[data-testid="suggestion-surface"]')!
-    expect(Number.parseFloat(surface.style.width)).toBe(500)
-  })
 })

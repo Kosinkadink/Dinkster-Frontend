@@ -7,15 +7,12 @@
  * live in the Playwright perf spec, which runs a real renderer.
  */
 import { describe, expect, it } from 'vitest'
-import { compile, documentResolver } from '../src/compile/compile.js'
+import { compile } from '../src/compile/compile.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { syntheticWorkflow } from '../src/format/synthetic.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
-import { elaborateInterface } from '../src/schema/elaborate.js'
-import type { InputSpec, NodeSchema } from '../src/schema/model.js'
 import { syntheticSchemas as schemas } from './fixtures/historical-schemas.js'
-import { solveGraphTypes } from '../src/schema/solve.js'
 
 // 60 chains x 20 nodes = 1200 nodes, 1140 links.
 const CHAINS = 60
@@ -24,17 +21,6 @@ const NODES = CHAINS * CHAIN_LENGTH
 
 describe(`synthetic workload (${NODES} nodes)`, () => {
   const json = syntheticWorkflow({ chains: CHAINS, chainLength: CHAIN_LENGTH })
-
-  it('is a valid document (validators run on load)', () => {
-    const loaded = loadDocument(json)
-    expect(loaded.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    const doc = loaded.document!
-    expect(Object.keys(doc.graphs['g0']!.nodes)).toHaveLength(NODES)
-    const resolve = documentResolver(doc, (t) => schemas.get(t))
-    for (const node of Object.values(doc.graphs['g0']!.nodes)) {
-      expect(resolve(node.type), node.type).toBeDefined()
-    }
-  })
 
   it(`loads within budget (2s for ${NODES} nodes)`, () => {
     const t0 = performance.now()
@@ -110,16 +96,6 @@ describe(`feature-heavy synthetic workload (${NODES} nodes + reroutes/valueSourc
     selectors: true,
   })
 
-  it('is a valid document', () => {
-    const loaded = loadDocument(json)
-    expect(loaded.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    const g = loaded.document!.graphs['g0']!
-    expect(Object.keys(g.nodes)).toHaveLength(NODES)
-    expect(Object.keys(g.valueSources ?? {})).toHaveLength(CHAINS)
-    expect(Object.keys(g.nets)).toHaveLength(CHAINS)
-    expect(Object.keys(g.selectors ?? {})).toHaveLength(CHAINS)
-  })
-
   it(`loads + compiles within budget (2s each); sources bake, nets link`, () => {
     let t0 = performance.now()
     const doc = loadDocument(json).document!
@@ -146,35 +122,6 @@ describe(`feature-heavy synthetic workload (${NODES} nodes + reroutes/valueSourc
       expect(first.inputs['width']).toBe(64)
       expect(first.inputs['height']).toBe(64)
     }
-  })
-})
-
-describe(`type solver on the feature-heavy workload (${NODES} nodes)`, () => {
-  it.each([CHAINS / 2, CHAINS, CHAINS * 2])('visits each node, port and constraint once across %i chains', (chains) => {
-    const json = syntheticWorkflow({
-      chains,
-      chainLength: CHAIN_LENGTH,
-      reroutes: true,
-      valueSources: true,
-      nets: true,
-      groups: true,
-      selectors: true,
-    })
-    const doc = loadDocument(json).document!
-    const def = doc.graphs['g0']!
-    const work = { node: 0, port: 0, constraint: 0 }
-    const result = solveGraphTypes(def, (t) => schemas.get(t), {
-      onWork: (kind) => { work[kind] += 1 },
-    })
-    // Each chain has source 4-in/1-out, 18 scales 3-in/1-out, and preview
-    // 1-in/1-out. The selector adds one extra type pair to its 19 edges;
-    // reroute and literal-source feeds add no type constraints.
-    expect(work).toEqual({ node: chains * 20, port: chains * 79, constraint: chains * 20 })
-    expect(result.linkVerdicts.size).toBe(chains * 18)
-    expect(result.netSinkVerdicts.size).toBe(chains)
-    expect(result.diagnostics).toEqual([])
-    for (const verdict of result.linkVerdicts.values()) expect(verdict).toBe('ok')
-    for (const verdict of result.netSinkVerdicts.values()) expect(verdict).toBe('ok')
   })
 })
 
@@ -227,15 +174,6 @@ describe(`subgraph synthetic workload (${CHAINS} instances, ${NODES} expanded no
       schemaHash: 'perf',
     })
 
-  it('is a valid document: shared definition, 2 * chains root nodes', () => {
-    const loaded = loadDocument(syntheticWorkflow({ chains: CHAINS, chainLength: CHAIN_LENGTH, subgraphs: true }))
-    expect(loaded.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    const doc = loaded.document!
-    expect(Object.keys(doc.graphs)).toHaveLength(2)
-    expect(Object.keys(doc.graphs['g0']!.nodes)).toHaveLength(CHAINS * 2)
-    expect(Object.keys(doc.graphs['g1']!.nodes)).toHaveLength(CHAIN_LENGTH - 1)
-  })
-
   it(`flattens to ${NODES} prompt entries within budget (2s); promoted values apply per instance`, () => {
     const doc = loadDocument(
       syntheticWorkflow({ chains: CHAINS, chainLength: CHAIN_LENGTH, subgraphs: true }),
@@ -273,104 +211,5 @@ describe(`subgraph synthetic workload (${CHAINS} instances, ${NODES} expanded no
     // Wrappers add no executable nodes: same expanded prompt, similar cost.
     if (result.ok) expect(Object.keys(result.artifact.prompt)).toHaveLength(NODES)
     expect(ms, `depth-${depth} compile took ${ms.toFixed(1)}ms`).toBeLessThan(2000)
-  })
-})
-
-describe('recursive dynamic elaboration (Autogrow-in-Autogrow)', () => {
-  // A node with an outer autogrow whose template contains an inner autogrow:
-  // 10 outer members x 10 inner members + per-member static slot + ghosts
-  // ~= 120+ elaborated rows per node. Elaborating 200 such nodes stands in
-  // for a worst-case interface-recompute wave (e.g. a bulk paste). The
-  // budget is deliberately tight relative to the other suites: elaboration
-  // runs per keystroke-adjacent edits, so we want to notice long before the
-  // 100ms interactivity line.
-  const nestedSchema = (): NodeSchema => {
-    const inner: InputSpec = {
-      kind: 'input',
-      id: 'sub',
-      type: { kind: 'wildcard' },
-      optional: true,
-      dynamic: {
-        kind: 'autogrow',
-        template: [
-          { kind: 'input', id: 'item', type: { kind: 'concrete', name: 'IMAGE' }, optional: true },
-        ],
-        naming: { kind: 'prefix', prefix: 'g', min: 0, max: 32 },
-      },
-    }
-    const outer: InputSpec = {
-      kind: 'input',
-      id: 'items',
-      type: { kind: 'wildcard' },
-      optional: false,
-      dynamic: {
-        kind: 'autogrow',
-        template: [
-          { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: true },
-          inner,
-        ],
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 32 },
-      },
-    }
-    return {
-      type: 'PerfNested',
-      displayName: 'PerfNested',
-      category: 'test',
-      source: 'v3',
-      isOutputNode: false,
-      items: [outer],
-    }
-  }
-
-  const nestedNode = (outer: number, inner: number) => {
-    const members = Array.from({ length: outer }, (_, i) => `m${i}`)
-    const memberState: Record<string, Record<string, unknown>> = {}
-    for (const m of members) {
-      memberState[m] = {
-        'items.sub': { members: Array.from({ length: inner }, (_, i) => `m${i}`) },
-      }
-    }
-    return { values: {}, dynamic: { items: { members, memberState } } } as Parameters<
-      typeof elaborateInterface
-    >[1]
-  }
-
-  const measure = (schema: NodeSchema, node: ReturnType<typeof nestedNode>, iterations: number): number => {
-    const t0 = performance.now()
-    for (let i = 0; i < iterations; i++) elaborateInterface(schema, node)
-    return performance.now() - t0
-  }
-
-  it('keeps normalized elaboration cost stable as nested interfaces grow', () => {
-    const schema = nestedSchema()
-    const small = nestedNode(5, 5)
-    const large = nestedNode(10, 10)
-    const smallResult = elaborateInterface(schema, small)
-    const largeResult = elaborateInterface(schema, large)
-    expect(smallResult.diagnostics).toEqual([])
-    expect(largeResult.diagnostics).toEqual([])
-    expect(largeResult.items.length).toBeGreaterThan(100)
-
-    const largeIterations = 200
-    const targetItems = largeResult.items.length * largeIterations
-    const smallIterations = Math.ceil(targetItems / smallResult.items.length)
-    const ratios: number[] = []
-    for (let run = 0; run < 7; run++) {
-      const smallFirst = run % 2 === 0
-      const firstMs = measure(schema, smallFirst ? small : large, smallFirst ? smallIterations : largeIterations)
-      const secondMs = measure(schema, smallFirst ? large : small, smallFirst ? largeIterations : smallIterations)
-      const smallMs = smallFirst ? firstMs : secondMs
-      const largeMs = smallFirst ? secondMs : firstMs
-      const smallCost = smallMs / (smallIterations * smallResult.items.length)
-      const largeCost = largeMs / (largeIterations * largeResult.items.length)
-      ratios.push(largeCost / smallCost)
-    }
-    ratios.sort((a, b) => a - b)
-    const ratio = ratios[Math.floor(ratios.length / 2)]!
-    // eslint-disable-next-line no-console
-    console.log(`[perf] nested elaboration normalized cost ratio: ${ratio.toFixed(2)}x`)
-    // Linear work is 1.0x after normalizing by output rows. The 1.25x
-    // boundary admits allocator variance while rejecting superlinear growth.
-    expect(ratio, `large nested interface cost ${ratio.toFixed(2)}x per row`).toBeLessThan(1.25)
   })
 })

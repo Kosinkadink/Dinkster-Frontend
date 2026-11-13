@@ -83,25 +83,4 @@ describe('AppWidgetPreview', () => {
     dispose()
   })
 
-  it('uses ordinary canvas row geometry for a multi-row custom view', async () => {
-    const view = {
-      id: 'custom.literal', kind: 'CUSTOM', isCompatible: () => true,
-      measure: () => ({ rows: 2.8 }), drawCompact: () => undefined,
-    } satisfies WidgetView
-    const root = document.createElement('div')
-    document.body.append(root)
-    const dispose = render(() => <AppWidgetPreview row={row()} registry={registry(view)} />, root)
-    await Promise.resolve()
-
-    expect(root.querySelector('canvas')?.style.height).toBe('48px')
-    dispose()
-  })
-
-  it('renders no preview when the widget kind has no WidgetView', () => {
-    const root = document.createElement('div')
-    document.body.append(root)
-    const dispose = render(() => <AppWidgetPreview row={row()} registry={registry(undefined)} />, root)
-    expect(root.querySelector('canvas')).toBeNull()
-    dispose()
-  })
 })

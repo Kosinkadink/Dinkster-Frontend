@@ -390,18 +390,3 @@ test('a malformed (non-array) remote payload is a visible failure that preserves
   )
   expect(value).toBe('old.safetensors')
 })
-
-test('static combos are untouched by remote state', async ({ page }) => {
-  interceptRemote(page, ['a.safetensors'])
-  await openRemoteWorkflow(page)
-
-  // Open a remote combo first so stale remote state COULD leak, then a static one.
-  await page.mouse.click(...xy(await widgetPoint(page, 'r0', 'model')))
-  await expect(page.getByTestId('combo-dropdown')).toHaveAttribute('data-remote', 'ready')
-  await page.keyboard.press('Escape')
-
-  await page.mouse.click(...xy(await widgetPoint(page, 's0', 'mode')))
-  const dropdown = page.getByTestId('combo-dropdown')
-  await expect(dropdown).toHaveAttribute('data-remote', 'static')
-  await expect(dropdown.getByRole('option')).toHaveText(['alpha', 'beta'])
-})

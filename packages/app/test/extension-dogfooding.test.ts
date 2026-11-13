@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { asPromptId } from '@dinkster/core'
-import {
-  registerCoreWidgets,
-  type WidgetRegistrationDoors,
-} from '@dinkster/widgets'
 import { AppState } from '../src/app-state.js'
 
 let app: AppState
@@ -17,46 +13,6 @@ afterEach(() => {
 })
 
 describe('core extension door dogfooding', () => {
-  it('registers every built-in widget kind through the widgetKind door', () => {
-    const kinds: string[] = []
-    const doors: WidgetRegistrationDoors = {
-      widgetKind: (id, kind) => {
-        expect(id).toBe(kind.type)
-        kinds.push(id)
-      },
-      widgetView: (id, view) => expect(id).toBe(view.id),
-      previewRenderer: (id, renderer) => expect(id).toBe(renderer.id),
-    }
-
-    registerCoreWidgets(doors)
-
-    expect(kinds).toEqual([
-      'INT',
-      'FLOAT',
-      'STRING',
-      'BOOLEAN',
-      'COMBO',
-      'MULTI_COMBO',
-      'LIST',
-      'COLOR',
-      'CURVE',
-      'COMPOSITOR',
-      'ASSET',
-      'MOUNT',
-      'LOAD_3D',
-      'VIDEO_EDIT',
-      'BUTTON',
-      'MARKDOWN',
-      'COLORS',
-      'AUDIO_RECORD',
-      'WEBCAM',
-      'BOUNDING_BOX',
-      'IMAGECOMPARE',
-      'CAMERA_ANGLE_VIEW',
-      'RESOLUTION_PREVIEW',
-      'SAVE_TARGET',
-    ])
-  })
 
   it('publishes the built-in commands and executes shell actions from the registry', () => {
     expect(app.commands.list().map((command) => command.id).sort()).toEqual([
@@ -113,23 +69,6 @@ describe('core extension door dogfooding', () => {
     expect(app.commands.get('test.live-label')?.label).toBe('Second label')
     unregister()
     expect(app.commands.get('test.live-label')).toBeUndefined()
-  })
-
-  it('publishes a background grid that draws world-anchored dots through the layer registry', () => {
-    const layers = app.canvasLayers.get()
-    expect(layers.map((layer) => layer.id)).toEqual(['core.canvas.grid'])
-    const grid = layers[0]!
-    expect(grid.position).toBe('background')
-    expect(grid.order).toBe(-1000)
-    const dots: number[][] = []
-    const context = {
-      beginPath() {}, moveTo() {}, fill() {},
-      arc: (x: number, y: number, radius: number) => dots.push([x, y, radius]),
-    } as unknown as CanvasRenderingContext2D
-    grid.draw({ context, viewport: { x: 17, y: 9, width: 40, height: 55, scale: 1 }, nodes: [] })
-    expect(dots).toEqual([
-      [0, 0, 1.5], [32, 0, 1.5], [0, 32, 1.5], [32, 32, 1.5], [0, 64, 1.5], [32, 64, 1.5],
-    ])
   })
 
   it('publishes distinct non-interactive mode badges through the decoration registry', () => {

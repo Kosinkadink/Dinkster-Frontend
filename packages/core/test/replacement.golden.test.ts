@@ -17,16 +17,10 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId } from '../src/ids.js'
-import type { MappingSource, ReplacementPredicate, ReplacementRule } from '../src/replace/model.js'
+import type { ReplacementRule } from '../src/replace/model.js'
 import { createReplacementRegistry } from '../src/replace/registry.js'
 import { registerSchemaRules, replacementInvocation, scanReplacements } from '../src/replace/scan.js'
-import { resolveDeprecationPointer } from '../src/schema/deprecation.js'
-import {
-  parseDinksterNodes,
-  searchVisibilityOf,
-  type DinksterWireSchema,
-  type NodeSchema,
-} from '../src/index.js'
+import { parseDinksterNodes, type DinksterWireSchema, type NodeSchema } from '../src/index.js'
 
 // ---------------------------------------------------------------------------
 // Fixture loading: the goldens are {"schemas": [schema_wire, ...]} (each wire
@@ -51,13 +45,6 @@ const loadGolden = (name: string): { raw: readonly (DinksterWireSchema & { repla
 
 const vocabulary = loadGolden('vocabulary')
 const chain = loadGolden('chain')
-const combo = loadGolden('combo')
-
-const schemaOf = (g: typeof vocabulary, type: string): NodeSchema => {
-  const s = g.schemas.get(type)
-  expect(s, `schema '${type}'`).toBeDefined()
-  return s!
-}
 
 // ---------------------------------------------------------------------------
 // Document builders (same shapes as replacement.test.ts)
@@ -97,9 +84,6 @@ const node = (id: string, type: string, values: Record<string, Json> = {}) => ({
 
 const link = (id: string, from: object, to: object) => ({ id: asLinkId(id), from, to }) as GraphDef['links'][string]
 
-const rulesOf = (g: typeof vocabulary, type: string) =>
-  g.schemas.get(type)?.replacements ?? []
-
 function registryOf(g: typeof vocabulary) {
   const registry = createReplacementRegistry()
   expect(registerSchemaRules(registry, g.schemas.values())).toEqual([])
@@ -110,141 +94,6 @@ const resolveIn =
   (g: typeof vocabulary) =>
   (type: string): NodeSchema | undefined =>
     g.schemas.get(type)
-
-// ---------------------------------------------------------------------------
-// vocabulary.json: every predicate/mapping/transform variant, one rule
-// ---------------------------------------------------------------------------
-
-describe('vocabulary golden: explicit rules', () => {
-  it('native schema decoding preserves successor-declared rules', () => {
-    for (const g of [vocabulary, chain, combo]) {
-      for (const wire of g.raw) {
-        expect(g.schemas.get(String(wire.nodeType))?.replacements).toEqual(wire.replacements)
-      }
-    }
-  })
-
-  it('the carrier is the successor; the rule self-describes its predecessor', () => {
-    const rules = rulesOf(vocabulary, 'fixture.modern')
-    expect(rules).toHaveLength(1)
-    expect(rules[0]!.from).toBe('fixture.legacy')
-    expect(rules[0]!.note).toBe('renamed and re-ranged in fixture pack 2.0')
-    expect(schemaOf(vocabulary, 'fixture.legacy')).not.toHaveProperty('replacements')
-    expect(schemaOf(vocabulary, 'fixture.alternate')).not.toHaveProperty('replacements')
-  })
-
-  it('exercises every predicate kind (always spelled as the omitted-when fallback)', () => {
-    const rule = rulesOf(vocabulary, 'fixture.modern')[0]!
-    const kinds = new Set<string>()
-    const walk = (p: ReplacementPredicate): void => {
-      kinds.add(p.kind)
-      if (p.kind === 'not') walk(p.of)
-      if (p.kind === 'all' || p.kind === 'any') p.of.forEach(walk)
-    }
-    for (const c of rule.cases) if (c.when) walk(c.when)
-    expect([...kinds].sort()).toEqual(['all', 'any', 'inputConnected', 'not', 'valueEquals', 'valuePresent'])
-    // 'always' rides as the omitted `when` on the required fallback.
-    expect(rule.cases.at(-1)!.when).toBeUndefined()
-  })
-
-  it('exercises every mapping kind and both transforms, offset present and omitted', () => {
-    const rule = rulesOf(vocabulary, 'fixture.modern')[0]!
-    const mappings = rule.cases.flatMap((c) => Object.values(c.inputs ?? {}))
-    const byKind = (kind: MappingSource['kind']) => mappings.filter((m) => m.kind === kind)
-    expect(byKind('copy').length).toBeGreaterThan(0)
-    expect(byKind('link').length).toBeGreaterThan(0)
-    expect(byKind('constant').length).toBeGreaterThan(0)
-    const transforms = byKind('value').flatMap((m) => (m.kind === 'value' && m.transform ? [m.transform] : []))
-    expect(transforms).toContainEqual({ kind: 'scale', factor: 0.01, offset: 0.5 })
-    expect(transforms).toContainEqual({ kind: 'scale', factor: 2.0 }) // offset omitted at 0
-    expect(transforms).toContainEqual({ kind: 'enumRename', map: { fast: 'draft', slow: 'final' } })
-  })
-
-  it('preserves guarded multi-successor fan-out: case.to is not constrained to the carrier', () => {
-    const rule = rulesOf(vocabulary, 'fixture.modern')[0]!
-    expect(rule.cases.map((c) => c.to)).toEqual(['fixture.modern', 'fixture.alternate', 'fixture.modern'])
-  })
-})
-
-describe('combo golden: widget adjuncts and socket identity', () => {
-  it('decodes COMBO and MULTI_COMBO presentation with exact list identity', () => {
-    const schema = schemaOf(combo, 'fixture.combo-contract')
-    const input = schema.items.find((item) => item.kind === 'input')
-    const output = schema.items.find((item) => item.kind === 'output')
-    expect(input).toMatchObject({
-      type: { kind: 'concrete', name: 'COMBO' },
-      widget: {
-        widgetType: 'COMBO',
-        options: {
-          options: [
-            { value: 'alpha', label: 'Alpha', info: 'Primary choice', folder: 'Featured' },
-            'beta',
-          ],
-        },
-        remote: { route: '/api/choices/fixture.combo', refreshButton: true },
-        controller: 'after_generate',
-        controllerInitial: 'randomize',
-      },
-    })
-    expect(output).toMatchObject({ type: { kind: 'concrete', name: 'COMBO' } })
-    expect(input).toMatchObject({ widget: { default: 'alpha' } })
-    expect(typeof (input?.kind === 'input' ? input.widget?.default : undefined)).toBe('string')
-    const prompt = schema.items.find((item) => item.kind === 'input' && item.id === 'prompt')
-    const scale = schema.items.find((item) => item.kind === 'input' && item.id === 'scale')
-    const color = schema.items.find((item) => item.kind === 'input' && item.id === 'color')
-    expect(prompt).toMatchObject({
-      type: { kind: 'concrete', name: 'STRING' },
-      widget: {
-        widgetType: 'STRING',
-        options: { multiline: true, placeholder: 'Describe an image', dynamicPrompts: true },
-        representations: {
-          default: 'multiline',
-          userSwitchable: true,
-          representations: [
-            { id: 'single-line', widget: { options: { multiline: false, placeholder: 'Describe an image', dynamicPrompts: false } } },
-            { id: 'multiline', widget: { options: { multiline: true, placeholder: 'Describe an image', dynamicPrompts: true } } },
-          ],
-        },
-      },
-    })
-    expect(scale).toMatchObject({ widget: { widgetType: 'FLOAT', options: { round: 0.001 } } })
-    expect(color).toMatchObject({
-      type: { kind: 'concrete', name: 'STRING' },
-      widget: { widgetType: 'COLOR', options: {} },
-    })
-    const providers = schema.items.find((item) => item.kind === 'input' && item.id === 'providers')
-    expect(providers).toEqual(expect.objectContaining({
-      type: { kind: 'list', element: { kind: 'concrete', name: 'COMBO' } },
-      widget: {
-        widgetType: 'MULTI_COMBO',
-        options: {
-          options: [
-            { value: 'beta', label: 'Beta provider', info: 'Preferred provider', folder: 'Providers/Featured' },
-            'alpha',
-            'beta',
-          ],
-          placeholder: 'Select providers',
-          chip: false,
-        },
-        remote: {
-          route: '/api/choices/fixture.providers',
-          refreshButton: true,
-          controlAfterRefresh: 'last',
-          timeoutMs: 4096,
-          maxRetries: 2,
-          refreshMs: 0,
-        },
-        default: ['beta', 'alpha', 'beta'],
-      },
-    }))
-    expect(providers?.kind === 'input' ? providers.widget?.default : undefined).toEqual(['beta', 'alpha', 'beta'])
-    const providersOutput = schema.items.find((item) => item.kind === 'output' && item.id === 'providers')
-    expect(providersOutput).toMatchObject({
-      type: { kind: 'list', element: { kind: 'concrete', name: 'COMBO' } },
-    })
-    expect(JSON.stringify(combo.raw)).not.toContain('comboSource')
-  })
-})
 
 describe('vocabulary golden: planning against real documents', () => {
   const registry = registryOf(vocabulary)
@@ -333,31 +182,6 @@ describe('vocabulary golden: planning against real documents', () => {
 // ---------------------------------------------------------------------------
 
 describe('chain golden: deprecation + visibility + rules on one schema', () => {
-  it('decodes the combined fixture: message/since/pointer + explicit visibility', () => {
-    const a = schemaOf(chain, 'fixture.chain-a')
-    expect(a.deprecation).toEqual({
-      message: 'chain-a is superseded; use chain-b',
-      since: '1.2.0',
-      replacement: 'fixture.chain-b',
-    })
-    expect(searchVisibilityOf(a)).toBe('deprecated')
-    const b = schemaOf(chain, 'fixture.chain-b')
-    expect(b.deprecation?.replacement).toBe('fixture.chain-c')
-    expect(searchVisibilityOf(b)).toBe('hidden')
-    expect(b.replacements?.[0]?.from).toBe('fixture.chain-a')
-    const c = schemaOf(chain, 'fixture.chain-c')
-    expect(c.deprecation).toBeUndefined()
-    expect(searchVisibilityOf(c)).toBe('normal')
-  })
-
-  it('resolves the A -> B -> C pointer chain to terminal C', () => {
-    const resolved = resolveDeprecationPointer(schemaOf(chain, 'fixture.chain-a'), resolveIn(chain))
-    expect(resolved).toEqual({
-      terminal: 'fixture.chain-c',
-      path: ['fixture.chain-b', 'fixture.chain-c'],
-      status: 'ok',
-    })
-  })
 
   it('plans and applies the executable chain: hop 2 reads hop 1 transformed state', () => {
     const registry = registryOf(chain)

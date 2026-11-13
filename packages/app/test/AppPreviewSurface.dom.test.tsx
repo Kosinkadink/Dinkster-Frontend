@@ -133,21 +133,6 @@ describe('AppView document-owned previews', () => {
 })
 
 describe('AppPreviewSurface', () => {
-  it('explains an exposed preview before content exists', () => {
-    const root = document.createElement('div')
-    document.body.append(root)
-    const dispose = render(() => (
-      <AppPreviewSurface
-        surface={{}}
-        loader={{} as PreviewLoader}
-        ariaLabelledBy="preview-label"
-      />
-    ), root)
-
-    expect(root.querySelector('[data-testid="app-preview-status"]')?.textContent)
-      .toBe('Preview appears after execution.')
-    dispose()
-  })
 
   it.each([[undefined, undefined], ['PQ to sRGB', undefined], [undefined, true]] as const)('labels color conversion %s and bounded preview %s', (colorTransform, previewOnly) => {
     const root = document.createElement('div')

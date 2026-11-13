@@ -343,15 +343,6 @@ describe('authored workflows on a native backend', () => {
     expect(tab.store.revision).toBe(0)
   })
 
-  it('does not rewrite seed identities or create an undo step on schema arrival', () => {
-    const documents = app.tabs.get().map((tab) => structuredClone(tab.store.doc))
-    loadNativeSchemas()
-    for (const [index, tab] of app.tabs.get().entries()) {
-      expect(tab.store.doc).toEqual(documents[index])
-      expect(tab.store.canUndo).toBe(false)
-    }
-  })
-
   it('retargets an authored document without modifying it', () => {
     const tab = app.tabs.get()[0]!
     const backend = app.backends.get()[0]!

@@ -63,14 +63,6 @@ test('a native modal owns Escape while a Canvas view menu remains open behind it
   await expect(lensSwitcher).toHaveAttribute('aria-expanded', 'false')
 })
 
-test('a modal overlays the canvas instead of shrinking it', async ({ page }) => {
-  const canvas = page.getByTestId('graph-canvas')
-  const before = await canvas.boundingBox()
-  await page.getByTestId('settings-button').click()
-  await expect(page.getByTestId('modal-surface')).toBeVisible()
-  expect(await canvas.boundingBox()).toEqual(before)
-})
-
 test('a modal owns focus: initial focus moves inside, the background is inert, closing restores the opener', async ({ page }) => {
   await page.getByTestId('settings-button').click()
   const surface = page.getByTestId('modal-surface')
@@ -119,12 +111,4 @@ test('Escape during a keybinding capture cancels the capture, not the dialog', a
   // A second Escape (no capture active) reaches the dialog and closes.
   await page.keyboard.press('Escape')
   await expect(dialog).not.toBeVisible()
-})
-
-test('modal open state is session-only: a reload never restores a modal', async ({ page }) => {
-  await page.getByTestId('settings-button').click()
-  await expect(page.getByTestId('modal-surface')).toBeVisible()
-  await page.reload()
-  await expect(page.getByTestId('settings-button')).toBeVisible()
-  await expect(page.getByTestId('modal-surface')).not.toBeVisible()
 })

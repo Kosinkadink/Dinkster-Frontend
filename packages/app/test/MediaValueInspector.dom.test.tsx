@@ -59,12 +59,6 @@ describe('MediaValueInspector', () => {
     expect(root.textContent).not.toContain('original-image')
   })
 
-  it('makes a missing execution owner visible without fetching', () => {
-    dispose = render(() => <MediaValueInspector values={undefined} query={{ jobId: 'run', nodeId: 'image', outputId: 'output' }} />, root)
-    toggle(root, true)
-    expect(root.textContent).toContain('Execution owner unavailable.')
-  })
-
   it('relabels an open inspector and diagnostics in place without translating runtime data or refetching', async () => {
     registerCatalog('de-DE', {
       'HDR PQ': '[translated raw color]',

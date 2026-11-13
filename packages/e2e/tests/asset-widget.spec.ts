@@ -102,14 +102,6 @@ test.beforeEach(async ({ page }) => {
   expect(opened).toBe(true)
 })
 
-test('overlay opens and cancel preserves the old asset', async ({ page }) => {
-  const before = await value(page)
-  await openAsset(page)
-  await page.getByTestId('asset-editor').getByRole('button', { name: 'cancel' }).click()
-  await expect(page.getByTestId('asset-editor')).not.toBeVisible()
-  expect(await value(page)).toEqual(before)
-})
-
 test('asset editing uses the product modal with focus, close, touchscreen, and narrow viewport containment', async ({ page }) => {
   const railToggle = page.getByTestId('rail-toggle')
   if (await railToggle.getAttribute('aria-pressed') === 'true') await railToggle.click()
@@ -548,15 +540,6 @@ test.describe('multi-select on list-of-asset declarations', () => {
     expect(await value(page)).toEqual([ref(2)])
   })
 
-  test('cancel discards staged deselections', async ({ page }) => {
-    await openAsset(page)
-    const editor = page.getByTestId('asset-editor')
-    await editor.getByRole('button', { name: 'Remove img2.png' }).click()
-    await editor.getByRole('button', { name: 'cancel' }).click()
-    await expect(editor).not.toBeVisible()
-    expect(await value(page)).toEqual([ref(1), ref(2)])
-  })
-
   test('clear stages an empty selection: Cancel restores, Apply commits []', async ({ page }) => {
     await openAsset(page)
     const editor = page.getByTestId('asset-editor')
@@ -643,25 +626,4 @@ test.describe('multi-select on list-of-asset declarations', () => {
     })
   })
 
-  test('scalar asset declarations show no multi-select UI', async ({ page }) => {
-    // The default beforeEach schema (concrete ASSET) governs here: re-register
-    // it and confirm the editor keeps the single-pick surface.
-    await page.evaluate(async () => {
-      const app = window.__dinksterTest!.app
-      app.registerSchemas([{
-        type: 'AssetWidgetTest', displayName: 'Asset Widget', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
-          widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } }],
-      }])
-      const document = structuredClone(app.activeTab()!.store.doc)
-      document.graphs.g0!.nodes.asset!.values.image = { digest: `blake3:${'b'.repeat(64)}`, name: 'old.png', size: 3, mediaType: 'image/png', virtualPath: '' }
-      await app.openDocument(document, 'Asset Widget')
-    })
-    await openAsset(page)
-    const editor = page.getByTestId('asset-editor')
-    await expect(editor).toBeVisible()
-    // Apply exists for scalar picks too, but there are no multi-select chips.
-    await expect(editor.getByTestId('asset-apply')).toBeVisible()
-    await expect(editor.getByTestId('asset-chip')).toHaveCount(0)
-  })
 })

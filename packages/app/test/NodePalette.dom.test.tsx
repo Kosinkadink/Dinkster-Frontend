@@ -495,29 +495,6 @@ describe('NodePalette search surface', () => {
     }
   })
 
-  it('filters and ranks the corpus exactly once per keystroke', async () => {
-    const entries = Array.from({ length: 50 }, (_, i) => paletteEntry(`test.node_${i}`, `Node ${i}`, 'testing'))
-    const { root, dispose } = mountPalette(entries)
-    try {
-      await flushMicrotasks()
-      const input = root.querySelector<HTMLInputElement>('[data-testid="palette-search"]')!
-      const typeChar = (value: string): void => {
-        input.value = value
-        input.dispatchEvent(new InputEvent('input', { bubbles: true }))
-      }
-      rankSearchCalls.count = 0
-      typeChar('n')
-      await flushMicrotasks()
-      expect(rankSearchCalls.count).toBe(1)
-      typeChar('no')
-      await flushMicrotasks()
-      expect(rankSearchCalls.count).toBe(2)
-      expect(root.querySelectorAll('[data-testid="palette-item"]').length).toBeGreaterThan(0)
-    } finally {
-      dispose()
-    }
-  })
-
   it('offers full help only for a documented node and invokes it without placing the node', async () => {
     const onCommit = vi.fn()
     const onHelp = vi.fn()

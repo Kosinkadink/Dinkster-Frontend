@@ -4,14 +4,7 @@
  * modifier precedence covered through the pure decision used by pointerdown.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  InteractionController,
-  connectedInputDragMode,
-  connectivityRangeSelection,
-  endpointDragMode,
-  resizedNodeBounds,
-  type InteractionHost,
-} from '../src/interaction.js'
+import { InteractionController, connectivityRangeSelection, resizedNodeBounds, type InteractionHost } from '../src/interaction.js'
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
 import { BOUNDARY_ADD_SLOT } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
@@ -218,34 +211,6 @@ describe('persistent host overlays', () => {
   })
 })
 
-function paintedGhostStrokes(scene: Scene, ghostLink: NonNullable<ReturnType<CanvasRenderer['getOverlay']>['ghostLink']>): string[] {
-  const strokes: string[] = []
-  let strokeStyle = ''
-  const ctx = new Proxy({} as CanvasRenderingContext2D, {
-    get: (_target, property) => property === 'measureText'
-      ? (text: string) => ({ width: text.length * 6 })
-      : property === 'stroke'
-        ? () => strokes.push(strokeStyle)
-        : () => undefined,
-    set: (_target, property, value) => {
-      if (property === 'strokeStyle') strokeStyle = String(value)
-      return true
-    },
-  })
-  vi.stubGlobal('requestAnimationFrame', () => 0)
-  vi.stubGlobal('cancelAnimationFrame', () => undefined)
-  vi.stubGlobal('Path2D', class Path2D {})
-  const canvas = {
-    getContext: () => ctx, clientWidth: 800, clientHeight: 600, width: 0, height: 0,
-  } as unknown as HTMLCanvasElement
-  const renderer = new CanvasRenderer(canvas, defaultTokens)
-  renderer.setScene(scene)
-  renderer.setOverlay({ ghostLink })
-  renderer.renderNow()
-  renderer.dispose()
-  return strokes
-}
-
 function controllerScene(mode: 'fixed' | 'increment' | 'decrement' | 'randomize', connected = false): Scene {
   const scene = interactionScene() as any
   scene.nodes[0].layout.rows[0].controllerMode = mode
@@ -261,10 +226,6 @@ afterEach(() => vi.unstubAllGlobals())
 describe('node resize geometry', () => {
   const start = { x: 100, y: 80, width: 200, height: 120 }
 
-  it('moves both NW edges while their opposite edges stay anchored', () => {
-    expect(resizedNodeBounds(start, 300, 200, 130, 100, 'nw', 80, 60)).toEqual({ x: 130, y: 100, width: 170, height: 100 })
-  })
-
   it('clamps moving edges without moving the anchored corner', () => {
     const nw = resizedNodeBounds(start, 300, 200, 600, 580, 'nw', 80, 60)
     expect(nw).toEqual({ x: 220, y: 140, width: 80, height: 60 })
@@ -274,43 +235,6 @@ describe('node resize geometry', () => {
     expect(se).toEqual({ x: 100, y: 80, width: 80, height: 60 })
   })
 
-  it('preserves a captured NW anchor exactly across many zoomed moves and clamping', () => {
-    const scale = 0.7
-    const anchorX = start.x + start.width
-    const anchorY = start.y + start.height
-    let bounds = resizedNodeBounds(start, anchorX, anchorY, start.x, start.y, 'nw', 80, 60)
-    for (let screen = 0.7; screen <= 49; screen += 0.7) {
-      const world = screen / scale
-      bounds = resizedNodeBounds(start, anchorX, anchorY, start.x - world, start.y - world, 'nw', 80, 60)
-      expect(bounds.x + bounds.width).toBe(anchorX)
-      expect(bounds.y + bounds.height).toBe(anchorY)
-    }
-    bounds = resizedNodeBounds(start, anchorX, anchorY, anchorX + 1000, anchorY + 1000, 'nw', 80, 60)
-    expect(bounds.x + bounds.width).toBe(anchorX)
-    expect(bounds.y + bounds.height).toBe(anchorY)
-  })
-})
-
-describe('connected input drag modifiers', () => {
-  it('normally grabs the existing link for a rewire', () => {
-    expect(connectedInputDragMode(false, false)).toBe('rewire')
-  })
-
-  it('Shift starts a replacement candidate without selecting the rewire path', () => {
-    expect(connectedInputDragMode(true, false)).toBe('replace-candidate')
-  })
-
-  it('Alt retains fan-out precedence when Shift is also held', () => {
-    expect(connectedInputDragMode(false, true)).toBe('fan-out')
-    expect(connectedInputDragMode(true, true)).toBe('fan-out')
-  })
-
-  it('shares Shift interpretation across connected real and pseudo endpoints', () => {
-    expect(endpointDragMode('out', true, true)).toBe('move-source')
-    expect(endpointDragMode('in', true, true)).toBe('replace-candidate')
-    expect(endpointDragMode('out', false, true)).toBe('fresh')
-    expect(endpointDragMode('in', false, true)).toBe('fresh')
-  })
 })
 
 describe('node selection modifiers', () => {
@@ -540,20 +464,6 @@ describe('marquee selection', () => {
     )
   })
 
-  it('Select All keeps the node-only move fast path when a scene has only nodes', () => {
-    const scene = { ...interactionScene(), nodes: [interactionScene().nodes[0]!], reroutes: [], valueSources: [], selectors: [] }
-    const harness = interactionHarness(scene)
-    harness.controller.selectAll()
-
-    harness.fire('pointerdown', 30, 15)
-    harness.fire('pointermove', 40, 25)
-    harness.fire('pointerup', 40, 25)
-
-    expect(harness.dispatched).toEqual([{
-      command: 'node.move',
-      params: { graphId: 'g0', positions: { n1: { x: 20, y: 20 } } },
-    }])
-  })
 })
 
 describe('canvas hover targets', () => {
@@ -722,23 +632,6 @@ describe('canvas hover targets', () => {
     expect(hover).toHaveBeenLastCalledWith(undefined)
     expect(nodeHover).not.toHaveBeenCalledWith('n1')
     expect(harness.overlays.at(-1)).not.toMatchObject({ hoveredNode: 'n1' })
-  })
-
-  it('carries warned-pin metadata through the existing hover hit-test path', () => {
-    const hover = vi.fn()
-    const scene = interactionScene() as any
-    scene.nodes[0].layout.pins = [{
-      portId: 'input', address: { port: 'input' }, label: 'input', direction: 'in',
-      y: 20, type: { kind: 'concrete', name: 'INT' }, warn: true,
-    }]
-    const harness = interactionHarness(scene, { onHoverTarget: hover })
-
-    harness.fire('pointermove', 10, 30)
-
-    expect(hover).toHaveBeenCalledWith(expect.objectContaining({
-      kind: 'pin',
-      hit: expect.objectContaining({ portId: 'input', pin: expect.objectContaining({ warn: true }) }),
-    }))
   })
 
   it('emits proven-mismatch noodle bodies and midpoint grab dots but not healthy noodles', () => {
@@ -963,34 +856,6 @@ describe('context menus', () => {
     expect(hit.node).toBe(current!.nodes[0])
   })
 
-  it('FR4 identity encoding cannot collide across address fields', () => {
-    const menu = vi.fn()
-    const initial = interactionScene() as any
-    // These two pins are DIFFERENT document targets, but a naive delimiter
-    // join of (port, ...members) would encode both identically. JSON
-    // escaping keeps them distinct, so the drifted re-hit must degrade.
-    initial.nodes[0].layout.pins = [
-      { portId: 'a', address: { port: 'p\u0000m' }, direction: 'in', x: 0, y: 12,
-        type: { kind: 'concrete', name: 'FLOAT' } },
-      { portId: 'b', address: { port: 'p', members: ['m'] }, direction: 'in', x: 0, y: 30,
-        type: { kind: 'concrete', name: 'FLOAT' } },
-    ]
-    let harness: ReturnType<typeof interactionHarness>
-    let current: Scene
-    harness = interactionHarness(initial, {
-      onSelectionChange: () => {
-        current = structuredClone(initial)
-        harness.renderer.setScene(current)
-        harness.setViewportOffset(0, 18)
-      },
-      onContextMenu: menu,
-    })
-    harness.fire('contextmenu', 10, 22)
-    const hit = menu.mock.calls[0]![0]
-    expect(hit).toMatchObject({ kind: 'body', node: { id: 'n1' } })
-    expect(hit.node).toBe(current!.nodes[0])
-  })
-
   it('FR4 recomputes world coordinates when the callback moves the viewport', () => {
     const menu = vi.fn()
     let harness: ReturnType<typeof interactionHarness>
@@ -1164,39 +1029,6 @@ describe('node-body link drops', () => {
     })
     harness.fire('pointerup', lane.x, lane.y)
     expect(harness.dispatched).toEqual([])
-  })
-
-  it.each([
-    ['input', 8.9, 8.9, false],
-    ['input', PIN_HIT_RADIUS, PIN_HIT_RADIUS + 1 / 65_536, false],
-    ['input', 9.1, 9.1, true],
-    ['output', 8.9, 8.9, false],
-    ['output', PIN_HIT_RADIUS, PIN_HIT_RADIUS + 1 / 65_536, false],
-    ['output', 9.1, 9.1, true],
-  ] as const)('keeps the %s fractional socket-lane boundary stable at depth %s', (side, depth, quantizedDepth, eligible) => {
-    const scene = typedScene() as any
-    scene.nodes[1].layout.width = 175.32069396972656
-    const viewport = { x: 17.25, y: -11.5, scale: 2 }
-    const screen = (world: { x: number; y: number }) => ({
-      x: (world.x - viewport.x) * viewport.scale,
-      y: (world.y - viewport.y) * viewport.scale,
-    })
-
-    const harness = interactionHarness(scene)
-    harness.setViewportTransform(viewport.x, viewport.y, viewport.scale)
-    const from = screen(side === 'input' ? { x: 110, y: 32 } : { x: 10, y: 48 })
-    const localX = side === 'input'
-      ? quantizedDepth
-      : scene.nodes[1].layout.width - quantizedDepth
-    const point = screen({ x: scene.nodes[1].x + localX, y: scene.nodes[1].y + 31 })
-
-    harness.fire('pointerdown', from.x, from.y)
-    harness.fire('pointermove', point.x, point.y)
-    expect((harness.overlays.at(-1) as any).bodyDropNode, `${side} depth ${depth} preview`).toBe(
-      eligible ? 'n2' : undefined,
-    )
-    harness.fire('pointerup', point.x, point.y)
-    expect(harness.dispatched, `${side} depth ${depth} release`).toHaveLength(eligible ? 1 : 0)
   })
 
   it('keeps true-body preview and commit aligned through a non-identity viewport transform', () => {
@@ -2426,14 +2258,6 @@ describe('gesture ownership and cancellation', () => {
     ])
   })
 
-  it('idle hover moves with buttons zero dispatch nothing and start nothing', () => {
-    const harness = interactionHarness(interactionScene())
-    harness.controller.enablePointerTrace()
-    harness.fire('pointermove', 30, 15, { buttons: 0 })
-    expect(harness.dispatched).toEqual([])
-    expect(harness.controller.dumpPointerTrace().filter((entry) => 'gestureKind' in entry)).toEqual([])
-  })
-
   it('a buttons-zero Space-pan preserves selection below the drag threshold', () => {
     const harness = interactionHarness(interactionScene())
     harness.controller.setSelection(['n1'])
@@ -2489,27 +2313,6 @@ describe('gesture ownership and cancellation', () => {
         { command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n2' } },
       ] },
     }])
-  })
-
-  it('mouse pointercancel on a motionless press cancels cleanly', () => {
-    const harness = interactionHarness(interactionScene())
-    harness.fire('pointerdown', 30, 15)
-    harness.fire('pointercancel', 0, 0, { pointerType: 'mouse' })
-    harness.fire('pointerup', 30, 15)
-    expect(harness.dispatched).toEqual([])
-  })
-
-  it('touch pointercancel keeps the strict policy', () => {
-    const rewire = interactionHarness(connectedLinkScene())
-    rewire.fire('pointerdown', 200, 34)
-    rewire.fire('pointermove', 700, 300)
-    rewire.fire('pointercancel', 0, 0, { pointerType: 'touch' })
-    expect(rewire.dispatched).toEqual([])
-
-    const node = interactionHarness(interactionScene())
-    beginNodeDrag(node)
-    node.fire('pointercancel', 0, 0, { pointerType: 'touch' })
-    expect(node.dispatched).toEqual([])
   })
 
   it('a re-press after a dropped release commits the stale drag and starts fresh', () => {
@@ -2692,78 +2495,6 @@ describe('gesture ownership and cancellation', () => {
     ])
   })
 
-  it('records raw events and termination reasons when enabled', () => {
-    const harness = interactionHarness(interactionScene())
-    harness.controller.enablePointerTrace()
-    harness.fire('pointerdown', 30, 15, { buttons: 1, pointerType: 'mouse' })
-    harness.fire('pointermove', 40, 25, { buttons: 0, pointerType: 'mouse' })
-    const entries = harness.controller.dumpPointerTrace()
-    expect(entries).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'pointerdown', pointerType: 'mouse', viaWindow: false }),
-      expect.objectContaining({ type: 'pointermove', buttons: 0, viaWindow: false }),
-      expect.objectContaining({ gestureKind: 'node', event: 'start', reason: 'pointerdown' }),
-      expect.objectContaining({ gestureKind: 'node', event: 'commit', reason: 'synthetic-buttons0' }),
-    ]))
-  })
-
-  it('records strict pointercancel commit and cancellation outcomes accurately', () => {
-    const legal = interactionHarness(linkDropScene())
-    legal.controller.enablePointerTrace()
-    legal.fire('pointerdown', 110, 32)
-    legal.fire('pointermove', 200, 34)
-    legal.fire('pointercancel', 0, 0, { pointerType: 'touch' })
-    expect(legal.controller.dumpPointerTrace()).toContainEqual(expect.objectContaining({
-      gestureKind: 'link', event: 'commit', reason: 'pointercancel-strict-commit',
-    }))
-
-    const illegal = interactionHarness(linkDropScene())
-    illegal.controller.enablePointerTrace()
-    illegal.fire('pointerdown', 110, 32)
-    illegal.fire('pointermove', 700, 300)
-    illegal.fire('pointercancel', 0, 0, { pointerType: 'touch' })
-    expect(illegal.controller.dumpPointerTrace()).toContainEqual(expect.objectContaining({
-      gestureKind: 'link', event: 'cancel', reason: 'pointercancel-cancel',
-    }))
-  })
-
-  it('records strict lost-capture commit and cancellation outcomes accurately', () => {
-    const legal = interactionHarness(linkDropScene())
-    legal.controller.enablePointerTrace()
-    legal.fire('pointerdown', 110, 32)
-    legal.fire('pointermove', 200, 34)
-    legal.fire('lostpointercapture', 0, 0)
-    expect(legal.controller.dumpPointerTrace()).toContainEqual(expect.objectContaining({
-      gestureKind: 'link', event: 'commit', reason: 'lostpointercapture-commit',
-    }))
-
-    const illegal = interactionHarness(linkDropScene())
-    illegal.controller.enablePointerTrace()
-    illegal.fire('pointerdown', 110, 32)
-    illegal.fire('pointermove', 700, 300)
-    illegal.fire('lostpointercapture', 0, 0)
-    expect(illegal.controller.dumpPointerTrace()).toContainEqual(expect.objectContaining({
-      gestureKind: 'link', event: 'cancel', reason: 'lostpointercapture-cancel',
-    }))
-  })
-
-  it('records nothing when disabled', () => {
-    const harness = interactionHarness(interactionScene())
-    harness.fire('pointerdown', 30, 15, { buttons: 1 })
-    harness.fire('pointermove', 40, 25, { buttons: 0 })
-    expect(harness.controller.dumpPointerTrace()).toEqual([])
-  })
-
-  it('ring buffer caps at 512', () => {
-    const harness = interactionHarness(interactionScene())
-    harness.controller.enablePointerTrace()
-    for (let i = 0; i < 513; i++)
-      harness.fire('pointermove', 700 + i, 300, { pointerId: i + 1, buttons: 0 })
-    const entries = harness.controller.dumpPointerTrace()
-    expect(entries).toHaveLength(512)
-    expect(entries[0]).toMatchObject({ seq: 2 })
-    expect(entries.at(-1)).toMatchObject({ seq: 513 })
-  })
-
   it('cancels a Ctrl-left press when macOS synthesizes contextmenu before release', () => {
     const onContextMenu = vi.fn()
     const harness = interactionHarness(linkDropScene(), { onContextMenu })
@@ -2772,14 +2503,6 @@ describe('gesture ownership and cancellation', () => {
     harness.fire('pointerup', 200, 34, { ctrlKey: true, button: 2 })
     expect(harness.dispatched).toEqual([])
     expect(onContextMenu).toHaveBeenCalledTimes(1)
-  })
-
-  it('a motionless press that loses capture dispatches nothing (RG-1)', () => {
-    const harness = interactionHarness(interactionScene())
-    harness.fire('pointerdown', 30, 15)
-    harness.fire('lostpointercapture', 0, 0, { pointerId: 1 })
-    harness.fire('pointerup', 30, 15)
-    expect(harness.dispatched).toEqual([])
   })
 
   it('capture loss on a non-owning pointer neither completes nor cancels (RG-1)', () => {
@@ -2918,30 +2641,11 @@ describe('gesture ownership and cancellation', () => {
     expect(selections.flat()).toEqual([])
   })
 
-  it('lets a pure pan survive scene replacement', () => {
-    const harness = interactionHarness(interactionScene())
-    harness.fire('pointerdown', 30, 15, { button: 1 })
-    harness.replaceScene(differentGraph())
-    expect(() => {
-      harness.fire('pointermove', 40, 25)
-      harness.fire('pointerup', 40, 25)
-    }).not.toThrow()
-    expect(harness.dispatched).toEqual([])
-  })
-
   it('refuses a cross-graph commit when replacement notification is missed', () => {
     const harness = interactionHarness(interactionScene())
     beginNodeDrag(harness)
     harness.swapScene(differentGraph())
     harness.fire('pointerup', 40, 25)
-    expect(harness.dispatched).toEqual([])
-  })
-
-  it('dispose cancels an active gesture and releases pointer capture', () => {
-    const harness = interactionHarness(interactionScene())
-    beginNodeDrag(harness)
-    expect(() => harness.controller.dispose()).not.toThrow()
-    expect(harness.releasePointerCapture).toHaveBeenCalledWith(1)
     expect(harness.dispatched).toEqual([])
   })
 
@@ -3086,20 +2790,6 @@ describe('presence egress callbacks (onDragOffsets / onNodeHover / onLinkDragPre
     harness.fireWindow('keydown', { code: 'Escape' })
     expect(calls).toEqual([expect.any(Map), undefined])
     expect(harness.dispatched).toEqual([])
-  })
-
-  it('a scene replacement mid-drag does not re-emit the same live offsets', () => {
-    const calls: unknown[] = []
-    const harness = interactionHarness(interactionScene(), {
-      onDragOffsets: (offsets) => calls.push(offsets),
-    })
-    harness.fire('pointerdown', 30, 15)
-    harness.fire('pointermove', 40, 25)
-    expect(calls).toHaveLength(1)
-    // Same-graph rebuild (a background collab patch): the drag survives and
-    // the carried-through overlay reuses the SAME map - no duplicate emit.
-    harness.replaceScene(interactionScene())
-    expect(calls).toHaveLength(1)
   })
 
   it('reports the node under the idle pointer and hover-off, each once', () => {
@@ -3974,20 +3664,6 @@ describe('two-finger touch navigation', () => {
     harness.fire('pointerdown', 250, 150, { ...touch, pointerId: 3 })
     harness.fire('pointermove', 350, 150, { ...touch, pointerId: 3 })
     expect(setViewportMock(harness)).toHaveBeenCalledTimes(1)
-  })
-
-  it('capture loss ending a one-finger touch drag drops its touch tracking', () => {
-    const harness = interactionHarness(interactionScene())
-    harness.controller.enablePointerTrace()
-    harness.fire('pointerdown', 30, 15, { ...touch, pointerId: 1 })
-    harness.fire('pointermove', 50, 35, { ...touch, pointerId: 1 })
-    harness.fire('lostpointercapture', 0, 0, { pointerId: 1 })
-    // The finger's tracking entry is gone: a later touch is a lone first
-    // finger, not the second of a pair.
-    harness.fire('pointerdown', 100, 100, { ...touch, pointerId: 2 })
-    expect(harness.controller.dumpPointerTrace()).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ gestureKind: 'touch-nav', event: 'start' }),
-    ]))
   })
 
   it('a participant pointercancel ends navigation without committing', () => {

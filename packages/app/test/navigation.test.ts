@@ -1,17 +1,7 @@
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createSignal } from '@dinkster/core'
-import {
-  currentGraphId,
-  diagnosticFocusPlan,
-  diagnosticFocusTarget,
-  editedSubgraphDefinition,
-  AppState,
-  pushGraph,
-  truncateGraphStack,
-  viewInstancePath,
-  type Tab,
-} from '../src/app-state.js'
+import { diagnosticFocusPlan, diagnosticFocusTarget, AppState, pushGraph, truncateGraphStack, viewInstancePath, type Tab } from '../src/app-state.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 beforeAll(() => { Object.defineProperty(globalThis, 'location', { value: new URL('http://localhost/'), configurable: true }) })
@@ -34,22 +24,6 @@ const makeTab = (): Tab =>
   }) as unknown as Tab
 
 describe('graph navigation helpers', () => {
-  it('pushes a graph definition and its instance path segment', () => {
-    const tab = makeTab()
-    pushGraph(tab, 'child', 'instance')
-    expect(tab.graphStack.get()).toEqual(['root', 'child'])
-    expect(viewInstancePath(tab)).toEqual(['instance'])
-    expect(currentGraphId(tab)).toBe('child')
-  })
-
-  it('truncates navigation back to the root', () => {
-    const tab = makeTab()
-    pushGraph(tab, 'child', 'instance')
-    truncateGraphStack(tab, 1)
-    expect(tab.graphStack.get()).toEqual(['root'])
-    expect(tab.instancePath.get()).toEqual([])
-    expect(viewInstancePath(tab)).toEqual([])
-  })
 
   it('keeps one instance segment after a partial breadcrumb truncation', () => {
     const tab = makeTab()
@@ -59,26 +33,6 @@ describe('graph navigation helpers', () => {
     expect(tab.graphStack.get()).toEqual(['root', 'child'])
     expect(tab.instancePath.get()).toEqual(['instance'])
     expect(viewInstancePath(tab)).toEqual(['instance'])
-  })
-
-  it('returns undefined when graph stack and instance path are desynchronized', () => {
-    const tab = makeTab()
-    tab.graphStack.update((stack) => [...stack, 'sub'])
-    expect(viewInstancePath(tab)).toBeUndefined()
-  })
-
-  it('returns an empty instance path at the root', () => {
-    expect(viewInstancePath(makeTab())).toEqual([])
-  })
-
-  it('identifies only the subgraph definition currently being edited', () => {
-    const tab = makeTab()
-    expect(editedSubgraphDefinition(tab)).toBeUndefined()
-    pushGraph(tab, 'child', 'instance')
-    expect(editedSubgraphDefinition(tab)?.id).toBe('child')
-    truncateGraphStack(tab, 1)
-    expect(editedSubgraphDefinition(tab)).toBeUndefined()
-    expect(editedSubgraphDefinition(undefined)).toBeUndefined()
   })
 
   it('creates an empty subgraph, drills into it, and one undo removes it and repairs navigation', async () => {

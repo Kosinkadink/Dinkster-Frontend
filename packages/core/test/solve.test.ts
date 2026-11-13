@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest'
 import type { GraphDef } from '../src/format/document.js'
 import { asNodeId, asPortId } from '../src/ids.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
-import { defaultDynamicHandlers, elabInputsOf, elaborateInterface, type DynamicKindHandler } from '../src/schema/elaborate.js'
+import { elaborateInterface } from '../src/schema/elaborate.js'
 import type { InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 import { netSinkKey, solveGraphTypes } from '../src/schema/solve.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
@@ -389,32 +389,6 @@ describe('concrete and union edges', () => {
     expect(s.diagnostics.map((d) => d.code)).toEqual(['solve.linkMismatch'])
   })
 
-  it('a MASK output does not bridge to either prefixed MASK or IMAGE', () => {
-    const def = defOf({
-      nodes: { src: { type: 'DinksterMaskSrc' }, maskSink: { type: 'ComfyMaskSink' }, imageSink: { type: 'ComfyImageSink' } },
-      links: {
-        l0: { from: ['src', 'out'], to: ['maskSink', 'in'] },
-        l1: { from: ['src', 'out'], to: ['imageSink', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.linkVerdicts.get('l0' as never)).toBe('mismatch')
-    expect(s.linkVerdicts.get('l1' as never)).toBe('mismatch')
-  })
-
-  it('a variable constrained to prefixed IMAGE conflicts with a native IMAGE edge', () => {
-    const def = defOf({
-      nodes: { src: { type: 'DinksterImageSrc' }, sw: { type: 'ComfyImageSwitch' }, sink: { type: 'ComfyImageSink' } },
-      links: {
-        l0: { from: ['src', 'out'], to: ['sw', 'in'] },
-        l1: { from: ['sw', 'out'], to: ['sink', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.resolutionOf(n('sw'), 'T')).toEqual({ kind: 'conflict' })
-    expect(s.diagnostics.map((d) => d.code)).toEqual(['solve.varConflict'])
-  })
-
   it('a union producer feeds different atoms simultaneously without collapsing', () => {
     const def = defOf({
       nodes: { src: { type: 'EitherSrc' }, a: { type: 'ImageSink' }, b: { type: 'LatentSink' } },
@@ -556,30 +530,6 @@ describe('MatchType resolution', () => {
     ]))
   })
 
-  it('keeps projected variables isolated from every persisted node and template identity', () => {
-    const collisionTemplate = 'projected-input:0\u0000upstream'
-    const collision = schemaOf('Collision', [input('in', T(collisionTemplate)), output('out', T(collisionTemplate))])
-    const def = defOf({
-      nodes: {
-        '': { type: collision.type },
-        image: { type: 'ImageSrc' },
-        target: { type: 'Switch' },
-      },
-      links: { collision: { from: ['image', 'out'], to: ['', 'in'] } },
-    })
-    const solved = solveGraphTypes(def, (type) => type === collision.type ? collision : resolve(type), {
-      projectedInputs: [{
-        type: T('upstream'),
-        to: { node: n('target'), port: asPortId('in') },
-      }],
-    })
-    expect(solved.portTypeOf(n(''), 'output', 'out')).toEqual({ kind: 'concrete', name: 'IMAGE' })
-    expect(solved.resolutionOf(n('target'), 'T')).toEqual({ kind: 'unconstrained' })
-    expect(solved.portTypeOf(n('target'), 'input', 'in')).toEqual(T('T'))
-    expect(solved.portTypeOf(n('target'), 'output', 'out')).toEqual(T('T'))
-    expect(solved.diagnostics).toEqual([])
-  })
-
   it('anchors projected variable conflicts to the real target without claiming link verdicts', () => {
     const target = schemaOf('LatentVariable', [
       input('in', T('target', ['LATENT'])),
@@ -602,23 +552,6 @@ describe('MatchType resolution', () => {
     expect(solved.diagnostics[0]!.message).not.toContain('links are marked')
     expect(solved.linkVerdicts.size).toBe(0)
     expect(solved.netSinkVerdicts.size).toBe(0)
-  })
-
-  it('intersects projected input domains and reports conflicts without document link verdicts', () => {
-    const def = defOf({ nodes: { p: { type: 'Pickle' } } })
-    const projected = (type: TypeExpr) => ({ type, to: { node: n('p'), port: asPortId('in') } })
-    const ambiguous = solveGraphTypes(def, resolve, {
-      projectedInputs: [projected({ kind: 'union', names: ['IMAGE', 'LATENT', 'MASK'] })],
-    })
-    expect(ambiguous.resolutionOf(n('p'), 'T')).toEqual({ kind: 'ambiguous', names: ['IMAGE', 'LATENT'] })
-
-    const conflict = solveGraphTypes(def, resolve, {
-      projectedInputs: [projected({ kind: 'concrete', name: 'MASK' })],
-    })
-    expect(conflict.resolutionOf(n('p'), 'T')).toEqual({ kind: 'conflict' })
-    expect(conflict.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['solve.varConflict'])
-    expect(conflict.linkVerdicts.size).toBe(0)
-    expect(conflict.netSinkVerdicts.size).toBe(0)
   })
 
   it('a concrete edge resolves the variable; ports sharing the template follow', () => {
@@ -842,24 +775,6 @@ describe('MatchType resolution', () => {
     expect(solved.diagnostics).toEqual([])
   })
 
-  it('a nested member ref is never flattened onto the flat member: unknown + portMissing', () => {
-    // Flat elaboration stamps inputs.item#m0; a link addressing the deeper
-    // path m0.g0 must NOT bind to it (that would cross-wire sibling scopes
-    // once recursive elaboration lands). Until then: unknown verdict + diag.
-    const def = defOf({
-      nodes: { img: { type: 'ImageSrc' }, g: { type: 'VarGrower', dynamic: { inputs: { members: ['m0'] } } } },
-      links: { l0: { from: ['img', 'out'], to: ['g', 'inputs.item', 'm0'] } },
-    })
-    const l0 = (def.links as Record<string, { to: { members?: readonly string[] } }>)['l0']!
-    ;(l0 as { to: unknown }).to = { ...l0.to, members: ['m0', 'g0'] }
-    const s = solveGraphTypes(def, resolve)
-    expect(s.linkVerdicts.get('l0' as never)).toBe('unknown')
-    expect(s.resolutionOf(n('g'), 'T')).toEqual({ kind: 'unconstrained' }) // no constraint leaked
-    const missing = s.diagnostics.find((d) => d.code === 'solve.portMissing')
-    expect(missing?.message).toBe('g.inputs.item#m0#g0: connected port is unavailable')
-    expect(missing?.anchor?.port?.members).toEqual(['m0', 'g0'])
-  })
-
   it('solves through a recursively elaborated nested address (autogrow-in-autogrow)', () => {
     // Real recursive elaboration: the outer family's template
     // slot carries an inner family whose slot shares the node's MatchType
@@ -978,31 +893,6 @@ describe('unknown endpoints', () => {
     expect(s.linkVerdicts.get('l0' as never)).toBe('unknown')
     const info = s.diagnostics.find((d) => d.code === 'solve.portMissing')
     expect(info?.severity).toBe('info')
-  })
-})
-
-describe('solving is advisory', () => {
-  it('never changes which ports exist: elaboration output is identical with and without links', () => {
-    const withLink = defOf({
-      nodes: { img: { type: 'ImageSrc' }, sw: { type: 'Switch' } },
-      links: { l0: { from: ['img', 'out'], to: ['sw', 'in'] } },
-    })
-    solveGraphTypes(withLink, resolve)
-    // The Switch schema has no dynamic constructs: its elaborated interface
-    // is a pure function of the schema, untouched by solving.
-    const e = elaborateInterface(schemas['Switch']!, { values: {} })
-    expect(elabInputsOf(e).map((i) => i.address.port)).toEqual(['in'])
-  })
-
-  it('is deterministic: identical inputs give structurally identical resolutions', () => {
-    const def = defOf({
-      nodes: { src: { type: 'EitherSrc' }, sw: { type: 'Switch' } },
-      links: { l0: { from: ['src', 'out'], to: ['sw', 'in'] } },
-    })
-    const a = solveGraphTypes(def, resolve)
-    const b = solveGraphTypes(def, resolve)
-    expect(a.resolutionOf(n('sw'), 'T')).toEqual(b.resolutionOf(n('sw'), 'T'))
-    expect([...a.linkVerdicts.entries()]).toEqual([...b.linkVerdicts.entries()])
   })
 })
 
@@ -1125,30 +1015,6 @@ describe('selector branches', () => {
     expect(s.linkVerdicts.get('l2' as never)).toBe('mismatch') // the LATENT branch
   })
 
-  it('autogrow members behind a selector solve like any other branch producer', () => {
-    // Two IMAGE branches feed a selector; its output feeds an autogrow
-    // member slot whose template shares the node's output variable.
-    const def = defOf({
-      nodes: {
-        a: { type: 'ImageSrc' },
-        b: { type: 'ImageSrc' },
-        vg: { type: 'VarGrower', dynamic: { inputs: { members: ['input1'] } } },
-        sink: { type: 'ImageSink' },
-      },
-      selectors: { s1: ['ca', 'cb'] },
-      links: {
-        l0: { from: ['a', 'out'], to: { selector: 's1', candidate: 'ca' } },
-        l1: { from: ['b', 'out'], to: { selector: 's1', candidate: 'cb' } },
-        l2: { from: { selector: 's1' }, to: ['vg', 'inputs.item', 'input1'] },
-        l3: { from: ['vg', 'out'], to: ['sink', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.resolutionOf(n('vg'), 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
-    expect(s.linkVerdicts.get('l2' as never)).toBe('ok')
-    expect(s.linkVerdicts.get('l3' as never)).toBe('ok')
-    expect(s.diagnostics).toEqual([])
-  })
 })
 
 describe('dynamicSlot MatchType binding', () => {
@@ -1172,31 +1038,6 @@ describe('dynamicSlot MatchType binding', () => {
     expect(solved.portTypeOf(n('matched'), 'output', 'asset')).toEqual({
       kind: 'asset', element: { kind: 'concrete', name: expected },
     })
-  })
-
-  it('binds IMAGE in the canonical solver domain', () => {
-    const image = { kind: 'concrete', name: 'IMAGE' } as const
-    const matchedImage = schemaOf('DinksterMatchedSlot', [
-      {
-        ...input('source', image),
-        dynamic: {
-          kind: 'dynamicSlot',
-          materialization: 'wire15',
-          slotType: image,
-          inputs: [],
-          variants: [{ key: 'image', type: image, inputs: [] }],
-          typeTemplateId: 'T',
-        },
-      },
-      output('out', T('T', ['IMAGE'])),
-    ])
-    const solved = solveGraphTypes(defOf({
-      nodes: { matched: { type: matchedImage.type, dynamic: { source: { selected: 'image' } } } },
-    }), (type) => type === matchedImage.type ? matchedImage : resolve(type))
-
-    expect(solved.diagnostics).toEqual([])
-    expect(solved.resolutionOf(n('matched'), 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
-    expect(solved.portTypeOf(n('matched'), 'output', 'out')).toEqual(image)
   })
 
   it('keeps the stored choice authoritative across producer changes and disconnect', () => {

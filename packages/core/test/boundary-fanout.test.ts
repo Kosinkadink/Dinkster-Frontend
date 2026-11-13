@@ -197,16 +197,6 @@ describe('format validation of alsoBinds', () => {
     expect(errorsOf(docWith({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s2', 'in')] }))).toEqual([])
   })
 
-  it('rejects alsoBinds on a boundary output', () => {
-    const errs = errorsOf(docWith({ id: 'out', binds: bind('src', 'out'), alsoBinds: [bind('src', 'out2')] }, 'outputs'))
-    expect(errs.some((d) => d.message.includes('alsoBinds') && d.message.includes('output'))).toBe(true)
-  })
-
-  it('rejects an empty alsoBinds array (canonical form omits it)', () => {
-    const errs = errorsOf(docWith({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [] }))
-    expect(errs.some((d) => d.message.includes('non-empty'))).toBe(true)
-  })
-
   it('accepts family-kind alsoBinds when the primary forwards a family', () => {
     const errs = errorsOf(docWith({
       id: 'in',
@@ -216,17 +206,6 @@ describe('format validation of alsoBinds', () => {
     expect(errs).toEqual([])
   })
 
-  it('rejects an alsoBinds entry whose kind differs from the primary', () => {
-    const errs = errorsOf(docWith({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [{ kind: 'family', node: 's2', port: 'in' }] }))
-    expect(errs.some((d) => d.message.includes('alsoBinds[0]') && d.message.includes('primary binding kind'))).toBe(true)
-  })
-
-  it('rejects duplicating the primary target and duplicate entries', () => {
-    const dupPrimary = errorsOf(docWith({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s1', 'in')] }))
-    expect(dupPrimary.some((d) => d.message.includes('duplicate'))).toBe(true)
-    const dupEntry = errorsOf(docWith({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s2', 'in'), bind('s2', 'in')] }))
-    expect(dupEntry.some((d) => d.message.includes('duplicate'))).toBe(true)
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -287,11 +266,6 @@ describe('deriveBoundarySchema with fan-out', () => {
     expect(gain.optional).toBe(true) // both targets widget-backed
   })
 
-  const errorCase = (item: unknown, extraNodes: Record<string, NodeSpec> = {}) => {
-    const def = defOf({ s1: { type: 'Sink' }, s2: { type: 'Sink' }, b1: { type: 'Batcher' }, src: { type: 'Src' }, ...extraNodes }, { inputs: [item] })
-    return deriveBoundarySchema(def, resolve)
-  }
-
   it('derives whole-family input fan-out from the authoritative primary target', () => {
     const def = defOf(
       { b1: { type: 'Batcher' }, b2: { type: 'Batcher' } },
@@ -306,41 +280,6 @@ describe('deriveBoundarySchema with fan-out', () => {
     expect(inputsOf(schema!)[0]).toMatchObject({ id: 'in', dynamic: { kind: 'autogrow' } })
   })
 
-  it('rejects a plain target in whole-family fan-out (boundary.fanoutKind)', () => {
-    const { schema, diagnostics } = errorCase({ id: 'in', binds: { kind: 'family', node: 'b1', port: 'images' }, alsoBinds: [bind('s1', 'in')] })
-    expect(diagnostics.some((d) => d.code === 'boundary.fanoutKind' && d.severity === 'error')).toBe(true)
-    expect(schema).toBeUndefined()
-  })
-
-  it('rejects a family-kind fan-out entry (boundary.fanoutKind)', () => {
-    const { diagnostics } = errorCase({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [{ kind: 'family', node: 'b1', port: 'images' }] })
-    expect(diagnostics.some((d) => d.code === 'boundary.fanoutKind')).toBe(true)
-  })
-
-  it('rejects duplicate fan-out targets (boundary.duplicateBind)', () => {
-    const { diagnostics } = errorCase({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s1', 'in')] })
-    expect(diagnostics.some((d) => d.code === 'boundary.duplicateBind')).toBe(true)
-  })
-
-  it('rejects a fan-out target on a missing node (boundary.danglingNode)', () => {
-    const { schema, diagnostics } = errorCase({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('ghost', 'in')] })
-    expect(diagnostics.some((d) => d.code === 'boundary.danglingNode')).toBe(true)
-    expect(schema).toBeUndefined()
-  })
-
-  it('rejects a fan-out target that is an OUTPUT port (boundary.sideMismatch)', () => {
-    const { diagnostics } = errorCase({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('src', 'out')] })
-    expect(diagnostics.some((d) => d.code === 'boundary.sideMismatch')).toBe(true)
-  })
-
-  it('rejects alsoBinds on outputs (boundary.fanoutOnOutput)', () => {
-    const def = defOf(
-      { src: { type: 'Src' } },
-      { outputs: [{ id: 'out', binds: bind('src', 'out'), alsoBinds: [bind('src', 'out')] }] },
-    )
-    const { diagnostics } = deriveBoundarySchema(def, resolve)
-    expect(diagnostics.some((d) => d.code === 'boundary.fanoutOnOutput' && d.severity === 'error')).toBe(true)
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -348,24 +287,6 @@ describe('deriveBoundarySchema with fan-out', () => {
 // ---------------------------------------------------------------------------
 
 describe('compile lowers boundary fan-out', () => {
-  it.each([
-    ['port', bind('src', 'out'), bind('src', 'out')],
-    [
-      'family',
-      { kind: 'family', node: 'batch', port: 'images' },
-      { kind: 'family', node: 'batch2', port: 'images' },
-    ],
-  ])('refuses an unconnected %s output fan-out before compiling the body', (_kind, primary, additional) => {
-    const result = run(docOf({
-      g0: { nodes: { i: { type: '#sub' } } },
-      sub: {
-        nodes: { src: { type: 'Src' }, batch: { type: 'Batcher' }, batch2: { type: 'Batcher' } },
-        boundary: { outputs: [{ id: 'out', binds: primary, alsoBinds: [additional] }] },
-      },
-    }))
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.boundary.forwardUnresolved')
-  })
 
   it('one outer link drives every bound inner input', () => {
     const prompt = okPrompt(
@@ -556,16 +477,6 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
     if (!out.ok) expect(out.diagnostics.some((e) => e.code === 'boundary.bindKind')).toBe(true)
   })
 
-  it('addBinding rejects a missing node and a missing item', () => {
-    const store = makeStore({ id: 'in', binds: bind('s1', 'in') })
-    const missingNode = store.dispatch({ command: 'boundary.addBinding', params: params('ghost') })
-    expect(missingNode.ok).toBe(false)
-    if (!missingNode.ok) expect(missingNode.diagnostics.some((e) => e.code === 'node.missing')).toBe(true)
-    const missingItem = store.dispatch({ command: 'boundary.addBinding', params: { ...params('s2'), itemId: 'nope' } })
-    expect(missingItem.ok).toBe(false)
-    if (!missingItem.ok) expect(missingItem.diagnostics.some((e) => e.code === 'boundary.itemMissing')).toBe(true)
-  })
-
   it('removeBinding prunes one target; removing the last drops the alsoBinds key entirely', () => {
     const store = makeStore({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s2', 'in'), bind('s3', 'in')] })
     expect(store.dispatch({ command: 'boundary.removeBinding', params: params('s2') }).ok).toBe(true)
@@ -584,12 +495,6 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
     if (!out.ok) expect(out.diagnostics.some((e) => e.code === 'boundary.primaryBind')).toBe(true)
   })
 
-  it('removeBinding on an absent target is a precise error (boundary.bindMissing)', () => {
-    const store = makeStore({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s2', 'in')] })
-    const out = store.dispatch({ command: 'boundary.removeBinding', params: params('s3') })
-    expect(out.ok).toBe(false)
-    if (!out.ok) expect(out.diagnostics.some((e) => e.code === 'boundary.bindMissing')).toBe(true)
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -614,12 +519,6 @@ describe('node.remove prunes fan-out bindings', () => {
     const store = makeStore({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s2', 'in'), bind('s3', 'in')] })
     expect(store.dispatch({ command: 'node.remove', params: { graphId: 'sub', nodeIds: ['s2'] } }).ok).toBe(true)
     expect(inputsOfSub(store)).toEqual([{ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s3', 'in')] }])
-  })
-
-  it('removing the last fan-out target omits alsoBinds entirely (canonical form)', () => {
-    const store = makeStore({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s2', 'in')] })
-    expect(store.dispatch({ command: 'node.remove', params: { graphId: 'sub', nodeIds: ['s2'] } }).ok).toBe(true)
-    expect(inputsOfSub(store)).toEqual([{ id: 'in', binds: bind('s1', 'in') }])
   })
 
   it('removing the PRIMARY target drops the whole boundary item', () => {

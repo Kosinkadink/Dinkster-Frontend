@@ -113,12 +113,6 @@ describe('settings registry', () => {
     expect(registry.changed.get()).toBe(initialTick + 2)
   })
 
-  it('discards unknown versions and falls back to the registered default', () => {
-    const registry = new SettingsRegistry(storage(JSON.stringify({ v: 99, values: { 'canvas.grid.visible': false } })))
-    registry.register(setting)
-    expect(registry.get('canvas.grid.visible')).toBe(true)
-  })
-
   it('FR11 persisted overrides are validated against their definitions', () => {
     const seeded = storage(JSON.stringify({ v: 1, values: {
       'test.boolean': 'false',

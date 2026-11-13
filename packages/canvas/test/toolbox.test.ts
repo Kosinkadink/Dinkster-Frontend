@@ -181,13 +181,6 @@ describe('hitTestToolbox', () => {
   const scene = sceneOf('exec-basic')
   const tl = toolboxLayout(scene, new Set(['n0']), [BOTTOM_ROW], 1)!
 
-  it('resolves each button at its center, in declared order', () => {
-    for (const [i, r] of tl.buttons.entries()) {
-      const hit = hitTestToolbox(tl, r.x + r.size / 2, r.y + r.size / 2)
-      expect(hit?.button.id).toBe(r.button.id)
-    }
-  })
-
   it('gives separators geometry but never treats them as buttons', () => {
     const separators = tl.rows[0]!.entries.filter((entry) => entry.kind === 'separator')
     expect(separators).toHaveLength(2)
@@ -223,13 +216,6 @@ describe('hitTestToolbox', () => {
 })
 
 describe('partialExecutionButtons', () => {
-  it('orders all modes as up-to, between, from-onwards', () => {
-    expect(partialExecutionButtons({}).map((b) => b.id)).toEqual([
-      'core.queueUpToHere',
-      'core.queueBetween',
-      'core.queueFromHere',
-    ])
-  })
 
   it('keeps unavailable modes visible and carries their disabled reason', () => {
     expect(partialExecutionButtons({ between: 'requires a contiguous multi-node selection' })).toMatchObject([

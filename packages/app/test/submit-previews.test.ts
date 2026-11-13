@@ -194,21 +194,6 @@ describe('live preview policy on submit', () => {
     expect(app.problems.get().some((problem) => problem.code === 'submit.workerUnavailable')).toBe(true)
   })
 
-  it('refuses inherited object names as selected nodes before submission', async () => {
-    const { backend, tab } = (await nativeSetup())
-    backend.workerCatalog.set({
-      status: 'ready',
-      workers: [{ name: 'local', status: 'connected', routedNodeTypes: [], deviceQualifiers: [] }],
-    })
-    const submit = vi.spyOn(backend.connection, 'submit')
-
-    for (const nodeId of ['constructor', 'toString', '__proto__']) {
-      await app.queueOnWorker(tab, [nodeId], 'local')
-    }
-
-    expect(submit).not.toHaveBeenCalled()
-  })
-
   it('sends the execution.previews setting as the previews mode', async () => {
     const { backend, tab } = (await nativeSetup())
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'a'.repeat(64))

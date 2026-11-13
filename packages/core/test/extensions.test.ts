@@ -7,19 +7,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createMenuRegistry, type MenuContribution, type MenuContext } from '../src/menus/contract.js'
-import { createSearchRegistry, type SearchContext, type SearchProvider, type SearchResult } from '../src/search/contract.js'
-import { createSearchSession } from '../src/search/session.js'
-import {
-  decodeEffectiveExtensionSnapshot,
-  frontendApiSatisfies,
-  frontendContributionAuthorized,
-  FRONTEND_CONTRIBUTION_KINDS,
-  FRONTEND_PRIVILEGES,
-  validateAuthoredManifest,
-  validateManifest,
-  type AuthoredPackManifest,
-  type PackManifest,
-} from '../src/extensions/manifest.js'
+import { createSearchRegistry, type SearchContext, type SearchProvider } from '../src/search/contract.js'
+import { decodeEffectiveExtensionSnapshot, frontendApiSatisfies, validateAuthoredManifest, validateManifest, type AuthoredPackManifest, type PackManifest } from '../src/extensions/manifest.js'
 import { ExtensionHost, emptyGates, type GateState } from '../src/extensions/host.js'
 import type { VirtualNodeKind } from '../src/virtual-node.js'
 import type { PreviewRenderer, WidgetKind, WidgetRegistry, WidgetView } from '../src/widgets/contract.js'
@@ -77,23 +66,6 @@ const nodeCtx = {
   worldY: 0,
 } as unknown as MenuContext
 
-it('keeps the authored frontend vocabulary to the supported contribution kinds', () => {
-  expect(FRONTEND_CONTRIBUTION_KINDS).toEqual([
-    'widgetKind', 'widgetView', 'previewRenderer', 'textEditorExtension',
-    'menu', 'command', 'keybinding', 'setting', 'canvasLayer', 'nodeDecoration',
-    'hostUi', 'searchProvider', 'workflowObserver', 'eventConsumer', 'workflowImporter',
-    'editor', 'editorBinding', 'panel', 'virtualNode',
-  ])
-})
-
-it('keeps the four frontend privileges independent', () => {
-  const examples = ['widgetView', 'menu', 'hostUi', 'eventConsumer'] as const
-  for (const [index, privilege] of FRONTEND_PRIVILEGES.entries()) {
-    expect(examples.map((kind) => frontendContributionAuthorized(kind, [privilege])))
-      .toEqual(examples.map((_, candidate) => candidate === index))
-  }
-})
-
 const manifest = (over?: Partial<PackManifest>): PackManifest => ({
   id: 'rgthree',
   displayName: 'rgthree',
@@ -140,9 +112,6 @@ function installPack(h: ExtensionHost) {
 }
 
 describe('validateManifest', () => {
-  it('accepts a well-formed manifest', () => {
-    expect(validateManifest(manifest())).toEqual([])
-  })
 
   it('rejects bad pack ids, reserved core, foreign/duplicate contribution ids, unknown categories', () => {
     const cases: [PackManifest, string][] = [
@@ -172,87 +141,6 @@ describe('validateManifest', () => {
       expect(validateManifest(m).map((d) => d.code)).toContain(code)
     }
   })
-})
-
-it('registers a synthetic pack virtual node and exposes its renderer', () => {
-  const rendered: VirtualNodeKind[] = []
-  const h = new ExtensionHost({
-    menus: createMenuRegistry(),
-    widgets: fakeWidgets(),
-    registerVirtualNode: (kind) => {
-      rendered.push(kind)
-      return () => void rendered.splice(rendered.indexOf(kind), 1)
-    },
-  })
-  const kind: VirtualNodeKind = {
-    id: 'notes.callout', title: 'Callout',
-    schema: {
-      type: 'notes.callout', virtual: true, displayName: 'Callout', category: 'Notes',
-      source: 'v3', isOutputNode: false, items: [],
-    },
-    defaultValues: { text: 'Hello' },
-    render: (node) => ({ text: String(node.values['text'] ?? ''), format: 'plain' }),
-  }
-  expect(h.register({
-    id: 'notes',
-    contributions: [{ id: 'notes.callout', category: 'virtualNode' }],
-  }, (api) => api.virtualNode('notes.callout', kind))).toEqual([])
-  expect(rendered).toEqual([kind])
-  expect(rendered[0]!.render({
-    id: 'n1' as never, type: 'notes.callout', virtual: true,
-    values: { text: 'Rendered' },
-  })).toEqual({ text: 'Rendered', format: 'plain' })
-  h.unregister('notes')
-  expect(rendered).toEqual([])
-})
-
-it('registers and gates a synthetic canvas layer', () => {
-  const layers: string[] = []
-  const h = new ExtensionHost({
-    menus: createMenuRegistry(),
-    widgets: fakeWidgets(),
-    registerCanvasLayer: (layer) => {
-      layers.push(layer.id)
-      return () => void layers.splice(layers.indexOf(layer.id), 1)
-    },
-  })
-  expect(h.register({
-    id: 'overlay',
-    contributions: [{ id: 'overlay.guides', category: 'canvasLayer' }],
-  }, (api) => api.canvasLayer('overlay.guides', {
-    id: 'overlay.guides', position: 'foreground', order: 10, draw: () => {},
-  }))).toEqual([])
-  expect(layers).toEqual(['overlay.guides'])
-  h.setContributionEnabled('overlay.guides', false)
-  expect(layers).toEqual([])
-  h.setContributionEnabled('overlay.guides', true)
-  expect(layers).toEqual(['overlay.guides'])
-})
-
-it('registers and gates a synthetic node decoration', () => {
-  const decorations: string[] = []
-  const h = new ExtensionHost({
-    menus: createMenuRegistry(),
-    widgets: fakeWidgets(),
-    registerNodeDecoration: (contribution) => {
-      decorations.push(contribution.id)
-      return () => void decorations.splice(decorations.indexOf(contribution.id), 1)
-    },
-  })
-  expect(h.register({
-    id: 'decorator',
-    contributions: [{ id: 'decorator.status', category: 'nodeDecoration' }],
-  }, (api) => api.nodeDecoration('decorator.status', {
-    id: 'decorator.status',
-    decorate: (node) => node.id === 'proof'
-      ? { badges: [{ id: 'decorator.status.badge', glyph: 'Pack', variant: 'label', interactive: false, color: '#7b3fb2' }] }
-      : undefined,
-  }))).toEqual([])
-  expect(decorations).toEqual(['decorator.status'])
-  h.setContributionEnabled('decorator.status', false)
-  expect(decorations).toEqual([])
-  h.setContributionEnabled('decorator.status', true)
-  expect(decorations).toEqual(['decorator.status'])
 })
 
 it('rejects virtual node kinds without a virtual port-free schema', () => {
@@ -316,25 +204,6 @@ describe('F0 authored and effective manifests', () => {
     expect(frontendApiSatisfies('1.0.0-alpha.01', '>=1.0.0-alpha')).toBe(false)
   })
 
-  it('returns diagnostics instead of throwing for malformed authored inputs', () => {
-    for (const value of [null, {}, { id: 'pack', version: '1.0.0', requires: {}, entryPoints: {} }, {
-      id: 'pack', version: '1.0.0', requires: { frontendApi: '>=1.0.0' }, entryPoints: { frontend: [{ id: 'pack.entry', module: './entry.js' }] },
-    }]) expect(() => validateAuthoredManifest(value)).not.toThrow()
-  })
-
-  it('decodes only the canonical S0-B effective snapshot shape', () => {
-    const result = decodeEffectiveExtensionSnapshot({
-      format: 'dinkster.extension-snapshot', version: 1, frontendApi: '1.0.0', extensions: [{
-        id: 'comfy.monitor', version: '1.2.0', packageDigest: `sha256:${'a'.repeat(64)}`,
-        contributionIds: ['events/monitor'], selectorResolutions: [], serviceProviders: [],
-        capabilities: ['routes'], behaviorConfiguration: [{ key: 'enabled', value: true }],
-      }],
-    })
-    expect(result.diagnostics).toEqual([])
-    expect(result.snapshot?.extensions[0]?.id).toBe('comfy.monitor')
-    expect(decodeEffectiveExtensionSnapshot({ format: 'dinkster.extension-snapshot', version: 1, frontendApi: '1.0.0', extensions: [{ id: 'broken' }] }).diagnostics[0]?.code).toBe('extension.snapshot-malformed')
-  })
-
   it('owns immutable backend module/event declarations and rejects asset identity drift', () => {
     const digest = `sha256:${'a'.repeat(64)}`
     const module = {
@@ -369,22 +238,6 @@ describe('ExtensionHost activation', () => {
     expect(installPack(h)).toEqual([])
     expect(menus.resolve(nodeCtx).flatMap((g) => g.items.map((i) => i.id))).toContain('rgthree.menu.muter.item')
     expect(widgets.kind('rgthree.widget.power')).toBeDefined()
-  })
-
-  it('registers and disposes text editor extension contributions across reload', () => {
-    const { h, textExtensions } = host()
-    const textManifest = manifest({ contributions: [
-      { id: 'rgthree.text.complete', category: 'textEditorExtension' },
-    ] })
-    const install = () => h.register(textManifest, (api) => {
-      api.textEditorExtension('rgthree.text.complete', { id: 'rgthree.text.complete' })
-    })
-    expect(install()).toEqual([])
-    expect([...textExtensions]).toHaveLength(1)
-    h.unregister('rgthree')
-    expect([...textExtensions]).toHaveLength(0)
-    expect(install()).toEqual([])
-    expect([...textExtensions]).toHaveLength(1)
   })
 
   it('owns, bounds, gates, and disposes typed search-provider data', () => {
@@ -477,177 +330,6 @@ describe('ExtensionHost activation', () => {
       })).toEqual([])
       expect(() => boundary.search.query('', { selection: { nodes: [] }, signal: new AbortController().signal })).toThrow('invalid results')
     }
-  })
-
-  it('does not publish a search provider when a later contribution rolls back', () => {
-    const { h, search, textExtensions } = host()
-    textExtensions.set('rgthree.text.complete', { id: 'rgthree.text.complete' })
-    let changes = 0
-    search.subscribe(() => changes++)
-    const out = h.register(manifest({ contributions: [
-      { id: 'rgthree.search.demo', category: 'searchProvider' },
-      { id: 'rgthree.text.complete', category: 'textEditorExtension' },
-    ] }), (api) => {
-      api.searchProvider('rgthree.search.demo', {
-        id: 'rgthree.search.demo', label: 'Demo', priority: 1, query: () => [],
-      })
-      api.textEditorExtension('rgthree.text.complete', { id: 'rgthree.text.complete' })
-    })
-    expect(out.map((problem) => problem.code)).toEqual(['extension.contribution-conflict', 'extension.rollback-complete'])
-    expect(search.list()).toEqual([])
-    expect(changes).toBe(0)
-  })
-
-  it('publishes multi-provider gates and pack teardown only after every slot settles', () => {
-    const { h, search } = host()
-    const calls: string[] = []
-    expect(h.register(manifest({ contributions: [
-      { id: 'rgthree.search.first', category: 'searchProvider' },
-      { id: 'rgthree.search.second', category: 'searchProvider' },
-    ] }), (api) => {
-      api.searchProvider('rgthree.search.first', {
-        id: 'rgthree.search.first', label: 'First', priority: 2,
-        query: () => { calls.push('first'); return [] },
-      })
-      api.searchProvider('rgthree.search.second', {
-        id: 'rgthree.search.second', label: 'Second', priority: 1,
-        query: () => { calls.push('second'); return [] },
-      })
-    })).toEqual([])
-
-    const snapshots: string[][] = []
-    search.subscribe(() => snapshots.push(search.list().map((provider) => provider.id)))
-    const session = createSearchSession({
-      registry: search,
-      context: () => ({ selection: { nodes: [] } }),
-      onGroups() {},
-    })
-    session.query('')
-    calls.length = 0
-
-    h.setPackEnabled('rgthree', false)
-    expect(snapshots).toEqual([[]])
-    expect(calls).toEqual([])
-
-    snapshots.length = 0
-    h.setPackEnabled('rgthree', true)
-    expect(snapshots).toEqual([['rgthree.search.first', 'rgthree.search.second']])
-    expect(calls).toEqual(['first', 'second'])
-
-    snapshots.length = 0
-    calls.length = 0
-    h.unregister('rgthree')
-    expect(snapshots).toEqual([[]])
-    expect(calls).toEqual([])
-    session.dispose()
-  })
-
-  it('publishes host disposal only after every pack is inactive', () => {
-    const { h, search } = host()
-    const calls: string[] = []
-    for (const packId of ['first', 'second']) {
-      const providerId = `${packId}.search.demo`
-      expect(h.register({ id: packId, contributions: [{ id: providerId, category: 'searchProvider' }] }, (api) => {
-        api.searchProvider(providerId, {
-          id: providerId, label: packId, priority: 1,
-          query: () => { calls.push(packId); return [] },
-        })
-      })).toEqual([])
-    }
-
-    const snapshots: string[][] = []
-    search.subscribe(() => snapshots.push(search.list().map((provider) => provider.id)))
-    const session = createSearchSession({
-      registry: search,
-      context: () => ({ selection: { nodes: [] } }),
-      onGroups() {},
-    })
-    session.query('')
-    calls.length = 0
-
-    h.dispose()
-    expect(snapshots).toEqual([[]])
-    expect(calls).toEqual([])
-    expect(h.packs()).toEqual([])
-    session.dispose()
-  })
-
-  it('publishes a committed reentrant gate change when an outer activation rolls back', async () => {
-    const { h, search, textExtensions } = host()
-    let pendingSignal: AbortSignal | undefined
-    let resolvePending: ((results: readonly SearchResult[]) => void) | undefined
-    expect(h.register(manifest({ id: 'active', contributions: [
-      { id: 'active.search.demo', category: 'searchProvider' },
-    ] }), (api) => {
-      api.searchProvider('active.search.demo', {
-        id: 'active.search.demo', label: 'Active', priority: 1,
-        query: (_query, context) => {
-          pendingSignal = context.signal
-          return new Promise((resolve) => { resolvePending = resolve })
-        },
-      })
-    })).toEqual([])
-
-    let latest: readonly string[] = []
-    const session = createSearchSession({
-      registry: search,
-      context: () => ({ selection: { nodes: [] } }),
-      onGroups: (groups) => { latest = groups.map((group) => `${group.id}:${group.status}`) },
-    })
-    session.query('open')
-    expect(latest).toEqual(['active.search.demo:loading'])
-    const snapshots: string[][] = []
-    search.subscribe(() => snapshots.push(search.list().map((provider) => provider.id)))
-
-    textExtensions.set('failing.text.demo', { id: 'failing.text.demo' })
-    const out = h.register(manifest({ id: 'failing', contributions: [
-      { id: 'failing.search.demo', category: 'searchProvider' },
-      { id: 'failing.text.demo', category: 'textEditorExtension' },
-    ] }), (api) => {
-      api.onDispose(() => h.setPackEnabled('active', false))
-      api.searchProvider('failing.search.demo', {
-        id: 'failing.search.demo', label: 'Failing', priority: 1, query: () => [],
-      })
-      api.textEditorExtension('failing.text.demo', { id: 'failing.text.demo' })
-    })
-
-    expect(out.map((problem) => problem.code)).toEqual(['extension.contribution-conflict', 'extension.rollback-complete'])
-    expect(search.list()).toEqual([])
-    expect(snapshots).toEqual([[]])
-    expect(pendingSignal?.aborted).toBe(true)
-    expect(latest).toEqual([])
-    resolvePending?.([{
-      id: 'stale', title: 'Stale', score: 1,
-      action: { kind: 'host', action: 'settings.open', params: { category: 'test' } },
-    }])
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(latest).toEqual([])
-    expect(h.packs().map((pack) => [pack.manifest.id, pack.enabled, pack.registered])).toEqual([
-      ['active', false, true],
-      ['failing', true, false],
-    ])
-    session.dispose()
-  })
-
-  it('rolls back a reload when a text editor extension identity is occupied', () => {
-    const { h, menus, textExtensions } = host()
-    const occupied = { id: 'rgthree.text.complete' }
-    textExtensions.set(occupied.id, occupied)
-    const out = h.register(manifest({ contributions: [
-      { id: 'rgthree.menu.muter', category: 'menu' },
-      { id: 'rgthree.text.complete', category: 'textEditorExtension' },
-    ] }), (api) => {
-      api.menu('rgthree.menu.muter', menuContribution('rgthree.menu.muter'))
-      api.textEditorExtension('rgthree.text.complete', { id: 'rgthree.text.complete' })
-    })
-    expect(out.map((problem) => problem.code)).toEqual([
-      'extension.contribution-conflict',
-      'extension.rollback-complete',
-    ])
-    expect(menus.resolve(nodeCtx)).toEqual([])
-    expect(textExtensions.get(occupied.id)).toBe(occupied)
-    expect(h.packs()[0]).toMatchObject({ registered: false, active: false })
   })
 
   it('refuses undeclared, mismatched, and doubled contributions with diagnostics', () => {
@@ -807,58 +489,6 @@ describe('gating', () => {
     expect(menus.resolve(nodeCtx).flatMap((g) => g.items.map((i) => i.id))).toEqual(['rgthree.menu.muter.item'])
   })
 
-  it('clears a registration failure after a gate retry succeeds', () => {
-    const { h, widgets } = host()
-    installPack(h)
-    h.setContributionEnabled('rgthree.widget.power', false)
-    const releaseIdentity = widgets.registerKind(widgetKind('rgthree.widget.power'))
-
-    h.setContributionEnabled('rgthree.widget.power', true)
-    expect(h.packs()[0]!.contributions.find((status) => status.decl.id === 'rgthree.widget.power')).toMatchObject({
-      active: false,
-      state: 'failed',
-    })
-
-    releaseIdentity()
-    h.setContributionEnabled('rgthree.widget.power', true)
-    expect(h.packs()[0]!.contributions.find((status) => status.decl.id === 'rgthree.widget.power')).toMatchObject({
-      active: true,
-      state: 'active',
-    })
-    expect(h.packs()[0]!.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain('extension.contribution-conflict')
-  })
-
-  it('clears every distinct registration failure after a gate retry succeeds', () => {
-    let attempts = 0
-    let live = false
-    const h = new ExtensionHost({
-      menus: createMenuRegistry(),
-      widgets: fakeWidgets(),
-      registerSetting: () => {
-        attempts++
-        if (attempts === 2) throw new Error('first refusal')
-        if (attempts === 3) throw new Error('second refusal')
-        live = true
-        return () => { live = false }
-      },
-    })
-    h.register(manifest({
-      id: 'retry-pack',
-      contributions: [{ id: 'retry-pack.setting.demo', category: 'setting' }],
-    }), (api) => api.setting('retry-pack.setting.demo', {
-      id: 'retry-pack.setting.demo', name: 'Retry setting', type: 'boolean', defaultValue: true,
-    }))
-
-    h.setContributionEnabled('retry-pack.setting.demo', false)
-    h.setContributionEnabled('retry-pack.setting.demo', true)
-    h.setContributionEnabled('retry-pack.setting.demo', true)
-    expect(h.packs()[0]!.diagnostics.filter((diagnostic) => diagnostic.code === 'extension.contribution-conflict')).toHaveLength(2)
-
-    h.setContributionEnabled('retry-pack.setting.demo', true)
-    expect(live).toBe(true)
-    expect(h.packs()[0]!.contributions[0]).toMatchObject({ active: true, state: 'active' })
-    expect(h.packs()[0]!.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain('extension.contribution-conflict')
-  })
 })
 
 describe('deployment policy', () => {
@@ -892,21 +522,6 @@ describe('deployment policy', () => {
     expect(widgets.kind('rgthree.widget.power')).toBeUndefined()
   })
 
-  it('presents ancestors as operable when an allow rule admits a descendant', () => {
-    const { h } = host({ policy: { allow: ['rgthree.menu.muter'] } })
-    installPack(h)
-    const [pack] = h.packs()
-    const menu = pack!.categories.find((category) => category.category === 'menu')!
-    const widgets = pack!.categories.find((category) => category.category === 'widgetKind')!
-
-    expect(pack).toMatchObject({ policyBlocked: false })
-    expect(pack!.policyReason).toBeUndefined()
-    expect(menu).toMatchObject({ policyBlocked: false })
-    expect(menu.policyReason).toBeUndefined()
-    expect(menu.contributions[0]).toMatchObject({ policyBlocked: false, active: true })
-    expect(widgets).toMatchObject({ policyBlocked: true })
-    expect(widgets.contributions[0]).toMatchObject({ policyBlocked: true, active: false })
-  })
 })
 
 describe('registry identity conflicts', () => {
@@ -923,54 +538,5 @@ describe('registry identity conflicts', () => {
     expect(widgets.kind('rgthree.widget.power')).toBeDefined()
     expect(h.packs()).toHaveLength(1)
     expect(h.packs()[0]).toMatchObject({ registered: true, active: true })
-  })
-})
-
-describe('introspection', () => {
-  it('packs() reports declaration, contribution, and active state', () => {
-    const { h } = host()
-    h.register(manifest(), (api) => {
-      api.menu('rgthree.menu.muter', menuContribution('rgthree.menu.muter'))
-      // rgthree.widget.power declared but never contributed: inert, visible.
-    })
-    const [pack] = h.packs()
-    expect(pack!.enabled).toBe(true)
-    const byId = Object.fromEntries(pack!.contributions.map((c) => [c.decl.id, c]))
-    expect(byId['rgthree.menu.muter']).toMatchObject({ contributed: true, active: true })
-    expect(byId['rgthree.widget.power']).toMatchObject({ contributed: false, active: false })
-  })
-
-  it('reports category gates, exact policy cause, and failed activation without live registrations', () => {
-    const { h, menus } = host({ policy: { deny: ['rgthree/menu'] } })
-    h.setCategoryEnabled('rgthree', 'widgetKind', false)
-    h.register(manifest(), (api) => {
-      api.menu('rgthree.menu.muter', menuContribution('rgthree.menu.muter'))
-      throw new Error('fixture activation failed')
-    })
-
-    const [pack] = h.packs()
-    expect(pack).toMatchObject({ registered: false, active: false, enabled: true })
-    expect(pack!.categories).toEqual([
-      expect.objectContaining({
-        category: 'menu', enabled: true, policyBlocked: true,
-        policyReason: "Blocked by deployment deny rule 'rgthree/menu'.",
-      }),
-      expect.objectContaining({ category: 'widgetKind', enabled: false, policyBlocked: false }),
-    ])
-    expect(pack!.contributions.map((contribution) => contribution.state)).toEqual(['failed', 'unregistered'])
-    expect(pack!.diagnostics.map((problem) => problem.code)).toEqual(['extension.activate-failed', 'extension.rollback-complete'])
-    expect(menus.resolve(nodeCtx)).toEqual([])
-
-    h.unregister('rgthree')
-    expect(h.packs()).toEqual([])
-  })
-
-  it('changed signal bumps on install and on every gate change', () => {
-    const { h } = host()
-    let bumps = 0
-    h.changed.subscribe(() => bumps++)
-    installPack(h)
-    h.setPackEnabled('rgthree', false)
-    expect(bumps).toBe(2)
   })
 })

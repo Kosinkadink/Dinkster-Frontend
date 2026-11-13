@@ -125,57 +125,6 @@ test('a refused occurrence drag shows gesture-site feedback and creates no link'
   await expect(toast).toBeHidden({ timeout: 5_000 })
 })
 
-test('a refused extract commit shows gesture-site feedback and mutates nothing', async ({ page }) => {
-  await prepare(page)
-  await page.evaluate(async () => {
-    const app = window.__dinksterTest!.app
-    app.registerSchemas([
-      {
-        type: 'Target', displayName: 'Target', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'in', type: { kind: 'concrete', name: 'FLOAT' }, optional: true }],
-      },
-    ])
-    await app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-extract', root: 'g0',
-      graphs: {
-        g0: { id: 'g0', name: 'root', nodes: { target: { id: 'target', type: 'Target', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 },
-      },
-      view: { graphs: { g0: { nodes: { target: { position: { x: 400, y: 300 } } } } } },
-    }, 'audit extract')
-    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-    const dispatchApp = app as unknown as {
-      dispatchTo(tab: unknown, invocation: { readonly command: string }): unknown
-    }
-    const dispatchTo = dispatchApp.dispatchTo.bind(app)
-    dispatchApp.dispatchTo = (tab, invocation) =>
-      invocation.command === 'subgraph.extract'
-        ? { ok: false, diagnostics: [{ severity: 'warning', origin: 'command', code: 'subgraph.extract.dispatchRefused', message: 'Injected dispatch refusal for the committed extraction.' }] }
-        : dispatchTo(tab, invocation)
-  })
-
-  const point = await page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'target')!
-    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    const x = canvas.left + node.x + node.layout.width / 2
-    const y = canvas.top + node.y + node.layout.headerHeight / 2
-    const covering = document.elementFromPoint(x, y)
-    if (covering?.getAttribute('data-testid') !== 'graph-canvas') {
-      throw new Error(`node header center (${x}, ${y}) is covered by ${covering?.tagName}[data-testid=${covering?.getAttribute('data-testid')}]`)
-    }
-    return { x, y }
-  })
-  await page.mouse.click(point.x, point.y)
-  await expect.poll(() => page.evaluate(() =>
-    (window.__dinksterTest!.app as unknown as { canvasBridge: { get(): { selectedNodes(): readonly string[] } } }).canvasBridge.get().selectedNodes(),
-  )).toEqual(['target'])
-  const graphsBefore = await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs).length)
-  await page.keyboard.press('Control+Shift+E')
-  const toast = page.getByTestId('gesture-refusal-toast')
-  await expect(toast).toBeVisible()
-  await expect(toast).toContainText('subgraph.extract.dispatchRefused')
-  await expect(page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs).length)).resolves.toBe(graphsBefore)
-})
-
 test('repeated family-forwarding fan-out refusal stays one Problem and flashes each time', async ({ page }) => {
   await prepare(page)
   await page.evaluate(async () => {

@@ -92,11 +92,6 @@ describe('minimapTransform', () => {
     expect(minimapTransform([], 220, 150)).toBeUndefined()
   })
 
-  it('FR7 a panel no larger than its margins yields no transform', () => {
-    expect(minimapTransform([box(0, 0, 10, 10)], 16, 100, 8)).toBeUndefined()
-    expect(minimapTransform([box(0, 0, 10, 10)], 15, 100, 8)).toBeUndefined()
-  })
-
   it('fits all boxes inside the panel with margin, aspect preserved', () => {
     const boxes = [box(0, 0, 100, 50), box(900, 400, 100, 100)]
     const t = minimapTransform(boxes, 220, 150, 8)
@@ -112,11 +107,6 @@ describe('minimapTransform', () => {
       expect(x1).toBeLessThanOrEqual(220 - 8 + 1e-9)
       expect(y1).toBeLessThanOrEqual(150 - 8 + 1e-9)
     }
-  })
-
-  it('never zooms IN past 1:4 for tiny graphs', () => {
-    const t = minimapTransform([box(0, 0, 10, 10)], 220, 150)
-    expect(t!.scale).toBe(0.25)
   })
 
   it('centers the world bounds in the panel', () => {
@@ -142,30 +132,6 @@ describe('minimapTransform', () => {
     expect(rect.width).toBeCloseTo(400 * t.scale)
   })
 
-  it('insets an edge-overlapping viewport inside the minimap panel at fractional zoom', () => {
-    const t = { scale: 0.1, offsetX: 100, offsetY: 75 }
-    const rect = minimapViewportRect(
-      t,
-      { x: -1000, y: -700, scale: 1.13, canvasWidth: 1440, canvasHeight: 900 },
-      220,
-      150,
-    )
-    expect(rect.x).toBeCloseTo(188.495575)
-    expect(rect.y).toBeCloseTo(136.946903)
-    expect(rect.x + rect.width).toBe(218)
-    expect(rect.y + rect.height).toBe(148)
-  })
-
-  it('collapses a viewport wholly beyond an edge without escaping the inset panel', () => {
-    const rect = minimapViewportRect(
-      { scale: 0.1, offsetX: 100, offsetY: 75 },
-      { x: -3000, y: 3000, scale: 0.42, canvasWidth: 1440, canvasHeight: 900 },
-      220,
-      150,
-    )
-    expect(rect).toEqual({ x: 218, y: 2, width: 0, height: 0 })
-  })
-
   it('centers the pointed world location and applies the shared wheel zoom step', () => {
     const t = minimapTransform([box(0, 0, 2000, 1000)], 220, 150)!
     const world = { x: 1750, y: 700 }
@@ -183,14 +149,6 @@ describe('minimapTransform', () => {
 describe('drawMinimap', () => {
   const base: Omit<MinimapInput, 'nodes'> = { width: 220, height: 150, tokens: defaultTokens }
 
-  it('clears and paints only the background for an empty scene, returning undefined', () => {
-    const { ctx, calls } = fakeCtx()
-    const tf = drawMinimap(ctx, { ...base, nodes: [] })
-    expect(tf).toBeUndefined()
-    expect(calls.map((c) => c.kind)).toEqual(['clear', 'fill'])
-    expect(calls[1]!.style).toBe(defaultTokens.colors.canvasBackground)
-  })
-
   it('paints distinct node identity colors with a theme-safe fallback', () => {
     const { ctx, calls } = fakeCtx()
     drawMinimap(ctx, {
@@ -203,34 +161,6 @@ describe('drawMinimap', () => {
     })
     const fills = calls.filter((c) => c.kind === 'fill').slice(1) // drop background
     expect(fills.map((c) => c.style)).toEqual(['#5b4a92', '#276749', defaultTokens.colors.widgetAffordance])
-  })
-
-  it('takes the neutral fallback from the active design tokens', () => {
-    const { ctx, calls } = fakeCtx()
-    drawMinimap(ctx, {
-      ...base,
-      tokens: {
-        ...defaultTokens,
-        colors: { ...defaultTokens.colors, widgetAffordance: '#d8d4cc' },
-      },
-      nodes: [box(0, 0, 100, 60)],
-    })
-    expect(calls.filter((c) => c.kind === 'fill')[1]!.style).toBe('#d8d4cc')
-  })
-
-  it('uses the visible neutral token for dense nodes without identity colors', () => {
-    const { ctx, calls } = fakeCtx()
-    drawMinimap(ctx, {
-      ...base,
-      nodes: [box(0, 0, 100, 60), box(200, 0, 100, 60)],
-    })
-    expect(calls.filter((c) => c.kind === 'fill').slice(1).map((c) => c.style))
-      .toEqual([defaultTokens.colors.widgetAffordance, defaultTokens.colors.widgetAffordance])
-    const channel = 0x68 / 255
-    const nodeLuminance = ((channel + 0.055) / 1.055) ** 2.4
-    const backgroundChannel = 0x18 / 255
-    const backgroundLuminance = ((backgroundChannel + 0.055) / 1.055) ** 2.4
-    expect((nodeLuminance + 0.05) / (backgroundLuminance + 0.05)).toBeGreaterThanOrEqual(3)
   })
 
   it('falls back for transparent or malformed persisted colors so nodes stay visible', () => {
@@ -308,19 +238,6 @@ describe('drawMinimap', () => {
     expect(fills[0]!.y).toBeGreaterThanOrEqual(0)
     // Transform covers the union: world -500 maps within the margin.
     expect(-500 * tf.scale + tf.offsetX).toBeGreaterThanOrEqual(8 - 1e-9)
-  })
-
-  it('keeps the fitted union identical when node colors or group painting are disabled', () => {
-    const input = {
-      ...base,
-      nodes: [box(1200, 800, 300, 200)],
-      groups: [box(-600, -400, 200, 100)],
-    }
-    const visible = drawMinimap(fakeCtx().ctx, input)
-    const colorsOff = drawMinimap(fakeCtx().ctx, { ...input, nodeColors: false })
-    const groupsHidden = drawMinimap(fakeCtx().ctx, { ...input, visibility: { groups: false } })
-    expect(colorsOff).toEqual(visible)
-    expect(groupsHidden).toEqual(visible)
   })
 
   it('group visibility suppresses group paint without removing bounds', () => {

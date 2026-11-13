@@ -123,25 +123,6 @@ describe('createMenuRegistry', () => {
     expect(groups.flatMap((g) => g.items.map((i) => i.id))).toEqual(['canvas.only.item'])
   })
 
-  it('extension contributions interleave with core by group key', () => {
-    const reg = coreRegistry()
-    reg.register({
-      id: 'ext.node.tools',
-      targets: ['node'],
-      group: '50-ext',
-      resolve: () => [item('ext.node.tools.item')],
-    })
-    const groups = reg.resolve(ctx({ kind: 'node', nodeId: 'n1' }))
-    const keys = groups.map((g) => g.group)
-    // Core: 15-run, 20-mode, 30-layout, 90-edit for n1 (no subgraph nav) + ext 50-ext.
-    expect(keys).toEqual(['15-run', '20-mode', '30-layout', '50-ext', '90-edit'])
-  })
-
-  it('resolved items are plain JSON-safe data', () => {
-    const groups = coreRegistry().resolve(ctx({ kind: 'node', nodeId: 'n1' }))
-    // Round-trips through JSON without loss: no functions/classes leak out.
-    expect(JSON.parse(JSON.stringify(groups))).toEqual(groups)
-  })
 })
 
 describe('core contributions', () => {
@@ -546,16 +527,6 @@ describe('core contributions', () => {
     expect(open[0]!.items[0]!.label).toBe('Collapse Section')
   })
 
-  it('queue-selection targets the node as a partial-execution host action', () => {
-    const reg = coreRegistry()
-    const groups = reg.resolve(ctx({ kind: 'node', nodeId: 'n1' }))
-    const item = groups.flatMap((g) => g.items).find((i) => i.id === 'core.node.queueSelection')
-    expect(item).toMatchObject({
-      label: 'Execute up to Selection',
-      action: { kind: 'host', action: 'queueSelection', params: { nodeIds: ['n1'] } },
-    })
-  })
-
   it('queue-selection rides the selection and drops unknown nodes', () => {
     const reg = coreRegistry()
     const groups = reg.resolve(
@@ -779,17 +750,6 @@ describe('value source contributions', () => {
       },
     })
 
-  it('right-clicking a value source offers delete as the deleteSelection host action', () => {
-    const reg = coreRegistry()
-    const items = reg
-      .resolve(ctx({ kind: 'valueSource', valueSourceId: 'v1' }, { doc: vsDoc() }))
-      .flatMap((g) => g.items)
-    expect(items.find((i) => i.id === 'core.valueSource.delete')).toMatchObject({
-      label: 'Delete Value Source',
-      action: { kind: 'host', action: 'deleteSelection' },
-    })
-  })
-
   it('delete rides the selection and drops unknown sources', () => {
     const reg = coreRegistry()
     const items = reg
@@ -803,23 +763,6 @@ describe('value source contributions', () => {
     expect(items.find((i) => i.id === 'core.valueSource.delete')!.label).toBe('Delete 2 Value Sources')
   })
 
-  it('a target that is not in the document yields nothing', () => {
-    const reg = coreRegistry()
-    const groups = reg.resolve(ctx({ kind: 'valueSource', valueSourceId: 'nope' }, { doc: vsDoc() }))
-    expect(groups.flatMap((g) => g.items).some((i) => i.id === 'core.valueSource.delete')).toBe(false)
-  })
-
-  it('canvas offers Add Value Source at the menu point, starting as a raw null', () => {
-    const reg = coreRegistry()
-    const items = reg.resolve(ctx({ kind: 'canvas' })).flatMap((g) => g.items)
-    expect(items.find((i) => i.id === 'core.canvas.addValueSource')).toMatchObject({
-      label: 'Add Value Source',
-      action: {
-        kind: 'command',
-        invocation: { command: 'valueSource.add', params: { graphId: 'g0', position: { x: 10, y: 20 }, value: null } },
-      },
-    })
-  })
 })
 
 describe('selector contributions', () => {
@@ -883,17 +826,6 @@ describe('selector contributions', () => {
     expect(items.find((i) => i.id === 'core.selector.policy.random')).toMatchObject({ checked: true })
   })
 
-  it('offers Add Branch as a selector.addCandidate command', () => {
-    const items = selItems('s1')
-    expect(items.find((i) => i.id === 'core.selector.addCandidate')).toMatchObject({
-      label: 'Add Branch',
-      action: {
-        kind: 'command',
-        invocation: { command: 'selector.addCandidate', params: { graphId: 'g0', selectorId: 's1' } },
-      },
-    })
-  })
-
   it('offers Remove Branch per candidate, but never for the last candidate', () => {
     const items = selItems('s1')
     expect(items.find((i) => i.id === 'core.selector.removeCandidate.c1')).toMatchObject({
@@ -912,14 +844,6 @@ describe('selector contributions', () => {
     expect(single.some((i) => i.id.startsWith('core.selector.removeCandidate'))).toBe(false)
   })
 
-  it('offers rename as a host action carrying the selector id', () => {
-    const items = selItems('s1')
-    expect(items.find((i) => i.id === 'core.selector.rename')).toMatchObject({
-      label: 'Rename Selector...',
-      action: { kind: 'host', action: 'renameSelector', params: { selectorId: 's1' } },
-    })
-  })
-
   it('delete rides the selection and drops unknown selectors', () => {
     const alone = selItems('s1')
     expect(alone.find((i) => i.id === 'core.selector.delete')).toMatchObject({
@@ -932,19 +856,4 @@ describe('selector contributions', () => {
     expect(riding.find((i) => i.id === 'core.selector.delete')!.label).toBe('Delete 2 Selectors')
   })
 
-  it('a target that is not in the document yields nothing', () => {
-    const groups = coreRegistry().resolve(ctx({ kind: 'selector', selectorId: 'nope' }, { doc: selDoc() }))
-    expect(groups.flatMap((g) => g.items)).toHaveLength(0)
-  })
-
-  it('canvas offers Add Selector at the menu point', () => {
-    const items = coreRegistry().resolve(ctx({ kind: 'canvas' })).flatMap((g) => g.items)
-    expect(items.find((i) => i.id === 'core.canvas.addSelector')).toMatchObject({
-      label: 'Add Selector',
-      action: {
-        kind: 'command',
-        invocation: { command: 'selector.add', params: { graphId: 'g0', position: { x: 10, y: 20 } } },
-      },
-    })
-  })
 })

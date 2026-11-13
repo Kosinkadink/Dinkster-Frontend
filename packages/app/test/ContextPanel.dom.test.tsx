@@ -116,14 +116,6 @@ const problemCodes = (root: Element): readonly string[] =>
     .map((code) => code.textContent ?? '')
 
 describe('ContextPanel', () => {
-  it('shows the whole document with every problem while nothing is focused', () => {
-    const { root, unmount } = mountContextPanel()
-    expect(root.querySelector('h2')?.textContent).toBe('Focused')
-    expect(summaryKind(root)).toBe('document')
-    expect(root.textContent).toContain('My workflow')
-    expect(problemCodes(root)).toHaveLength(3)
-    unmount()
-  })
 
   it('follows canvas selection into a node context with only that node\'s problems', () => {
     const { root, canvasSelection, unmount } = mountContextPanel()

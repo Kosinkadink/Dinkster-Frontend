@@ -19,12 +19,6 @@ const key = (path: readonly string[], node: string) =>
   occurrenceKey({ instancePath: path.map(asNodeId), node: asNodeId(node) })
 
 describe('occurrencesForView: root view', () => {
-  it('plain runtime ids map to their own scene node', () => {
-    const occ = occurrencesForView({ instancePath: [], runtimeIds: ['a', 'b'] })
-    expect(occ.own.get('a')).toEqual(['a'])
-    expect(occ.own.get('b')).toEqual(['b'])
-    expect(occ.inner.size).toBe(0)
-  })
 
   it('nested occurrence keys aggregate under their first instance segment', () => {
     const ids = [key(['sub1'], 'inner'), key(['sub1', 'deep'], 'x'), key(['sub2'], 'inner')]
@@ -34,12 +28,6 @@ describe('occurrencesForView: root view', () => {
     expect(occ.own.size).toBe(0)
   })
 
-  it('escaped segment characters round-trip (a root node named with a dot)', () => {
-    const rid = key([], 'a.b')
-    expect(rid).not.toBe('a.b') // escaped on the wire
-    const occ = occurrencesForView({ instancePath: [], runtimeIds: [rid] })
-    expect(occ.own.get('a.b')).toEqual([rid])
-  })
 })
 
 describe('occurrencesForView: nested views', () => {

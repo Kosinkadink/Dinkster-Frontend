@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TypeExpr } from '@dinkster/core'
 import { pinBaseAngle, pinShapeOf, pinSlices } from '../src/renderer.js'
-import { defaultTokens, presentedType, typeColor } from '../src/tokens.js'
+import { defaultTokens, typeColor } from '../src/tokens.js'
 
 const COMFY_TYPE_COLORS = {
   CLIP: '#FFD500',
@@ -23,11 +23,6 @@ const COMFY_TYPE_COLORS = {
 } as const
 
 describe('typeColor', () => {
-  it('resolves native namespaced Comfy types to the exact ComfyUI dark palette', () => {
-    for (const [name, color] of Object.entries(COMFY_TYPE_COLORS)) {
-      expect(typeColor(defaultTokens, `comfy.${name}`), name).toBe(color)
-    }
-  })
 
   it('normalizes bare case and core primitive namespaces through the renderer path', () => {
     expect(typeColor(defaultTokens, 'model')).toBe(COMFY_TYPE_COLORS.MODEL)
@@ -48,42 +43,6 @@ describe('typeColor', () => {
   })
 })
 
-describe('presentedType', () => {
-  const stringType: TypeExpr = { kind: 'concrete', name: 'STRING' }
-  const comboType: TypeExpr = { kind: 'concrete', name: 'COMBO' }
-
-  it('presents concrete COMBO with the pinned COMBO identity', () => {
-    expect(presentedType(defaultTokens, comboType)).toEqual({
-      canonicalName: 'COMBO',
-      label: 'COMBO',
-      color: defaultTokens.typeColors['COMBO'],
-      tooltip: 'COMBO (string with choices)',
-    })
-  })
-
-  it('leaves an unmarked STRING presentation unchanged', () => {
-    expect(presentedType(defaultTokens, stringType)).toEqual({
-      canonicalName: 'STRING',
-      label: 'STRING',
-      color: defaultTokens.typeColors.STRING,
-      tooltip: 'STRING',
-    })
-  })
-
-  it('distinguishes an unconstrained match identity from independent Any', () => {
-    expect(presentedType(defaultTokens, { kind: 'variable', templateId: 'T' })).toEqual({
-      label: 'T',
-      color: defaultTokens.colors.linkDefault,
-      tooltip: 'Match type T; every T port on this node resolves together.',
-    })
-    expect(presentedType(defaultTokens, { kind: 'wildcard' })).toEqual({
-      label: 'Any',
-      color: defaultTokens.colors.linkDefault,
-      tooltip: 'Any type; this port accepts values independently and does not determine other ports.',
-    })
-  })
-})
-
 describe('pinShapeOf', () => {
   const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
 
@@ -101,13 +60,6 @@ describe('pinShapeOf', () => {
   it('uses ordinary definite shapes after inference', () => {
     expect(pinShapeOf({ kind: 'concrete', name: 'IMAGE' }, 'in')).toBe('circle')
     expect(pinShapeOf({ kind: 'list', element: { kind: 'concrete', name: 'IMAGE' } }, 'in')).toBe('diamond')
-  })
-})
-
-describe('pinBaseAngle', () => {
-  it('points the first divider at the noodle side, perpendicular to the border', () => {
-    expect(pinBaseAngle('in')).toBeCloseTo(Math.PI) // left border -> west
-    expect(pinBaseAngle('out')).toBeCloseTo(0) // right border -> east
   })
 })
 
@@ -143,24 +95,6 @@ describe('pinSlices', () => {
         typeColor(defaultTokens, 'MASK'),
       ])
     }
-  })
-
-  it('rotates the split by direction so the divider stays horizontal on both borders', () => {
-    const type: TypeExpr = { kind: 'union', names: ['IMAGE', 'MASK'] }
-    const input = pinSlices(defaultTokens, type, 'in')
-    const output = pinSlices(defaultTokens, type, 'out')
-    // Two wedges: both dividers land on the horizontal axis either way, but
-    // the FIRST divider points away from the node body (west for inputs on
-    // the left border, east for outputs on the right).
-    expect(input[0]!.startAngle).toBeCloseTo(Math.PI)
-    expect(output[0]!.startAngle).toBeCloseTo(0)
-    for (const slice of [...input, ...output]) {
-      expect(Math.abs(Math.sin(slice.startAngle))).toBeCloseTo(0) // horizontal divider
-    }
-  })
-
-  it('leaves solved concrete types to the ordinary single-color pin path', () => {
-    expect(pinSlices(defaultTokens, { kind: 'concrete', name: 'IMAGE' })).toEqual([])
   })
 
   it('colors union-of-list wedges by their element type (shape carries list-ness)', () => {

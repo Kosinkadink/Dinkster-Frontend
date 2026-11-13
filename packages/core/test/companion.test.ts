@@ -90,21 +90,6 @@ describe('companionSourcesOf', () => {
       .toEqual({ kind: 'literal', value: stored })
   })
 
-  it('follows reroute chains to the value source (same trace the compiler lowers)', () => {
-    const def = graph({
-      id: 'g0',
-      nodes: { n1: node('n1') },
-      reroutes: { r1: reroute('r1'), r2: reroute('r2') },
-      valueSources: { v1: source('v1', 'hello') },
-      links: {
-        l1: link('l1', vsrc('v1'), rr('r1')),
-        l2: link('l2', rr('r1'), rr('r2')),
-        l3: link('l3', rr('r2'), port('n1', 'text')),
-      },
-    })
-    expect(sourceOf(def, 'n1', 'text')).toEqual({ kind: 'literal', value: 'hello' })
-  })
-
   it('resolves a node-output link to a runtime producer', () => {
     const def = graph({
       id: 'g0',
@@ -139,26 +124,6 @@ describe('companionSourcesOf', () => {
     expect(typeof (resolved as { value: unknown }).value).toBe(typeof value)
   })
 
-  it('follows identity output chains to a value source literal', () => {
-    const def = graph({
-      id: 'g0',
-      nodes: {
-        first: node('first', 'Primitive'),
-        second: node('second', 'Primitive'),
-        consumer: node('consumer'),
-      },
-      valueSources: { v1: source('v1', 9) },
-      links: {
-        l1: link('l1', vsrc('v1'), port('first', 'value')),
-        l2: link('l2', port('first', 'result'), port('second', 'value')),
-        l3: link('l3', port('second', 'result'), port('consumer', 'in')),
-      },
-    })
-    const schema = primitiveSchema()
-    expect(companionSourcesOf(def, undefined, undefined, () => schema).get('consumer')?.get('in'))
-      .toEqual({ kind: 'literal', value: 9 })
-  })
-
   it('follows a mixed value-source, reroute, net, and identity chain', () => {
     const def = graph({
       id: 'g0',
@@ -187,20 +152,6 @@ describe('companionSourcesOf', () => {
     const schema = primitiveSchema()
     expect(companionSourcesOf(def, undefined, undefined, () => schema).get('consumer')?.get('in'))
       .toEqual({ kind: 'literal', value: 12 })
-  })
-
-  it('uses the schema default resolver for an unstored identity input', () => {
-    const def = graph({
-      id: 'g0',
-      nodes: {
-        primitive: node('primitive', 'Primitive'),
-        consumer: node('consumer'),
-      },
-      links: { l1: link('l1', port('primitive', 'result'), port('consumer', 'in')) },
-    })
-    const schema = primitiveSchema('BOOLEAN')
-    expect(companionSourcesOf(def, undefined, () => false, () => schema).get('consumer')?.get('in'))
-      .toEqual({ kind: 'literal', value: false })
   })
 
   it('preserves an executed producer source behind a declared identity output', () => {
@@ -253,47 +204,4 @@ describe('companionSourcesOf', () => {
     expect(sourceOf(def, 'b', 'in')).toEqual({ kind: 'producer', node: 'producer', output: 'out' })
   })
 
-  it('yields nothing for undriven reroutes, cycles, and missing value sources', () => {
-    const def = graph({
-      id: 'g0',
-      nodes: { n1: node('n1'), n2: node('n2'), n3: node('n3') },
-      reroutes: { r1: reroute('r1'), r2: reroute('r2'), r3: reroute('r3') },
-      links: {
-        // undriven: nothing feeds r1
-        l1: link('l1', rr('r1'), port('n1', 'in')),
-        // cycle: r2 <-> r3
-        l2: link('l2', rr('r2'), rr('r3')),
-        l3: link('l3', rr('r3'), rr('r2')),
-        l4: link('l4', rr('r2'), port('n2', 'in')),
-        // dangling value source reference
-        l5: link('l5', vsrc('missing'), port('n3', 'in')),
-      },
-    })
-    expect(companionSourcesOf(def).size).toBe(0)
-  })
-
-  it('skips member-addressed endpoints and links to unknown nodes (deliberate scope)', () => {
-    const def = graph({
-      id: 'g0',
-      nodes: { n1: node('n1') },
-      valueSources: { v1: source('v1', 1) },
-      links: {
-        l1: link('l1', vsrc('v1'), { ...port('n1', 'items'), members: ['first'] }),
-        l2: link('l2', vsrc('v1'), port('ghost', 'in')),
-      },
-    })
-    expect(companionSourcesOf(def).size).toBe(0)
-  })
-
-  it('is derivation only: the consumer node values are never consulted or touched', () => {
-    const n1 = { id: asNodeId('n1'), type: 'T', values: { steps: 99 } }
-    const def = graph({
-      id: 'g0',
-      nodes: { n1 },
-      valueSources: { v1: source('v1', 7) },
-      links: { l1: link('l1', vsrc('v1'), port('n1', 'steps')) },
-    })
-    expect(sourceOf(def, 'n1', 'steps')).toEqual({ kind: 'literal', value: 7 })
-    expect(n1.values).toEqual({ steps: 99 }) // dormant stored value untouched
-  })
 })

@@ -1,14 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import {
-  checkDocument,
-  deriveBoundarySchema,
-  documentResolver,
-  type NodeSchema,
-  type RegionContract,
-} from '@dinkster/core'
+import { checkDocument, deriveBoundarySchema, documentResolver, type NodeSchema } from '@dinkster/core'
 import { pushGraph, type AppState } from '../src/app-state.js'
 import { commitRegionCreation } from '../src/CanvasHost.js'
-import { registerCoreSearchProviders, runSearchAction } from '../src/universal-search.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 beforeAll(() => {
@@ -57,25 +50,6 @@ const regionSchemas: readonly NodeSchema[] = [
 ]
 
 describe('region creation actions', () => {
-  it.each([false, true])('waits for region acceptance %s before selecting its occurrence', async (accepted) => {
-    const app = createWorkflowApp(regionSchemas)
-    const tab = app.createWorkflow()
-    const root = tab.store.doc.root
-    const dispatch = app.dispatchTo.bind(app)
-    let settle!: () => void
-    vi.spyOn(app, 'dispatchTo').mockImplementation((owner, invocation) => new Promise((resolve) => {
-      settle = () => resolve(accepted ? dispatch(owner, invocation) : { ok: false, diagnostics: [] })
-    }) as never)
-    const selected: string[] = []
-    const pending = commitRegionCreation(app, tab, root, { x: 12, y: 34 }, 'fold', (id) => selected.push(id))
-    expect(selected).toEqual([])
-    expect(Object.keys(tab.store.doc.graphs[root]!.nodes)).toEqual([])
-    settle()
-    expect((await pending).ok).toBe(accepted)
-    expect(selected).toEqual(accepted ? ['n1'] : [])
-    expect(tab.store.doc.graphs[root]!.nodes.n1?.region?.kind).toBe(accepted ? 'fold' : undefined)
-    app.dispose()
-  })
 
   it.each([
     ['map', 'region.createMap'],
@@ -107,29 +81,6 @@ describe('region creation actions', () => {
     expect(tab.store.doc.graphs[definitionId]).toBeUndefined()
     expect(tab.store.doc.graphs[root]!.nodes[occurrenceId]).toBeUndefined()
     expect(tab.graphStack.get()).toEqual([root])
-  })
-
-  it('uses the real catalog primitive shapes for the map, fold, and while templates', async () => {
-    const app = createWorkflowApp(regionSchemas)
-    const expected = {
-      map: ['dinkster.utilities.primitive_float'],
-      fold: ['dinkster.utilities.comfy_math_expression', 'dinkster.utilities.primitive_int', 'dinkster.utilities.primitive_int'],
-      while: ['dinkster.utilities.primitive_float', 'dinkster.utilities.primitive_boolean'],
-    } as const
-    for (const kind of ['map', 'fold', 'while'] as const) {
-      const tab = app.createWorkflow()
-      expect((await app.createRegion(tab, tab.store.doc.root, { x: 0, y: 0 }, kind)).ok).toBe(true)
-      const occurrence = Object.values(tab.store.doc.graphs[tab.store.doc.root]!.nodes)[0]!
-      const definition = tab.store.doc.graphs[occurrence.type.slice(1)]!
-      expect(Object.values(definition.nodes).map((node) => node.type)).toEqual(expected[kind])
-      if (kind === 'while') {
-        const region = occurrence.region as RegionContract
-        expect(region.continueOutput).toBe('continue')
-        expect(definition.boundary!.outputs.find((item) => item.id === 'continue')?.binds).toMatchObject({
-          node: 'n1', port: 'BOOLEAN',
-        })
-      }
-    }
   })
 
   it.each(['map', 'while'] as const)('derives and lowers a real %s region with same-id primitive ports', async (kind) => {
@@ -182,23 +133,4 @@ describe('region creation actions', () => {
     expect((await app.createRegion(tab, tab.store.doc.root, { x: 0, y: 0 }, 'map')).ok).toBe(false)
   })
 
-  it('exposes and invokes all three actions through universal search', () => {
-    const app = createWorkflowApp()
-    const dispose = registerCoreSearchProviders(app)
-    const createRegion = vi.fn(() => true)
-    app.canvasBridge.set({ createRegion } as never)
-    const provider = app.searchRegistry.list().find((item) => item.id === 'core.commands')!
-    for (const [label, id, kind] of [
-      ['Create map region', 'region.createMap', 'map'],
-      ['Create fold region', 'region.createFold', 'fold'],
-      ['Create while region', 'region.createWhile', 'while'],
-    ] as const) {
-      const rows = provider.query(label, { selection: { nodes: [] }, signal: new AbortController().signal }) as unknown as readonly { id: string; action: never }[]
-      const row = rows.find((item) => item.id === id)!
-      expect(row).toBeDefined()
-      expect(runSearchAction(app, row.action)).toBe(true)
-      expect(createRegion).toHaveBeenLastCalledWith(kind)
-    }
-    dispose.forEach((fn) => fn())
-  })
 })

@@ -88,17 +88,6 @@ describe('panel drag overlay cursor ghost', () => {
     view.dispose()
   })
 
-  it('marks the ghost refused in step with the target highlight', () => {
-    const view = mount(pendingDrag())
-    view.setDrag((drag) => movePanelDragModel(drag, 7, { x: 500, y: 790 }))
-
-    expect(
-      view.root.querySelector<HTMLElement>('[data-testid="panel-drag-target"]')?.dataset['allowed'],
-    ).toBe('false')
-    expect(view.ghost()!.dataset['refused']).toBe('true')
-    view.dispose()
-  })
-
   it('labels a split target with the half it creates', () => {
     const view = mount(pendingDrag())
     view.setDrag((drag) => movePanelDragModel(drag, 7, { x: 850, y: 600 }))

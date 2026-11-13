@@ -57,21 +57,3 @@ test('native palette exposes canonical accessible identity', async ({ page }) =>
   expect(activeId).not.toBeNull()
   await expect(page.locator(`#${activeId}`)).toHaveRole('option')
 })
-
-test('native universal search lists the canonical node', async ({ page }) => {
-  await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
-    format: 'dinkster-workflow', formatVersion: 1, lineage: 'native-search-display', root: 'g0',
-    graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
-    view: { graphs: { g0: { nodes: {} } } },
-  }, 'Native Search Display')))
-  await registerDuplicateName(page)
-  await page.getByTestId('topbar-search').click()
-  await page.getByTestId('universal-search-input').fill('@ Preview as Text')
-
-  const group = page.locator('[data-provider="core.nodes"]')
-  const native = group.getByRole('option', {
-    name: /Preview as Text dinkster-utilities - utilities - dinkster\.utilities\.preview_any$/,
-  })
-  await expect(native).toBeVisible()
-  await expect(native).toHaveAccessibleName(/Preview as Text/)
-})

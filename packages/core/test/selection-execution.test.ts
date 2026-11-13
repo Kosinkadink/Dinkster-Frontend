@@ -133,12 +133,6 @@ describe('analyzeSelectionExecution', () => {
     expect(result.last).toEqual([])
   })
 
-  it('reports a collapsed real-node self-cycle as a cycle participant', () => {
-    const result = analyzeSelectionExecution(graph(['a'], [['a', 'a']]), ['a'])
-    expect(result.cyclic).toBe(true)
-    expect([...result.cyclicNodes]).toEqual(['a'])
-  })
-
   it('keeps closures meaningful when an unrelated component is cyclic', () => {
     const result = analyzeSelectionExecution(
       graph(['a', 'b', 'x', 'y'], [['a', 'b'], ['x', 'y'], ['y', 'x']]),

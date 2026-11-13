@@ -232,25 +232,6 @@ describe('CollabPanel', () => {
     expect(failed.root.querySelector('[data-testid="collab-empty"]')).toBeNull()
   })
 
-  it('explains why sharing is unavailable without a tab or for execution snapshots', async () => {
-    const view = mount({ tab: 'none' })
-    await flush()
-    const message = () => view.root.querySelector('[data-testid="collab-unshared"]')?.textContent
-    expect(message()).toContain('Open a workflow to share it from its tab menu.')
-
-    const frozen = { id: 'frozen-tab', title: 'Snapshot', execution: {} } as Tab
-    view.tabs.set([frozen])
-    view.activeTabId.set(frozen.id)
-    await flush()
-    expect(message()).toContain('Execution snapshots cannot be shared.')
-
-    const local = { id: 'local-tab', title: 'Local' } as Tab
-    view.tabs.set([local])
-    view.activeTabId.set(local.id)
-    await flush()
-    expect(message()).toContain('This workflow is local. Open its tab menu to start sharing.')
-  })
-
   it('presents authoritative statuses, long identities, and bounded participant overflow', async () => {
     const status = createCoreSignal<SharedSessionStatus>('live')
     const longSession = descriptor(

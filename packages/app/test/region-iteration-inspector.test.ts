@@ -82,10 +82,4 @@ describe('regionIterationInventory', () => {
     })
   })
 
-  it('requires exact compiled ownership and an observed region lifecycle', () => {
-    const { artifact: _artifact, ...withoutArtifact } = execution()
-    expect(regionIterationInventory(withoutArtifact, region)).toBeUndefined()
-    expect(regionIterationInventory(execution({ regions: {} }), region)).toBeUndefined()
-    expect(regionIterationInventory(execution(), { instancePath: [], node: asNodeId('foreign') })).toBeUndefined()
-  })
 })

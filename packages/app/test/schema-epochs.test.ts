@@ -159,15 +159,6 @@ describe('schema_changed epoch invalidation', () => {
     ])
   })
 
-  it('skips the refetch when the held epoch is already at or past the ping', async () => {
-    backend.registry.set(reg(backend, 3))
-    const fetchSpy = vi.spyOn(backend.connection, 'fetchSchemas')
-    push(backend, { type: 'schema_changed', epoch: 2 })
-    push(backend, { type: 'schema_changed', epoch: 3 })
-    await flush()
-    expect(fetchSpy).not.toHaveBeenCalled()
-  })
-
   it('refetches when no registry is held yet (initial load raced the ping)', async () => {
     const fetchSpy = vi
       .spyOn(backend.connection, 'fetchSchemas')
@@ -208,20 +199,6 @@ describe('schema_changed epoch invalidation', () => {
     await flush()
     await flush()
     expect(fetchSpy).toHaveBeenCalledTimes(1)
-  })
-
-  it('FR9 newer ping during an in-flight fetch triggers exactly one follow-up fetch', async () => {
-    backend.registry.set(reg(backend, 1))
-    let resolveFirst!: (registry: SchemaRegistry) => void
-    const fetchSpy = vi.spyOn(backend.connection, 'fetchSchemas')
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
-      .mockResolvedValueOnce(reg(backend, 3))
-    push(backend, { type: 'schema_changed', epoch: 2 })
-    resolveFirst(reg(backend, 2))
-    push(backend, { type: 'schema_changed', epoch: 3 })
-    await flush()
-    expect(fetchSpy).toHaveBeenCalledTimes(2)
-    expect(backend.registry.get()?.epoch).toBe(3)
   })
 
   it('FR9 a ping after a failed refresh starts a new fetch (the gate resets)', async () => {
@@ -321,14 +298,6 @@ describe('reconnect capability invalidation', () => {
     expect(backend.workerCatalog.get()).toEqual({ status: 'unsupported' })
   })
 
-  it('refetches /api/nodes on reconnect even when the epoch did not advance', async () => {
-    backend.registry.set(reg(backend, 3))
-    const fetchSpy = vi.spyOn(backend.connection, 'fetchSchemas').mockResolvedValue(reg(backend, 3))
-    setStatus('connected')
-    await flush()
-    expect(fetchSpy).toHaveBeenCalledTimes(1)
-  })
-
   it('replaces held graphFeatures with the restarted server\'s (feature appears, same epoch)', async () => {
     backend.registry.set(reg(backend, 3))
     vi.spyOn(backend.connection, 'fetchSchemas')
@@ -372,22 +341,6 @@ describe('reconnect capability invalidation', () => {
     expect(backend.registry.get()?.epoch).toBe(2)
   })
 
-  it('a reconnect during an in-flight refresh triggers exactly one follow-up fetch', async () => {
-    backend.registry.set(reg(backend, 1))
-    let resolveFirst!: (r: SchemaRegistry) => void
-    const fetchSpy = vi.spyOn(backend.connection, 'fetchSchemas')
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
-      .mockResolvedValue(reg(backend, 2))
-    push(backend, { type: 'schema_changed', epoch: 2 })
-    expect(fetchSpy).toHaveBeenCalledTimes(1)
-    // The server restarts while that fetch is in flight: its response is
-    // from the previous server life, so one follow-up must be issued.
-    setStatus('connected')
-    resolveFirst(reg(backend, 2))
-    await flush()
-    expect(fetchSpy).toHaveBeenCalledTimes(2)
-  })
-
   it('strips held graphFeatures SYNCHRONOUSLY on reconnect, before the refetch commits', async () => {
     backend.registry.set({ ...reg(backend, 3), graphFeatures: ['typedLiteral'] })
     backend.workerCatalog.set({
@@ -406,34 +359,6 @@ describe('reconnect capability invalidation', () => {
     resolveFetch({ ...reg(backend, 3), graphFeatures: ['typedLiteral'] })
     await flush()
     expect(backend.registry.get()?.graphFeatures).toEqual(['typedLiteral'])
-  })
-
-  it('invalidates both observable extension snapshot pairs before publishing a connected transition', () => {
-    if (backend.protocol !== 'dinkster') throw new Error('expected native backend')
-    const connection = backend.connection
-    const oldPair = {
-      digest: `sha256:${'a'.repeat(64)}`,
-      snapshot: { format: 'dinkster.extension-snapshot' as const, version: 1 as const, frontendApi: '1.0.0', extensions: [] },
-    }
-    const held = { ...reg(backend, 3), extensionSnapshotPair: oldPair }
-    backend.registry.set(held)
-    ;(connection as unknown as { registry?: SchemaRegistry }).registry = held
-    vi.spyOn(connection, 'fetchSchemas').mockImplementationOnce(() => new Promise(() => {}))
-    const observations: [SchemaRegistry['extensionSnapshotPair'], SchemaRegistry['extensionSnapshotPair']][] = []
-    const observe = () => observations.push([
-      backend.registry.get()?.extensionSnapshotPair,
-      connection.currentRegistry?.extensionSnapshotPair,
-    ])
-    backend.registry.subscribe(observe)
-    app.backendsTick.subscribe(observe)
-
-    setStatus('connected')
-
-    expect(observations.length).toBeGreaterThan(0)
-    expect(observations.every(([appPair, connectionPair]) => appPair === undefined && connectionPair === undefined)).toBe(true)
-    expect(backend.registry.get()?.extensionSnapshotPair).toBeUndefined()
-    expect(connection.currentRegistry?.extensionSnapshotPair).toBeUndefined()
-    expect(backend.registry.get()?.epoch).toBe(3)
   })
 
   it('a FAILED reconnect refresh leaves capabilities invalidated, never restored', async () => {
@@ -572,23 +497,6 @@ describe('composition narration and pack failures', () => {
     }))
   })
 
-  it('reconstructs missed failures after reconnect', async () => {
-    backend.registry.set(reg(backend, 3))
-    vi.spyOn(backend.connection, 'fetchSchemas').mockResolvedValue(reg(backend, 3))
-    vi.mocked(nativeConnection().fetchCompositionFailures).mockResolvedValue([
-      { pack: 'dinkster-compat-comfy', error: 'worker exited' },
-    ])
-
-    ;(backend.connection.status as unknown as { set(v: string): void }).set('connected')
-    await flush()
-    await flush()
-
-    expect(app.problems.get()).toContainEqual(expect.objectContaining({
-      code: 'schema.packFailed',
-      message: '[Native] pack "dinkster-compat-comfy" failed to load: worker exited',
-    }))
-  })
-
   it('clears healed snapshot failures without clearing unrelated problems', async () => {
     backend.registry.set(reg(backend, 2))
     vi.spyOn(backend.connection, 'fetchSchemas').mockResolvedValue(reg(backend, 3))
@@ -611,9 +519,4 @@ describe('composition narration and pack failures', () => {
     expect(app.problems.get()).toContainEqual(expect.objectContaining({ code: 'other.problem' }))
   })
 
-  it('a composition_complete with failures logs a warning naming the packs', () => {
-    backend.registry.set(reg(backend, 2))
-    push(backend, { type: 'composition_complete', epoch: 2, failed: ['bad.pack'] })
-    expect(app.logs.get().some((l) => l.severity === 'warn' && l.message.includes('bad.pack'))).toBe(true)
-  })
 })

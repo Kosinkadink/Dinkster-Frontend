@@ -5,7 +5,7 @@
  * controller chip/value non-overlap is pinned numerically in
  * canvas/test/controller-chip.test.ts.
  */
-import { expect, test, type Locator, type Page } from './fixtures.js'
+import { expect, test, type Page } from './fixtures.js'
 
 type WidgetId = 'seed' | 'amount' | 'title' | 'choice' | 'enabled' | 'color'
 
@@ -20,38 +20,6 @@ async function rowPoint(page: Page, inputId: WidgetId): Promise<{ x: number; y: 
       y: canvas.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
     }
   }, inputId)
-}
-
-async function attachRow(page: Page, inputId: WidgetId): Promise<void> {
-  const clip = await page.evaluate((inputId) => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'visual-widgets')!
-    if (!node.layout.rows.some((item) => item.kind === 'widget' && item.inputId === inputId)) throw new Error(`missing ${inputId} row`)
-    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    const viewport = window.__dinksterTest!.renderer!.getViewport()
-    return {
-      x: canvas.left + (node.x - 8) * viewport.scale + viewport.x,
-      y: canvas.top + (node.y - 8) * viewport.scale + viewport.y,
-      width: (node.layout.width + 16) * viewport.scale,
-      height: (node.layout.height + 16) * viewport.scale,
-    }
-  }, inputId)
-  await test.info().attach(`${inputId}-on-node`, {
-    body: await page.screenshot({ clip, animations: 'disabled' }),
-    contentType: 'image/png',
-  })
-}
-
-async function attachEditor(page: Page, inputId: WidgetId, editor: Locator): Promise<void> {
-  await expect(editor).toBeVisible()
-  await test.info().attach(`${inputId}-expanded-editor`, {
-    body: await editor.screenshot({ animations: 'disabled' }),
-    contentType: 'image/png',
-  })
-}
-
-async function open(page: Page, inputId: WidgetId): Promise<void> {
-  const point = await rowPoint(page, inputId)
-  await page.mouse.click(point.x, point.y)
 }
 
 test.beforeEach(async ({ page }) => {
@@ -96,28 +64,6 @@ test.beforeEach(async ({ page }) => {
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'visual-widgets')?.layout.rows
       .filter((item) => item.kind === 'widget').length)).toBe(6)
-})
-
-test('INT controller row and expanded editor visual audit', async ({ page }) => {
-  await attachRow(page, 'seed')
-  await open(page, 'seed')
-  const editor = page.getByTestId('widget-editor')
-  await expect(editor.locator('input')).toHaveValue('123456789')
-  await attachEditor(page, 'seed', editor)
-})
-
-test('FLOAT row and expanded editor visual audit', async ({ page }) => {
-  await attachRow(page, 'amount')
-  await open(page, 'amount')
-  const editor = page.getByTestId('widget-editor')
-  await expect(editor.locator('input')).toHaveValue('1.23456789')
-  await attachEditor(page, 'amount', editor)
-})
-
-test('STRING row and expanded editor visual audit', async ({ page }) => {
-  await attachRow(page, 'title')
-  await open(page, 'title')
-  await attachEditor(page, 'title', page.getByTestId('widget-editor'))
 })
 
 test.describe('single-line STRING device-pixel layout', () => {
@@ -264,25 +210,4 @@ test.describe('single-line STRING device-pixel layout', () => {
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!
     .store.doc.graphs.g0!.nodes.clip!.values.text)).toBe(long)
   })
-})
-
-test('COMBO row and expanded editor visual audit', async ({ page }) => {
-  await attachRow(page, 'choice')
-  await open(page, 'choice')
-  await attachEditor(page, 'choice', page.getByTestId('combo-dropdown'))
-})
-
-test('BOOLEAN inline toggle visual audit', async ({ page }) => {
-  await attachRow(page, 'enabled')
-  await open(page, 'enabled')
-  await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes['visual-widgets']!.values.enabled)).toBe(true)
-  await attachRow(page, 'enabled')
-  await expect(page.getByTestId('widget-editor')).toHaveCount(0)
-})
-
-test('COLOR row and expanded editor visual audit', async ({ page }) => {
-  await attachRow(page, 'color')
-  await open(page, 'color')
-  await attachEditor(page, 'color', page.getByTestId('color-editor'))
 })

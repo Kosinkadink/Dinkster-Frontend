@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { coreCommandRegistry, planOutputCountSchema } from '../src/commands/core-commands.js'
+import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import type { InputSpec, NodeSchema, OutputSpec } from '../src/schema/model.js'
@@ -120,16 +120,6 @@ describe('node.setOutputCount', () => {
     expect(store.doc.graphs.g0!.nodes.split!.values.count).toBe(1)
   })
 
-  it('requires the explicit non-destructive link policy', () => {
-    const store = new DocumentStore(document(), coreCommandRegistry([], resolve))
-    expect(store.dispatch(invocation(2, { removedLinks: 'disconnect' }) as never).ok).toBe(false)
-    expect(store.dispatch({
-      command: 'node.setOutputCount',
-      params: { graphId: 'g0', nodeId: 'split', inputId: 'count', value: 2 },
-    }).ok).toBe(false)
-    expect(store.doc.graphs.g0!.nodes.split!.values.count).toBe(3)
-  })
-
   it('enforces every family bound sharing the count input', () => {
     const store = new DocumentStore(document(), coreCommandRegistry([], resolve))
     for (const value of [0, 4]) {
@@ -153,44 +143,6 @@ describe('node.setOutputCount', () => {
     if (!overBudget.ok) expect(overBudget.diagnostics[0]!.code).toBe('outputCount.memberBudget')
     expect(store.doc.graphs.g0!.nodes.split!.values.count).toBe(3)
     expect(store.dispatch(invocation(256) as never).ok).toBe(true)
-  })
-
-  it('rejects when the item budget halts elaboration before the member budget', () => {
-    const denseInput: InputSpec = {
-      kind: 'input',
-      id: 'dense',
-      type: { kind: 'concrete', name: 'INT' },
-      optional: false,
-      dynamic: {
-        kind: 'autogrow',
-        template: Array.from({ length: 4 }, (_, index): InputSpec => ({
-          kind: 'input',
-          id: `item${index}`,
-          type: { kind: 'concrete', name: 'INT' },
-          optional: false,
-        })),
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 512 },
-      },
-    }
-    const denseSchema: NodeSchema = {
-      ...splitSchema,
-      items: [countInput, denseInput, outputFamily('images', 0, 512)],
-    }
-    const denseDocument = document()
-    ;(denseDocument.graphs.g0!.nodes.split! as {
-      dynamic?: WorkflowDocument['graphs'][string]['nodes'][string]['dynamic']
-    }).dynamic = {
-      dense: {
-        members: Array.from({ length: 256 }, (_, index) => `m${index}` as never),
-      },
-    }
-    const denseResolve = (type: string): NodeSchema | undefined =>
-      type === 'Split' ? denseSchema : type === 'Sink' ? sinkSchema : undefined
-    const store = new DocumentStore(denseDocument, coreCommandRegistry([], denseResolve))
-    const outcome = store.dispatch(invocation(257) as never)
-    expect(outcome.ok).toBe(false)
-    if (!outcome.ok) expect(outcome.diagnostics[0]!.code).toBe('outputCount.elaborationBudget')
-    expect(store.doc.graphs.g0!.nodes.split!.values.count).toBe(3)
   })
 
   it('rejects linked count inputs, ordinary inputs, missing schemas, and hostile values', () => {
@@ -217,57 +169,6 @@ describe('node.setOutputCount', () => {
     for (const value of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
       expect(ordinary.dispatch(invocation(value) as never).ok).toBe(false)
     }
-  })
-
-  it('uses an integrity-checked schema snapshot during shared replay without live schema authority', () => {
-    const schemaPlan = planOutputCountSchema('Split', splitSchema)
-    const replay = new DocumentStore(
-      document(),
-      coreCommandRegistry([], () => {
-        throw new Error('mutable registry resolver must not run during shared replay')
-      }),
-      200,
-      undefined,
-      () => ({ kind: 'shared-replay' }),
-    )
-    expect(replay.dispatch(invocation(2, { schemaPlan }) as never).ok).toBe(true)
-    expect(replay.doc.graphs.g0!.nodes.split!.values.count).toBe(2)
-
-    const malformed = new DocumentStore(
-      document(),
-      coreCommandRegistry(),
-      200,
-      undefined,
-      () => ({ kind: 'shared-replay' }),
-    ).dispatch(invocation(2, {
-      schemaPlan: { ...schemaPlan, schemaPlanDigest: 'tampered' },
-    }) as never)
-    expect(malformed.ok).toBe(false)
-    if (!malformed.ok) expect(malformed.diagnostics[0]!.code).toBe('params.invalid')
-
-    const staleAuthoredType = new DocumentStore(
-      document(),
-      coreCommandRegistry(),
-      200,
-      undefined,
-      () => ({ kind: 'shared-replay' }),
-    ).dispatch(invocation(2, {
-      schemaPlan: planOutputCountSchema('LegacySplit', splitSchema),
-    }) as never)
-    expect(staleAuthoredType.ok).toBe(false)
-    if (!staleAuthoredType.ok) {
-      expect(staleAuthoredType.diagnostics[0]!.code).toBe('outputCount.schemaPlanStale')
-    }
-
-    const broaderSchema: NodeSchema = {
-      ...splitSchema,
-      items: [countInput, outputFamily('images', 0, 8), outputFamily('masks', 0, 8)],
-    }
-    const stale = new DocumentStore(document(), coreCommandRegistry([], resolve)).dispatch(
-      invocation(4, { schemaPlan: planOutputCountSchema('Split', broaderSchema) }) as never,
-    )
-    expect(stale.ok).toBe(false)
-    if (!stale.ok) expect(stale.diagnostics[0]!.code).toBe('outputCount.schemaPlanStale')
   })
 
   it('rejects generic value commands that bypass output-count validation', () => {

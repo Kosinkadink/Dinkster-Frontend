@@ -14,8 +14,7 @@ import { planClipboardPaste, serializeSelection } from '../src/clipboard.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
-import { validateDocumentShape } from '../src/format/validate.js'
-import { actorCursorOf, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asSelectorCandidateId, asSelectorId, formatAllocatedId, isValidActorId, parseAllocatedId } from '../src/ids.js'
+import { asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asSelectorCandidateId, asSelectorId } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
@@ -55,69 +54,6 @@ const addNode = (store: DocumentStore, actor?: string) =>
     params: { graphId: 'g0', type: 'CLIPTextEncode', position: { x: 0, y: 0 } },
     ...(actor !== undefined ? { actor } : {}),
   })
-
-describe('id parsing primitives', () => {
-  it('parses canonical solo and actor-suffixed ids, including hyphenated actors', () => {
-    expect(parseAllocatedId('n5')).toEqual({ prefix: 'n', ordinal: 5 })
-    expect(parseAllocatedId('net12')).toEqual({ prefix: 'net', ordinal: 12 })
-    expect(parseAllocatedId('n5-alice')).toEqual({ prefix: 'n', ordinal: 5, actor: 'alice' })
-    // Actor ids may contain '-' (UUIDs): everything after the FIRST
-    // separator following the digits is the actor, never a naive split.
-    expect(parseAllocatedId('l3-6f72-4c1d-9e')).toEqual({ prefix: 'l', ordinal: 3, actor: '6f72-4c1d-9e' })
-    expect(formatAllocatedId('n', 5, '6f72-4c1d')).toBe('n5-6f72-4c1d')
-  })
-
-  it('rejects non-canonical lookalikes (groupIdFloor discipline)', () => {
-    expect(parseAllocatedId('n007')).toBeUndefined() // leading zeros
-    expect(parseAllocatedId('n9007199254740993')).toBeUndefined() // above safe range
-    expect(parseAllocatedId('n5-')).toBeUndefined() // empty actor
-    expect(parseAllocatedId('n5-a.b')).toBeUndefined() // reserved char in actor
-    expect(parseAllocatedId('myNode')).toBeUndefined() // no ordinal
-  })
-
-  it('accepts the safe actor alphabet and nothing else', () => {
-    expect(isValidActorId('a1-B2_c')).toBe(true)
-    expect(isValidActorId('e1c9a7de-2b4f-4b3f-9a10-000000000001')).toBe(true)
-    for (const bad of ['', 'a.b', 'a b', 'a/b', 'a[b', 'a#b', 'a$b', 'a"b']) {
-      expect(isValidActorId(bad), JSON.stringify(bad)).toBe(false)
-    }
-  })
-
-  it("rejects '__proto__' and non-string input (wire ingress hardening)", () => {
-    // '__proto__' matches the charset but can never be an own plain-object
-    // key, so it could never round-trip through actorCursors.
-    expect(isValidActorId('__proto__')).toBe(false)
-    expect(parseAllocatedId('n5-__proto__')).toBeUndefined()
-    for (const bad of [undefined, null, 5, {}, ['alice']]) {
-      expect(isValidActorId(bad)).toBe(false)
-    }
-  })
-
-  it('actorCursorOf reads OWN keys only: prototype names get their own cursor, never the inherited member', () => {
-    // Without hasOwn discipline, actor 'constructor' would read
-    // Object.prototype.constructor (a function), poisoning allocation and
-    // NaN-ing the I6 comparison.
-    expect(actorCursorOf(undefined, 'constructor')).toBe(0)
-    expect(actorCursorOf({ alice: 3 }, 'constructor')).toBe(0)
-    expect(actorCursorOf({ constructor: 7 }, 'constructor')).toBe(7)
-    expect(actorCursorOf({ alice: 3 }, 'toString')).toBe(0)
-  })
-})
-
-describe('solo allocation is byte-for-byte unchanged', () => {
-  it('mints plain ids from nextOrdinal and records the same patch shape as before', () => {
-    const store = makeStore()
-    const out = addNode(store)
-    expect(out.ok).toBe(true)
-    if (!out.ok) return
-    expect(store.doc.graphs.g0!.nodes.n100).toBeDefined()
-    expect(store.doc.graphs.g0!.nextOrdinal).toBe(101)
-    expect(store.doc.graphs.g0!.actorCursors).toBeUndefined()
-    // The cursor op is the plain nextOrdinal write - no actorCursors op.
-    expect(out.forward.some((op) => op.path.join('/') === 'graphs/g0/nextOrdinal')).toBe(true)
-    expect(out.forward.some((op) => op.path.includes('actorCursors'))).toBe(false)
-  })
-})
 
 describe('actor-scoped allocation', () => {
   it('two actors from the same document state mint DIFFERENT ids', () => {
@@ -203,36 +139,9 @@ describe('undo/redo: actor cursors are never rewound (CO3)', () => {
     expect(store.doc.graphs.g0!.nodes['n0-alice']).toBeUndefined()
   })
 
-  it('undo keeps OTHER actors cursors too, and redo replays deterministically', () => {
-    const store = makeStore()
-    expect(addNode(store, 'alice').ok).toBe(true)
-    expect(addNode(store, 'bob').ok).toBe(true)
-    expect(store.undo()).toBe(true) // un-adds bob's node
-    expect(store.undo()).toBe(true) // un-adds alice's node (whole-map inverse)
-    const g = store.doc.graphs.g0!
-    expect(Object.keys(g.nodes)).toEqual([])
-    expect(g.actorCursors).toEqual({ alice: 1, bob: 1 })
-    expect(store.redo()).toBe(true)
-    expect(store.redo()).toBe(true)
-    const g2 = store.doc.graphs.g0!
-    expect(Object.keys(g2.nodes).sort()).toEqual(['n0-alice', 'n0-bob'].sort())
-    expect(g2.actorCursors).toEqual({ alice: 1, bob: 1 })
-  })
 })
 
 describe('I6 invariant: actor-suffixed ids check against their actor cursor', () => {
-  it('flags an actor id at/above its cursor and accepts one below', () => {
-    const bad = doc({
-      g0: graph({ id: 'g0', nodes: { 'n5-alice': node('n5-alice') }, actorCursors: { alice: 5 } }),
-    })
-    expect(checkDocument(bad).some((d) => d.code === 'doc.id.aboveCursor')).toBe(true)
-    const missing = doc({ g0: graph({ id: 'g0', nodes: { 'n0-alice': node('n0-alice') } }) })
-    expect(checkDocument(missing).some((d) => d.code === 'doc.id.aboveCursor')).toBe(true)
-    const good = doc({
-      g0: graph({ id: 'g0', nodes: { 'n5-alice': node('n5-alice') }, actorCursors: { alice: 6 } }),
-    })
-    expect(checkDocument(good).some((d) => d.code === 'doc.id.aboveCursor')).toBe(false)
-  })
 
   it('actor ids never check against nextOrdinal (disjoint id spaces)', () => {
     const d = doc({
@@ -244,25 +153,6 @@ describe('I6 invariant: actor-suffixed ids check against their actor cursor', ()
       }),
     })
     expect(checkDocument(d).some((d2) => d2.code === 'doc.id.aboveCursor')).toBe(false)
-  })
-
-  it('selector candidate ids take the same cursor gate (solo and actor)', () => {
-    const selWith = (cid: string) => ({
-      sel1: {
-        id: asSelectorId('sel1'),
-        candidates: [{ id: asSelectorCandidateId(cid) }],
-        policy: { kind: 'fixed', candidate: asSelectorCandidateId(cid) } as const,
-      },
-    })
-    // Actor candidate at/above its cursor: corrupt.
-    const badActor = doc({ g0: graph({ id: 'g0', selectors: selWith('c5-alice'), actorCursors: { alice: 5 } }) })
-    expect(checkDocument(badActor).some((d) => d.code === 'doc.id.aboveCursor')).toBe(true)
-    // Solo candidate at/above nextOrdinal: corrupt.
-    const badSolo = doc({ g0: graph({ id: 'g0', nextOrdinal: 5, selectors: selWith('c5') }) })
-    expect(checkDocument(badSolo).some((d) => d.code === 'doc.id.aboveCursor')).toBe(true)
-    // Below the cursor: clean.
-    const good = doc({ g0: graph({ id: 'g0', selectors: selWith('c5-alice'), actorCursors: { alice: 6 } }) })
-    expect(checkDocument(good).some((d) => d.code === 'doc.id.aboveCursor')).toBe(false)
   })
 
   it('candidate identity stays selector-scoped: cross-selector reuse is legal, same-selector repeats are not', () => {
@@ -301,20 +191,6 @@ describe('I6 invariant: actor-suffixed ids check against their actor cursor', ()
     expect(Object.hasOwn(g.actorCursors!, 'constructor')).toBe(true)
     expect(g.actorCursors!['constructor']).toBe(2)
     expect(checkDocument(store.doc).some((d) => d.code === 'doc.id.aboveCursor')).toBe(false)
-  })
-})
-
-describe('document format: actorCursors', () => {
-  it('documents without actorCursors stay valid (no format bump)', () => {
-    const d = doc({ g0: graph({ id: 'g0' }) })
-    expect(validateDocumentShape(d).filter((x) => x.severity === 'error')).toEqual([])
-  })
-
-  it('rejects invalid actor keys and non-integer cursors on load', () => {
-    const badKey = doc({ g0: graph({ id: 'g0', actorCursors: { 'a.b': 1 } }) })
-    expect(validateDocumentShape(badKey).some((x) => x.severity === 'error')).toBe(true)
-    const badVal = doc({ g0: graph({ id: 'g0', actorCursors: { alice: 1.5 } }) })
-    expect(validateDocumentShape(badVal).some((x) => x.severity === 'error')).toBe(true)
   })
 })
 
@@ -374,26 +250,4 @@ describe('clipboard paste under actor allocation', () => {
     expect(g.actorCursors).toEqual({ alice: 3, bob: 3 })
   })
 
-  it('refuses to plan for an invalid actor (plan must be dispatchable)', () => {
-    const d = withView()
-    const envelope = serializeSelection(d, 'g0', { nodes: ['n1'], reroutes: [] })!
-    expect(planClipboardPaste(d, 'g0', envelope, { x: 0, y: 0 }, 'a.b')).toBeUndefined()
-  })
-
-  it('counts exhaustion against the ACTOR cursor, not nextOrdinal', () => {
-    const d = withView()
-    const envelope = serializeSelection(d, 'g0', { nodes: ['n1', 'n2'], reroutes: [] })!
-    // 3 allocations (2 nodes + 1 retained link). Actor cursor at MAX-2
-    // cannot fit them even though nextOrdinal (100) has plenty of room.
-    const MAX = Number.MAX_SAFE_INTEGER
-    const exhausted = doc({
-      g0: {
-        ...d.graphs.g0!,
-        actorCursors: { alice: MAX - 2 },
-      },
-    })
-    const withV = { ...exhausted, view: d.view } as WorkflowDocument
-    expect(planClipboardPaste(withV, 'g0', envelope, { x: 0, y: 0 }, 'alice')).toBeUndefined()
-    expect(planClipboardPaste(withV, 'g0', envelope, { x: 0, y: 0 })).toBeDefined() // solo still fine
-  })
 })

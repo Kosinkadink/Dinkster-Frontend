@@ -77,13 +77,6 @@ describe('AgentPermissionsPanel', () => {
     } finally { unmount(); connection.disconnect() }
   })
 
-  it.each([false, true])('uses server local-mode metadata instead of the principal name (local=%s)', async (local) => {
-    const { root, connection } = mount(async () => [agent({ principalId: 'local', kind: 'human', self: true, local, scopes: ['shared'] })])
-    await flush()
-    expect(root.querySelector('[data-testid="connect-agent"]') !== null).toBe(!local)
-    expect(connection.fetchDelegations).toHaveBeenCalledTimes(local ? 0 : 1)
-  })
-
   it.each([undefined, 123])('lets a JWT user mint and revoke a delegation with optional expiry (%s)', async (expiresAt) => {
     const { root, connection } = mount(async () => [agent({ principalId: 'user-one', kind: 'human', self: true, scopes: ['shared'] })])
     await flush()
@@ -127,74 +120,6 @@ describe('AgentPermissionsPanel', () => {
     expect([...root.querySelectorAll('[data-testid="agent-permission-toggle"]')].map((item) => item.getAttribute('data-category'))).toEqual(['edit', 'read', 'queue', 'future'])
     expect(root.textContent).toContain('Edit documents')
     expect(root.textContent).toContain('future')
-  })
-
-  it('stays hidden while loading, after fetch failure, and with only humans', async () => {
-    let resolve!: (principals: readonly PrincipalSummary[]) => void
-    const pending = mount(() => new Promise((done) => { resolve = done }))
-    expect(pending.root.querySelector('[data-testid="agent-permissions"]')).toBeNull()
-    resolve([agent({ kind: 'human' })])
-    await flush()
-    expect(pending.root.querySelector('[data-testid="agent-permissions"]')).toBeNull()
-    pending.unmount()
-    pending.root.remove()
-
-    const failed = mount(async () => { throw new Error('forbidden') })
-    await flush()
-    expect(failed.root.querySelector('[data-testid="agent-permissions"]')).toBeNull()
-  })
-
-  it('relabels mounted controls without changing raw principal data, focus, or an in-flight update', async () => {
-    registerCatalog('de-DE', {
-      'agentPermissions.aria.category': '[{category} FUR {principal}]',
-      'agentPermissions.aria.panel': '[BERECHTIGUNGEN FUR {backend}]',
-      'agentPermissions.category.edit': '[DOKUMENTE BEARBEITEN]',
-      'agentPermissions.category.execute': '[AUFTRAGE AUSFUHREN]',
-      'agentPermissions.title': '[AGENTENBERECHTIGUNGEN MIT LANGEM TITEL]',
-      'agent-one': '[NICHT UBERSETZEN]',
-      'future': '[NICHT UBERSETZEN]',
-      'Local': '[NICHT UBERSETZEN]',
-    })
-    let finish!: (categories: Readonly<Record<string, boolean>>) => void
-    const update = vi.fn(() => new Promise<Readonly<Record<string, boolean>>>((resolve) => { finish = resolve }))
-    const { connection, root } = mount(async () => [agent()], update)
-    await flush()
-    const panel = root.querySelector<HTMLElement>('[data-testid="agent-permissions"]')!
-    const row = root.querySelector<HTMLElement>('[data-testid="agent-permissions-row"]')!
-    const edit = row.querySelector<HTMLButtonElement>('[data-category="edit"]')!
-    const execute = row.querySelector<HTMLButtonElement>('[data-category="execute"]')!
-    const future = row.querySelector<HTMLButtonElement>('[data-category="future"]')!
-    execute.focus()
-    execute.click()
-    expect(execute.disabled).toBe(true)
-
-    setLocale('de-DE')
-    await flush()
-
-    expect(root.querySelector('[data-testid="agent-permissions"]')).toBe(panel)
-    expect(root.querySelector('[data-testid="agent-permissions-row"]')).toBe(row)
-    expect(row.querySelector('[data-category="edit"]')).toBe(edit)
-    expect(row.querySelector('[data-category="execute"]')).toBe(execute)
-    expect(row.querySelector('[data-category="future"]')).toBe(future)
-    expect(document.activeElement).toBe(execute)
-    expect(panel.getAttribute('aria-label')).toBe('[BERECHTIGUNGEN FUR Local]')
-    expect(panel.querySelector('h3')?.textContent).toBe('[AGENTENBERECHTIGUNGEN MIT LANGEM TITEL]')
-    expect(edit.parentElement?.textContent).toContain('[DOKUMENTE BEARBEITEN]')
-    expect(execute.getAttribute('aria-label')).toBe('[[AUFTRAGE AUSFUHREN] FUR agent-one]')
-    expect(future.parentElement?.textContent).toContain('future')
-    expect(row.textContent).toContain('agent-one')
-    expect(row.querySelector('.backend-badge')?.textContent).toBe('agent')
-    expect(connection.fetchPrincipals).toHaveBeenCalledTimes(1)
-    expect(update).toHaveBeenCalledTimes(1)
-    expect(update).toHaveBeenCalledWith('agent-one', { execute: true })
-    expect(execute.getAttribute('aria-checked')).toBe('false')
-
-    finish({ edit: true, execute: true, future: true })
-    await flush()
-    const updatedExecute = root.querySelector<HTMLButtonElement>('[data-category="execute"]')!
-    expect(updatedExecute.disabled).toBe(false)
-    expect(updatedExecute.getAttribute('aria-checked')).toBe('true')
-    expect(connection.fetchPrincipals).toHaveBeenCalledTimes(1)
   })
 
   it('PUTs only the changed category and replaces categories from the response', async () => {

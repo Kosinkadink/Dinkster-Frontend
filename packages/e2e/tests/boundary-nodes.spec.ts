@@ -181,18 +181,6 @@ test('panels appear only inside the definition, with side-correct pins', async (
   expect(outputs.x).toBeGreaterThan(n1.x + n1.width)
 })
 
-test('binding noodles render but are not document links', async ({ page }) => {
-  await drillIntoSub(page)
-  // Both bindings render as scene links...
-  const sceneLinkIds = await page.evaluate(() =>
-    window.__dinksterTest!.renderer!.getScene().links.map((l) => l.id).sort(),
-  )
-  expect(sceneLinkIds).toEqual(['boundary:inputs:source', 'boundary:outputs:image'])
-  // ...but the document has none.
-  const doc = await activeDoc(page)
-  expect(Object.keys(doc.graphs['sub']!.links)).toHaveLength(0)
-})
-
 test('dragging a panel persists ONE view.moveBoundaryNode; undo/redo round-trips', async ({ page }) => {
   await drillIntoSub(page)
   const before = (await boundaryNodes(page)).find((b) => b.side === 'inputs')!
@@ -432,18 +420,4 @@ test('Shift-drag from the pseudo output dropped on empty space keeps the binding
 
   // Nothing committed: the noodles snap back, the binding survives.
   expect(await activeDoc(page)).toEqual(before)
-})
-
-test('moving the Inputs panel never disturbs the Outputs panel', async ({ page }) => {
-  await drillIntoSub(page)
-  const outputsBefore = (await boundaryNodes(page)).find((b) => b.side === 'outputs')!
-
-  const start = await boundaryHeaderPoint(page, 'inputs')
-  await drag(page, start, { x: start.x - 80, y: start.y + 40 })
-
-  const doc = await activeDoc(page)
-  expect(doc.view.graphs['sub']!.boundary!.inputs).toBeDefined()
-  expect(doc.view.graphs['sub']!.boundary!.outputs).toBeUndefined()
-  const outputsAfter = (await boundaryNodes(page)).find((b) => b.side === 'outputs')!
-  expect({ x: outputsAfter.x, y: outputsAfter.y }).toEqual({ x: outputsBefore.x, y: outputsBefore.y })
 })

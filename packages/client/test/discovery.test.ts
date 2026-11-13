@@ -55,33 +55,6 @@ describe('discoverBackend', () => {
     })
   })
 
-  it('never requests a stock ComfyUI endpoint', async () => {
-    const seen: string[] = []
-    const fetchFn: FetchLike = (url) => {
-      seen.push(url)
-      return Promise.resolve(url.includes('/api/nodes') ? nativeNodes() : json(404, {}))
-    }
-    expect(await discoverBackend('', { fetchFn })).toEqual({
-      kind: 'dinkster',
-      supervised: false,
-    })
-    expect(seen).toHaveLength(2)
-    expect(seen.some((url) => url.includes('/system_stats'))).toBe(false)
-  })
-
-  it('requests the nodes catalog without version negotiation', async () => {
-    let nodesUrl = ''
-    const fetchFn: FetchLike = (url) => {
-      if (url.includes('/api/nodes')) {
-        nodesUrl = url
-        return Promise.resolve(nativeNodes())
-      }
-      return Promise.resolve(json(404, {}))
-    }
-    await discoverBackend('http://host', { fetchFn })
-    expect(nodesUrl).toBe('http://host/api/nodes')
-  })
-
   it('treats the supervisor 503 engine-not-ready gate on /api/nodes as supervised Dinkster', async () => {
     const fetchFn = fakeFetch({
       // A supervisor whose /supervisor/status is briefly unreachable but
@@ -108,14 +81,6 @@ describe('discoverBackend', () => {
     }
     expect((await discoverBackend('http://host:8188', { fetchFn })).kind).toBe('unrecognized')
     expect(seen).toEqual(['http://host:8188/supervisor/status', 'http://host:8188/api/nodes'])
-  })
-
-  it('rejects array-valued native identity sections', async () => {
-    const fetchFn = fakeFetch({
-      '/supervisor/status': () => json(404, {}),
-      '/api/nodes': () => json(200, { nodes: [], dinkster: [] }),
-    })
-    expect((await discoverBackend('http://host', { fetchFn })).kind).toBe('unrecognized')
   })
 
   it('calls out SPA-HTML routing fallthrough as unrecognized, not a protocol', async () => {

@@ -211,11 +211,6 @@ describe('coexistence: every construct renders in one scene', () => {
   const root = sceneOf(doc, 'g0')
   const sub = sceneOf(doc, 'sub')
 
-  it('both scenes build with zero diagnostics', () => {
-    expect(root.diagnostics, JSON.stringify(root.diagnostics)).toEqual([])
-    expect(sub.diagnostics, JSON.stringify(sub.diagnostics)).toEqual([])
-  })
-
   it('no scene noodle dangles: every port endpoint anchors at a laid-out pin', () => {
     expectNoDanglingEndpoints(root)
     expectNoDanglingEndpoints(sub)

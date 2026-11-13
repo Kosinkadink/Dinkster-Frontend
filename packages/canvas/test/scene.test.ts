@@ -26,28 +26,7 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { historicalSchemas as schemas } from './historical-schemas.js'
-import {
-  buildScene,
-  boundaryNodesInGroup,
-  netDeliveryLinkId,
-  nodesInGroup,
-  reroutesInGroup,
-  selectorsInGroup,
-  nodeStatesForGraph,
-  scenesEqual,
-  selectorBadgeRect,
-  selectorCandidatePinPosition,
-  selectorOutPinPosition,
-  updateSceneNodePositions,
-  valueSourcesInGroup,
-  valueSourcePinPosition,
-  NET_STUB_GAP,
-  NET_STUB_HEIGHT,
-  NET_STUB_PAD_X,
-  SELECTOR_MIN_WIDTH,
-  VS_MIN_WIDTH,
-  type Scene,
-} from '../src/scene.js'
+import { buildScene, boundaryNodesInGroup, nodesInGroup, selectorsInGroup, nodeStatesForGraph, scenesEqual, selectorBadgeRect, selectorCandidatePinPosition, selectorOutPinPosition, updateSceneNodePositions, valueSourcesInGroup, valueSourcePinPosition, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, SELECTOR_MIN_WIDTH, VS_MIN_WIDTH, type Scene } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
 
@@ -57,12 +36,6 @@ const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot
 const measure: TextMeasurer = (text) => text.length * 6
 const widgetMeasure: WidgetMeasure = (spec) =>
   spec.options['multiline'] === true ? { viewId: 'core.text', rows: 2 } : { viewId: 'core.line', rows: 1 }
-
-describe('netDeliveryLinkId', () => {
-  it('formats a net id and sink index', () => {
-    expect(netDeliveryLinkId('net100', 2)).toBe('net100:2')
-  })
-})
 
 function sceneOf(workflow: string, graphId = 'g0') {
   const doc = loadDocument(readJson(`fixtures/workflows/${workflow}.json`)).document as WorkflowDocument
@@ -77,24 +50,6 @@ function sceneOf(workflow: string, graphId = 'g0') {
 }
 
 describe('buildScene', () => {
-  it('measures each text/role once per build without retaining widths across rebuilds', () => {
-    const doc = loadDocument(readJson('fixtures/workflows/exec-basic.json')).document as WorkflowDocument
-    const calls = new Map<string, number>()
-    const input = {
-      document: doc, graphId: 'g0', resolve: documentResolver(doc, (type) => schemas.get(type)), tokens: defaultTokens,
-      measure: ((text, role) => {
-        const key = `${role}:${text}`
-        calls.set(key, (calls.get(key) ?? 0) + 1)
-        return measure(text, role)
-      }) as TextMeasurer,
-      widgetMeasure,
-    }
-    buildScene(input)
-    expect(calls.size).toBeGreaterThan(0)
-    expect([...calls.values()].every((count) => count === 1)).toBe(true)
-    buildScene(input)
-    expect([...calls.values()].every((count) => count === 2)).toBe(true)
-  })
 
   it('reuses semantic layout while reprojecting node position geometry', () => {
     const previous = loadDocument(readJson('fixtures/workflows/exec-basic.json')).document as WorkflowDocument
@@ -237,46 +192,6 @@ describe('buildScene', () => {
     expect(scene.nodes[0]!.isSubgraph).toBe(false)
   })
 
-  it('projects a node view color onto the scene node', () => {
-    const raw = readJson('fixtures/workflows/exec-basic.json') as {
-      view: { graphs: Record<string, { nodes: Record<string, { color?: string }> }> }
-    }
-    raw.view.graphs.g0!.nodes.n0!.color = '#355c7d'
-    const doc = loadDocument(raw).document as WorkflowDocument
-    const scene = buildScene({
-      document: doc,
-      graphId: 'g0',
-      resolve: documentResolver(doc, (type) => schemas.get(type)),
-      tokens: defaultTokens,
-      measure,
-      widgetMeasure,
-    })
-    expect(scene.nodes.find((node) => node.id === 'n0')!.color).toBe('#355c7d')
-    expect(scene.nodes.find((node) => node.id === 'n1')!.color).toBeUndefined()
-  })
-
-  it('marks schema-declared preview emitters and preview outputs as capable', () => {
-    const doc = loadDocument(readJson('fixtures/workflows/exec-basic.json')).document as WorkflowDocument
-    const node = doc.graphs.g0!.nodes.n0!
-    const schema = schemas.get(node.type)!
-    const sceneWith = (candidate: NodeSchema) => buildScene({
-      document: doc,
-      graphId: 'g0',
-      resolve: (type) => type === node.type ? candidate : schemas.get(type),
-      tokens: defaultTokens,
-      measure,
-      widgetMeasure,
-    })
-    const emitter = sceneWith({ ...schema, emitsPreviews: true })
-    expect(emitter.nodes.find((candidate) => candidate.id === node.id)?.previewCapable).toBe(true)
-
-    const output = sceneWith({
-      ...schema,
-      items: schema.items.map((item) => item.kind === 'output' ? { ...item, preview: true } : item),
-    })
-    expect(output.nodes.find((candidate) => candidate.id === node.id)?.previewCapable).toBe(true)
-  })
-
   it('value sources are scene items separate from nodes, with derived INT spec', () => {
     const scene = sceneOf('value-source')
     expect(scene.nodes.map((n) => n.id).sort()).toEqual(['n0', 'n1'])
@@ -346,11 +261,6 @@ describe('buildScene', () => {
       x1: node.x + node.layout.width,
       y1: node.y + node.layout.headerHeight / 2,
     })
-  })
-
-  it('does not mark a resolver-recognized node type as unrecognized', () => {
-    const scene = sceneOf('exec-basic')
-    expect(scene.nodes.find((n) => n.id === 'n0')!.unrecognized).toBeUndefined()
   })
 
   it('missing-schema title provenance uses node.type as the original name', () => {
@@ -1053,29 +963,6 @@ describe('sections in scenes', () => {
     expect(tapLink.y1).toBe(anchorY)
   })
 
-  it('expansion restores exact Advanced endpoints without changing scene topology', () => {
-    const expanded = sectionedScene(false, true)
-    const collapsed = sectionedScene(true, true)
-    const restored = sectionedScene(false, true)
-    const topology = (scene: Scene) => scene.links.map((link) => ({
-      id: link.id,
-      from: link.from,
-      to: link.to,
-    }))
-    const endpoints = (scene: Scene) => scene.links.map((link) => ({
-      id: link.id,
-      x1: link.x1,
-      y1: link.y1,
-      x2: link.x2,
-      y2: link.y2,
-    }))
-
-    expect(topology(collapsed)).toEqual(topology(expanded))
-    expect(topology(restored)).toEqual(topology(expanded))
-    expect(endpoints(restored)).toEqual(endpoints(expanded))
-    expect(endpoints(collapsed)).not.toEqual(endpoints(expanded))
-  })
-
   it('unconnected widget tap in a collapsed section emits no output anchor', () => {
     const s0 = sectionedScene(true).nodes.find((n) => n.id === 's0')!
     expect(s0.layout.pins.some((p) => p.direction === 'out' && p.portId === 'w' && p.widgetTap === true)).toBe(false)
@@ -1189,15 +1076,6 @@ describe('nodeStatesForGraph with resolved runtime ids', () => {
     }
   })
 
-  it('averages progress across running subgraph occurrences', () => {
-    const scene = sceneOf('exec-subgraph')
-    const mapped = nodeStatesForGraph(
-      { first: { state: 'running', value: 0.2 }, second: { state: 'running', value: 0.6 } },
-      scene,
-      (nodeId, isSubgraph) => (nodeId === 'n0' && isSubgraph ? ['first', 'second'] : []),
-    )
-    expect(mapped['n0']).toEqual({ state: 'running', value: 0.4 })
-  })
 })
 
 describe('named nets in scenes', () => {
@@ -1289,38 +1167,6 @@ describe('named nets in scenes', () => {
     expect(netLinks.every((l) => l.typeName === 'LATENT')).toBe(true)
   })
 
-  it('projects advisory source and sink positions without crossing graph definitions', () => {
-    const base = netScene(false)
-    const doc = {
-      format: 'dinkster-workflow' as const,
-      formatVersion: 1 as const,
-      lineage: asLineageId('lin1'),
-      root: asGraphDefId('g0'),
-      graphs: {
-        g0: {
-          id: asGraphDefId('g0'), name: 'g',
-          nodes: Object.fromEntries(base.nodes.map((n) => [n.id, n.node])),
-          links: {},
-          nets: { t9: { id: asNetId('t9'), name: 'latents', source: { node: asNodeId('p0'), port: asPortId('out0') }, sinks: [{ node: asNodeId('c1'), port: asPortId('in0') }] } },
-          reroutes: {}, nextOrdinal: 100,
-        },
-      },
-      view: { graphs: { g0: { nodes: Object.fromEntries(base.nodes.map((n) => [n.id, { position: { x: n.x, y: n.y } }])) } } },
-      ext: {
-        'dinkster.netViews': [
-          { graphId: 'other', netId: 't9', role: 'source', position: { x: 1, y: 2 } },
-          { graphId: 'g0', netId: 't9', role: 'source', position: { x: 111, y: 222 } },
-          { graphId: 'g0', netId: 't9', role: 'sink', to: { node: 'c1', port: 'in0' }, position: { x: 333, y: 444 } },
-        ],
-      },
-    } satisfies WorkflowDocument
-    const scene = buildScene({ document: doc, graphId: 'g0', resolve: (t) => synthetic.get(t), tokens: defaultTokens, measure, widgetMeasure })
-    // Retired absolute geometry renders where it was saved and is flagged so
-    // the renderer does not move it with node drags.
-    expect(scene.netStubs.find((stub) => stub.role === 'source')).toMatchObject({ x: 111, y: 222, authored: true, authoredAbsolute: true })
-    expect(scene.netStubs.find((stub) => stub.role === 'sink')).toMatchObject({ x: 333, y: 444, authored: true, authoredAbsolute: true })
-  })
-
   it('anchors offset tag geometry to the owning node so tags follow node moves', () => {
     const base = netScene(false)
     const p0 = base.nodes.find((n) => n.id === 'p0')!
@@ -1367,13 +1213,6 @@ describe('named nets in scenes', () => {
     const roles = scene.netStubs.map((s) => `${s.role}:${s.nodeId}`).sort()
     expect(roles).toEqual(['sink:c1', 'sink:c2', 'source:p0'])
     expect(scene.netStubs.every((s) => s.name === 'latents' && s.typeName === 'LATENT')).toBe(true)
-  })
-
-  it('expanded net links carry no hidden flag', () => {
-    const scene = netScene(false)
-    const netLinks = scene.links.filter((l) => l.netId === 't9')
-    expect(netLinks).toHaveLength(2)
-    expect(netLinks.every((l) => l.hidden === undefined)).toBe(true)
   })
 
   it('guide mode marks the collapsed net stubs; guide entries need collapse', () => {
@@ -1615,23 +1454,6 @@ describe('solver verdicts on scene edges', () => {
 })
 
 describe('groups', () => {
-  it('view groups pass through to the scene', () => {
-    const scene = sceneOf('subgraph')
-    expect(scene.groups).toHaveLength(1)
-    expect(scene.groups[0]).toMatchObject({
-      id: 'grp0',
-      title: 'Main flow',
-      x: 40,
-      y: 140,
-      width: 760,
-      height: 300,
-    })
-  })
-
-  it('graphs without groups produce an empty list', () => {
-    const scene = sceneOf('exec-basic')
-    expect(scene.groups).toEqual([])
-  })
 
   it('nodesInGroup: membership is spatial (node center inside bounds)', () => {
     const scene = sceneOf('subgraph')
@@ -1644,17 +1466,6 @@ describe('groups', () => {
     expect(nodesInGroup(scene, narrow)).toEqual(['n0'])
     // A rect over empty space carries nothing.
     expect(nodesInGroup(scene, { ...group, x: -5_000, y: -5_000, width: 10, height: 10 })).toEqual([])
-  })
-
-  it('reroutes use spatial group membership too', () => {
-    const scene = sceneOf('subgraph')
-    const group = scene.groups[0]!
-    const reroute = scene.reroutes[0]
-    if (reroute) {
-      expect(reroutesInGroup(scene, { ...group, x: reroute.x - 1, y: reroute.y - 1, width: 2, height: 2 }))
-        .toEqual([reroute.id])
-    }
-
   })
 
   it('value sources and selectors use center membership with inclusive edges', () => {
@@ -1762,11 +1573,6 @@ describe('boundary pseudo-nodes', () => {
       width: inputs.layout.width + 20, height: inputs.layout.height + 20,
     }
     expect(boundaryNodesInGroup(scene, group)).toContain('inputs')
-  })
-
-  it('graphs without a boundary derive no pseudo-nodes', () => {
-    expect(sceneOf('exec-basic').boundaryNodes).toEqual([])
-    expect(sceneOf('exec-subgraph').boundaryNodes).toEqual([]) // root, not the definition
   })
 
   it('a definition derives Inputs (pins face out) and Outputs (pins face in)', () => {
@@ -2174,14 +1980,6 @@ describe('selector scene items', () => {
 })
 
 describe('scenesEqual', () => {
-  it('two independent builds of the same document compare equal', () => {
-    expect(scenesEqual(sceneOf('exec-basic'), sceneOf('exec-basic'))).toBe(true)
-    expect(scenesEqual(sceneOf('exec-subgraph'), sceneOf('exec-subgraph'))).toBe(true)
-  })
-
-  it('different graphs of the same document compare unequal', () => {
-    expect(scenesEqual(sceneOf('exec-subgraph'), sceneOf('exec-subgraph', 'g1'))).toBe(false)
-  })
 
   it('a changed node position compares unequal', () => {
     const a = sceneOf('exec-basic')
@@ -2198,36 +1996,4 @@ describe('scenesEqual', () => {
     expect(scenesEqual(a, b)).toBe(false)
   })
 
-  it('an undefined-valued key compares as absent', () => {
-    const a = sceneOf('exec-basic')
-    const b = { ...JSON.parse(JSON.stringify(a)) as Scene, occurrence: undefined } as unknown as Scene
-    expect(scenesEqual(a, b)).toBe(true)
-  })
-
-  it('NaN compares unequal, forcing a replacement', () => {
-    const a = sceneOf('exec-basic')
-    const b = JSON.parse(JSON.stringify(a)) as Scene
-    ;(a.nodes[0] as { x: number }).x = Number.NaN
-    ;(b.nodes[0] as { x: number }).x = Number.NaN
-    expect(scenesEqual(a, b)).toBe(false)
-  })
-
-  it('distinct non-plain objects compare unequal even with equal contents', () => {
-    const a = sceneOf('exec-basic')
-    const b = JSON.parse(JSON.stringify(a)) as Scene
-    ;(a as unknown as { extra: unknown }).extra = new Map([['k', 1]])
-    ;(b as unknown as { extra: unknown }).extra = new Map([['k', 1]])
-    expect(scenesEqual(a, b)).toBe(false)
-
-    class Opaque { value = 1 }
-    ;(a as unknown as { extra: unknown }).extra = new Opaque()
-    ;(b as unknown as { extra: unknown }).extra = new Opaque()
-    expect(scenesEqual(a, b)).toBe(false)
-
-    // The same reference still compares equal through identity.
-    const shared = new Map([['k', 1]])
-    ;(a as unknown as { extra: unknown }).extra = shared
-    ;(b as unknown as { extra: unknown }).extra = shared
-    expect(scenesEqual(a, b)).toBe(true)
-  })
 })

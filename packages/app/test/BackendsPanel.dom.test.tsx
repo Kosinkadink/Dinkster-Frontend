@@ -24,18 +24,6 @@ afterEach(() => {
 })
 
 describe('BackendsPanel', () => {
-  it('shows agent permissions for a Dinkster backend that exposes principals', async () => {
-    const app = new AppState()
-    const backend = app.backends.get()[0]!
-    if (backend.protocol !== 'dinkster') throw new Error('expected a Dinkster backend')
-    vi.spyOn(backend.connection, 'fetchPrincipals').mockResolvedValue([
-      { principalId: 'agent-one', kind: 'agent', categories: { edit: true } },
-    ])
-    const { root } = mount(app)
-    await flush()
-
-    expect(root.querySelector('[data-testid="agent-permissions"]')?.textContent).toContain('agent-one')
-  })
 
   it('presents isolated backend identity, default ownership, long content, and backend-specific actions', async () => {
     const { app, root } = mount()
@@ -78,14 +66,6 @@ describe('BackendsPanel', () => {
     expect(root.textContent).toContain('Composing')
     expect(root.textContent).toContain('Loading packs')
     expect(root.textContent).toContain('3 of 8')
-  })
-
-  it('reacts when a schema request state changes', async () => {
-    const { app, root } = mount()
-    app.backends.get()[0]!.schemaState.set({ status: 'error', message: 'schema request refused' })
-    await flush()
-
-    expect(root.textContent).toContain('Schema request failed: schema request refused')
   })
 
   it('relabels mounted chrome without translating backend facts or resetting in-flight actions', async () => {

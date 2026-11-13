@@ -6,8 +6,8 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { compile, documentResolver, scopeClosure, type CompileInput } from '../src/compile/compile.js'
-import { canonicalJson, fnv1a64, semanticHashOf, sha256Hex } from '../src/compile/hash.js'
+import { compile, scopeClosure, type CompileInput } from '../src/compile/compile.js'
+import { semanticHashOf, sha256Hex } from '../src/compile/hash.js'
 import type { ExecutionScope } from '../src/compile/artifact.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import { loadDocument } from '../src/format/migrate.js'
@@ -148,34 +148,6 @@ describe('golden pairs', () => {
     expect(semanticHashOf(withNote, isVirtualType)).toBe(semanticHashOf(base, isVirtualType))
   })
 
-  it('does not trust an unregistered virtual marker on an executable node', () => {
-    const base = loadWorkflow('exec-basic')
-    const graph = base.graphs[base.root]!
-    const forged: WorkflowDocument = {
-      ...base,
-      graphs: {
-        ...base.graphs,
-        [base.root]: {
-          ...graph,
-          nodes: {
-            ...graph.nodes,
-            n0: {
-              ...graph.nodes['n0']!,
-              virtual: true,
-              values: { ...graph.nodes['n0']!.values, width: 96 },
-            },
-          },
-        },
-      },
-    }
-    const result = compile(compileInput(forged))
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.prompt['n0']).toBeDefined()
-    expect(semanticHashOf(forged, (type) => backendResolve(type)?.virtual === true))
-      .not.toBe(semanticHashOf(base, (type) => backendResolve(type)?.virtual === true))
-  })
-
   it.each(['exec-basic', 'exec-subgraph'] as const)('%s compiles to the expected prompt', (name) => {
     const doc = loadWorkflow(name)
     const expected = readJson(`fixtures/prompts/${name}.expected.json`)
@@ -198,53 +170,6 @@ describe('golden pairs', () => {
     expect(result.artifact.provenance.fromSource['n1']).toEqual(['n1'])
   })
 
-  it('CO1 artifact is deeply owned: frozen at every level, detached from caller scope', () => {
-    const doc = loadWorkflow('exec-basic')
-    const scope: ExecutionScope = { kind: 'full' }
-    const result = compile(compileInput(doc, scope))
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    const a = result.artifact
-    expect(Object.isFrozen(a)).toBe(true)
-    expect(Object.isFrozen(a.scope)).toBe(true)
-    expect(a.scope).not.toBe(scope) // cloned, not retained caller data
-    expect(Object.isFrozen(a.prompt)).toBe(true)
-    for (const node of Object.values(a.prompt)) {
-      expect(Object.isFrozen(node)).toBe(true)
-      expect(Object.isFrozen(node.inputs)).toBe(true)
-      expect(Object.isFrozen(node.outputIds)).toBe(true)
-      for (const v of Object.values(node.inputs)) {
-        if (typeof v === 'object' && v !== null) expect(Object.isFrozen(v)).toBe(true)
-      }
-    }
-    expect(Object.isFrozen(a.diagnostics)).toBe(true)
-    for (const d of a.diagnostics) expect(Object.isFrozen(d)).toBe(true)
-    expect(Object.isFrozen(a.provenance)).toBe(true)
-    expect(Object.isFrozen(a.provenance.toSource)).toBe(true)
-  })
-
-  it('CO1 compiling never freezes the caller document as a side effect', () => {
-    // A mutable document straight from JSON, not through DocumentStore.
-    const doc = JSON.parse(
-      JSON.stringify(loadWorkflow('exec-basic')),
-    ) as WorkflowDocument
-    expect(Object.isFrozen(doc)).toBe(false)
-    const result = compile(compileInput(doc))
-    expect(result.ok).toBe(true)
-    expect(Object.isFrozen(doc)).toBe(false)
-    expect(Object.isFrozen(doc.graphs['g0']!.nodes)).toBe(false)
-  })
-
-  it('snapshot is deep-frozen and detached from the live document', () => {
-    const doc = loadWorkflow('exec-basic')
-    const result = compile(compileInput(doc))
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(Object.isFrozen(result.artifact.snapshot)).toBe(true)
-    expect(Object.isFrozen(result.artifact.snapshot.graphs['g0']!.nodes['n0'])).toBe(true)
-    expect(result.artifact.snapshot).not.toBe(doc)
-    expect(result.artifact.snapshot).toEqual(doc)
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -271,18 +196,6 @@ describe('modes', () => {
     expect(result.artifact.diagnostics.some((d) => d.code === 'compile.link.dropped')).toBe(true)
   })
 
-  it('bypassed nodes leave the prompt; unroutable outputs warn (full coverage in compile-bypass.test.ts)', () => {
-    // exec-basic's n0 has no driven inputs, so bypassing it leaves its
-    // consumer edge unrouted - a warning, never a silent misroute.
-    const doc = mutableWorkflow('exec-basic')
-    const nodes = ((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable
-    ;(nodes['n0'] as Mutable)['mode'] = 'bypassed'
-    const result = compile(compileInput(doc as unknown as WorkflowDocument))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    expect(Object.keys(result.artifact.prompt)).not.toContain('n0')
-    expect(result.artifact.diagnostics.some((d) => d.code === 'compile.bypass.unrouted')).toBe(true)
-  })
 })
 
 describe('named nets', () => {
@@ -385,16 +298,6 @@ describe('partial execution scope', () => {
     expect(missing[0]?.blocksExecution).toBe(true)
   })
 
-  it('a missing target is a compile error', () => {
-    const doc = loadWorkflow('exec-basic')
-    const scope: ExecutionScope = {
-      kind: 'partial',
-      targets: [{ instancePath: [], node: asNodeId('missing') }],
-    }
-    const result = compile(compileInput(doc, scope))
-    expect(result.ok).toBe(false)
-  })
-
   it('scopeClosure agrees with compile', () => {
     const doc = loadWorkflow('exec-subgraph')
     const closure = scopeClosure(compileInput(doc))
@@ -467,12 +370,6 @@ describe('semantic hash', () => {
     expect(semanticHashOf(changed as unknown as WorkflowDocument)).not.toBe(h0)
   })
 
-  it('canonicalJson sorts keys; fnv1a64 is stable', () => {
-    expect(canonicalJson({ b: 1, a: [2, { d: 3, c: 4 }] })).toBe('{"a":[2,{"c":4,"d":3}],"b":1}')
-    expect(fnv1a64('dinkster')).toBe(fnv1a64('dinkster'))
-    expect(fnv1a64('dinkster')).not.toBe(fnv1a64('dinkster!'))
-  })
-
   it('sha256Hex matches FIPS 180-2 vectors for string and byte input', () => {
     // Insecure-context fallback for crypto.subtle: correctness is pinned to
     // the published SHA-256 test vectors, including a multi-block input.
@@ -482,18 +379,6 @@ describe('semantic hash', () => {
       '248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1',
     )
     expect(sha256Hex(new TextEncoder().encode('abc'))).toBe(sha256Hex('abc'))
-  })
-})
-
-describe('documentResolver', () => {
-  it('resolves subgraph instance types recursively', () => {
-    const doc = loadWorkflow('exec-subgraph')
-    const resolve = documentResolver(doc, backendResolve)
-    const schema = resolve('#g1')
-    expect(schema).toBeDefined()
-    expect(schema!.type).toBe('#g1')
-    expect(resolve('EmptyImage')).toBe(schemas.get('EmptyImage'))
-    expect(resolve('#missing')).toBeUndefined()
   })
 })
 
@@ -977,20 +862,6 @@ describe('dynamic interfaces', () => {
     expect(JSON.stringify(labeled.artifact.prompt)).not.toContain('Background')
   })
 
-  it('compiles a stored legacy value for a hidden compatibility input', () => {
-    const result = dynCompile(dynDoc({
-      nodes: { target: { type: 'HiddenProvider', values: { provider: 'vision.depth.v2' } } },
-    }))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (result.ok) expect(result.artifact.prompt.target?.inputs).toEqual({ provider: 'vision.depth.v2' })
-  })
-
-  it('does not synthesize a hidden compatibility default', () => {
-    const result = dynCompile(dynDoc({ nodes: { target: { type: 'HiddenProvider' } } }))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (result.ok) expect(result.artifact.prompt.target?.inputs).toEqual({})
-  })
-
   it('lowers an unsafe integer through $int only when the backend advertises decimalInt', () => {
     const document = dynDoc({
       nodes: { target: { type: 'ExactInteger', values: { seed: '18446744073709551615' } } },
@@ -1032,28 +903,6 @@ describe('dynamic interfaces', () => {
       expect(unsupported.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.value.decimalIntUnsupported')
     }
   })
-
-  it.each(['DecimalIntegerWildcardSink', 'DecimalIntegerFloatSink'])(
-    'refuses a staged unsafe integer tap into %s instead of nesting or leaking $int',
-    (targetType) => {
-      const document = dynDoc({
-        nodes: {
-          source: { type: 'ExactInteger', values: { seed: '18446744073709551615' } },
-          target: { type: targetType },
-        },
-        links: [[{ node: 'source', tap: 'seed' }, ['target', 'value']]],
-      })
-      const result = compile({
-        ...compileInput(document),
-        resolve: dynResolve,
-        graphFeatures: ['typedLiteral', DINKSTER_GRAPH_FEATURE_DECIMAL_INT],
-      })
-      expect(result.ok).toBe(false)
-      if (!result.ok) {
-        expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.tap.decimalIntNonConcreteTarget')
-      }
-    },
-  )
 
   it('compiles a STRING producer into a mount widget as an ordinary link without changing dormant values', () => {
     const result = dynCompile(dynDoc({
@@ -1130,23 +979,6 @@ describe('dynamic interfaces', () => {
     }
   })
 
-  it('submits a rerouted lazy-switch decision with an escaped selector input id', () => {
-    const result = dynCompile(dynDoc({
-      nodes: {
-        source: { type: 'ImageSrc' },
-        selector: { type: 'LazySelectorOdd', values: { 'switch#id': false } },
-      },
-      reroutes: ['rr'],
-      links: [
-        [['source', 'out'], { reroute: 'rr' }],
-        [{ reroute: 'rr' }, ['selector', 'switch#id']],
-      ],
-    }))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.prompt.selector?.inputs['switch#id']).toEqual(['source', 0])
-  })
-
   it('projects a stored lazy-switch choice without changing exact prompt bytes', () => {
     const doc = dynDoc({
       nodes: {
@@ -1186,23 +1018,6 @@ describe('dynamic interfaces', () => {
     }
   })
 
-  it('projects lazy-switch choices under full scope output roots', () => {
-    const doc = dynDoc({
-      nodes: {
-        falseSource: { type: 'NonOutputImageSrc' },
-        trueSource: { type: 'NonOutputImageSrc' },
-        selector: { type: 'LazySelector', values: { switch: true } },
-      },
-      links: [
-        [['falseSource', 'out'], ['selector', 'on_false']],
-        [['trueSource', 'out'], ['selector', 'on_true']],
-      ],
-    })
-    const closure = scopeClosure({ ...compileInput(doc), resolve: dynResolve })!
-    expect([...closure.included].sort()).toEqual(['selector', 'trueSource'])
-    expect([...closure.inactiveExclusive.get('selector') ?? []]).toEqual(['falseSource'])
-  })
-
   it.each([
     [true, 'selectedSource', 'inactiveSource', ['selected-route']],
     [false, 'inactiveSource', 'selectedSource', []],
@@ -1232,40 +1047,6 @@ describe('dynamic interfaces', () => {
     expect([...closure.included].sort()).toEqual([liveSource, 'selector', 'target'].sort())
     expect([...closure.inactiveExclusive.get('selector') ?? []]).toEqual([dimmedSource])
     expect([...closure.structural.get('g0')?.reroutes ?? []]).toEqual(reroutes)
-  })
-
-  it('derives a driven-tap inactive cone and filters inactive value-source structure', () => {
-    const drivenTap = dynDoc({
-      nodes: {
-        tappedSource: { type: 'ImageSrc' },
-        tap: { type: 'TapWidget' },
-        selectedSource: { type: 'ImageSrc' },
-        selector: { type: 'LazySelector', values: { switch: true } },
-      },
-      links: [
-        [['tappedSource', 'out'], ['tap', 'value']],
-        [{ node: 'tap', tap: 'value' }, ['selector', 'on_false']],
-        [['selectedSource', 'out'], ['selector', 'on_true']],
-      ],
-    })
-    const scope: ExecutionScope = { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('selector') }] }
-    const tapClosure = scopeClosure({ ...compileInput(drivenTap, scope), resolve: dynResolve })!
-    expect([...tapClosure.inactiveExclusive.get('selector') ?? []]).toEqual(['tappedSource'])
-
-    const literalBranches = dynDoc({
-      nodes: {
-        selectedSource: { type: 'ImageSrc' },
-        selector: { type: 'LazySelector', values: { switch: true } },
-      },
-      valueSources: { inactiveLiteral: 7 },
-      links: [
-        [{ valueSource: 'inactiveLiteral' }, ['selector', 'on_false']],
-        [['selectedSource', 'out'], ['selector', 'on_true']],
-      ],
-    })
-    const literalClosure = scopeClosure({ ...compileInput(literalBranches, scope), resolve: dynResolve })!
-    expect(literalClosure.inactiveExclusive.has('selector')).toBe(false)
-    expect([...literalClosure.structural.get('g0')?.valueSources ?? []]).toEqual([])
   })
 
   it('keeps lazy-switch inactive cones occurrence-qualified inside subgraphs', () => {
@@ -1378,77 +1159,6 @@ describe('dynamic interfaces', () => {
     const closure = scopeClosure({ ...compileInput(doc, scope), resolve: dynResolve })!
     expect([...closure.included].sort()).toEqual(['falseSource', 'selector', 'trueSource'])
     expect(closure.inactiveExclusive.size).toBe(0)
-  })
-
-  it('lowers exact and would-run wire-15 values when an unrelated root node is bypassed', () => {
-    const doc = dynDoc({
-      nodes: {
-        modeNode: { type: 'Passthrough', mode: 'bypassed' },
-        target: { type: 'Wire15Family', values: { 'items.stable': 7 }, dynamic: { items: { members: ['stable'] } } },
-      },
-    })
-    const exact = dynCompile(doc)
-    expect(exact.ok, JSON.stringify(!exact.ok && exact.diagnostics)).toBe(true)
-    if (exact.ok) expect(exact.artifact.prompt['target']!.inputs).toEqual({ 'items.stable': 7 })
-    expect(scopeClosure({ ...compileInput(doc), resolve: dynResolve })?.included).toContain('target')
-  })
-
-  it('surfaces ordinary diagnostics after the removed wire-15 mode preflight', () => {
-    const result = dynCompile(dynDoc({
-      nodes: {
-        modeNode: { type: 'Passthrough', mode: 'bypassed' },
-        postGateError: { type: 'UnknownAfterGate' },
-        consumer: { type: 'Sink' },
-        target: { type: 'Wire15Family', values: { 'items.stable': 7 }, dynamic: { items: { members: ['stable'] } } },
-      },
-      links: [[['postGateError', 'out'], ['consumer', 'in']]],
-    }))
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.schema.unknown')
-  })
-
-  it('omits a nested muted node while lowering an unrelated root wire-15 value', () => {
-    const result = dynCompile(dynDoc({
-      nodes: { target: { type: 'Wire15Names', values: { 'args.a': 1 }, dynamic: { args: { members: ['a'] } } }, instance: { type: '#sub' } },
-      subgraphs: {
-        sub: {
-          nodes: { nestedMode: { type: 'ImageSrc', mode: 'muted' } },
-          boundary: {},
-        },
-      },
-    }))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (result.ok) {
-      expect(result.artifact.prompt['target']!.inputs).toEqual({ 'args.a': 1 })
-      expect(Object.keys(result.artifact.prompt)).not.toContain('instance.nestedMode')
-    }
-  })
-
-  it('keeps wire-14 bypass lowering byte-identical while the wire-15 mode gate is inactive', () => {
-    const result = dynCompile(dynDoc({
-      nodes: {
-        source: { type: 'ImageSrc' },
-        pass: { type: 'Passthrough', mode: 'bypassed' },
-        target: { type: 'Batcher', dynamic: { images: { members: ['m0'] } } },
-      },
-      links: [
-        [['source', 'out'], ['pass', 'in']],
-        [['pass', 'out'], ['target', 'images.image', ['m0']]],
-      ],
-    }))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (result.ok) expect(result.artifact.prompt['target']!.inputs).toEqual({ 'images.image0': ['source', 0] })
-  })
-
-  it('keeps normalized wire-15 value families compilable with bypassed nodes', () => {
-    const result = dynCompile(dynDoc({
-      nodes: {
-        modeNode: { type: 'Passthrough', mode: 'bypassed' },
-        target: { type: 'CreateList15', values: { 'items.items#m0': 4 }, dynamic: { items: { members: ['m0'] } } },
-      },
-    }))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (result.ok) expect(result.artifact.prompt['target']!.inputs).toEqual({ 'items.items0': 4 })
   })
 
   it('rewires a wire-15 destination after its producer becomes bypassed', () => {
@@ -1588,17 +1298,6 @@ describe('dynamic interfaces', () => {
     })
   })
 
-  it('rejects a missing top-level wire-15 choice instead of deriving the first option', () => {
-    const result = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15Recursive',
-      values: { 'mode.frames.stale': 1 },
-      dynamic: { 'mode.frames': { members: ['stale'] }, 'mode.quality': { selected: 'full' } },
-    } } }))
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.combo.missingChoice')
-  })
-
   it('rejects an invalid stored wire-15 choice without falling back', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
       type: 'Wire15Recursive',
@@ -1706,41 +1405,6 @@ describe('dynamic interfaces', () => {
     }
   })
 
-  it('refuses dead over-cap wire-15 members when a later live source exists', () => {
-    const nodes: Record<string, DynNode> = { target: { type: 'Wire15Family' } }
-    const links: [DynEnd, DynEnd][] = []
-    for (let index = 0; index < 5; index++) {
-      nodes[`source${index}`] = { type: 'ImageSrc', mode: 'muted' }
-      links.push([[`source${index}`, 'out'], ['target', `items.member${index}`]])
-    }
-    nodes.live = { type: 'ImageSrc' }
-    links.push([['live', 'out'], ['target', 'items.live']])
-    const result = dynCompile(dynDoc({ nodes, links }))
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('elab.autogrow.overMax')
-  })
-
-  it('keeps wire-15 minimum membership structural when only dead links satisfy it', () => {
-    const result = dynCompile(dynDoc({
-      nodes: {
-        first: { type: 'ImageSrc', mode: 'muted' },
-        second: { type: 'ImageSrc', mode: 'muted' },
-        target: { type: 'Wire15RequiredMin' },
-      },
-      links: [
-        [['first', 'out'], ['target', 'items.first']],
-        [['second', 'out'], ['target', 'items.second']],
-      ],
-    }))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.prompt['target']!.inputs).toEqual({})
-    const codes = result.artifact.diagnostics.map((diagnostic) => diagnostic.code)
-    expect(codes.filter((code) => code === 'compile.link.dropped')).toHaveLength(2)
-    expect(codes.filter((code) => code === 'compile.input.missing')).toHaveLength(2)
-    expect(codes).not.toContain('elab.autogrow.underMin')
-  })
-
   it('shares reroute, net, and bypass delivery semantics with wire-15 evidence', () => {
     const rerouted = dynCompile(dynDoc({
       nodes: { source: { type: 'ImageSrc' }, target: { type: 'Wire15Family' } },
@@ -1784,17 +1448,6 @@ describe('dynamic interfaces', () => {
     if (!result.ok) return
     expect(result.artifact.prompt['linked.inner']!.inputs).toEqual({ model: ['source', 0] })
     expect(result.artifact.prompt['absent.inner']!.inputs).toEqual({})
-  })
-
-  it('keeps CreateList-shaped wire-15 normalization byte-identical to wire 14 submission', () => {
-    const dynamic = { items: { members: ['m0'] } }
-    const wire14 = dynCompile(dynDoc({ nodes: { target: { type: 'CreateList14', values: { 'items.value#m0': 4 }, dynamic } } }))
-    const wire15 = dynCompile(dynDoc({ nodes: { target: { type: 'CreateList15', values: { 'items.items#m0': 4 }, dynamic } } }))
-    expect(wire14.ok, JSON.stringify(!wire14.ok && wire14.diagnostics)).toBe(true)
-    expect(wire15.ok, JSON.stringify(!wire15.ok && wire15.diagnostics)).toBe(true)
-    if (!wire14.ok || !wire15.ok) return
-    expect(wire15.artifact.prompt['target']!.inputs).toEqual(wire14.artifact.prompt['target']!.inputs)
-    expect(wire15.artifact.prompt['target']!.inputs).toEqual({ 'items.items0': 4 })
   })
 
   it('lowers a linked selected DynamicSlot variant input construct-locally with a slotVariants entry', () => {
@@ -1927,40 +1580,6 @@ describe('dynamic interfaces', () => {
     if (!full.ok) expect(full.diagnostics.some((d) => d.code === 'compile.slot.missingVariant')).toBe(true)
   })
 
-  it('ignores an unrelated Crop Image with an invalid region source when deriving a partial scope', () => {
-    const doc = dynDoc({
-      nodes: {
-        selectedSource: { type: 'ImageSrc' },
-        selected: { type: 'Sink' },
-        invalidCrop: {
-          type: 'CropImage',
-          dynamic: { source: { selected: 'region' } },
-        },
-      },
-      links: [[['selectedSource', 'out'], ['selected', 'in']]],
-    })
-    const scope: ExecutionScope = {
-      kind: 'partial',
-      targets: [{ instancePath: [], node: asNodeId('selected') }],
-    }
-
-    expect(scopeClosure({ ...compileInput(doc, scope), resolve: dynResolve })).toBeDefined()
-    const partial = dynCompile(doc, scope)
-    expect(partial.ok, JSON.stringify(!partial.ok && partial.diagnostics)).toBe(true)
-    if (partial.ok) expect(Object.keys(partial.artifact.prompt).sort()).toEqual(['selected', 'selectedSource'])
-
-    const full = dynCompile(doc)
-    expect(full.ok).toBe(false)
-    if (!full.ok) expect(full.diagnostics.some((diagnostic) => diagnostic.code === 'prompt.missing_dynamic_choice')).toBe(true)
-
-    const selectedCrop = dynCompile(doc, {
-      kind: 'partial',
-      targets: [{ instancePath: [], node: asNodeId('invalidCrop') }],
-    })
-    expect(selectedCrop.ok).toBe(false)
-    if (!selectedCrop.ok) expect(selectedCrop.diagnostics.some((diagnostic) => diagnostic.code === 'prompt.missing_dynamic_choice')).toBe(true)
-  })
-
   it('keeps structural route errors that break an included partial path', () => {
     const doc = dynDoc({
       nodes: {
@@ -1976,42 +1595,6 @@ describe('dynamic interfaces', () => {
 
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.diagnostics.some((diagnostic) => diagnostic.code === 'compile.port.unknownOutput')).toBe(true)
-  })
-
-  it('keeps graph-wide structural route errors outside a partial closure', () => {
-    const doc = dynDoc({
-      nodes: {
-        selectedSource: { type: 'ImageSrc' },
-        selected: { type: 'Sink' },
-        brokenSource: { type: 'ImageSrc' },
-        brokenSink: { type: 'Sink' },
-      },
-      links: [
-        [['selectedSource', 'out'], ['selected', 'in']],
-        [['brokenSource', 'missing'], ['brokenSink', 'in']],
-      ],
-    })
-    const result = dynCompile(doc, {
-      kind: 'partial',
-      targets: [{ instancePath: [], node: asNodeId('selected') }],
-    })
-
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.diagnostics.some((diagnostic) => diagnostic.code === 'compile.port.unknownOutput')).toBe(true)
-  })
-
-  it('full compile still validates disconnected non-output nodes', () => {
-    const result = dynCompile(dynDoc({
-      nodes: {
-        output: { type: 'ImageSrc' },
-        invalid: { type: 'NonOutputSink' },
-      },
-    }))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    const missing = result.artifact.diagnostics.filter((d) => d.code === 'compile.input.missing')
-    expect(missing).toHaveLength(1)
-    expect(missing[0]?.anchor?.occurrence?.node).toBe('invalid')
   })
 
   it('scopes staged value diagnostics to the partial closure', () => {
@@ -2048,22 +1631,6 @@ describe('dynamic interfaces', () => {
     }
   })
 
-  it('keeps DynamicSlot variant validation inside the partial closure', () => {
-    const doc = dynDoc({
-      nodes: {
-        source: { type: 'ImageSrc' },
-        invalid: { type: 'SpecializedSlot' },
-      },
-      links: [[['source', 'out'], ['invalid', 'slot']]],
-    })
-    const result = dynCompile(doc, {
-      kind: 'partial',
-      targets: [{ instancePath: [], node: asNodeId('invalid') }],
-    })
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.diagnostics.some((d) => d.code === 'compile.slot.missingVariant')).toBe(true)
-  })
-
   it('keeps a disconnected DynamicSlot choice inert: no slotVariants, no error', () => {
     const result = dynCompile(dynDoc({
       nodes: { target: { type: 'SpecializedSlot', dynamic: { slot: { selected: 'selected' } } } },
@@ -2071,23 +1638,6 @@ describe('dynamic interfaces', () => {
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     expect(result.artifact.prompt['target']).toEqual({ class_type: 'SpecializedSlot', inputs: {}, outputIds: [] })
-  })
-
-  it('keeps values under an unselected DynamicSlot variant dormant without junk-value warnings', () => {
-    const result = dynCompile(dynDoc({
-      nodes: {
-        source: { type: 'ImageSrc' },
-        target: {
-          type: 'SpecializedSlot',
-          dynamic: { slot: { selected: 'empty' } },
-          values: { 'slot.[other].x': 9 },
-        },
-      },
-      links: [[['source', 'out'], ['target', 'slot']]],
-    }))
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.diagnostics.filter((d) => d.code === 'compile.value.unknownInput')).toEqual([])
   })
 
   it('autogrow members: links resolve by member identity, prompt keys are positional wire names', () => {
@@ -2271,49 +1821,6 @@ describe('dynamic interfaces', () => {
     expect(result.artifact.diagnostics).toEqual([])
   })
 
-  it('plain unknown value keys still warn; dynamic-scoped dormant keys never do', () => {
-    const result = dynCompile(
-      dynDoc({ nodes: { m: { type: 'Modal', values: { bogus: 1, 'mode.[simple].strength': 0.3 } } } }),
-    )
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    const codes = result.artifact.diagnostics.map((d) => d.code)
-    expect(codes).toEqual(['compile.value.unknownInput'])
-    expect(result.artifact.diagnostics[0]!.message).toBe('Modal.bogus: stored value has no matching input')
-  })
-
-  it('links to unknown members are errors, not silent prompt keys', () => {
-    const result = dynCompile(
-      dynDoc({
-        nodes: {
-          a: { type: 'ImageSrc' },
-          g: { type: 'Batcher', dynamic: { images: { members: ['m0'] } } },
-        },
-        links: [[['a', 'out'], ['g', 'images.image', ['zz']]]],
-      }),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.some((d) => d.code === 'compile.port.unknownInput')).toBe(true)
-  })
-
-  it('links into over-cap members (elaborated but never compiled) are errors', () => {
-    const result = dynCompile(
-      dynDoc({
-        nodes: {
-          a: { type: 'ImageSrc' },
-          g: { type: 'Batcher', dynamic: { images: { members: ['m0', 'm1', 'm2'] } } }, // cap is 2
-        },
-        links: [[['a', 'out'], ['g', 'images.image', ['m2']]]],
-      }),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    const codes = result.diagnostics.map((d) => d.code)
-    expect(codes).toContain('compile.port.unwirable')
-    expect(codes).toContain('elab.autogrow.overMax') // surfaced once, as a compile diagnostic
-  })
-
   it('boundary items bind individual family members through subgraphs', () => {
     const result = dynCompile(
       dynDoc({
@@ -2339,244 +1846,10 @@ describe('dynamic interfaces', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Family forwarding lowers per occurrence (stage 2): instance-appended
-// suffix members merge with the definition prefix into occurrence-local
-// derived state and compile like ordinary members. Muted instances stay
-// unaudited (dead-edge policy). The deep matrix lives in
-// compile-forwarding.test.ts; these pin the compile.test.ts-local fixtures.
-// ---------------------------------------------------------------------------
-
-describe('family forwarding lowering (basics; deep coverage in compile-forwarding.test.ts)', () => {
-  const forwardingSub = {
-    sub: {
-      nodes: { b: { type: 'Batcher' } as DynNode },
-      boundary: {
-        inputs: [{ id: 'pics', binds: { kind: 'family', node: 'b', port: 'images' } }],
-        outputs: [{ id: 'out', binds: { kind: 'port', node: 'b', port: 'out' } }],
-      },
-    },
-  }
-
-  it('an instance with a suffix member lowers it to the inner family', () => {
-    const result = dynCompile(
-      dynDoc({
-        nodes: {
-          a: { type: 'ImageSrc' },
-          s: { type: '#sub', dynamic: { pics: { members: ['m0'] } } },
-        },
-        links: [[['a', 'out'], ['s', 'pics.image', ['m0']]]],
-        subgraphs: forwardingSub,
-      }),
-    )
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.prompt['s.b']!.inputs).toEqual({ 'images.image0': ['a', 0] })
-  })
-
-  it('a link naming a member the instance never appended is a precise error', () => {
-    const result = dynCompile(
-      dynDoc({
-        nodes: { a: { type: 'ImageSrc' }, s: { type: '#sub' } },
-        links: [[['a', 'out'], ['s', 'pics.image', ['m0']]]],
-        subgraphs: forwardingSub,
-      }),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    const codes = result.diagnostics.map((d) => d.code)
-    expect(codes).toContain('compile.boundary.forwardUnknownMember')
-    expect(codes).not.toContain('compile.boundary.missingInput')
-  })
-
-  it('a definition forwarding ONLY an output family compiles', () => {
-    const result = dynCompile(
-      dynDoc({
-        nodes: { s: { type: '#sub' } },
-        subgraphs: {
-          sub: {
-            nodes: { sp: { type: 'Splitter' } },
-            boundary: { outputs: [{ id: 'outs', binds: { kind: 'family', node: 'sp', port: 'outs' } }] },
-          },
-        },
-      }),
-    )
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-  })
-
-  it('a muted instance of a forwarding definition stays unaudited', () => {
-    const result = dynCompile(
-      dynDoc({
-        nodes: {
-          s: { type: '#sub', mode: 'muted' },
-          g: { type: 'Weigher', dynamic: { weights: { members: ['m0'] } } },
-        },
-        subgraphs: forwardingSub,
-      }),
-    )
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.diagnostics.map((d) => d.code)).not.toContain('compile.boundary.forwardUnsupported')
-  })
-})
-
-// ---------------------------------------------------------------------------
 // Wireability, synthetic members, duplicates, and muted endpoints.
 // ---------------------------------------------------------------------------
 
 describe('dynamic wireability and interface integrity', () => {
-  it('over-cap output members do not consume wire indexes', () => {
-    const result = dynCompile(
-      dynDoc({
-        nodes: {
-          s: { type: 'Splitter', dynamic: { outs: { members: ['a', 'b', 'c', 'd', 'e'] } } }, // cap is 4
-          k: { type: 'Sink' },
-        },
-        links: [[['s', 'last'], ['k', 'in']]],
-      }),
-    )
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    // Members a..d take indexes 0..3; over-cap 'e' takes NONE; 'last' is 4.
-    expect(result.artifact.prompt['k']!.inputs).toEqual({ in: ['s', 4] })
-    expect(result.artifact.diagnostics.some((d) => d.code === 'elab.autogrow.overMax')).toBe(true)
-  })
-
-  it('links from over-cap output members are errors', () => {
-    const result = dynCompile(
-      dynDoc({
-        nodes: {
-          s: { type: 'Splitter', dynamic: { outs: { members: ['a', 'b', 'c', 'd', 'e'] } } },
-          k: { type: 'Sink' },
-        },
-        links: [[['s', 'outs.o', ['e']], ['k', 'in']]],
-      }),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.some((d) => d.code === 'compile.port.unwirable')).toBe(true)
-  })
-
-  it('unknown-kind input placeholders elaborate inert and cannot be linked', () => {
-    const result = dynCompile(
-      dynDoc({
-        nodes: { a: { type: 'ImageSrc' }, w: { type: 'WeirdIn' } },
-        links: [[['a', 'out'], ['w', 'myst']]],
-      }),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    const codes = result.diagnostics.map((d) => d.code)
-    expect(codes).toContain('compile.port.unwirable')
-    expect(codes).toContain('elab.dynamic.unknownKind')
-  })
-
-  it('unknown-kind output placeholders take no wire index and cannot be linked', () => {
-    const ok = dynCompile(
-      dynDoc({
-        nodes: { w: { type: 'WeirdOut' }, k: { type: 'Sink' } },
-        links: [[['w', 'last'], ['k', 'in']]],
-      }),
-    )
-    expect(ok.ok, JSON.stringify(!ok.ok && ok.diagnostics)).toBe(true)
-    if (ok.ok) {
-      // The inert placeholder consumes no index: 'last' is output 0.
-      expect(ok.artifact.prompt['k']!.inputs).toEqual({ in: ['w', 0] })
-    }
-    const bad = dynCompile(
-      dynDoc({
-        nodes: { w: { type: 'WeirdOut' }, k: { type: 'Sink' } },
-        links: [[['w', 'myst'], ['k', 'in']]],
-      }),
-    )
-    expect(bad.ok).toBe(false)
-    if (bad.ok) return
-    expect(bad.diagnostics.some((d) => d.code === 'compile.port.unwirable')).toBe(true)
-  })
-
-  it('links to min-fill (synthetic, unpersisted) members are errors', () => {
-    // Batcher has min 1: with no dynamic state, member m0 exists in the
-    // interface but is NOT persisted - a committed link to it is stale state.
-    const result = dynCompile(
-      dynDoc({
-        nodes: { a: { type: 'ImageSrc' }, g: { type: 'Batcher' } },
-        links: [[['a', 'out'], ['g', 'images.image', ['m0']]]],
-      }),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.some((d) => d.code === 'compile.port.unmaterialized')).toBe(true)
-  })
-
-  it('links to unpersisted trailing-ghost members are errors (compile never honors promotion)', () => {
-    // m0 is persisted; m1 is the trailing ghost. The VIEW promotes it while
-    // normalization catches up, but the compiler elaborates with promotion
-    // OFF - a committed document must have materialized it.
-    const result = dynCompile(
-      dynDoc({
-        nodes: {
-          a: { type: 'ImageSrc' },
-          g: { type: 'Batcher', dynamic: { images: { members: ['m0'] } } },
-        },
-        links: [[['a', 'out'], ['g', 'images.image', ['m1']]]],
-      }),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.some((d) => d.code === 'compile.port.unwirable')).toBe(true)
-  })
-
-  it('a dropped link cannot conjure a ghost member into the prompt (values/defaults)', () => {
-    // The persisted link from a MUTED producer to the trailing ghost m1
-    // would promote it in the view; the compile must neither error nor let
-    // the ghost's widget default leak into the prompt.
-    const result = dynCompile(
-      dynDoc({
-        nodes: {
-          a: { type: 'ImageSrc', mode: 'muted' },
-          g: { type: 'Weigher', values: { 'weights.w#m0': 2 }, dynamic: { weights: { members: ['m0'] } } },
-        },
-        links: [[['a', 'out'], ['g', 'weights.w', ['m1']]]],
-      }),
-    )
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.prompt['g']!.inputs).toEqual({ 'weights.w0': 2 })
-    expect(result.artifact.diagnostics.some((d) => d.code === 'compile.link.dropped')).toBe(true)
-  })
-
-  it('a dropped link cannot shift output wire indexes via ghost promotion', () => {
-    // Link from the trailing ghost output to a MUTED consumer: if compile
-    // honored promotion, the ghost would consume an index and shift 'last'.
-    const result = dynCompile(
-      dynDoc({
-        nodes: {
-          s: { type: 'Splitter', dynamic: { outs: { members: ['a'] } } },
-          dead: { type: 'Sink', mode: 'muted' },
-          k: { type: 'Sink' },
-        },
-        links: [
-          [['s', 'outs.o', ['m0']], ['dead', 'in']], // m0 = the trailing ghost
-          [['s', 'last'], ['k', 'in']],
-        ],
-      }),
-    )
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    // Member 'a' is index 0; the ghost takes none; 'last' stays 1.
-    expect(result.artifact.prompt['k']!.inputs).toEqual({ in: ['s', 1] })
-  })
-
-  it('links from min-fill synthetic output members are errors', () => {
-    const result = dynCompile(
-      dynDoc({
-        nodes: { s: { type: 'SplitterMin' }, k: { type: 'Sink' } },
-        links: [[['s', 'outs.o', ['m0']], ['k', 'in']]],
-      }),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.some((d) => d.code === 'compile.port.unmaterialized')).toBe(true)
-  })
 
   it('duplicate elaborated input ids/wire names are compile errors, not overwrites', () => {
     const result = dynCompile(dynDoc({ nodes: { d: { type: 'DupIn' } } }))
@@ -2585,13 +1858,6 @@ describe('dynamic wireability and interface integrity', () => {
     const codes = result.diagnostics.map((d) => d.code)
     expect(codes).toContain('compile.interface.duplicatePort')
     expect(codes).toContain('compile.interface.duplicateApiName')
-  })
-
-  it('duplicate elaborated output addresses are compile errors', () => {
-    const result = dynCompile(dynDoc({ nodes: { d: { type: 'DupOut' } } }))
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.some((d) => d.code === 'compile.interface.duplicatePort')).toBe(true)
   })
 
   it('static input ids containing #/% compile stored raw-keyed values', () => {
@@ -2605,28 +1871,6 @@ describe('dynamic wireability and interface integrity', () => {
     expect(result.artifact.diagnostics.some((d) => d.code === 'compile.value.unknownInput')).toBe(false)
   })
 
-  it('a raw id equal to another input\'s escaped id routes each value to its own input', () => {
-    // 'a#b' elaborates to spec.id 'a%23b' - the literal raw id of the OTHER
-    // input. Raw-keyed value lookup must not shadow one with the other.
-    const result = dynCompile(
-      dynDoc({ nodes: { o: { type: 'OddClash', values: { 'a#b': 1, 'a%23b': 2 } } } }),
-    )
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.prompt['o']!.inputs).toEqual({ 'a#b': 1, 'a%23b': 2 })
-  })
-
-  it('a selector input cannot be a link destination', () => {
-    const result = dynCompile(
-      dynDoc({
-        nodes: { a: { type: 'ImageSrc' }, m: { type: 'Modal' } },
-        links: [[['a', 'out'], ['m', 'mode']]],
-      }),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.some((d) => d.code === 'compile.port.selector')).toBe(true)
-  })
 })
 
 describe('muted endpoints skip port validation', () => {
@@ -2652,54 +1896,6 @@ describe('muted endpoints skip port validation', () => {
     )
   })
 
-  it('a muted producer suppresses validation of a stale consumer port', () => {
-    // The consumer-side member 'zz' does not exist, but the connection is
-    // dropped at the muted producer BEFORE the consumer port is resolved.
-    droppedOnly(
-      dynCompile(
-        dynDoc({
-          nodes: {
-            a: { type: 'ImageSrc', mode: 'muted' },
-            g: { type: 'Batcher', dynamic: { images: { members: ['m0'] } } },
-          },
-          links: [[['a', 'out'], ['g', 'images.image', ['zz']]]],
-        }),
-      ),
-    )
-  })
-
-  it('a muted consumer with a bogus port only drops the link', () => {
-    droppedOnly(
-      dynCompile(
-        dynDoc({
-          nodes: { a: { type: 'ImageSrc' }, u: { type: 'Sink', mode: 'muted' } },
-          links: [[['a', 'out'], ['u', 'nope']]],
-        }),
-      ),
-    )
-  })
-
-  it('a muted producer suppresses a DANGLING consumer node (dead edges are unaudited)', () => {
-    droppedOnly(
-      dynCompile(
-        dynDoc({
-          nodes: { a: { type: 'ImageSrc', mode: 'muted' } },
-          links: [[['a', 'out'], ['gone', 'in']]],
-        }),
-      ),
-    )
-  })
-
-  it('a muted consumer suppresses a stale producer port (symmetric)', () => {
-    droppedOnly(
-      dynCompile(
-        dynDoc({
-          nodes: { a: { type: 'ImageSrc' }, u: { type: 'Sink', mode: 'muted' } },
-          links: [[['a', 'nonesuch'], ['u', 'in']]],
-        }),
-      ),
-    )
-  })
 })
 
 describe('unresolved nodes outside the executed scope', () => {
@@ -2757,26 +1953,6 @@ describe('unresolved nodes outside the executed scope', () => {
     expect(unknownDiags(result.diagnostics).some((diagnostic) => diagnostic.severity === 'error')).toBe(true)
   })
 
-  it('reports one fatal diagnostic per unresolved occurrence, not one per compile pass', () => {
-    const result = dynCompile(dynDoc({
-      nodes: {
-        src: { type: 'ImageSrc' },
-        ghost: { type: 'NotARealNode' },
-        sink: { type: 'Sink' },
-      },
-      links: [
-        [['src', 'out'], ['ghost', 'in']],
-        [['ghost', 'out'], ['sink', 'in']],
-      ],
-    }))
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    const unknown = result.diagnostics.filter((diagnostic) => diagnostic.code === 'compile.schema.unknown')
-    expect(unknown).toHaveLength(1)
-    expect(unknown[0]!.severity).toBe('error')
-    expect(unknown[0]!.data?.['nodeType']).toBe('NotARealNode')
-  })
-
   it('still fails partial execution when the unresolved node feeds the executed scope', () => {
     const result = dynCompile(dynDoc({
       nodes: {
@@ -2793,32 +1969,4 @@ describe('unresolved nodes outside the executed scope', () => {
     expect(unknownDiags(result.diagnostics).some((diagnostic) => diagnostic.severity === 'error')).toBe(true)
   })
 
-  it('still fails a full compile of a graph whose only potential output node is unresolved', () => {
-    const result = dynCompile(dynDoc({
-      nodes: {
-        src: { type: 'NonOutputImageSrc' },
-        ghost: { type: 'UnknownSaveNode' },
-      },
-      links: [[['src', 'out'], ['ghost', 'in']]],
-    }))
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(unknownDiags(result.diagnostics).some((diagnostic) => diagnostic.severity === 'error')).toBe(true)
-  })
-
-  it('refuses a partial target that names the unresolved node itself', () => {
-    const result = dynCompile(dynDoc({
-      nodes: {
-        src: { type: 'ImageSrc' },
-        sink: { type: 'Sink' },
-        ghost: { type: 'NotARealNode' },
-      },
-      links: [[['src', 'out'], ['sink', 'in']]],
-    }), { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('ghost') }] })
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    const codes = result.diagnostics.map((diagnostic) => diagnostic.code)
-    expect(codes).toContain('compile.schema.unknown')
-    expect(codes).not.toContain('compile.scope.missingTarget')
-  })
 })

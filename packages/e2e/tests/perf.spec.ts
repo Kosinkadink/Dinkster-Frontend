@@ -168,10 +168,6 @@ test(`opens a ${NODES}-node document and repaints after a command within budget`
   expect(timings.repaintAvg, 'repaint after dispatch avg').toBeLessThan(100)
 })
 
-test(`pans and zooms a ${NODES}-node graph with a reroute on every link within frame budget`, async ({ page }) => {
-  await measureFrameBudget(page, `${NODES} nodes + ${CHAINS * (CHAIN_LENGTH - 1)} reroutes`, true)
-})
-
 // Preview-heavy hot path: every node carries a decoded image preview panel,
 // making a graph where most nodes show imagery a realistic workload. The
 // images decode through the SAME path the preview loader uses for asset

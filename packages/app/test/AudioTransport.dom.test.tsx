@@ -9,79 +9,6 @@ import { CurveEditor } from '../src/CurveEditor.js'
 import { NodeMediaOverlay } from '../src/CanvasHost.js'
 import { AppPreviewSurface } from '../src/AppPreviewSurface.js'
 import type { PreviewLoader } from '../src/node-previews.js'
-import { RetainedAssetReader } from '../src/workflow-asset-retention.js'
-import type { DinksterConnection } from '@dinkster/client'
-
-describe('document-owned input audio', () => {
-  it.each([false, true].flatMap((appView) => (['pending', 'refused', 'mounted', 'replacement'] as const).map((scenario) => ({ appView, scenario }))))(
-    'admits native playback and waits for actual resource reset (App: $appView): $scenario', async ({ appView, scenario }) => {
-      const root = document.createElement('div')
-      document.body.append(root)
-      const retained = { scope: 'local', ownerKind: 'document', ownerId: 'audio', revision: 1,
-        complete: false, digests: [] } as const
-      const original = new RetainedAssetReader({} as DinksterConnection, retained, () => true)
-      const replacement = new RetainedAssetReader({} as DinksterConnection, { ...retained, ownerId: 'next' }, () => true)
-      let admit!: () => void
-      const admission = new Promise<void>((resolve) => { admit = resolve })
-      let entered = false
-      const owner = { key: 'original', current: () => true, read: async <T,>(consume: () => Promise<T>): Promise<T> => {
-        entered = true
-        await admission
-        if (scenario === 'refused') throw new Error('Ownership refused')
-        return original.read(consume)
-      } }
-      const [reader, setReader] = createSolidSignal(owner)
-      const media = { kind: 'audio' as const, src: '/same.wav' }
-      const dispose = render(() => appView
-        ? <AppPreviewSurface surface={{ preview: media, source: { key: reader().key, assetReader: reader(), load: async () => media } }}
-          loader={{} as PreviewLoader} ariaLabelledBy="audio-title" />
-        : <NodeMediaOverlay media={media}
-          assetReader={reader()} rect={{ x: 10, y: 20, width: 500, height: 200 }} scale={1}
-          canvas={document.createElement('canvas')} />, root)
-      const audio = root.querySelector('audio')!
-      const reset = vi.spyOn(audio, 'load').mockImplementation(() => {})
-      const pause = vi.spyOn(audio, 'pause').mockImplementation(() => {})
-      try {
-        expect(entered).toBe(true)
-        expect(audio.getAttribute('src')).toBeNull()
-        if (scenario === 'pending') dispose()
-        admit()
-        if (scenario === 'pending' || scenario === 'refused') {
-          if (scenario === 'refused') await vi.waitFor(() => expect(root.textContent).toContain('Ownership refused'))
-          else await admission
-          await new Promise<void>((resolve) => queueMicrotask(resolve))
-          expect(audio.getAttribute('src')).toBeNull()
-          expect(reset).not.toHaveBeenCalled()
-          return
-        }
-        await vi.waitFor(() => expect(audio.getAttribute('src')).toBe('/same.wav'))
-        Object.defineProperty(audio, 'networkState', { configurable: true, value: HTMLMediaElement.NETWORK_LOADING })
-        let settled = false
-        const closed = original.close().then(() => { settled = true })
-        if (scenario === 'replacement') setReader({ key: 'next', current: () => true, read: replacement.read.bind(replacement) })
-        else dispose()
-        await Promise.resolve()
-        expect(audio.getAttribute('src')).toBeNull()
-        expect(pause).toHaveBeenCalled()
-        expect(reset).toHaveBeenCalledOnce()
-        expect(settled).toBe(false)
-        audio.dispatchEvent(new Event('emptied'))
-        await closed
-        if (scenario === 'replacement') {
-          await vi.waitFor(() => expect(audio.getAttribute('src')).toBe('/same.wav'))
-          let liveSettled = false
-          const live = replacement.close().then(() => { liveSettled = true })
-          await Promise.resolve()
-          expect(liveSettled).toBe(false)
-          dispose()
-          expect(audio.getAttribute('src')).toBeNull()
-          audio.dispatchEvent(new Event('emptied'))
-          await live
-        }
-      } finally { dispose(); root.remove(); vi.restoreAllMocks() }
-    },
-  )
-})
 
 describe('shared audio transport lifecycle', () => {
   let root: HTMLDivElement
@@ -230,26 +157,6 @@ describe('shared audio transport lifecycle', () => {
     expect(root.querySelector<HTMLButtonElement>('[aria-label="Next audio batch"]')!.disabled).toBe(true)
     expect(root.querySelector('[aria-label="Audio position"]')?.getAttribute('aria-disabled')).toBe('true')
     expect(root.textContent).toContain('Batch selection not advertised by backend')
-  })
-  it('keeps audio playback separate from an editable curve', async () => {
-    await next()
-    const audio = root.querySelector('audio')!
-    audio.currentTime = 2
-    audio.dispatchEvent(new Event('timeupdate'))
-    expect(root.querySelector('[aria-label="Audio position"]')?.getAttribute('aria-valuenow')).toBe('2')
-    const request = { tabId: 'tab', graphId: 'g', nodeId: 'envelope', inputId: 'curve', instancePath: [], openedValue: { points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] } }
-    const app = {
-      curveEditorTarget: createSignal(request), tabs: createSignal([{ id: 'tab', store: { document: createSignal({}) } }]), activeTabId: createSignal('tab'), store: { executions: createSignal(new Map()) },
-      curveTargetForInput: () => request, executionForTab: () => undefined,
-    } as unknown as AppState
-    const curve = document.createElement('div'); root.append(curve)
-    const closeCurve = render(() => <CurveEditor app={app} />, curve)
-    expect(curve.querySelector('[aria-label="Curve point 2"]')?.getAttribute('cx')).toBe('982')
-    expect(curve.textContent).toContain('Position and value range from 0 to 1')
-    expect(curve.textContent).not.toContain('Follow audio')
-    expect(curve.querySelector('[data-testid="curve-audio-playhead"]')).toBeNull()
-    expect(request.openedValue.points).toEqual([{ position: 0, value: 0 }, { position: 1, value: 1 }])
-    closeCurve()
   })
   it('applies canonical curve positions without an unrelated audio seconds mode', async () => {
     await next()

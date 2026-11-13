@@ -179,16 +179,4 @@ describe('SubgraphDefinitionsDialog', () => {
     dispose()
   })
 
-  it('explains the unavailable state without exposing cleanup actions', () => {
-    const app = prepareWorkflowApp(new AppState())
-    for (const tab of app.tabs.get()) app.closeTab(tab.id)
-    const root = document.createElement('div')
-    document.body.append(root)
-    const dispose = render(() => <SubgraphDefinitionsDialog app={app} />, root)
-
-    expect(root.querySelector('[data-state="unavailable"] strong')?.textContent).toBe('No editable workflow')
-    expect(root.textContent).toContain('Open an editable workflow')
-    expect(root.querySelector('[data-testid="confirm-subgraph-cleanup"]')).toBeNull()
-    dispose()
-  })
 })

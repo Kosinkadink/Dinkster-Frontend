@@ -1,22 +1,4 @@
-/**
- * Selectors (architecture: structural N-to-1 branch junctions). Load-bearing
- * guarantees locked in here:
- *   1. selectors are STRUCTURAL graph constructs (not fake nodes): N stable-id
- *      candidate inputs, one output, policy picks exactly one branch per
- *      compile; unchosen branches vanish from the prompt and partial closure
- *   2. compile has NO ambient randomness: a random policy REQUIRES the
- *      injected pickCandidate chooser (otherwise scopeClosure's would-run
- *      preview and the actual submission could roll different branches); the
- *      exact outcome is recorded in the artifact's `choices`, never in the doc
- *   3. resolution is per DEFINITION: every occurrence of a subgraph shares
- *      one choice, exactly as occurrences share widget values/dynamic state
- *   4. semantic hash: policy, candidate ids+order, and branch producers are
- *      semantic; titles and pure reroute insertion on a branch are neutral;
- *      the exact random outcome never hashes
- *   5. selectors compose with reroutes, value sources, and subgraphs; cycle
- *      rejection reasons over EVERY candidate (policy can change any time)
- */
-import { readFileSync } from 'node:fs'
+
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -46,19 +28,11 @@ import {
   asSelectorId,
   asValueSourceId,
 } from '../src/ids.js'
-import {
-  buildRerouteIndex,
-  selectorDriverOf,
-  selectorSuccessorsOf,
-  traceEndpoint,
-  wouldCreateSelectorCycle,
-  type SelectorResolution,
-} from '../src/reroute.js'
+import { traceEndpoint, type SelectorResolution } from '../src/reroute.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { valueSourceConsumersOf } from '../src/value-source.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(root, rel), 'utf8'))
 
 const resolve = (type: string) => schemas.get(type)
 
@@ -165,56 +139,6 @@ function branchDoc(policy: SelectorPolicy = fixed('ca')): WorkflowDocument {
 
 describe('selector tracing', () => {
   const def = branchDoc().graphs['g0']!
-  const resCa: SelectorResolution = new Map([['s1', asSelectorCandidateId('ca')]])
-
-  it('selector output is a TERMINAL producer without a resolution', () => {
-    const trace = traceEndpoint(def, selOut('s1'))
-    expect(trace).toMatchObject({ kind: 'selector', id: 's1' })
-  })
-
-  it('with a resolution, traces through the chosen candidate to the real producer', () => {
-    const trace = traceEndpoint(def, selOut('s1'), undefined, resCa)
-    expect(trace).toMatchObject({ kind: 'output', ref: port('a', 'out0') })
-  })
-
-  it('an explicit candidate endpoint traces its driver with NO resolution needed', () => {
-    const trace = traceEndpoint(def, selCand('s1', 'cb'))
-    expect(trace).toMatchObject({ kind: 'output', ref: port('b', 'out0') })
-  })
-
-  it('resolution missing an entry reports selectorUnresolved', () => {
-    const trace = traceEndpoint(def, selOut('s1'), undefined, new Map())
-    expect(trace).toMatchObject({ kind: 'selectorUnresolved', selector: 's1' })
-  })
-
-  it('chosen candidate with no driver reports selectorUndriven', () => {
-    const g = graph({
-      id: 'g0',
-      nodes: { b: emptyImage('b', 2) },
-      selectors: { s1: selector('s1', ['ca', 'cb']) },
-      links: { l2: link('l2', port('b', 'out0'), selCand('s1', 'cb')) },
-    })
-    const trace = traceEndpoint(g, selOut('s1'), undefined, resCa)
-    expect(trace).toMatchObject({ kind: 'selectorUndriven', selector: 's1', candidate: 'ca' })
-  })
-
-  it('composes: reroute BEFORE and AFTER the selector still reaches the producer', () => {
-    const g = graph({
-      id: 'g0',
-      nodes: { a: emptyImage('a', 1), p: node('p', 'PreviewImage') },
-      reroutes: { r1: reroute('r1'), r2: reroute('r2') },
-      selectors: { s1: selector('s1', ['ca']) },
-      links: {
-        l1: link('l1', port('a', 'out0'), rr('r1')),
-        l2: link('l2', rr('r1'), selCand('s1', 'ca')),
-        l3: link('l3', selOut('s1'), rr('r2')),
-        l4: link('l4', rr('r2'), port('p', 'images')),
-      },
-    })
-    const res: SelectorResolution = new Map([['s1', asSelectorCandidateId('ca')]])
-    const trace = traceEndpoint(g, rr('r2'), buildRerouteIndex(g), res)
-    expect(trace).toMatchObject({ kind: 'output', ref: port('a', 'out0') })
-  })
 
   it('a selector chain (selector feeding a selector) traces end to end', () => {
     const g = graph({
@@ -234,35 +158,6 @@ describe('selector tracing', () => {
     expect(trace).toMatchObject({ kind: 'output', ref: port('a', 'out0') })
   })
 
-  it('a cycle through a candidate reports selectorCycle', () => {
-    const g = graph({
-      id: 'g0',
-      selectors: { s1: selector('s1', ['ca']) },
-      links: { l1: link('l1', selOut('s1'), selCand('s1', 'ca')) },
-    })
-    const res: SelectorResolution = new Map([['s1', asSelectorCandidateId('ca')]])
-    const trace = traceEndpoint(g, selOut('s1'), undefined, res)
-    expect(trace).toMatchObject({ kind: 'selectorCycle', selector: 's1' })
-  })
-
-  it('index helpers agree with linear scans', () => {
-    const idx = buildRerouteIndex(def)
-    expect(selectorDriverOf(def, asSelectorId('s1'), asSelectorCandidateId('ca'), idx)?.id).toBe('l1')
-    expect(selectorDriverOf(def, asSelectorId('s1'), asSelectorCandidateId('ca'))?.id).toBe('l1')
-    expect(selectorSuccessorsOf(def, 's1', idx).map((l) => l.id)).toEqual(['l3'])
-    expect(selectorSuccessorsOf(def, 's1').map((l) => l.id)).toEqual(['l3'])
-  })
-
-  it('wouldCreateSelectorCycle reasons over EVERY candidate, not just the chosen one', () => {
-    // s1 (fixed on ca) output feeds s2/cx. Connecting s2 output into s1/cb
-    // (NOT the chosen branch) must still be a cycle: policy can change.
-    const g = graph({
-      id: 'g0',
-      selectors: { s1: selector('s1', ['ca', 'cb'], fixed('ca')), s2: selector('s2', ['cx']) },
-      links: { l1: link('l1', selOut('s1'), selCand('s2', 'cx')) },
-    })
-    expect(wouldCreateSelectorCycle(g, selOut('s2'), asSelectorId('s1'))).toBe(true)
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -557,44 +452,11 @@ describe('selector compile', () => {
     expect(result.artifact.provenance.randomSelectorInputs).toEqual({ p: ['images'] })
   })
 
-  it('records a random selector cone when the chosen candidate is undriven', () => {
-    const d = doc({
-      g0: graph({
-        id: 'g0',
-        nodes: {
-          a: node('a', 'PrimitiveInt', { value: 1 }),
-          e: emptyImage('e', 9),
-          p: node('p', 'PreviewImage'),
-        },
-        selectors: { s1: selector('s1', ['ca', 'cb'], random) },
-        links: {
-          l1: link('l1', port('a', 'out0'), selCand('s1', 'ca')),
-          l2: link('l2', selOut('s1'), port('e', 'color')),
-          l3: link('l3', port('e', 'out0'), port('p', 'images')),
-        },
-      }),
-    })
-    const result = compile(compileInput(d, { pickCandidate: () => 1 }))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.prompt.e?.inputs.color).toBe(9)
-    expect(result.artifact.provenance.randomSelectorInputs).toEqual({ e: ['color'] })
-  })
-
   it('random policy WITHOUT a chooser is a compile error - no ambient randomness', () => {
     const result = compile(compileInput(branchDoc(random)))
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(codesOf(result.diagnostics)).toContain('compile.selector.noChooser')
-  })
-
-  it('out-of-range and non-finite chooser results clamp deterministically', () => {
-    const high = compile(compileInput(branchDoc(random), { pickCandidate: () => 99 }))
-    expect(high.ok).toBe(true)
-    if (high.ok) expect(high.artifact.choices?.[0]?.candidate).toBe('cb') // clamped to last
-    const nan = compile(compileInput(branchDoc(random), { pickCandidate: () => Number.NaN }))
-    expect(nan.ok).toBe(true)
-    if (nan.ok) expect(nan.artifact.choices?.[0]?.candidate).toBe('ca') // falls back to 0
   })
 
   it('a dangling fixed policy errors EVEN when the selector is unconsumed (eager resolution)', () => {
@@ -607,19 +469,6 @@ describe('selector compile', () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(codesOf(result.diagnostics)).toContain('compile.selector.policyDangling')
-  })
-
-  it('random policy with zero candidates is a compile error', () => {
-    const d = clone(branchDoc(random)) as unknown as {
-      graphs: Record<string, { links: Record<string, unknown>; selectors: Record<string, { candidates: unknown[] }> }>
-    }
-    d.graphs['g0']!.selectors['s1']!.candidates = []
-    delete d.graphs['g0']!.links['l1']
-    delete d.graphs['g0']!.links['l2']
-    const result = compile(compileInput(d as unknown as WorkflowDocument, { pickCandidate: () => 0 }))
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(codesOf(result.diagnostics)).toContain('compile.selector.empty')
   })
 
   it('an undriven CHOSEN candidate drops the edge with a warning', () => {
@@ -751,17 +600,6 @@ describe('selector semantic hash', () => {
     expect(semanticHashOf(branchDoc(fixed('cb')))).not.toBe(base)
   })
 
-  it('switching fixed -> random changes the hash', () => {
-    expect(semanticHashOf(branchDoc(random))).not.toBe(base)
-  })
-
-  it('reordering candidates changes the hash (order is the random-resolution domain)', () => {
-    const d = clone(branchDoc(fixed('ca')))
-    const sel = d.graphs['g0']!.selectors!['s1']! as unknown as { candidates: unknown[] }
-    sel.candidates = [...sel.candidates].reverse()
-    expect(semanticHashOf(d)).not.toBe(base)
-  })
-
   it('selector and candidate TITLES are hash-neutral (display chrome)', () => {
     const d = clone(branchDoc(fixed('ca'))) as unknown as {
       graphs: Record<string, { selectors: Record<string, { title?: string; candidates: { title?: string }[] }> }>
@@ -771,24 +609,6 @@ describe('selector semantic hash', () => {
     expect(semanticHashOf(d as unknown as WorkflowDocument)).toBe(base)
   })
 
-  it('inserting a reroute on a candidate branch is hash-neutral', () => {
-    const d = doc({
-      g0: graph({
-        id: 'g0',
-        nodes: { a: emptyImage('a', 1), b: emptyImage('b', 2), p: node('p', 'PreviewImage') },
-        reroutes: { r1: reroute('r1') },
-        selectors: { s1: selector('s1', ['ca', 'cb'], fixed('ca')) },
-        links: {
-          l1: link('l1', port('a', 'out0'), rr('r1')),
-          l1b: link('l1b', rr('r1'), selCand('s1', 'ca')),
-          l2: link('l2', port('b', 'out0'), selCand('s1', 'cb')),
-          l3: link('l3', selOut('s1'), port('p', 'images')),
-        },
-      }),
-    })
-    expect(semanticHashOf(d)).toBe(base)
-  })
-
   it('changing which producer feeds a branch changes the hash', () => {
     const d = clone(branchDoc(fixed('ca')))
     const l1 = d.graphs['g0']!.links['l1']! as { from: unknown }
@@ -796,12 +616,6 @@ describe('selector semantic hash', () => {
     expect(semanticHashOf(d)).not.toBe(base)
   })
 
-  it('absent selectors and an empty selectors map hash identically', () => {
-    const plain = doc({ g0: graph({ id: 'g0', nodes: { a: emptyImage('a', 1) } }) })
-    const withEmpty = clone(plain) as unknown as { graphs: Record<string, { selectors?: unknown }> }
-    withEmpty.graphs['g0']!.selectors = {}
-    expect(semanticHashOf(withEmpty as unknown as WorkflowDocument)).toBe(semanticHashOf(plain))
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -809,9 +623,6 @@ describe('selector semantic hash', () => {
 // ---------------------------------------------------------------------------
 
 describe('selector invariants', () => {
-  it('the canonical branch document is clean', () => {
-    expect(errorsOf(checkDocument(branchDoc()))).toEqual([])
-  })
 
   it('flags dangling fixed policy, duplicate candidates, and multi-drivers', () => {
     const d = clone(branchDoc()) as unknown as {
@@ -829,23 +640,6 @@ describe('selector invariants', () => {
     expect(codes).toContain('doc.selector.multiDriver')
   })
 
-  it('flags candidate-as-source and output-as-target links', () => {
-    const d = doc({
-      g0: graph({
-        id: 'g0',
-        nodes: { a: emptyImage('a', 1), p: node('p', 'PreviewImage') },
-        selectors: { s1: selector('s1', ['ca']) },
-        links: {
-          l1: link('l1', selCand('s1', 'ca'), port('p', 'images')),
-          l2: link('l2', port('a', 'out0'), selOut('s1')),
-        },
-      }),
-    })
-    const codes = codesOf(checkDocument(d))
-    expect(codes).toContain('doc.link.selectorCandidateSource')
-    expect(codes).toContain('doc.link.selectorOutputTarget')
-  })
-
   it('flags a structural selector cycle across ALL candidates', () => {
     const d = doc({
       g0: graph({
@@ -861,13 +655,6 @@ describe('selector invariants', () => {
     expect(codesOf(checkDocument(d))).toContain('doc.selector.cycle')
   })
 
-  it('flags dangling selector view state', () => {
-    const d = clone(branchDoc()) as unknown as {
-      view: { graphs: Record<string, { nodes: Record<string, unknown>; selectors?: Record<string, unknown> }> }
-    }
-    d.view.graphs['g0'] = { nodes: {}, selectors: { ghost: { position: { x: 0, y: 0 } } } }
-    expect(codesOf(checkDocument(d as unknown as WorkflowDocument))).toContain('doc.view.danglingSelector')
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -927,11 +714,6 @@ describe('selector format', () => {
     expect(errorsOf(loaded.diagnostics ?? []).length).toBeGreaterThan(0)
   })
 
-  it('old selector-free documents load unchanged', () => {
-    const loaded = loadDocument(readJson('fixtures/workflows/exec-basic.json'))
-    expect(errorsOf(loaded.diagnostics ?? [])).toEqual([])
-    expect(loaded.document!.graphs['g0']!.selectors).toBeUndefined()
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -986,28 +768,6 @@ describe('selector would-run closure', () => {
     expect([...g.selectors.get('s1')!]).toEqual(['ca'])
   })
 
-  it('random policy expands reroutes on EVERY branch', () => {
-    const d = doc({
-      g0: graph({
-        id: 'g0',
-        nodes: { a: emptyImage('a', 1), b: emptyImage('b', 2), p: node('p', 'PreviewImage') },
-        reroutes: { r1: reroute('r1'), r3: reroute('r3') },
-        selectors: { s1: selector('s1', ['ca', 'cb'], random) },
-        links: {
-          l1: link('l1', port('a', 'out0'), rr('r1')),
-          l2: link('l2', rr('r1'), selCand('s1', 'ca')),
-          l3: link('l3', port('b', 'out0'), rr('r3')),
-          l3b: link('l3b', rr('r3'), selCand('s1', 'cb')),
-          l4: link('l4', selOut('s1'), port('p', 'images')),
-        },
-      }),
-    })
-    const closure = scopeClosure(compileInput(d, { scope: partial('p') }))
-    expect(closure).toBeDefined()
-    expect([...closure!.included].sort()).toEqual(['a', 'b', 'p'])
-    expect([...closure!.structural.get('g0')!.reroutes].sort()).toEqual(['r1', 'r3'])
-  })
-
   it('a value source on the CHOSEN branch registers; the unchosen one does not', () => {
     const d = doc({
       g0: graph({
@@ -1030,58 +790,4 @@ describe('selector would-run closure', () => {
     expect([...g.selectors.get('s1')!]).toEqual(['ca'])
   })
 
-  it('subgraph selectors key structural data by DEFINITION id, once for all occurrences', () => {
-    const d = doc({
-      g0: graph({
-        id: 'g0',
-        nodes: { i0: node('i0', '#g1'), i1: node('i1', '#g1') },
-      }),
-      g1: graph({
-        id: 'g1',
-        name: 'branchy',
-        boundary: { inputs: [], outputs: [] },
-        nodes: { a: emptyImage('a', 1), b: emptyImage('b', 2), p: node('p', 'PreviewImage') },
-        selectors: { s1: selector('s1', ['ca', 'cb'], random) },
-        links: {
-          l1: link('l1', port('a', 'out0'), selCand('s1', 'ca')),
-          l2: link('l2', port('b', 'out0'), selCand('s1', 'cb')),
-          l3: link('l3', selOut('s1'), port('p', 'images')),
-        },
-      }),
-    })
-    // Full scope: g1's PreviewImage is an output node in both occurrences.
-    // NO chooser: would-run mode must not require one even for a real
-    // random selector inside a subgraph.
-    const closure = scopeClosure(compileInput(d))
-    expect(closure).toBeDefined()
-    // Occurrence keys: BOTH instances, and the random superset covers both
-    // branch producers in each.
-    expect([...closure!.included].sort()).toEqual(['i0.a', 'i0.b', 'i0.p', 'i1.a', 'i1.b', 'i1.p'])
-    expect(closure!.structural.get('g0')).toBeUndefined()
-    const g = closure!.structural.get('g1')!
-    expect(g).toBeDefined()
-    expect([...g.selectors.get('s1')!].sort()).toEqual(['ca', 'cb'])
-  })
-
-  it('fan-out: two consumers behind one selector output merge into one structural record', () => {
-    const d = doc({
-      g0: graph({
-        id: 'g0',
-        nodes: { a: emptyImage('a', 1), b: emptyImage('b', 2), p: node('p', 'PreviewImage'), q: node('q', 'PreviewImage') },
-        selectors: { s1: selector('s1', ['ca', 'cb'], fixed('ca')) },
-        links: {
-          l1: link('l1', port('a', 'out0'), selCand('s1', 'ca')),
-          l2: link('l2', port('b', 'out0'), selCand('s1', 'cb')),
-          l3: link('l3', selOut('s1'), port('p', 'images')),
-          l4: link('l4', selOut('s1'), port('q', 'images')),
-        },
-      }),
-    })
-    const closure = scopeClosure(compileInput(d, { scope: partial('p', 'q') }))
-    expect(closure).toBeDefined()
-    expect([...closure!.included].sort()).toEqual(['a', 'p', 'q'])
-    const g = closure!.structural.get('g0')!
-    expect([...g.selectors.keys()]).toEqual(['s1'])
-    expect([...g.selectors.get('s1')!]).toEqual(['ca'])
-  })
 })

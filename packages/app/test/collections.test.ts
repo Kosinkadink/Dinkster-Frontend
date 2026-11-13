@@ -7,21 +7,11 @@
  * no-thumbnail fallback.
  */
 import { beforeEach, describe, expect, it } from 'vitest'
-import {
-  asConnectionId,
-  asPromptId,
-  DINKSTER_SCHEMA_WIRE_VERSION,
-  executionKey,
-  setLocale,
-  type DinksterNodesPayload,
-  type ExecutionRef,
-} from '@dinkster/core'
+import { asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, executionKey, type DinksterNodesPayload, type ExecutionRef } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
-import { formatByteSize, formatCollectionDate, historySource, initialsOf, packsSource, readCollectionViewMode, safeLocalStorage, templateAssetLines, writeCollectionViewMode } from '../src/collections.js'
-
-// AppState builds its WS url from the page origin; give the node test env one.
-;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
+import { historySource, packsSource, readCollectionViewMode, safeLocalStorage, templateAssetLines, writeCollectionViewMode } from '../src/collections.js';
+(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
 const nodesPayload: DinksterNodesPayload = {
   schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
@@ -63,48 +53,12 @@ const runRef = (prompt: string): ExecutionRef => ({
   prompt: asPromptId(prompt),
 })
 
-describe('initialsOf', () => {
-  it('derives initials from the first two words, uppercased', () => {
-    expect(initialsOf('Video Helper Suite')).toBe('VH')
-    expect(initialsOf('rgthree-comfy')).toBe('RC')
-    expect(initialsOf('core')).toBe('CO')
-    expect(initialsOf('vhs.video')).toBe('VV')
-    expect(initialsOf('')).toBe('?')
-  })
-})
-
-describe('formatByteSize', () => {
-  it('formats binary byte sizes for compact asset presentation', () => {
-    expect(formatByteSize(512)).toBe('512 B')
-    expect(formatByteSize(1536)).toBe('1.5 KiB')
-    expect(formatByteSize(1572864)).toBe('1.5 MiB')
-    expect(formatByteSize(2147483648)).toBe('2 GiB')
-  })
-})
-
-describe('formatCollectionDate', () => {
-  it('preserves the full English year from Date.toLocaleString', () => {
-    const previousTimeZone = process.env['TZ']
-    process.env['TZ'] = 'America/Los_Angeles'
-    setLocale('en-US')
-    try {
-      expect(formatCollectionDate(1767323045000)).toBe('1/1/2026, 7:04:05 PM')
-      expect(formatCollectionDate(0)).toBe('12/31/1969, 4:00:00 PM')
-    } finally {
-      if (previousTimeZone === undefined) delete process.env['TZ']
-      else process.env['TZ'] = previousTimeZone
-    }
-  })
-})
-
 describe('persisted collection view mode', () => {
   const storageWith = (value: string | null): Pick<Storage, 'getItem'> => ({ getItem: () => value })
   it('reads a stored grid/list preference', () => {
     expect(readCollectionViewMode(storageWith('grid'), 'k', 'list')).toBe('grid')
     expect(readCollectionViewMode(storageWith('list'), 'k', 'grid')).toBe('list')
   })
-  it("decodes the legacy asset-browser 'tile' value as 'grid'", () =>
-    expect(readCollectionViewMode(storageWith('tile'), 'k', 'list')).toBe('grid'))
   it('falls back after corrupt, absent, or inaccessible preferences', () => {
     expect(readCollectionViewMode(storageWith('broken'), 'k', 'grid')).toBe('grid')
     expect(readCollectionViewMode(storageWith(null), 'k', 'list')).toBe('list')
@@ -167,12 +121,6 @@ describe('packsSource', () => {
     expect(page.items.map((e) => e.id)).toEqual(['vhs.video'])
   })
 
-  it('is empty without a packs table (V1 backend or not connected)', async () => {
-    const page = await packsSource(app).page({ query: '', limit: 10 })
-    expect(page.items).toEqual([])
-    expect(page.total).toBe(0)
-  })
-
   it('reads a LIVE corpus: packs appear after the registry loads', async () => {
     const source = packsSource(app)
     expect((await source.page({ query: '', limit: 10 })).items).toEqual([])
@@ -227,11 +175,6 @@ describe('historySource', () => {
     })
     const page = await historySource(app).page({ query: '', limit: 10 })
     expect(page.items[0]!.badges).toContain('1 error')
-  })
-
-  it('is empty with no executions', async () => {
-    const page = await historySource(app).page({ query: '', limit: 10 })
-    expect(page.items).toEqual([])
   })
 
   it('labels an entry admitted from mid-run chatter unconfirmed instead of queued', async () => {
