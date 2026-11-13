@@ -861,10 +861,11 @@ stored id is retained for a possible later schema refresh while rendering falls
 back to the current schema default; it is never fabricated as a valid menu
 choice. Non-switchable sets retain their singular/default widget behavior.
 
-The native picker exposes one `Text` primitive. Its STRING value can use either
-view. The legacy `dinkster.string_multiline` type remains loadable for existing
-workflows and defaults to Multiline, but is hidden from search so it does not
-create a duplicate picker entry.
+The native picker exposes `dinkster.utilities.primitive_string` (Text) and
+`dinkster.utilities.primitive_string_multiline` (Text (Multiline)). Both use the
+`value` STRING input and `STRING` output. Their schema widgets default to
+single-line and multiline editing respectively; neither is a legacy alias.
+The text representation rules above apply to both primitives.
 
 ## Registered widget inventory and expanded disposition
 
