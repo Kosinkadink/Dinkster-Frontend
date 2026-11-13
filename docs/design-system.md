@@ -434,7 +434,9 @@ gallery is available. Set
 `AUDIT_BASE`, `AUDIT_OUT` and `AUDIT_RESULTS` for the frontend URL, screenshots
 and JSON report. The check requires each named screen's visible state before
 capturing it and fails on missing screens, browser errors, or any
-critical/serious axe violation across the original 18 audit screens. Axe
+critical/serious axe violation across the original 18 audit screens. The demo
+uses served Empty Image -> Upscale Image By -> Preview Image nodes; the scale
+node supplies the COMBO editor and Empty Image supplies the INT editor. Axe
 incomplete checks remain in the report for manual assessment; they are not
 reported as passed checks or as violations.
 
