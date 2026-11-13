@@ -163,7 +163,6 @@ clean checkouts without persisted credentials. The audit-assets browser starts t
 pinned Dinkster checkout and uses frontend/native ports 15376/15377. Its subgraph
 import readiness count follows the served `/api/nodes` catalog; graph structure
 and diagnostic expectations remain fixed goldens in `native-catalog.json`.
-A PR that moves the Full backend pin runs `audit-widget-parity-live.spec.ts` against the new pin and restamps its exact catalog expectations in the same PR.
 Full E2E
 uses frontend/native ports 15410/15412 and installs the locked
 inference dependencies into the native execution interpreter used by its
