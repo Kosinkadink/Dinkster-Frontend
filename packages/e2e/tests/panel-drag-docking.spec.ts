@@ -83,6 +83,7 @@ const captureDragGhost = async (page: Page, name: string): Promise<void> => {
 
 
 test.beforeEach(async ({ page }) => {
+  await page.route('/api/docs?kind=guide&limit=1', (route) => route.fulfill({ json: { docs: [] } }))
   await page.goto('/')
   await expect(page.getByTestId('dock-zone-right')).toBeVisible()
 })
