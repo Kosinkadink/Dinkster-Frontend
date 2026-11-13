@@ -6,18 +6,19 @@ import { fileURLToPath } from 'node:url'
 import { extname } from 'node:path'
 
 const brandRoot = new URL('../../branding/', import.meta.url)
-const brandFiles = ['svg', 'raster/color', 'platform'].flatMap((directory) =>
-  readdirSync(new URL(`${directory}/`, brandRoot)).map(
-    (name) => `${directory}/${name}`,
-  ),
+const brandFiles = ['svg', 'raster/color', 'platform', 'favicon'].flatMap(
+  (directory) =>
+    readdirSync(new URL(`${directory}/`, brandRoot)).map(
+      (name) => `${directory}/${name}`,
+    ),
 )
 const manifest = JSON.stringify({
   name: 'Dinkster',
   short_name: 'Dinkster',
   start_url: './',
   display: 'standalone',
-  icons: [256, 512].map((size) => ({
-    src: `./branding/raster/color/${size}.png`,
+  icons: [192, 512].map((size) => ({
+    src: `./branding/favicon/${size}.png`,
     sizes: `${size}x${size}`,
     type: 'image/png',
     purpose: 'any',
@@ -40,9 +41,12 @@ export default defineConfig({
             response.end(manifest)
             return
           }
-          const relative = path?.startsWith('/branding/')
-            ? path.slice('/branding/'.length)
-            : ''
+          const relative =
+            path === '/favicon.ico'
+              ? 'favicon/favicon.ico'
+              : path?.startsWith('/branding/')
+                ? path.slice('/branding/'.length)
+                : ''
           if (!brandFiles.includes(relative)) return next()
           response.setHeader(
             'Content-Type',
@@ -57,6 +61,11 @@ export default defineConfig({
         })
       },
       generateBundle() {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'favicon.ico',
+          source: readFileSync(new URL('favicon/favicon.ico', brandRoot)),
+        })
         this.emitFile({
           type: 'asset',
           fileName: 'manifest.webmanifest',
