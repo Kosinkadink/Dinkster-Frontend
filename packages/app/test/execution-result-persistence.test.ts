@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asNodeId, asPromptId, compile, loadDocument, type CompileArtifact, type DinksterNodesPayload } from '@dinkster/core'
 import { buildDinksterRegistry, type ExecutionState, type RetainedAssets, type RetainedAssetOwner } from '@dinkster/client'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
-import { scopedStorageKey } from '../src/projects.js'
+import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
 import {
   EXECUTION_RESULTS_STORAGE_KEY,
   MAX_PERSISTED_EXECUTION_BYTES,
@@ -101,6 +101,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  initializeProjectScope(undefined)
   delete (globalThis as { localStorage?: Storage }).localStorage
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -151,8 +152,12 @@ describe('startup result source admission', () => {
     return { app, backend, registry, ref, nodeId, saved, backendIdentity, fetchSource, source: JSON.stringify(loaded.document) }
   }
 
-  it('restores two source-bound results through public value admission before publication', async () => {
+  it.each(['startup', 'startup-first', 'refresh-first'] as const)('restores two source-bound results through public value admission before publication: %s', async (order) => {
     const test = setup()
+    const schemas: Array<(registry: typeof test.registry) => void> = []
+    if (order !== 'startup') {
+      vi.mocked(test.backend.connection.fetchSchemas).mockImplementation(() => new Promise((resolve) => { schemas.push(resolve) }))
+    }
     const second = { ...test.saved, ref: { ...test.ref, prompt: asPromptId('restored-second') }, jobRef: 'run-restored-second' }
     saveExecutionResult(second, test.backendIdentity)
     vi.mocked(test.backend.connection.values().peek).mockRestore()
@@ -193,7 +198,23 @@ describe('startup result source admission', () => {
       return new Response('', { status: 404 })
     }))
     try {
-      await test.app.start()
+      const starting = test.app.start()
+      if (order !== 'startup') {
+        ;(test.backend.connection.status as unknown as { set(value: string): void }).set('connected')
+        expect(schemas).toHaveLength(2)
+        if (order === 'startup-first') {
+          schemas[0]!(test.registry)
+          await starting
+          expect(test.app.store.get(test.ref)).toBeUndefined()
+          schemas[1]!(test.registry)
+        } else {
+          schemas[1]!(test.registry)
+          await vi.waitFor(() => expect(test.app.store.get(second.ref)).toBeDefined())
+          schemas[0]!(test.registry)
+        }
+      }
+      await starting
+      await vi.waitFor(() => expect(test.app.store.get(second.ref)).toBeDefined())
       for (const saved of results) {
         const restored = test.app.store.get(saved.ref)!
         expect(restored?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
@@ -208,7 +229,7 @@ describe('startup result source admission', () => {
     } finally { test.app.dispose() }
   })
 
-  it.each(['accepted', 'lost-release', 'refused', 'changed-registry', 'reused-execution'] as const)(
+  it.each(['accepted', 'lost-release', 'refused', 'changed-registry', 'reused-execution', 'disconnected', 'changed-project', 'superseded-schemas'] as const)(
     'keeps restored source ownership through result admission and publication: %s', async (mode) => {
       const test = setup()
       const owners = new Map<string, RetainedAssets>()
@@ -243,9 +264,28 @@ describe('startup result source admission', () => {
         expect(sourceOwner).toMatchObject({ revision: 1, complete: false, digests: [test.saved.sourceDocument] })
         if (mode === 'changed-registry') test.backend.registry.set({ ...test.registry })
         if (mode === 'reused-execution') test.app.store.apply({ kind: 'started', execution: test.ref, timestamp: 40 })
+        if (mode === 'disconnected') {
+          ;(test.backend.connection.status as unknown as { set(value: string): void }).set('connecting')
+          ;(test.backend.connection.status as unknown as { set(value: string): void }).set('disconnected')
+        }
+        if (mode === 'changed-project') initializeProjectScope('other-project')
+        let settleSchemas: (() => void) | undefined
+        let refreshing: Promise<void> | undefined
+        if (mode === 'superseded-schemas') {
+          vi.mocked(test.backend.connection.fetchSchemas).mockImplementation(() => new Promise((resolve) => {
+            settleSchemas = () => resolve(test.registry)
+          }))
+          refreshing = test.app.refreshBackendSchemas(test.backend)
+        }
         const reused = test.app.store.get(test.ref)
         acknowledge()
         await starting
+        initializeProjectScope(undefined)
+        if (refreshing !== undefined) {
+          test.app.dispose()
+          settleSchemas!()
+          await refreshing
+        }
         const accepted = mode === 'accepted' || mode === 'lost-release'
         if (accepted) {
           const restored = test.app.store.get(test.ref)!
