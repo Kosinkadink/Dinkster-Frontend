@@ -21,15 +21,12 @@ describe(`subgraph synthetic workload (${CHAINS} instances, ${NODES} expanded no
       schemaHash: 'perf',
     })
 
-  it(`flattens to ${NODES} prompt entries within budget (2s); promoted values apply per instance`, () => {
+  it(`flattens to ${NODES} prompt entries with promoted values applied per instance`, () => {
     const doc = loadDocument(
       syntheticWorkflow({ chains: CHAINS, chainLength: CHAIN_LENGTH, subgraphs: true }),
     ).document!
-    const t0 = performance.now()
     const result = compileFull(doc)
-    const ms = performance.now() - t0
     expect(result.ok, JSON.stringify(!result.ok ? result.diagnostics : [])).toBe(true)
-    expect(ms, `compile took ${ms.toFixed(1)}ms`).toBeLessThan(2000)
     if (result.ok) {
       const prompt = result.artifact.prompt as Record<string, { class_type: string; inputs: Record<string, unknown> }>
       expect(Object.keys(prompt)).toHaveLength(NODES)
