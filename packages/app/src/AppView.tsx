@@ -2120,7 +2120,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
           </div>
         }</Show>
         <Show when={viewer()}>{(selected) => <ExecutedImageViewer images={selected().output.images} batch={selected().output.batch}
-          initialIndex={selected().output.index} provenance={selected().provenance} onRequestClose={() => setViewer(undefined)} />}</Show>
+          initialIndex={selected().output.index} provenance={selected().provenance}
+          backendUrl={props.app.backends.get().find((backend) => backend.id === selected().provenance.backendId)?.baseUrl}
+          onRequestClose={() => setViewer(undefined)} />}</Show>
       </div>
     )
   }

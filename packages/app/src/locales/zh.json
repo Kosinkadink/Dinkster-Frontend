@@ -1344,6 +1344,7 @@
   "outputMountSettings.unsaved": "未保存的更改",
   "outputFile.file": "文件",
   "outputFile.showInFolder": "在文件夹中显示",
+  "outputFile.revealFailed": "无法在此电脑上打开已保存文件所在的文件夹。",
   "outputFile.writtenPath": "写入路径",
   "outputFile.writtenTo": "已写入 {path}",
   "settings.canvas.bookmarkTransitions": "书签切换动画",
