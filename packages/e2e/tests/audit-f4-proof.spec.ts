@@ -163,6 +163,7 @@ test('proves product upload control and hidden workflow picker lifecycle', async
 
   await page.reload()
   await expect(page.getByTestId('settings-button')).toBeVisible()
+  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     HTMLInputElement.prototype.click = function () {
       this.dispatchEvent(new MouseEvent('click', { cancelable: true }))
