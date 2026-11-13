@@ -3226,7 +3226,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
         </For>
       </div>
       <Show when={viewerIndex() !== undefined}>
-        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} provenance={provenance()} onRequestClose={() => setViewerIndex(undefined)} />
+        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} provenance={provenance()} backendUrl={props.app.backendFor(props.execution.ref.connection)?.baseUrl} onRequestClose={() => setViewerIndex(undefined)} />
       </Show>
     </>
   )

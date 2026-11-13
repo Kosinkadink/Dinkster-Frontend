@@ -22,6 +22,14 @@ Different written paths remain separate when their content digests match.
 A path already shown by an image ASSET card is not repeated in the saved-file
 section. Preview renditions do not imply a written file or an output path.
 
+The saved-image viewer offers Show in folder only in Desktop, when the
+execution owner's running backend advertises native reveal. The rail and canvas
+viewer use that same owner, not the currently selected backend. Reveal sends
+only the asset digest and current project identity; the shell verifies a local
+copy before opening the file manager (the containing folder on Linux). Browsers,
+remote or disconnected owners, and unsaved preview renditions do not offer the
+action. Native refusal shows an error without exposing operator paths.
+
 Persisted job completion refreshes output descriptors as well as artifacts.
 An earlier engine completion notification can arrive before those results are
 stored; that early empty read does not make the final output inventory empty.

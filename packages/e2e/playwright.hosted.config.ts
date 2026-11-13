@@ -99,7 +99,8 @@ export default defineConfig({
   webServer: [
     {
       command: [
-        JSON.stringify(resolve(dinksterRoot, '.venv/bin/dinkster-serve')),
+        JSON.stringify(resolve(dinksterRoot, '.venv/bin/python')),
+        '-m dinkster.serve',
         '--host 127.0.0.1',
         '--allow-host localhost',
         `--port ${nativePort}`,
@@ -120,7 +121,8 @@ export default defineConfig({
     },
     {
       command: [
-        JSON.stringify(resolve(dinksterRoot, '.venv/bin/dinkster-serve')),
+        JSON.stringify(resolve(dinksterRoot, '.venv/bin/python')),
+        '-m dinkster.serve',
         '--host 127.0.0.1',
         `--port ${guidePort}`,
         '--no-default-packs',

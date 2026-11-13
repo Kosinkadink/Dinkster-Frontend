@@ -1,11 +1,12 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
+import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const CURVE = {
   interpolation: 'linear',
-  points: [{ position: 0, value: 0 }, { position: 1, value: 1 }],
+  points: [[0, 0], [1, 1]],
 } as const
 const SHADER = `#version 300 es
 #pragma passes 2
@@ -76,7 +77,7 @@ async function queueAndWait(page: Page, status: 'completed' | 'error'): Promise<
   return (await latestExecution(page))!.prompt
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   test.skip(process.env['DINKSTER_E2E_USE_NATIVE'] !== '1' || process.env['DINKSTER_NATIVE_BACKEND'] === undefined,
     'set DINKSTER_E2E_USE_NATIVE=1 and DINKSTER_NATIVE_BACKEND to an isolated Dinkster backend')
   const errors: BrowserErrors = { page: [], console: [], responses: [] }
@@ -91,19 +92,18 @@ test.beforeEach(async ({ page }) => {
 
   let nodes: Record<string, {
     readonly schemaVersion?: number
-    readonly interface?: readonly { readonly role?: string; readonly id?: string; readonly memberNames?: readonly string[] }[]
+    readonly interface?: readonly { readonly role?: string; readonly id?: string; readonly memberPrefix?: string; readonly maxMembers?: number; readonly template?: readonly { readonly id?: string }[] }[]
   }> | undefined
   try {
     const response = await fetch(`${NATIVE_BACKEND}/api/nodes`, { signal: AbortSignal.timeout(2_000) })
     if (response.ok) nodes = (await response.json() as { nodes: typeof nodes }).nodes
   } catch { /* handled by skip below */ }
   test.skip(nodes === undefined, `no current native Dinkster backend reachable at ${NATIVE_BACKEND}`)
-  test.skip(!('dinkster.image.generate' in nodes! && 'dinkster.image.glsl_shader' in nodes!),
-    'native backend lacks the image generator and GLSL Shader nodes')
+  requireBackendNodes(nodes!, ['dinkster.image.empty_image', 'dinkster.image.glsl_shader'], testInfo)
   const schema = nodes!['dinkster.image.glsl_shader']!
   expect(schema.schemaVersion).toBe(1)
   expect(schema.interface?.find((item) => item.id === 'images')).toMatchObject({
-    role: 'inputFamily', memberNames: ['u_image0', 'u_image1', 'u_image2', 'u_image3', 'u_image4'],
+    role: 'inputFamily', memberPrefix: 'image', maxMembers: 5, template: [{ id: 'image' }],
   })
 
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
@@ -116,28 +116,24 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => {
     const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas
-    return schemas?.has('dinkster.image.generate') === true && schemas.has('dinkster.image.glsl_shader')
+    return schemas?.has('dinkster.image.empty_image') === true && schemas.has('dinkster.image.glsl_shader')
   }), { timeout: 15_000 }).toBe(true)
-  await page.evaluate(async ({ shader, curve }) => {
-    await window.__dinksterTest!.app.openDocument({
+  const diagnostics = await page.evaluate(async ({ shader, curve }) => {
+    const diagnostics = await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'glsl-shader-native-e2e', root: 'g0',
       graphs: {
         g0: {
           id: 'g0', name: 'root',
           nodes: {
             source: {
-              id: 'source', type: 'dinkster.image.generate',
-              dynamic: { color_source: { selected: 'hex' }, operation: { selected: 'solid' } },
-              values: {
-                width: 256, height: 192, batch_size: 1, channels: 'rgb',
-                'color_source.color_a': '#1a334d',
-              },
+              id: 'source', type: 'dinkster.image.empty_image',
+              values: { width: 256, height: 192, batch_size: 1, color: 0x1a334d },
             },
             shader: {
               id: 'shader', type: 'dinkster.image.glsl_shader',
               dynamic: {
                 size_mode: { selected: 'from_input' },
-                images: { members: ['u_image1'] },
+                images: { members: ['image0', 'image1'] },
                 floats: { members: ['u_float0'] },
                 ints: { members: ['u_int0'] },
                 bools: { members: ['u_bool0'] },
@@ -153,10 +149,15 @@ test.beforeEach(async ({ page }) => {
             },
           },
           links: {
-            image: {
-              id: 'image',
-              from: { node: 'source', port: 'image' },
-              to: { node: 'shader', port: 'images.u_image1' },
+            image0: {
+              id: 'image0',
+              from: { node: 'source', port: 'IMAGE' },
+              to: { node: 'shader', port: 'images.image0' },
+            },
+            image1: {
+              id: 'image1',
+              from: { node: 'source', port: 'IMAGE' },
+              to: { node: 'shader', port: 'images.image1' },
             },
           },
           nets: {}, reroutes: {}, nextOrdinal: 2,
@@ -168,7 +169,9 @@ test.beforeEach(async ({ page }) => {
       } } } },
     } as never, 'Native GLSL Shader')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 0.85 })
+    return diagnostics
   }, { shader: SHADER, curve: CURVE })
+  expect(diagnostics).toEqual([])
 })
 
 test('executes, previews, diagnoses, applies, reloads, undoes, and refuses invalid native GLSL', async ({ page }, testInfo) => {
@@ -200,7 +203,8 @@ test('executes, previews, diagnoses, applies, reloads, undoes, and refuses inval
     nodeType: 'dinkster.image.glsl_shader',
     inputs: {
       fragment_shader: SHADER,
-      'images.u_image1': { $link: { node: 'source', output: 'image' } },
+      'images.image0': { $link: { node: 'source', output: 'IMAGE' } },
+      'images.image1': { $link: { node: 'source', output: 'IMAGE' } },
       'floats.u_float0': 0.05,
       'ints.u_int0': 3,
       'bools.u_bool0': true,

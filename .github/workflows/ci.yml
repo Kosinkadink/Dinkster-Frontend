@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DINKSTER_REF: dfdd269da02503d922b567f57cc9cf634f3c0e5c
+  DINKSTER_REF: 0c86eb5fe2f734ac626a200d4b8dd4dbdf451cf0
 
 jobs:
   fast:
@@ -89,7 +89,7 @@ jobs:
 
           root = Path('.ci/Dinkster').resolve()
           with subprocess.Popen([
-              str(root / '.venv/bin/dinkster-serve'),
+              str(root / '.venv/bin/python'), '-m', 'dinkster.serve',
               '--host', '127.0.0.1', '--port', '15432',
               '--engine-variant', 'linux-cpu',
               '--pack', str(root / 'packages/dinkster-nodes-dev/dinkster-pack.toml'),

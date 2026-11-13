@@ -20,7 +20,7 @@ test('an ordinary third-party pack activates and executes through public contrac
         return {
           contract: schemas?.has('fixture.extension.contract'),
           value: schemas?.has('fixture.extension.value'),
-          defaultPack: schemas?.has('dinkster.int'),
+          defaultPack: schemas?.has('dinkster.utilities.primitive_int'),
         }
       }),
     )

@@ -8,6 +8,9 @@ import { useAppMessage } from './locale.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSlider } from './ProductSlider.js'
+import { ProductNotice } from './ProductForm.js'
+import { desktopFileBridge } from './desktop-bridge.js'
+import { activeProjectId } from './projects.js'
 import './image-compare.css'
 
 export interface ExecutionOutputProvenance {
@@ -103,6 +106,7 @@ export function ExecutedImageFacts(props: {
   readonly availability: 'Checking' | 'Available' | 'Unavailable'
   readonly dimensions?: { readonly width: number; readonly height: number } | undefined
   readonly onReveal?: (() => void) | undefined
+  readonly revealing?: boolean | undefined
 }) {
   const message = useAppMessage()
   return (
@@ -130,7 +134,7 @@ export function ExecutedImageFacts(props: {
       <div class="output-availability" data-availability={props.availability.toLowerCase()}>
         <dt>Availability</dt><dd>{props.availability}</dd>
       </div>
-      <Show when={props.onReveal}><div><dt>{message('outputFile.file')}</dt><dd><ProductButton size="compact" type="button" onClick={() => props.onReveal?.()}>{message('outputFile.showInFolder')}</ProductButton></dd></div></Show>
+      <Show when={props.onReveal}><div><dt>{message('outputFile.file')}</dt><dd><ProductButton size="compact" type="button" disabled={props.revealing} onClick={() => props.onReveal?.()}>{message('outputFile.showInFolder')}</ProductButton></dd></div></Show>
     </dl>
   )
 }
@@ -169,7 +173,7 @@ export function ExecutedImageViewer(props: {
   readonly batch?: ExecutedImageBatch | undefined
   readonly initialIndex: number
   readonly provenance: ExecutionOutputProvenance
-  readonly onReveal?: ((image: ExecutedImage) => void) | undefined
+  readonly backendUrl?: string | undefined
   readonly onRequestClose: () => void
 }) {
   const pageZoom = Math.max(1, Number.parseFloat(getComputedStyle(document.documentElement).zoom) || 1)
@@ -191,6 +195,43 @@ export function ExecutedImageViewer(props: {
   const [naturalSizes, setNaturalSizes] = createSolidSignal<ReadonlyMap<string, { readonly width: number; readonly height: number }>>(new Map())
   const current = createMemo(() => imageAt(clamp(index(), count())))
   const right = createMemo(() => imageAt(clamp(rightIndex(), count())))
+  const message = useAppMessage()
+  const [canReveal, setCanReveal] = createSolidSignal(false)
+  const [revealing, setRevealing] = createSolidSignal(false)
+  const [revealFailed, setRevealFailed] = createSolidSignal(false)
+  createEffect(() => {
+    const image = current()
+    const backendUrl = props.backendUrl
+    const available = props.provenance.backendAvailable
+    const bridge = desktopFileBridge()
+    let currentRequest = true
+    onCleanup(() => { currentRequest = false })
+    setCanReveal(false)
+    setRevealFailed(false)
+    if (!available || backendUrl === undefined || !image?.virtualPath ||
+      !/^blake3:[a-f0-9]{64}$/.test(image.digest ?? '') || !bridge?.revealFile) return
+    const url = new URL(backendUrl || '/', window.location.href).href
+    void bridge.fileCapabilities(url).then((capabilities) => {
+      if (currentRequest) setCanReveal(capabilities.reveal === true)
+    }).catch(() => undefined)
+  })
+  const reveal = async (): Promise<void> => {
+    const image = current()
+    const backendUrl = props.backendUrl
+    const bridge = desktopFileBridge()
+    if (!canReveal() || revealing() || backendUrl === undefined || !image?.digest || !bridge?.revealFile) return
+    setRevealing(true)
+    setRevealFailed(false)
+    try {
+      await bridge.revealFile(new URL(backendUrl || '/', window.location.href).href, {
+        digest: image.digest, scope: 'local', project: activeProjectId(),
+      })
+    } catch {
+      setRevealFailed(true)
+    } finally {
+      setRevealing(false)
+    }
+  }
   const availability = (image: ExecutedImage): 'Checking' | 'Available' | 'Unavailable' =>
     failedKeys().has(image.key) ? 'Unavailable' : loadedKeys().has(image.key) ? 'Available' : 'Checking'
   const select = (next: number): void => {
@@ -329,7 +370,8 @@ export function ExecutedImageViewer(props: {
               </div>
               <aside class="output-viewer-details" aria-label="Selected output identity">
                 <h3>{props.batch === undefined ? 'Output' : 'Batch image'} {index() + 1} of {count()}</h3>
-                <ExecutedImageFacts image={image} availability={availability(image)} dimensions={naturalSizes().get(image.key)} {...(props.onReveal === undefined || image.virtualPath === undefined ? {} : { onReveal: () => props.onReveal?.(image) })} />
+                <ExecutedImageFacts image={image} availability={availability(image)} dimensions={naturalSizes().get(image.key)} revealing={revealing()} {...(canReveal() ? { onReveal: () => void reveal() } : {})} />
+                <Show when={revealFailed()}><ProductNotice tone="error">{message('outputFile.revealFailed')}</ProductNotice></Show>
               </aside>
             </div>
           )}
