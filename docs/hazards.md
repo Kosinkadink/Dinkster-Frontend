@@ -198,9 +198,9 @@ Concrete rules that fell out of those bugs:
 ### R9. Keep tracing out of hot loops
 
 `traceEndpoint` is O(chain length) and runs at scene-build/compile/hash time,
-never per-frame. The perf spec's reroute-on-every-link variant
-(`packages/e2e/tests/perf.spec.ts`) is the regression gate; keep it passing
-and keep tracing calls out of `render()`/pointer-move paths.
+never per-frame. Keep tracing calls out of `render()`/pointer-move paths.
+Historical reroute-heavy measurements remain in [Performance baselines](perf.md);
+the uncalibrated browser timing cases are not a regression gate.
 
 ### R10. Importer absorption stays import-only
 

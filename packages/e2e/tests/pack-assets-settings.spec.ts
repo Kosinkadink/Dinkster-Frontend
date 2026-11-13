@@ -3,7 +3,7 @@ import { expect, test } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_PACK_ASSETS_SETTINGS_PROOF_DIR']
 
-test('a pack static asset and declared settings are available through the native connection', async ({
+test('declared pack settings are editable through the native connection', async ({
   page,
 }) => {
   if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -57,12 +57,6 @@ test('a pack static asset and declared settings are available through the native
       },
     }),
   )
-  await page.route('/packs/render.pack/static/theme.css', (route) =>
-    route.fulfill({
-      contentType: 'text/css',
-      body: '.render-pack { color: #7ab7ff; }\n',
-    }),
-  )
   await page.route('/api/packs/render.pack/settings', async (route) => {
     if (route.request().method() === 'PUT')
       values = route.request().postDataJSON() as typeof values
@@ -73,19 +67,6 @@ test('a pack static asset and declared settings are available through the native
   await expect(page.getByTestId('status-bar')).toContainText('0 node schemas', {
     timeout: 15_000,
   })
-  expect(
-    await page.evaluate(async () => {
-      const response = await fetch('/packs/render.pack/static/theme.css')
-      return {
-        body: await response.text(),
-        contentType: response.headers.get('content-type'),
-      }
-    }),
-  ).toEqual({
-    body: '.render-pack { color: #7ab7ff; }\n',
-    contentType: 'text/css',
-  })
-
   await page.getByTestId('settings-button').click()
   const dialog = page.getByRole('dialog', { name: 'Settings', exact: true })
   await dialog

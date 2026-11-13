@@ -488,29 +488,18 @@ arbitrary callback.
 
 ### Performance methodology and budget
 
-`packages/e2e/tests/perf.spec.ts` is authoritative. Every PR that touches
-canvas/minimap paint, scene build, CanvasHost structure, or document hot paths
-runs the 1200-node plain, 1140-reroute, and 1200-preview workloads at least
-three times on merge-base and three times on head. Both sets use the same
-machine, Chromium build, headless/headed mode, viewport, device scale, fixture,
-frontend/backend ports, worker count, and environment. Record each run and the
-per-metric median in append-only `docs/perf.md`.
+The historical measurements in [Performance baselines](perf.md) are not
+active browser test gates. A wall-clock test requires elapsed time to be the
+property under test and a bound derived from the slowest hosted runner with
+at least a threefold margin. The removed browser timing cases did not meet
+that requirement.
 
-For a merge-base median `B` and head median `H`, the change passes only when:
-
-- average frame `H - B <= max(1.0 ms, 0.05 * B)` for every workload;
-- p95 frame `H - B <= max(2.0 ms, 0.10 * B)` for every workload;
-- every workload remains below 33 ms average and 100 ms p95;
-- first paint `H - B <= max(5 ms, 0.10 * B)`;
-- repaint after dispatch `H - B <= max(3 ms, 0.10 * B)`; and
-- all authoritative absolute test backstops, including open/dispatch checks,
-  pass.
-
-A repeatable relative breach blocks the PR even when absolute gates pass. A
-noise claim requires reruns and the full distributions, never a selected
-favorable sample. Profiler evidence is also required for hot-path caching or
-algorithm changes. Nodes, links, groups, overlays, and minimap remain batched
-and cullable Canvas2D; no per-node DOM may enter paint, pan, or zoom paths.
+Performance comparisons use the same machine, Chromium build, display mode,
+viewport, device scale, fixture, ports, worker count and environment on both
+sides. Preserve measured distributions rather than a selected favorable sample.
+Profiler evidence informs hot-path caching and algorithm changes. Nodes,
+links, groups, overlays and minimap remain batched and cullable Canvas2D;
+no per-node DOM may enter paint, pan or zoom paths.
 
 Activity rows apply the shared data-rich surface language directly: separate
 metadata fields, semantic badges and row markers, selectable message text,

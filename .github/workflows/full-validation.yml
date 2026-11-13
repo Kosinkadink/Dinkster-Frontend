@@ -43,7 +43,6 @@ jobs:
               { name: 'parallel 6/6', project: 'parallel-safe', shard: '--shard=6/6' },
               { name: 'backend serial 1/2', project: 'backend-serial', shard: '--shard=1/2' },
               { name: 'backend serial 2/2', project: 'backend-serial', shard: '--shard=2/2' },
-              { name: 'performance', project: 'performance', shard: '' },
               { name: 'native startup', project: 'native-startup', shard: '' },
             ];
             core.setOutput('e2e-matrix', JSON.stringify({ include: fullMatrix }));
