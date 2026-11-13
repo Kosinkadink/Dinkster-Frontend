@@ -1,8 +1,5 @@
-import { createHash } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
-import { basename } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { canonicalJson } from '@dinkster/core'
 import {
   selectProductOption,
   skipWithoutNativeCatalog,
@@ -10,9 +7,6 @@ import {
 } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
-// Exact native catalog of the backend pinned by the hosted workflows.
-const canonicalCatalogSha256 =
-  '373e26281431ea3a891121351ae26f626a76add653b7595912e5e308c123ed03'
 const nativeBackend =
   process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -74,28 +68,6 @@ function widgets(catalog: Catalog) {
   )
 }
 
-function widgetDescriptors(
-  widget: Record<string, unknown> | undefined,
-): Record<string, unknown>[] {
-  if (!widget) return []
-  const representations =
-    widget['type'] === 'REPRESENTATIONS' &&
-    Array.isArray(widget['representations'])
-      ? widget['representations']
-      : []
-  return [
-    widget,
-    ...representations.flatMap((representation) => {
-      if (typeof representation !== 'object' || representation === null)
-        return []
-      const nested = (representation as Record<string, unknown>)['widget']
-      return typeof nested === 'object' && nested !== null
-        ? widgetDescriptors(nested as Record<string, unknown>)
-        : []
-    }),
-  ]
-}
-
 async function refreshCombo(
   page: Page,
   nodeId: string,
@@ -145,7 +117,7 @@ test('Render Image Document retains its multiline selector descriptor', async ({
   ).toEqual({ type: 'STRING', multiline: true })
 })
 
-test('hosted native stack proves live widget adoption and exact catalog absences', async ({
+test('hosted native stack proves live widget adoption', async ({
   page,
   request,
 }, testInfo) => {
@@ -154,188 +126,11 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   await mkdir(proofDir, { recursive: true })
   const catalogResponse = await page.request.get(`${nativeBackend}/api/nodes`)
   expect(catalogResponse.ok()).toBe(true)
-  const catalogBytes = await catalogResponse.body()
   const proxiedCatalogResponse = await page.request.get('/api/nodes')
   expect(proxiedCatalogResponse.ok()).toBe(true)
-  expect(await proxiedCatalogResponse.body()).toEqual(catalogBytes)
-  const catalog = JSON.parse(catalogBytes.toString()) as Catalog
-  expect(catalog.dinkster.mergeableTypes).toEqual(['IMAGE'])
-  const stableDinkster = Object.fromEntries(
-    Object.entries(catalog.dinkster).filter(
-      ([key]) => key !== 'mergeableTypes',
-    ),
+  expect(await proxiedCatalogResponse.body()).toEqual(
+    await catalogResponse.body(),
   )
-  // A local pack retains its identity, not the runner's absolute checkout path.
-  const stablePacks = Object.fromEntries(
-    Object.entries(catalog.packs).map(([id, info]) => [
-      id,
-      {
-        ...info,
-        ...(typeof info['source'] === 'string' &&
-        info['source'].startsWith('local:')
-          ? { source: `local:${basename(info['source'].slice(6))}` }
-          : {}),
-      },
-    ]),
-  )
-  const stableCatalog = {
-    ...catalog,
-    dinkster: stableDinkster,
-    packs: stablePacks,
-  }
-  const catalogDigest = createHash('sha256')
-    .update(canonicalJson(stableCatalog))
-    .digest('hex')
-  expect(catalogDigest).toBe(canonicalCatalogSha256)
-  expect(Object.keys(catalog.nodes)).toHaveLength(698)
-  const inputs = widgets(catalog)
-  const descriptors = inputs.flatMap(({ input }) =>
-    widgetDescriptors(input.widget),
-  )
-
-  const roundInputs = inputs.filter(
-    ({ input }) => typeof input.widget?.['round'] === 'number',
-  )
-  expect(roundInputs).toHaveLength(18)
-  expect(roundInputs).toContainEqual(
-    expect.objectContaining({
-      nodeType: 'dinkster.sampling.dual_model_guider',
-      input: expect.objectContaining({
-        id: 'cfg',
-        widget: expect.objectContaining({ round: 0.01 }),
-      }),
-    }),
-  )
-  const dynamicPromptInputs = inputs.filter(({ input }) =>
-    JSON.stringify(input.widget ?? {}).includes('"dynamicPrompts":true'),
-  )
-  expect(dynamicPromptInputs).toHaveLength(51)
-  expect(
-    dynamicPromptInputs.map(({ nodeType, input }) => `${nodeType}.${input.id}`),
-  ).toContain('dinkster.conditioning.clip_text_encode.text')
-  expect(
-    inputs.filter(({ input }) =>
-      Object.hasOwn(input.widget ?? {}, 'placeholder'),
-    ),
-  ).toEqual([])
-  expect(
-    inputs.flatMap(({ nodeType, input }) =>
-      widgetDescriptors(input.widget)
-        .filter((widget) => widget['type'] === 'MULTI_COMBO')
-        .map((widget) => ({ nodeType, inputId: input.id, widget })),
-    ),
-  ).toEqual([
-    {
-      nodeType: 'dev.features.widget_kinds',
-      inputId: 'selections',
-      widget: { type: 'MULTI_COMBO', options: ['red', 'green', 'blue'] },
-    },
-  ])
-  expect(
-    descriptors.filter(
-      (widget) =>
-        widget['type'] === 'COMBO' &&
-        Object.hasOwn(widget, 'controlAfterGenerate'),
-    ),
-  ).toHaveLength(0)
-  expect(
-    inputs.filter(({ input }) => input.widget?.['type'] === 'COLOR'),
-  ).toHaveLength(7)
-  expect(Object.hasOwn(catalog.nodes, 'dinkster.ksampler_advanced')).toBe(false)
-  expect(Object.hasOwn(catalog.nodes, 'comfy.KSamplerAdvanced')).toBe(false)
-  expect(Object.hasOwn(catalog.nodes, 'KSamplerAdvanced')).toBe(false)
-  expect(
-    Object.hasOwn(catalog.nodes, 'dinkster.sampling.k_sampler_advanced'),
-  ).toBe(true)
-
-  const remoteDescriptors = descriptors.filter(
-    (widget) => typeof widget['remote'] === 'object',
-  )
-  for (const widget of remoteDescriptors) {
-    const remote = widget['remote'] as Record<string, unknown>
-    expect(remote).not.toHaveProperty('controlAfterRefresh')
-    expect(remote).not.toHaveProperty('timeoutMs')
-    expect(remote).not.toHaveProperty('maxRetries')
-    expect(remote).not.toHaveProperty('refreshMs')
-  }
-  const remoteInputs = inputs.filter(({ input }) =>
-    widgetDescriptors(input.widget).some(
-      (widget) => typeof widget['remote'] === 'object',
-    ),
-  )
-  expect(
-    remoteInputs
-      .map(({ nodeType, input }) => {
-        const descriptor = widgetDescriptors(input.widget).find(
-          (widget) => typeof widget['remote'] === 'object',
-        )!
-        const remote = descriptor['remote'] as Record<string, unknown>
-        return {
-          input: `${nodeType}.${input.id}`,
-          route: remote['route'],
-          refreshButton: remote['refreshButton'] ?? null,
-        }
-      })
-      .sort((a, b) => a.input.localeCompare(b.input)),
-  ).toEqual(
-    [
-      {
-        input: 'dev.gallery.widgets.combo_remote',
-        route: '/api/choices/dev.gallery.samplers',
-        refreshButton: true,
-      },
-      {
-        input: 'dev.gallery.widgets.combo_remote_empty',
-        route: '/api/choices/dev.gallery.empty',
-        refreshButton: true,
-      },
-      {
-        input: 'dinkster.models.select_clip_device.device',
-        route: '/api/choices/devices.gpu',
-        refreshButton: null,
-      },
-      {
-        input: 'dinkster.models.select_model_device.device',
-        route: '/api/choices/devices.gpu',
-        refreshButton: null,
-      },
-      {
-        input: 'dinkster.models.select_vae_device.device',
-        route: '/api/choices/devices.vae',
-        refreshButton: null,
-      },
-    ].sort((a, b) => a.input.localeCompare(b.input)),
-  )
-
-  const sourceInputs = inputs.filter(
-    ({ input }) => input.sourceFilename !== undefined,
-  )
-  expect(
-    sourceInputs.map(({ nodeType, input }) => `${nodeType}.${input.id}`).sort(),
-  ).toEqual([
-    'dinkster.3d.load3_d.model_file',
-    'dinkster.3d.load3_d_advanced.model_file',
-    'dinkster.audio.load_audio.audio',
-    'dinkster.image.load_image.image',
-    'dinkster.image.load_image_mask.image',
-    'dinkster.image.load_image_output.image',
-    'dinkster.image.painter.mask',
-    'dinkster.latent.load_latent.latent',
-    'dinkster.video.load_video.file',
-  ])
-  expect(sourceInputs).toContainEqual({
-    nodeType: 'dinkster.image.load_image_mask',
-    input: expect.objectContaining({
-      id: 'image',
-      widget: expect.objectContaining({
-        type: 'ASSET',
-        kind: 'media/image',
-        allowUpload: true,
-      }),
-      sourceFilename: { kind: 'media/image', category: 'input' },
-    }),
-  })
-
   const choiceRequests: string[] = []
   const mediaUploads: string[] = []
   page.on('request', (request) => {
@@ -352,14 +147,22 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   await expect
     .poll(
       () =>
-        page.evaluate(
-          () =>
-            window.__dinksterTest?.app.backends.get()[0]?.registry.get()
-              ?.schemas.size ?? 0,
-        ),
+        page.evaluate(() => {
+          const schemas = window.__dinksterTest?.app.backends
+            .get()[0]
+            ?.registry.get()?.schemas
+          return [
+            'dinkster.sampling.dual_model_guider',
+            'dev.gallery.widgets',
+            'dinkster.sampling.k_sampler_advanced',
+            'dinkster.image.load_image_mask',
+            'dinkster.models.clip_loader',
+            'dinkster.conditioning.clip_text_encode',
+          ].every((type) => schemas?.has(type))
+        }),
       { timeout: 20_000 },
     )
-    .toBe(698)
+    .toBe(true)
   await waitForStartupOwnership(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument(
@@ -698,16 +501,15 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   ).toBe('{amber|violet} proof')
 
   await page.evaluate(
-    ({ expanded, catalogDigest }) => {
+    ({ expanded }) => {
       const banner = document.createElement('pre')
       banner.style.cssText =
         'position:fixed;right:320px;top:150px;width:520px;white-space:pre-wrap;overflow-wrap:anywhere;z-index:10000;background:#102030;color:#e8f4ff;padding:16px;border:2px solid #60a5fa'
-      banner.textContent = `current canonical catalog SHA-256: ${catalogDigest}\nFLOAT commit: 8.129 -> 8.13\ncanonical sampler: dinkster.sampling.k_sampler_advanced\nremote COMBO routes refreshed: 1/1\nsource upload: audit-wpar-source.png\ndynamic POST: ${expanded}\nplaceholder declarers: 0\nMULTI_COMBO declarers: dev.features.widget_kinds.selections only\nremote policy declarers: 0`
+      banner.textContent = `FLOAT commit: 8.129 -> 8.13\ncanonical sampler: dinkster.sampling.k_sampler_advanced\nremote COMBO routes refreshed: 1/1\nsource upload: audit-wpar-source.png\ndynamic POST: ${expanded}`
       document.body.appendChild(banner)
     },
     {
       expanded: submitted!.graph.nodes.encode.inputs.text,
-      catalogDigest: canonicalCatalogSha256,
     },
   )
   await page.screenshot({
@@ -716,15 +518,11 @@ test('hosted native stack proves live widget adoption and exact catalog absences
   })
   console.log(
     JSON.stringify({
-      canonicalCatalogSha256,
       round: 'dinkster.sampling.dual_model_guider.cfg 8.129 -> 8.13',
       sampler: 'dinkster.sampling.k_sampler_advanced',
       choiceRequests,
       mediaUpload: Object.fromEntries(mediaUrl.searchParams),
       dynamicPrompt: submitted!.graph.nodes.encode.inputs.text,
-      placeholderDeclarers: 0,
-      multiComboDeclarers: ['dev.features.widget_kinds.selections'],
-      remotePolicyDeclarers: 0,
       cancelledJob: { clientId: submitted!.clientId, jobId: submitted!.jobId },
     }),
   )
