@@ -44,20 +44,39 @@ function deferred<T>() {
 }
 
 describe('workflow retention recovery', () => {
-  it.each(['resolved', 'dormant', 'dormant-missing', 'missing-resource', 'wrong-resource', 'wrong-size', 'missing-document', 'wrong-document', 'noncanonical-document', 'invalid-command', 'invalid-known-command', 'opaque-extension', 'disconnected'] as const)(
+  it.each(['resolved', 'dormant', 'dormant-missing', 'missing-resource', 'wrong-resource', 'wrong-size', 'missing-document', 'wrong-document', 'noncanonical-document', 'invalid-command', 'invalid-known-command', 'opaque-extension', 'comfy-inputs', 'comfy-empty', 'comfy-output-policy', 'comfy-short', 'comfy-long', 'comfy-uppercase', 'comfy-newline', 'comfy-nonstring', 'comfy-missing', 'comfy-null', 'comfy-array', 'comfy-extra', 'comfy-unknown', 'disconnected'] as const)(
     'resolves configured compositor inventory under independent ownership: %s', async (scenario) => {
       const f = recoveryFixture()
       f.entries.clear()
       vi.stubGlobal('localStorage', f.storage)
       const bytes = new Uint8Array([7, 19, 23])
       const resourceDigest = imageDocumentDigest(bytes)
+      const comfyExtensions: Record<string, core.Json> = {
+        'comfy-inputs': { inputs: ['0123456789abcdef', 'fedcba9876543210'] },
+        'comfy-empty': { inputs: [] },
+        'comfy-output-policy': { inputs: ['0123456789abcdef'] },
+        'comfy-short': { inputs: ['0123456789abcde'] },
+        'comfy-long': { inputs: ['0123456789abcdef0'] },
+        'comfy-uppercase': { inputs: ['0123456789abcdeF'] },
+        'comfy-newline': { inputs: ['0123456789abcdef\n'] },
+        'comfy-nonstring': { inputs: [16] },
+        'comfy-missing': {},
+        'comfy-null': null,
+        'comfy-array': [],
+        'comfy-extra': { inputs: ['0123456789abcdef'], hidden: asset('d') },
+        'comfy-unknown': { inputs: ['0123456789abcdef'] },
+      }
       const image = {
         format: 'dinkster-image', formatVersion: 2, lineage: 'compositor-inventory',
         canvas: { width: 3, height: 2, colorSpace: 'srgb', channelDepth: 8, compositing: 'premultiplied-alpha' },
         allocation: { nextOrdinal: 1 }, rootLayerIds: [], layers: {}, masks: {},
         resources: { r0: { id: 'r0', kind: 'raster', digest: resourceDigest, byteSize: bytes.length + (scenario === 'wrong-size' ? 1 : 0),
           mediaType: 'image/png', width: 2, height: 1, colorSpace: 'srgb', channelDepth: 8, alphaMode: 'opaque' } },
-        ...(scenario === 'opaque-extension' ? { extensions: { future: asset('d') } } : {}),
+        ...(scenario === 'opaque-extension' ? { extensions: { future: asset('d') } }
+          : Object.hasOwn(comfyExtensions, scenario) ? { extensions: { comfy: comfyExtensions[scenario],
+            ...(scenario === 'comfy-output-policy' ? { 'dinkster.outputPolicy': { format: 'jpeg', quality: 73 } } : {}),
+            ...(scenario === 'comfy-unknown' ? { future: asset('d') } : {}),
+          } } : {}),
       }
       const imageBytes = new TextEncoder().encode(core.canonicalJson(image) + (scenario === 'noncanonical-document' ? '\n' : ''))
       const documentDigest = imageDocumentDigest(imageBytes)
@@ -123,9 +142,9 @@ describe('workflow retention recovery', () => {
       expect([...owners.values()].every((owner) => owner.ownerKind === 'preview' && owner.revision === 1)).toBe(true)
       candidateAck.resolve()
       const retained = await operation
-      expect(retained.complete).toBe(scenario === 'resolved' || scenario === 'dormant')
+      expect(retained.complete).toBe(['resolved', 'dormant', 'comfy-inputs', 'comfy-empty', 'comfy-output-policy'].includes(scenario))
       expect(retained.digests).toEqual((['missing-document', 'wrong-document', 'noncanonical-document'].includes(scenario)
-        ? [documentDigest] : scenario === 'opaque-extension' ? [documentDigest, resourceDigest, asset('d').digest]
+        ? [documentDigest] : ['opaque-extension', 'comfy-extra', 'comfy-unknown'].includes(scenario) ? [documentDigest, resourceDigest, asset('d').digest]
         : [documentDigest, resourceDigest]).sort())
       expect([...owners.values()].filter((owner) => owner.ownerKind === 'preview'))
         .toEqual([expect.objectContaining({ revision: 2, digests: [], complete: true })])

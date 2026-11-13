@@ -336,7 +336,11 @@ canonical documentDigest. At asynchronous retention boundaries, an independent
 incomplete preview owner protects reads while the document and every external
 resource are checked for canonical structure, digest and byte size. Native
 compositor commands are applied to an owned copy and the resulting document is
-validated before completeness is acknowledged. The destination owner must
+validated before completeness is acknowledged. The closed `comfy` extension with
+only an `inputs` array of 16-character lowercase hexadecimal source fingerprints
+has no asset roots; these are source-match metadata, not asset digests. Unknown
+extensions, extra fields and malformed fingerprint vectors keep the inventory
+incomplete while preserving known roots. The destination owner must
 acknowledge the resolved inventory before the preview owner retires. Resolution
 is operation-local and never reused across backend lifetimes. Malformed or
 unknown commands remain incomplete and keep known roots; clearing a recipe does

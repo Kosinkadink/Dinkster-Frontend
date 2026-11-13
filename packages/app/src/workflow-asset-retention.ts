@@ -694,8 +694,15 @@ export async function retainWorkflowAssets(
           const resources = Object.values(loaded.document.resources).filter((resource) => resource.inline === undefined)
           for (const resource of resources) digests.add(resource.digest)
           const extensions = loaded.document.extensions ?? {}
-          if (Object.entries(extensions).some(([key, value]) => key !== IMAGE_OUTPUT_POLICY_EXTENSION ||
-            canonicalJson(value) !== canonicalJson(imageOutputPolicyOf(loaded.document!)))) {
+          if (Object.entries(extensions).some(([key, value]) => {
+            if (key === IMAGE_OUTPUT_POLICY_EXTENSION) {
+              return canonicalJson(value) !== canonicalJson(imageOutputPolicyOf(loaded.document!))
+            }
+            if (key !== 'comfy' || typeof value !== 'object' || value === null || Array.isArray(value) ||
+              Object.keys(value).length !== 1 || !('inputs' in value) || !Array.isArray(value['inputs'])) return true
+            return !value['inputs'].every((fingerprint) => typeof fingerprint === 'string' &&
+              fingerprint.length === 16 && !/[^0-9a-f]/.test(fingerprint))
+          })) {
             for (const digest of executionAssetRoots({ outputs: { extensions }, artifacts: [] }, () => undefined).digests) digests.add(digest)
             throw new Error('Compositor document extensions have unknown asset semantics')
           }
