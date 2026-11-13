@@ -181,7 +181,7 @@ jobs:
   bundle:
     name: Publish the tested frontend bundle
     needs: fast
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    if: always() && needs.fast.result == 'success' && (github.event_name == 'push' || github.event_name == 'pull_request')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
