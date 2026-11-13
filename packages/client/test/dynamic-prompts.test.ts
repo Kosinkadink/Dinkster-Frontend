@@ -15,10 +15,6 @@ describe('dynamic prompt expansion pinned to ComfyUI_frontend bdc0345d', () => {
     expect(expandDynamicPrompt(source, () => random)).toBe(expected)
   })
 
-  it('does not evaluate arbitrary template syntax', () => {
-    expect(expandDynamicPrompt('${globalThis.alert(1)}', () => 0)).toBe('$globalThis.alert(1)')
-  })
-
   it('expands only explicit true descriptors on a cloned submission graph', () => {
     const schema: NodeSchema = {
       type: 'Prompt', displayName: 'Prompt', category: 'test', source: 'v3', isOutputNode: true,

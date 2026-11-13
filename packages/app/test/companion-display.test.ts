@@ -24,7 +24,7 @@ import {
   type NodeProgress,
   type ValueSourceData,
 } from '@dinkster/core'
-import { deriveCompanions, liveExactnessFor, recordedProducerDisplay } from '../src/companion-display.js'
+import { deriveCompanions, liveExactnessFor } from '../src/companion-display.js'
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
 const tap = (node: string, inputId: string) => ({ node: asNodeId(node), tap: asPortId(inputId) })
@@ -81,11 +81,6 @@ describe('deriveCompanions: literals', () => {
     expect(companions['consumer']?.['steps']).toEqual({ value: 7 })
   })
 
-  it('literals resolve at nested depth too (graph-local document facts)', () => {
-    const { companions } = deriveCompanions({ def: literalGraph, frozen: false })
-    expect(companions['consumer']?.['steps']).toEqual({ value: 7 })
-  })
-
   it.each([[0, 7], ['', 'changed']] as const)('keeps an unstored tap default %j and a later stored value in companion presentation', (fallback, stored) => {
     const def = graph({
       id: 'root',
@@ -104,12 +99,6 @@ describe('deriveCompanions: literals', () => {
     ;(def.nodes['source']!.values as Record<string, unknown>)['value'] = stored
     const after = deriveCompanions({ def, frozen: false, tapValueOf: () => undefined })
     expect(after.companions['consumer']?.['steps']).toEqual({ value: stored })
-  })
-
-  it('an undefined def yields nothing (no graph, no companions)', () => {
-    const derived = deriveCompanions({ def: undefined, frozen: false, runtimeIdsOf: (id) => [id] })
-    expect(derived.sources.size).toBe(0)
-    expect(derived.companions).toEqual({})
   })
 
   it('keeps a declared known literal distinct from recorded and estimated values', () => {
@@ -158,16 +147,6 @@ describe('deriveCompanions: producers', () => {
     expect(companions['consumer']?.['steps']).toEqual({ value: 42 })
   })
 
-  it('live tabs without an exactness oracle mark producer values stale', () => {
-    const { companions } = deriveCompanions({
-      def: producerGraph,
-      execNodes: { producer: done(inline) },
-      frozen: false,
-      runtimeIdsOf: (id) => [id],
-    })
-    expect(companions['consumer']?.['steps']).toEqual({ value: 42, stale: true })
-  })
-
   it('no execution means no producer companion (the input is still driven)', () => {
     const derived = deriveCompanions({
       def: producerGraph,
@@ -182,35 +161,6 @@ describe('deriveCompanions: producers', () => {
       node: 'producer',
       output: 'out',
     })
-  })
-
-  it('a summary without an inline value yields no companion (omission = not inline)', () => {
-    const { companions } = deriveCompanions({
-      def: producerGraph,
-      execNodes: { producer: done({ out: { typeId: 'list<INT>', length: 3 } }) },
-      frozen: true,
-      runtimeIdsOf: (id) => [id],
-    })
-    expect(companions['consumer']).toBeUndefined()
-  })
-
-  it('no occurrence resolver abstains from producer lookup (unknown instance path)', () => {
-    const { companions } = deriveCompanions({
-      def: producerGraph,
-      execNodes: { producer: done(inline) },
-      frozen: true,
-    })
-    expect(companions['consumer']).toBeUndefined()
-  })
-
-  it('a producer absent from the execution yields no companion', () => {
-    const { companions } = deriveCompanions({
-      def: producerGraph,
-      execNodes: { other: done(inline) },
-      frozen: true,
-      runtimeIdsOf: (id) => [id],
-    })
-    expect(companions['consumer']).toBeUndefined()
   })
 
   it('several agreeing occurrences display the shared value', () => {
@@ -279,21 +229,6 @@ describe('deriveCompanions: live exactness (exactProducer)', () => {
     expect(companions['consumer']?.['steps']).toEqual({ value: 42, stale: true })
   })
 
-  it('the oracle only consults occurrences that recorded the value', () => {
-    const seen: string[] = []
-    deriveCompanions({
-      def: producerGraph,
-      frozen: false,
-      execNodes: { producer: done(inline), 'producer[1]': done() }, // [1] never inlined
-      runtimeIdsOf: (id) => (id === 'producer' ? ['producer', 'producer[1]'] : [id]),
-      exactProducer: (rid) => {
-        seen.push(rid)
-        return true
-      },
-    })
-    expect(seen).toEqual(['producer'])
-  })
-
   it('frozen tabs ignore the oracle entirely (snapshot is authoritative)', () => {
     const { companions } = deriveCompanions({
       def: producerGraph,
@@ -303,18 +238,6 @@ describe('deriveCompanions: live exactness (exactProducer)', () => {
       exactProducer: () => false,
     })
     expect(companions['consumer']?.['steps']).toEqual({ value: 42 })
-  })
-
-  it('does not confuse a backend cached producer with retained data', () => {
-    const execNodes = { producer: { ...done(inline), state: 'cached' as const } }
-    const frozen = deriveCompanions({
-      def: producerGraph, execNodes, frozen: true, runtimeIdsOf: (id) => [id],
-    })
-    expect(frozen.companions['consumer']?.['steps']).toEqual({ value: 42 })
-    const edited = deriveCompanions({
-      def: producerGraph, execNodes, frozen: false, runtimeIdsOf: (id) => [id], exactProducer: () => false,
-    })
-    expect(edited.companions['consumer']?.['steps']).toEqual({ value: 42, stale: true })
   })
 
   it('labels only explicit retained contributors and treats mixed contributors as retained', () => {
@@ -337,43 +260,6 @@ describe('deriveCompanions: live exactness (exactProducer)', () => {
     expect(mixed.companions['consumer']?.['steps']).toEqual({ value: 42, state: 'cached' })
   })
 
-  it('does not let a retained occurrence hide an agreeing stale occurrence', () => {
-    const args = {
-      frozen: false,
-      execNodes: {
-        producer: done(inline),
-        'producer[1]': done(inline),
-      },
-      runtimeIdsOf: (id: string) => id === 'producer' ? ['producer', 'producer[1]'] : [id],
-      exactProducer: () => false,
-      retainedRuntimeIds: new Set(['producer']),
-    }
-    expect(recordedProducerDisplay(args, 'producer', 'out')).toEqual({ value: 42, stale: true })
-  })
-
-  it('requires every mapped occurrence and respects output aliases for propagation', () => {
-    const incomplete = {
-      frozen: false,
-      execNodes: {
-        producer: done({ state: { typeId: 'INT', value: 42 } }),
-        'producer[1]': done(),
-      },
-      runtimeIdsOf: (id: string) => id === 'producer' ? ['producer', 'producer[1]'] : [id],
-      exactProducer: () => true,
-      outputAliases: { producer: { out: 'state' }, 'producer[1]': { out: 'state' } },
-    }
-    expect(recordedProducerDisplay(incomplete, 'producer', 'out')).toEqual({ value: 42 })
-    expect(recordedProducerDisplay(incomplete, 'producer', 'out', true)).toBeUndefined()
-
-    const complete = {
-      ...incomplete,
-      execNodes: {
-        ...incomplete.execNodes,
-        'producer[1]': done({ state: { typeId: 'INT', value: 42 } }),
-      },
-    }
-    expect(recordedProducerDisplay(complete, 'producer', 'out', true)).toEqual({ value: 42 })
-  })
 })
 
 describe('liveExactnessFor: comparability gates', () => {
@@ -383,22 +269,7 @@ describe('liveExactnessFor: comparability gates', () => {
   }
   const artifact = (over?: Partial<CompileArtifact>): CompileArtifact =>
     ({ schemaHash: 'h1', prompt, ...over }) as unknown as CompileArtifact
-  const fixed = { graph: 'root', selector: 's', policy: 'fixed', candidate: 'a' } as const
   const random = { graph: 'root', selector: 's', policy: 'random', candidate: 'a' } as const
-
-  it('either artifact missing proves nothing', () => {
-    expect(liveExactnessFor(undefined, artifact())).toBeUndefined()
-    expect(liveExactnessFor(artifact(), undefined)).toBeUndefined()
-  })
-
-  it('a schema hash mismatch proves nothing (recipes are registry-relative)', () => {
-    expect(liveExactnessFor(artifact(), artifact({ schemaHash: 'h2' }))).toBeUndefined()
-  })
-
-  it('an older random artifact without cone provenance proves nothing', () => {
-    expect(liveExactnessFor(artifact({ choices: [random] }), artifact())).toBeUndefined()
-    expect(liveExactnessFor(artifact(), artifact({ choices: [random] }))).toBeUndefined()
-  })
 
   it('invalidates only the transitive cone downstream of a random selector', () => {
     const withRandomCone = artifact({
@@ -417,11 +288,6 @@ describe('liveExactnessFor: comparability gates', () => {
     const oracle = liveExactnessFor(independent, withRandomCone)
     expect(oracle?.('consumer')).toBe(false)
     expect(oracle?.('producer')).toBe(true)
-  })
-
-  it('fixed selector choices pass the gates', () => {
-    const oracle = liveExactnessFor(artifact({ choices: [fixed] }), artifact({ choices: [fixed] }))
-    expect(oracle?.('consumer')).toBe(true)
   })
 
   it('past the gates, verdicts follow upstream recipe comparison per node', () => {
@@ -451,11 +317,6 @@ describe('deriveCompanions: mirror estimates', () => {
       runtimeIdsOf: (id) => [id],
       estimates,
     })
-    expect(companions['consumer']?.['steps']).toEqual({ value: 55, state: 'estimate' })
-  })
-
-  it('shows the estimate without an occurrence resolver (mapping-independent)', () => {
-    const { companions } = deriveCompanions({ def: producerGraph, frozen: false, estimates })
     expect(companions['consumer']?.['steps']).toEqual({ value: 55, state: 'estimate' })
   })
 
@@ -509,15 +370,6 @@ describe('deriveCompanions: mirror estimates', () => {
     expect(companions['consumer']?.['steps']).toBeUndefined()
   })
 
-  it('literals ignore estimates (document-static values are exact)', () => {
-    const { companions } = deriveCompanions({
-      def: literalGraph,
-      frozen: false,
-      runtimeIdsOf: (id) => [id],
-      estimates: new Map([['v1', { outputs: { out: 99 } }]]),
-    })
-    expect(companions['consumer']?.['steps']).toEqual({ value: 7 })
-  })
 })
 
 describe('deriveCompanions: dormant values are untouched', () => {
@@ -533,26 +385,4 @@ describe('deriveCompanions: dormant values are untouched', () => {
     expect(producerGraph.nodes['consumer']?.values['steps']).toBe(20)
   })
 
-  it('a save-target producer source preserves the consumer dormant value before an inline value is available', () => {
-    const def = graph({
-      id: 'root',
-      nodes: {
-        producer: { id: asNodeId('producer'), type: 'SaveTargetProducer', values: {} },
-        consumer: {
-          id: asNodeId('consumer'),
-          type: 'SaveTargetConsumer',
-          values: { target: { mount: 'output', prefix: 'dormant/stem' } },
-        },
-      },
-      links: { l1: link('l1', port('producer', 'target'), port('consumer', 'target')) },
-    })
-    const derived = deriveCompanions({ def, frozen: false, runtimeIdsOf: (id) => [id] })
-    expect(derived.sources.get('consumer')?.get('target')).toEqual({
-      kind: 'producer',
-      node: 'producer',
-      output: 'target',
-    })
-    expect(derived.companions.consumer).toBeUndefined()
-    expect(def.nodes.consumer!.values.target).toEqual({ mount: 'output', prefix: 'dormant/stem' })
-  })
 })

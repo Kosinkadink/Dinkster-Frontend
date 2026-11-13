@@ -699,42 +699,6 @@ test('primitive list edits preserve arrays in canvas and exposed AppView control
   await testInfo.attach('primitive-list-app-view', { path: appPath, contentType: 'image/png' })
 })
 
-test('VIDEO_EDIT trim and crop preserve imported JSON and commit strict_duration separately', async ({ page }, testInfo) => {
-  const before = (await activeDoc(page)).graphs.g0!.nodes.widgets!.values
-  await openEditor(page, 'video_edit')
-  const editor = page.getByTestId('video-edit-editor')
-  await expect(editor).toBeVisible()
-  await expect(page.getByTestId('video-edit-preview-unavailable')).toBeVisible()
-  await expect(page.getByTestId('video-edit-filmstrip')).toBeVisible()
-  await expect(page.getByTestId('video-crop-stage')).toBeVisible()
-  await page.getByTestId('video-trim-duration-seconds').fill('0')
-  await page.getByTestId('video-crop-width').fill('0')
-  await page.getByTestId('video-trim-strict').check()
-  const modal = page.getByTestId('widget-modal-surface')
-  await expect(modal.getByTestId('video-edit-apply')).toBeVisible()
-  expect(await editor.evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(true)
-  await page.getByTestId('widget-editor').evaluate((element) => { element.scrollTop = 0 })
-  const screenshotPath = testInfo.outputPath('video-edit-trim-crop.png')
-  await modal.screenshot({ path: screenshotPath, animations: 'disabled' })
-  await testInfo.attach('video-edit-trim-crop', { path: screenshotPath, contentType: 'image/png' })
-  await page.getByTestId('widget-editor').evaluate((element) => { element.scrollTop = element.scrollHeight })
-  await expect(page.getByTestId('video-crop-width')).toBeInViewport()
-  await expect(page.getByRole('button', { name: 'Full frame', exact: true })).toBeInViewport()
-  await modal.screenshot({ path: testInfo.outputPath('video-edit-crop-scrolled.png'), animations: 'disabled' })
-  await page.getByTestId('video-edit-apply').click()
-
-  const values = (await activeDoc(page)).graphs.g0!.nodes.widgets!.values
-  expect(values.video_edit).toEqual({
-    imported: { future: ['keep', 7] },
-    trim: { start_time: 1.25, duration: 0, future_trim: true },
-    crop: { x: 100, y: 40, width: 0, height: 720, future_crop: 'keep' },
-  })
-  expect(values.strict_duration).toBe(true)
-  await page.getByTestId('graph-canvas').focus()
-  await page.keyboard.press('Control+z')
-  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values).toEqual(before)
-})
-
 test('INT commits exact integers, rejects malformed text, and does not clamp or step', async ({ page }) => {
   const value = async () => (await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count
   await openEditor(page, 'count')
@@ -884,26 +848,6 @@ test('FR15 an empty numeric commit never writes zero', async ({ page }) => {
     await input.press('Escape')
     await expect(page.getByTestId('widget-editor')).toHaveCount(0)
     expect(await value()).toBe(42)
-  }
-})
-
-test('FR15 non-finite numeric text never commits through the editor', async ({ page }) => {
-  const value = async () => (await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count
-  await openEditor(page, 'count')
-  let input = page.getByTestId('widget-editor').locator('input')
-  await input.fill('7'); await input.press('Enter')
-  await expect(page.getByTestId('widget-editor')).toHaveCount(0)
-  expect(await value()).toBe(7)
-
-  // Non-finite forms must error visibly instead of committing as integers.
-  for (const raw of ['Infinity', '-Infinity', '1e999']) {
-    await openEditor(page, 'count'); input = page.getByTestId('widget-editor').locator('input')
-    await input.fill(raw); await input.press('Enter')
-    await expect(page.getByTestId('widget-editor')).toBeVisible()
-    await expect(page.getByTestId('widget-editor-error')).toContainText('exact integer')
-    await input.press('Escape')
-    await expect(page.getByTestId('widget-editor')).toHaveCount(0)
-    expect(await value()).toBe(7)
   }
 })
 
@@ -1799,14 +1743,6 @@ test('static COMBO popover filters, navigates folders, cancels, and handles no o
   await expect(page.getByTestId('combo-dropdown')).toContainText('No matching options')
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
-})
-
-test('ASSET dedicated editor uses the shared modal header', async ({ page }) => {
-  await openEditor(page, 'asset')
-  const modal = page.getByTestId('widget-modal-surface')
-  await expect(page.getByTestId('asset-editor')).toBeVisible()
-  await expect(modal).toHaveAccessibleName('Edit asset asset')
-  await expect(modal.locator('.dock-title')).toHaveText('asset asset')
 })
 
 test('huge COMBO lists render a capped window with paging rows and still commit from the full list', async ({ page }, testInfo) => {

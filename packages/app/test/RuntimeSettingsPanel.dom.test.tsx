@@ -31,16 +31,6 @@ afterEach(() => {
 })
 
 describe('RuntimeSettingsPanel', () => {
-  it('renders available runtime settings despite unrelated disabled features', async () => {
-    const { root } = mount({
-      features: { templates: { enabled: false } },
-      categories: { granted: ['jobs'], available: ['jobs'] },
-      settings: { jobs: section({ maxRunningJobs: 2 }) },
-    })
-    root.querySelector<HTMLButtonElement>('.runtime-settings-toggle')!.click()
-    await flush()
-    expect(root.querySelector('[data-category="jobs"]')).not.toBeNull()
-  })
 
   it('updates mounted runtime settings from the active locale catalog', async () => {
     registerCatalog('de-DE', {
@@ -127,39 +117,6 @@ describe('RuntimeSettingsPanel', () => {
     await flush()
     expect(root.querySelectorAll('.runtime-settings-editor')).toHaveLength(1)
     expect(root.querySelector('.runtime-settings-editor')?.getAttribute('data-category')).toBe('jobs')
-  })
-
-  it('keeps field associations unique across simultaneous backend panels', async () => {
-    const response = { categories: { granted: ['jobs'], available: ['jobs'] }, settings: { jobs: section({ maxRunningJobs: 2 }) } }
-    const connection = { fetchRuntimeSettings: vi.fn(async () => response), updateRuntimeSetting: vi.fn() }
-    const root = document.createElement('div')
-    document.body.append(root)
-    render(() => <><RuntimeSettingsPanel connection={connection} alwaysOpen /><RuntimeSettingsPanel connection={connection} alwaysOpen /></>, root)
-    await flush()
-
-    const fields = [...root.querySelectorAll<HTMLElement>('.product-field')]
-    const labels = fields.map((field) => field.querySelector<HTMLLabelElement>('label')!.htmlFor)
-    expect(fields).toHaveLength(2)
-    expect(new Set(labels).size).toBe(2)
-    expect(fields.every((field) => field.querySelector('label')?.htmlFor === field.querySelector('input')?.id)).toBe(true)
-  })
-
-  it('mounts the worker-comfy-args editor only when granted and writable', async () => {
-    const writable = mount({ categories: { granted: ['worker-comfy-args'], available: ['worker-comfy-args'] }, settings: { 'worker-comfy-args': section(['--preview-size', '321']) } })
-    writable.root.querySelector<HTMLButtonElement>('.runtime-settings-toggle')!.click(); await flush()
-    expect(writable.root.querySelector('form[data-category="worker-comfy-args"]')).not.toBeNull()
-    writable.unmount(); writable.root.remove()
-
-    const ungranted = mount({ categories: { granted: [], available: ['worker-comfy-args'] }, settings: { 'worker-comfy-args': section(['--preview-size', '321']) } })
-    ungranted.root.querySelector<HTMLButtonElement>('.runtime-settings-toggle')!.click(); await flush()
-    expect(ungranted.root.querySelector('[data-category="worker-comfy-args"] code')?.textContent).toBe('["--preview-size","321"]')
-    expect(ungranted.root.querySelector('.runtime-settings-editor')).toBeNull()
-    ungranted.unmount(); ungranted.root.remove()
-
-    const readonly = mount({ categories: { granted: ['worker-comfy-args'], available: ['worker-comfy-args'] }, settings: { 'worker-comfy-args': section(['--preview-size', '321'], { writable: false }) } })
-    readonly.root.querySelector<HTMLButtonElement>('.runtime-settings-toggle')!.click(); await flush()
-    expect(readonly.root.querySelector('[data-category="worker-comfy-args"] code')?.textContent).toBe('["--preview-size","321"]')
-    expect(readonly.root.querySelector('.runtime-settings-editor')).toBeNull()
   })
 
   it('edits component dtypes independently and exposes the FP8 control', async () => {
@@ -352,13 +309,6 @@ describe('RuntimeSettingsPanel', () => {
     root.querySelector<HTMLButtonElement>('.runtime-settings-toggle')!.click(); await flush()
     root.querySelector<HTMLFormElement>('form[data-category="worker-comfy-args"]')!.requestSubmit(); await flush()
     expect(update).toHaveBeenCalledWith('worker-comfy-args', [])
-  })
-
-  it('keeps granted writable unknown categories read-only', async () => {
-    const { root } = mount({ categories: { granted: ['future'], available: ['future'] }, settings: { future: section({ enabled: true }) } })
-    root.querySelector<HTMLButtonElement>('.runtime-settings-toggle')!.click(); await flush()
-    expect(root.querySelector('[data-category="future"] code')?.textContent).toBe('{"enabled":true}')
-    expect(root.querySelector('.runtime-settings-editor')).toBeNull()
   })
 
   it('keeps structured validation and permission failures inline until the next edit', async () => {

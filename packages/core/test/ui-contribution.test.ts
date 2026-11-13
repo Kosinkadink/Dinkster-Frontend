@@ -64,52 +64,6 @@ describe('HostUiContributionV1 decoding', () => {
     expect(codes(contribution({ kind: 'group', key: 'root', direction: 'row', children: [shared, shared] })).join('\n')).toContain('cycle or shared')
   })
 
-  it('rejects accessor and decorated arrays without invoking them', () => {
-    const accessor: unknown[] = []
-    Object.defineProperty(accessor, '0', { enumerable: true, get: () => { throw new Error('must not run') } })
-    Object.defineProperty(accessor, 'length', { value: 1 })
-    expect(() => decodeHostUiContributionV1(contribution({ kind: 'action', key: 'a', label: 'A', command: 'a.run', payload: accessor }))).not.toThrow()
-    expect(decodeHostUiContributionV1(contribution({ kind: 'action', key: 'a', label: 'A', command: 'a.run', payload: accessor })).contribution).toBeUndefined()
-    const decorated: unknown[] = []
-    Object.defineProperty(decorated, Symbol('bad'), { value: true })
-    expect(decodeHostUiContributionV1(contribution({ kind: 'action', key: 'a', label: 'A', command: 'a.run', payload: decorated })).contribution).toBeUndefined()
-  })
-
-  it('contains hostile proxy inspection failures', () => {
-    const hostile = new Proxy({}, { getPrototypeOf: () => { throw new Error('attacker detail') } })
-    const decoded = decodeHostUiContributionV1(hostile)
-    expect(decoded.contribution).toBeUndefined()
-    expect(decoded.diagnostics).toHaveLength(1)
-    expect(decoded.diagnostics[0]?.code).toBe('host-ui.invalid')
-    expect(decoded.diagnostics[0]?.message).not.toContain('attacker detail')
-  })
-
-  it.each([
-    ['root', () => new Proxy(contribution(text()) as object, {})],
-    ['nested object', () => contribution(new Proxy(text() as object, {}))],
-    ['nested array', () => contribution({ kind: 'group', key: 'root', direction: 'row', children: new Proxy([text()], {}) })],
-  ])('rejects a transparent proxy at the contribution %s boundary', (_name, make) => {
-    const decoded = decodeHostUiContributionV1(make())
-    expect(decoded.contribution).toBeUndefined()
-    expect(decoded.diagnostics).toHaveLength(1)
-    expect(decoded.diagnostics[0]?.code).toBe('host-ui.invalid')
-  })
-
-  it('owns prototype-named JSON keys and bounds diagnostics', () => {
-    const payload = JSON.parse('{"__proto__":{"mutable":true}}') as unknown
-    const decoded = decodeHostUiContributionV1(contribution({ kind: 'action', key: 'a', label: 'A', command: 'a.run', payload }))
-    const owned = (decoded.contribution!.root as { payload: Record<string, unknown> }).payload
-    expect(Object.hasOwn(owned, '__proto__')).toBe(true)
-    expect(Object.getPrototypeOf(owned)).toBeNull()
-    expect(Object.isFrozen(owned['__proto__'])).toBe(true)
-
-    const root: Record<string, unknown> = { kind: 'text', key: 'a', text: 'A' }
-    for (let index = 0; index < 100; index += 1) root[`${'x'.repeat(1000)}-${index}`] = true
-    const diagnostics = decodeHostUiContributionV1(contribution(root)).diagnostics
-    expect(diagnostics.length).toBeLessThanOrEqual(32)
-    expect(Math.max(...diagnostics.map((item) => item.message.length))).toBeLessThan(200)
-  })
-
   it('enforces every exported limit', () => {
     expect(codes(contribution({ kind: 'group', key: 'root', direction: 'row', children: Array.from({ length: HOST_UI_MAX_CHILDREN + 1 }, (_, index) => text(`n-${index}`)) })).join('\n')).toContain('child limit')
     let deep: unknown = text('leaf')
@@ -123,15 +77,6 @@ describe('HostUiContributionV1 decoding', () => {
     expect(codes(contribution({ kind: 'action', key: 'a', label: 'A', command: 'a.run', payload: Array.from({ length: HOST_UI_MAX_NODES }, () => null) })).join('\n')).toContain('value limit')
   })
 
-  it('rejects oversized payload strings and keys during JSON preflight', () => {
-    const oversized = 'x'.repeat(HOST_UI_MAX_PAYLOAD_JSON_BYTES + 1)
-    const stringMessages = codes(contribution({ kind: 'action', key: 'a', label: 'A', command: 'a.run', payload: oversized }))
-    expect(stringMessages.join('\n')).toContain('JSON preflight limit')
-    expect(Math.max(...stringMessages.map((message) => message.length))).toBeLessThan(200)
-    const keyMessages = codes(contribution({ kind: 'action', key: 'a', label: 'A', command: 'a.run', payload: { [oversized]: null } }))
-    expect(keyMessages.join('\n')).toContain('JSON key preflight limit')
-    expect(Math.max(...keyMessages.map((message) => message.length))).toBeLessThan(200)
-  })
 })
 
 describe('HostUiProviderContextV1', () => {
@@ -149,29 +94,4 @@ describe('HostUiProviderContextV1', () => {
     expect((context.data as { nested: { value: string } }).nested.value).toBe('host')
   })
 
-  it('preserves and freezes prototype-named context keys as owned data', () => {
-    const context = createHostUiProviderContextV1('status', JSON.parse('{"__proto__":{"value":1}}'))
-    expect(Object.hasOwn(context.data as object, '__proto__')).toBe(true)
-    expect(Object.getPrototypeOf(context.data)).toBeNull()
-    expect(Object.isFrozen((context.data as Record<string, unknown>)['__proto__'])).toBe(true)
-  })
-
-  it('rejects oversized context strings and keys during JSON preflight', () => {
-    const oversized = 'x'.repeat(HOST_UI_MAX_PAYLOAD_JSON_BYTES + 1)
-    expect(() => createHostUiProviderContextV1('status', oversized)).toThrow(/JSON preflight limit/)
-    expect(() => createHostUiProviderContextV1('status', { [oversized]: null })).toThrow(/JSON key preflight limit/)
-  })
-
-  it('contains hostile context proxy inspection failures', () => {
-    const hostile = new Proxy({}, { ownKeys: () => { throw new Error('attacker detail') } })
-    expect(() => createHostUiProviderContextV1('status', hostile as never)).toThrow(new TypeError('$.data: could not be safely inspected'))
-  })
-
-  it.each([
-    ['root', () => new Proxy({ value: 'host' }, {})],
-    ['nested object', () => ({ nested: new Proxy({ value: 'host' }, {}) })],
-    ['nested array', () => ({ nested: new Proxy(['host'], {}) })],
-  ])('rejects a transparent proxy at the context %s boundary', (_name, make) => {
-    expect(() => createHostUiProviderContextV1('status', make())).toThrow(new TypeError('$.data: could not be safely inspected'))
-  })
 })

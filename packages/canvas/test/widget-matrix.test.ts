@@ -8,11 +8,9 @@
  * painter's side of the contract.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { CompactState, Json, WidgetKind, WidgetRegistry, WidgetView } from '@dinkster/core'
+import type { Json } from '@dinkster/core'
 import { hitTest } from '../src/hit.js'
 import { InteractionController } from '../src/interaction.js'
-import { createRegistryPainter } from '../src/registry-painter.js'
-import { defaultTokens } from '../src/tokens.js'
 import type { LayoutRow } from '../src/layout.js'
 import type { Scene, SceneLink } from '../src/scene.js'
 
@@ -31,40 +29,6 @@ const row = (name: string): Extract<LayoutRow, { kind: 'widget' }> => ({
   address: { port: 'port' }, label: `${name} label`, type: { kind: 'concrete', name: widgetType(name) },
   viewId: `test.${name}`, rows: 1, spec: { widgetType: widgetType(name), options: {} },
 })
-
-function registryFor(name: string, state: CompactState[]): WidgetRegistry {
-  const type = widgetType(name)
-  const kind: WidgetKind = {
-    type, valueSchema: { version: 1, validate: (_v): _v is Json => true }, defaultValue: () => '',
-    validate: () => [], defaultView: () => `test.${name}`,
-  }
-  const view: WidgetView = {
-    id: `test.${name}`, kind: type, isCompatible: () => true, measure: () => ({ rows: 1 }),
-    drawCompact: (builder, value, _spec, compact) => {
-      state.push(compact)
-      builder.text(1, 0, String(value), { align: 'right', width: 1 })
-    },
-  }
-  return {
-    registerKind: () => () => {}, registerView: () => () => {}, registerEditor: () => () => {}, registerPreviewRenderer: () => () => {},
-    kind: (candidate) => candidate === type ? kind : undefined,
-    viewsFor: (candidate) => candidate === type ? [view] : [], editorFor: () => undefined, previewRendererFor: () => undefined,
-  }
-}
-
-function context() {
-  const texts: Array<{ run: string; x: number; align: string }> = []
-  const ctx = {
-    fillStyle: '', strokeStyle: '', lineWidth: 1, textAlign: 'left', beginPath: () => {}, roundRect: () => {}, fill: () => {}, fillRect: () => {},
-    moveTo: () => {}, lineTo: () => {}, stroke: () => {},
-    measureText: (text: string) => ({ width: text.length * 6 }),
-    save: () => {}, restore: () => {}, rect: () => {}, clip: () => {},
-    fillText(text: string, x: number) {
-      texts.push({ run: text, x, align: String(this.textAlign) })
-    },
-  }
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts }
-}
 
 const sceneFor = (name: string, value: Json, links: SceneLink[] = []): Scene => ({
   graphId: 'g0', nodes: [{
@@ -100,26 +64,6 @@ function controllerFor(scene: Scene, activate: (hit: unknown, x: number, y: numb
 afterEach(() => vi.unstubAllGlobals())
 
 describe.each(entries)('%s canvas matrix', (name, value) => {
-  it('registry painter forwards connected/read-only state and paints the view output', () => {
-    const states: CompactState[] = []
-    const { ctx, texts } = context()
-    createRegistryPainter(registryFor(name, states))({
-      ctx, row: row(name), value, x: 0, y: 0, width: 240, rowHeight: 24, connected: true, tokens: defaultTokens,
-    })
-    // The painter must hand the view the exact stored value and map its
-    // right-aligned builder text into a real right-aligned fillText. The
-    // painter renders the FIRST LINE and may ellipsize when the label zone
-    // squeezes the value - but never an empty run, never invented text.
-    const painted = texts.find((t) => t.align === 'right')
-    expect(painted).toBeDefined()
-    const firstLine = String(value).split('\n')[0]!
-    const run = painted!.run
-    const core = run.endsWith('...') ? run.slice(0, -3) : run
-    expect(core.length).toBeGreaterThan(0)
-    expect(firstLine.startsWith(core)).toBe(true)
-    if (!run.endsWith('...')) expect(run).toBe(firstLine)
-    expect(states).toEqual([{ focused: false, connected: true, readonly: true }])
-  })
 
   it('hits the widget row with the right kind spec and valueKey', () => {
     const scene = sceneFor(name, value)

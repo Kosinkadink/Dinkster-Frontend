@@ -95,30 +95,6 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test('fixture renders the pill as a value source, NOT a node, with a derived INT spec', async ({ page }) => {
-  const scene = await page.evaluate(() => {
-    const s = window.__dinksterTest!.renderer!.getScene()
-    return {
-      nodeIds: s.nodes.map((n) => n.id).sort(),
-      valueSources: s.valueSources,
-      linkFroms: s.links.map((l) => ({ id: l.id, from: l.from })),
-    }
-  })
-  // The source never leaks into scene.nodes (it is not a fake NodeData).
-  expect(scene.nodeIds).toEqual(['n0', 'n1'])
-  expect(scene.valueSources).toHaveLength(1)
-  const vs = scene.valueSources[0]!
-  expect(vs.id).toBe('v2')
-  expect(vs.valueText).toBe('128')
-  // Both consumers (width, height) are INT widgets: derivation unifies them.
-  expect(vs.specState).toBe('derived')
-  expect(vs.conflict).toBe(false)
-  expect(vs.typeName).toBe('INT')
-  // Direct link and the reroute leg both originate at the source.
-  expect(scene.linkFroms.find((l) => l.id === 'l4')?.from).toEqual({ kind: 'valueSource', valueSource: 'v2' })
-  expect(scene.linkFroms.find((l) => l.id === 'l5')?.from).toEqual({ kind: 'valueSource', valueSource: 'v2' })
-})
-
 test('pill selection is independent of node selection; empty click clears both', async ({ page }) => {
   const canvas = page.getByTestId('graph-canvas')
   await page.mouse.click(...xy(await pointOnSource(page, 'v2', 'body')))

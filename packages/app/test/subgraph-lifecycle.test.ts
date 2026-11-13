@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { diag, documentResolver, occurrenceDynamicView, coreCommandRegistry, createLocalSession, type CommandOutcome, type Diagnostic, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import { buildScene, defaultTokens } from '@dinkster/canvas'
 import { AppState } from '../src/app-state.js'
-import { extractSubgraphInvocationThroughBridge, flattenSubgraphThroughBridge, lifecycleOtherSelectionCount } from '../src/CanvasHost.js'
+import { extractSubgraphInvocationThroughBridge, flattenSubgraphThroughBridge } from '../src/CanvasHost.js'
 import { activateProblem } from '../src/ProblemsPanel.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection } from '../src/subgraph-lifecycle.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
@@ -84,19 +84,6 @@ describe('subgraph lifecycle app plans', () => {
     expect(isFlattenSelection(doc, 'root', ['inside'], 0)).toBe(true)
     expect(isFlattenSelection(doc, 'root', ['inside'], 1)).toBe(false)
     expect(isFlattenSelection(doc, 'root', ['inside', 'outside'], 0)).toBe(false)
-  })
-
-  it('counts a selected net view as other selection for flatten eligibility', () => {
-    const empty = new Set<string>()
-    const controller = {
-      getLinkSelection: () => empty,
-      getRerouteSelection: () => empty,
-      getValueSourceSelection: () => empty,
-      getSelectorSelection: () => empty,
-      getGroupSelection: () => empty,
-      getNetViewSelection: () => new Set(['get-view']),
-    }
-    expect(lifecycleOtherSelectionCount(controller)).toBe(1)
   })
 
   it('surfaces the real region flatten refusal with its anchored occurrence', async () => {

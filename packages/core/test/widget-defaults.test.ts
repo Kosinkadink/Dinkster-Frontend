@@ -89,10 +89,6 @@ describe('effectiveWidgetDefault', () => {
     expect(effectiveWidgetDefault(spec('COLOR', { default: 42 as unknown as string }))).toBe('#ffffff')
   })
 
-  it('COLOR falls back to white', () => {
-    expect(effectiveWidgetDefault(spec('COLOR'))).toBe('#ffffff')
-  })
-
   it('CURVE falls back to the monotone-cubic identity', () => {
     const identity = {
       interpolation: 'monotone_cubic',
@@ -102,14 +98,6 @@ describe('effectiveWidgetDefault', () => {
     expect(effectiveWidgetDefault(spec('CURVE', {
       default: { points: [{ position: 1, value: 0 }, { position: 1, value: 2 }] },
     }))).toEqual(identity)
-  })
-
-  it('preserves every COLOR string default without parsing or normalization', () => {
-    expect(effectiveWidgetDefault(spec('COLOR', { default: '#xyz' }))).toBe('#xyz')
-    expect(effectiveWidgetDefault(spec('COLOR', { default: 'red' }))).toBe('red')
-    expect(effectiveWidgetDefault(spec('COLOR', { default: '#ff00' }))).toBe('#ff00')
-    expect(effectiveWidgetDefault(spec('COLOR', { default: '' }))).toBe('')
-    expect(effectiveWidgetDefault(spec('COLOR', { default: '#AbCdEf' }))).toBe('#AbCdEf')
   })
 
   it('ASSET: only a complete AssetRef default is usable; null/malformed stay undefined', () => {

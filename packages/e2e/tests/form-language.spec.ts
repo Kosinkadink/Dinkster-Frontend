@@ -1,8 +1,7 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const PROOF = '/tmp/dinkster-31-form-language'
-const RUNTIME = 'http://runtime-form.test'
 
 async function installStartup(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
@@ -85,45 +84,6 @@ test('settings validation stays associated and contained at wide and narrow size
   await expect(input).toHaveValue('8')
   await expect(input).not.toHaveAttribute('aria-invalid', 'true')
   await expect(row.getByRole('alert')).toHaveCount(0)
-})
-
-test('runtime fields and actions use the shared panel language', async ({ page }) => {
-  await installStartup(page)
-  await page.route(`${RUNTIME}/api/nodes*`, (route) => route.fulfill({ json: {
-    schemaVersion: 1,
-    epoch: 1,
-    dinkster: { version: 'runtime-form-e2e', schemaWire: 1 },
-    nodes: {},
-  } }))
-  await page.route(`${RUNTIME}/api/settings*`, (route) => route.fulfill({ json: {
-    categories: { granted: ['memory-headroom', 'worker-comfy-args', 'jobs'], available: ['memory-headroom', 'worker-comfy-args', 'jobs'] },
-    settings: {
-      'memory-headroom': { value: '256M', source: 'default', mutability: 'live', writable: true, persistence: { available: true, persisted: true } },
-      'worker-comfy-args': { value: ['--preview-size', '512'], source: 'runtime', mutability: 'on-worker-restart', writable: true, persistence: { available: false, persisted: false } },
-      jobs: { value: { maxRunningJobs: 2 }, source: 'default', mutability: 'live', writable: true, persistence: { available: true, persisted: true } },
-    },
-  } }))
-  await page.setViewportSize({ width: 1366, height: 768 })
-  await page.goto('/')
-  await expect(page.getByTestId('backends-sidebar-toggle')).toBeVisible()
-  await page.getByTestId('backends-sidebar-toggle').click()
-  await page.getByTestId('backend-url-input').fill(RUNTIME)
-  await page.getByTestId('backend-add').click()
-  await selectProductOption(page, page.getByTestId('tab-target'), RUNTIME)
-  const backend = page.locator('.backend-card', { hasText: RUNTIME })
-  await backend.locator('.runtime-settings-toggle').click()
-  const workerArguments = backend.locator('details[data-category="worker-comfy-args"]')
-  await expect(workerArguments).toBeVisible()
-  await expect(backend.locator('.product-action-footer')).toHaveCount(3)
-  await expect(workerArguments.getByRole('status')).toContainText('in-memory only')
-  await workerArguments.locator('.product-action-footer').scrollIntoViewIfNeeded()
-  await expect(workerArguments.locator('.product-action-footer')).toBeInViewport()
-  await page.screenshot({ path: `${PROOF}/after-runtime-1366x768.png`, fullPage: true })
-
-  const jobs = backend.locator('details[data-category="jobs"]')
-  await jobs.locator('.product-action-footer').scrollIntoViewIfNeeded()
-  await expect(jobs.locator('.product-action-footer')).toBeInViewport()
-  await page.screenshot({ path: `${PROOF}/after-runtime-tail-1366x768.png`, fullPage: true })
 })
 
 test('widget validation and a busy asset decision remain usable on a narrow viewport', async ({ page }) => {

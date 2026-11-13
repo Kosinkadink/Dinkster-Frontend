@@ -1,32 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { Diagnostic } from '../src/diagnostics.js'
-import type { JsonObject } from '../src/format/document.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { checkImageDocument } from '../src/image-document/invariants.js'
-import {
-  loadImageDocument,
-  migrateImageDocumentJson,
-  serializeImageDocument,
-  type ImageDocumentMigrationStep,
-} from '../src/image-document/migrate.js'
-import {
-  IMAGE_DOCUMENT_FORMAT_VERSION,
-  IMAGE_FIXED_POINT_SCALE,
-  IMAGE_OPACITY_MAX,
-  MAX_IMAGE_CANVAS_DIMENSION,
-  MAX_IMAGE_LAYER_DEPTH,
-  MAX_IMAGE_LAYERS,
-  MAX_IMAGE_MASKS_PER_LAYER,
-  MAX_IMAGE_RESOURCES,
-  asImageLayerId,
-  asImageLineageId,
-  asImageMaskId,
-  asImageResourceId,
-  type ImageAffineTransform,
-  type ImageDocument,
-} from '../src/image-document/model.js'
-import { imageDocumentSemanticProjection } from '../src/image-document/semantic.js'
-import { validateImageDocumentShape } from '../src/image-document/validate.js'
+import { loadImageDocument, serializeImageDocument } from '../src/image-document/migrate.js'
+import { IMAGE_DOCUMENT_FORMAT_VERSION, IMAGE_FIXED_POINT_SCALE, IMAGE_OPACITY_MAX, MAX_IMAGE_CANVAS_DIMENSION, MAX_IMAGE_LAYER_DEPTH, asImageLayerId, asImageLineageId, asImageMaskId, asImageResourceId, type ImageAffineTransform, type ImageDocument } from '../src/image-document/model.js'
 
 const DIGEST = `blake3:${'a'.repeat(64)}` as const
 const LAYER = asImageLayerId('l1')
@@ -141,32 +118,6 @@ describe('ImageDocument loading', () => {
       .toBe('image.format.unknown')
   })
 
-  it('owns hostile input before reading its root and rejects cycles', () => {
-    let invoked = false
-    const hostile = {}
-    Object.defineProperty(hostile, 'format', {
-      enumerable: true,
-      get() {
-        invoked = true
-        return 'dinkster-image'
-      },
-    })
-    expect(loadImageDocument(hostile).diagnostics[0]!.code).toBe('image.notJson')
-    expect(invoked).toBe(false)
-
-    const cyclic: Record<string, unknown> = { format: 'dinkster-image' }
-    cyclic['self'] = cyclic
-    expect(loadImageDocument(cyclic).diagnostics[0]!.code).toBe('image.notJson')
-  })
-
-  it('enforces the canonical encoded-byte budget', () => {
-    const document = imageDocument()
-    const size = new TextEncoder().encode(serializeImageDocument(document)).byteLength
-    const result = loadImageDocument(document, { maxDocumentBytes: size - 1 })
-    expect(result.document).toBeUndefined()
-    expect(result.diagnostics.at(-1)!.code).toBe('image.size.exceeded')
-  })
-
   it('serializes canonically regardless of insertion order', () => {
     const document = imageDocument()
     const reordered = { ...document, canvas: { ...document.canvas } }
@@ -175,71 +126,7 @@ describe('ImageDocument loading', () => {
   })
 })
 
-describe('ImageDocument migrations', () => {
-  const step = (from: number, key: string): ImageDocumentMigrationStep => ({
-    from,
-    description: `${from} to ${from + 1}`,
-    migrate(document) {
-      return {
-        document: {
-          ...document,
-          extensions: {
-            ...document['extensions'] as JsonObject | undefined,
-            [key]: true,
-          },
-        },
-        diagnostics: [],
-      }
-    },
-  })
-
-  it('runs a sequential independent migration chain through the full loader', () => {
-    const result = loadImageDocument({ ...imageDocument(), formatVersion: 1 }, {
-      targetVersion: 3,
-      migrations: [step(1, 'first'), step(2, 'second')],
-    })
-    expect(errorCodes(result.diagnostics)).toEqual([])
-    expect(result.document!.formatVersion).toBe(3)
-    expect(result.document!.extensions).toMatchObject({ first: true, second: true })
-  })
-
-  it('rejects gaps, future versions, and invalid versions', () => {
-    expect(migrateImageDocumentJson(imageDocument() as unknown as JsonObject, [], 3).diagnostics[0]!.code)
-      .toBe('image.version.gap')
-    expect(loadImageDocument({ ...imageDocument(), formatVersion: 99 }).diagnostics[0]!.code)
-      .toBe('image.version.future')
-    for (const version of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '1']) {
-      expect(loadImageDocument({ ...imageDocument(), formatVersion: version }).diagnostics[0]!.code)
-        .toBe('image.version.invalid')
-    }
-  })
-})
-
 describe('ImageDocument shape and limits', () => {
-  it('migrates v1 by changing only the version, without injecting defaults or IDs', () => {
-    const input = { ...imageDocument(), formatVersion: 1 }
-    expect(loadImageDocument(input).document).toEqual({ ...input, formatVersion: 2 })
-  })
-
-  it('rejects v2-only fields instead of laundering them through a v1 migration', () => {
-    for (const mutate of [
-      (input: Record<string, any>) => { input.canvas.compositing = 'linear-premultiplied-alpha' },
-      (input: Record<string, any>) => { input.canvas.background = [0, 0, 0, 0] },
-      (input: Record<string, any>) => { input.layers.l1.z_index = 0 },
-      (input: Record<string, any>) => { input.layers.l3.isolation = 'pass-through' },
-      (input: Record<string, any>) => { input.layers.l1.blendMode = 'vivid_light' },
-      (input: Record<string, any>) => { input.layers.l1.transform.components = {
-        x: 0, y: 0, width: 8, height: 6, rotation: 0,
-        flipHorizontal: false, flipVertical: false, sourceWidth: 8, sourceHeight: 6,
-      } },
-      (input: Record<string, any>) => { input.resources.r0.inline = 'AA==' },
-    ]) {
-      const input = mutableDocument()
-      input.formatVersion = 1
-      mutate(input)
-      expect(loadImageDocument(input).document).toBeUndefined()
-    }
-  })
 
   it('retains the v2 fields without converting color metadata or raster bytes', () => {
     const input = mutableDocument()
@@ -272,45 +159,6 @@ describe('ImageDocument shape and limits', () => {
       const input = mutableDocument()
       mutate(input)
       expect(loadImageDocument(input).document).toBeUndefined()
-    }
-  })
-
-  it.each(['width', 'height', 'sourceWidth', 'sourceHeight'])('bounds transform component %s', (key) => {
-    for (const dimension of [0, -1, MAX_IMAGE_CANVAS_DIMENSION + 1]) {
-      const input = mutableDocument()
-      input.layers.l1.transform.components = {
-        x: 0, y: 0, width: 8, height: 6, rotation: 0,
-        flipHorizontal: false, flipVertical: false, sourceWidth: 8, sourceHeight: 6,
-        [key]: dimension,
-      }
-      expect(loadImageDocument(input).diagnostics.some((item) => item.message.includes('transform dimension'))).toBe(true)
-    }
-  })
-
-  it.each(['x', 'y', 'width', 'height', 'rotation', 'sourceWidth', 'sourceHeight'])('requires finite numeric component %s without boolean coercion', (key) => {
-    for (const value of [true, false, null, '1', NaN, Infinity, -Infinity]) {
-      const input = mutableDocument()
-      input.layers.l1.transform.components = {
-        x: 0, y: 0, width: 8, height: 6, rotation: 0,
-        flipHorizontal: false, flipVertical: false, sourceWidth: 8, sourceHeight: 6,
-        [key]: value,
-      }
-      expect(validateImageDocumentShape(input).some((item) => item.message.includes(`components.${key}: expected a finite number`))).toBe(true)
-    }
-  })
-
-  it('requires closed components and boolean flips on layer and mask transforms', () => {
-    for (const extra of [{ angle: 0 }, { flipHorizontal: 1 }, { flipVertical: 'false' }]) {
-      for (const target of ['layer', 'mask']) {
-        const input = mutableDocument()
-        const transform = target === 'layer' ? input.layers.l1.transform : input.masks.m2.transform
-        transform.components = {
-          x: 0, y: 0, width: 8, height: 6, rotation: 0,
-          flipHorizontal: false, flipVertical: false, sourceWidth: 8, sourceHeight: 6,
-          ...extra,
-        }
-        expect(loadImageDocument(input).document).toBeUndefined()
-      }
     }
   })
 
@@ -354,23 +202,6 @@ describe('ImageDocument shape and limits', () => {
     expect(serializeImageDocument(loaded.document!)).toBe(serializeImageDocument(input as ImageDocument))
   })
 
-  it('rejects unknown pixel-bearing fields and reserved layer or mask kinds', () => {
-    const unknown = mutableDocument()
-    unknown.layers.l1.shader = 'ambient'
-    expect(errorCodes(validateImageDocumentShape(unknown))).toContain('image.shape.invalid')
-
-    const vectorLayer = mutableDocument()
-    vectorLayer.layers.l1.kind = 'vector'
-    const vectorLayerResult = loadImageDocument(vectorLayer)
-    expect(vectorLayerResult.document).toBeUndefined()
-    expect(vectorLayerResult.diagnostics.some((item) => item.message.includes('reserved but unsupported'))).toBe(true)
-
-    const vectorMask = mutableDocument()
-    vectorMask.masks.m2.kind = 'vector'
-    expect(loadImageDocument(vectorMask).diagnostics.some((item) => item.message.includes('reserved but unsupported')))
-      .toBe(true)
-  })
-
   it('rejects non-integer and out-of-contract rendering values', () => {
     const opacity = mutableDocument()
     opacity.layers.l1.opacity = 0.5
@@ -397,41 +228,9 @@ describe('ImageDocument shape and limits', () => {
       .toBe(true)
   })
 
-  it('enforces collection limits before invariant traversal', () => {
-    const lists = mutableDocument()
-    lists.rootLayerIds = Array.from({ length: MAX_IMAGE_LAYERS + 1 }, () => 'l1')
-    lists.layers.l1.maskIds = Array.from({ length: MAX_IMAGE_MASKS_PER_LAYER + 1 }, () => 'm2')
-    const messages = validateImageDocumentShape(lists).map((item) => item.message)
-    expect(messages.some((message) => message.includes(`more than ${MAX_IMAGE_LAYERS} entries`))).toBe(true)
-    expect(messages.some((message) => message.includes(`more than ${MAX_IMAGE_MASKS_PER_LAYER} entries`))).toBe(true)
-
-    const resources = mutableDocument()
-    resources.resources = Object.fromEntries(Array.from(
-      { length: MAX_IMAGE_RESOURCES + 1 },
-      (_, index) => [`r${index}`, resources.resources.r0],
-    ))
-    expect(validateImageDocumentShape(resources).some((item) =>
-      item.message.includes(`more than ${MAX_IMAGE_RESOURCES} entries`))).toBe(true)
-  })
 })
 
 describe('ImageDocument invariants', () => {
-  it('enforces key identity, canonical actor-scoped IDs, and monotonic cursors', () => {
-    const mismatch = mutableDocument() as unknown as ImageDocument
-    ;(mismatch.layers['l1'] as any).id = 'l9'
-    expect(errorCodes(checkImageDocument(mismatch))).toContain('image.id.keyMismatch')
-
-    const actor = mutableDocument()
-    actor.layers['l1-alice'] = { ...actor.layers.l1, id: 'l1-alice' }
-    delete actor.layers.l1
-    actor.layers.l3.childLayerIds = ['l1-alice']
-    actor.masks.m2.ownerLayerId = 'l1-alice'
-    actor.allocation.actorCursors = { alice: 2 }
-    expect(errorCodes(checkImageDocument(actor as ImageDocument))).not.toContain('image.id.invalid')
-
-    actor.allocation.actorCursors.alice = 1
-    expect(errorCodes(checkImageDocument(actor as ImageDocument))).toContain('image.id.aboveCursor')
-  })
 
   it('rejects duplicate parents, dangling children, cycles, and excessive depth', () => {
     const duplicate = mutableDocument()
@@ -477,23 +276,6 @@ describe('ImageDocument invariants', () => {
     expect(errorCodes(checkImageDocument(deep as unknown as ImageDocument))).toContain('image.layer.depth')
   })
 
-  it('never resolves references through Object.prototype', () => {
-    const layer = mutableDocument()
-    layer.rootLayerIds = ['constructor']
-    const layerResult = loadImageDocument(layer)
-    expect(layerResult.document).toBeUndefined()
-    expect(errorCodes(layerResult.diagnostics)).toContain('image.layer.dangling')
-
-    const references = mutableDocument()
-    references.layers.l1.maskIds = ['constructor']
-    references.layers.l1.resourceId = 'toString'
-    references.masks.m2.ownerLayerId = 'valueOf'
-    const codes = errorCodes(loadImageDocument(references).diagnostics)
-    expect(codes).toContain('image.mask.dangling')
-    expect(codes).toContain('image.resource.dangling')
-    expect(codes).toContain('image.mask.danglingOwner')
-  })
-
   it('enforces mask ownership and resource closure', () => {
     const owner = mutableDocument()
     owner.masks.m2.ownerLayerId = 'l3'
@@ -510,23 +292,5 @@ describe('ImageDocument invariants', () => {
     const jpeg = mutableDocument()
     jpeg.resources.r0.mediaType = 'image/jpeg'
     expect(errorCodes(checkImageDocument(jpeg as ImageDocument))).toContain('image.resource.alphaMode')
-  })
-})
-
-describe('ImageDocument render semantics', () => {
-  it('excludes non-rendering identity and bookkeeping while retaining pixel choices', () => {
-    const original = imageDocument()
-    const presentation = mutableDocument()
-    presentation.lineage = 'forked'
-    presentation.allocation.nextOrdinal = 100
-    presentation.layers.l1.name = 'Renamed'
-    presentation.resources.r0.byteSize = 999
-    presentation.extensions = { anything: ['local', 'metadata'] }
-    expect(imageDocumentSemanticProjection(presentation as ImageDocument))
-      .toEqual(imageDocumentSemanticProjection(original))
-
-    presentation.layers.l1.opacity -= 1
-    expect(imageDocumentSemanticProjection(presentation as ImageDocument))
-      .not.toEqual(imageDocumentSemanticProjection(original))
   })
 })

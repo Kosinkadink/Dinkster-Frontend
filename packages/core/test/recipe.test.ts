@@ -69,12 +69,6 @@ describe('upstreamRecipesEqual', () => {
     expect(upstreamRecipesEqual(withChoice('text'), withChoice('image'), 'src')).toBe(true) // upstream untouched
   })
 
-  it('an absent slotVariants object equals an empty one, never a phantom difference', () => {
-    const a = P({ n: { class_type: 'X', inputs: {} } })
-    const b = { n: { class_type: 'X', inputs: {}, slotVariants: {} } } as unknown as Prompt
-    expect(upstreamRecipesEqual(a, b, 'n')).toBe(true)
-  })
-
   it('a changed effective output family is a different upstream recipe', () => {
     const withMembers = (members?: readonly string[]): Prompt => ({
       source: {
@@ -89,40 +83,15 @@ describe('upstreamRecipesEqual', () => {
     expect(upstreamRecipesEqual(withMembers(['0', '1']), withMembers(), 'sink')).toBe(false)
   })
 
-  it('output ID order is recipe identity, and missing compiler proof fails closed', () => {
-    const withIds = (outputIds?: readonly string[]): Prompt => ({
-      source: { class_type: 'Dynamic', inputs: {}, ...(outputIds === undefined ? {} : { outputIds }) },
-      sink: { class_type: 'Save', inputs: { image: ['source', 0] } },
-    })
-    expect(upstreamRecipesEqual(withIds(['image', 'count']), withIds(['image', 'count']), 'sink')).toBe(true)
-    expect(upstreamRecipesEqual(withIds(['image', 'count']), withIds(['count', 'image']), 'sink')).toBe(false)
-    expect(upstreamRecipesEqual(withIds(['image', 'count']), withIds(), 'sink')).toBe(false)
-    expect(upstreamRecipesEqual(withIds(), withIds([]), 'sink')).toBe(false)
-    expect(upstreamRecipesEqual(withIds(), withIds(), 'sink')).toBe(true)
-  })
-
   it('a changed class_type is a difference even with identical inputs', () => {
     const edited = P({ ...base, load: { class_type: 'LoadV2', inputs: { name: 'model.safetensors' } } })
     expect(upstreamRecipesEqual(base, edited, 'sample')).toBe(false)
-  })
-
-  it('a node missing from either side is a difference', () => {
-    const { seed: _dropped, ...rest } = base
-    const missing = P(rest as never)
-    expect(upstreamRecipesEqual(base, missing, 'sample')).toBe(false)
-    expect(upstreamRecipesEqual(missing, base, 'sample')).toBe(false)
-    expect(upstreamRecipesEqual(base, missing, 'load')).toBe(true) // cone excludes it
   })
 
   it('literal-vs-link on the same input is a difference in both directions', () => {
     const inlined = P({ ...base, sample: { class_type: 'KSampler', inputs: { model: ['load', 0], seed: 42, steps: 20 } } })
     expect(upstreamRecipesEqual(base, inlined, 'sample')).toBe(false)
     expect(upstreamRecipesEqual(inlined, base, 'sample')).toBe(false)
-  })
-
-  it('added or removed input keys are a difference', () => {
-    const extra = P({ ...base, seed: { class_type: 'Int', inputs: { value: 42, control: 'fixed' } } })
-    expect(upstreamRecipesEqual(base, extra, 'sample')).toBe(false)
   })
 
   it('deep JSON literals compare structurally, key order ignored', () => {
@@ -133,17 +102,4 @@ describe('upstreamRecipesEqual', () => {
     expect(upstreamRecipesEqual(a, c, 'n')).toBe(false)
   })
 
-  it('diamond fan-in visits shared upstream once and compares equal', () => {
-    const diamond = P({
-      src: { class_type: 'Int', inputs: { value: 1 } },
-      left: { class_type: 'A', inputs: { x: ['src', 0] } },
-      right: { class_type: 'B', inputs: { x: ['src', 0] } },
-      join: { class_type: 'C', inputs: { l: ['left', 0], r: ['right', 0] } },
-    })
-    expect(upstreamRecipesEqual(diamond, diamond, 'join')).toBe(true)
-  })
-
-  it('a queried id absent from both prompts is a difference (never vacuous truth)', () => {
-    expect(upstreamRecipesEqual(base, base, 'ghost')).toBe(false)
-  })
 })

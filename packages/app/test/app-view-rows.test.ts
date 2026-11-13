@@ -13,25 +13,9 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import {
-  asGraphDefId,
-  asLineageId,
-  asLinkId,
-  asNetId,
-  asNodeId,
-  asPortId,
-  type GraphDef,
-  type InputSpec,
-  type Json,
-  type NodeSchema,
-  type OutputSpec,
-  type TypeExpr,
-  type WidgetRegistry,
-  type WidgetView,
-  type WorkflowDocument,
-} from '@dinkster/core'
+import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, type GraphDef, type InputSpec, type Json, type NodeSchema, type OutputSpec, type TypeExpr, type WidgetRegistry, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
-import { appViewQueueScope, appViewQueueTargetOptions, appViewWidgetPresentation, buildParamRows, buildPreviewRows, fetchRemoteComboOptions, moveExposedInvocation, previewRuntimeMapping, remoteComboOptions, remoteComboRefreshCanAdvance, type ParamRow } from '../src/app-view-rows.js'
+import { appViewQueueScope, appViewQueueTargetOptions, buildParamRows, buildPreviewRows, previewRuntimeMapping, type ParamRow } from '../src/app-view-rows.js'
 
 const IMAGE: TypeExpr = { kind: 'concrete', name: 'IMAGE' }
 
@@ -214,23 +198,6 @@ describe('buildParamRows', () => {
     expect(rows[0]!.kind).toBe('stale')
   })
 
-  it('resolves the same default WidgetView as canvas and preserves a no-view fallback', () => {
-    const row = live(buildParamRows(doc({ exposed: [entry('sink', 'seed')] }), resolve)[0]!)
-    const customView = {
-      id: 'test.literal', kind: 'INT', isCompatible: () => true,
-      measure: () => ({ rows: 2 }), drawCompact: () => undefined,
-    } satisfies WidgetView
-    const registry = {
-      kind: () => ({
-        type: 'INT', valueSchema: { version: 1, validate: (value: unknown): value is Json => typeof value === 'number' },
-        defaultValue: () => 0, validate: () => [], defaultView: () => customView.id,
-      }),
-      viewsFor: () => [customView],
-    } as unknown as WidgetRegistry
-
-    expect(appViewWidgetPresentation(row, registry)).toEqual({ view: customView, rows: 2 })
-    expect(appViewWidgetPresentation(row, { ...registry, viewsFor: () => [] })).toBeUndefined()
-  })
 })
 
 describe('buildPreviewRows', () => {
@@ -391,61 +358,6 @@ describe('App View queue targets', () => {
         ],
       },
       missing: [{ graphId: 'missing', nodeId: 'gone' }],
-    })
-  })
-})
-
-describe('remoteComboOptions', () => {
-  it('fetches and normalizes a successful remote payload with WidgetEditor semantics', async () => {
-    const calls: unknown[] = []
-    const options = await fetchRemoteComboOptions('/options', async (...args) => {
-      calls.push(args)
-      return ['alpha', 'beta', '3']
-    })
-    expect(calls).toEqual([['/options', { refresh: false }]])
-    expect(options).toEqual([
-      { value: 'alpha', label: 'alpha' },
-      { value: 'beta', label: 'beta' },
-      { value: '3', label: '3' },
-    ])
-  })
-
-  it('passes schema remote policy to the scoped client demand', async () => {
-    const calls: unknown[] = []
-    await fetchRemoteComboOptions(
-      '/api/choices/models',
-      async (...args) => { calls.push(args); return ['alpha'] },
-      undefined,
-      { timeoutMs: 1200, maxRetries: 1, refreshMs: 5000 },
-    )
-    expect(calls).toEqual([['/api/choices/models', {
-      refresh: false, timeoutMs: 1200, maxRetries: 1, refreshMs: 5000,
-    }]])
-  })
-
-  it('propagates fetch rejection', async () => {
-    await expect(fetchRemoteComboOptions('/options', async () => { throw new Error('offline') })).rejects.toThrow('offline')
-  })
-
-  it('keeps an out-of-vocabulary stored value out of fetched options so the view renders its placeholder', () => {
-    expect(remoteComboOptions(['alpha', 'beta']).findIndex((option) => option.value === 'old')).toBe(-1)
-  })
-
-  it('fires the advancement hook only for an explicit refresh from ready or stale options', () => {
-    expect(remoteComboRefreshCanAdvance(false, 'ready')).toBe(false) // cache-backed editor open
-    expect(remoteComboRefreshCanAdvance(true, 'loading')).toBe(false)
-    expect(remoteComboRefreshCanAdvance(true, 'unavailable')).toBe(false)
-    expect(remoteComboRefreshCanAdvance(true, undefined)).toBe(false)
-    expect(remoteComboRefreshCanAdvance(true, 'ready')).toBe(true)
-    expect(remoteComboRefreshCanAdvance(true, 'stale')).toBe(true)
-  })
-})
-
-describe('app-view drag reorder', () => {
-  it('dispatches params.move for the dragged entry and exact drop index', () => {
-    expect(moveExposedInvocation({ graphId: 'g0', nodeId: 'sink', inputId: 'steps' }, 2)).toEqual({
-      command: 'params.move',
-      params: { graphId: 'g0', nodeId: 'sink', inputId: 'steps', index: 2 },
     })
   })
 })

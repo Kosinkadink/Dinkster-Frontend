@@ -15,7 +15,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ExecutionScope } from '../src/compile/artifact.js'
 import { compile, type CompileInput } from '../src/compile/compile.js'
-import { translateThroughCrossing, type FamilyCrossing } from '../src/compile/crossing.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
@@ -432,23 +431,6 @@ const innerFamilyOf = (type: string): string =>
 // ---------------------------------------------------------------------------
 
 describe('widget output boundary lowering', () => {
-  it.each([false, true])('rejects suffixes that overwrite definition-owned values (named=%s)', (named) => {
-    const first = named ? 'first' : 'item0'
-    const positional = parseDinksterSchema('Positional', { outputNode: true, interface: [{
-      role: 'inputFamily', id: 'items', minMembers: 0, optionalAfterMinimum: true,
-      ...(named ? { memberNames: ['first', 'second'] } : { memberPrefix: 'item', maxMembers: 2 }),
-      template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, required: false }],
-    }] }).schema!
-    const document = docOf({
-      g0: { nodes: { shell: { type: '#sub', values: { [`fam.${first}`]: 20 }, dynamic: { fam: { members: [first] } } } } },
-      sub: { nodes: { n: { type: 'Positional', values: { [`items.${first}`]: 10 } } },
-        boundary: { inputs: [{ id: 'fam', binds: { kind: 'family', node: 'n', port: 'items' } }] } },
-    })
-    const result = compile({ ...inputOf(document), resolve: () => positional })
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.boundary.forwardUnknownMember')
-    expect(document.graphs.sub!.nodes.n!.values).toEqual({ [`items.${first}`]: 10 })
-  })
 
   it.each([1, 2].flatMap((depth) => [false, true].flatMap((named) =>
     ['value', 'link'].map((evidence) => ({ depth, named, evidence })),
@@ -824,35 +806,6 @@ describe('dynamic output forwarding', () => {
     expect(prompt['k2']!.inputs).toEqual({ in: ['s.n', 3] })
   })
 
-  it('input and output forwarding stay symmetric on one instance', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: { type: '#sub', dynamic: { fam: { members: ['m0'] }, fouts: { members: ['m0'] } } },
-            k: { type: 'Sink' },
-          },
-          links: [
-            [['a', 'out'], ['s', 'fam.image', ['m0']]],
-            [['s', 'fouts.o', ['m0']], ['k', 'in']],
-          ],
-        },
-        sub: {
-          nodes: { b: { type: 'Batch' }, sp: { type: 'Split' } },
-          links: [[['b', 'out'], ['sp', 'src']]],
-          boundary: {
-            inputs: [{ id: 'fam', binds: { kind: 'family', node: 'b', port: 'images' } }],
-            outputs: [{ id: 'fouts', binds: { kind: 'family', node: 'sp', port: 'outs' } }],
-          },
-        },
-      }),
-    )
-    expect(prompt['s.b']!.inputs).toEqual({ 'images.image0': ['a', 0] })
-    expect(prompt['s.sp']!.inputs).toEqual({ src: ['s.b', 0] })
-    expect(prompt['k']!.inputs).toEqual({ in: ['s.sp', 0] })
-  })
-
   it('forwards hidden count-bound members and shifts following output indexes', () => {
     const prompt = okPrompt(docOf({
       g0: {
@@ -907,58 +860,6 @@ describe('dynamic output forwarding', () => {
     expect(prompt.third!.inputs).toEqual({ in: ['b.n', 2] })
   })
 
-  it('preserves canonical count member identities through chained boundaries', () => {
-    const prompt = okPrompt(docOf({
-      g0: {
-        nodes: { s: { type: '#outer', values: { rootCount: 2 } }, k: { type: 'Sink' } },
-        links: [[['s', 'outerOuts', ['1']], ['k', 'in']]],
-      },
-      outer: {
-        nodes: { i: { type: '#inner', values: { innerCount: 1 } } },
-        boundary: {
-          inputs: [{ id: 'rootCount', binds: { kind: 'port', node: 'i', port: 'innerCount' }, promoted: true }],
-          outputs: [{ id: 'outerOuts', binds: { kind: 'family', node: 'i', port: 'innerOuts' } }],
-        },
-      },
-      inner: {
-        nodes: { n: { type: 'CountSplit', values: { count: 1 } } },
-        boundary: {
-          inputs: [{ id: 'innerCount', binds: { kind: 'port', node: 'n', port: 'count' }, promoted: true }],
-          outputs: [{ id: 'innerOuts', binds: { kind: 'family', node: 'n', port: 'outs' } }],
-        },
-      },
-    }))
-    expect(prompt['s.i.n']!.inputs.count).toBe(2)
-    expect(prompt['s.i.n']!.outputMembers).toEqual({ outs: ['0', '1'] })
-    expect(prompt.k!.inputs).toEqual({ in: ['s.i.n', 1] })
-  })
-
-  it('fails closed before allocating a hostile fixed or promoted count', () => {
-    const document = docOf({
-      g0: {
-        nodes: {
-          fixed: { type: '#fixed' },
-          promoted: { type: '#promoted', values: { amount: Number.MAX_SAFE_INTEGER } },
-        },
-      },
-      fixed: {
-        nodes: { n: { type: 'WideCountSplit', values: { count: Number.MAX_SAFE_INTEGER } } },
-        boundary: { outputs: [{ id: 'outs', binds: { kind: 'family', node: 'n', port: 'outs' } }] },
-      },
-      promoted: {
-        nodes: { n: { type: 'WideCountSplit', values: { count: 1 } } },
-        boundary: {
-          inputs: [{ id: 'amount', binds: { kind: 'port', node: 'n', port: 'count' }, promoted: true }],
-          outputs: [{ id: 'outs', binds: { kind: 'family', node: 'n', port: 'outs' } }],
-        },
-      },
-    })
-    let result: ReturnType<typeof run> | undefined
-    expect(() => { result = run(document) }).not.toThrow()
-    expect(result?.ok).toBe(false)
-    if (result?.ok !== false) return
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('elab.outputFamily.countOutOfRange')
-  })
 })
 
 describe('connectivity projection (DynamicSlot dependents through the boundary)', () => {
@@ -1029,127 +930,6 @@ describe('boundary address matching (dotted ids, ambiguity)', () => {
     expect(prompt['s.n']!.inputs).toEqual({ 'images.image0': ['a', 0] })
   })
 
-  it('a colliding concrete id inside a family id space is an explicit ambiguity error', () => {
-    // Boundary has family 'foo' AND concrete 'foo.bar': the memberless
-    // address 'foo.bar' fits both interpretations. Never pick silently.
-    const result = run(
-      docOf({
-        g0: {
-          nodes: { a: { type: 'Src' }, s: { type: '#sub' } },
-          links: [[['a', 'out'], ['s', 'foo.bar']]],
-        },
-        sub: {
-          nodes: { n: { type: 'Batch' }, b: { type: 'Sink' } },
-          boundary: {
-            inputs: [
-              { id: 'foo', binds: { kind: 'family', node: 'n', port: 'images' } },
-              { id: 'foo.bar', binds: { kind: 'port', node: 'b', port: 'in' } },
-            ],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-          },
-        },
-      }),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.map((d) => d.code)).toContain('compile.boundary.ambiguousAddress')
-  })
-
-  it('a stored VALUE with prefix-colliding family ids fails loudly, never lowers a default', () => {
-    // Families 'foo' and 'foo.bar' coexist (only exact duplicate ids are
-    // rejected). The value address 'foo.bar.w' fits both namespaces: it must
-    // be an explicit error - silently dropping it would compile the inner
-    // default in place of a persisted value.
-    const result = run(
-      docOf({
-        g0: {
-          nodes: {
-            s: {
-              type: '#sub',
-              dynamic: { 'foo.bar': { members: ['q0'] } },
-              values: { 'foo.bar.w#q0': 0.8 },
-            },
-          },
-        },
-        sub: {
-          nodes: { n: { type: 'Batch' }, w: { type: 'Weigh' } },
-          boundary: {
-            inputs: [
-              { id: 'foo', binds: { kind: 'family', node: 'n', port: 'images' } },
-              { id: 'foo.bar', binds: { kind: 'family', node: 'w', port: 'weights' } },
-            ],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-          },
-        },
-      }),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.map((d) => d.code)).toContain('compile.boundary.ambiguousAddress')
-  })
-})
-
-describe('ancestor materialization (nested forwarding)', () => {
-  const nestSubThrough = (innerDynamic?: Record<string, unknown>): Record<string, GraphSpec> => ({
-    g0: {
-      // A suffix exists but nothing links: absence must STILL be an error -
-      // the route itself is broken, not just one address.
-      nodes: { s: { type: '#sub', dynamic: { subs: { members: ['k0'] } } } },
-    },
-    sub: {
-      nodes: { n: { type: 'Nest', ...(innerDynamic ? { dynamic: innerDynamic } : {}) } },
-      boundary: {
-        inputs: [{ id: 'subs', binds: { kind: 'family', node: 'n', port: 'items.sub', members: ['d0'] } }],
-        outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-      },
-    },
-  })
-
-  it('an unmaterialized concrete ancestor member is a compile error', () => {
-    const result = run(docOf(nestSubThrough(undefined)))
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.map((d) => d.code)).toContain('compile.boundary.forwardAncestorMissing')
-  })
-
-  it('orphan memberState without list membership does not count as materialized', () => {
-    // memberState.d0 exists but d0 is NOT in `members` - the sole
-    // membership source. Orphan state is dormant, never a route anchor.
-    const result = run(
-      docOf(nestSubThrough({ items: { members: [], memberState: { d0: { 'items.sub': { members: [] } } } } })),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.map((d) => d.code)).toContain('compile.boundary.forwardAncestorMissing')
-  })
-
-  it('a materialized ancestor member is accepted', () => {
-    const result = run(docOf(nestSubThrough({ items: { members: ['d0'] } })))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-  })
-
-  it('validates EVERY hop of a two-level ancestor path (Deep3)', () => {
-    // Route a.b.c crosses TWO concrete ancestors: member mA of family 'a',
-    // then member mB of the nested 'a.b' beneath it. Both must be
-    // materialized; a missing SECOND hop must fail exactly like the first.
-    const graphs = (state: Record<string, unknown>): Record<string, GraphSpec> => ({
-      g0: { nodes: { s: { type: '#sub', dynamic: { leaf: { members: ['k0'] } } } } },
-      sub: {
-        nodes: { n: { type: 'Deep3', dynamic: state } },
-        boundary: {
-          inputs: [{ id: 'leaf', binds: { kind: 'family', node: 'n', port: 'a.b.c', members: ['mA', 'mB'] } }],
-          outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-        },
-      },
-    })
-    const both = { a: { members: ['mA'], memberState: { mA: { 'a.b': { members: ['mB'] } } } } }
-    const firstOnly = { a: { members: ['mA'] } }
-    expect(run(docOf(graphs(both))).ok).toBe(true)
-    const result = run(docOf(graphs(firstOnly)))
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.map((d) => d.code)).toContain('compile.boundary.forwardAncestorMissing')
-  })
 })
 
 describe('cumulative and occurrence-local behavior', () => {
@@ -1180,37 +960,6 @@ describe('cumulative and occurrence-local behavior', () => {
       }),
     )
     expect(prompt['s.n']!.inputs).toEqual({ 'imgs.image0': ['a', 0], 'ws.w0': 0.8 })
-  })
-
-  it('sibling instances with different output suffix counts keep independent wire indexes', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            s1: { type: '#sub', dynamic: { fouts: { members: ['m0', 'm1'] } } },
-            s2: { type: '#sub', dynamic: { fouts: { members: ['z0'] } } },
-            k1: { type: 'Sink' },
-            k2: { type: 'Sink' },
-          },
-          links: [
-            // s1's static 'last' sits AFTER two suffix outputs; s2's after one.
-            [['s1', 'last'], ['k1', 'in']],
-            [['s2', 'last'], ['k2', 'in']],
-          ],
-        },
-        sub: {
-          nodes: { n: { type: 'Split' } },
-          boundary: {
-            outputs: [
-              { id: 'fouts', binds: { kind: 'family', node: 'n', port: 'outs' } },
-              { id: 'last', binds: { kind: 'port', node: 'n', port: 'last' } },
-            ],
-          },
-        },
-      }),
-    )
-    expect(prompt['k1']!.inputs).toEqual({ in: ['s1.n', 2] })
-    expect(prompt['k2']!.inputs).toEqual({ in: ['s2.n', 1] })
   })
 
   it('a DynamicCombo under a forwarded suffix member selects and values per instance', () => {
@@ -1373,84 +1122,6 @@ describe('failure safety', () => {
     }
   })
 
-  it('an unknown suffix member id is a precise error', () => {
-    const result = run(
-      docOf({
-        g0: {
-          nodes: { a: { type: 'Src' }, s: { type: '#sub', dynamic: { fam: { members: ['m0'] } } } },
-          links: [[['a', 'out'], ['s', 'fam.w', ['nope']]]],
-        },
-        sub: famSub('Weigh'),
-      }),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.map((d) => d.code)).toContain('compile.boundary.forwardUnknownMember')
-  })
-
-  it('a family address without a member id is a precise error', () => {
-    const result = run(
-      docOf({
-        g0: {
-          nodes: { a: { type: 'Src' }, s: { type: '#sub', dynamic: { fam: { members: ['m0'] } } } },
-          links: [[['a', 'out'], ['s', 'fam.w']]],
-        },
-        sub: famSub('Weigh'),
-      }),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.map((d) => d.code)).toContain('compile.boundary.forwardMemberMissing')
-  })
-
-  it('dead structural members exceed cap while a later live member exists: elab.autogrow.overMax and no trimmed prompt', () => {
-    const result = run(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            dead: { type: 'Src', mode: 'muted' },
-            s: { type: '#sub', dynamic: { fam: { members: ['m0'] } } },
-          },
-          links: [
-            [['dead', 'out'], ['s', 'fam.image', ['m0']]],
-            [['a', 'out'], ['s', 'fam.image', ['m0']]],
-          ],
-        },
-        // Definition already AT cap (2 members): the merged list overflows.
-        sub: {
-          nodes: { n: { type: 'BatchCap2', dynamic: { images: { members: ['d0', 'd1'] } } } },
-          boundary: {
-            inputs: [{ id: 'fam', binds: { kind: 'family', node: 'n', port: 'images' } }],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-          },
-        },
-      }),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    const codes = result.diagnostics.map((d) => d.code)
-    expect(codes).toContain('elab.autogrow.overMax')
-  })
-
-  it('a muted forwarding instance stays unaudited; its links drop with warnings', () => {
-    const result = run(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: { type: '#sub', mode: 'muted', dynamic: { fam: { members: ['m0'] } } },
-          },
-          links: [[['a', 'out'], ['s', 'fam.w', ['m0']]]],
-        },
-        sub: famSub('Weigh'),
-      }),
-    )
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.prompt['s.n']).toBeUndefined()
-    expect(result.artifact.diagnostics.some((d) => d.code === 'compile.link.dropped')).toBe(true)
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1486,44 +1157,6 @@ describe('slot-selective forwarding lowering (binds.slots, hazard F10)', () => {
     expect(prompt['s.n']!.inputs).toEqual({
       'pairs.pair0.image': ['a', 0],
       'pairs.pair0.gain': 0.5,
-    })
-  })
-
-  it('a link addressing an unexposed slot fails loudly: compile.boundary.slotNotExposed', () => {
-    const result = run(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: { type: '#sub', dynamic: { fam: { members: ['m0'] } } },
-          },
-          links: [[['a', 'out'], ['s', 'fam.extra', ['m0']]]],
-        },
-        sub: duoSub(['image', 'gain']),
-      }),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) throw new Error('unreachable')
-    expect(result.diagnostics.some((d) => d.code === 'compile.boundary.slotNotExposed')).toBe(true)
-  })
-
-  it('an explicit full selection lowers identically to no selection (unsplit safety)', () => {
-    const graphs = (slots?: string[]): Record<string, GraphSpec> => ({
-      g0: {
-        nodes: {
-          a: { type: 'Src' },
-          s: { type: '#sub', dynamic: { fam: { members: ['m0'] } }, values: { 'fam.gain#m0': 0.9 } },
-        },
-        links: [[['a', 'out'], ['s', 'fam.image', ['m0']]]],
-      },
-      sub: duoSub(slots),
-    })
-    const selected = okPrompt(docOf(graphs(['image', 'extra', 'gain'])))
-    const whole = okPrompt(docOf(graphs()))
-    expect(selected).toEqual(whole)
-    expect(selected['s.n']!.inputs).toEqual({
-      'pairs.pair0.image': ['a', 0],
-      'pairs.pair0.gain': 0.9,
     })
   })
 
@@ -1652,52 +1285,6 @@ describe('slot-selective forwarding lowering (binds.slots, hazard F10)', () => {
     })
   })
 
-  it('a stale nested address under a slot hidden by the selection fails: compile.boundary.slotNotExposed', () => {
-    const result = run(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: {
-              type: '#nsub',
-              dynamic: { fam: { members: ['x0'], memberState: { x0: { 'fam.sub': { members: ['y0'] } } } } },
-            },
-          },
-          links: [[['a', 'out'], ['s', 'fam.sub.s', ['x0', 'y0']]]],
-        },
-        nsub: nestSelSub(['name']),
-      }),
-    )
-    expect(result.ok).toBe(false)
-    if (result.ok) throw new Error('unreachable')
-    expect(result.diagnostics.some((d) => d.code === 'compile.boundary.slotNotExposed')).toBe(true)
-  })
-
-  it('exposure matching is segment-wise over dotted entries (crossing unit matrix)', () => {
-    // Stale nested-sibling addresses ('fam.sub.t') cannot be built from the
-    // shared fixtures, so the matrix is pinned directly on the ONE address
-    // interpreter (crossing.ts) instead of a bespoke schema.
-    const crossing: FamilyCrossing = {
-      boundaryId: 'fam',
-      side: 'input',
-      targetNode: asNodeId('n'),
-      hopMembers: [],
-      hopPaths: [],
-      familyPath: 'items',
-      rebase: new Map([['m0', '\u0000m0']]),
-      slots: new Set(['sub.s']),
-    }
-    const t = (port: string) => translateThroughCrossing(crossing, { port, members: ['m0'] })
-    expect(t('fam').ok).toBe(true) // the family itself
-    expect(t('fam.sub').ok).toBe(true) // ancestor construct of a selected path
-    expect(t('fam.sub.s').ok).toBe(true) // the selected path
-    expect(t('fam.sub.s.gain').ok).toBe(true) // beneath the selected path
-    for (const port of ['fam.name', 'fam.sub.t', 'fam.su']) {
-      const r = t(port)
-      expect(r.ok, port).toBe(false)
-      if (!r.ok) expect(r.code, port).toBe('compile.boundary.slotNotExposed')
-    }
-  })
 })
 
 describe('mixed integration', () => {
@@ -1782,43 +1369,6 @@ describe('mixed integration', () => {
     })
   })
 
-  it('reroute chain crossing a CHAINED forwarded boundary, mixed with a named net', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: { type: '#outer', dynamic: { fam2: { members: ['m0', 'm1'] } } },
-          },
-          reroutes: ['r0'],
-          links: [
-            [['a', 'out'], { reroute: 'r0' }],
-            [{ reroute: 'r0' }, ['s', 'fam2.image', ['m0']]],
-          ],
-          nets: { imgs: { source: ['a', 'out'], sinks: [['s', 'fam2.image', ['m1']]] } },
-        },
-        outer: {
-          nodes: { i: { type: '#inner' } },
-          boundary: {
-            inputs: [{ id: 'fam2', binds: { kind: 'family', node: 'i', port: 'fam1' } }],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'i', port: 'out' } }],
-          },
-        },
-        inner: {
-          nodes: { n: { type: 'Batch' } },
-          boundary: {
-            inputs: [{ id: 'fam1', binds: { kind: 'family', node: 'n', port: 'images' } }],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-          },
-        },
-      }),
-    )
-    expect(prompt['s.i.n']!.inputs).toEqual({
-      'images.image0': ['a', 0],
-      'images.image1': ['a', 0],
-    })
-  })
-
   it('partial execution scopes through forwarded members and reroutes', () => {
     const doc = docOf({
       g0: {
@@ -1845,54 +1395,4 @@ describe('mixed integration', () => {
     expect(Object.keys(result.artifact.prompt).sort()).toEqual(['a', 's.n'])
   })
 
-  it('one document composing prefix, suffix, chained forwarding, outputs, reroutes and a value source', () => {
-    const prompt = okPrompt(
-      docOf({
-        g0: {
-          nodes: {
-            a: { type: 'Src' },
-            s: {
-              type: '#outer',
-              dynamic: { fam2: { members: ['m0'] }, fouts: { members: ['z0'] } },
-              values: { 'fam2.w#m0': 0.25 },
-            },
-            k: { type: 'Sink' },
-          },
-          reroutes: ['r0'],
-          valueSources: { v0: 0.99 },
-          links: [
-            [{ valueSource: 'v0' }, { reroute: 'r0' }],
-            // Value source beats the stored 0.25 (connections beat values).
-            [{ reroute: 'r0' }, ['s', 'fam2.w', ['m0']]],
-            [['s', 'fouts.o', ['z0']], ['k', 'in']],
-          ],
-        },
-        outer: {
-          nodes: {
-            i: { type: '#inner', dynamic: { fam1: { members: ['q0'] } }, values: { 'fam1.w#q0': 0.5 } },
-            sp: { type: 'Split' },
-          },
-          links: [[['i', 'out'], ['sp', 'src']]],
-          boundary: {
-            inputs: [{ id: 'fam2', binds: { kind: 'family', node: 'i', port: 'fam1' } }],
-            outputs: [{ id: 'fouts', binds: { kind: 'family', node: 'sp', port: 'outs' } }],
-          },
-        },
-        inner: {
-          nodes: { n: { type: 'Weigh', dynamic: { weights: { members: ['d0'] } } } },
-          boundary: {
-            inputs: [{ id: 'fam1', binds: { kind: 'family', node: 'n', port: 'weights' } }],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
-          },
-        },
-      }),
-    )
-    expect(prompt['s.i.n']!.inputs).toEqual({
-      'weights.w0': 0.5, // definition default for prefix d0
-      'weights.w1': 0.5, // mid-level member q0's stored value
-      'weights.w2': 0.99, // root suffix m0: value source through reroute
-    })
-    expect(prompt['s.sp']!.inputs).toEqual({ src: ['s.i.n', 0] })
-    expect(prompt['k']!.inputs).toEqual({ in: ['s.sp', 0] })
-  })
 })

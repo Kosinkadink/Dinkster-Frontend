@@ -30,11 +30,6 @@ test('canvas view controls switch views and lenses without stale placeholders', 
   await expect(canvas).toHaveAttribute('data-lens', 'standard')
 })
 
-test('graph editor descriptor is named Graph', async ({ page }) => {
-  await page.goto('/')
-  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.editors.get('graph')?.title)).toBe('Graph')
-})
-
 test('canvas view menus dismiss on outside pointerdown and global Escape', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })

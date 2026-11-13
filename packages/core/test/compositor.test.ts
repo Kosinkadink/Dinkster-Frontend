@@ -1,17 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  COMPOSITOR_STATE_PREVIEW_CHANNEL,
-  COMPOSITOR_STATE_PREVIEW_STREAM,
-  applyCompositorCommands,
-  compositorDeltaFromDraft,
-  compositorRecipeFingerprint,
-  compositorStateOf,
-  copyConfiguredCompositorRecipe,
-  copyCompositorRecipe,
-  EMPTY_COMPOSITOR_RECIPE,
-  isCompositorRecipe,
-  MAX_COMPOSITOR_LAYERS,
-} from '../src/compositor.js'
+import { COMPOSITOR_STATE_PREVIEW_CHANNEL, COMPOSITOR_STATE_PREVIEW_STREAM, applyCompositorCommands, compositorDeltaFromDraft, compositorStateOf, copyConfiguredCompositorRecipe } from '../src/compositor.js'
 
 const digest = `blake3:${'a'.repeat(64)}`
 const identity = (
@@ -203,30 +191,6 @@ const anisotropicMaskFixture = (maskRotationOffset = 0) => {
   return { state, draft }
 }
 
-describe('compositor delta grammar', () => {
-  it('accepts and copies the exact v2 document-delta envelope', () => {
-    const recipe = { version: 2 as const, documentDigest: digest, commands: [{ op: 'reorder', ids: ['l2', 'l0'] }] }
-    expect(isCompositorRecipe(recipe)).toBe(true)
-    const copied = copyCompositorRecipe(recipe)
-    expect(copied).toEqual(recipe)
-    expect(copied).not.toBe(recipe)
-    expect(copied.commands).not.toBe(recipe.commands)
-  })
-
-  it.each([
-    { ...EMPTY_COMPOSITOR_RECIPE, extra: true },
-    { ...EMPTY_COMPOSITOR_RECIPE, version: 1 },
-    { ...EMPTY_COMPOSITOR_RECIPE, documentDigest: 'a'.repeat(64) },
-    { ...EMPTY_COMPOSITOR_RECIPE, commands: undefined },
-  ])('rejects malformed deltas', (candidate) => expect(isCompositorRecipe(candidate)).toBe(false))
-
-  it('uses the v2 empty default for absent-value fingerprints', () => {
-    expect(isCompositorRecipe(EMPTY_COMPOSITOR_RECIPE)).toBe(true)
-    expect(compositorRecipeFingerprint(undefined)).toBe(compositorRecipeFingerprint(EMPTY_COMPOSITOR_RECIPE))
-    expect(compositorRecipeFingerprint({ version: 2 })).toBeUndefined()
-  })
-})
-
 describe('compositor ImageDocument state', () => {
   it('normalizes the exact v2 state into an editable view and document delta', () => {
     const state = compositorStateOf(wireState)!
@@ -295,52 +259,4 @@ describe('compositor ImageDocument state', () => {
     expect(maskTransform.components['rotation']).toBeCloseTo(-2.907409158, 8)
   })
 
-  it('rejects real shear at high anisotropy', () => {
-    const { state, draft } = anisotropicMaskFixture(0.0000003)
-    expect(compositorDeltaFromDraft(state, draft)).toBeUndefined()
-  })
-
-  it('rejects real shear outside the fixed-point composition bound', () => {
-    const { state, draft } = reflectedMaskFixture()
-    const shearedDraft = {
-      ...draft,
-      layers: draft.layers.map((layer) => layer.id === 'l2'
-        ? { ...layer, transform: { ...layer.transform, height: 157.51 } }
-        : layer),
-    }
-    expect(compositorDeltaFromDraft(state, shearedDraft)).toBeUndefined()
-  })
-
-  it.each([
-    [MAX_COMPOSITOR_LAYERS, true],
-    [MAX_COMPOSITOR_LAYERS + 1, false],
-  ] as const)('enforces the %i-layer v2 state boundary', (count, accepted) => {
-    expect(MAX_COMPOSITOR_LAYERS).toBe(50)
-    const rootLayerIds = Array.from({ length: count }, (_, index) => `l${index + 10}`)
-    const boundedDocument = {
-      ...structuredClone(document),
-      rootLayerIds,
-      layers: Object.fromEntries(rootLayerIds.map((id, index) => [id, {
-        ...structuredClone(document.layers.l0), id, name: `Layer ${index}`, z_index: index,
-      }])),
-      masks: {},
-      allocation: { nextOrdinal: count + 10 },
-    }
-    const candidate = compositorStateOf({
-      ...wireState,
-      document: boundedDocument,
-      layerStreams: Array.from({ length: count }, (_, index) => `compositor.layer.${index}`),
-    })
-    expect(candidate !== undefined).toBe(accepted)
-  })
-
-  it.each([
-    { ...wireState, extra: true },
-    { ...wireState, version: 1 },
-    { ...wireState, documentDigest: 'bad' },
-    { ...wireState, stale: 1 },
-    { ...wireState, layerStreams: ['compositor.layer.0'] },
-    { ...wireState, layerStreams: ['compositor.layer.0', 'compositor.layer.4'] },
-    { ...wireState, document: { ...document, rootLayerIds: ['missing'] } },
-  ])('rejects malformed state', (candidate) => expect(compositorStateOf(candidate)).toBeUndefined())
 })

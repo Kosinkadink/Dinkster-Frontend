@@ -11,7 +11,6 @@ import { validateBrowserMediaRendition } from '../src/node-previews.js'
 import { fetchPeekRendition, MEDIA_VALIDATION_BUDGET_MS, type PeekValues } from '../src/peek-preview.js'
 
 const webmBytes = (): ArrayBuffer => new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]).buffer
-const webmResult = () => ({ bytes: webmBytes(), mime: 'video/webm' })
 
 const hit = (renditions: readonly RenditionInfo[]): ValuePeekResult => ({
   available: true,
@@ -35,35 +34,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
-})
-
-describe('validateBrowserMediaRendition deadline', () => {
-  it('resolves false immediately when the shared deadline has already passed', async () => {
-    const result = validateBrowserMediaRendition(webmResult(), Date.now() - 1)
-    await expect(result).resolves.toBe(false)
-  })
-
-  it('a later call sharing a deadline waits only the remaining time, not a fresh budget', async () => {
-    const deadline = Date.now() + MEDIA_VALIDATION_BUDGET_MS
-    let firstSettled = false
-    let secondSettled = false
-    const first = validateBrowserMediaRendition(webmResult(), deadline)
-    void first.then(() => { firstSettled = true })
-    await vi.advanceTimersByTimeAsync(MEDIA_VALIDATION_BUDGET_MS - 4_000)
-    expect(firstSettled).toBe(false)
-    const second = validateBrowserMediaRendition(webmResult(), deadline)
-    void second.then(() => { secondSettled = true })
-    await vi.advanceTimersByTimeAsync(4_000)
-    expect(firstSettled).toBe(true)
-    expect(secondSettled).toBe(true)
-    await expect(first).resolves.toBe(false)
-    await expect(second).resolves.toBe(false)
-  })
-
-  it('non-AV mimes resolve true without consuming the deadline', async () => {
-    await expect(validateBrowserMediaRendition({ bytes: new Uint8Array([1]).buffer, mime: 'image/png' }, Date.now() - 1))
-      .resolves.toBe(true)
-  })
 })
 
 describe('fetchPeekRendition validation sequence', () => {

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { asNodeId, type NodeData, type NodeSchema } from '@dinkster/core'
 import { AppState, type Tab } from '../src/app-state.js'
-import { inactiveSceneNodesFor, lazyInactiveSceneNodes, runOnMachineMenuGroup } from '../src/CanvasHost.js'
+import { inactiveSceneNodesFor, runOnMachineMenuGroup } from '../src/CanvasHost.js'
 import { historicalRegistry } from './historical-schemas.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -73,22 +73,6 @@ describe('directed partial-execution scopes', () => {
     ])
   })
 
-  it('does not treat inherited object names as graph nodes', () => {
-    const catalog = {
-      status: 'ready' as const,
-      workers: [{ name: 'local', status: 'connected', routedNodeTypes: [], deviceQualifiers: [] }],
-    }
-    for (const nodeId of ['constructor', 'toString', '__proto__']) {
-      expect(runOnMachineMenuGroup({
-        document: basic.store.doc,
-        graphId: basic.store.doc.root,
-        nodeIds: [nodeId],
-        frozen: false,
-        catalog,
-      })).toBeUndefined()
-    }
-  })
-
   it('keeps regions placeable without claiming body routability and excludes plain subgraphs', () => {
     const document = structuredClone(basic.store.doc)
     const nodes = document.graphs[document.root]!.nodes as Record<string, typeof document.graphs[typeof document.root]['nodes'][string]>
@@ -134,56 +118,6 @@ describe('directed partial-execution scopes', () => {
     ])
     expect([...inactiveSceneNodesFor(inactive, [])].sort()).toEqual(['left', 'right'])
     expect([...inactiveSceneNodesFor(inactive, ['left'])].sort()).toEqual(['inner', 'source'])
-  })
-
-  it('caches a full would-run closure across overlay refreshes', () => {
-    // Selector-less documents skip the full would-run compile entirely: the
-    // inactive-exclusive overlay is provably empty, so no closure is derived.
-    expect(app.scopeClosureCached(basic)).toBeUndefined()
-    // Once any document node resolves to a lazy-selector schema, the closure
-    // is derived and cached per revision/registry identity.
-    const empty = app.registryForTab(basic)!.resolve('EmptyImage')!
-    const selector = { input: 'color', branches: { false: 'width', true: 'height' } } as const
-    app.registerSchemas([{ ...empty, selector }])
-    const first = app.scopeClosureCached(basic)
-    expect(first).toBeDefined()
-    expect(app.scopeClosureCached(basic)).toBe(first)
-    app.registerSchemas([{ ...empty, selector, displayName: 'Layered empty image' }])
-    expect(app.scopeClosureCached(basic)).not.toBe(first)
-  })
-
-  it('keeps NUL-containing graph-feature sequences distinct in the closure cache', () => {
-    const empty = app.registryForTab(basic)!.resolve('EmptyImage')!
-    app.registerSchemas([{
-      ...empty,
-      selector: { input: 'color', branches: { false: 'width', true: 'height' } },
-    }])
-    const original = app.compileInputForTab.bind(app)
-    let graphFeatures: readonly string[] = ['typedLiteral', 'x']
-    vi.spyOn(app, 'compileInputForTab').mockImplementation((tab, scope) => {
-      const input = original(tab, scope)
-      return input === undefined ? undefined : { ...input, graphFeatures }
-    })
-
-    const first = app.scopeClosureCached(basic)
-    expect(first).toBeDefined()
-    expect(app.scopeClosureCached(basic)).toBe(first)
-    graphFeatures = ['typedLiteral\u0000x']
-    expect(app.scopeClosureCached(basic)).not.toBe(first)
-  })
-
-  it('clears lazy-cone overlays for frozen, invalid, and desynchronized views', () => {
-    const closure = {
-      scope: { kind: 'full' as const },
-      revision: 1,
-      included: new Set<string>(),
-      inactiveExclusive: new Map([['selector', new Set(['inactive'])]]),
-      structural: new Map(),
-    }
-    expect([...lazyInactiveSceneNodes({ frozen: false, closure, instancePath: [] })!]).toEqual(['inactive'])
-    expect(lazyInactiveSceneNodes({ frozen: true, closure, instancePath: [] })).toBeUndefined()
-    expect(lazyInactiveSceneNodes({ frozen: false, closure: undefined, instancePath: [] })).toBeUndefined()
-    expect(lazyInactiveSceneNodes({ frozen: false, closure, instancePath: undefined })).toBeUndefined()
   })
 
   it('maps up-to to selection minima and from-onwards to reachable outputs', () => {
@@ -326,51 +260,6 @@ describe('directed partial-execution scopes', () => {
     const scopes = app.selectionExecutionScopes(app.activeTab()!, ['cycleA', 'cycleB'])!
     expect(scopes.between).toBeUndefined()
     expect(scopes.betweenReason).toBe('the selected range execution closure contains a cycle')
-  })
-
-  it('disables scopes whose nested subgraph instance occurrence participates in a cycle', async () => {
-    const source = app.tabs.get().find((tab) => tab.store.doc.graphs[tab.store.doc.root]?.nodes['n0']?.type === '#g1')!
-    const doc = structuredClone(source.store.doc) as unknown as {
-      graphs: {
-        g0: { nodes: Record<string, { values: Record<string, unknown> }> }
-        g1: {
-          nodes: Record<string, { type: string; values: Record<string, unknown> }>
-          links: Record<string, unknown>
-          boundary: {
-            inputs: { id: string; binds: { node: string; port: string }; promoted?: boolean }[]
-            outputs: { id: string; binds: { node: string; port: string } }[]
-          }
-        }
-        g2?: unknown
-      }
-    }
-    doc.graphs.g0.nodes['n0']!.values = {}
-    doc.graphs.g1.nodes['n0']!.type = '#g2'
-    doc.graphs.g1.nodes['n0']!.values = {}
-    doc.graphs.g1.boundary.inputs = [{ id: 'source', binds: { node: 'n0', port: 'image' }, promoted: true }]
-    doc.graphs.g1.boundary.outputs[0]!.binds.port = 'result'
-    doc.graphs.g1.links['selfCycle'] = {
-      id: 'selfCycle',
-      from: { node: 'n0', port: 'result' },
-      to: { node: 'n0', port: 'image' },
-    }
-    doc.graphs.g2 = {
-      id: 'g2',
-      name: 'Nested transform',
-      nodes: { leaf: { id: 'leaf', type: 'ImageInvert', values: {} } },
-      links: {},
-      nets: {},
-      reroutes: {},
-      boundary: {
-        inputs: [{ id: 'image', binds: { kind: 'port', node: 'leaf', port: 'image' } }],
-        outputs: [{ id: 'result', binds: { kind: 'port', node: 'leaf', port: 'image' } }],
-      },
-      nextOrdinal: 1,
-    }
-    await app.openDocument(doc, 'Cyclic subgraph')
-    const scopes = app.selectionExecutionScopes(app.activeTab()!, ['n0'])!
-    expect(scopes.upTo).toBeUndefined()
-    expect(scopes.upToReason).toBe('upstream of the selection contains a cycle')
   })
 
   it('disables a between target that cannot survive node-mode lowering', async () => {

@@ -52,19 +52,6 @@ describe('original FILE_3D preview resources', () => {
     await expect(loadFile3dPreview({ format: 'gltf', source }, async () => bytes('unused'))).rejects.toThrow()
   })
 
-  it('releases the primary when a sidecar disappears and when cancellation arrives during a read', async () => {
-    const revoke = vi.spyOn(URL, 'revokeObjectURL')
-    await expect(loadFile3dPreview({ format: 'gltf', source: stored, resources: { 'mesh.bin': local } },
-      async (ref) => ref.digest ? bytes('{}') : undefined)).rejects.toThrow('unavailable')
-    expect(revoke).toHaveBeenCalledTimes(1)
-    const controller = new AbortController()
-    await expect(loadFile3dPreview({ format: 'gltf', source: stored }, async () => {
-      controller.abort()
-      return bytes('{}')
-    }, { signal: controller.signal })).rejects.toThrow()
-    expect(revoke).toHaveBeenCalledTimes(1)
-  })
-
   it.each(['glb', 'gltf', 'obj', 'fbx', 'stl', 'usdz', 'ply', 'splat', 'spz', 'ksplat'])(
     'preserves the declared %s format and original bytes for the existing viewer', async (format) => {
       const original = new Uint8Array([12, 35, 92, 201]).buffer

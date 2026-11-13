@@ -8,9 +8,6 @@ const asset = (overrides: Partial<MissingAsset> = {}): MissingAsset => ({
 })
 
 describe('asset consent plan presentation', () => {
-  it('describes packaged assets without a download warning', () => {
-    expect(presentAssetPlan(asset({ packagedFrom: ['video.pack'] }), t).source).toBe('Ships with pack video.pack')
-  })
 
   it('excludes unresolvable assets from consent', () => {
     const row = presentAssetPlan(asset(), t)

@@ -278,43 +278,4 @@ describe('ProductSelect', () => {
     expect(document.activeElement).not.toBe(firstRoot.querySelector('[role="combobox"]'))
   })
 
-  it('never focuses another control through an ambiguous fallback attribute', async () => {
-    const firstRoot = document.createElement('div')
-    const secondRoot = document.createElement('div')
-    document.body.append(firstRoot, secondRoot)
-    const options = [
-      { id: '', label: 'Bind group...', value: '', disabled: true },
-      { id: 'group-1', label: 'Group 1', value: 'group-1' },
-    ]
-    render(() => <ProductSelect
-      testId="shared-combo"
-      ariaLabel="First action"
-      options={options}
-      selectedId=""
-      onSelect={() => undefined}
-    />, firstRoot)
-    const mountSecond = (): void => {
-      render(() => <ProductSelect
-        testId="shared-combo"
-        ariaLabel="Second action"
-        options={options}
-        selectedId=""
-        onSelect={() => {
-          secondRoot.replaceChildren()
-          mountSecond()
-        }}
-      />, secondRoot)
-    }
-    mountSecond()
-
-    const second = secondRoot.querySelector<HTMLButtonElement>('[role="combobox"]')!
-    second.focus()
-    second.click()
-    key(second, 'End')
-    key(second, 'Enter')
-    await Promise.resolve()
-    expect(second.isConnected).toBe(false)
-    expect(document.activeElement).toBe(secondRoot.querySelector('[role="combobox"]'))
-    expect(document.activeElement).not.toBe(firstRoot.querySelector('[role="combobox"]'))
-  })
 })

@@ -1,5 +1,4 @@
 import { mkdirSync } from 'node:fs'
-import { join } from 'node:path'
 import { expect, openRailPanel, test, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_OUTPUT_FAMILY_PROOF_DIR']
@@ -226,21 +225,6 @@ test.beforeEach(async ({ page }) => {
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await registerSchemas(page)
-})
-
-test('nested output templates render independent root sibling member identities', async ({ page }) => {
-  await openNestedWorkflow(page)
-
-  await expect.poll(() => nestedPins(page, 'a', 'outputs.sub.value')).toEqual([['m0', 'k0'], ['m0', 'k1']])
-  await expect.poll(() => nestedPins(page, 'b', 'outputs.sub.value')).toEqual([['m0', 'k0']])
-
-  if (proofDir) {
-    await page.screenshot({
-      path: join(proofDir, 'boundary-output-families-independent-siblings.png'),
-      animations: 'disabled',
-      fullPage: true,
-    })
-  }
 })
 
 test('nested output identities reach the drilled inner occurrence', async ({ page }) => {

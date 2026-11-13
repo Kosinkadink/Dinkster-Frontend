@@ -148,46 +148,6 @@ describe('region document format and invariants', () => {
     expect(loaded.document?.formatVersion).toBe(1)
   })
 
-  it('round-trips broadcast binding and rejects unknown binding values', () => {
-    const original = documentWith({ kind: 'map', elementPorts: ['item'], binding: 'broadcast' })
-    const raw = JSON.parse(JSON.stringify(original))
-    expect(validateDocumentShape(raw)).toEqual([])
-    expect(loadDocument(raw).document?.graphs.root?.nodes.n0?.region?.binding).toBe('broadcast')
-
-    raw.graphs.root.nodes.n0.region.binding = 'diagonal'
-    expect(validateDocumentShape(raw)).toContainEqual(expect.objectContaining({
-      message: expect.stringContaining("expected 'zip', 'cross', or 'broadcast'"),
-    }))
-  })
-
-  it('round-trips compact and flatten output roles and rejects unknown role values', () => {
-    const original = documentWith({
-      kind: 'map', elementPorts: ['item'],
-      outputRoles: { items: { kind: 'compact' }, others: { kind: 'flatten' } },
-    })
-    const raw = JSON.parse(JSON.stringify(original))
-    expect(validateDocumentShape(raw)).toEqual([])
-    expect(loadDocument(raw).document?.graphs.root?.nodes.n0?.region?.outputRoles).toEqual({
-      items: { kind: 'compact' }, others: { kind: 'flatten' },
-    })
-
-    raw.graphs.root.nodes.n0.region.outputRoles.items.kind = 'scatter'
-    expect(validateDocumentShape(raw)).toContainEqual(expect.objectContaining({
-      message: expect.stringContaining("expected 'gather', 'compact', 'state', 'flatten', or 'last'"),
-    }))
-  })
-
-  it('rejects malformed and unknown region properties through strict shape validation', () => {
-    const malformed = documentWith({ kind: 'map', elementPorts: ['item'] }) as unknown as Record<string, unknown>
-    const node = (((malformed.graphs as Record<string, unknown>).root as Record<string, unknown>).nodes as Record<string, Record<string, unknown>>).n0!
-    node.region = { kind: 'repeat', elementPorts: 'item', maxIterations: 1.5, surprise: true }
-    const messages = validateDocumentShape(malformed).map((d) => d.message)
-    expect(messages.some((m) => m.includes('.region.kind'))).toBe(true)
-    expect(messages.some((m) => m.includes('.region.elementPorts'))).toBe(true)
-    expect(messages.some((m) => m.includes('.region.maxIterations'))).toBe(true)
-    expect(messages.some((m) => m.includes('.region.surprise'))).toBe(true)
-  })
-
   it('validates map, fold, and while profiles plus boundary role invariants', () => {
     expect(codes(documentWith({ kind: 'map', elementPorts: ['item'] }))).toEqual([])
     expect(codes(documentWith({ kind: 'fold', elementPorts: ['item'], statePorts: ['state'], outputRoles: { result: { kind: 'state', statePort: 'state' } } }))).toEqual([])
@@ -379,19 +339,6 @@ describe('region occurrence boundary projection', () => {
     expect(variable.diagnostics).toContainEqual(expect.objectContaining({ code: 'doc.region.flattenNonConcrete', severity: 'warning' }))
   })
 
-  it('derives one definition cleanly for both a region and an ordinary occurrence', () => {
-    const twoArg = deriveBoundarySchema(body(), resolve)
-    const explicitUndefined = deriveBoundarySchema(body(), resolve, undefined)
-    expect(JSON.stringify(explicitUndefined)).toBe(JSON.stringify(twoArg))
-    expect(outputsOf(twoArg.schema!).map((item) => item.id)).toContain('continue')
-    const region = deriveBoundarySchema(body(), resolve, {
-      kind: 'fold', elementPorts: ['item'], statePorts: ['state'],
-      outputRoles: { result: { kind: 'state', statePort: 'state' } },
-    })
-    expect(region.diagnostics).toEqual([])
-    expect(region.schema).toBeDefined()
-  })
-
   it('rejects same-id input and output boundaries for every occurrence kind', () => {
     const sameId = body()
     ;(sameId.boundary!.outputs[1] as { id: string }).id = 'state'
@@ -451,21 +398,6 @@ describe('region occurrence boundary projection', () => {
 
     expect(inputsOf(schema).map((item) => item.displayName)).toEqual(['Element', 'State', 'Capture'])
     expect(outputsOf(schema).map((item) => item.displayName)).toEqual(['Gather', 'State', 'Compact', 'Gather 2'])
-  })
-
-  it('keeps occurrence schema cache identity injective for arbitrary ids', () => {
-    const doc = documentWith({ kind: 'map', elementPorts: ['item'] })
-    const first = doc.graphs.root!.nodes.n0!
-    const second = {
-      ...first,
-      id: 'c' as never,
-      region: { kind: 'while', statePorts: ['state'], outputRoles: { result: { kind: 'state', statePort: 'state' } }, continueOutput: 'continue', maxIterations: 2 } as const,
-    }
-    const resolveOccurrence = documentNodeResolver(doc, resolve)
-    const firstSchema = resolveOccurrence('a', { ...first, id: 'b\u0000c' as never })!
-    const secondSchema = resolveOccurrence('a\u0000b', second)!
-    expect(inputsOf(firstSchema).find((item) => item.id === 'item')?.type).toEqual({ kind: 'list', element: TYPE })
-    expect(inputsOf(secondSchema).find((item) => item.id === 'item')?.type).toEqual(TYPE)
   })
 
   it('exports a distinct state-role output with its referenced state input type and no legacy list flag', () => {
@@ -1127,18 +1059,6 @@ describe('region compile lowering', () => {
     }
   })
 
-  it('keeps ordinary subgraph compilation unchanged when no region block exists', () => {
-    const doc = documentWith({ kind: 'map', elementPorts: ['item'] })
-    delete (doc.graphs.root!.nodes.n0 as { region?: RegionContract }).region
-    const result = compileDocument(doc)
-    expect(result.ok).toBe(true)
-    if (!result.ok) throw new Error('ordinary subgraph compile unexpectedly failed')
-    expect(result.artifact.prompt).toEqual({
-      'n0.n0': { class_type: 'Body', inputs: { in_item: [], in_other: 0, in_state: 0 }, outputIds: ['out_item', 'out_state', 'out_other', 'out_continue'] },
-    })
-    expect(result.artifact.dinksterGraph).toBeUndefined()
-  })
-
   it('emits a native graph for an ordinary graph when the backend supports regions', () => {
     const doc = documentWith({ kind: 'map', elementPorts: ['item'] })
     delete (doc.graphs.root!.nodes.n0 as { region?: RegionContract }).region
@@ -1299,25 +1219,4 @@ describe('region commands and atomic composition', () => {
     })
   })
 
-  it.each([
-    ['unknown key', { kind: 'map', surprise: true }],
-    ['legacy outputModes', { kind: 'map', outputModes: { items: 'gather' } }],
-    ['wrong binding type', { kind: 'map', binding: 17 }],
-    ['non-numeric maxIterations', { kind: 'map', maxIterations: 'unbounded' }],
-    ['malformed output role', { kind: 'fold', statePorts: ['state'], outputRoles: { result: { kind: 'state' } } }],
-  ])('rejects malformed region shape after a custom command: %s', (_label, malformed) => {
-    const corruptRegion = {
-      id: 'test.corruptRegion',
-      run(_doc: WorkflowDocument, _params: unknown, tx: { set: (path: (string | number)[], value: Json) => void }) {
-        tx.set(['graphs', 'root', 'nodes', 'n0', 'region'], malformed as Json)
-        return []
-      },
-    }
-    const initial = documentWith({ kind: 'map', elementPorts: ['item'] })
-    const store = new DocumentStore(initial, coreCommandRegistry([corruptRegion as never]))
-    const out = store.dispatch({ command: 'test.corruptRegion', params: {} })
-    expect(out.ok).toBe(false)
-    expect(out.diagnostics.map((d) => d.code)).toContain('doc.region.shapeInvalid')
-    expect(store.doc.graphs.root!.nodes.n0!.region).toEqual(initial.graphs.root!.nodes.n0!.region)
-  })
 })

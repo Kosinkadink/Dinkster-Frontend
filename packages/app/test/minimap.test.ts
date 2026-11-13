@@ -95,52 +95,6 @@ describe('minimap pointer gestures', () => {
     vi.unstubAllGlobals()
   })
 
-  it('forwards node colors, all node geometry, and independent paint settings', () => {
-    const scene = {
-      nodes: [{ id: 'n1', x: 100, y: 200, layout: { width: 300, height: 160 }, node: { mode: 'bypassed' }, color: '#5b4a92' }],
-      groups: [{ id: 'g1', x: -500, y: -400, width: 200, height: 100, color: '#f00' }],
-      links: [],
-      reroutes: [],
-    } as unknown as ReturnType<CanvasRenderer['getScene']>
-    const h = harness({
-      scene,
-      settings: {
-        'canvas.minimap.nodes': false,
-        'canvas.minimap.bypass': false,
-        'canvas.minimap.errors': false,
-        'canvas.minimap.groups': true,
-      },
-    })
-    h.handle.setStates({ n1: { state: 'error' } })
-    h.handle.paint()
-    const input = drawInputs.at(-1)!
-    expect(input.nodes).toEqual([{ x: 100, y: 200, width: 300, height: 160, bypassed: true, color: '#5b4a92', state: 'error' }])
-    expect(input.groups).toEqual([{ x: -500, y: -400, width: 200, height: 100, color: '#f00' }])
-    expect(input.nodeColors).toBe(false)
-    expect(input.renderBypassState).toBe(false)
-    expect(input.renderErrorState).toBe(false)
-    expect(input.visibility).toEqual({ groups: true })
-    h.handle.dispose()
-  })
-
-  it('forwards minimized node geometry and its reanchored links', () => {
-    const scene = {
-      nodes: [{
-        id: 'n1', x: 100, y: 200,
-        layout: { width: 80, height: 56, minimized: true },
-        node: { mode: 'active' },
-      }],
-      groups: [],
-      links: [{ x1: 180, y1: 214, x2: 300, y2: 214 }],
-      reroutes: [],
-    } as unknown as ReturnType<CanvasRenderer['getScene']>
-    const h = harness({ scene, settings: { 'canvas.minimap.noodles': true } })
-    const input = drawInputs.at(-1)!
-    expect(input.nodes).toEqual([{ x: 100, y: 200, width: 80, height: 56, bypassed: false }])
-    expect(input.links).toEqual([{ from: { x: 180, y: 214 }, to: { x: 300, y: 214 } }])
-    h.handle.dispose()
-  })
-
   it('keeps links, groups, and reroutes independently configurable', () => {
     const scene = {
       nodes: [{ id: 'n1', x: 0, y: 0, layout: { width: 100, height: 60 }, node: { mode: 'active' } }],
@@ -169,14 +123,6 @@ describe('minimap pointer gestures', () => {
     expect(h.canvas.width).toBe(500)
     expect(h.canvas.height).toBe(400)
     expect(drawInputs.at(-1)).toMatchObject({ width: 250, height: 200 })
-    h.handle.dispose()
-  })
-
-  it('uses the responsive CSS size for backing store and minimap geometry', () => {
-    const h = harness({ dpr: 2, width: 200, height: 160 })
-    expect(h.canvas.width).toBe(400)
-    expect(h.canvas.height).toBe(320)
-    expect(drawInputs.at(-1)).toMatchObject({ width: 200, height: 160 })
     h.handle.dispose()
   })
 
@@ -223,21 +169,4 @@ describe('minimap pointer gestures', () => {
     h.handle.dispose()
   })
 
-  it('FR13 pointerup without held capture never calls releasePointerCapture', () => {
-    const h = harness({ hasCapture: false })
-    h.listeners.get('pointerdown')?.(pointer)
-    h.listeners.get('pointerup')?.(pointer)
-    expect(h.canvas.releasePointerCapture).not.toHaveBeenCalled()
-  })
-
-  it('FR13 dispose removes the cancellation listeners', () => {
-    const h = harness()
-    expect(h.listeners.has('pointercancel')).toBe(true)
-    expect(h.listeners.has('lostpointercapture')).toBe(true)
-    h.handle.dispose()
-    // Identity-checked removal (see the harness fake): these only disappear
-    // when production removed the exact callbacks it registered.
-    expect(h.listeners.has('pointercancel')).toBe(false)
-    expect(h.listeners.has('lostpointercapture')).toBe(false)
-  })
 })

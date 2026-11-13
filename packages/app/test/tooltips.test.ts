@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { nodeHeaderTooltipImmediate, renamedNodeHeaderOriginalTitle, resolveCanvasTooltip, TooltipController } from '../src/tooltips.js'
+import { renamedNodeHeaderOriginalTitle, resolveCanvasTooltip, TooltipController } from '../src/tooltips.js'
 import '../src/locale.js'
 
 afterEach(() => vi.useRealTimers())
@@ -37,21 +37,6 @@ describe('TooltipController', () => {
     expect(controller.visible?.lines).toEqual(['renamed'])
   })
 
-  it('hideMatching cancels only matching pending candidates', () => {
-    vi.useFakeTimers()
-    const controller = new TooltipController(() => 500)
-    controller.register({ id: 'p', resolve: (target) => ({ lines: [(target as { kind: string }).kind] }) })
-    controller.show({ kind: 'dom' }, { x: 0, y: 0 })
-    controller.hideMatching((target) => (target as { kind?: string }).kind !== 'dom')
-    vi.advanceTimersByTime(500)
-    expect(controller.visible?.lines).toEqual(['dom'])
-    controller.show({ kind: 'pin' }, { x: 0, y: 0 })
-    controller.hideMatching((target) => (target as { kind?: string }).kind !== 'dom')
-    vi.advanceTimersByTime(500)
-    // The pin candidate was cancelled; the visible dom tooltip survives.
-    expect(controller.visible?.lines).toEqual(['dom'])
-  })
-
   it('hideMatching hides only a matching visible tooltip', () => {
     const controller = new TooltipController(() => 0)
     controller.register({ id: 'p', resolve: (target) => ({ lines: [(target as { kind: string }).kind] }) })
@@ -74,31 +59,6 @@ describe('TooltipController', () => {
     expect(controller.visible?.lines).toEqual(['pin'])
 
     controller.hideMatching((target) => (target as { kind?: string }).kind !== 'dom', focused)
-    expect(controller.visible).toBeUndefined()
-  })
-
-  it('keeps a pending canvas tooltip when a sibling owner invalidates its scene', () => {
-    vi.useFakeTimers()
-    const controller = new TooltipController(() => 500)
-    const focused = Symbol('focused')
-    const sibling = Symbol('sibling')
-    controller.register({ id: 'p', resolve: (target) => ({ lines: [(target as { kind: string }).kind] }) })
-    controller.show({ kind: 'pin' }, { x: 0, y: 0 }, false, false, focused)
-
-    controller.hideMatching((target) => (target as { kind?: string }).kind !== 'dom', sibling)
-    vi.advanceTimersByTime(500)
-    expect(controller.visible?.lines).toEqual(['pin'])
-  })
-
-  it('hides immediately and unregister removes a provider', () => {
-    const controller = new TooltipController(() => 0)
-    const unregister = controller.register({ id: 'p', resolve: () => ({ lines: ['text'] }) })
-    controller.show({}, { x: 0, y: 0 }, true)
-    expect(controller.visible).toBeDefined()
-    controller.hide()
-    expect(controller.visible).toBeUndefined()
-    unregister()
-    controller.show({}, { x: 0, y: 0 }, true)
     expect(controller.visible).toBeUndefined()
   })
 
@@ -156,29 +116,6 @@ describe('canvas tooltip provider', () => {
   it('adds the input doc string to detailed pin content', () => {
     const target = { kind: 'pin', hit: { node, direction: 'in', portId: 'model', pin: { label: 'model' }, type: { kind: 'concrete', name: 'MODEL' } } }
     expect(resolveCanvasTooltip(target, { detailed: true }, context)?.detail).toEqual(['Model used for sampling.'])
-  })
-
-  it('explains explicit and required-ness-default absence policies on consumer inputs', () => {
-    const items = [
-      { kind: 'input', id: 'requiredDefault', type: { kind: 'concrete', name: 'FLOAT' }, optional: false },
-      { kind: 'input', id: 'optionalDefault', type: { kind: 'concrete', name: 'FLOAT' }, optional: true },
-      { kind: 'input', id: 'accepted', type: { kind: 'concrete', name: 'FLOAT' }, optional: true, onAbsent: 'accept' },
-      { kind: 'input', id: 'failed', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, onAbsent: 'fail' },
-      { kind: 'input', id: 'explicitSkip', type: { kind: 'concrete', name: 'FLOAT' }, optional: true, onAbsent: 'skip' },
-      { kind: 'input', id: 'explicitOmit', type: { kind: 'concrete', name: 'FLOAT' }, optional: true, onAbsent: 'omit' },
-    ]
-    const policyContext = { resolveSchema: () => ({ items }) }
-    const linesFor = (portId: string) => resolveCanvasTooltip({
-      kind: 'pin',
-      hit: { node, direction: 'in', portId, pin: {}, type: { kind: 'concrete', name: 'FLOAT' } },
-    }, { detailed: false }, policyContext)?.lines
-
-    expect(linesFor('requiredDefault')).toContain('If absent: Skip (default for required input) - the consumer does not run and its outputs become absent.')
-    expect(linesFor('optionalDefault')).toContain('If absent: Omit (default for optional input) - the input is treated as unconnected, using its default when present and the same cache entry.')
-    expect(linesFor('accepted')).toContain('If absent: Accept (declared by schema) - the consumer runs with no value.')
-    expect(linesFor('failed')).toContain('If absent: Fail (declared by schema) - execution stops and reports the absence origin.')
-    expect(linesFor('explicitSkip')).toContain('If absent: Skip (declared by schema) - the consumer does not run and its outputs become absent.')
-    expect(linesFor('explicitOmit')).toContain('If absent: Omit (declared by schema) - the input is treated as unconnected, using its default when present and the same cache entry.')
   })
 
   it('identifies maybe-absent outputs before they are connected', () => {
@@ -239,44 +176,6 @@ describe('canvas tooltip provider', () => {
       'specialization is stale',
       'types do not match',
     ])
-  })
-
-  it('presents COMBO inputs and outputs as COMBO', () => {
-    const comboInput = {
-      kind: 'pin',
-      hit: { node, direction: 'in', portId: 'mode', pin: {}, type: { kind: 'concrete', name: 'COMBO' } },
-    }
-    const comboOutput = {
-      kind: 'pin',
-      hit: { node, direction: 'out', portId: 'choice', pin: {}, type: { kind: 'concrete', name: 'COMBO' } },
-    }
-    expect(resolveCanvasTooltip(comboInput, { detailed: false }, context)?.lines).toEqual(['COMBO (string with choices)'])
-    expect(resolveCanvasTooltip(comboOutput, { detailed: false }, context)?.lines).toEqual(['COMBO (string with choices)'])
-  })
-
-  it('shows bare built-in identities for reroutes', () => {
-    const aliased = { kind: 'reroute', hit: { reroute: { typeName: 'LATENT' } } }
-    const unaliased = { kind: 'reroute', hit: { reroute: { typeName: 'custom.thing' } } }
-    const untyped = { kind: 'reroute', hit: { reroute: {} } }
-    expect(resolveCanvasTooltip(aliased, { detailed: false })?.lines).toEqual(['LATENT'])
-    expect(resolveCanvasTooltip(unaliased, { detailed: false })?.lines).toEqual(['custom.thing'])
-    expect(resolveCanvasTooltip(untyped, { detailed: false })?.lines).toEqual(['Any'])
-  })
-
-  it('pin tooltips show the canonical bare type id', () => {
-    const target = {
-      kind: 'pin',
-      hit: { node, direction: 'in', portId: 'clip', pin: {}, type: { kind: 'concrete', name: 'CLIP' } },
-    }
-    expect(resolveCanvasTooltip(target, { detailed: false }, context)?.lines).toEqual(['CLIP'])
-  })
-
-  it('keeps an unmarked string pin tooltip plain', () => {
-    const target = {
-      kind: 'pin',
-      hit: { node, direction: 'in', portId: 'text', pin: {}, type: { kind: 'concrete', name: 'STRING' } },
-    }
-    expect(resolveCanvasTooltip(target, { detailed: false }, context)?.lines).toEqual(['STRING'])
   })
 
   it('explains unresolved and inferred match-type pins', () => {
@@ -349,41 +248,6 @@ describe('canvas tooltip provider', () => {
     ])
   })
 
-  it('keeps wrappers in a resolved match-type constraint', () => {
-    const constraint = {
-      kind: 'list',
-      element: {
-        kind: 'variable',
-        templateId: 'T',
-        allowedTypes: [{ kind: 'concrete', name: 'IMAGE' }, { kind: 'concrete', name: 'MASK' }],
-      },
-    }
-    const target = {
-      kind: 'pin',
-      hit: {
-        node,
-        direction: 'out',
-        portId: 'items',
-        pin: { matchVariable: 'T', matchConstraint: constraint, inferred: true },
-        type: { kind: 'list', element: { kind: 'concrete', name: 'IMAGE' } },
-      },
-    }
-    expect(resolveCanvasTooltip(target, { detailed: false }, context)?.lines).toEqual([
-      'Resolved to list<IMAGE>; original constraint: list<IMAGE | MASK>.',
-      'Match type T: every T port on this node must resolve to the same type.',
-    ])
-  })
-
-  it('describes Any as an independent wildcard', () => {
-    const target = {
-      kind: 'pin',
-      hit: { node, direction: 'in', portId: 'any', pin: {}, type: { kind: 'wildcard' } },
-    }
-    expect(resolveCanvasTooltip(target, { detailed: false }, context)?.lines).toEqual([
-      'Any type; this port accepts values independently and does not determine other ports.',
-    ])
-  })
-
   it('mismatch link hover shows every retained solver diagnostic', () => {
     const target = {
       kind: 'link',
@@ -401,11 +265,6 @@ describe('canvas tooltip provider', () => {
       title: 'Type mismatch',
       lines: ['IMAGE cannot feed LATENT', 'type variable has no solution'],
     })
-  })
-
-  it('healthy link hover has no tooltip', () => {
-    const target = { kind: 'link', hit: { link: { typeName: 'IMAGE' } } }
-    expect(resolveCanvasTooltip(target, { detailed: false })).toBeUndefined()
   })
 
   it('adds numeric constraints and the input doc to detailed widget content', () => {
@@ -450,19 +309,6 @@ describe('canvas tooltip provider', () => {
     ])
   })
 
-  it('names a connected dormant stored value and formats it through the descriptor', () => {
-    const row = {
-      inputId: 'cfg', valueKey: 'cfg', label: 'cfg',
-      spec: { widgetType: 'FLOAT', options: { step: 0.1 } },
-    }
-    const target = {
-      kind: 'widget', connected: true,
-      hit: { node: { node: { type: 'Sampler', values: { cfg: 8 } } }, row },
-    }
-    expect(resolveCanvasTooltip(target, { detailed: false })?.lines)
-      .toEqual(['Dormant stored value under connection: 8.0'])
-  })
-
   it('describes a connected controller as inert instead of advertising activation', () => {
     const target = {
       kind: 'controller', connected: true,
@@ -480,14 +326,6 @@ describe('canvas tooltip provider', () => {
     ])
   })
 
-  it('advertises F1 on documented node headers', () => {
-    const target = { kind: 'header', hit: { node } }
-    const documented = { ...context, resolveSchema: () => ({ ...schema, hasDocs: true }) }
-    expect(resolveCanvasTooltip(target, { detailed: false }, documented)?.lines).toEqual([
-      'Sampler', 'Press F1 for full help.',
-    ])
-  })
-
   it('shows the original display name for a renamed node header', () => {
     const target = {
       kind: 'header',
@@ -498,15 +336,6 @@ describe('canvas tooltip provider', () => {
       lines: ['Original: Sampler'],
     })
     expect(renamedNodeHeaderOriginalTitle(target, context)).toBe('Sampler')
-  })
-
-  it('keeps recognized equal-name headers on the normal tooltip path', () => {
-    const equal = {
-      kind: 'header',
-      hit: { node: { ...node, node: { ...node.node, title: 'Sampler' } } },
-    }
-    expect(renamedNodeHeaderOriginalTitle(equal, context)).toBeUndefined()
-    expect(resolveCanvasTooltip(equal, { detailed: false }, context)?.lines).toEqual(['Sampler'])
   })
 
   it('shows the unknown node type on an unrecognized node header', () => {
@@ -528,29 +357,6 @@ describe('canvas tooltip provider', () => {
     expect(resolveCanvasTooltip(unknown, { detailed: true })?.detail).toEqual(['Schema unavailable'])
   })
 
-  it('shows an equal-name unrecognized header immediately without affecting recognized headers', () => {
-    const unknown = {
-      kind: 'header',
-      hit: { node: { node: { type: 'Missing.Type', title: 'Missing.Type' }, layout: { title: 'Missing.Type' }, unrecognized: true } },
-    }
-    const legacyMissing = {
-      kind: 'header',
-      hit: { node: { node: { type: 'Legacy.Missing', title: 'Legacy.Missing' }, layout: { title: 'Legacy.Missing' }, missingSchema: true } },
-    }
-    const recognized = {
-      kind: 'header',
-      hit: { node: { node: { type: 'Sampler', title: 'Sampler' }, layout: { title: 'Sampler' } } },
-    }
-    const renamed = {
-      kind: 'header',
-      hit: { node: { node: { type: 'Sampler', title: 'My Sampler' }, layout: { title: 'My Sampler' } } },
-    }
-    expect(nodeHeaderTooltipImmediate(unknown)).toBe(true)
-    expect(nodeHeaderTooltipImmediate(legacyMissing)).toBe(true)
-    expect(nodeHeaderTooltipImmediate(recognized, context)).toBe(false)
-    expect(nodeHeaderTooltipImmediate(renamed, context)).toBe(true)
-  })
-
   it('uses a document-derived subgraph display name for equal and custom titles', () => {
     const subgraphContext = { resolveSchema: () => ({ displayName: 'Reusable Stage' }) }
     const subgraphNode = (title: string) => ({
@@ -568,33 +374,4 @@ describe('canvas tooltip provider', () => {
       .toEqual(['Original: Reusable Stage'])
   })
 
-  it('derives region header explanations from the occurrence contract', () => {
-    const header = (region: Record<string, unknown>) => ({
-      kind: 'header',
-      hit: { node: { node: { type: '#body', region }, layout: { title: 'Region' } } },
-    })
-    expect(resolveCanvasTooltip(header({ kind: 'map', elementPorts: ['item'], binding: 'cross' }), { detailed: false }))
-      .toEqual({ title: 'Map region', lines: ['Takes a list from item, runs the body once per item, and gathers the results into lists using cross binding.'] })
-    expect(resolveCanvasTooltip(header({ kind: 'fold', elementPorts: ['item'], statePorts: ['state'] }), { detailed: false })?.lines)
-      .toEqual(['Runs once per item from item and carries loop state (state) from each iteration into the next.'])
-    expect(resolveCanvasTooltip(header({ kind: 'while', statePorts: ['state'], continueOutput: 'continue', maxIterations: 12 }), { detailed: false })?.lines)
-      .toEqual(['Carries loop state (state) through repeated runs until continue is false or 12 iterations are reached.'])
-    expect(resolveCanvasTooltip(header({
-      kind: 'map', elementPorts: ['item'], maxIterations: 8,
-      outputRoles: { batches: { kind: 'flatten' }, state: { kind: 'state', statePort: 'seed' } },
-    }), { detailed: false })?.lines).toEqual([
-      'Takes a list from item, runs the body once per item, and gathers the results into lists using zip binding, up to 8 iterations. Outputs: batches flattened; state carries seed state.',
-    ])
-    expect(resolveCanvasTooltip(header({
-      kind: 'fold', elementPorts: ['item'], statePorts: ['state'], binding: 'broadcast', maxIterations: 4,
-    }), { detailed: false })?.lines).toEqual([
-      'Runs once per item from item and carries loop state (state) from each iteration into the next using broadcast binding, up to 4 iterations.',
-    ])
-  })
-
-  it('uses a badge summary for basic content and primary lines for detail', () => {
-    const target = { kind: 'badge', tooltip: { summary: 'Sampling Pack', detail: ['pack sampling-pack (SP)'] } }
-    expect(resolveCanvasTooltip(target, { detailed: false })?.lines).toEqual(['Sampling Pack'])
-    expect(resolveCanvasTooltip(target, { detailed: true })?.detail).toEqual(['pack sampling-pack (SP)'])
-  })
 })

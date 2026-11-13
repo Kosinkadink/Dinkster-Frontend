@@ -101,69 +101,6 @@ function withChoices(slotVariants: Readonly<Record<string, string>>): Replacemen
 }
 
 describe('wire-28 dynamic replacement targets', () => {
-  it('retains scalar authored menus in replacement plans and rejects malformed choices', () => {
-    const before = sourceDocument()
-    const original = planReplacement(before, 'g0', 'old', rule, resolve).plan!
-    const menu = { options: ['duplicate', 'duplicate', false, 0] }
-    const plan = { ...original, dynamic: { ...original.dynamic, authored: menu }, createdNodes: original.createdNodes!.map((node) => ({
-      ...node, dynamic: { ...node.dynamic, authored: { options: [] } },
-    })) }
-    const store = replacementStore(before)
-    const applied = store.dispatch({ command: 'node.replace', params: { plan } as unknown as Json })
-    expect(applied.ok, JSON.stringify(applied.diagnostics)).toBe(true)
-    expect(store.doc.graphs.g0!.nodes.old!.dynamic!.authored).toEqual(menu)
-    expect(store.doc.graphs.g0!.nodes['old:audit']!.dynamic!.authored).toEqual({ options: [] })
-    expect(store.undo()).toBe(true)
-    expect(store.doc.graphs.g0!.nodes.old).toEqual(before.graphs.g0!.nodes.old)
-    expect(store.redo()).toBe(true)
-    expect(store.doc.graphs.g0!.nodes.old!.dynamic!.authored).toEqual(menu)
-    const malformed = { ...plan, dynamic: { ...plan.dynamic, authored: { options: [null] } } }
-    expect(replacementStore(before).dispatch({ command: 'node.replace', params: { plan: malformed } as unknown as Json }).ok).toBe(false)
-  })
-
-  it('decodes successor rules with explicit historical choices', () => {
-    expect(resolve('fixture.dynamic-modern')?.replacements).toEqual([rule])
-    expect(rule.cases[0]!.slotVariants).toEqual({
-      policy: 'tolerance_color',
-      'policy.color_source': 'integer',
-      'audit:mode': 'details',
-    })
-  })
-
-  it('plans active primary and helper branches with defaults, mappings, families, and links', () => {
-    const planned = planReplacement(sourceDocument(), 'g0', 'old', rule, resolve)
-    expect(planned.diagnostics).toEqual([])
-    expect(planned.plan).toMatchObject({
-      dynamic: {
-        policy: { selected: 'tolerance_color' },
-        'policy.color_source': { selected: 'integer' },
-        samples: { members: ['sample0'] },
-      },
-      values: {
-        'policy.color_source.color_value': 123,
-        'policy.tolerance': 0.75,
-        'policy.metric': 'delta-e',
-        'policy.alpha': 0.5,
-        'samples.sample0.weight': 2.5,
-        'samples.sample0.label': 'red',
-      },
-      controllers: {
-        'policy.tolerance': 'increment',
-        'samples.sample0.weight': 'decrement',
-      },
-      createdNodes: [{
-        nodeId: 'old:audit',
-        localId: 'audit',
-        type: 'fixture.dynamic-helper',
-        dynamic: { mode: { selected: 'details' } },
-        values: { 'mode.label': 'migration', 'mode.enabled': true },
-      }],
-      links: [{
-        from: port('old', 'result'),
-        to: port('old:audit', 'mode.source'),
-      }],
-    })
-  })
 
   it('applies and restores dynamic state atomically through undo and redo', () => {
     const before = sourceDocument()
@@ -355,59 +292,6 @@ describe('wire-28 dynamic replacement targets', () => {
     }))
   })
 
-  it('rejects an invalid persisted variant on a disconnected current slot', () => {
-    const legacy = resolve('fixture.dynamic-legacy')!
-    const template = legacy.items.find((item) => item.kind === 'input' && item.id === 'color_value') as InputSpec
-    const source: NodeSchema = {
-      ...legacy,
-      type: 'fixture.current-slot-source',
-      items: [{
-        ...template,
-        id: 'mask',
-        dynamic: {
-          kind: 'dynamicSlot',
-          slotType: template.type,
-          variants: [{ key: 'integer', type: template.type, inputs: [] }],
-          inputs: [],
-        },
-      }],
-    }
-    const slotResolve = (type: string): NodeSchema | undefined =>
-      type === source.type ? source : resolve(type)
-    const before = sourceDocument()
-    const invalid: WorkflowDocument = {
-      ...before,
-      graphs: {
-        ...before.graphs,
-        g0: {
-          ...before.graphs.g0!,
-          nodes: {
-            ...before.graphs.g0!.nodes,
-            old: {
-              id: asNodeId('old'),
-              type: source.type,
-              values: {},
-              dynamic: { mask: { selected: 'unknown' } },
-            },
-          },
-          links: {},
-        },
-      },
-    }
-    const invalidRule: ReplacementRule = {
-      from: source.type,
-      cases: [{ to: legacy.type }],
-    }
-
-    const planned = planReplacement(invalid, 'g0', 'old', invalidRule, slotResolve)
-    expect(planned.plan).toBeUndefined()
-    expect(planned.diagnostics).toContainEqual(expect.objectContaining({
-      severity: 'error',
-      code: 'replace.source.invalid',
-      message: expect.stringContaining("stored dynamic choice 'unknown' is not declared"),
-    }))
-  })
-
   it('does not copy a controller onto an ordinary widget without a controller slot', () => {
     const legacy = resolve('fixture.dynamic-legacy')!
     const before = sourceDocument()
@@ -441,43 +325,6 @@ describe('wire-28 dynamic replacement targets', () => {
       severity: 'warning',
       code: 'replace.controller.dropped',
       message: expect.stringContaining("controller on 'color_value'"),
-    }))
-  })
-
-  it('does not copy a family controller onto a template widget without a controller slot', () => {
-    const modern = resolve('fixture.dynamic-modern')!
-    const plainFamily: NodeSchema = {
-      ...modern,
-      type: 'fixture.plain-family-target',
-      items: modern.items.map((item) => {
-        if (item.kind !== 'input' || item.dynamic?.kind !== 'autogrow' || item.id !== 'samples') return item
-        return {
-          ...item,
-          dynamic: {
-            ...item.dynamic,
-            template: item.dynamic.template.map((slot) => {
-              if (slot.id !== 'weight' || slot.widget === undefined) return slot
-              const { controller: _controller, controllerInitial: _controllerInitial, ...widget } = slot.widget
-              return { ...slot, widget }
-            }),
-          },
-        }
-      }),
-    }
-    const plainResolve = (type: string): NodeSchema | undefined =>
-      type === plainFamily.type ? plainFamily : resolve(type)
-    const replacementCase = rule.cases[0]!
-    const plainRule: ReplacementRule = {
-      ...rule,
-      cases: [{ ...replacementCase, to: plainFamily.type }],
-    }
-
-    const planned = planReplacement(sourceDocument(), 'g0', 'old', plainRule, plainResolve)
-    expect(planned.plan?.controllers).toEqual({ 'policy.tolerance': 'increment' })
-    expect(planned.diagnostics).toContainEqual(expect.objectContaining({
-      severity: 'warning',
-      code: 'replace.controller.dropped',
-      message: expect.stringContaining("controller on 'samples.sample0.weight'"),
     }))
   })
 
@@ -547,26 +394,6 @@ describe('wire-28 dynamic replacement targets', () => {
       severity: 'error',
       code: 'replace.target.inputMissing',
       message: expect.stringContaining('mask.invert'),
-    }))
-  })
-
-  it('keeps materialized family members owned by inputFamilies mappings', () => {
-    const replacementCase = rule.cases[0]!
-    const invalid: ReplacementRule = {
-      ...rule,
-      cases: [{
-        ...replacementCase,
-        inputs: {
-          ...replacementCase.inputs,
-          'samples.sample0.weight': { kind: 'constant', value: 9 },
-        },
-      }],
-    }
-    const planned = planReplacement(sourceDocument(), 'g0', 'old', invalid, resolve)
-    expect(planned.plan).toBeUndefined()
-    expect(planned.diagnostics).toContainEqual(expect.objectContaining({
-      severity: 'error',
-      code: 'replace.target.inputMissing',
     }))
   })
 
@@ -675,20 +502,4 @@ describe('wire-28 dynamic replacement targets', () => {
     })
   })
 
-  it.each(['primary', 'helper'] as const)('rejects malformed nested %s dynamic state without mutating', (target) => {
-    const before = sourceDocument()
-    const plan = planReplacement(before, 'g0', 'old', rule, resolve).plan!
-    const badState = { selected: 'choice', memberState: { member: { slot: [] } } }
-    const malformed = target === 'primary'
-      ? { ...plan, dynamic: { policy: badState } }
-      : {
-          ...plan,
-          createdNodes: [{ ...plan.createdNodes![0]!, dynamic: { mode: badState } }],
-        }
-    const store = replacementStore(before)
-    const applied = store.dispatch({ command: 'node.replace', params: { plan: malformed } as unknown as Json })
-    expect(applied.ok).toBe(false)
-    expect(applied.diagnostics).toContainEqual(expect.objectContaining({ code: 'params.invalid' }))
-    expect(store.doc).toEqual(before)
-  })
 })

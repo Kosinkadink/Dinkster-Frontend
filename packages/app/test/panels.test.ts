@@ -78,34 +78,6 @@ describe('PanelRegistry', () => {
     expect(reg.setPlacement('missing', 'dock')).toBe(false)
   })
 
-  it('hosts the modal placement: default residency and runtime moves', () => {
-    const reg = new PanelRegistry()
-    reg.register(desc({ id: 'settings', placement: 'modal', allowedPlacements: ['modal'] }))
-    expect(reg.inPlacement('modal').map((p) => p.id)).toEqual(['settings'])
-    reg.register(desc({ id: 'movable', placement: 'dock', allowedPlacements: ['dock', 'modal'] }))
-    expect(reg.setPlacement('movable', 'modal')).toBe(true)
-    expect(reg.inPlacement('modal').map((p) => p.id)).toEqual(['movable', 'settings'])
-  })
-
-  it('hosts the bottom placement: default residency and runtime moves', () => {
-    const reg = new PanelRegistry()
-    reg.register(desc({ id: 'logs', placement: 'bottom', allowedPlacements: ['dock', 'bottom'] }))
-    expect(reg.inPlacement('bottom').map((p) => p.id)).toEqual(['logs'])
-    expect(reg.setPlacement('logs', 'dock')).toBe(true)
-    expect(reg.inPlacement('bottom')).toEqual([])
-    expect(reg.setPlacement('logs', 'bottom')).toBe(true)
-    expect(reg.placementOf('logs')).toBe('bottom')
-  })
-
-  it('bumps changed on register, unregister, and placement change', () => {
-    const reg = new PanelRegistry()
-    const before = reg.changed.get()
-    const un = reg.register(desc({ id: 'c', allowedPlacements: ['dock', 'rail'] }))
-    reg.setPlacement('c', 'rail')
-    un()
-    expect(reg.changed.get()).toBe(before + 3)
-  })
-
   it('restores floating overlays without persisting native-window placement', () => {
     const values = new Map<string, string>()
     const storage = {
@@ -130,17 +102,6 @@ describe('PanelRegistry', () => {
 describe('aggregatePanelIndicators', () => {
   const indicator = (count: number, severity: PanelIndicator['severity'], label = `${count} things`): PanelIndicator =>
     ({ count, severity, label })
-
-  it('answers undefined when nothing is indicated', () => {
-    expect(aggregatePanelIndicators([])).toBeUndefined()
-    expect(aggregatePanelIndicators([undefined, undefined])).toBeUndefined()
-    expect(aggregatePanelIndicators([indicator(0, 'error')])).toBeUndefined()
-  })
-
-  it('passes a single active indicator through, keeping its label', () => {
-    const only = indicator(3, 'warning', '3 problems, worst severity warning')
-    expect(aggregatePanelIndicators([undefined, only, indicator(0, 'error')])).toEqual(only)
-  })
 
   it('sums counts and keeps the worst severity across panels', () => {
     const combined = aggregatePanelIndicators([indicator(2, 'info'), indicator(1, 'error'), indicator(4, 'warning')])

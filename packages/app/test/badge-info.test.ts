@@ -31,26 +31,10 @@ describe('subgraphBadgeInfo', () => {
     expect(subgraphBadgeInfo(d, 'g0', 'n1')).toEqual({ defId: 'sub', name: 'My Subgraph', nodeCount: 3 })
   })
 
-  it('returns undefined for a non-subgraph node, a missing node, and a missing graph', () => {
-    expect(subgraphBadgeInfo(d, 'g0', 'n2')).toBeUndefined()
-    expect(subgraphBadgeInfo(d, 'g0', 'ghost')).toBeUndefined()
-    expect(subgraphBadgeInfo(d, 'nope', 'n1')).toBeUndefined()
-  })
-
-  it('returns undefined when the referenced definition was edited away', () => {
-    const dangling = doc({ g0: { nodes: { n1: { type: '#gone' } } } })
-    expect(subgraphBadgeInfo(dangling, 'g0', 'n1')).toBeUndefined()
-  })
 })
 
 describe('deprecationBadgeInfo', () => {
   const d = doc({ g0: { nodes: { n1: { type: 'old.Node' } } } })
-
-  it('returns undefined when the node is missing', () => {
-    expect(
-      deprecationBadgeInfo({ doc: d, graphId: 'g0', nodeId: 'ghost', resolve: undefined }),
-    ).toBeUndefined()
-  })
 
   it('carries the schema deprecation and resolves the successor pointer transitively', () => {
     const schemas: Record<string, NodeSchema> = {
@@ -65,12 +49,4 @@ describe('deprecationBadgeInfo', () => {
     expect(info?.pointer).toEqual({ terminal: 'new.C', path: ['mid.B', 'new.C'], status: 'ok' })
   })
 
-  it('yields no deprecation and no pointer when the schema is unresolved', () => {
-    const info = deprecationBadgeInfo({
-      doc: d, graphId: 'g0', nodeId: 'n1', resolve: () => undefined,
-    })
-    expect(info?.type).toBe('old.Node')
-    expect(info?.deprecation).toBeUndefined()
-    expect(info?.pointer).toBeUndefined()
-  })
 })

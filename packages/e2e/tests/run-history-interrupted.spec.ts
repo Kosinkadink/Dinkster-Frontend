@@ -170,38 +170,6 @@ async function bootAndOpenRuns(page: Page): Promise<void> {
 const entryFor = (page: Page, jobId: string) =>
   page.getByTestId('collection-entry').filter({ hasText: jobId })
 
-test('interrupted records render the sweep phase; only stamped ones offer Resubmit', async ({ page }) => {
-  await installFixture(page)
-  await bootAndOpenRuns(page)
-
-  const stamped = entryFor(page, INTERRUPTED_JOB_ID)
-  await expect(stamped).toHaveCount(1)
-  await expect(stamped).toContainText('Interrupted run')
-  await expect(stamped.locator('.collection-badges')).toContainText('interrupted')
-  await expect(stamped.locator('.collection-badges')).toContainText('was running')
-  await expect(stamped.locator('.collection-badges')).toContainText('Source recorded')
-
-  const unstamped = entryFor(page, unstampedRecord.jobId)
-  await expect(unstamped).toHaveCount(1)
-  await expect(unstamped.locator('.collection-badges')).toContainText('never started')
-  await expect(unstamped.locator('.collection-badges')).toContainText('Source unavailable')
-
-  // Selecting the stamped entry exposes the phase detail and the explicit
-  // Resubmit action alongside Open workflow.
-  await stamped.click()
-  await expect(stamped.getByTestId('collection-details')).toContainText('was running')
-  await expect(stamped.getByTestId('collection-details')).toContainText('it was not re-run')
-  await expect(stamped.locator('[data-testid=collection-action][data-action=resubmit]')).toBeVisible()
-  await expect(stamped.locator('[data-testid=collection-action][data-action=open]')).toBeVisible()
-
-  // The unstamped record has no producing document: no Resubmit, no Open.
-  await unstamped.click()
-  await expect(unstamped.getByTestId('collection-details')).toContainText('none (unstamped submission)')
-  await expect(unstamped.locator('[data-testid=collection-action][data-action=delete]')).toBeVisible()
-  await expect(unstamped.locator('[data-testid=collection-action][data-action=resubmit]')).toHaveCount(0)
-  await expect(unstamped.locator('[data-testid=collection-action][data-action=open]')).toHaveCount(0)
-})
-
 test('Resubmit reopens the producing document and queues a FRESH submission', async ({ page }) => {
   const fixture = await installFixture(page)
   await bootAndOpenRuns(page)

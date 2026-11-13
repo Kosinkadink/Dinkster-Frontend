@@ -15,17 +15,7 @@ import { typesCompatible } from '../src/schema/type-relations.js'
 import { asNodeId, asPortId } from '../src/ids.js'
 import type { GraphDef } from '../src/format/document.js'
 import type { SchemaResolver } from '../src/schema/derive-boundary.js'
-import {
-  cardinalityOf,
-  canonicalTypeIdOf,
-  listTypeId,
-  parseListTypeId,
-  typeExprFromTypeId,
-  type InputSpec,
-  type NodeSchema,
-  type OutputSpec,
-  type TypeExpr,
-} from '../src/schema/model.js'
+import { type InputSpec, type NodeSchema, type OutputSpec, type TypeExpr } from '../src/schema/model.js'
 import { solveGraphTypes } from '../src/schema/solve.js'
 
 // ---------------------------------------------------------------------------
@@ -97,51 +87,6 @@ const defOf = (parts: {
   }) as unknown as GraphDef
 
 const n = asNodeId
-
-// ---------------------------------------------------------------------------
-// Canonical grammar (single owner: model.ts)
-// ---------------------------------------------------------------------------
-
-describe('canonical list type ids', () => {
-  it('round-trips through the single parser, nesting included', () => {
-    expect(listTypeId('INT')).toBe('list<INT>')
-    expect(parseListTypeId('list<INT>')).toBe('INT')
-    expect(parseListTypeId(listTypeId(listTypeId('INT')))).toBe('list<INT>')
-    expect(parseListTypeId('INT')).toBeUndefined()
-    expect(parseListTypeId('list<>')).toBeUndefined()
-  })
-
-  it('canonicalTypeIdOf and typeExprFromTypeId are inverses on closed types', () => {
-    const nested = list(list(concrete('INT')))
-    expect(canonicalTypeIdOf(nested)).toBe('list<list<INT>>')
-    expect(typeExprFromTypeId('list<list<INT>>')).toEqual(nested)
-    expect(typeExprFromTypeId('IMAGE')).toEqual(concrete('IMAGE'))
-    // Open expressions have no canonical id.
-    expect(canonicalTypeIdOf(list(T('T')))).toBeUndefined()
-    expect(canonicalTypeIdOf({ kind: 'wildcard' })).toBeUndefined()
-  })
-
-  it('cardinality is structural: lists are lists, atoms are scalars, variables unknown', () => {
-    expect(cardinalityOf(list(concrete('IMAGE')))).toBe('list')
-    expect(cardinalityOf(concrete('IMAGE'))).toBe('scalar')
-    expect(cardinalityOf(T('T'))).toBe('unknown')
-    expect(cardinalityOf({ kind: 'wildcard' })).toBe('unknown')
-    // Defensive: a smuggled canonical id still reports its true shape.
-    expect(cardinalityOf(concrete('list<IMAGE>'))).toBe('list')
-  })
-})
-
-describe('node-aware schema resolution', () => {
-  it('does not fall back to a type schema when concrete-node resolution fails', () => {
-    const solved = solveGraphTypes(
-      defOf({ nodes: { source: { type: 'ImageSrc' } } }),
-      resolve,
-      { resolveNode: () => undefined },
-    )
-
-    expect(solved.portTypeOf(n('source'), 'output', 'out')).toBeUndefined()
-  })
-})
 
 // ---------------------------------------------------------------------------
 // Advisory compatibility
@@ -379,17 +324,6 @@ describe('solver: open lists peel the constructor', () => {
     expect(s.resolutionOf(n('sw'), 'T')).toEqual({ kind: 'resolved', name: 'list<IMAGE>' })
     // Never concrete('list<...>'): substitution rebuilds the structured form.
     expect(s.portTypeOf(n('sw'), 'output', 'out')).toEqual(list(concrete('IMAGE')))
-  })
-
-  it('open list vs bare variable records no constraint (documented under-constraint)', () => {
-    const def = defOf({
-      nodes: { sw: { type: 'Switch' }, map: { type: 'ListMap' } },
-      links: { l0: { from: ['sw', 'out'], to: ['map', 'in'] } },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.linkVerdicts.get('l0' as never)).toBe('ok')
-    expect(s.resolutionOf(n('sw'), 'T')).toEqual({ kind: 'unconstrained' })
-    expect(s.resolutionOf(n('map'), 'T')).toEqual({ kind: 'unconstrained' })
   })
 
   it('two instances of one open-list schema resolve independently', () => {

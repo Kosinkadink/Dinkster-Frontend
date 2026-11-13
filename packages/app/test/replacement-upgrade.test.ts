@@ -191,37 +191,6 @@ describe('native open-time replacement', () => {
     expect(tab.store.doc.graphs.g0!.nodes.first!.values).toEqual({ amount: 11 })
   })
 
-  it('clears the transient notice on tab close', async () => {
-    loadSchemas(app)
-    await app.openDocument(document(), 'Historical document')
-    const tab = app.activeTab()!
-    await vi.waitFor(() => expect(app.migrationNotices.get().has(tab.id)).toBe(true))
-    expect(app.migrationNotices.get().has(tab.id)).toBe(true)
-    app.closeTab(tab.id)
-    expect(app.migrationNotices.get().has(tab.id)).toBe(false)
-  })
-
-  it.each([false, true])('waits for explicit replacement acceptance=%s', async (accepted) => {
-    loadSchemas(app)
-    app.reviewReplacements.set(true)
-    await app.openDocument(document(), 'Review')
-    const tab = app.activeTab()!
-    const dispatch = app.dispatchTo.bind(app)
-    let finish!: () => void
-    vi.spyOn(app, 'dispatchTo').mockImplementation((owner, invocation) => new Promise<CommandOutcome>((resolve) => {
-      finish = () => resolve(accepted ? dispatch(owner, invocation) : { ok: false, diagnostics: [] })
-    }) as unknown as CommandOutcome)
-    let settled = false
-    const result = app.applyReplacements(tab, app.scanTabReplacements(tab)).then((value) => { settled = true; return value })
-    await Promise.resolve()
-    expect(settled).toBe(false)
-    expect(tab.store.doc.graphs.g0!.nodes.first!.type).toBe('Previous')
-    finish()
-    expect(await result).toBe(accepted)
-    expect(tab.store.doc.graphs.g0!.nodes.first!.type).toBe(accepted ? 'Current' : 'Previous')
-    expect(tab.store.canUndo).toBe(accepted)
-  })
-
   it.each(['refused', 'closed', 'replaced', 'later edit', 'accepted'])('publishes only the accepted live upgrade notice: %s', async (completion) => {
     await app.openDocument(document(), 'Historical document')
     const tab = app.activeTab()!

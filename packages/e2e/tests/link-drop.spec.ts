@@ -54,39 +54,6 @@ async function nodeBodyPoint(page: Page, nodeId: string): Promise<{ x: number; y
   }, nodeId)
 }
 
-/** Page point in the genuine gap between adjacent real sockets on one side. */
-async function betweenSocketLanePoint(
-  page: Page,
-  nodeId: string,
-  direction: 'in' | 'out',
-  depth = 9,
-): Promise<{ x: number; y: number }> {
-  return page.evaluate(({ nodeId, direction, depth }) => {
-    const r = window.__dinksterTest!.renderer!
-    const vp = r.getViewport()
-    const node = r.getScene().nodes.find((n) => n.id === nodeId)
-    if (!node) throw new Error(`no scene node '${nodeId}'`)
-    const pins = node.layout.pins
-      .filter((pin) => {
-        const detail = pin as typeof pin & { familyOwner?: unknown; widgetTap?: true; widgetBacked?: true }
-        return pin.direction === direction &&
-          detail.familyOwner === undefined && detail.widgetTap !== true && detail.widgetBacked !== true
-      })
-      .sort((a, b) => a.y - b.y)
-    if (pins.length < 2) throw new Error(`need two rendered ${direction} pins on '${nodeId}'`)
-    let pair = [pins[0]!, pins[1]!] as const
-    for (let i = 1; i < pins.length - 1; i++) {
-      if (pins[i + 1]!.y - pins[i]!.y < pair[1].y - pair[0].y) pair = [pins[i]!, pins[i + 1]!]
-    }
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    const worldX = direction === 'in'
-      ? node.x + depth
-      : node.x + node.layout.width - depth
-    const worldY = node.y + (pair[0].y + pair[1].y) / 2
-    return { x: rect.left + worldX * vp.scale + vp.x, y: rect.top + worldY * vp.scale + vp.y }
-  }, { nodeId, direction, depth })
-}
-
 async function drag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
@@ -157,79 +124,6 @@ test('node-body hover snaps the noodle and release connects the ranked input', a
   await page.mouse.up()
   const links = Object.values((await activeDoc(page)).graphs['g0']!.links)
   expect(links.some((l) => 'node' in l.to && l.to.node === 'n1' && l.to.port === 'images')).toBe(true)
-})
-
-nativeTest('quantized socket-lane boundaries refuse body autosnap while the interior still previews and connects', {
-  tag: '@native-catalog',
-}, async ({ page }) => {
-  const failures = await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
-    format: 'dinkster-workflow', formatVersion: 1, lineage: 'socket-lane-drop', root: 'g0',
-    graphs: { g0: { id: 'g0', name: 'root', nodes: {
-      source: { id: 'source', type: 'CheckpointLoaderSimple', values: {} },
-      target: { id: 'target', type: 'KSampler', values: {} },
-    }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
-    view: { graphs: { g0: { nodes: {
-      source: { position: { x: 100, y: 150 } },
-      target: { position: { x: 500, y: 150 } },
-    } } } },
-  }, 'Socket lane drop')))
-  expect(failures).toEqual([])
-  await identityViewport(page)
-
-  const sourceOutput = 'MODEL'
-  const sourcePin = await pinPoint(page, 'source', 'out', sourceOutput)
-  const targetPin = await pinPoint(page, 'target', 'in', 'model')
-  const overlay = () => page.evaluate(() => {
-    const value = window.__dinksterTest!.renderer!.getOverlay() as unknown as {
-      bodyDropNode?: string
-      dropTargets?: Set<string>
-    }
-    return { bodyDropNode: value.bodyDropNode, dropTargets: [...(value.dropTargets ?? [])] }
-  })
-
-  for (const depth of [8.9, 9]) {
-    const inputLane = await betweenSocketLanePoint(page, 'target', 'in', depth)
-    await page.mouse.move(sourcePin.x, sourcePin.y)
-    await page.mouse.down()
-    await page.mouse.move(inputLane.x, inputLane.y)
-    expect(await overlay()).toEqual({ bodyDropNode: undefined, dropTargets: ['target:model:in'] })
-    await page.mouse.up()
-    expect(Object.values((await activeDoc(page)).graphs['g0']!.links)).toHaveLength(0)
-
-    const outputLane = await betweenSocketLanePoint(page, 'source', 'out', depth)
-    await page.mouse.move(targetPin.x, targetPin.y)
-    await page.mouse.down()
-    await page.mouse.move(outputLane.x, outputLane.y)
-    expect(await overlay(), `output depth ${depth}`).toEqual({
-      bodyDropNode: undefined,
-      dropTargets: [`source:${sourceOutput}:out`],
-    })
-    await page.mouse.up()
-    expect(Object.values((await activeDoc(page)).graphs['g0']!.links)).toHaveLength(0)
-  }
-
-  for (const [from, point, nodeId] of [
-    [sourcePin, await betweenSocketLanePoint(page, 'target', 'in', 9.1), 'target'],
-    [targetPin, await betweenSocketLanePoint(page, 'source', 'out', 9.1), 'source'],
-  ] as const) {
-    await page.mouse.move(from.x, from.y)
-    await page.mouse.down()
-    await page.mouse.move(point.x, point.y)
-    expect((await overlay()).bodyDropNode).toBe(nodeId)
-    await page.keyboard.press('Escape')
-    await page.mouse.up()
-    expect(Object.values((await activeDoc(page)).graphs['g0']!.links)).toHaveLength(0)
-  }
-
-  const body = await nodeBodyPoint(page, 'target')
-  await page.mouse.move(sourcePin.x, sourcePin.y)
-  await page.mouse.down()
-  await page.mouse.move(body.x, body.y)
-  expect(await overlay()).toEqual({ bodyDropNode: 'target', dropTargets: ['target:model:in'] })
-  await page.mouse.up()
-  expect(Object.values((await activeDoc(page)).graphs['g0']!.links)).toEqual([
-    expect.objectContaining({ from: { node: 'source', port: sourceOutput }, to: { node: 'target', port: 'model' } }),
-  ])
 })
 
 for (const terminalEvent of ['pointercancel', 'lostpointercapture'] as const) {

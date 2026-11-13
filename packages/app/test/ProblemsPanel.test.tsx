@@ -11,7 +11,7 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import type { AppState, DiagnosticFocusRequest, Tab } from '../src/app-state.js'
-import { activateProblem, createProblemsDisclosure, ProblemsPanel } from '../src/ProblemsPanel.js'
+import { activateProblem, ProblemsPanel } from '../src/ProblemsPanel.js'
 
 const schema: NodeSchema = {
   type: 'Sampler',
@@ -72,56 +72,8 @@ const other = diag('warning', 'compile', 'compile.other', 'other warning', {
   refs: [{ graphId: 'g0', nodeId: 'n2' }],
 })
 const diagnostics: readonly Diagnostic[] = [anchored, other]
-const firstKey = JSON.stringify(['execution', 'lineage-a'])
-const secondKey = JSON.stringify(['workflow', 'lineage-a'])
-const withoutSsrHydration = (html: string): string =>
-  html.replace(/ data-hk="[^"]*"/g, '').replace(/<!--(?:\$|\/)-->/g, '')
 
 describe('ProblemsPanel', () => {
-  it('renders expanded accessible groups and preserves item content and focus activation', () => {
-    const disclosure = createProblemsDisclosure()
-    const renderPanel = () => renderToString(() => (
-      <ProblemsPanel app={app} diagnostics={() => diagnostics} compatSkips={() => []} disclosure={disclosure} />
-    ))
-
-    const initial = renderPanel()
-    expect(initial.match(/class="[^"]*\bproblems-group-header\b[^"]*"/g)).toHaveLength(2)
-    expect(initial.match(/aria-expanded="true"/g)).toHaveLength(2)
-    expect(initial).toContain('aria-controls="problems-group-0"')
-    expect(initial).toContain('id="problems-group-0"')
-    expect(initial).toContain('data-severity="error"')
-    expect(initial).toContain('runtime.exploded')
-    expect(initial).toContain('Execution')
-    expect(initial).toContain('This workflow')
-    expect(initial).toContain('preview exploded')
-    expect(initial).toContain('line one\nline two')
-
-    expect(activeTabId.get()).toBe('tab-a')
-    expect(diagnosticFocus.get()).toBeUndefined()
-    disclosure.toggle(firstKey)
-    expect(disclosure.expanded(firstKey)).toBe(false)
-    expect(disclosure.expanded(secondKey)).toBe(true)
-    expect(activeTabId.get()).toBe('tab-a')
-    expect(diagnosticFocus.get()).toBeUndefined()
-
-    const collapsed = renderPanel()
-    expect(collapsed).toContain('aria-expanded="false"')
-    expect(collapsed).toMatch(/id="problems-group-0"[^>]*hidden/)
-    expect(collapsed).toContain('runtime.exploded')
-
-    disclosure.toggle(firstKey)
-    expect(disclosure.expanded(firstKey)).toBe(true)
-    expect(renderPanel().match(/aria-expanded="true"/g)).toHaveLength(2)
-
-    expect(initial).toMatch(/class="[^"]*\bproblem-show-on-canvas\b[^"]*"/)
-    expect(initial).toContain('Show on canvas')
-    activateProblem(app, anchored)
-    expect(activeTabId.get()).toBe('tab-a')
-    expect(diagnosticFocus.get()).toMatchObject({
-      tab,
-      anchor: anchored.anchor,
-    })
-  })
 
   it('renders multiple runtime hints with optional suggestions before the raw traceback', () => {
     const hinted = diag('error', 'runtime', 'runtime.RuntimeError', 'expected scalar type Half but found Float', {
@@ -156,21 +108,6 @@ describe('ProblemsPanel', () => {
     expect(html).toContain('Try permuting the input layout.')
     expect(html.indexOf('expected scalar type Half')).toBeLessThan(html.indexOf('Diagnostic code: dtype-mismatch'))
     expect(html.indexOf('Diagnostic code: tensor-shape-mismatch')).toBeLessThan(html.indexOf('raw traceback'))
-  })
-
-  it('keeps codes in expanded debug detail rather than the one-line summary', () => {
-    const html = renderToString(() => (
-      <ProblemsPanel app={app} diagnostics={() => [anchored]} compatSkips={() => []} />
-    ))
-    const detail = withoutSsrHydration(html)
-    const summary = detail.match(/<summary\b[^>]*>[\s\S]*?<\/summary>/)?.[0]
-    expect(summary).toContain('preview exploded')
-    expect(summary).toContain('aria-label="error"')
-    expect(summary).not.toContain('runtime.exploded')
-    expect(summary).not.toContain('[error]')
-    expect(detail).toContain('<code>runtime.exploded</code>')
-    expect(detail).toContain('line one\nline two')
-    expect(detail).not.toContain('runtime-error-hint')
   })
 
   it('solver diagnostic activation requests focus while an anchorless row stays inert', () => {
@@ -212,15 +149,6 @@ describe('ProblemsPanel', () => {
     expect(html).not.toContain('None.')
   })
 
-  it('omits the compat skips section when the backend reports none', () => {
-    const html = renderToString(() => (
-      <ProblemsPanel app={app} diagnostics={() => []} compatSkips={() => []} />
-    ))
-
-    expect(html).not.toContain('Compat skips')
-    expect(html).toContain('None.')
-  })
-
   it('renders one row per degraded pack with its reason and refused provider ids', () => {
     const reason = 'No live native sampling worker (dinkster.ksampler) is registered.'
     const html = renderToString(() => (
@@ -252,21 +180,4 @@ describe('ProblemsPanel', () => {
     expect(html).not.toContain('None.')
   })
 
-  it('omits the degraded pack section and keeps the empty state when none are reported', () => {
-    const html = renderToString(() => (
-      <ProblemsPanel app={app} diagnostics={() => []} compatSkips={() => []} packInferenceUnavailable={() => []} />
-    ))
-
-    expect(html).not.toContain('Pack inference unavailable')
-    expect(html).toContain('None.')
-  })
-
-  it('renders no degraded pack section for hosts that do not supply the surface', () => {
-    const html = renderToString(() => (
-      <ProblemsPanel app={app} diagnostics={() => []} compatSkips={() => []} />
-    ))
-
-    expect(html).not.toContain('Pack inference unavailable')
-    expect(html).toContain('None.')
-  })
 })

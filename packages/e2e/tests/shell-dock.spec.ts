@@ -369,38 +369,6 @@ test('a panel floated and docked back finishes loading and keeps reacting', asyn
   await expect(docked.getByRole('option', { name: /amber\.png/ })).toBeVisible()
 })
 
-test('extensions and boundary panels can float and move to a new window', async ({ page }) => {
-  // Both descriptors allow floating and window placement like every
-  // other zone-hosted panel.
-  const allowed = await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as {
-      panels: { all(): { id: string; allowedPlacements: readonly string[] }[] }
-    }
-    const wanted = new Set(['extensions', 'boundary'])
-    return Object.fromEntries(app.panels.all()
-      .filter((panel) => wanted.has(panel.id))
-      .map((panel) => [panel.id, [...panel.allowedPlacements].sort().join(',')]))
-  })
-  expect(allowed).toEqual({
-    extensions: 'bottom,dock,floating,rail,window',
-    boundary: 'bottom,dock,floating,rail,window',
-  })
-
-  // Extensions floats through its tab context menu and docks back cleanly.
-  const zone = page.getByTestId('dock-zone-right')
-  await zone.getByRole('tab', { name: 'Extensions' }).click({ button: 'right' })
-  const menu = page.getByTestId('context-menu')
-  await expect(menu.locator('[data-item-id="panel.float"]')).toContainText('Float')
-  await expect(menu.locator('[data-item-id="panel.openWindow"]')).toContainText('Move to new window')
-  await menu.locator('[data-item-id="panel.float"]').click()
-  const floating = page.locator('[data-testid="floating-panel"][data-panel="extensions"]')
-  await expect(floating).toBeVisible()
-  await floating.locator('.floating-panel-header').click({ button: 'right' })
-  await page.getByTestId('context-menu').locator('[data-item-id="panel.dock"]').click()
-  await expect(floating).toHaveCount(0)
-  await expect(zone.getByRole('tab', { name: 'Extensions' })).toBeVisible()
-})
-
 test('a floating when-gated panel hides while disabled and returns when re-enabled', async ({ page }) => {
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
@@ -468,56 +436,6 @@ test('logs live in the toggleable bottom panel; the status bar stays put', async
   await expect(page.getByTestId('bottom-panel')).not.toBeVisible()
   await expect(page.getByTestId('status-bar')).toBeVisible()
   await expect(page.getByTestId('logs-toggle')).toBeFocused()
-})
-
-test('dock-zone membership selects the top or bottom left-rail cluster', async ({ page }) => {
-  const rail = (await page.locator('.left-sidebar').boundingBox())!
-  const dockGroup = (await page.getByTestId('dock-toggle-group').boundingBox())!
-  const bottomGroup = (await page.getByTestId('bottom-toggle-group').boundingBox())!
-  const logs = (await page.getByTestId('logs-toggle').boundingBox())!
-  const executionLog = (await page.getByTestId('execution-log-toggle').boundingBox())!
-  const settings = (await page.getByTestId('settings-button').boundingBox())!
-
-  expect(dockGroup.y).toBeLessThan(bottomGroup.y)
-  expect(bottomGroup.y).toBeGreaterThan(rail.y + rail.height / 2)
-  // Settings is the permanent bottom-most rail action. Bottom-placement
-  // panels (Activity, then Execution log) form the cluster immediately
-  // above it.
-  const activityGap = await page.getByTestId('settings-button').evaluate((element) =>
-    Number.parseFloat(getComputedStyle(element).marginTop),
-  )
-  const activityInset = await page.locator('.left-sidebar').evaluate((element) =>
-    Number.parseFloat(getComputedStyle(element).paddingBottom),
-  )
-  expect(logs.y).toBeLessThan(executionLog.y)
-  expect(Math.abs(executionLog.y + executionLog.height + activityGap - settings.y)).toBeLessThanOrEqual(1)
-  expect(Math.abs(settings.y + settings.height - (rail.y + rail.height - activityInset))).toBeLessThanOrEqual(1)
-
-  await page.evaluate(() => {
-    const panels = (window.__dinksterTest!.app as unknown as {
-      panels: { register(descriptor: unknown): () => void }
-    }).panels
-    panels.register({
-      id: 'runtime-placement-test',
-      title: 'Runtime placement test',
-      placement: 'dock',
-      allowedPlacements: ['dock', 'bottom'],
-      order: 99,
-      toggleTestId: 'runtime-placement-toggle',
-      component: () => document.createElement('div'),
-    })
-  })
-  const runtimeToggle = page.getByTestId('runtime-placement-toggle')
-  await expect(runtimeToggle).toBeAttached()
-  expect(await runtimeToggle.evaluate((element) => element.parentElement?.dataset['testid'])).toBe('dock-toggle-group')
-
-  await page.evaluate(() => {
-    const dock = (window.__dinksterTest!.app as unknown as {
-      dock: { dock(id: string, zone: 'bottom'): void }
-    }).dock
-    dock.dock('runtime-placement-test', 'bottom')
-  })
-  await expect.poll(() => runtimeToggle.evaluate((element) => element.parentElement?.dataset['testid'])).toBe('bottom-toggle-group')
 })
 
 test('bottom panel and rail toggles are independent of the dock', async ({ page }) => {

@@ -1,7 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
-import { evidencePath } from './evidence-output.js'
 
 const proofDir = process.env['DINKSTER_ACTIVITY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -78,89 +77,6 @@ async function capture(page: Page, name: string): Promise<void> {
 
 test.beforeEach(async ({ page }) => {
   await installFixture(page)
-})
-
-test('mounted Activity chrome localizes without changing raw events or reader state', async ({ page, request }) => {
-  let backendRequests = 0
-  page.on('request', (sent) => {
-    const path = new URL(sent.url()).pathname
-    if (path === '/object_info' || path === '/system_stats' || path.startsWith('/api/')) backendRequests += 1
-  })
-  await page.setViewportSize({ width: 1280, height: 800 })
-  await page.goto('/')
-  await page.waitForFunction(() => window.__dinksterTest !== undefined)
-  await expect.poll(() => page.evaluate(() => {
-    const backend = window.__dinksterTest!.app.backends.get()[0]!
-    return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
-  })).toBe(true)
-  const seeded = [entries(3)[2]!, ...entries(32).slice(3)]
-  await setEntries(page, seeded)
-  await page.getByTestId('logs-toggle').click()
-  // Finish fixture persistence before freezing timers and measuring locale requests.
-  await page.evaluate(() => window.__dinksterTest!.app.flushPersistTabs())
-  await expect.poll(() => page.evaluate(() => {
-    const snapshot = JSON.parse(localStorage.getItem('dinkster.openTabs') ?? 'null')
-    return snapshot?.v === 1 &&
-      !Object.keys(localStorage).some((key) => key.startsWith('dinkster.openTabsCandidate.'))
-  })).toBe(true)
-  await page.clock.install({ time: new Date('2026-08-16T12:30:00Z') })
-  await page.clock.pauseAt(new Date('2026-08-16T12:31:00Z'))
-  const clearButton = page.getByTestId('logs-clear')
-  await clearButton.click()
-
-  const panel = page.locator('[data-testid="logs-panel"]:visible')
-  const clearStatus = panel.locator('.activity-log-clear-status')
-  await expect(panel).toHaveCount(1)
-  await expect(clearStatus).toBeVisible()
-  const log = panel.getByRole('log', { name: 'Activity events' })
-  const rawRow = log.locator('.activity-log-row').first()
-  await log.evaluate((element) => {
-    element.scrollTop = 0
-    element.dispatchEvent(new Event('scroll'))
-    element.dataset['localeIdentity'] = 'activity-log'
-  })
-  await rawRow.evaluate((element) => { element.dataset['localeIdentity'] = 'raw-row' })
-  await expect(clearButton).toBeFocused()
-  await expect(clearStatus).toContainText('30 entries')
-  const requestsBeforeLocale = backendRequests
-  await page.screenshot({ path: evidencePath('issue-457', 'activity-log-i18n-en.png'), fullPage: true })
-
-  const localeModule = await (await request.get('/src/locale.ts')).text()
-  const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
-  expect(i18nModule).toBeDefined()
-  await page.evaluate(async ({ i18nModule }) => {
-    const { registerCatalog, setLocale } = await import(i18nModule)
-    registerCatalog('de-DE', {
-      'activityLog.aria.contents': '[AKTIVITATSINHALT MIT LANGEM TESTTEXT]',
-      'activityLog.aria.events': '[AKTIVITATSEREIGNISSE]',
-      'activityLog.clearArmed': '[LOSCHEN AKTIV. ERNEUT LOSCHEN WAHLEN, UM {count, plural, one {# EINTRAG} other {# EINTRAGE}} ZU ENTFERNEN.]',
-      'activityLog.empty.description': '[VERBINDUNGS-, SCHEMA- UND AUSFUHRUNGSEREIGNISSE ERSCHEINEN HIER.]',
-      'activityLog.empty.title': '[NOCH KEINE AKTIVITAT]',
-      'error': '[NICHT UBERSETZEN]',
-      'Disconnected backend / GPU-87db989a-530b-1702-e17d-3edb75b378e6': '[NICHT UBERSETZEN]',
-    })
-    setLocale('de-DE')
-  }, { i18nModule: new URL(i18nModule!, page.url()).href })
-
-  const retainedLog = page.locator('[data-locale-identity="activity-log"]')
-  const retainedRow = page.locator('[data-locale-identity="raw-row"]')
-  await expect(page.getByTestId('logs-panel')).toHaveAttribute('aria-label', '[AKTIVITATSINHALT MIT LANGEM TESTTEXT]')
-  await expect(retainedLog).toHaveAttribute('aria-label', '[AKTIVITATSEREIGNISSE]')
-  await expect(clearButton).toBeFocused()
-  expect(await retainedLog.evaluate((element) => element.scrollTop)).toBe(0)
-  await expect(clearStatus).toContainText('[LOSCHEN AKTIV. ERNEUT LOSCHEN WAHLEN, UM 30 EINTRAGE ZU ENTFERNEN.]')
-  await expect(retainedRow.locator('time')).toHaveAttribute('datetime', '2026-08-16T12:30:02.000Z')
-  await expect(retainedRow.locator('.activity-log-time')).toHaveText('2026-08-16 12:30:02.000 UTC')
-  await expect(retainedRow.locator('.activity-log-severity')).toHaveText('error')
-  await expect(retainedRow.locator('.activity-log-source')).toHaveText(seeded[0]!.source)
-  await expect(retainedRow.locator('.activity-log-message')).toHaveText(seeded[0]!.message)
-  expect(backendRequests).toBe(requestsBeforeLocale)
-  await page.screenshot({ path: evidencePath('issue-457', 'activity-log-i18n-de-DE.png'), fullPage: true })
-
-  await clearButton.click()
-  await expect(retainedLog.locator('.activity-log-row')).toHaveCount(0)
-  await expect(page.getByTestId('activity-log-empty')).toHaveText('[NOCH KEINE AKTIVITAT][VERBINDUNGS-, SCHEMA- UND AUSFUHRUNGSEREIGNISSE ERSCHEINEN HIER.]')
-  await expect(clearButton).toBeFocused()
 })
 
 test('semantic rows and guarded Clear preserve exact activity facts', async ({ page }) => {

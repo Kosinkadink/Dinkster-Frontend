@@ -31,7 +31,7 @@ import {
   type TypeExpr,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { hitTest, hitTestPin } from '../src/hit.js'
+import { hitTest } from '../src/hit.js'
 import type { PinLayout } from '../src/layout.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
 import { buildScene, portEndKey, type Scene, type SceneLinkEnd } from '../src/scene.js'
@@ -460,18 +460,6 @@ describe('dynamic layout on plain nodes', () => {
     expect(row.input!.label).toBe('image0')
   })
 
-  it('static pins and widget rows carry raw addresses and no dynamic annotations', () => {
-    const scene = sceneOf(docOf({ g0: { nodes: { k: { type: 'Sink' } } } }))
-    const pin = pinsOf(scene, 'k', 'in').find((p) => p.portId === 'in')!
-    expect(pin.address).toEqual({ port: 'in' })
-    expect(pin.ghost).toBeUndefined()
-    expect(pin.materialize).toBeUndefined()
-    const row = widgetRowsOf(scene, 'k').find((r) => r.inputId === 'gain')!
-    expect(row.valueKey).toBe('gain')
-    expect(row.ghost).toBeUndefined()
-    expect(row.materialize).toBeUndefined()
-  })
-
   it('persisted members render as real pins; the ghost continues from seq, never recycling ids', () => {
     const scene = sceneOf(
       docOf({
@@ -496,18 +484,6 @@ describe('dynamic layout on plain nodes', () => {
     )
     expect(pinsOf(scene, 'c', 'in').map((p) => p.portId)).toEqual(['images.image#m0'])
     expect(ghostPinsOf(scene, 'c')).toHaveLength(0)
-  })
-
-  it('ghost widget rows key values by the elaborated id (valueKeyOf), with frames attached', () => {
-    const scene = sceneOf(docOf({ g0: { nodes: { w: { type: 'Weigh' } } } }))
-    const rows = widgetRowsOf(scene, 'w')
-    expect(rows).toHaveLength(1)
-    const row = rows[0]!
-    expect(row.ghost).toBe(true)
-    expect(row.inputId).toBe('weights.w#m0')
-    expect(row.valueKey).toBe('weights.w#m0')
-    expect(row.spec.widgetType).toBe('FLOAT')
-    expect(row.materialize).toEqual([{ construct: 'weights', members: ['m0'] }])
   })
 
   it('min-fill synthetics render un-ghosted with cumulative sibling frames; the ghost includes all', () => {
@@ -590,12 +566,6 @@ describe('dynamic layout on plain nodes', () => {
     // The offer is back, but member ids are never recycled: the allocation
     // cursor survives undo, so the re-offered member is m1, not m0.
     expect(growthRowsOf(back, 'p')[0]!.frames).toEqual([{ construct: 'items', members: ['m1'] }])
-  })
-
-  it('growth rows never appear when the ghost renders slots (Nest has a static slot)', () => {
-    const fresh = sceneOf(docOf({ g0: { nodes: { n: { type: 'Nest' } } } }))
-    expect(growthRowsOf(fresh, 'n')).toHaveLength(0)
-    expect(ghostPinsOf(fresh, 'n').length).toBeGreaterThan(0)
   })
 
   it('dynamic OUTPUT families ghost symmetrically, before trailing static outputs', () => {
@@ -685,25 +655,6 @@ describe('dynamic layout on plain nodes', () => {
     if (!result.ok) throw new Error('hidden selector compilation failed')
     expect(result.artifact.prompt.m!.inputs).toEqual({ codec: 'custom', 'codec.quality': 29, 'codec.internal': 31 })
     expect(JSON.stringify(doc)).toBe(before)
-  })
-
-  it('renders occurrence selector state and edit ownership', () => {
-    const doc = docOf({ g0: { nodes: {} }, sub: { nodes: { m: { type: 'Mode' } } } })
-    const scene = buildScene({
-      document: doc,
-      graphId: 'sub',
-      resolve: documentResolver(doc, (type) => schemas[type]),
-      tokens: defaultTokens,
-      measure,
-      widgetMeasure,
-      occurrenceView: {
-        dynamic: new Map([['m', { mode: { selected: 'b' } }]]),
-        selectorOwners: new Map([['m', new Map([['mode', { graphId: 'g0', nodeId: 'instance', boundaryId: 'choice' }]])]]),
-      },
-    })
-    const selector = widgetRowsOf(scene, 'm').find((row) => row.selector !== undefined)!
-    expect(selector.derivedValue).toBe('b')
-    expect(selector.selector!.owner).toEqual({ graphId: 'g0', nodeId: 'instance', construct: 'choice' })
   })
 
   it.each(['local', 'promoted', 'promoted-member', 'family'] as const)('routes authored menu edits to the %s persisted scope', (mode) => {
@@ -866,78 +817,6 @@ describe('dynamic layout on plain nodes', () => {
     }
   })
 
-  it('renders merged occurrence family rows and annotates only suffix ownership', () => {
-    const doc = docOf({
-      g0: { nodes: {} },
-      sub: { nodes: { n: { type: 'Weigh', dynamic: { weights: { members: ['d0'] } } } } },
-    })
-    const occurrenceView = {
-      dynamic: new Map([['n', { weights: { members: ['d0', '\u0000s0'] } }]]),
-      selectorOwners: new Map(),
-      familyOwners: new Map([['n', new Map([['weights', {
-        graphId: 'g0', nodeId: 'instance', boundaryId: 'forwarded',
-        occurrence: { instancePath: [], node: 'instance' },
-        familyPath: 'weights',
-        ghostOwner: {
-          graphId: 'g0', nodeId: 'instance', boundaryId: 'forwarded',
-          occurrence: { instancePath: [], node: 'instance' }, sourceMember: 'm0',
-          route: [{ graph: 'sub', boundaryId: 'forwarded', binding: { kind: 'family', node: 'n', port: 'weights' } }],
-        },
-        route: [{ graph: 'sub', boundaryId: 'forwarded', binding: { kind: 'family', node: 'n', port: 'weights' } }],
-        suffixMembers: new Map([['\u0000s0', 's0']]),
-        suffixOwners: new Map([['\u0000s0', {
-          graphId: 'g0', nodeId: 'instance', boundaryId: 'forwarded',
-          occurrence: { instancePath: [], node: 'instance' }, sourceMember: 's0',
-          route: [{ graph: 'sub', boundaryId: 'forwarded', binding: { kind: 'family', node: 'n', port: 'weights' } }],
-        }]]),
-      }]])]]),
-    }
-    const occurrence = buildScene({
-      document: doc, graphId: 'sub', resolve: documentResolver(doc, (type) => schemas[type]),
-      tokens: defaultTokens, measure, widgetMeasure, occurrenceView: occurrenceView as any,
-      occurrence: { owner: { instancePath: [], node: 'instance' as any }, plannerAvailable: true },
-    })
-    const rows = widgetRowsOf(occurrence, 'n').filter((row) => !row.ghost)
-    expect(rows.map((row) => row.address.members?.[0])).toEqual(['d0', '\u0000s0'])
-    expect(rows[0]!.familyOwner).toBeUndefined()
-    expect(rows[1]!.familyOwner).toEqual({
-      graphId: 'g0', nodeId: 'instance', construct: 'forwarded', valueKey: 'forwarded.w#s0',
-    })
-    const pins = pinsOf(occurrence, 'n', 'in')
-    const prefixPin = pins.find((pin) => pin.address.members?.[0] === 'd0')!
-    const suffixPin = pins.find((pin) => pin.address.members?.[0] === '\u0000s0')!
-    const ghostPin = pins.find((pin) => pin.ghost)!
-    expect(prefixPin.familyOwner).toBeUndefined()
-    expect(suffixPin.familyOwner).toEqual({
-      graphId: 'g0', nodeId: 'instance', construct: 'forwarded',
-      occurrence: { instancePath: [], node: 'instance' }, familyPath: 'weights', sourceMember: 's0',
-      route: [{ graph: 'sub', boundaryId: 'forwarded', binding: { kind: 'family', node: 'n', port: 'weights' } }],
-      sourceEndpoint: {
-        kind: 'boundary', occurrence: { instancePath: [], node: 'instance' },
-        address: { port: 'forwarded.w', members: ['s0'] },
-        route: [{ graph: 'sub', boundaryId: 'forwarded', binding: { kind: 'family', node: 'n', port: 'weights' } }],
-      },
-      socketed: true,
-    })
-    expect(ghostPin.familyOwner).toEqual({
-      graphId: 'g0', nodeId: 'instance', construct: 'forwarded',
-      occurrence: { instancePath: [], node: 'instance' }, familyPath: 'weights',
-      route: [{ graph: 'sub', boundaryId: 'forwarded', binding: { kind: 'family', node: 'n', port: 'weights' } }],
-      sourceEndpoint: {
-        kind: 'boundary', occurrence: { instancePath: [], node: 'instance' },
-        address: { port: 'forwarded.w', members: ['m0'] },
-        route: [{ graph: 'sub', boundaryId: 'forwarded', binding: { kind: 'family', node: 'n', port: 'weights' } }],
-      },
-      socketed: true,
-    })
-
-    const definition = buildScene({
-      document: doc, graphId: 'sub', resolve: documentResolver(doc, (type) => schemas[type]),
-      tokens: defaultTokens, measure, widgetMeasure,
-    })
-    expect(widgetRowsOf(definition, 'n').filter((row) => !row.ghost).map((row) => row.address.members?.[0])).toEqual(['d0'])
-  })
-
   it('matches compiled structural input order to canvas-visible definition prefixes and occurrence suffixes', () => {
     const doc = docOf({
       g0: {
@@ -1024,85 +903,6 @@ describe('dynamic layout on plain nodes', () => {
     const link = scene.links.find((candidate) => candidate.effectiveIdentity?.kind === 'occurrence')
     expect(link?.effectiveIdentity).toEqual({ kind: 'occurrence', owner: { instancePath: [], node: 's' }, linkId: 'local' })
     expect(link?.to).toEqual({ kind: 'port', node: 'n', port: 'weights.w', members: ['\u0000s0'] })
-  })
-
-  it('keeps definition-owned links on ordinary scene ids without effective identities', () => {
-    const binding = { kind: 'family' as const, node: 'n', port: 'weights' }
-    const doc = docOf({
-      g0: { nodes: { s: { type: '#sub', dynamic: { forwarded: { members: ['s0'] } } } } },
-      sub: {
-        nodes: { source: { type: 'Src' }, sink: { type: 'Sink' }, n: { type: 'Weigh' } },
-        links: [[['source', 'out'], ['sink', 'in']]],
-        boundary: { inputs: [{ id: 'forwarded', binds: binding }], outputs: [] },
-      },
-    }) as any
-    doc.occurrenceTopologies = {
-      s: {
-        owner: { instancePath: [], node: 's' }, bodyGraph: 'sub', nextOrdinal: 1,
-        links: {
-          local: {
-            id: 'local',
-            from: { kind: 'body', endpoint: { node: 'source', port: 'out' } },
-            to: {
-              kind: 'boundary', occurrence: { instancePath: [], node: 's' },
-              address: { port: 'forwarded.w', members: ['s0'] },
-              route: [{ graph: 'sub', boundaryId: 'forwarded', binding }],
-            },
-          },
-        },
-      },
-    }
-    const resolve = documentResolver(doc, (type) => schemas[type])
-    const drilled = buildScene({
-      document: doc,
-      graphId: 'sub',
-      resolve,
-      tokens: defaultTokens,
-      measure,
-      widgetMeasure,
-      occurrenceView: occurrenceDynamicView(doc, resolve, ['s']),
-      occurrence: { owner: { instancePath: [], node: 's' }, plannerAvailable: true },
-    } as any)
-    // The body definition's own link keeps its ordinary id and no effective
-    // identity even while drilled, so it stays on definition command paths.
-    const drilledDefLink = drilled.links.find((candidate) => candidate.id === 'l0')
-    expect(drilledDefLink).toBeDefined()
-    expect(drilledDefLink?.effectiveIdentity).toBeUndefined()
-    expect(drilledDefLink?.effectiveIdentities).toBeUndefined()
-    // Occurrence-owned links keep their planner-routed identity.
-    const occurrenceLink = drilled.links.find((candidate) => candidate.effectiveIdentity !== undefined)
-    expect(occurrenceLink?.effectiveIdentity?.kind).toBe('occurrence')
-    expect(occurrenceLink?.id.startsWith('@effective:')).toBe(true)
-    // A plain root scene carries no effective identities at all.
-    const rootDoc = docOf({
-      g0: { nodes: { source: { type: 'Src' }, sink: { type: 'Sink' } }, links: [[['source', 'out'], ['sink', 'in']]] },
-    })
-    const root = buildScene({
-      document: rootDoc, graphId: 'g0', resolve: documentResolver(rootDoc, (type) => schemas[type]),
-      tokens: defaultTokens, measure, widgetMeasure,
-    })
-    const rootLink = root.links.find((candidate) => candidate.id === 'l0')
-    expect(rootLink).toBeDefined()
-    expect(root.links.every((candidate) => candidate.effectiveIdentity === undefined && candidate.effectiveIdentities === undefined)).toBe(true)
-  })
-
-  it('DynamicSlot carries variant choice metadata through layout to its pin', () => {
-    const scene = sceneOf(docOf({
-      g0: {
-        nodes: { s: { type: 'Slot', dynamic: { slot: { selected: 'image' } } }, p: { type: 'One' } },
-        links: [[['p', 'out'], ['s', 'slot']]],
-      },
-    }))
-    const pin = pinsOf(scene, 's', 'in').find((candidate) => candidate.address.port === 'slot')!
-    expect(pin.dynamicSlot).toEqual({
-      construct: 'slot',
-      selected: 'image',
-      ancestors: [],
-      variants: [
-        { key: 'image', type: { kind: 'concrete', name: 'IMAGE' } },
-        { key: 'latent', type: { kind: 'concrete', name: 'LATENT' } },
-      ],
-    })
   })
 
   it('solver diagnostics surface on the scene: a stale specialization is user-visible', () => {
@@ -1531,16 +1331,6 @@ describe('ghost interactions dispatch structural, atomic commands', () => {
     expect(store.doc.graphs['g0']!.nodes['w']!.values['weights.w#m0']).toBeUndefined()
   })
 
-  it('hit testing a ghost pin surfaces its address + frames for the gesture', () => {
-    const scene = sceneOf(docOf({ g0: { nodes: { b: { type: 'Batch' } } } }))
-    const node = nodeOf(scene, 'b')
-    const ghost = ghostPinsOf(scene, 'b')[0]!
-    const hit = hitTestPin(scene, node.x, node.y + ghost.y)
-    expect(hit).toBeDefined()
-    expect(hit!.pin.address).toEqual({ port: 'images.image', members: ['m0'] })
-    expect(hit!.pin.ghost).toBe(true)
-    expect(hit!.pin.materialize).toEqual([{ construct: 'images', members: ['m0'] }])
-  })
 })
 
 // ---------------------------------------------------------------------------

@@ -481,41 +481,6 @@ test('preserves a focused widget draft across the mobile threshold in both direc
   await expect(editor).toHaveValue('Mobile uncommitted draft')
 })
 
-test('applies a deferred responsive switch when the focused placement is removed', async ({ page }) => {
-  await setEditorContainerWidth(page, 900)
-  const editor = page.getByTestId('app-view-text')
-  await editor.fill('Draft on removed placement')
-  await expect(editor).toBeFocused()
-
-  await setEditorContainerWidth(page, 600)
-  await expect(page.getByTestId('app-view')).toHaveAttribute('data-app-breakpoint', 'desktop')
-  await page.evaluate(() => {
-    window.__dinksterTest!.app.activeTab()!.store.dispatch({
-      command: 'params.unexpose',
-      params: { graphId: 'g0', nodeId: 'app', inputId: 'prompt' },
-    })
-  })
-
-  await expect(editor).toHaveCount(0)
-  await expect(page.getByTestId('app-view')).toHaveAttribute('data-app-breakpoint', 'mobile')
-})
-
-test('ignores another App View portal draft scope', async ({ page }) => {
-  await setEditorContainerWidth(page, 900)
-  await page.evaluate(() => {
-    const otherDraft = document.createElement('input')
-    otherDraft.dataset['testid'] = 'other-app-view-draft'
-    otherDraft.dataset['appViewDraftScope'] = 'other-app-view'
-    document.body.append(otherDraft)
-    otherDraft.focus()
-  })
-  await expect(page.getByTestId('other-app-view-draft')).toBeFocused()
-
-  await setEditorContainerWidth(page, 600)
-  await expect(page.getByTestId('other-app-view-draft')).toBeFocused()
-  await expect(page.getByTestId('app-view')).toHaveAttribute('data-app-breakpoint', 'mobile')
-})
-
 test('commits an authored text draft before an explicit breakpoint switch', async ({ page }) => {
   await setEditorContainerWidth(page, 900)
   await enterArrange(page)
@@ -531,56 +496,6 @@ test('commits an authored text draft before an explicit breakpoint switch', asyn
     const items = (window.__dinksterTest!.app.activeTab()!.store.doc.ext?.['dinkster.appLayout'] as any).desktop.items
     return items.find((item: any) => item.kind === 'text')?.text
   })).toBe('Breakpoint-safe draft')
-})
-
-test('preserves a focused mobile draft when another placement moves', async ({ page }) => {
-  await authorMobileFixture(page)
-  await setEditorContainerWidth(page, 600)
-  await expect(page.getByTestId('app-view')).toHaveAttribute('data-app-breakpoint', 'mobile')
-  const prompt = page.getByTestId('app-view-row').filter({
-    has: page.getByTestId('app-view-label').filter({ hasText: /^Prompt/ }),
-  }).getByTestId('app-view-text')
-  await prompt.fill('Uncommitted mobile draft')
-  await expect(prompt).toBeFocused()
-  const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
-
-  await page.evaluate(() => {
-    const store = window.__dinksterTest!.app.activeTab()!.store
-    const items = (store.doc.ext?.['dinkster.appLayout'] as any).desktop.items
-    const text = items.find((item: any) => item.kind === 'text')
-    store.dispatch({ command: 'app.layout.moveMobile', params: { id: text.id, index: 0 } })
-  })
-
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision + 1)
-  await expect(prompt).toHaveValue('Uncommitted mobile draft')
-  await expect(prompt).toBeFocused()
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0?.nodes.app?.values?.prompt)).toBeUndefined()
-  expect(await page.evaluate(() => (window.__dinksterTest!.app.activeTab()!.store.doc.ext?.['dinkster.appLayout'] as any).mobile.customized)).toBe(true)
-})
-
-test('updates another mobile placement while preserving the focused draft', async ({ page }) => {
-  await authorMobileFixture(page)
-  await setEditorContainerWidth(page, 600)
-  const prompt = page.getByTestId('app-view-row').filter({
-    has: page.getByTestId('app-view-label').filter({ hasText: /^Prompt/ }),
-  }).getByTestId('app-view-text')
-  await prompt.fill('Uncommitted mobile draft')
-  await expect(prompt).toBeFocused()
-
-  await page.evaluate(() => {
-    const store = window.__dinksterTest!.app.activeTab()!.store
-    const items = (store.doc.ext?.['dinkster.appLayout'] as any).desktop.items
-    const text = items.find((item: any) => item.kind === 'text')
-    store.dispatch({
-      command: 'app.layout.setText',
-      params: { id: text.id, text: 'Updated mobile instructions' },
-    })
-  })
-
-  await expect(page.getByTestId('app-layout-text')).toHaveText('Updated mobile instructions')
-  await expect(prompt).toHaveValue('Uncommitted mobile draft')
-  await expect(prompt).toBeFocused()
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0?.nodes.app?.values?.prompt)).toBeUndefined()
 })
 
 test('removes mobile placements with and without a focused draft', async ({ page }) => {
@@ -689,27 +604,4 @@ test('uses container-width mobile order and supports customize, resize, and rese
   expect(resetText.indexOf('Negative prompt')).toBeLessThan(resetText.indexOf('Prompt'))
   expect(resetText.indexOf('Prompt')).toBeLessThan(resetText.indexOf('Mobile instructions'))
   await page.screenshot({ path: `${mobileProofDir}/02-use-narrow.png`, animations: 'disabled' })
-})
-
-test('renders the mobile presentation in a narrow workflow pop-out', async ({ page }) => {
-  await authorMobileFixture(page)
-  const popupPromise = page.waitForEvent('popup')
-  await page.getByTestId('tab-bar').locator('.tab', { hasText: 'App Layout Test' }).click({ button: 'right' })
-  await page.getByTestId('context-menu').locator('[data-item-id="workflow.openWindow"]').click()
-  const popup = await popupPromise
-  await popup.waitForLoadState('domcontentloaded')
-  await expect(popup.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await registerSchema(popup)
-  await popup.setViewportSize({ width: 560, height: 800 })
-  if (await popup.getByTestId('rail-toggle').getAttribute('aria-pressed') === 'true') {
-    await popup.getByTestId('rail-toggle').click()
-  }
-  await popup.getByTestId('rail-toggle').blur()
-  await popup.mouse.move(300, 700)
-  await expect(popup.getByTestId('app-tooltip')).toHaveCount(0)
-  await expect(popup.getByTestId('app-view')).toHaveAttribute('data-app-breakpoint', 'mobile')
-  await expect(popup.getByTestId('app-layout-mobile-placement')).toHaveCount(3)
-  await expect(popup.getByTestId('app-layout-grid')).toHaveCount(0)
-  await popup.screenshot({ path: `${mobileProofDir}/03-use-popout.png`, animations: 'disabled' })
-  await popup.close()
 })

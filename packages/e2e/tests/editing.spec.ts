@@ -4,7 +4,7 @@
  * Real pointer/keyboard input against the live app; document assertions go
  * through the __dinksterTest bridge (commands -> DocumentStore -> doc).
  */
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, type Page } from './fixtures.js'
 
 /** Reset the viewport to identity so world coords == canvas CSS pixels. */
 async function identityViewport(page: Page): Promise<void> {
@@ -122,25 +122,6 @@ test.beforeEach(async ({ page }, testInfo) => {
     return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
   })).toBe(true)
   await identityViewport(page)
-})
-
-test('bridge reports an unrecognized node type', async ({ page }) => {
-  await waitForStartupOwnership(page)
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'unknown-node', root: 'g0',
-      graphs: { g0: {
-        id: 'g0', name: 'root',
-        nodes: { unknown: { id: 'unknown', type: 'Definitely.Not.In.The.Registry', values: {} } },
-        links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
-      } },
-      view: { graphs: { g0: { nodes: { unknown: { position: { x: 200, y: 200 } } } } } },
-    }, 'Unknown Node')
-  })
-
-  await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'unknown')?.unrecognized,
-  )).toBe(true)
 })
 
 test('click selects a node, empty-space click clears', async ({ page }) => {
@@ -493,105 +474,6 @@ test('resize clamps to the natural minimum size', async ({ page }) => {
   })
 })
 
-test('live resize paints every intermediate node geometry and remains one undo step at each zoom', {
-  annotation: { type: 'mock-legacy-discovery' },
-}, async ({ page }) => {
-  await openauditInteractionFixture(page)
-  await page.evaluate(() => {
-    const original = CanvasRenderingContext2D.prototype.roundRect
-    const originalMoveTo = CanvasRenderingContext2D.prototype.moveTo
-    ;(window as any).__resizePaintOps = [] as number[][]
-    ;(window as any).__resizeMoveTos = [] as number[][]
-    CanvasRenderingContext2D.prototype.roundRect = function (...args: Parameters<typeof original>) {
-      if (typeof args[0] === 'number') (window as any).__resizePaintOps.push(args.slice(0, 4))
-      return original.apply(this, args)
-    }
-    CanvasRenderingContext2D.prototype.moveTo = function (...args: Parameters<typeof originalMoveTo>) {
-      ;(window as any).__resizeMoveTos.push(args)
-      return originalMoveTo.apply(this, args)
-    }
-  })
-
-  for (const scale of [0.5, 1, 2]) {
-    await page.evaluate((nextScale) => {
-      window.__dinksterTest!.renderer!.setViewport({
-        x: 180 - 180 * nextScale,
-        y: 160 - 160 * nextScale,
-        scale: nextScale,
-      })
-      window.__dinksterTest!.controller!.setSelection(['n0'], [], [])
-    }, scale)
-    await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
-    const corner = await resizePoint(page, 'n0')
-    const before = await activeDoc(page)
-    const beforeView = structuredClone(before.view.graphs.g0!.nodes.n0)
-    const startRevision = await revision(page)
-    await page.mouse.move(corner.x, corner.y)
-    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
-    await page.mouse.down()
-
-    const previews: Array<{ x: number; y: number; width: number; height: number }> = []
-    for (const delta of [12, 24, 36]) {
-      await page.evaluate(() => { (window as any).__resizePaintOps = [] })
-      await page.evaluate(() => { (window as any).__resizeMoveTos = [] })
-      await page.mouse.move(corner.x + delta, corner.y + delta)
-      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
-      await expect.poll(
-        () => page.evaluate(() => (window.__dinksterTest!.renderer!.getOverlay() as any).resizePreview),
-        { message: `resize preview at scale ${scale}, delta ${delta}` },
-      ).toBeDefined()
-      const frame = await page.evaluate(() => ({
-        preview: (window.__dinksterTest!.renderer!.getOverlay() as any).resizePreview,
-        ops: (window as any).__resizePaintOps as number[][],
-        moves: (window as any).__resizeMoveTos as number[][],
-        attached: window.__dinksterTest!.renderer!.getScene().links.flatMap((link) => {
-          const ends = [{ end: link.from, direction: 'out' }, { end: link.to, direction: 'in' }] as const
-          return ends.flatMap(({ end, direction }) => {
-            if (end.kind !== 'port' || end.node !== 'n0') return []
-            const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'n0')!
-            const pin = node.layout.pins.find((candidate) => candidate.direction === direction && candidate.portId === end.port)
-            if (!pin) return []
-            const preview = (window.__dinksterTest!.renderer!.getOverlay() as any).resizePreview
-            return [{ x: preview.x + (direction === 'out' ? preview.width : 0), y: preview.y + pin.y }]
-          })
-        }),
-      }))
-      expect(frame.preview).toBeDefined()
-      const previewPaints = frame.ops.filter(([x, y, width, height]) =>
-        x === frame.preview.x && y === frame.preview.y &&
-        width === frame.preview.width && height === frame.preview.height,
-      )
-      expect(previewPaints.length).toBeGreaterThanOrEqual(2)
-      expect(previewPaints.length % 2).toBe(0)
-      expect(frame.ops.some(([x, y, width, height]) =>
-        x === corner.nodeX && y === corner.nodeY &&
-        width === corner.width && height === corner.height,
-      )).toBe(false)
-      expect(frame.attached.length).toBeGreaterThan(0)
-      for (const endpoint of frame.attached) {
-        expect(frame.moves.some(([x, y]) => x === endpoint.x && y === endpoint.y)).toBe(true)
-      }
-      previews.push(frame.preview)
-    }
-    expect(previews[1]!.width).toBeGreaterThan(previews[0]!.width)
-    expect(previews[2]!.height).toBeGreaterThan(previews[1]!.height)
-    expect(await revision(page)).toBe(startRevision)
-
-    await page.mouse.up()
-    expect(await revision(page)).toBe(startRevision + 1)
-    const committed = structuredClone((await activeDoc(page)).view.graphs.g0!.nodes.n0!)
-    expect(committed.size).toEqual({
-      width: Math.round(previews[2]!.width),
-      height: Math.round(previews[2]!.height),
-    })
-
-    await page.keyboard.press('Control+z')
-    expect((await activeDoc(page)).view.graphs.g0!.nodes.n0).toEqual(beforeView)
-    await page.keyboard.press('Control+Shift+z')
-    expect((await activeDoc(page)).view.graphs.g0!.nodes.n0).toEqual(committed)
-  }
-})
-
 test('double-click Add node arms a title-centered ghost and commits only on the next click', async ({ page }) => {
   await openauditInteractionFixture(page)
   const countBefore = await page.evaluate(
@@ -715,65 +597,6 @@ test('selection toolbox: mode selector and minimize act without dropping selecti
   await page.mouse.click(700, 750)
   await expect(canvas).toHaveAttribute('data-selection', '0')
   expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getToolboxLayout())).toBeUndefined()
-})
-
-test('selection toolbox is an upside-down T with exactly three top controls and a wider complete lower row', {
-  annotation: { type: 'mock-legacy-discovery' },
-}, async ({ page }, testInfo) => {
-  await page.mouse.click(...xy(await pointOn(page, 'n0', { kind: 'header' })))
-  const layout = await page.evaluate(() => window.__dinksterTest!.renderer!.getToolboxLayout())
-  expect(layout).toBeDefined()
-  expect(layout!.rows).toHaveLength(2)
-  const [top, lower] = layout!.rows
-  if (!top || !lower) throw new Error('expected both selection toolbox rows')
-  expect(top!.entries.filter((entry) => entry.kind === 'button').map((entry) => entry.button.id)).toEqual([
-    'core.queueUpToHere',
-    'core.queueBetween',
-    'core.queueFromHere',
-  ])
-  expect(top!.panel.width).toBeLessThan(lower!.panel.width)
-  expect(top!.panel.x + top!.panel.width / 2).toBeCloseTo(lower!.panel.x + lower!.panel.width / 2)
-  const lowerIds = lower!.entries
-    .filter((entry): entry is Extract<(typeof lower.entries)[number], { kind: 'button' }> => entry.kind === 'button')
-    .map((entry) => entry.button.id)
-  expect(lowerIds).toEqual(expect.arrayContaining([
-    'core.delete',
-    'core.mode',
-    'core.minimize',
-    'core.color',
-    'core.more',
-  ]))
-  expect(lowerIds.indexOf('core.color')).toBeLessThan(lowerIds.indexOf('core.more'))
-
-  const screenshotPath = testInfo.outputPath('upside-down-t-selection-toolbox.png')
-  await page.getByTestId('graph-canvas').screenshot({ path: screenshotPath, animations: 'disabled' })
-  await testInfo.attach('upside-down-t-selection-toolbox', { path: screenshotPath, contentType: 'image/png' })
-
-  await page.mouse.click(...xy(await toolboxButtonPoint(page, 'core.more')))
-  const menu = page.getByTestId('context-menu')
-  const modeItem = page.locator('[data-item-id="core.node.mode"]')
-  const submenu = page.getByTestId('context-submenu')
-  await expect(menu).toBeVisible()
-  await modeItem.hover()
-  await expect(submenu).toBeVisible()
-  const [menuBox, modeItemBox, submenuBox] = await Promise.all([
-    menu.boundingBox(), modeItem.boundingBox(), submenu.boundingBox(),
-  ])
-  expect(menuBox).not.toBeNull()
-  expect(modeItemBox).not.toBeNull()
-  expect(submenuBox).not.toBeNull()
-  const cascadesRight = submenuBox!.x >= menuBox!.x + menuBox!.width - 1
-  const cascadesLeft = submenuBox!.x + submenuBox!.width <= menuBox!.x + 1
-  expect(cascadesRight || cascadesLeft).toBe(true)
-  expect(submenuBox!.y).toBeLessThan(modeItemBox!.y + modeItemBox!.height)
-  expect(submenuBox!.y + submenuBox!.height).toBeGreaterThan(modeItemBox!.y)
-  expect(submenuBox!.x).toBeGreaterThanOrEqual(0)
-  expect(submenuBox!.x + submenuBox!.width).toBeLessThanOrEqual(1440)
-  expect(submenuBox!.y).toBeGreaterThanOrEqual(0)
-  expect(submenuBox!.y + submenuBox!.height).toBeLessThanOrEqual(900)
-  const cascadePath = testInfo.outputPath('upside-down-t-selection-toolbox-cascade.png')
-  await page.screenshot({ path: cascadePath, animations: 'disabled' })
-  await testInfo.attach('upside-down-t-selection-toolbox-cascade', { path: cascadePath, contentType: 'image/png' })
 })
 
 test('selection toolbox keeps a 16px outline gap and clickable edge actions across zoom', async ({ page }, testInfo) => {

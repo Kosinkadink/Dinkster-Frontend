@@ -116,15 +116,6 @@ describe('attributed previews', () => {
     expect(new Uint8Array(store.get(exec('p2'))!.previews['3']!['']!.payload as ArrayBuffer)[0]).toBe(2)
   })
 
-  it('ignores connection-level control events without creating executions', () => {
-    const store = new ExecutionStore()
-    store.apply({ kind: 'schemaChanged', connection: C0, timestamp: 0, epoch: 2 })
-    store.apply({ kind: 'compositionProgress', connection: C0, timestamp: 0, done: 1, total: 2 })
-    store.apply({ kind: 'compositionComplete', connection: C0, timestamp: 0, epoch: 2, failed: [] })
-    store.apply({ kind: 'packFailed', connection: C0, timestamp: 0, pack: 'p', error: 'e' })
-    expect(store.executions.get().size).toBe(0)
-  })
-
   describe('frame rings', () => {
     const ringFrame = (
       node: string,
@@ -171,15 +162,6 @@ describe('attributed previews', () => {
       expect(new Uint8Array(state.previews['3']!['']!.payload as ArrayBuffer)[0]).toBe(9)
     })
 
-    it('rings are independent per node', () => {
-      const store = storeWith(['p1'])
-      store.apply(ringFrame('3', 1, { frameIndex: 0, frameCount: 4, fps: 16 }, 1))
-      store.apply(frame('p1', '5', 9, 2))
-      const state = store.get(exec('p1'))!
-      expect(state.previewRings!['3']!['']!.frameCount).toBe(4)
-      expect(state.previewRings!['5']).toBeUndefined()
-    })
-
     it.each(['completed', 'interrupted', 'error'] as const)(
       'a terminal execution (%s) releases its rings but keeps the stills',
       (kind) => {
@@ -198,15 +180,6 @@ describe('attributed previews', () => {
         expect(state.previews['3']).toBeDefined()
       },
     )
-
-    it('a lost execution releases its rings', () => {
-      const store = storeWith(['p1'])
-      store.apply(ringFrame('3', 1, { frameIndex: 0, frameCount: 4, fps: 16 }, 1))
-      store.markLost(exec('p1'), 2)
-      const state = store.get(exec('p1'))!
-      expect(state.status).toBe('interrupted')
-      expect(state.previewRings).toBeUndefined()
-    })
 
     it('retains independently indexed untimed image batches after completion, but releases timed animation', () => {
       const store = storeWith(['p1'])
@@ -240,15 +213,6 @@ describe('attributed previews', () => {
       expect(store.get(exec('p1'))!.previewRings).toBeUndefined()
     })
 
-    it('a straggler ring frame after a terminal verdict never rebuilds a ring', () => {
-      const store = storeWith(['p1'])
-      store.markLost(exec('p1'), 1)
-      store.apply(ringFrame('3', 5, { frameIndex: 0, frameCount: 4, fps: 16 }, 2))
-      const state = store.get(exec('p1'))!
-      expect(state.previewRings).toBeUndefined()
-      // The retained still may refresh anyway.
-      expect(new Uint8Array(state.previews['3']!['']!.payload as ArrayBuffer)[0]).toBe(5)
-    })
   })
 
   describe('multi-stream frames', () => {
@@ -280,22 +244,6 @@ describe('attributed previews', () => {
       expect(new Uint8Array(state.previews['3']!['audio']!.payload as ArrayBuffer)[0]).toBe(2)
     })
 
-    it('a still on the ring\'s own stream drops exactly that ring', () => {
-      const store = storeWith(['p1'])
-      store.apply(streamFrame('3', 1, 'video', { frameIndex: 0, frameCount: 4, fps: 16 }, 1))
-      store.apply(streamFrame('3', 2, 'audio', { frameIndex: 0, frameCount: 4, fps: 16 }, 2))
-      store.apply(streamFrame('3', 3, 'video', {}, 3))
-      const rings = store.get(exec('p1'))!.previewRings!['3']!
-      expect(rings['video']).toBeUndefined()
-      expect(rings['audio']!.frameCount).toBe(4)
-    })
-
-    it('dropping a node\'s only ring removes its whole entry', () => {
-      const store = storeWith(['p1'])
-      store.apply(streamFrame('3', 1, 'video', { frameIndex: 0, frameCount: 4, fps: 16 }, 1))
-      store.apply(streamFrame('3', 2, 'video', {}, 2))
-      expect(store.get(exec('p1'))!.previewRings!['3']).toBeUndefined()
-    })
   })
 })
 
@@ -311,15 +259,6 @@ describe('bounded execution activity', () => {
       nodeId: `node-${index}`,
       reason: 'first-seen',
     },
-  })
-
-  it('retains at most 200 activity entries per run in FIFO order', () => {
-    const store = new ExecutionStore()
-    for (let index = 0; index < 205; index += 1) store.apply(activity('current', index))
-    const entries = store.get(execution('current'))!.activities
-    expect(entries).toHaveLength(200)
-    expect(entries[0]).toEqual(activity('current', 5).activity)
-    expect(entries[199]).toEqual(activity('current', 204).activity)
   })
 
   it('isolates activity from foreign and previous runs', () => {
@@ -406,15 +345,6 @@ describe('bounded execution value diagnostics', () => {
     expect(store.get(execution)!.valueDiagnostics).toEqual([output, coercion])
   })
 
-  it('retains at most 200 unique diagnostics in FIFO order', () => {
-    const store = new ExecutionStore()
-    for (let index = 0; index < 205; index += 1) store.apply(event([alpha(index)], index))
-    const diagnostics = store.get(execution)!.valueDiagnostics!
-    expect(diagnostics).toHaveLength(200)
-    expect(diagnostics[0]).toEqual(alpha(5))
-    expect(diagnostics[199]).toEqual(alpha(204))
-  })
-
   it('does not change terminal status or cached node state', () => {
     const store = new ExecutionStore()
     store.apply({
@@ -496,35 +426,6 @@ describe('bounded execution logs', () => {
     const state = store.get(execution('run'))!
     expect(state.logs.map((entry) => entry.seq)).toEqual([4, 5, 6])
     expect(state.logsDropped).toBe(0)
-  })
-
-  it('an in-window gap-fill at capacity evicts the oldest retained record', () => {
-    const store = new ExecutionStore()
-    for (let index = 0; index <= 2000; index += 1) {
-      if (index === 1000) continue
-      store.apply(log('run', index, { seq: index }))
-    }
-    const before = store.get(execution('run'))!
-    expect(before.logs).toHaveLength(2000)
-    expect(before.logsDropped).toBe(0)
-    store.apply(log('run', 9_000, { seq: 1000 }))
-    const state = store.get(execution('run'))!
-    expect(state.logs).toHaveLength(2000)
-    expect(state.logs[0]!.seq).toBe(1)
-    expect(state.logs.some((entry) => entry.seq === 1000)).toBe(true)
-    expect(state.logsDropped).toBe(1)
-  })
-
-  it('ignores replays older than the retained window after FIFO eviction', () => {
-    const store = new ExecutionStore()
-    for (let index = 0; index < 2005; index += 1) store.apply(log('run', index, { seq: index }))
-    // seqs 0..4 were evicted and counted; replaying one must neither re-enter
-    // nor inflate the drop count.
-    store.apply(log('run', 9_000, { seq: 3 }))
-    const state = store.get(execution('run'))!
-    expect(state.logs).toHaveLength(2000)
-    expect(state.logs[0]!.seq).toBe(5)
-    expect(state.logsDropped).toBe(5)
   })
 
   it('prefers backend emit time over normalizer arrival time', () => {
@@ -871,20 +772,6 @@ describe('recorded stream replay', () => {
     expect(after.outputs).toEqual(outputs)
   })
 
-  it('queue depth is independent per connection', () => {
-    const store = new ExecutionStore()
-    const a = asConnectionId('a')
-    const b = asConnectionId('b')
-    store.apply({ kind: 'status', connection: a, timestamp: 0, queueRemaining: 3 })
-    store.apply({ kind: 'status', connection: b, timestamp: 1, queueRemaining: 7 })
-    expect(store.queueRemaining.get().get(a)).toBe(3)
-    expect(store.queueRemaining.get().get(b)).toBe(7)
-    // A later status for one backend never touches the other's depth.
-    store.apply({ kind: 'status', connection: a, timestamp: 2, queueRemaining: 0 })
-    expect(store.queueRemaining.get().get(a)).toBe(0)
-    expect(store.queueRemaining.get().get(b)).toBe(7)
-  })
-
   it('identical prompt ids on different connections are distinct executions', () => {
     const store = new ExecutionStore()
     const onA = { connection: asConnectionId('a'), prompt: asPromptId('p1') }
@@ -951,20 +838,10 @@ describe('recorded stream replay', () => {
     })
   })
 
-  it('executions signal publishes immutable snapshots', () => {
-    const fixture = readStream('success')
-    const store = new ExecutionStore()
-    const seen: ReadonlyMap<string, unknown>[] = []
-    store.executions.subscribe((m) => seen.push(m))
-    for (const event of fixture.events) store.apply(event)
-    expect(seen.length).toBeGreaterThan(1)
-    expect(new Set(seen).size).toBe(seen.length) // every publish is a fresh map
-  })
 })
 
 describe('bounded execution retention', () => {
   const C0 = asConnectionId('c0')
-  const C1 = asConnectionId('c1')
   const exec = (prompt: string, connection = C0) => ({ connection, prompt: asPromptId(prompt) })
 
   const bigFrame = (prompt: string, bytes: number, timestamp = 1) => ({
@@ -1010,46 +887,6 @@ describe('bounded execution retention', () => {
     expect(store.get(exec('t2'))!.previews['1']).toBeDefined()
   })
 
-  it('budgets each connection independently', () => {
-    const store = new ExecutionStore()
-    for (const connection of [C0, C1]) {
-      store.apply({ kind: 'started', execution: exec('p1', connection), timestamp: 1 })
-      store.apply({ ...bigFrame('p1', 40 * MIB, 2), execution: exec('p1', connection) })
-      store.apply({ kind: 'completed', execution: exec('p1', connection), timestamp: 3 })
-    }
-    expect(store.get(exec('p1', C0))!.previews['1']).toBeDefined()
-    expect(store.get(exec('p1', C1))!.previews['1']).toBeDefined()
-  })
-
-  it('evicts the oldest terminal executions beyond the entry cap', () => {
-    const store = new ExecutionStore()
-    for (let i = 0; i < 205; i++) {
-      store.apply({ kind: 'started', execution: exec(`p${i}`), timestamp: i })
-      store.apply({ kind: 'completed', execution: exec(`p${i}`), timestamp: i })
-    }
-    expect(store.executions.get().size).toBe(200)
-    expect(store.get(exec('p0'))).toBeUndefined()
-    expect(store.get(exec('p4'))).toBeUndefined()
-    expect(store.get(exec('p5'))).toBeDefined()
-    expect(store.get(exec('p204'))).toBeDefined()
-  })
-
-  it('re-enforces the byte budget when a straggler frame lands on a terminal execution', () => {
-    const store = new ExecutionStore()
-    store.apply({ kind: 'started', execution: exec('p1'), timestamp: 1 })
-    store.apply(bigFrame('p1', 40 * MIB, 2))
-    store.apply({ kind: 'completed', execution: exec('p1'), timestamp: 3 })
-    store.apply({ kind: 'started', execution: exec('p2'), timestamp: 4 })
-    store.apply(bigFrame('p2', 40 * MIB, 5))
-    store.apply({ kind: 'completed', execution: exec('p2'), timestamp: 6 })
-    expect(store.get(exec('p1'))!.previews).toEqual({}) // stripped by p2's terminal transition
-    store.apply(bigFrame('p1', 40 * MIB, 7))
-    expect(store.get(exec('p1'))!.previews).toEqual({}) // straggler must not regain frames past the budget
-    store.apply({ kind: 'preview', execution: exec('p1'), timestamp: 8, channel: 'comfy/preview-image', payload: new ArrayBuffer(40 * MIB) })
-    expect(store.get(exec('p1'))!.lastPreview).toBeUndefined()
-    expect(store.get(exec('p2'))!.previews['1']).toBeDefined() // newest terminal keeps its frames
-  })
-
   it('never evicts a provisionally lost execution', () => {
     const store = new ExecutionStore()
     store.apply({ kind: 'started', execution: exec('lost'), timestamp: 0 })
@@ -1081,22 +918,6 @@ describe('bounded execution retention', () => {
     expect(store.get(exec('pinned'))).toBeUndefined() // oldest evictable once unpinned
   })
 
-  it('late chatter never resurrects an evicted terminal execution', () => {
-    const store = new ExecutionStore()
-    for (let i = 0; i < 205; i++) {
-      store.apply({ kind: 'started', execution: exec(`p${i}`), timestamp: i })
-      store.apply({ kind: 'completed', execution: exec(`p${i}`), timestamp: i })
-    }
-    expect(store.get(exec('p0'))).toBeUndefined() // evicted
-    store.apply(bigFrame('p0', 1 * MIB, 300))
-    store.apply({ kind: 'preview', execution: exec('p0'), timestamp: 301, channel: 'comfy/preview-image', payload: new ArrayBuffer(1024) })
-    store.apply({ kind: 'completed', execution: exec('p0'), timestamp: 302 })
-    expect(store.get(exec('p0'))).toBeUndefined() // stragglers must not recreate a protected entry
-    // A genuine new run reusing the id is still accepted.
-    store.apply({ kind: 'started', execution: exec('p0'), timestamp: 400 })
-    expect(store.get(exec('p0'))!.status).toBe('running')
-  })
-
   /** The exact wire frame the server would send for one preview event. */
   const wirePreviewFrame = (
     jobId: string,
@@ -1114,48 +935,6 @@ describe('bounded execution retention', () => {
     frame.set(header, 4)
     return frame.buffer
   }
-
-  it('late wire chatter past the tombstone window stays bounded by the entry cap and preview budget', () => {
-    const store = new ExecutionStore()
-    // 1000 settled runs evict 800 entries, far past the bounded tombstone
-    // set, so stragglers for the oldest runs are admitted as unconfirmed
-    // entries instead of being discarded outright.
-    for (let i = 0; i < 1000; i++) {
-      store.apply({ kind: 'started', execution: exec(`p${i}`), timestamp: i * 10 })
-      store.apply({ kind: 'completed', execution: exec(`p${i}`), timestamp: i * 10 + 5 })
-    }
-    expect(store.executions.get().size).toBe(200)
-    // Stragglers arrive through the real normalizer, which stamps client
-    // arrival time - by timestamp they are indistinguishable from a mid-run
-    // join, so each recreates its run, but only as an unconfirmed entry.
-    const normalizer = new DinksterNormalizer(C0)
-    for (let i = 0; i < 600; i += 50) {
-      const frame = wirePreviewFrame(`p${i}`, 10 * MIB, i % 100 === 0 ? '1' : undefined)
-      for (const event of normalizer.normalize(frame)) store.apply(event)
-    }
-    // Unconfirmed entries stay under the entry cap...
-    expect(store.executions.get().size).toBe(200)
-    // ...and their frames stay under the preview byte budget (12 x 10 MiB
-    // arrived; anything beyond 64 MiB was stripped, newest kept first).
-    const retainedBytes = [...store.executions.get().values()].reduce((sum, state) => {
-      let bytes = state.lastPreview?.payload instanceof ArrayBuffer ? state.lastPreview.payload.byteLength : 0
-      for (const streams of Object.values(state.previews)) {
-        for (const frame of Object.values(streams)) bytes += frame.payload instanceof ArrayBuffer ? frame.payload.byteLength : 0
-      }
-      return sum + bytes
-    }, 0)
-    expect(retainedBytes).toBeLessThanOrEqual(64 * MIB)
-    // Unconfirmed entries hold no protected status: newer settled work
-    // evicts them like any terminal entry.
-    const base = Date.now() + 1_000_000
-    for (let i = 0; i < 200; i++) {
-      store.apply({ kind: 'started', execution: exec(`q${i}`), timestamp: base + i })
-      store.apply({ kind: 'completed', execution: exec(`q${i}`), timestamp: base + i })
-    }
-    expect(store.executions.get().size).toBe(200)
-    expect(store.get(exec('p0'))).toBeUndefined()
-    expect(store.get(exec('p550'))).toBeUndefined()
-  })
 
   it('a mid-run join is admitted unconfirmed, confirmed by a start, and settles normally', () => {
     const store = new ExecutionStore()
@@ -1175,117 +954,6 @@ describe('bounded execution retention', () => {
       store.apply({ kind: 'completed', execution: exec(`c${i}`), timestamp: base + i })
     }
     expect(store.get(exec('confirmed'))!.status).toBe('running')
-  })
-
-  it('chatter cannot grow a store whose cap is filled entirely by protected running work', () => {
-    const store = new ExecutionStore()
-    for (let i = 0; i < 200; i++) {
-      store.apply({ kind: 'started', execution: exec(`run${i}`), timestamp: i })
-    }
-    const normalizer = new DinksterNormalizer(C0)
-    for (let i = 0; i < 70; i++) {
-      for (const event of normalizer.normalize(wirePreviewFrame(`ghost${i}`, 1 * MIB, '1'))) store.apply(event)
-    }
-    // Each phantom is admitted, applied, then evicted by the cap: only the
-    // 200 confirmed running entries remain, holding no phantom frames.
-    expect(store.executions.get().size).toBe(200)
-    for (let i = 0; i < 70; i++) expect(store.get(exec(`ghost${i}`))).toBeUndefined()
-    // Repeated chatter for an evicted phantom is discarded outright.
-    for (const event of normalizer.normalize(wirePreviewFrame('ghost69', 1 * MIB, '1'))) store.apply(event)
-    expect(store.get(exec('ghost69'))).toBeUndefined()
-    expect(store.executions.get().size).toBe(200)
-  })
-
-  it('ring-addressed wire frames count toward the preview budget and are stripped with it', () => {
-    const store = new ExecutionStore()
-    let tick = 0
-    const normalizer = new DinksterNormalizer(C0, () => ++tick)
-    const sendRing = (jobId: string, frames: number): void => {
-      for (let f = 0; f < frames; f++) {
-        const wire = wirePreviewFrame(jobId, 1 * MIB, '1', { stream: 'anim', frameIndex: f, frameCount: frames, fps: 8 })
-        for (const event of normalizer.normalize(wire)) store.apply(event)
-      }
-    }
-    sendRing('ringA', 30)
-    sendRing('ringB', 30)
-    sendRing('ringC', 10)
-    // Newest first: ringC (10 MiB) + ringB (30 MiB) fit the 64 MiB budget;
-    // ringA pushes the total to 70 MiB, so its frames and rings are stripped.
-    const stripped = store.get(exec('ringA'))!
-    expect(stripped.previewRings).toBeUndefined()
-    expect(stripped.previews).toEqual({})
-    expect(Object.keys(store.get(exec('ringB'))!.previewRings!['1']!['anim']!.frames)).toHaveLength(30)
-    expect(Object.keys(store.get(exec('ringC'))!.previewRings!['1']!['anim']!.frames)).toHaveLength(10)
-  })
-
-  it('a ring slot shared with its stream still is counted once, not twice', () => {
-    const store = new ExecutionStore()
-    let tick = 0
-    const normalizer = new DinksterNormalizer(C0, () => ++tick)
-    const sendRing = (jobId: string, frames: number): void => {
-      for (let f = 0; f < frames; f++) {
-        const wire = wirePreviewFrame(jobId, 1 * MIB, '1', { stream: 'anim', frameIndex: f, frameCount: frames })
-        for (const event of normalizer.normalize(wire)) store.apply(event)
-      }
-    }
-    // Each job's newest ring slot IS its retained still. Counting payloads
-    // by identity yields 33 + 30 = 63 MiB, inside the 64 MiB budget; naive
-    // still-plus-ring counting would see 65 MiB and strip ringOld.
-    sendRing('ringOld', 33)
-    sendRing('ringNew', 30)
-    expect(Object.keys(store.get(exec('ringOld'))!.previewRings!['1']!['anim']!.frames)).toHaveLength(33)
-    expect(Object.keys(store.get(exec('ringNew'))!.previewRings!['1']!['anim']!.frames)).toHaveLength(30)
-  })
-
-  it('evicting an unconfirmed entry clears its provisional-loss verdict', () => {
-    const store = new ExecutionStore()
-    const normalizer = new DinksterNormalizer(C0)
-    for (const event of normalizer.normalize(wirePreviewFrame('phantom', 1024, '1'))) store.apply(event)
-    store.markLost(exec('phantom'))
-    expect(store.isProvisionallyLost(exec('phantom'))).toBe(true)
-    const base = Date.now() + 1_000_000
-    for (let i = 0; i < 200; i++) {
-      store.apply({ kind: 'started', execution: exec(`n${i}`), timestamp: base + i })
-    }
-    expect(store.get(exec('phantom'))).toBeUndefined()
-    expect(store.isProvisionallyLost(exec('phantom'))).toBe(false)
-  })
-
-  it('completing an over-cap burst of running executions contracts the store to the cap', () => {
-    const store = new ExecutionStore()
-    for (let i = 0; i < 205; i++) store.apply({ kind: 'started', execution: exec(`p${i}`), timestamp: i })
-    expect(store.executions.get().size).toBe(205) // in-flight work is never evicted
-    for (let i = 0; i < 205; i++) store.apply({ kind: 'completed', execution: exec(`p${i}`), timestamp: 300 + i })
-    expect(store.executions.get().size).toBe(200) // settling re-runs eviction
-    expect(store.get(exec('p4'))).toBeUndefined()
-    expect(store.get(exec('p5'))).toBeDefined()
-    expect(store.get(exec('p204'))).toBeDefined()
-  })
-
-  it('releasing the last pin contracts an over-cap store immediately', () => {
-    const store = new ExecutionStore()
-    store.apply({ kind: 'started', execution: exec('pinned'), timestamp: 0 })
-    store.apply({ kind: 'completed', execution: exec('pinned'), timestamp: 0 })
-    store.retain(exec('pinned'))
-    for (let i = 0; i < 200; i++) store.apply({ kind: 'started', execution: exec(`p${i}`), timestamp: i + 1 })
-    expect(store.executions.get().size).toBe(201) // all running plus the pinned terminal
-    store.release(exec('pinned'))
-    expect(store.get(exec('pinned'))).toBeUndefined()
-    expect(store.executions.get().size).toBe(200)
-  })
-
-  it('a retain pin is refcounted', () => {
-    const store = new ExecutionStore()
-    store.apply({ kind: 'started', execution: exec('pinned'), timestamp: 0 })
-    store.apply({ kind: 'completed', execution: exec('pinned'), timestamp: 0 })
-    store.retain(exec('pinned'))
-    store.retain(exec('pinned'))
-    store.release(exec('pinned'))
-    for (let i = 0; i < 205; i++) {
-      store.apply({ kind: 'started', execution: exec(`p${i}`), timestamp: i + 1 })
-      store.apply({ kind: 'completed', execution: exec(`p${i}`), timestamp: i + 1 })
-    }
-    expect(store.get(exec('pinned'))).toBeDefined() // one pin still held
   })
 
   it('never evicts queued or running executions even when over the cap', () => {

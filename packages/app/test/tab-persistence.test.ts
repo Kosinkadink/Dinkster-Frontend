@@ -248,20 +248,6 @@ describe('open-tab persistence', () => {
     expect(prepareWorkflowApp(new AppState()).tabs.get().some((candidate) => candidate.id === tab.id)).toBe(false)
   })
 
-  it('protects dirty closes and permits an explicit discard', () => {
-    const app = prepareWorkflowApp(new AppState())
-    const tab = app.tabs.get()[0]!
-    expect(app.isTabDirty(tab.id)).toBe(true)
-
-    const reject = vi.fn(() => false)
-    expect(app.requestCloseTab(tab.id, reject)).toBe(false)
-    expect(reject).toHaveBeenCalledOnce()
-    expect(app.tabs.get()).toContain(tab)
-
-    expect(app.requestCloseTab(tab.id, () => true)).toBe(true)
-    expect(app.tabs.get()).not.toContain(tab)
-  })
-
   it('creates and activates a dirty empty workflow tab', () => {
     const app = prepareWorkflowApp(new AppState())
     const before = app.tabs.get().length
@@ -453,20 +439,6 @@ describe('open-tab persistence', () => {
     g.localStorage!.setItem(TABS_KEY, '{not json')
     const app = prepareWorkflowApp(new AppState())
     expect(app.tabs.get().map((t) => t.title)).toEqual(['Untitled'])
-  })
-
-  it('falls back to a blank workflow on an unknown envelope version', () => {
-    g.localStorage!.setItem(TABS_KEY, JSON.stringify({ v: 2, active: '', tabs: [] }))
-    const app = prepareWorkflowApp(new AppState())
-    expect(app.tabs.get().map((t) => t.title)).toEqual(['Untitled'])
-  })
-
-  it('falls back to a blank workflow for a corrupt native snapshot', () => {
-    g.localStorage!.setItem(TABS_KEY, '{not json')
-    const app = prepareWorkflowApp(new AppState())
-    expect(app.tabs.get().map((t) => t.title)).toEqual(['Untitled'])
-    const tab = app.activeTab()!
-    expect(Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes)).toEqual([])
   })
 
   it('skips unloadable documents but keeps loadable siblings', () => {

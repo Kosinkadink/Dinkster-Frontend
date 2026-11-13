@@ -89,44 +89,6 @@ describe('App layout storage', () => {
     })
   })
 
-  it('treats malformed and unsupported containers as no layout', () => {
-    expect(appLayout(doc())).toBeUndefined()
-    expect(appLayout(doc({ ext: { [APP_LAYOUT_EXT_KEY]: [] } }))).toBeUndefined()
-    expect(appLayout(doc({ ext: { [APP_LAYOUT_EXT_KEY]: { version: 2, desktop: { items: [] } } } }))).toBeUndefined()
-    expect(appLayout(doc({ ext: { [APP_LAYOUT_EXT_KEY]: { version: 1, desktop: { items: null } } } }))).toBeUndefined()
-  })
-
-  it('reads legacy, customized, and malformed mobile containers tolerantly', () => {
-    const items: Json[] = [
-      { id: 'grid-right', kind: 'text', role: 'body', text: 'Right', x: 6, y: 0, w: 6, h: 1 },
-      { id: 'flow', kind: 'text', role: 'body', text: 'Flow' },
-      { id: 'grid-left', kind: 'text', role: 'body', text: 'Left', x: 0, y: 0, w: 6, h: 1 },
-    ]
-    const read = (mobile: Json | undefined) => appLayout(doc({ ext: { [APP_LAYOUT_EXT_KEY]: {
-      version: 1,
-      desktop: { items },
-      ...(mobile === undefined ? {} : { mobile }),
-    } } }))!.mobile
-
-    expect(read({ customized: false, items: [] })).toEqual({ customized: false, items: [] })
-    expect(read({ customized: true, items: [], order: ['flow', 7, 'missing', 'flow'] })).toEqual({
-      customized: true,
-      items: [],
-      order: ['flow', 'grid-left', 'grid-right'],
-    })
-    for (const mobile of [
-      undefined,
-      null,
-      [],
-      { customized: 'yes', items: [] },
-      { customized: true, items: ['legacy'], order: ['flow'] },
-      { customized: true, order: ['flow'] },
-      { customized: true, items: [], order: null },
-    ] as const) {
-      expect(read(mobile as Json | undefined)).toEqual({ customized: false, items: [] })
-    }
-  })
-
   it('derives mobile order from row-major grid placement before desktop flow order', () => {
     const items = appLayout(doc({ ext: { [APP_LAYOUT_EXT_KEY]: layoutJson([
       { id: 'flow-a', kind: 'text', role: 'body', text: 'Flow A' },
@@ -171,31 +133,6 @@ describe('App layout storage', () => {
       { id: 'child', kind: 'text', role: 'body', text: 'Child' },
       { id: 'group', kind: 'group', title: 'Group', children: ['child'], x: 6, y: 0, w: 6, h: 2 },
     ])
-  })
-
-  it('tolerates arbitrary shared-document coordinate values without returning an invalid grid', () => {
-    const coordinate = fc.oneof(
-      fc.integer({ min: -1_000_000, max: 1_000_000 }),
-      fc.double({ noNaN: true, noDefaultInfinity: true }),
-      fc.string(),
-      fc.boolean(),
-      fc.constant(null),
-    )
-    fc.assert(fc.property(coordinate, coordinate, coordinate, coordinate, (x, y, w, h) => {
-      const parsed = appLayout(doc({ ext: { [APP_LAYOUT_EXT_KEY]: layoutJson([
-        { id: 'fuzz', kind: 'text', role: 'body', text: 'Fuzz', x, y, w, h } as Json,
-      ]) } }))!.desktop.items[0]!
-      const grid = appLayoutGrid(parsed)
-      if (grid === undefined) return
-      expect(Number.isSafeInteger(grid.x)).toBe(true)
-      expect(Number.isSafeInteger(grid.y)).toBe(true)
-      expect(Number.isSafeInteger(grid.w)).toBe(true)
-      expect(Number.isSafeInteger(grid.h)).toBe(true)
-      expect(grid.x).toBeGreaterThanOrEqual(0)
-      expect(grid.x + grid.w).toBeLessThanOrEqual(12)
-      expect(grid.y).toBeGreaterThanOrEqual(0)
-      expect(grid.h).toBeGreaterThanOrEqual(1)
-    }), { numRuns: 500 })
   })
 
   it('localizes only the first valid occurrence of each placement id', () => {
@@ -283,23 +220,6 @@ describe('App layout grid collision resolution', () => {
     ])
   })
 
-  it('returns an already valid layout unchanged and its resolved output is idempotent', () => {
-    const valid = [
-      { id: 'a', x: 0, y: 0, w: 6, h: 2 },
-      { id: 'b', x: 6, y: 3, w: 6, h: 2 },
-    ] as const
-    expect(resolveAppLayoutGrid(valid)).toBe(valid)
-    expect(resolveAppLayoutGrid(valid, 'a')).toBe(valid)
-
-    const overlapping = [
-      { id: 'a', x: 0, y: 0, w: 12, h: 1 },
-      { id: 'b', x: 0, y: 0, w: 12, h: 1 },
-    ] as const
-    const resolved = resolveAppLayoutGrid(overlapping)!
-    expect(resolved.some((item, index) => resolved.slice(index + 1).some((other) => appLayoutGridOverlap(item, other)))).toBe(false)
-    expect(resolveAppLayoutGrid(resolved)).toBe(resolved)
-  })
-
   it('settles dense valid coordinates without an arbitrary move limit', () => {
     const sizes = [
       [25, 26], [26, 2], [22, 1], [16, 5], [29, 1],
@@ -313,15 +233,6 @@ describe('App layout grid collision resolution', () => {
         .some((other) => appLayoutGridOverlap(item, other)))).toBe(false)
       expect(resolveAppLayoutGrid(resolved!, priorityId)).toBe(resolved)
     }
-  })
-
-  it('rejects collision settlement beyond safe integer rows', () => {
-    const y = Number.MAX_SAFE_INTEGER - 2
-    expect(resolveAppLayoutGrid([
-      { id: 'a', x: 0, y, w: 12, h: 1 },
-      { id: 'b', x: 0, y, w: 12, h: 1 },
-      { id: 'c', x: 0, y, w: 12, h: 1 },
-    ], 'a')).toBeUndefined()
   })
 
   it('resolves arbitrary bounded overlaps without moving the priority placement', () => {

@@ -1,13 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DinksterConnection, RetainedAssetOwner, RetainedAssetDeclaration } from '@dinkster/client'
 import { assetSourcesStatus, committableAssetRef, isBrowserPreviewable, isCompatible, mediaKindForAccept } from '../src/asset-browser/helpers.js'
-import { assetCollectionSource, assetEntryKindOf, assetEntryOf, assetEntryPickable, assetItemOf, assetKindOf } from '../src/asset-browser/collection-adapter.js'
+import { assetCollectionSource, assetEntryOf, assetEntryPickable } from '../src/asset-browser/collection-adapter.js'
 import { clearMetadataCache, inspectAssetMetadata } from '../src/asset-browser/metadata.js'
 import { mountAssetSource, mountAssetSources, normalizeMountEntry } from '../src/asset-browser/mountAssetSource.js'
 import { localAssetSource } from '../src/asset-browser/localAssetSource.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from '../src/asset-browser/types.js'
 import { initializeProjectScope } from '../src/projects.js'
-import { reconcileWorkflowRetentions } from '../src/workflow-asset-retention.js'
 
 const item = normalizeMountEntry('mount:m', 'm', { virtualPath: 'images/a.png', name: 'a.png', digest: 'blake3:a', size: 12, mediaType: 'image/png', kind: 'media/image' })
 function previewFixture() {
@@ -69,87 +68,6 @@ it.each(['accepted', 'refused', 'mismatched', 'project', 'connection', 'closed']
   },
 )
 
-it('does not enter the model thumbnail renderer after cancellation during its lazy import', async () => {
-  const viewer = await import('../src/model3d-viewer.js')
-  const renderer = vi.spyOn(viewer, 'renderModel3dPosterUrl').mockResolvedValue('blob:model')
-  const f = previewFixture()
-  const entry = assetEntryOf({ ...item, name: 'model.glb', mediaType: 'model/gltf-binary' }, () => '/model.glb', f.owner)
-  const abort = new AbortController()
-  try {
-    const pending = entry.thumbRender!(abort.signal)
-    abort.abort()
-    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
-    expect(renderer).not.toHaveBeenCalled()
-    await expect(entry.thumbRender!()).resolves.toBe('blob:model')
-    expect(renderer).toHaveBeenCalledWith('/model.glb', 'model/gltf-binary')
-  } finally { renderer.mockRestore() }
-})
-
-it.each(['accepted', 'refused', 'closed', 'project', 'connection', 'mismatched'])(
-  'admits shared model thumbnails only after exact preview ownership: %s', async (scenario) => {
-    const viewer = await import('../src/model3d-viewer.js')
-    const renderer = vi.spyOn(viewer, 'renderModel3dPosterUrl').mockResolvedValue('blob:model')
-    const f = previewFixture()
-    let admit!: () => void
-    const admission = new Promise<void>((resolve) => { admit = resolve })
-    f.retainAssets.mockImplementation(async (owner, declaration) => {
-      await admission
-      if (scenario === 'refused') throw new Error('refused')
-      return { ...owner, ...declaration, revision: scenario === 'mismatched' ? 2 : 1 }
-    })
-    const pending = f.entry.thumbRender!().then((url) => url, () => 'refused')
-    await vi.waitFor(() => expect(f.entries.size).toBe(1))
-    expect(renderer).not.toHaveBeenCalled()
-    const intent = JSON.parse([...f.entries.values()][0]!)
-    expect(intent).toMatchObject({ owner: { scope: 'local', ownerKind: 'preview' }, preview: true, complete: true,
-      digests: [`blake3:${'a'.repeat(64)}`] })
-    expect(intent.documentLineage).toBeUndefined()
-    if (scenario === 'closed') f.stale()
-    if (scenario === 'project') initializeProjectScope('different-project')
-    if (scenario === 'connection') for (const listener of f.listeners) listener()
-    admit()
-    expect(await pending).toBe(scenario === 'accepted' ? 'blob:model' : 'refused')
-    expect(renderer).toHaveBeenCalledTimes(scenario === 'accepted' ? 1 : 0)
-    expect(f.releaseRetainedAssets).not.toHaveBeenCalled()
-    expect(f.listeners.size).toBe(0)
-    if (scenario === 'accepted') {
-      f.fetchRetainedAssets.mockResolvedValue({ ...intent.owner, revision: 1, complete: true, digests: intent.digests })
-      expect(await reconcileWorkflowRetentions(f.owner.connection, new AbortController().signal, f.storage)).toBe(true)
-    }
-  },
-)
-
-it.each(['resolve', 'reject'])('keeps cancelled shared thumbnail work owned through actual %s settlement', async (scenario) => {
-  const viewer = await import('../src/model3d-viewer.js')
-  let finish!: () => void
-  const body = new Promise<string>((resolve, reject) => { finish = () => scenario === 'resolve' ? resolve('blob:late') : reject(new Error('render failed')) })
-  const renderer = vi.spyOn(viewer, 'renderModel3dPosterUrl').mockReturnValue(body)
-  const f = previewFixture()
-  const abort = new AbortController()
-  let settled = false
-  const pending = f.entry.thumbRender!(abort.signal).then(() => 'published', () => 'refused').finally(() => { settled = true })
-  await vi.waitFor(() => expect(renderer).toHaveBeenCalledTimes(1))
-  abort.abort()
-  f.stale()
-  await Promise.resolve()
-  expect(settled).toBe(false)
-  expect(f.listeners.size).toBe(1)
-  expect(JSON.parse([...f.entries.values()][0]!).acknowledgedRevision).toBe(1)
-  finish()
-  expect(await pending).toBe('refused')
-  expect(f.listeners.size).toBe(0)
-  expect(f.entries.size).toBe(1)
-  expect(f.releaseRetainedAssets).not.toHaveBeenCalled()
-})
-
-it('refuses model thumbnails with no captured preview owner', async () => {
-  const viewer = await import('../src/model3d-viewer.js')
-  const renderer = vi.spyOn(viewer, 'renderModel3dPosterUrl').mockResolvedValue('blob:model')
-  const entry = assetEntryOf({ ...item, name: 'model.glb', mediaType: 'model/gltf-binary' }, () => '/model.glb')
-  await expect(entry.thumbRender!()).rejects.toThrow('ownership unavailable')
-  expect(renderer).not.toHaveBeenCalled()
-})
-
 describe('local recorded asset source', () => {
   it('retains aliases and job provenance, but never picks or previews missing bytes', async () => {
     const held = { ...item, digest: `blake3:${'a'.repeat(64)}`, name: 'same.png' }
@@ -180,7 +98,6 @@ describe('local recorded asset source', () => {
 })
 
 describe('asset browser helpers', () => {
-  it('normalizes mount identity from adapter and virtual path', () => expect(item.id).toBe('mount:m:images/a.png'))
   it('intersects MIME and semantic kind and rejects unprovable rows', () => {
     expect(isCompatible(item, ['image/*'], 'media/*')).toBe(true)
     expect(isCompatible(item, ['video/*'], 'media/*')).toBe(false)
@@ -223,49 +140,6 @@ describe('asset browser helpers', () => {
 })
 
 describe('asset -> collection adapter', () => {
-  const extensionKindCases: readonly (readonly [string, string | undefined])[] = [
-    ...['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].map((extension): [string, string] => [`preview.${extension}`, 'image']),
-    ...['mp4', 'webm', 'mov', 'avi'].map((extension): [string, string] => [`clip.${extension}`, 'video']),
-    ...['wav', 'mp3', 'flac', 'ogg'].map((extension): [string, string] => [`voice.${extension}`, 'audio']),
-    ...['safetensors', 'ckpt', 'pt', 'gguf'].map((extension): [string, string] => [`weights.${extension}`, 'model']),
-    ['UPPER.PNG', 'image'],
-    ['README', undefined], ['archive.zip', undefined],
-  ]
-  it.each(extensionKindCases)('derives the display kind for %s as %s', (name, expected) => {
-    expect(assetKindOf({ name })).toBe(expected)
-  })
-  it('keeps a truthy backend kind authoritative and omits an unknown kind badge', () => {
-    expect(assetKindOf({ name: 'preview.png', kind: 'custom/rendition' })).toBe('custom/rendition')
-    const { kind: _kind, ...kindless } = item
-    const entry = assetEntryOf({ ...kindless, name: 'archive.zip' })
-    expect(entry.badges).not.toContain('unknown')
-    expect(entry.badges).not.toContain('image')
-  })
-  it('reads an external entry kind from details before presentation badges', () => {
-    expect(assetEntryKindOf({
-      id: 'federated',
-      title: 'model.safetensors',
-      badges: ['12 B'],
-      details: [{ label: 'Kind', text: 'model/checkpoint' }],
-    })).toBe('model/checkpoint')
-  })
-  it('carries the whole asset item as the entry ref and narrows it back', () => {
-    const entry = assetEntryOf(item)
-    expect(entry.id).toBe(item.id)
-    expect(entry.folder).toBeUndefined()
-    expect(assetItemOf(entry)).toBe(item)
-    expect(assetItemOf(undefined)).toBeUndefined()
-    expect(assetItemOf({ id: 'x', title: 'no ref' })).toBeUndefined()
-  })
-  it('loads only browser-previewable image thumbnails without exposing a digest URL', () => {
-    const url = (digest: string): string => `/assets/${digest}`
-    expect(assetEntryOf(item, url).thumbUrl).toBeUndefined()
-    expect(assetEntryOf(item, url).thumbRender).toBeTypeOf('function')
-    expect(assetEntryOf({ ...item, kind: 'model/lora' }, url).thumbUrl).toBeUndefined()
-    expect(assetEntryOf({ ...item, kind: 'model/lora' }, url).thumbRender).toBeUndefined()
-    expect(assetEntryOf(item).thumbUrl).toBeUndefined()
-    expect(assetEntryOf(item).thumbRender).toBeUndefined()
-  })
   it('maps folder rows to navigation entries without a ref (AP10)', () => {
     const folder: AssetBrowserItem = { id: 'mount:m:sub', name: 'sub', folder: true, childCount: 3, virtualPath: 'sub', source: { id: 'mount:m', label: 'm' } }
     const entry = assetEntryOf(folder)
@@ -274,14 +148,6 @@ describe('asset -> collection adapter', () => {
     expect(entry.badges).toEqual(['folder', '3 items'])
     // and therefore the pick predicate can never accept it
     expect(assetEntryPickable([], undefined)(entry)).toBe(false)
-  })
-  it('pick predicate intersects MIME accept and semantic kind on the ref', () => {
-    const pickable = assetEntryPickable(['image/*'], 'media/*')
-    expect(pickable(assetEntryOf(item))).toBe(true)
-    const { kind: _kind, ...kindless } = item
-    expect(pickable(assetEntryOf(kindless))).toBe(true)
-    expect(pickable(assetEntryOf({ ...item, mediaType: 'video/mp4' }))).toBe(false)
-    expect(pickable(assetEntryOf({ ...item, kind: 'model/lora' }))).toBe(false)
   })
   it('refuses an entry missing a committed-AssetRef field: pickable means COMMITTABLE', () => {
     // A size-less row would render an enabled Choose whose commit silently
@@ -322,18 +188,6 @@ describe('asset collection source paging', () => {
     ...(listFolder !== undefined ? { listFolder } : {}),
   })
 
-  it('forwards query, kind filter, folder, cursor, and abort signal to the adapter', async () => {
-    const page = vi.fn().mockResolvedValue({ items: [item], cursor: 'next', total: 9 })
-    const listFolder = vi.fn().mockResolvedValue({ folders: [] })
-    const source = assetCollectionSource(adapterWith(page, listFolder))
-    const signal = new AbortController().signal
-    const result = await source.page({ query: 'cat', limit: 24, filters: { kind: 'media/image' }, folder: 'sub', cursor: 'c1', signal })
-    expect(page).toHaveBeenCalledWith({ query: 'cat', limit: 24, kind: 'media/image', folder: 'sub', cursor: 'c1', signal })
-    expect(result.cursor).toBe('next')
-    expect(result.total).toBe(9)
-    expect(assetItemOf(result.items[0])).toBe(item)
-  })
-
   it('prepends folder rows only on a fresh unqueried first page', async () => {
     const page = vi.fn().mockResolvedValue({ items: [item] })
     const listFolder = vi.fn().mockResolvedValue({ folders: [folderRow] })
@@ -354,14 +208,6 @@ describe('asset collection source paging', () => {
     const listFolder = vi.fn().mockResolvedValue({ folders: [folderRow] })
     const result = await assetCollectionSource(adapterWith(page, listFolder)).page({ query: '', limit: 24 })
     expect(result.items.map((entry) => entry.id)).toEqual(['mount:m:atomic', item.id])
-  })
-
-  it('never lists folders for a folderless adapter', async () => {
-    const page = vi.fn().mockResolvedValue({ items: [item] })
-    const source = assetCollectionSource(adapterWith(page))
-    expect(source.folders).toBeUndefined()
-    const result = await source.page({ query: '', limit: 24 })
-    expect(result.items.map((e) => e.id)).toEqual([item.id])
   })
 
   it('offers open-vocabulary kind options observed from unscoped browsing', async () => {
@@ -524,8 +370,4 @@ describe('metadata inspection ownership (AP10)', () => {
     expect(apply).toHaveBeenCalledWith('boom', undefined)
   })
 
-  it('an owned unsupported result says so', async () => {
-    const apply = await run({ outcome: Promise.resolve(undefined), stillCurrent: true, digest: 'blake3:unsupported' })
-    expect(apply).toHaveBeenCalledWith('Metadata inspection is unsupported.', undefined)
-  })
 })

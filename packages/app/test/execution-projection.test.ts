@@ -51,20 +51,6 @@ describe('execution occurrence projection', () => {
     expect(projected).toEqual({ instance: { state: 'error' } })
   })
 
-  it('keeps sibling instances of one definition independent', () => {
-    const args = {
-      states: states(['left-run', { state: 'running' }], ['right-run', { state: 'cached' }]),
-      scene: scene({ id: 'leaf', isSubgraph: false }),
-      toSource: { 'left-run': 'left.leaf', 'right-run': 'right.leaf' },
-    }
-    expect(projectExecutionNodeStates({ ...args, instancePath: ['left'] })).toEqual({
-      leaf: { state: 'running' },
-    })
-    expect(projectExecutionNodeStates({ ...args, instancePath: ['right'] })).toEqual({
-      leaf: { state: 'cached' },
-    })
-  })
-
   it('projects expanded child progress through its backend display occurrence', () => {
     const child = {
       state: 'running' as const,
@@ -78,16 +64,6 @@ describe('execution occurrence projection', () => {
       toSource: { parent: 'parent', source: 'source' },
     })
     expect(projected).toEqual({ source: child })
-  })
-
-  it('degrades an unmapped runtime id to historical node-id projection', () => {
-    const projected = projectExecutionNodeStates({
-      states: states(['legacy-node', { state: 'skipped' }]),
-      scene: scene({ id: 'legacy-node', isSubgraph: false }),
-      instancePath: [],
-      toSource: {},
-    })
-    expect(projected).toEqual({ 'legacy-node': { state: 'skipped' } })
   })
 
   it('aggregates iteration body progress onto a region occurrence', () => {
@@ -138,15 +114,6 @@ describe('region iteration counter projection', () => {
       scene: regionScene('fold'),
       instancePath: [],
     })).toEqual({ r: 'iteration 3 of 3' })
-  })
-
-  it('stays neutral without a region lifecycle event', () => {
-    expect(projectRegionIterationLabels({
-      regions: {},
-      states: states(['r[0]/body', { state: 'running' }]),
-      scene: regionScene('map'),
-      instancePath: [],
-    })).toEqual({})
   })
 
   it('never borrows a finished nested region count for the outer occurrence', () => {

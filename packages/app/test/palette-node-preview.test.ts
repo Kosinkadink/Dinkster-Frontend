@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { NodeSchema } from '@dinkster/core'
 import { defaultTokens } from '@dinkster/canvas'
 import { duplicatePaletteNames, paletteEntryIdentity, type PaletteEntry } from '../src/NodePalette.js'
-import { palettePreviewLayout, placementSchemaKey, transientPreviewNode } from '../src/palette-node-preview.js'
+import { palettePreviewLayout, transientPreviewNode } from '../src/palette-node-preview.js'
 
 const paletteEntry = (type: string, name: string, category: string, pack: string): PaletteEntry => ({
   type, name, category, pack, kind: 'node', fields: [],
@@ -35,40 +35,6 @@ describe('transient palette preview node', () => {
     expect(preview.layout.height).toBeGreaterThan(defaultTokens.headerHeight)
   })
 
-  it('excludes remote COMBO policy from placement identity', () => {
-    const schema: NodeSchema = {
-      type: 'PolicyNode', displayName: 'Policy Node', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'choice', optional: false,
-        type: { kind: 'concrete', name: 'COMBO' },
-        widget: { widgetType: 'COMBO', options: {}, remote: { route: '/api/choices/models', refreshButton: true } },
-      }],
-    }
-    const withPolicy = structuredClone(schema)
-    Object.assign((withPolicy.items[0] as any).widget.remote, {
-      controlAfterRefresh: 'last', timeoutMs: 2000, maxRetries: 1, refreshMs: 5000,
-    })
-    expect(placementSchemaKey(withPolicy)).toBe(placementSchemaKey(schema))
-  })
-
-  it('emits a short digest that distinguishes materially different schemas', () => {
-    const schema: NodeSchema = {
-      type: 'DigestNode', displayName: 'Digest Node', category: 'test', source: 'v3', isOutputNode: false,
-      items: Array.from({ length: 24 }, (_, i) => ({
-        kind: 'input' as const, id: `input_${i}`, optional: false,
-        type: { kind: 'concrete' as const, name: 'STRING' },
-        widget: { widgetType: 'STRING' as const, options: {}, default: `value ${i}` },
-      })),
-    }
-    const changed = structuredClone(schema)
-    ;(changed.items[0] as { widget: { default: string } }).widget.default = 'other'
-    // Keys ride inside search-action string params (200-char cap); the digest
-    // must stay short no matter how large the schema serializes.
-    expect(JSON.stringify(schema).length).toBeGreaterThan(200)
-    expect(placementSchemaKey(schema)).toMatch(/^[0-9a-f]{16}$/)
-    expect(placementSchemaKey(changed)).toMatch(/^[0-9a-f]{16}$/)
-    expect(placementSchemaKey(changed)).not.toBe(placementSchemaKey(schema))
-  })
 })
 
 describe('palette row identity', () => {

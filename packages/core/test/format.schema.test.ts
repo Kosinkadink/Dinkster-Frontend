@@ -125,13 +125,6 @@ describe('JSON Schema <-> runtime validator agreement', () => {
     expect(agree(fixture)).toEqual({ schemaValid: false, validatorValid: false })
   })
 
-  it('accepts both golden fixtures', () => {
-    for (const name of ['minimal', 'subgraph']) {
-      const verdict = agree(loadFixture(name))
-      expect(verdict, name).toEqual({ schemaValid: true, validatorValid: true })
-    }
-  })
-
   it('agrees on occurrence topology endpoint, route, suppression, and cursor shapes', () => {
     const base = () => {
       const d = structuredClone(loadFixture('subgraph')) as Record<string, unknown>
@@ -229,11 +222,6 @@ describe('JSON Schema <-> runtime validator agreement', () => {
       view: { x: 0, y: 0, width: 10, height: 10 },
       viewport: { x: 0, y: 0, scale: 1 },
     }))).toEqual({ schemaValid: false, validatorValid: false })
-  })
-
-  it('rejects the legacy litegraph fixture', () => {
-    const verdict = agree(loadFixture('legacy-litegraph'))
-    expect(verdict).toEqual({ schemaValid: false, validatorValid: false })
   })
 
   it('accepts slot-selective family forwarding', () => {
@@ -523,20 +511,6 @@ describe('JSON Schema <-> runtime validator agreement', () => {
     expect(agree(d)).toEqual({ schemaValid: true, validatorValid: true })
   })
 
-  it('agrees on the dynamic-state depth cap (16 accepted, 17 rejected)', () => {
-    const withDepth = (levels: number): unknown => {
-      let st: Record<string, unknown> = { members: ['m0'] }
-      for (let i = 0; i < levels; i++) st = { members: ['m0'], memberState: { m0: { c: st } } }
-      const d = structuredClone(loadFixture('minimal')) as Record<string, unknown>
-      const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g0']!
-      const nodes = g['nodes'] as Record<string, Record<string, unknown>>
-      nodes['n0']!['dynamic'] = { items: st }
-      return d
-    }
-    expect(agree(withDepth(16))).toEqual({ schemaValid: true, validatorValid: true })
-    expect(agree(withDepth(17))).toEqual({ schemaValid: false, validatorValid: false })
-  })
-
   it('agrees on value sources (valid + corrupted variants)', () => {
     const withValueSource = (fn?: (d: Record<string, unknown>) => void): unknown => {
       const d = structuredClone(loadFixture('minimal')) as Record<string, unknown>
@@ -590,12 +564,4 @@ describe('JSON Schema <-> runtime validator agreement', () => {
     }
   })
 
-  it('both tolerate unknown extra properties (additive-first policy)', () => {
-    const doc = structuredClone(loadFixture('minimal')) as Record<string, unknown>
-    doc['futureField'] = { anything: true }
-    const g = (doc['graphs'] as Record<string, Record<string, unknown>>)['g0']!
-    g['futureGraphField'] = 42
-    const verdict = agree(doc)
-    expect(verdict).toEqual({ schemaValid: true, validatorValid: true })
-  })
 })

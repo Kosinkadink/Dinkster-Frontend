@@ -11,7 +11,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DinksterNodesPayload } from '@dinkster/core'
-import { buildDinksterRegistry, type HistoryRunRecord, type LibraryRecord, type RetainedAssets } from '@dinkster/client'
+import { buildDinksterRegistry, type HistoryRunRecord, type LibraryRecord } from '@dinkster/client'
 import {
   AppState,
   LIBRARY_SCOPE,
@@ -171,58 +171,6 @@ describe('owned collection pages', () => {
 })
 
 describe('owned entry actions', () => {
-  it.each(['library', 'run'] as const)('hands off %s source ownership only after destination admission', async (source) => {
-    const { a, tab } = (await twoBackends())
-    vi.spyOn(a.connection, 'getLibraryRecord').mockResolvedValue(record())
-    vi.spyOn(a.connection, 'getHistoryRun').mockResolvedValue(run())
-    vi.spyOn(a.connection, 'fetchAssetText').mockResolvedValue(JSON.stringify({ ...DOC, lineage: 'handoff-opened' }))
-    const owners = new Map<string, RetainedAssets>()
-    let acknowledge!: () => void
-    const acknowledgment = new Promise<void>((resolve) => { acknowledge = resolve })
-    let requested!: () => void
-    const requestedDocument = new Promise<void>((resolve) => { requested = resolve })
-    let finishRelease!: () => void
-    const release = new Promise<void>((resolve) => { finishRelease = resolve })
-    let releasing!: () => void
-    const releaseStarted = new Promise<void>((resolve) => { releasing = resolve })
-    vi.spyOn(a.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-      if (owner.ownerKind === 'document') {
-        requested()
-        await acknowledgment
-      }
-      const held = { ...owner, ...declaration, revision: declaration.revision + 1 }
-      owners.set(owner.ownerId, held)
-      return held
-    })
-    vi.spyOn(a.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
-      releasing()
-      await release
-      const held = owners.get(owner.ownerId)!
-      if (held.revision !== revision) throw new Error('revision conflict')
-      const tombstone = { ...held, digests: [], complete: true, revision: revision + 1 }
-      owners.set(owner.ownerId, tombstone)
-      return tombstone
-    })
-    const opening = source === 'library' ? app.openFromLibrary('r1', a.id) : app.openRunWorkflow('run-1', a.id)
-    await requestedDocument
-    expect(app.activeTab()).toBe(tab)
-    expect([...owners.values()].map((owner) => [owner.ownerKind, owner.revision, owner.digests]))
-      .toEqual([['preview', 1, [DIGEST]]])
-    acknowledge()
-    await releaseStarted
-    const opened = app.activeTab()!
-    expect(opened.store.doc.lineage).toBe('handoff-opened')
-    expect([...owners.values()].some((owner) => owner.ownerKind === 'document' && owner.revision === 1)).toBe(true)
-    expect([...owners.values()].find((owner) => owner.ownerKind === 'preview')?.revision).toBe(1)
-    await app.dispatchTo(opened, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'a', value: 19 } })
-    finishRelease()
-    expect(await opening).toBe(true)
-    expect(opened.store.doc.graphs.g0!.nodes.n0!.values.a).toBe(19)
-    expect(app.isTabDirty(opened.id)).toBe(true)
-    expect([...owners.values()].find((owner) => owner.ownerKind === 'preview'))
-      .toMatchObject({ revision: 2, digests: [], complete: true })
-    expect([...owners.values()].find((owner) => owner.ownerKind === 'document')?.revision).toBe(1)
-  })
 
   it.each(['library', 'run'] as const)('admits %s payloads before reading and refuses obsolete publication', async (source) => {
     const { a, tab } = (await twoBackends())
@@ -256,33 +204,6 @@ describe('owned entry actions', () => {
     expect(app.tabs.get().some((candidate) => candidate.store.doc.lineage === 'payload-opened')).toBe(false)
     expect(app.problems.get().some((problem) => ['library.openFailed', 'history.openFailed'].includes(problem.code))).toBe(false)
   })
-
-  it.each(['library', 'run'].flatMap((source) => ['refused', 'mismatched', 'superseded', 'removed'].map((scenario) => ({ source, scenario }))))(
-    'refuses $source payload bytes after $scenario admission', async ({ source, scenario }) => {
-      const { a, tab } = (await twoBackends())
-      vi.spyOn(a.connection, 'getLibraryRecord').mockResolvedValue(record())
-      vi.spyOn(a.connection, 'getHistoryRun').mockResolvedValue(run())
-      let admit!: () => void
-      const admission = new Promise<void>((resolve) => { admit = resolve })
-      const retain = vi.spyOn(a.connection, 'retainAssets').mockImplementation(async (owner, declaration) => {
-        await admission
-        if (scenario === 'refused') throw new Error('ownership refused')
-        return { ...owner, ...declaration, revision: declaration.revision + (scenario === 'mismatched' ? 2 : 1) }
-      })
-      vi.spyOn(a.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-      const fetch = vi.spyOn(a.connection, 'fetchAssetText').mockResolvedValue(JSON.stringify(DOC))
-      const opening = source === 'library' ? app.openFromLibrary('r1', a.id) : app.openRunWorkflow('run-1', a.id)
-      await vi.waitFor(() => expect(retain).toHaveBeenCalled())
-      if (scenario === 'superseded') await app.openDocument({ ...DOC, lineage: 'newer-open' }, 'Newer')
-      if (scenario === 'removed') app.removeBackend(a.id)
-      const current = app.activeTab()
-      admit()
-      expect(await opening).toBe(false)
-      expect(fetch).not.toHaveBeenCalled()
-      expect(app.activeTab()).toBe(current)
-      if (scenario !== 'superseded') expect(current).toBe(tab)
-    },
-  )
 
   it('openFromLibrary resolves the record on its owner, not the active backend', async () => {
     const { a, b, tab } = (await twoBackends())

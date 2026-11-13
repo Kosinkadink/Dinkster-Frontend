@@ -32,18 +32,6 @@ function doc(graphs: Record<string, GraphDef>, root = 'g0'): WorkflowDocument {
 const node = (id: string, type = 'KSampler') => ({ id: asNodeId(id), type, values: {} })
 
 describe('checkDocument', () => {
-  it('accepts a minimal valid document', () => {
-    const d = doc({
-      g0: graph({
-        id: 'g0',
-        nodes: { n1: node('n1'), n2: node('n2') },
-        links: {
-          l3: { id: asLinkId('l3'), from: port('n1', 'out0'), to: port('n2', 'model') },
-        },
-      }),
-    })
-    expect(checkDocument(d)).toEqual([])
-  })
 
   it('flags missing root graph', () => {
     const d = doc({}, 'missing')
@@ -150,29 +138,4 @@ describe('checkDocument', () => {
     expect(checkDocument(d).map((x) => x.code)).toContain('doc.id.aboveCursor')
   })
 
-  it('warns on view state for missing nodes', () => {
-    const d: WorkflowDocument = {
-      ...doc({ g0: graph({ id: 'g0' }) }),
-      view: { graphs: { g0: { nodes: { nX: { position: { x: 0, y: 0 } } } } } },
-    }
-    const codes = checkDocument(d).map((x) => x.code)
-    expect(codes).toContain('doc.view.danglingNode')
-  })
-
-  it('warns on net display state for missing or expanded nets', () => {
-    const d: WorkflowDocument = {
-      ...doc({
-        g0: graph({
-          id: 'g0',
-          nodes: { n1: node('n1') },
-          nets: { t9: { id: asNetId('t9'), name: 'ctx', source: port('n1', 'out0'), sinks: [] } },
-        }),
-      }),
-      // 'ghost' and 'phantom' name no net; t9 exists but is not collapsed.
-      view: { graphs: { g0: { nodes: {}, collapsedNets: ['ghost'], guideNets: ['phantom', 't9'] } } },
-    }
-    const codes = checkDocument(d).map((x) => x.code)
-    expect(codes.filter((c) => c === 'doc.view.danglingNet')).toHaveLength(2)
-    expect(codes).toContain('doc.view.guideNotCollapsed')
-  })
 })

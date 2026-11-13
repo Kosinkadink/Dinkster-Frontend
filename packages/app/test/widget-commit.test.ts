@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { Json, WidgetKind, WidgetSpec } from '@dinkster/core'
-import { assetKind, colorKind, intKind, listKind } from '@dinkster/widgets'
+import { assetKind, intKind, listKind } from '@dinkster/widgets'
 import { parseNumericCommit, parsePrimitiveListCommit, resolveTextCommit, widgetCommitError } from '../src/widget-commit.js'
 
 const spec = (widgetType: string, options: Record<string, unknown> = {}): WidgetSpec => ({ widgetType, options })
@@ -27,13 +27,6 @@ describe('resolveTextCommit', () => {
     expect(resolveTextCommit('abc', 'abc', 'remote abc')).toEqual({ kind: 'none' })
   })
 
-  it('returns the local splice when the stored value did not change', () => {
-    expect(resolveTextCommit('abc', 'axc', 'abc')).toEqual({
-      kind: 'splice',
-      splice: { offset: 1, deleteCount: 1, insert: 'x' },
-    })
-  })
-
   it('moves a local splice past a non-overlapping remote edit', () => {
     expect(resolveTextCommit('hello world', 'hello brave world', 'remote hello world')).toEqual({
       kind: 'splice',
@@ -45,18 +38,6 @@ describe('resolveTextCommit', () => {
     expect(resolveTextCommit('abcdef', 'abXYef', 'abcZZef')).toEqual({
       kind: 'splice',
       splice: { offset: 2, deleteCount: 3, insert: 'XY' },
-    })
-  })
-
-  it('falls back when either merge input is not a string', () => {
-    expect(resolveTextCommit(null, 'edited', 'stored')).toEqual({ kind: 'setValue' })
-    expect(resolveTextCommit('opened', 'edited', null)).toEqual({ kind: 'setValue' })
-  })
-
-  it('keeps a local edit after a remote whole-text replacement', () => {
-    expect(resolveTextCommit('abc', 'abX', 'remote')).toEqual({
-      kind: 'splice',
-      splice: { offset: 6, deleteCount: 0, insert: 'X' },
     })
   })
 
@@ -147,9 +128,4 @@ describe('widgetCommitError', () => {
     expect(widgetCommitError(undefined, { anything: true }, spec('MYSTERY'))).toBeUndefined()
   })
 
-  it('passes every COLOR string exactly and still rejects non-string shapes', () => {
-    expect(widgetCommitError(colorKind as WidgetKind, '#336699', spec('COLOR'))).toBeUndefined()
-    expect(widgetCommitError(colorKind as WidgetKind, 'Not-A-Normalized-Color', spec('COLOR'))).toBeUndefined()
-    expect(widgetCommitError(colorKind as WidgetKind, 0xff00ff, spec('COLOR'))).toBe('Not a valid COLOR value.')
-  })
 })

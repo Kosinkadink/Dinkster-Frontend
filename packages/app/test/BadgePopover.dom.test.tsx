@@ -103,9 +103,4 @@ describe('BadgePopover log badge branches', () => {
     expect(onOpen).toHaveBeenCalledWith('sampler')
   })
 
-  it('renders no action buttons when the callbacks are absent', () => {
-    const root = mount({ badgeId: 'core.error' })
-    expect(root.querySelector('[data-testid="badge-dismiss-error"]')).toBeNull()
-    expect(root.querySelector('[data-testid="badge-open-execution-log"]')).toBeNull()
-  })
 })

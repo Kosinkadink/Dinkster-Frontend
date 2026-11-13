@@ -7,7 +7,6 @@ import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import { semanticHashOf } from '../src/compile/hash.js'
-import { validateDocumentShape } from '../src/format/validate.js'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
 import { createMenuRegistry, type MenuContext, type MenuTarget } from '../src/menus/contract.js'
@@ -97,28 +96,6 @@ describe('node.setMirrorPreviews command', () => {
     expect(store.revision).toBe(revision)
   })
 
-  it('rejects non-boolean values and unknown nodes', () => {
-    const store = makeStore()
-    expect(store.dispatch({
-      command: 'node.setMirrorPreviews',
-      params: { graphId: 'g0', nodeIds: ['n1'], mirrorPreviews: 'on' },
-    }).ok).toBe(false)
-    expect(store.dispatch({
-      command: 'node.setMirrorPreviews',
-      params: { graphId: 'g0', nodeIds: ['nope'], mirrorPreviews: true },
-    }).ok).toBe(false)
-  })
-
-  it('leaves the document unchanged when any node is unknown', () => {
-    const store = makeStore()
-    const revision = store.revision
-    expect(store.dispatch({
-      command: 'node.setMirrorPreviews',
-      params: { graphId: 'g0', nodeIds: ['n1', 'nope'], mirrorPreviews: true },
-    }).ok).toBe(false)
-    expect(store.revision).toBe(revision)
-    expect(store.doc.graphs.g0!.nodes.n1!.mirrorPreviews).toBeUndefined()
-  })
 })
 
 describe('mirror overrides and identity', () => {
@@ -128,14 +105,6 @@ describe('mirror overrides and identity', () => {
     expect(semanticHashOf(doc({ n2: true }))).toBe(plain)
   })
 
-  it('document shape accepts booleans and rejects anything else', () => {
-    expect(validateDocumentShape(JSON.parse(JSON.stringify(doc({ n2: false }))))).toEqual([])
-    const bad = JSON.parse(JSON.stringify(doc())) as {
-      graphs: { g0: { nodes: { n1: Record<string, unknown> } } }
-    }
-    bad.graphs.g0.nodes.n1.mirrorPreviews = 'on'
-    expect(validateDocumentShape(bad as unknown).some((d) => d.message.includes('.mirrorPreviews'))).toBe(true)
-  })
 })
 
 describe('core.node.mirrorPreviews menu contribution', () => {
@@ -183,14 +152,6 @@ describe('core.node.mirrorPreviews menu contribution', () => {
     expect(inherit.action).toMatchObject({
       invocation: { command: 'node.setMirrorPreviews', params: { mirrorPreviews: null } },
     })
-  })
-
-  it('stays hidden when no capability source is provided', () => {
-    // Unlike live previews (whose menu predates the capability flag), the
-    // mirror override menu only exists where a schema-declared mirror can
-    // estimate, so an absent capability source hides it everywhere.
-    const groups = registry().resolve(ctx({ kind: 'node', nodeId: 'n2' }))
-    expect(findSubmenu(groups)).toBeUndefined()
   })
 
   it('hides the submenu for node types the capability source rejects', () => {

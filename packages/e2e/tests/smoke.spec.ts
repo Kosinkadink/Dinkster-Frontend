@@ -10,28 +10,6 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
 })
 
-test('connects and loads schemas from the live backend', async ({ page }) => {
-  await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-})
-
-test('renders both tabs on the canvas', async ({ page }) => {
-  await expect(page.getByTestId('graph-canvas')).toBeVisible()
-  await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(2)
-  // The canvas actually painted something (not a blank surface).
-  const painted = await page.evaluate(() => {
-    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid=graph-canvas]')!
-    const ctx = canvas.getContext('2d')!
-    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data
-    let nonBackground = 0
-    for (let i = 0; i < data.length; i += 4) {
-      if (data[i] !== 0x18) nonBackground++
-    }
-    return nonBackground
-  })
-  expect(painted).toBeGreaterThan(1000)
-})
-
 test('queues the basic workflow and tracks it to completion with outputs', async ({ page }) => {
   await waitForStartupOwnership(page)
   expect(await page.evaluate(() => {

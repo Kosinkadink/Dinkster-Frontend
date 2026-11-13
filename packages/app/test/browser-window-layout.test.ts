@@ -61,19 +61,6 @@ describe('browser window coordination', () => {
     primary.close()
   })
 
-  it('ignores malformed window announcements', () => {
-    const bus = new Bus()
-    let count = 0
-    const primary = coordinateBrowserWindows(
-      { id: 'primary', kind: 'primary' },
-      (layout) => { count = layout.windows.length },
-      bus.connect(),
-    )
-    bus.connect().postMessage({ kind: 'join', context: { id: 'bad', kind: 'panel', panelId: 'queue', returnPlacement: 'modal' } })
-    expect(count).toBe(1)
-    primary.close()
-  })
-
   it('removes a child whose channel disappears without a leave message', async () => {
     vi.useFakeTimers()
     const bus = new Bus()

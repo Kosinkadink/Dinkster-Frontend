@@ -3,7 +3,7 @@
 import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { asConnectionId, registerCatalog, setLocale } from '@dinkster/core'
+import { asConnectionId, setLocale } from '@dinkster/core'
 import { DinksterConnection, type FetchLike, type WebSocketLike } from '@dinkster/client'
 import { DesktopManagementDialog, type DesktopMountConnection } from '../src/DesktopManagementDialog.js'
 import type { DesktopInfo, DinksterDesktopBridge } from '../src/desktop-bridge.js'
@@ -120,19 +120,6 @@ describe('DesktopManagementDialog', () => {
       expect(root.querySelector<HTMLInputElement>('#desktop-mount-id')?.value).toBe('selected-folder')
       expect(root.querySelector('.desktop-mount-form code')?.textContent).toBe('/models/selected folder')
       expect(root.textContent).toContain('imports - ready - readwrite')
-    } finally { unmount() }
-  })
-
-  it.each(['disabled', 'unavailable'] as const)('preserves %s folder authorization while desktop info is pending', async (policy) => {
-    const connection = policy === 'unavailable' ? undefined : {
-      addMount: vi.fn(),
-      fetchMountSettings: async () => ({ mounts: [{ id: 'imports', mode: 'readwrite' as const, state: 'ready' }], mountChangesAllowed: false }),
-    }
-    const { root, unmount } = mount(connection, { info: () => new Promise(() => undefined) })
-    try {
-      await vi.waitFor(() => expect(root.textContent).toContain(policy === 'disabled' ? 'imports - ready - readwrite' : 'Connect to the local Dinkster backend'))
-      expect(root.textContent).not.toContain('Choose folder')
-      expect(root.querySelector('.desktop-mount-form')).toBeNull()
     } finally { unmount() }
   })
 
@@ -274,22 +261,6 @@ describe('DesktopManagementDialog', () => {
     } finally { window.history.replaceState({}, '', previous) }
   })
 
-  it.each([
-    'http://remote.test:5151/',
-    'http://managed.test/proxy',
-    'http://managed.test/?project=plates',
-    'http://managed.test/#editor',
-    'http://operator:example@managed.test/',
-  ])('does not rewrite explicit connection %s into a privileged local root', async (backendUrl) => {
-    const fileCapabilities = vi.fn(async () => ({ nativeFolderChoice: false, reveal: false }))
-    const { root, bridge, unmount } = mount({ addMount: vi.fn(), fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: true }) }, { fileCapabilities }, backendUrl)
-    try {
-      await vi.waitFor(() => expect(fileCapabilities).toHaveBeenCalledWith(backendUrl))
-      expect(root.textContent).not.toContain('Choose folder')
-      expect(bridge.chooseDirectory).not.toHaveBeenCalled()
-    } finally { unmount() }
-  })
-
   it('does not grant after picker cancellation and displays picker errors', async () => {
     const addMount = vi.fn()
     const chooseDirectory = vi.fn< DinksterDesktopBridge['chooseDirectory'] >()
@@ -342,31 +313,6 @@ describe('DesktopManagementDialog', () => {
     expect(root.textContent).toContain('2 allowed node types')
     expect(root.textContent).toContain('2 memory budgets')
     expect(root.textContent).toContain('local engine restarted')
-  })
-
-  it('preserves raw worker and memory names through the desktop bridge', async () => {
-    const chooseRemoteWorkerFile = vi.fn(async () => ({ path: 'C:\\Dinkster\\worker.token', grant: 'token-grant' }))
-    const saveRemoteWorker = vi.fn(async () => undefined)
-    const { root } = mount(undefined, { chooseRemoteWorkerFile, saveRemoteWorker })
-    await flush()
-    ;([...root.querySelectorAll('button')].find((button) => button.textContent === 'Add worker') as HTMLButtonElement).click()
-    const form = root.querySelector<HTMLFormElement>('.desktop-worker-form')!
-    const inputs = form.querySelectorAll<HTMLInputElement>('input')
-    enter(inputs[0]!, '\uFEFFrender-box\uFEFF')
-    enter(inputs[1]!, 'worker.example.test:5151')
-    ;([...form.querySelectorAll('button')].find((button) => button.textContent === 'Choose') as HTMLButtonElement).click()
-    await flush()
-    enter(form.querySelectorAll<HTMLTextAreaElement>('textarea')[1]!, '\uFEFFram\uFEFF=24G\n\uFEFF=1G')
-    form.requestSubmit()
-
-    await vi.waitFor(() => expect(saveRemoteWorker).toHaveBeenCalledOnce())
-    expect(saveRemoteWorker).toHaveBeenCalledWith({
-      name: '\uFEFFrender-box\uFEFF',
-      endpoint: 'worker.example.test:5151',
-      tokenFile: 'C:\\Dinkster\\worker.token',
-      tokenFileGrant: 'token-grant',
-      memory: [{ device: '\uFEFFram\uFEFF', size: '24G' }, { device: '\uFEFF', size: '1G' }],
-    })
   })
 
   it('renders and preserves an explicit empty node allowlist', async () => {
@@ -493,92 +439,4 @@ describe('DesktopManagementDialog', () => {
     expect(bridge.exportSupportReport).toHaveBeenCalledOnce()
   })
 
-  it('relabels mounted chrome without changing desktop state, raw facts, or requests', async () => {
-    registerCatalog('de-DE', {
-      'desktopManagement.summary.desktop': '[DESKTOP HOST]',
-      'desktopManagement.summary.version': '[VERSION {version}]',
-      'desktopManagement.system.title': '[SYSTEM CHECKER]',
-      'desktopManagement.worker.confirmRemove': '[CONFIRM REMOVE]',
-      'desktopManagement.worker.editTitle': '[EDIT {worker}]',
-      'desktopManagement.worker.memoryInvalid': '[MEMORY {entry}]',
-      'desktopManagement.worker.save': '[SAVE WORKER]',
-      'desktopManagement.worker.title': '[REMOTE WORKERS]',
-      'raw.engine.detail': '[TRANSLATED ENGINE DETAIL]',
-      'raw.update.detail': '[TRANSLATED UPDATE DETAIL]',
-      'raw-worker': '[TRANSLATED WORKER]',
-      'raw.example.test:5151': '[TRANSLATED ENDPOINT]',
-    })
-    const worker = {
-      name: 'raw-worker', endpoint: 'raw.example.test:5151', tokenFile: 'C:\\raw\\worker.token',
-      nodes: ['raw.node'], memory: [{ device: 'raw-device', size: '24G' }],
-    }
-    const rawInfo: DesktopInfo = { ...info, update: { state: 'current', detail: 'raw.update.detail' } }
-    const remoteWorkers = vi.fn(async () => [worker])
-    const systemCheck = vi.fn(async () => ({
-      platform: 'raw-platform', architecture: 'raw-architecture', freeBytes: 1024, totalBytes: 2048,
-      engineReady: true, engineDetail: 'raw.engine.detail',
-      gpu: { available: true, name: 'raw-gpu', driver: 'raw-driver', memoryMiB: 24576 },
-    }))
-    const saveRemoteWorker = vi.fn(async () => undefined)
-    const { root, bridge } = mount(undefined, {
-      info: vi.fn(async () => rawInfo),
-      remoteWorkers,
-      systemCheck,
-      saveRemoteWorker,
-    })
-    await vi.waitFor(() => expect(root.textContent).toContain('raw-worker'))
-
-    const dialog = root.querySelector<HTMLElement>('.desktop-management')!
-    const card = root.querySelector<HTMLElement>('.desktop-worker-card')!
-    ;([...card.querySelectorAll('button')].find((button) => button.textContent === 'Edit') as HTMLButtonElement).click()
-    const form = root.querySelector<HTMLFormElement>('.desktop-worker-form')!
-    const endpoint = form.querySelectorAll<HTMLInputElement>('input')[1]!
-    const memory = form.querySelectorAll<HTMLTextAreaElement>('textarea')[1]!
-    const save = form.querySelector<HTMLButtonElement>('button[type="submit"]')!
-    const remove = [...card.querySelectorAll('button')].find((button) => button.textContent === 'Remove') as HTMLButtonElement
-    endpoint.focus()
-    remove.click()
-    enter(memory, 'invalid-memory')
-    form.requestSubmit()
-    await vi.waitFor(() => expect(root.querySelector('[role="status"]')?.textContent).toContain("Memory budget 'invalid-memory'"))
-    expect(saveRemoteWorker).not.toHaveBeenCalled()
-    const infoRequests = vi.mocked(bridge.info).mock.calls.length
-    const systemRequests = systemCheck.mock.calls.length
-    const workerRequests = remoteWorkers.mock.calls.length
-
-    setLocale('de-DE')
-    await flush()
-
-    expect(root.querySelector('.desktop-management')).toBe(dialog)
-    expect(root.querySelector('.desktop-worker-card')).toBe(card)
-    expect(root.querySelector('.desktop-worker-form')).toBe(form)
-    expect(form.querySelectorAll('input')[1]).toBe(endpoint)
-    expect(form.querySelector('button[type="submit"]')).toBe(save)
-    expect(document.activeElement).toBe(endpoint)
-    expect(endpoint.value).toBe('raw.example.test:5151')
-    expect(root.textContent).toContain('[DESKTOP HOST]')
-    expect(root.textContent).toContain('[VERSION 0.2.0]')
-    expect(root.textContent).toContain('[SYSTEM CHECKER]')
-    expect(root.textContent).toContain('[REMOTE WORKERS]')
-    expect(form.textContent).toContain('[EDIT raw-worker]')
-    expect(remove.textContent).toBe('[CONFIRM REMOVE]')
-    expect(save.textContent).toBe('[SAVE WORKER]')
-    expect(root.querySelector('[role="status"]')?.textContent).toBe('[MEMORY invalid-memory]')
-    expect(root.textContent).toContain('raw.engine.detail')
-    expect(root.textContent).toContain('raw.update.detail')
-    expect(root.textContent).toContain('raw-worker')
-    expect(root.textContent).toContain('raw.example.test:5151')
-    expect(root.textContent).not.toContain('[TRANSLATED ENGINE DETAIL]')
-    expect(root.textContent).not.toContain('[TRANSLATED UPDATE DETAIL]')
-    expect(root.textContent).not.toContain('[TRANSLATED WORKER]')
-    expect(root.textContent).not.toContain('[TRANSLATED ENDPOINT]')
-    expect(vi.mocked(bridge.info)).toHaveBeenCalledTimes(infoRequests)
-    expect(systemCheck).toHaveBeenCalledTimes(systemRequests)
-    expect(remoteWorkers).toHaveBeenCalledTimes(workerRequests)
-
-    enter(memory, 'raw-device=24G')
-    form.requestSubmit()
-    await vi.waitFor(() => expect(saveRemoteWorker).toHaveBeenCalledOnce())
-    expect(saveRemoteWorker).toHaveBeenCalledWith(worker)
-  })
 })

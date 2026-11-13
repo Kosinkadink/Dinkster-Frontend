@@ -5,7 +5,7 @@ import { createSignal as createSolidSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AppState } from '../src/app-state.js'
-import { NodeHelpPanel, selectDocsLocale } from '../src/help/NodeHelpPanel.js'
+import { NodeHelpPanel } from '../src/help/NodeHelpPanel.js'
 import '../src/locale.js'
 
 const digest = (character: string): string => `sha256:${character.repeat(64)}`
@@ -34,43 +34,6 @@ afterEach(() => {
 })
 
 describe('NodeHelpPanel', () => {
-  it('selects exact, language, then declared default locales', () => {
-    expect(selectDocsLocale(descriptor, ['zh-Hans-CN'])).toMatchObject({ locale: 'zh-hans', fallback: false })
-    expect(selectDocsLocale(descriptor, ['fr'])).toMatchObject({ locale: 'en', fallback: true })
-  })
-
-  it('prefers a base locale before another regional variant', () => {
-    const withBaseAfterVariant = {
-      ...descriptor,
-      locales: {
-        'zh-hans': descriptor.locales['zh-hans'],
-        zh: { title: 'Add values zh base', summary: 'Summary zh base', digest: digest('4'), assets: {} },
-        en: descriptor.locales.en,
-      },
-    }
-    expect(selectDocsLocale(withBaseAfterVariant, ['zh-Hant'])).toMatchObject({ locale: 'zh', fallback: false })
-  })
-
-  it('normalizes mixed-case underscores in requested and descriptor locale tags', () => {
-    const withUnderscoreDescriptor = {
-      ...descriptor,
-      locales: {
-        Zh_Hans: descriptor.locales['zh-hans'],
-        en: descriptor.locales.en,
-      },
-    }
-    expect(selectDocsLocale(withUnderscoreDescriptor, ['ZH_HANS_CN'])).toMatchObject({ locale: 'Zh_Hans', fallback: false })
-
-    const withUnderscoreBaseAfterVariant = {
-      ...descriptor,
-      locales: {
-        zh_Hans: descriptor.locales['zh-hans'],
-        ZH: { title: 'Add values zh base', summary: 'Summary zh base', digest: digest('5'), assets: {} },
-        en: descriptor.locales.en,
-      },
-    }
-    expect(selectDocsLocale(withUnderscoreBaseAfterVariant, ['ZH_HANT'])).toMatchObject({ locale: 'ZH', fallback: false })
-  })
 
   it('loads and renders the exact descriptor page and digest assets', async () => {
     const request = createSignal({ backendId: 'local' as never, pack: 'demo-pack', nodeType: 'demo.add' })

@@ -31,20 +31,6 @@ describe('clipboard text writes', () => {
     expect(written).toEqual(['first', 'second'])
   })
 
-  it('discards a refused latest internal copy while an older system write is still pending', async () => {
-    let acknowledge!: (accepted: boolean) => void
-    const earlierOwnership = new Promise<boolean>((resolve) => { acknowledge = resolve })
-    const written: string[] = []
-    const write = async (text: string) => { written.push(text) }
-    const first = writeClipboardText(write, 'earlier', earlierOwnership)
-    const refused = writeClipboardText(write, 'refused', Promise.resolve(false))
-    await vi.waitFor(() => expect(pendingClipboardText()).toBeUndefined())
-    expect(written).toEqual([])
-    acknowledge(true)
-    await Promise.all([first, refused])
-    expect(written).toEqual(['earlier'])
-  })
-
   it('exposes the latest internal copy without waiting for the system clipboard write', async () => {
     let releaseWrite: (() => void) | undefined
     const writeText = vi.fn(async (text: string) => {

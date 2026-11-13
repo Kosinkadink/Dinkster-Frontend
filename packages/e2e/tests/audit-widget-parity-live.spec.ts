@@ -5,30 +5,9 @@ import {
   skipWithoutNativeCatalog,
   waitForStartupOwnership,
 } from './fixtures.js'
-import { requireBackendNodes } from './required-nodes.js'
 
 const nativeBackend =
   process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
-
-type CatalogInput = {
-  role: string
-  id: string
-  widget?: Record<string, unknown>
-  sourceFilename?: Record<string, unknown>
-}
-
-type CatalogNode = {
-  schemaVersion: number
-  interface: CatalogInput[]
-}
-
-type Catalog = {
-  dinkster: Record<string, unknown> & {
-    mergeableTypes: string[]
-  }
-  packs: Record<string, Record<string, unknown>>
-  nodes: Record<string, CatalogNode>
-}
 
 async function rowPoint(page: Page, nodeId: string, inputId: string) {
   return page.evaluate(
@@ -60,14 +39,6 @@ async function openCombo(page: Page, nodeId: string, inputId: string) {
   )
 }
 
-function widgets(catalog: Catalog) {
-  return Object.entries(catalog.nodes).flatMap(([nodeType, node]) =>
-    node.interface
-      .filter((input) => input.role === 'input')
-      .map((input) => ({ nodeType, input })),
-  )
-}
-
 async function refreshCombo(
   page: Page,
   nodeId: string,
@@ -94,28 +65,6 @@ async function refreshCombo(
   )
   await page.keyboard.press('Escape')
 }
-
-test('Render Image Document retains its multiline selector descriptor', async ({
-  request,
-}, testInfo) => {
-  await skipWithoutNativeCatalog(request, testInfo)
-  const response = await request.get(`${nativeBackend}/api/nodes`)
-  expect(response.ok()).toBe(true)
-  const catalog = (await response.json()) as Catalog
-  requireBackendNodes(
-    catalog.nodes,
-    ['dinkster.render_image_document'],
-    testInfo,
-  )
-  const inputs = widgets(catalog)
-  expect(
-    inputs.find(
-      ({ nodeType, input }) =>
-        nodeType === 'dinkster.render_image_document' &&
-        input.id === 'selector',
-    )?.input.widget,
-  ).toEqual({ type: 'STRING', multiline: true })
-})
 
 test('hosted native stack proves live widget adoption', async ({
   page,

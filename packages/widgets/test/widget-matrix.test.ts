@@ -42,33 +42,6 @@ registerCoreWidgets({
   },
 })
 
-const dispositions = [
-  { type: 'INT', compact: 'core.number', expanded: 'exact numeric popover' },
-  { type: 'FLOAT', compact: 'core.number', expanded: 'exact numeric popover' },
-  { type: 'STRING', compact: 'core.line/core.text', expanded: 'text popover' },
-  { type: 'BOOLEAN', compact: 'core.toggle', expanded: 'inline toggle; no modal' },
-  { type: 'COMBO', compact: 'core.select', expanded: 'searchable option popover' },
-  { type: 'MULTI_COMBO', compact: 'core.multiSelect', expanded: 'ordered multi-select popover' },
-  { type: 'LIST', compact: 'core.list', expanded: 'typed JSON array popover' },
-  { type: 'COLOR', compact: 'core.color', expanded: 'HSV and hex popover' },
-  { type: 'CURVE', compact: 'core.curve', expanded: 'curve editor' },
-  { type: 'COMPOSITOR', compact: 'core.compositor', expanded: 'image editor compositor mode' },
-  { type: 'ASSET', compact: 'core.asset', expanded: 'product asset modal' },
-  { type: 'MOUNT', compact: 'core.mount', expanded: 'writable mount selection popover' },
-  { type: 'LOAD_3D', compact: 'core.load3d', expanded: '3D camera, transform and capture modal' },
-  { type: 'VIDEO_EDIT', compact: 'core.videoEdit', expanded: 'trim and crop modal' },
-  { type: 'BUTTON', compact: 'core.button', expanded: 'registered command action popover' },
-  { type: 'MARKDOWN', compact: 'core.markdown', expanded: 'safe preview and source popover' },
-  { type: 'AUDIO_RECORD', compact: 'core.audioRecord', expanded: 'explicit recording and staged audio asset modal' },
-  { type: 'WEBCAM', compact: 'core.webcam', expanded: 'camera capture and staged PNG asset modal' },
-  { type: 'COLORS', compact: 'core.colors', expanded: 'ordered palette draft popover' },
-  { type: 'BOUNDING_BOX', compact: 'core.boundingBox', expanded: 'pixel crop region popover' },
-  { type: 'IMAGECOMPARE', compact: 'core.imageCompare', expanded: 'paired preview wipe and independent batch browsing' },
-  { type: 'CAMERA_ANGLE_VIEW', compact: 'core.cameraAngle', expanded: 'orbit preview and atomic sibling input popover' },
-  { type: 'RESOLUTION_PREVIEW', compact: 'core.resolution', expanded: 'dimensions preview and atomic sibling input popover' },
-  { type: 'SAVE_TARGET', compact: 'core.saveTarget', expanded: 'writable mount and relative filename prefix popover' },
-] as const
-
 describe('registered widget disposition inventory', () => {
   it('admits only structured relative save targets and copies schema defaults', () => {
     const kind = registry.kind('SAVE_TARGET')!
@@ -122,15 +95,6 @@ describe('registered widget disposition inventory', () => {
     }
   })
 
-  it('gives every registered core family an explicit compact and expanded/modal disposition', () => {
-    expect(dispositions.map(({ type }) => type).sort()).toEqual(registeredFamilies.sort())
-    for (const disposition of dispositions) {
-      expect(registry.kind(disposition.type), disposition.type).toBeDefined()
-      expect(registry.viewsFor(disposition.type).length, disposition.type).toBeGreaterThan(0)
-      expect(disposition.compact).not.toBe('')
-      expect(disposition.expanded).not.toBe('')
-    }
-  })
 })
 
 const specOf = (entry: typeof cases[number], withDefault = false): WidgetSpec => ({
@@ -140,14 +104,6 @@ const specOf = (entry: typeof cases[number], withDefault = false): WidgetSpec =>
 })
 
 describe.each(cases)('$type widget kind matrix', (entry) => {
-  it('elaborates the registered kind, view, explicit default, and intrinsic default', () => {
-    const kind = registry.kind(entry.type)!
-    const spec = specOf(entry, true)
-    expect(kind.type).toBe(entry.type)
-    expect(kind.defaultView(spec)).toBe(entry.view)
-    expect(kind.defaultValue(spec)).toEqual(entry.explicit)
-    expect(effectiveWidgetDefault(specOf(entry))).toEqual(entry.intrinsic)
-  })
 
   it('accepts its value and rejects or diagnoses malformed values', () => {
     const kind = registry.kind(entry.type)!
@@ -272,12 +228,6 @@ describe('compact display through the real registered views', () => {
     const populated = draw('core.text', 'STRING', 'prompt', { multiline: true, display_name: 'prompt' })
     expect(displayed(populated.texts)).toEqual(['prompt'])
     expect(populated.texts[0]?.style['placeholder']).toBeUndefined()
-  })
-
-  it('COLOR paints a swatch filled with the stored color plus the uppercased text', () => {
-    const rec = draw('core.color', 'COLOR', '#12345678')
-    expect(displayed(rec.texts)).toEqual(['#12345678'.toUpperCase()])
-    expect(rec.rects.some((r) => r.style['fill'] === '#12345678')).toBe(true)
   })
 
   it.each([

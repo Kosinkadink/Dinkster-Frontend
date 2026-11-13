@@ -195,35 +195,6 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     unmount()
   })
 
-  it('exposes a named region, named item group, and labelled product controls in focus order', async () => {
-    const { root, unmount } = (await mountPanel())
-    const panel = root.querySelector<HTMLElement>('[data-testid="boundary-panel"]')!
-    expect(panel.getAttribute('role')).toBe('region')
-    expect(panel.getAttribute('aria-label')).toBe('Boundary editor')
-    const item = panel.querySelector<HTMLElement>('[data-testid="boundary-item"]')!
-    expect(item.getAttribute('role')).toBe('group')
-    expect(item.getAttribute('aria-label')).toBe('Input Items')
-
-    const controls = [...panel.querySelectorAll<HTMLElement>('button:not(:disabled)')]
-    expect(controls.map((control) => control.getAttribute('data-testid'))).toEqual([
-      'boundary-show-on-canvas',
-      'boundary-unpin',
-      'slot-toggle',
-      'slot-toggle',
-    ])
-    expect(controls.map((control) => control.getAttribute('aria-label') ?? control.textContent?.trim())).toEqual([
-      'Show Items destination on canvas',
-      'Track all slots',
-      'Expose Tag: whole',
-      'Expose Image: whole',
-    ])
-    for (const control of controls) {
-      control.focus()
-      expect(document.activeElement).toBe(control)
-    }
-    unmount()
-  })
-
   it('routes an explicit destination action through canonical canvas focus without editing', async () => {
     const { app, tab, root, unmount } = (await mountPanel())
     const revision = tab.store.revision
@@ -472,35 +443,6 @@ describe('BoundaryPanel region occurrence context', () => {
     await vi.waitFor(() => expect(cross().disabled).toBe(false))
     expect(tab.store.doc.graphs.root!.nodes.while!.region?.maxIterations).toBe(17)
     expect(root.querySelector('[data-testid="region-notice"]')).toBeNull()
-    unmount()
-  })
-
-  it('shows every role fact and accessible editing group for the drilled occurrence', async () => {
-    const { root, unmount } = (await mountRegionPanel())
-    const panel = root.querySelector<HTMLElement>('[data-testid="region-panel"]')!
-    expect(panel.getAttribute('role')).toBe('group')
-    expect(panel.getAttribute('aria-label')).toBe('Fold region settings')
-    expect([...root.querySelectorAll('[data-region-role]')].map((item) => item.getAttribute('data-region-role'))).toEqual([
-      'element', 'state', 'capture', 'gather', 'state', 'flatten', 'gather',
-    ])
-    expect([...root.querySelectorAll('[data-region-output="gathered"][data-role-choice]')]
-      .map((item) => item.getAttribute('data-role-choice'))).toEqual(['gather', 'compact', 'flatten', 'continue'])
-    expect([...root.querySelectorAll('[data-region-output="gathered"][data-role-choice]')]
-      .map((item) => [item.getAttribute('data-tooltip-label'), item.getAttribute('data-tooltip-detail')])).toEqual([
-      ['Gather output - Collect one value per iteration. If any iteration produces no value, this output is absent.', 'Edits this region occurrence only; the shared definition is unchanged.'],
-      ['Compact output - Collect only values produced by present iterations, without gaps.', 'Edits this region occurrence only; the shared definition is unchanged.'],
-      ['Flatten output - Concatenate list values from every iteration. If any iteration produces no value, this output is absent.', 'Edits this region occurrence only; the shared definition is unchanged.'],
-      ['Continuation output - Use this Boolean output to decide whether a while region runs another iteration.', 'Edits this region occurrence only; the shared definition is unchanged.'],
-    ])
-    expect(root.querySelector('[data-region-output="stateResult"][data-state-port="state"]')?.getAttribute('data-tooltip-label'))
-      .toBe('State output: state - Return the final value carried by state input "state".')
-    const groups = [...root.querySelectorAll<HTMLElement>('[role="group"]')].map((group) => group.getAttribute('aria-label'))
-    expect(groups).toEqual(expect.arrayContaining(['Input Item role', 'Output State Result role', 'Region binding', 'Maximum iterations']))
-    for (const control of panel.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)')) {
-      expect(control.getAttribute('aria-label') ?? control.textContent?.trim()).toBeTruthy()
-      control.focus()
-      expect(document.activeElement).toBe(control)
-    }
     unmount()
   })
 

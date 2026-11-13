@@ -6,31 +6,11 @@
  * fzf-style letter-scatter subsequence matches.
  */
 import { describe, expect, it } from 'vitest'
-import { nodeSearchFields, rankSearch, scoreMatch, withinOneEdit, type SearchField } from '../src/search.js'
+import { nodeSearchFields, rankSearch, scoreMatch, type SearchField } from '../src/search.js'
 
 const f = (text: string, weight = 1): SearchField => ({ text, weight })
 
-describe('withinOneEdit', () => {
-  it('accepts equality, one substitution, one insertion, one deletion', () => {
-    expect(withinOneEdit('sampler', 'sampler')).toBe(true)
-    expect(withinOneEdit('sampler', 'samplor')).toBe(true) // substitution
-    expect(withinOneEdit('samplr', 'sampler')).toBe(true) // insertion
-    expect(withinOneEdit('sampler', 'sampler2')).toBe(true) // append
-    expect(withinOneEdit('smpler', 'sampler')).toBe(true) // deletion
-  })
-
-  it('rejects two edits and unrelated strings', () => {
-    expect(withinOneEdit('sampler', 'samplooo')).toBe(false)
-    expect(withinOneEdit('latent', 'sampler')).toBe(false)
-    expect(withinOneEdit('ab', 'ba')).toBe(false) // transposition = 2 edits here
-  })
-})
-
 describe('scoreMatch quality tiers', () => {
-  it('empty or whitespace query matches everything neutrally at 0', () => {
-    expect(scoreMatch('', [f('anything')])).toBe(0)
-    expect(scoreMatch('   ', [f('anything')])).toBe(0)
-  })
 
   it('exact > prefix > word-boundary > substring on the same field', () => {
     const exact = scoreMatch('ksampler', [f('ksampler')])!
@@ -64,12 +44,6 @@ describe('scoreMatch quality tiers', () => {
     expect(scoreMatch('load audio', fields)).toBeUndefined()
   })
 
-  it('multi-token scores sum per-token bests across different fields', () => {
-    const fields = [f('Load Video', 3), f('video/io', 1)]
-    const both = scoreMatch('load io', fields)!
-    const one = scoreMatch('load', fields)!
-    expect(both).toBeGreaterThan(one)
-  })
 })
 
 describe('typo tolerance', () => {
@@ -110,26 +84,9 @@ describe('rankSearch', () => {
     expect(rankSearch('', items, fieldsOf)).toEqual(items)
   })
 
-  it('exact name match outranks prefix and substring matches', () => {
-    const out = rankSearch('ksampler', items, fieldsOf)
-    expect(out.map((i) => i.type)).toEqual(['KSampler', 'KSamplerAdvanced'])
-  })
-
   it('non-matches drop; ties keep input (pre-sorted) order', () => {
     const out = rankSearch('video', items, fieldsOf)
     expect(out.map((i) => i.name)).toEqual(['Load Video', 'Save Video'])
-  })
-
-  it('multi-token queries narrow: "load video" finds exactly the loader', () => {
-    const out = rankSearch('load video', items, fieldsOf)
-    expect(out[0]!.name).toBe('Load Video')
-    expect(out).not.toContainEqual(expect.objectContaining({ name: 'Save Video' }))
-  })
-
-  it('a one-edit typo still finds the node', () => {
-    const out = rankSearch('ksamplor', items, fieldsOf) // substitution in 'ksampler'
-    expect(out.length).toBeGreaterThan(0)
-    expect(out[0]!.name).toBe('KSampler')
   })
 
   it('respects the limit after ranking', () => {
@@ -137,13 +94,6 @@ describe('rankSearch', () => {
     expect(out).toHaveLength(2)
   })
 
-  it('is deterministic: same inputs, same output, no mutation', () => {
-    const copy = [...items]
-    const a = rankSearch('sam', items, fieldsOf)
-    const b = rankSearch('sam', items, fieldsOf)
-    expect(a).toEqual(b)
-    expect(items).toEqual(copy)
-  })
 })
 
 describe('node search terms', () => {

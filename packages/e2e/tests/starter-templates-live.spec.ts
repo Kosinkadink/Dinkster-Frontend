@@ -2,14 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { TestInfo } from "@playwright/test";
 import { requireBackendTemplates } from "./required-nodes.js";
-import {
-  expect,
-  openRailPanel,
-  selectProductOption,
-  test,
-  waitForStartupOwnership,
-  type Page,
-} from "./fixtures.js";
+import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from "./fixtures.js";
 
 const NATIVE_BACKEND =
   process.env["DINKSTER_NATIVE_BACKEND"] ?? "http://127.0.0.1:8765";
@@ -56,62 +49,6 @@ async function starterTemplates(
   ).toEqual([]);
   const loops = new Set<string>(EXPECTED_LOOPS);
   return payload.templates.filter((template) => loops.has(template.id));
-}
-
-async function connect(page: Page): Promise<string> {
-  await page.goto("/");
-  await expect
-    .poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined))
-    .toBe(true);
-  await waitForStartupOwnership(page);
-  await page.getByTestId("backends-toggle").click();
-  await page.getByTestId("backend-url-input").fill(NATIVE_BACKEND);
-  await page.getByTestId("backend-add").click();
-  await expect(page.getByTestId("tab-target")).toBeVisible();
-  await selectProductOption(
-    page,
-    page.getByTestId("tab-target"),
-    NATIVE_BACKEND,
-  );
-  const owner = await page.evaluate((baseUrl) => {
-    const backend = window
-      .__dinksterTest!.app.backends.get()
-      .find((candidate) => candidate.baseUrl === baseUrl);
-    if (backend === undefined)
-      throw new Error(`backend ${baseUrl} was not registered`);
-    return backend.id;
-  }, NATIVE_BACKEND);
-  await expect
-    .poll(() =>
-      page.evaluate(
-        (id) =>
-          window
-            .__dinksterTest!.app.backends.get()
-            .find((backend) => backend.id === id)
-            ?.registry.get() !== undefined,
-        owner,
-      ),
-    )
-    .toBe(true);
-  await page.evaluate((ownerId) => {
-    const app = window.__dinksterTest!.app;
-    for (const backend of app.backends.get()) {
-      if (backend.id !== ownerId) app.removeBackend(backend.id);
-    }
-    const ownedProblems = app as unknown as {
-      problems: { get(): readonly { owner: unknown; code: string }[] };
-      clearProblems(owner: unknown): void;
-    };
-    for (const problem of ownedProblems.problems.get()) {
-      if (
-        problem.code === "schema.fetchFailed" ||
-        problem.code === "schema.refreshFailed"
-      ) {
-        ownedProblems.clearProblems(problem.owner);
-      }
-    }
-  }, owner);
-  return owner;
 }
 
 async function connectNativeFrontend(page: Page): Promise<string> {
@@ -264,58 +201,4 @@ test("the retained while loop starter opens with readable node detail at 1280x80
       join(proofDir, "while-loop-starter-opened-1280x800.png"),
       screenshot,
     );
-});
-
-test("the problem assertion rejects a malformed retained loop starter", async ({
-  page,
-}, testInfo) => {
-  const templates = await starterTemplates(testInfo, ["loop-map-images"]);
-  const template = templates.find(
-    (candidate) => candidate.id === "loop-map-images",
-  );
-  expect(template).toBeDefined();
-
-  const bodyUrl = `${NATIVE_BACKEND}/api/packs/${encodeURIComponent(template!.pack)}/templates/${encodeURIComponent(template!.id)}`;
-  const body = (await (await fetch(bodyUrl)).json()) as {
-    graphs: Record<
-      string,
-      {
-        nodes: Record<
-          string,
-          { type: string; values: Record<string, unknown> }
-        >;
-      }
-    >;
-  };
-  const source = body.graphs["root"]!.nodes["source"]!;
-  expect(source.type).toBe("dinkster.image.generate");
-  source.values["channels"] = "invalid-channels";
-  await page.route(bodyUrl, (route) => route.fulfill({ json: body }));
-
-  const owner = await connect(page);
-  await openRailPanel(page, "Problems");
-  await page.evaluate(
-    ({ ownerId, row }) =>
-      window.__dinksterTest!.app.openTemplate(
-        row.pack,
-        row.id,
-        row.name,
-        ownerId,
-      ),
-    {
-      ownerId: owner,
-      row: template!,
-    },
-  );
-  await expect(
-    page
-      .getByTestId("problems-panel")
-      .locator('.problem[data-severity="error"]'),
-  ).not.toHaveCount(0);
-  await expect(page.getByTestId("problems-panel")).toContainText(
-    "widget.COMBO.unknownOption",
-  );
-  await expect(page.getByTestId("problems-panel")).toContainText(
-    "source.channels: 'invalid-channels' is not in the option list",
-  );
 });

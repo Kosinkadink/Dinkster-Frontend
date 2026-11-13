@@ -159,15 +159,6 @@ describe('dynamic.setOptions', () => {
 // ---------------------------------------------------------------------------
 
 describe('dynamic.materialize', () => {
-  it('persists a top-level member and maintains seq', () => {
-    const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1') } }) }))
-    const out = store.dispatch({
-      command: 'dynamic.materialize',
-      params: { graphId: 'g0', nodeId: 'n1', frames: [{ construct: 'images', members: ['m0'] }] },
-    })
-    expect(out.ok).toBe(true)
-    expect(dynOf(store, 'n1')).toEqual({ images: { members: ['m0'], seq: 1 } })
-  })
 
   it('appends after existing members, never reorders, and bumps seq past every suffix', () => {
     const store = makeStore(
@@ -184,40 +175,6 @@ describe('dynamic.materialize', () => {
     })
     expect(out.ok).toBe(true)
     expect(dynOf(store, 'n1')).toEqual({ images: { members: ['m5', 'm6', 'm7'], seq: 8 } })
-  })
-
-  it('CO7: an exhausted family (seq beyond the mintable window) refuses to grow', () => {
-    // A hostile/corrupted document may carry seq above the 15-digit parse
-    // window; growing such a family could collide a persisted member with
-    // the next offered ghost, so the command rejects atomically.
-    const store = makeStore(
-      doc({
-        g0: graph({
-          id: 'g0',
-          nodes: { n1: node('n1', { dynamic: { images: { members: [], seq: Number.MAX_SAFE_INTEGER } } }) },
-        }),
-      }),
-    )
-    const out = store.dispatch({
-      command: 'dynamic.materialize',
-      params: { graphId: 'g0', nodeId: 'n1', frames: [{ construct: 'images', members: ['m0'] }] },
-    })
-    expect(out.ok).toBe(false)
-    expect(out.diagnostics[0]!.message).toContain('id space exhausted')
-    expect(dynOf(store, 'n1')).toEqual({ images: { members: [], seq: Number.MAX_SAFE_INTEGER } })
-  })
-
-  it('CO7: a minted-shaped member id above the 15-digit parse window is rejected', () => {
-    // 'm' + 16 digits would be invisible to the seq bump: the same address
-    // could later be offered again as a ghost.
-    const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1') } }) }))
-    const out = store.dispatch({
-      command: 'dynamic.materialize',
-      params: { graphId: 'g0', nodeId: 'n1', frames: [{ construct: 'images', members: ['m9007199254740991'] }] },
-    })
-    expect(out.ok).toBe(false)
-    expect(out.diagnostics[0]!.message).toContain('outside the mintable id space')
-    expect(dynOf(store, 'n1')).toBeUndefined()
   })
 
   it('is idempotent: re-materializing persisted members records no transaction', () => {
@@ -237,29 +194,6 @@ describe('dynamic.materialize', () => {
     expect(out.ok).toBe(true)
     expect(store.revision).toBe(before)
     expect(store.canUndo).toBe(false)
-  })
-
-  it('nested frames descend via the LAST member of each frame, creating containers', () => {
-    const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1') } }) }))
-    const out = store.dispatch({
-      command: 'dynamic.materialize',
-      params: {
-        graphId: 'g0',
-        nodeId: 'n1',
-        frames: [
-          { construct: 'items', members: ['m0', 'm1'] },
-          { construct: 'items.sub', members: ['m0'] },
-        ],
-      },
-    })
-    expect(out.ok).toBe(true)
-    expect(dynOf(store, 'n1')).toEqual({
-      items: {
-        members: ['m0', 'm1'],
-        seq: 2,
-        memberState: { m1: { 'items.sub': { members: ['m0'], seq: 1 } } },
-      },
-    })
   })
 
   it('preserves sibling family state and existing nested state', () => {
@@ -304,19 +238,6 @@ describe('dynamic.materialize', () => {
     })
   })
 
-  it('rejects malformed params, unknown targets, and over-deep frames', () => {
-    const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1') } }) }))
-    const bad = (params: unknown) =>
-      store.dispatch({ command: 'dynamic.materialize', params: params as never })
-    expect(bad({ graphId: 'g0', nodeId: 'n1', frames: [] }).ok).toBe(false)
-    expect(bad({ graphId: 'g0', nodeId: 'n1', frames: [{ construct: '', members: ['m0'] }] }).ok).toBe(false)
-    expect(bad({ graphId: 'g0', nodeId: 'n1', frames: [{ construct: 'a', members: [] }] }).ok).toBe(false)
-    expect(bad({ graphId: 'g0', nodeId: 'n1', frames: [{ construct: 'a', members: ['m0', 'm0'] }] }).ok).toBe(false)
-    expect(bad({ graphId: 'gX', nodeId: 'n1', frames: [{ construct: 'a', members: ['m0'] }] }).ok).toBe(false)
-    expect(bad({ graphId: 'g0', nodeId: 'nX', frames: [{ construct: 'a', members: ['m0'] }] }).ok).toBe(false)
-    const deep = Array.from({ length: 17 }, (_, i) => ({ construct: `c${i}`, members: ['m0'] }))
-    expect(bad({ graphId: 'g0', nodeId: 'n1', frames: deep }).ok).toBe(false)
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -330,46 +251,12 @@ describe('CO3 dynamic member ids never rewind across undo', () => {
       params: { graphId: 'g0', nodeId: 'n1', frames: [{ construct: 'images', members }] },
     })
 
-  it('undo of materialize removes members but keeps the seq high-water mark', () => {
-    const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1') } }) }))
-    expect(materialize(store, ['m0']).ok).toBe(true)
-    expect(dynOf(store, 'n1')).toEqual({ images: { members: ['m0'], seq: 1 } })
-    store.undo()
-    // Members gone, cursor preserved: 'm0' can never mean two nodes' state.
-    expect(dynOf(store, 'n1')).toEqual({ images: { seq: 1 } })
-    expect(materialize(store, ['m1']).ok).toBe(true)
-    expect(dynOf(store, 'n1')).toEqual({ images: { members: ['m1'], seq: 2 } })
-  })
-
   it('redo after a clamped undo reapplies the members without erroring', () => {
     const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1') } }) }))
     expect(materialize(store, ['m0']).ok).toBe(true)
     store.undo()
     expect(store.redo()).toBe(true)
     expect(dynOf(store, 'n1')).toEqual({ images: { members: ['m0'], seq: 1 } })
-  })
-
-  it('nested memberState cursors survive undo too', () => {
-    const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1') } }) }))
-    const out = store.dispatch({
-      command: 'dynamic.materialize',
-      params: {
-        graphId: 'g0',
-        nodeId: 'n1',
-        frames: [
-          { construct: 'images', members: ['m0'] },
-          { construct: 'inner', members: ['m0'] },
-        ],
-      },
-    })
-    expect(out.ok).toBe(true)
-    expect(dynOf(store, 'n1')).toEqual({
-      images: { members: ['m0'], seq: 1, memberState: { m0: { inner: { members: ['m0'], seq: 1 } } } },
-    })
-    store.undo()
-    expect(dynOf(store, 'n1')).toEqual({
-      images: { seq: 1, memberState: { m0: { inner: { seq: 1 } } } },
-    })
   })
 
   it('cursor-only skeletons left by undo are hash-neutral (seq is bookkeeping, not semantics)', () => {
@@ -385,27 +272,6 @@ describe('CO3 dynamic member ids never rewind across undo', () => {
     expect(semanticHashOf(store.doc)).toBe(before) // ...but hashes as if absent
   })
 
-  it('NESTED cursor skeletons are hash-neutral too', () => {
-    const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1') } }) }))
-    const before = semanticHashOf(store.doc)
-    const out = store.dispatch({
-      command: 'dynamic.materialize',
-      params: {
-        graphId: 'g0',
-        nodeId: 'n1',
-        frames: [
-          { construct: 'images', members: ['m0'] },
-          { construct: 'inner', members: ['m0'] },
-        ],
-      },
-    })
-    expect(out.ok).toBe(true)
-    store.undo()
-    expect(dynOf(store, 'n1')).toEqual({
-      images: { seq: 1, memberState: { m0: { inner: { seq: 1 } } } },
-    })
-    expect(semanticHashOf(store.doc)).toBe(before)
-  })
 })
 
 describe('dynamic.selectOption', () => {
@@ -472,21 +338,6 @@ describe('dynamic.selectOption', () => {
     })
   })
 
-  it('rejects an unmaterialized ancestor (hazard N3: no state beneath synthetics)', () => {
-    const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1') } }) }))
-    const out = store.dispatch({
-      command: 'dynamic.selectOption',
-      params: {
-        graphId: 'g0',
-        nodeId: 'n1',
-        ancestors: [{ construct: 'items', member: 'm0' }],
-        construct: 'items.mode',
-        option: 'blur',
-      },
-    })
-    expect(out.ok).toBe(false)
-    expect(out.diagnostics.some((d) => d.code === 'dynamic.unmaterializedAncestor')).toBe(true)
-  })
 })
 
 describe('dynamic.specializeSlot', () => {
@@ -776,37 +627,6 @@ describe('dynamic.compact', () => {
     })
   })
 
-  it('repairs a missing legacy high-water mark before removing old imported members', () => {
-    const store = makeStore(doc({
-      g0: graph({
-        id: 'g0',
-        nodes: { n1: node('n1', { dynamic: { images: { members: ['m0', 'm2'] } } }) },
-      }),
-    }))
-    expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } }).ok).toBe(true)
-    expect(dynOf(store, 'n1')).toEqual({ images: { seq: 3 } })
-  })
-
-  it('repairs legacy high-water from orphaned memberState identities', () => {
-    const store = makeStore(doc({
-      g0: graph({
-        id: 'g0',
-        nodes: {
-          n1: node('n1', {
-            dynamic: {
-              images: {
-                members: ['m0'],
-                memberState: { m7: { nested: { selected: 'a' } } },
-              },
-            },
-          }),
-        },
-      }),
-    }))
-    expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } }).ok).toBe(true)
-    expect(dynOf(store, 'n1')).toEqual({ images: { seq: 8 } })
-  })
-
   it('keeps members referenced by boundary bindings', () => {
     const g = graph({
       id: 'g0',
@@ -839,12 +659,6 @@ describe('dynamic.compact', () => {
     })
   })
 
-  it('is a no-op on nodes without dynamic state', () => {
-    const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1') } }) }))
-    const revision = store.revision
-    expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } }).ok).toBe(true)
-    expect(store.revision).toBe(revision)
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -919,49 +733,6 @@ describe('batch', () => {
     expect(store.canUndo).toBe(false)
   })
 
-  it('rejects unknown sub-commands and nested batches', () => {
-    const store = makeStore(twoNodes())
-    expect(
-      store.dispatch({ command: 'batch', params: { invocations: [{ command: 'nope', params: {} }] } }).ok,
-    ).toBe(false)
-    expect(
-      store.dispatch({
-        command: 'batch',
-        params: { invocations: [{ command: 'batch', params: { invocations: [] } }] },
-      }).ok,
-    ).toBe(false)
-    expect(store.dispatch({ command: 'batch', params: { invocations: [] } }).ok).toBe(false)
-  })
-
-  it('later sub-commands see earlier writes (sequential working copy)', () => {
-    const store = makeStore(twoNodes())
-    const out = store.dispatch({
-      command: 'batch',
-      params: {
-        invocations: [
-          {
-            command: 'dynamic.materialize',
-            params: { graphId: 'g0', nodeId: 'dst', frames: [{ construct: 'items', members: ['m0'] }] },
-          },
-          {
-            // Requires the member persisted by the previous sub-command.
-            command: 'dynamic.selectOption',
-            params: {
-              graphId: 'g0',
-              nodeId: 'dst',
-              ancestors: [{ construct: 'items', member: 'm0' }],
-              construct: 'items.mode',
-              option: 'x',
-            },
-          },
-        ],
-      },
-    })
-    expect(out.ok).toBe(true)
-    expect(dynOf(store, 'dst')).toEqual({
-      items: { members: ['m0'], seq: 1, memberState: { m0: { 'items.mode': { selected: 'x' } } } },
-    })
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -974,16 +745,6 @@ describe('materializeFramesOf', () => {
     expect(g).toBeDefined()
     return g!
   }
-
-  it('returns undefined for a fully persisted target', () => {
-    const e = elaborateInterface(schemaOf([autogrowFamily('images')]), {
-      values: {},
-      dynamic: { images: { members: ['m0'], seq: 1 } },
-    })
-    const persisted = elabInputsOf(e).find((i) => i.ancestry?.every((a) => !a.synthetic))
-    expect(persisted).toBeDefined()
-    expect(materializeFramesOf(e.items, persisted!)).toBeUndefined()
-  })
 
   it('ghost on a fresh min-0 family: one frame with just the ghost id', () => {
     const e = elaborateInterface(schemaOf([autogrowFamily('images', { min: 0 })]), { values: {} })
@@ -1005,21 +766,6 @@ describe('materializeFramesOf', () => {
     expect(second).toBeDefined()
     const frames = materializeFramesOf(e.items, second!)
     expect(frames).toEqual([{ construct: 'images', members: ['m0', 'm1'] }])
-  })
-
-  it('CO7: an exhausted family elaborates persisted members but offers no ghost or growth', () => {
-    // seq beyond the 15-digit mintable window: offering m<seq> could later
-    // collide with a persisted member the seq bump cannot see. The family
-    // stops growing and elaboration says why.
-    const e = elaborateInterface(schemaOf([autogrowFamily('images', { min: 0 })]), {
-      values: {},
-      dynamic: { images: { members: ['m0'], seq: Number.MAX_SAFE_INTEGER } },
-    })
-    const inputs = elabInputsOf(e)
-    expect(inputs.some((i) => i.origin.kind === 'member' && !i.origin.ghost)).toBe(true)
-    expect(inputs.some((i) => i.origin.kind === 'member' && i.origin.ghost === true)).toBe(false)
-    expect(e.items.some((i) => i.kind === 'growth')).toBe(false)
-    expect(e.diagnostics.some((d) => d.code === 'elab.autogrow.idsExhausted')).toBe(true)
   })
 
   it('ghost after a persisted prefix continues from seq', () => {

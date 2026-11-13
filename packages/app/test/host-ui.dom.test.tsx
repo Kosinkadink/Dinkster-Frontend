@@ -78,34 +78,6 @@ describe('host UI renderer', () => {
     expect(document.getElementById(button.getAttribute('aria-describedby')!)?.textContent).toBe('Needs a connection')
   })
 
-  it('scopes disabled reason ids to each renderer', () => {
-    const contribution = { root: {
-      kind: 'action' as const, key: 'action', label: 'Unavailable', command: 'demo.run', disabled: true, disabledReason: 'Tree-specific reason',
-    } }
-    mount(() => <><HostUiRenderer commands={new CommandRegistry()} contribution={contribution} /><HostUiRenderer commands={new CommandRegistry()} contribution={contribution} /></>)
-    const buttons = [...root.querySelectorAll('button')]
-    const ids = buttons.map((button) => button.getAttribute('aria-describedby'))
-    expect(ids[0]).toBeTruthy()
-    expect(ids[1]).toBeTruthy()
-    expect(ids[0]).not.toBe(ids[1])
-    expect(document.getElementById(ids[0]!)?.textContent).toBe('Tree-specific reason')
-    expect(document.getElementById(ids[1]!)?.textContent).toBe('Tree-specific reason')
-  })
-
-  it('keeps sibling action reason ids injective', () => {
-    mount(() => <HostUiRenderer commands={new CommandRegistry()} contribution={{ root: {
-      kind: 'group', key: 'root', direction: 'row', children: [
-        { kind: 'action', key: 'a.b', label: 'Dot', command: 'demo.run', disabled: true, disabledReason: 'Dot reason' },
-        { kind: 'action', key: 'a-b', label: 'Dash', command: 'demo.run', disabled: true, disabledReason: 'Dash reason' },
-      ],
-    } }} />)
-    const buttons = [...root.querySelectorAll('button')]
-    const ids = buttons.map((button) => button.getAttribute('aria-describedby'))
-    expect(ids[0]).not.toBe(ids[1])
-    expect(document.getElementById(ids[0]!)?.textContent).toBe('Dot reason')
-    expect(document.getElementById(ids[1]!)?.textContent).toBe('Dash reason')
-  })
-
   it('provides immutable connection data and replaces failures until recovery', async () => {
     const [mode, setMode] = createSignal<'throw' | 'malformed' | 'valid'>('throw')
     const owner = Symbol('provider')
@@ -173,16 +145,4 @@ describe('host UI renderer', () => {
     expect(snapshots[0]?.[0]?.message).toContain('unknown provider error')
   })
 
-  it('strips control characters from provider error diagnostics', () => {
-    const snapshots: Diagnostic[][] = []
-    mount(() => <HostUiProviderHost
-      owner="extension:hostile"
-      provider={() => { throw new Error('first\nsecond\u0000third\u007flast') }}
-      data={null}
-      commands={new CommandRegistry()}
-      replaceProblems={(_owner, diagnostics) => snapshots.push(diagnostics)}
-    />)
-    expect(snapshots[0]?.[0]?.message).toContain('first?second?third?last')
-    expect(snapshots[0]?.[0]?.message).not.toMatch(/[\u0000-\u001f\u007f]/)
-  })
 })

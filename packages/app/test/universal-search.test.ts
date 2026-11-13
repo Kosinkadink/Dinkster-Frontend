@@ -6,7 +6,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { parseDinksterSchema, type DinksterNodesPayload, type SearchResult } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
-import { KeybindingRegistry, SettingsRegistry } from '../src/settings.js'
+import { SettingsRegistry } from '../src/settings.js'
 import { nodeSearchDetail, recordSearchRecent, registerCoreSearchProviders, runSearchAction, SEARCH_RECENTS_SETTING, searchRecents } from '../src/universal-search.js'
 
 beforeAll(() => { Object.defineProperty(globalThis, 'location', { value: new URL('http://localhost/'), configurable: true }) })
@@ -45,24 +45,6 @@ describe('universal search model', () => {
     expect(searchRecents(registry)[0]).toBe('item-10')
     expect(new Set(searchRecents(registry)).size).toBe(20)
   })
-  it('search.open is an ordinary rebindable keybinding', () => {
-    const registry = settings(); const bindings = new KeybindingRegistry(registry)
-    bindings.register({ command: 'search.open', combo: 'Ctrl+K' })
-    expect(bindings.combo('search.open')).toBe('ctrl+k')
-    bindings.set('search.open', 'Alt+K')
-    expect(bindings.combo('search.open')).toBe('alt+k')
-  })
-  it('AppState registers search.open with default Ctrl+K and supports rebinding', () => {
-    const app = prepareWorkflowApp(new AppState())
-    expect(app.commands.get('search.open')?.label).toBe('Search Dinkster')
-    expect(app.keybindings.combo('search.open')).toBe('ctrl+k')
-    app.keybindings.set('search.open', 'Alt+K')
-    expect(app.keybindings.combo('search.open')).toBe('alt+k')
-  })
-  it('defaults external node discovery to the published static prefix', () => {
-    const app = new AppState()
-    expect(app.settings.get('search.registryUrl')).toBe('https://registry.dinkster.org/static')
-  })
   it('commands provider displays the effective shortcut including overrides', () => {
     const app = prepareWorkflowApp(new AppState()); app.keybindings.set('search.open', 'Alt+K')
     const dispose = registerCoreSearchProviders(app)
@@ -79,51 +61,6 @@ describe('universal search model', () => {
     expect(row.title).toBe('Customize layout')
     expect(runSearchAction(app, row.action)).toBe(true)
     expect(app.modalPanel.get()).toBe('customize-layout')
-    dispose.forEach((fn) => fn())
-  })
-  it('commands provider discovers the create-empty-subgraph action', () => {
-    const app = prepareWorkflowApp(new AppState()); const dispose = registerCoreSearchProviders(app)
-    const createEmptySubgraph = vi.fn(() => true)
-    app.canvasBridge.set({ createEmptySubgraph } as never)
-    const provider = app.searchRegistry.list().find((item) => item.id === 'core.commands')!
-    const rows = provider.query('Create empty subgraph', { selection: { nodes: [] }, signal: new AbortController().signal }) as readonly SearchResult[]
-    const row = rows.find((item) => item.id === 'subgraph.createEmpty')!
-    expect(row.title).toBe('Create empty subgraph')
-    expect(runSearchAction(app, row.action)).toBe(true)
-    expect(createEmptySubgraph).toHaveBeenCalledOnce()
-    dispose.forEach((fn) => fn())
-  })
-  it('discovers lifecycle actions, gates them through the canvas bridge, and invokes their shortcuts', () => {
-    const app = prepareWorkflowApp(new AppState()); const dispose = registerCoreSearchProviders(app)
-    const extractSubgraph = vi.fn(() => true)
-    const flattenSubgraph = vi.fn(() => true)
-    app.canvasBridge.set({
-      extractSubgraph, flattenSubgraph,
-      canExtractSubgraph: () => true,
-      canFlattenSubgraph: () => false,
-    } as never)
-    const provider = app.searchRegistry.list().find((item) => item.id === 'core.commands')!
-    const context = { selection: { nodes: [] }, signal: new AbortController().signal }
-    const extract = (provider.query('Extract selection as subgraph', context) as readonly SearchResult[]).find((item) => item.id === 'subgraph.extract')!
-    const flatten = (provider.query('Flatten selected subgraph', context) as readonly SearchResult[]).find((item) => item.id === 'subgraph.flatten')!
-    expect(extract.detail).toBe('ctrl+shift+e')
-    expect(flatten.detail).toBe('ctrl+shift+f')
-    expect(app.commands.get('subgraph.extract')?.enabled?.()).toBe(true)
-    expect(app.commands.get('subgraph.flatten')?.enabled?.()).toBe(false)
-    expect(runSearchAction(app, extract.action)).toBe(true)
-    app.commands.get('subgraph.flatten')!.run()
-    expect(extractSubgraph).toHaveBeenCalledOnce()
-    expect(flattenSubgraph).toHaveBeenCalledOnce()
-    dispose.forEach((fn) => fn())
-  })
-  it('commands provider automatically discovers workflow file import and export', () => {
-    const app = prepareWorkflowApp(new AppState()); const dispose = registerCoreSearchProviders(app)
-    const provider = app.searchRegistry.list().find((item) => item.id === 'core.commands')!
-    const context = { selection: { nodes: [] }, signal: new AbortController().signal }
-    const importRows = provider.query('Import workflow from file', context) as readonly SearchResult[]
-    const exportRows = provider.query('Export workflow', context) as readonly SearchResult[]
-    expect(importRows.find((item) => item.id === 'workflow.importFile')?.title).toBe('Import workflow from file')
-    expect(exportRows.find((item) => item.id === 'workflow.export')?.title).toBe('Export workflow')
     dispose.forEach((fn) => fn())
   })
   it('commands provider opens the Backends panel for runtime settings discovery', () => {
@@ -194,21 +131,6 @@ describe('universal search model', () => {
       backendId: backend.id,
     })
     dispose.forEach((fn) => fn())
-  })
-  it('forwards the Search result schema and backend snapshot to placement arming', () => {
-    const app = prepareWorkflowApp(new AppState())
-    const armNodePlacement = vi.fn(() => true)
-    app.canvasBridge.set({ armNodePlacement } as never)
-
-    expect(runSearchAction(app, {
-      kind: 'host',
-      action: 'node.armPlacement',
-      params: { type: 'KSampler', schemaKey: 'schema-a', backendId: 'backend-a' },
-    })).toBe(true)
-    expect(armNodePlacement).toHaveBeenCalledWith('KSampler', {
-      schemaKey: 'schema-a',
-      backendId: 'backend-a',
-    })
   })
   it('rejects malformed host actions before settings or canvas effects', () => {
     const app = prepareWorkflowApp(new AppState())

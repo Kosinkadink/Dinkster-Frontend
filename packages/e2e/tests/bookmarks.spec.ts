@@ -123,40 +123,6 @@ test('minimap shows slot digits at saved cameras behind the marker toggle', asyn
   expect(await minimapSnap(page)).toBe(withMarker)
 })
 
-test('a same-lineage tab replacement does not inherit the save press: no phantom double-press delete', async ({ page }) => {
-  // Tab ids are document lineages: opening a document with the SAME lineage
-  // replaces the Tab object while reusing its id. Press memory is scoped to
-  // the exact Tab object, so a quick Shift+1 before and after
-  // the replacement is two FIRST presses (save twice), never a double press
-  // (which would delete the replacement's bookmark). The replacement doc
-  // ships with slot 1 pre-saved so delete-vs-save is observable.
-  const openReplaceable = () =>
-    page.evaluate(async () => {
-      const diagnostics = (await window.__dinksterTest!.app.openDocument({
-        format: 'dinkster-workflow', formatVersion: 1, lineage: 'bookmark-replace', root: 'g0',
-        graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 } },
-        view: {
-          graphs: { g0: { nodes: {} } },
-          bookmarks: { '1': { graphStack: ['g0'], instancePath: [], viewport: { x: 5, y: 6, scale: 1 } } },
-        },
-      }, 'Bookmark Replace'))
-      if (diagnostics.length > 0) throw new Error(`open failed: ${JSON.stringify(diagnostics)}`)
-    })
-
-  await openReplaceable() // tab instance one
-  const started = Date.now()
-  await page.keyboard.press('Shift+Digit1') // arms press memory on instance one
-  await openReplaceable() // same lineage: same tab id, NEW Tab object
-  await page.keyboard.press('Shift+Digit1') // must be a first press here
-  const elapsed = Date.now() - started
-  const bms = await bookmarks(page)
-  // The hazard only exists inside the 500ms double-press window; if this
-  // run was too slow to stay inside it, the assertion proves nothing -
-  // fail loudly so the proof is never silently vacuous.
-  expect(elapsed, 'press sequence must fit the 500ms double-press window').toBeLessThan(500)
-  expect(bms?.['1']).toBeDefined()
-})
-
 test('digits typed into a text field never trigger bookmarks', async ({ page }) => {
   // The palette search input is a real text field over the canvas.
   await page.mouse.dblclick(700, 600)

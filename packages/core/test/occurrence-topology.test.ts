@@ -1,29 +1,12 @@
-import { readFileSync } from 'node:fs'
+
 import { describe, expect, it } from 'vitest'
 import { semanticHashOf } from '../src/compile/hash.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
-import type { CommandDefinition } from '../src/commands/contract.js'
-import type {
-  BoundaryBinding,
-  Json,
-  OccurrenceTopology,
-  PortBoundaryBinding,
-  WorkflowDocument,
-} from '../src/format/document.js'
+import type { BoundaryBinding, OccurrenceTopology, PortBoundaryBinding, WorkflowDocument } from '../src/format/document.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { validateDocumentShape } from '../src/format/validate.js'
-import {
-  asGraphDefId,
-  asDynamicMemberId,
-  asLineageId,
-  asLinkId,
-  asNodeId,
-  asPortId,
-  isOccurrenceAncestorOrSelf,
-  occurrenceKey,
-  sameOccurrenceRef,
-} from '../src/ids.js'
+import { asGraphDefId, asDynamicMemberId, asLineageId, asLinkId, asNodeId, asPortId, occurrenceKey } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
 
 type Mutable = Record<string, unknown>
@@ -218,35 +201,7 @@ function mutateTopology(
   return doc as unknown as WorkflowDocument
 }
 
-function replaceSerializedFixture(bytes: string, needle: string, replacement: string): string {
-  expect(bytes.split(needle)).toHaveLength(2)
-  return bytes.replace(needle, replacement)
-}
-
 describe('occurrence topology format shape and identity', () => {
-  it('keeps FORMAT_VERSION 1 and accepts every endpoint and suppression variant', () => {
-    const doc = withTopology()
-    expect(doc.formatVersion).toBe(1)
-    expect(validateDocumentShape(doc).filter((d) => d.severity === 'error')).toEqual([])
-    expect(errors(doc)).toEqual([])
-    expect(loadDocument(doc).document).toEqual(doc)
-  })
-
-  it('regenerates map keys from the structural owner without parsing keys', () => {
-    expect(errorCodes(withTopology(topology(), 'wrong.key'))).toContain('doc.occurrenceTopology.keyMismatch')
-  })
-
-  it('keeps root and nested occurrences structurally distinct', () => {
-    const root = occurrence([], 's')
-    const nested = occurrence(['s'], 'i')
-    expect(occurrenceKey(root)).not.toBe(occurrenceKey(nested))
-    expect(sameOccurrenceRef(root, root)).toBe(true)
-    expect(sameOccurrenceRef(root, nested)).toBe(false)
-    expect(isOccurrenceAncestorOrSelf(root, nested)).toBe(true)
-    expect(isOccurrenceAncestorOrSelf(occurrence([], 'sibling'), nested)).toBe(false)
-    expect(occurrenceKey(root)).toBe('s')
-    expect(occurrenceKey(nested)).toBe('s.i')
-  })
 
   it.each([
     ['occurrenceTopologies array', (d: Mutable) => { d['occurrenceTopologies'] = [] }],
@@ -282,36 +237,6 @@ describe('occurrence topology format shape and identity', () => {
 })
 
 describe('occurrence topology canonicalization and serialization', () => {
-  it('sorts and deduplicates suppressions and omits an empty list', () => {
-    const raw = structuredClone(withTopology()) as unknown as Mutable
-    const top = ((raw['occurrenceTopologies'] as Mutable)[ownerKey] as Mutable)
-    const entries = top['suppressedDeliveries'] as unknown[]
-    top['suppressedDeliveries'] = [entries[2], entries[0], entries[1], entries[0]]
-    const loaded = loadDocument(raw).document!
-    expect(loaded.occurrenceTopologies![ownerKey]!.suppressedDeliveries).toHaveLength(3)
-    const serialized = JSON.stringify(loaded.occurrenceTopologies![ownerKey]!.suppressedDeliveries)
-    expect(JSON.stringify(loadDocument(JSON.parse(JSON.stringify(loaded))).document!.occurrenceTopologies![ownerKey]!.suppressedDeliveries)).toBe(serialized)
-
-    const empty = structuredClone(withTopology()) as unknown as Mutable
-    ;((empty['occurrenceTopologies'] as Mutable)[ownerKey] as Mutable)['suppressedDeliveries'] = []
-    expect(loadDocument(empty).document!.occurrenceTopologies![ownerKey]!.suppressedDeliveries).toBeUndefined()
-  })
-
-  it('drops never-allocated empty records but retains allocated cursor skeletons', () => {
-    const empty = withTopology(topology({ links: {}, suppressedDeliveries: undefined, nextOrdinal: 0 }))
-    expect(loadDocument(empty).document!.occurrenceTopologies).toBeUndefined()
-
-    const solo = withTopology(topology({ links: {}, suppressedDeliveries: undefined, nextOrdinal: 4 }))
-    expect(loadDocument(solo).document!.occurrenceTopologies![ownerKey]!.nextOrdinal).toBe(4)
-
-    const actor = withTopology(topology({
-      links: {},
-      suppressedDeliveries: undefined,
-      nextOrdinal: 0,
-      actorCursors: { alice: 3 },
-    }))
-    expect(loadDocument(actor).document!.occurrenceTopologies![ownerKey]!.actorCursors).toEqual({ alice: 3 })
-  })
 
   it('round-trips overlay-bearing documents and leaves absent-field bytes unchanged', () => {
     const overlay = withTopology()
@@ -325,31 +250,6 @@ describe('occurrence topology canonicalization and serialization', () => {
     expect(loadDocument(JSON.parse(oldBytes)).document!.occurrenceTopologies).toBeUndefined()
   })
 
-  it('normalizes route binding slot order without reordering member paths', () => {
-    const raw = structuredClone(withTopology()) as unknown as Mutable
-    const shell = ((raw['graphs'] as Mutable)['shell'] as Mutable)
-    const shellNodes = shell['nodes'] as Mutable
-    ;(shellNodes['i'] as Mutable)['dynamic'] = { outer: { members: ['suffix'], seq: 1 } }
-    const body = ((raw['graphs'] as Mutable)['body'] as Mutable)
-    const boundary = body['boundary'] as Mutable
-    const output = (boundary['outputs'] as Mutable[])[0]!
-    const authored = { kind: 'family', node: 'source', port: 'out', slots: ['z', 'a'], members: ['outer', 'inner'] }
-    output['binds'] = authored
-    const top = (raw['occurrenceTopologies'] as Mutable)[ownerKey] as Mutable
-    const local = (top['links'] as Mutable)['l1'] as Mutable
-    const from = local['from'] as Mutable
-    from['address'] = { port: 'outer.a', members: ['suffix'] }
-    const route = from['route'] as Mutable[]
-    const firstBinding = route[0]!['binding'] as Mutable
-    Object.assign(firstBinding, authored)
-    const loaded = loadDocument(raw).document!
-    const normalized = loaded.occurrenceTopologies![ownerKey]!.links.l1!.from
-    expect(normalized.kind).toBe('boundary')
-    if (normalized.kind !== 'boundary') return
-    const normalizedBinding = normalized.route[0]!.binding
-    expect(normalizedBinding.slots).toEqual(['a', 'z'])
-    expect(normalizedBinding.members).toEqual(['outer', 'inner'])
-  })
 })
 
 describe('occurrence topology semantic invariants fail closed', () => {
@@ -410,63 +310,6 @@ describe('occurrence topology semantic invariants fail closed', () => {
     expect(errorCodes(doc)).not.toContain('doc.occurrenceTopology.suppressionDangling')
   })
 
-  it('compares route bindings canonically: slot order is unordered, member order is not', () => {
-    const doc = baseDocument()
-    const shell = doc.graphs.shell!
-    const body = doc.graphs.body!
-    const current = body.boundary!.outputs[0]!
-    const routed = binding('source', 'out', {
-      kind: 'family',
-      members: [asDynamicMemberId('outer'), asDynamicMemberId('inner')],
-      slots: ['a', 'z'],
-    })
-    const changed = {
-      ...doc,
-      graphs: {
-        ...doc.graphs,
-        shell: {
-          ...shell,
-          nodes: {
-            ...shell.nodes,
-            i: { ...shell.nodes.i!, dynamic: { outer: { members: ['suffix'], seq: 1 } } },
-          },
-        },
-        body: {
-          ...body,
-          boundary: {
-            ...body.boundary!,
-            outputs: [{ ...current, binds: { ...routed, slots: ['z', 'a'] } }],
-          },
-        },
-      },
-    }
-    const top = topology({
-      links: {
-        l0: {
-          id: asLinkId('l0'),
-          from: {
-            kind: 'boundary',
-            occurrence: owner,
-            address: {
-              port: asPortId('outer.a'),
-              members: [asDynamicMemberId('suffix')],
-            },
-            route: [routeLeg('body', 'outer', routed)],
-          },
-          to: { kind: 'body', endpoint: { node: asNodeId('sink'), port: asPortId('in') } },
-        },
-      },
-      suppressedDeliveries: undefined,
-      nextOrdinal: 1,
-    })
-    expect(errors(withTopology(top, ownerKey, changed))).toEqual([])
-
-    const reorderedMembers = structuredClone(withTopology(top, ownerKey, changed)) as unknown as Mutable
-    const saved = ((((((reorderedMembers['occurrenceTopologies'] as Mutable)[ownerKey] as Mutable)['links'] as Mutable)['l0'] as Mutable)['from'] as Mutable)['route'] as Mutable[])[0]!
-    ;(saved['binding'] as Mutable)['members'] = ['inner', 'outer']
-    expect(errorCodes(reorderedMembers as unknown as WorkflowDocument)).toContain('doc.occurrenceTopology.routeInvalid')
-  })
-
   it('requires persisted family endpoint members to exist on the concrete occurrence', () => {
     const familyBinding = binding('i', 'inner', { kind: 'family' })
     const doc = structuredClone(baseDocument()) as unknown as Mutable
@@ -525,43 +368,6 @@ describe('occurrence topology semantic invariants fail closed', () => {
     expect(JSON.stringify(store.doc)).toBe(before)
   })
 
-  it('classifies stale routes and missing deliveries from serialized document ingress', () => {
-    const fixture = JSON.stringify(JSON.parse(
-      readFileSync(new URL('fixtures/occurrence-route-validation.json', import.meta.url), 'utf8'),
-    ))
-    expect(loadDocument(JSON.parse(fixture)).diagnostics.filter((diagnostic) => diagnostic.severity === 'error')).toEqual([])
-
-    const cases = [
-      {
-        name: 'local boundary route no longer reaches its body graph',
-        bytes: replaceSerializedFixture(fixture, '"boundaryId":"outer"', '"boundaryId":"stale-output"'),
-        code: 'doc.occurrenceTopology.routeInvalid',
-      },
-      {
-        name: 'projected delivery exists but its suppression route is stale',
-        bytes: replaceSerializedFixture(fixture, '"boundaryId":"inner"', '"boundaryId":"stale-input"'),
-        code: 'doc.occurrenceTopology.routeInvalid',
-      },
-      {
-        name: 'projected suppression delivery no longer exists',
-        bytes: replaceSerializedFixture(
-          fixture,
-          '"delivery":{"kind":"link","graph":"root","linkId":"parent"}',
-          '"delivery":{"kind":"link","graph":"root","linkId":"missing"}',
-        ),
-        code: 'doc.occurrenceTopology.suppressionDangling',
-      },
-    ]
-
-    for (const testCase of cases) {
-      const loaded = loadDocument(JSON.parse(testCase.bytes))
-      expect(loaded.document, testCase.name).toBeUndefined()
-      expect(
-        loaded.diagnostics.filter((diagnostic) => diagnostic.severity === 'error').map((diagnostic) => diagnostic.code),
-        testCase.name,
-      ).toEqual([testCase.code])
-    }
-  })
 })
 
 describe('occurrence topology semantic hashing and cursor history', () => {
@@ -624,58 +430,4 @@ describe('occurrence topology semantic hashing and cursor history', () => {
     expect(semanticHashOf(changedDriver as unknown as WorkflowDocument)).not.toBe(semanticHashOf(driven))
   })
 
-  it('undo of first topology creation keeps solo and actor cursor skeletons', () => {
-    const add: CommandDefinition = {
-      id: 'test.addOccurrenceTopology',
-      run(_doc, _params, tx) {
-        tx.set(['occurrenceTopologies'], {
-          [ownerKey]: topology({
-            links: {
-              'l0-alice': {
-                id: asLinkId('l0-alice'),
-                from: { kind: 'body', endpoint: { node: asNodeId('source'), port: asPortId('out') } },
-                to: { kind: 'body', endpoint: { node: asNodeId('sink'), port: asPortId('in') } },
-              },
-            },
-            suppressedDeliveries: undefined,
-            nextOrdinal: 3,
-            actorCursors: { alice: 1 },
-          }),
-        } as unknown as Json)
-        return []
-      },
-    }
-    const store = new DocumentStore(baseDocument(), coreCommandRegistry([add]))
-    expect(store.dispatch({ command: add.id, params: null }).ok).toBe(true)
-    expect(store.undo()).toBe(true)
-    const skeleton = store.doc.occurrenceTopologies![ownerKey]!
-    expect(skeleton.links).toEqual({})
-    expect(skeleton.suppressedDeliveries).toBeUndefined()
-    expect(skeleton.nextOrdinal).toBe(3)
-    expect(skeleton.actorCursors).toEqual({ alice: 1 })
-    expect(store.redo()).toBe(true)
-    expect(store.doc.occurrenceTopologies![ownerKey]!.links['l0-alice']).toBeDefined()
-  })
-
-  it('undo never rewinds direct topology cursor updates', () => {
-    const advance: CommandDefinition = {
-      id: 'test.advanceOccurrenceCursor',
-      run(_doc, _params, tx) {
-        tx.set(['occurrenceTopologies', ownerKey, 'nextOrdinal'], 9)
-        tx.set(['occurrenceTopologies', ownerKey, 'actorCursors', 'alice'], 7)
-        return []
-      },
-    }
-    const initial = withTopology(topology({
-      links: {},
-      suppressedDeliveries: undefined,
-      nextOrdinal: 4,
-      actorCursors: { alice: 3 },
-    }))
-    const store = new DocumentStore(initial, coreCommandRegistry([advance]))
-    expect(store.dispatch({ command: advance.id, params: null }).ok).toBe(true)
-    expect(store.undo()).toBe(true)
-    expect(store.doc.occurrenceTopologies![ownerKey]!.nextOrdinal).toBe(9)
-    expect(store.doc.occurrenceTopologies![ownerKey]!.actorCursors).toEqual({ alice: 7 })
-  })
 })

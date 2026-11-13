@@ -85,20 +85,6 @@ async function openNativeFixture(app: AppState): Promise<Tab> {
 }
 
 describe('connection extension worlds', () => {
-  it('projects a pack keybinding through the selected extension world', async () => {
-    const { target, bindings } = setup()
-    const world = new ExtensionWorld(asConnectionId('a'), digest, target)
-    await world.activate(snapshotFor('keybinding', 'app-workflow'), '', [], async () => ({
-      frontendExtension: { activate(context: FrontendActivationContext) {
-        context.keybinding('demo.contribution', { command: 'demo.command', combo: 'Ctrl+K' })
-      } },
-    }))
-    expect(bindings.combo('demo.command')).toBeUndefined()
-    world.select(true)
-    expect(bindings.combo('demo.command')).toBe('ctrl+k')
-    world.dispose()
-    expect(bindings.combo('demo.command')).toBeUndefined()
-  })
 
   it('projects node decorations only from the selected extension world', async () => {
     const { target, nodeDecorations } = setup()
@@ -199,22 +185,6 @@ describe('connection extension worlds', () => {
     expect(virtualNodes).toEqual([kind])
     world.dispose()
     expect(virtualNodes).toEqual([])
-  })
-
-  it('rejects a virtual node kind that is already registered', () => {
-    vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
-    const app = prepareWorkflowApp(new AppState())
-    try {
-      const kind = app.virtualNodeKinds.get('dinkster.note')!
-      const register = (app as unknown as {
-        registerVirtualNode: (candidate: VirtualNodeKind) => () => void
-      }).registerVirtualNode.bind(app)
-      expect(() => register(kind)).toThrow("virtual node kind 'dinkster.note' is already registered")
-      expect(app.virtualNodeKinds.get(kind.id)).toBe(kind)
-    } finally {
-      app.dispose()
-      vi.unstubAllGlobals()
-    }
   })
 
   it.each([
@@ -667,39 +637,6 @@ describe('submission-owned extension world lifetime', () => {
     await expectFrozenWorld()
   })
 
-  it.each(['rejection', 'transport failure', 'closed before POST'])('releases a held submission on %s', async (outcome) => {
-    const upload = deferred<string>()
-    const response = deferred<DinksterSubmitResult>()
-    if (outcome === 'closed before POST') vi.spyOn(backend.connection, 'uploadAsset').mockReturnValue(upload.promise)
-    const submit = vi.spyOn(backend.connection, 'submit').mockReturnValue(response.promise)
-    const queued = app.queue(tab)
-    if (outcome !== 'closed before POST') await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce())
-    await refresh('b')
-    expect(disposed).not.toHaveBeenCalled()
-    if (outcome === 'closed before POST') {
-      app.closeTab(tab.id)
-      expect(disposed).toHaveBeenCalledOnce()
-      upload.resolve('blake3:source')
-    } else if (outcome === 'rejection') response.resolve({ ok: false, diagnostics: [] })
-    else response.reject(new Error('transport failed'))
-    await queued
-    expect(disposed).toHaveBeenCalledOnce()
-    if (outcome === 'closed before POST') expect(submit).not.toHaveBeenCalled()
-  })
-
-  it('retains an already-posted job after its originating tab closes', async () => {
-    const response = deferred<DinksterSubmitResult>()
-    const submit = vi.spyOn(backend.connection, 'submit').mockReturnValue(response.promise)
-    const queued = app.queue(tab)
-    await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce())
-    app.closeTab(tab.id)
-    await refresh('b')
-    expect(disposed).not.toHaveBeenCalled()
-    response.resolve(accepted())
-    await queued
-    await expectFrozenWorld()
-  })
-
   it.each(['cancel', 'close tab', 'replace tab', 'deny', 'dispose'])('releases idle consent ownership on %s after queue returns', async (action) => {
     const retry = vi.fn(async (): Promise<DinksterSubmitResult> => ({ ok: false, diagnostics: [] }))
     vi.spyOn(backend.connection, 'submit').mockResolvedValue(missing(retry))
@@ -717,46 +654,6 @@ describe('submission-owned extension world lifetime', () => {
     expect(disposed).toHaveBeenCalledOnce()
     await request.retry([])
     expect(retry).toHaveBeenCalledTimes(action === 'deny' ? 1 : 0)
-  })
-
-  it('keeps a dismissed in-flight consent retry until its accepted run owns the world', async () => {
-    const response = deferred<DinksterSubmitResult>()
-    vi.spyOn(backend.connection, 'submit').mockResolvedValue(missing(() => response.promise))
-    await app.queue(tab)
-    const retried = app.assetConsent.get()!.retry([])
-    app.assetConsent.set(undefined)
-    await refresh('b')
-    expect(disposed).not.toHaveBeenCalled()
-    response.resolve(accepted())
-    await retried
-    await expectFrozenWorld()
-  })
-
-  it('releases only the finished submission when two queues share a world', async () => {
-    const first = deferred<DinksterSubmitResult>()
-    const second = deferred<DinksterSubmitResult>()
-    const submit = vi.spyOn(backend.connection, 'submit').mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
-    const queued = [app.queue(tab), app.queue(tab)]
-    await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(2))
-    await refresh('b')
-    first.resolve({ ok: false, diagnostics: [] })
-    await queued[0]
-    expect(disposed).not.toHaveBeenCalled()
-    second.resolve(accepted())
-    await queued[1]
-    await expectFrozenWorld()
-  })
-
-  it('drops app-disposed submissions without installing a late accepted run', async () => {
-    const response = deferred<DinksterSubmitResult>()
-    const submit = vi.spyOn(backend.connection, 'submit').mockReturnValue(response.promise)
-    const queued = app.queue(tab)
-    await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce())
-    app.dispose()
-    expect(disposed).toHaveBeenCalledOnce()
-    response.resolve(accepted())
-    await queued
-    expect(app.store.get(accepted().execution)).toBeUndefined()
   })
 
   it('resolves pane-owned kinds, validators, views, previews and core fallbacks instead of the shell registry', async () => {

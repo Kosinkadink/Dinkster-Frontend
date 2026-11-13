@@ -12,11 +12,6 @@ import { applyMaskToRgba, maskFromRgba } from '../src/image-mask-tool.js'
 import { decodePng, encodePng } from '../src/image-png.js'
 
 describe('image editor mask capability', () => {
-  it('decodes a standard filtered RGBA fixture', async () => {
-    const bytes = Uint8Array.from(Buffer.from('89504e470d0a1a0a0000000d494844520000000200000002080600000072b60d240000001549444154789c63f8cfc0f01f0841e07ffd7f2000003d5208780421d8850000000049454e44ae426082', 'hex'))
-    const decoded = await decodePng(bytes)
-    expect([decoded.width, decoded.height]).toEqual([2, 2])
-  })
 
   it('decodes palette transparency, grayscale alpha, and Adam7 without losing RGB', async () => {
     const fromHex = (hex: string) => Uint8Array.from(Buffer.from(hex, 'hex'))

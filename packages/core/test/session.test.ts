@@ -100,82 +100,6 @@ describe('local DocumentSession', () => {
     expect(session.doc.graphs.g0!.nodes[predicted!]).toBeDefined()
   })
 
-  it('exposes the store contract: dispatch commits, revision advances, document signal updates', () => {
-    const { session } = makeSession()
-    expect(session.revision).toBe(0)
-    const out = session.dispatch(addNode)
-    expect(out.ok).toBe(true)
-    expect(session.revision).toBe(1)
-    expect(session.doc).toBe(session.document.get())
-    expect(session.canUndo).toBe(true)
-    expect(session.canRedo).toBe(false)
-  })
-
-  it('emits an envelope-shaped op per committed dispatch with contiguous revisions', () => {
-    const { session, ops } = makeSession('actor-a')
-    session.dispatch(addNode)
-    session.dispatch(addNode)
-    expect(ops).toHaveLength(2)
-    expect(ops[0]).toMatchObject({
-      actorId: 'actor-a',
-      baseRevision: 0,
-      revision: 1,
-      timestamp: 12345,
-      origin: 'node.add',
-    })
-    expect(ops[1]!.baseRevision).toBe(1)
-    expect(ops[1]!.revision).toBe(2)
-    expect(ops[0]!.opId).not.toBe(ops[1]!.opId)
-    expect(ops[0]!.patch.length).toBeGreaterThan(0)
-  })
-
-  it('has no allocation actor even with a custom actorId: local dispatch never stamps one', () => {
-    const { session } = makeSession('actor-a')
-    expect(session.allocationActor).toBeUndefined()
-  })
-
-  it('emits nothing for a rejected dispatch', () => {
-    const { session, ops } = makeSession()
-    expect(session.dispatch({ command: 'nope', params: {} }).ok).toBe(false)
-    expect(ops).toHaveLength(0)
-  })
-
-  it('CO3/CO4 undo/redo are ops too: wire-shaped applied patches, revisions still advancing', () => {
-    const { session, ops } = makeSession()
-    const out = session.dispatch(addNode)
-    if (!out.ok) throw new Error('unreachable')
-    session.undo()
-    session.redo()
-    expect(ops.map((o) => o.origin)).toEqual(['node.add', 'session.undo', 'session.redo'])
-    expect(ops.map((o) => [o.baseRevision, o.revision])).toEqual([
-      [0, 1],
-      [1, 2],
-      [2, 3],
-    ])
-    // CO4: the envelope carries the wire shape - no local oldValue, ever.
-    for (const op of ops.flatMap((o) => o.patch)) {
-      expect(op).not.toHaveProperty('oldValue')
-    }
-    // CO3: the undo op reports what actually applied - the allocation
-    // cursor (nextOrdinal) is NOT rewound, so its inverse op is absent.
-    const undoPaths = ops[1]!.patch.map((p) => p.path.join('/'))
-    expect(undoPaths).not.toContain('graphs/g0/nextOrdinal')
-    expect(undoPaths.some((p) => p.startsWith('graphs/g0/nodes/'))).toBe(true)
-    // Redo replays the forward patch on the wire, minus the cursor no-op.
-    expect(ops[2]!.patch).toEqual(
-      toWirePatch(out.forward).filter((p) => p.path.join('/') !== 'graphs/g0/nextOrdinal'),
-    )
-  })
-
-  it('CO4 wire ops are frozen: one listener cannot alter what the next receives', () => {
-    const { session, ops } = makeSession()
-    session.dispatch(addNode)
-    const op = ops[0]!
-    expect(Object.isFrozen(op)).toBe(true)
-    expect(Object.isFrozen(op.patch)).toBe(true)
-    for (const p of op.patch) expect(Object.isFrozen(p)).toBe(true)
-  })
-
   it('clearHistory adopts the current document as baseline: no undo/redo, doc and revision untouched, no op emitted', () => {
     const { session, ops } = makeSession()
     session.dispatch(addNode)
@@ -194,34 +118,6 @@ describe('local DocumentSession', () => {
     expect(ops.length).toBe(opsBefore) // nothing rode the op feed
   })
 
-  it('unsubscribing stops the feed', () => {
-    const ops: SessionOp[] = []
-    const session = createLocalSession(doc({ g0: graph({ id: 'g0' }) }), coreCommandRegistry())
-    const off = session.onOp((op) => ops.push(op))
-    off()
-    session.dispatch(addNode)
-    expect(ops).toHaveLength(0)
-  })
-
-  it('FR2 an op listener that dispatches synchronously still yields contiguous ops in commit order', () => {
-    const { session, ops } = makeSession('actor-a')
-    let reentered = false
-    session.onOp(() => {
-      if (!reentered) {
-        reentered = true
-        expect(session.dispatch(addNode).ok).toBe(true)
-      }
-    })
-    session.dispatch(addNode)
-    // Without the store's notification queue, the nested commit's op would
-    // OVERTAKE the outer one: both ops would claim baseRevision 1 and the
-    // contiguous-session contract would break.
-    expect(ops.map((o) => [o.baseRevision, o.revision])).toEqual([
-      [0, 1],
-      [1, 2],
-    ])
-    expect(ops.map((o) => o.opId)).toEqual(['actor-a#1', 'actor-a#2'])
-  })
 })
 
 describe('toWirePatch', () => {

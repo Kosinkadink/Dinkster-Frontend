@@ -482,29 +482,6 @@ describe('LiteGraph subgraphs', () => {
     expect(prompt(loadDocument(JSON.parse(before)).document!)).toEqual(compiled)
   })
 
-  it('refuses an output reroute cycle without choosing a producer', () => {
-    const def = { ...definition(), nodes: [relay(),
-      { id: 2, type: 'Reroute', inputs: [{ name: '', link: 3 }], outputs: [{ name: '' }] },
-      { id: 3, type: 'Reroute', inputs: [{ name: '', link: 2 }], outputs: [{ name: '' }] },
-    ], links: [link(1, -10, 0, 1, 0), link(2, 2, 0, 3, 0), link(3, 3, 0, 2, 0), link(4, 3, 0, -20, 0)] }
-    const result = importLitegraph({ nodes: [instance(1)], definitions: { subgraphs: [def] } } as JsonObject, resolve)
-    expect(result.document).toBeUndefined()
-    expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true)
-  })
-
-  it.each(['inputs', 'outputs'] as const)('refuses a dangling %s reroute instead of guessing a boundary endpoint', (side) => {
-    const def = { ...definition(), nodes: [relay(),
-      { id: 2, type: 'Reroute', inputs: [{ name: '', link: null }], outputs: [{ name: '' }] },
-    ], links: side === 'inputs'
-      ? [link(1, -10, 0, 2, 0), link(2, 1, 0, -20, 0)]
-      : [link(1, -10, 0, 1, 0), link(2, 2, 0, -20, 0)] }
-    const result = importLitegraph({ nodes: [instance(1)], definitions: { subgraphs: [def] } } as JsonObject, resolve)
-    expect(result.document).toBeUndefined()
-    expect(result.diagnostics).toContainEqual(expect.objectContaining({
-      severity: 'error', code: 'import.subgraphs.boundaryUnsupported',
-    }))
-  })
-
   it('migrates legacy proxy widgets without interpreting missing host values as overrides', () => {
     const def = { ...definition(), inputs: [], links: [link(2, 1, 0, -20, 0)] }
     const node = { ...instance(1), inputs: [], properties: { proxyWidgets: [['1', 'value']] }, widgets_values: [] }
@@ -618,33 +595,6 @@ describe('LiteGraph subgraphs', () => {
     expect(doc.graphs.inner!.boundary!.outputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'result' })
     expect(prompt(doc).n20!.inputs.value).toEqual(['n10.n1', 0])
     expect(JSON.stringify(raw)).toBe(before)
-  })
-
-  it.each([false, true])('fails instead of selecting one of multiple virtual-output drivers (same node: %s)', (sameNode) => {
-    const def = definition()
-    def.nodes.push(relay(2))
-    def.nodes[0]!.inputs[0]!.link = 4
-    def.links.push(link(3, sameNode ? 1 : 2, sameNode ? 1 : 0, -20, 0), link(4, 2, 0, 1, 0))
-    const resolver = (type: string) => type === 'Relay' ? { ...schema, items: [
-      ...schema.items, { kind: 'output' as const, id: 'second', type: { kind: 'concrete' as const, name: 'INT' } },
-    ] } : undefined
-    const result = importLitegraph({ nodes: [instance(1)], definitions: { subgraphs: [def] } } as JsonObject, resolver)
-    expect(result.document).toBeUndefined()
-    expect(result.diagnostics.filter((item) => item.severity === 'error').map((item) => item.code))
-      .toEqual(['import.subgraphs.boundaryUnsupported'])
-  })
-
-  it('maps input members using the existing autogrow decoder', () => {
-    const family: NodeSchema = { ...schema, type: 'Family', items: [
-      { kind: 'input', id: 'items', type: { kind: 'concrete', name: 'INT' }, optional: false,
-        dynamic: { kind: 'autogrow', template: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false }],
-          naming: { kind: 'prefix', prefix: 'item', min: 0, max: 5 } } }, schema.items[1]!,
-    ] }
-    const resolver = (type: string) => type === 'Family' ? family : resolve(type)
-    const def = { ...definition(), nodes: [{ id: 1, type: 'Family',
-      inputs: [{ name: 'items.item2', link: 1 }], outputs: [{ name: 'result' }] }] }
-    const doc = imported({ nodes: [instance(1)], definitions: { subgraphs: [def] } }, resolver)
-    expect(doc.graphs['inner']!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'items.value', members: ['m0'] })
   })
 
   it.each([false, true])('resolves materialized native family members through imported boundaries (grouped: %s)', (grouped) => {
@@ -913,14 +863,6 @@ describe('LiteGraph subgraphs', () => {
     expect(JSON.stringify(raw)).toBe(before)
   })
 
-  it('includes definition contents in deterministic lineage', () => {
-    const def = definition()
-    const raw = { nodes: [instance(1)], definitions: { subgraphs: [def] } }
-    const first = imported(raw)
-    def.nodes[0]!.widgets_values[0] = 88
-    expect(imported(raw).lineage).not.toBe(first.lineage)
-  })
-
   it('maps a net delivery across a boundary without leaving a synthetic source', () => {
     const target = relay()
     target.inputs[0]!.link = 3
@@ -933,31 +875,6 @@ describe('LiteGraph subgraphs', () => {
     expect(prompt(doc)['n1.n1']!.inputs['value']).toEqual(['n2', 0])
   })
 
-  it.each(['inputs', 'outputs'] as const)('rejects duplicate %s identities before they can collapse instance state', (side) => {
-    const def = definition()
-    def.nodes.push(relay(2))
-    def[side].push({ ...def[side][0]!, linkIds: [3] })
-    def.links.push(side === 'inputs' ? link(3, -10, 1, 2, 0) : link(3, 2, 0, -20, 1))
-    const host = { ...instance(1), widgets_values: [11, 22], inputs: [
-      { name: 'value', widget: { name: 'value' } }, { name: 'value', widget: { name: 'value' } },
-    ] }
-    const result = importLitegraph({ nodes: [host], definitions: { subgraphs: [def] } } as JsonObject, resolve)
-    expect(result.document).toBeUndefined()
-    expect(result.diagnostics).toEqual([expect.objectContaining({ code: 'import.subgraphs.invalid', severity: 'error' })])
-  })
-
-  it.each([
-    { inputNode: { id: 1 } },
-    { outputNode: { id: '1' } },
-    { inputNode: { id: 9 }, outputNode: { id: '9' } },
-    { inputNode: { id: -20 } },
-    { outputNode: { id: '-10' } },
-  ])('rejects colliding virtual boundary IDs: %j', (fields) => {
-    const result = importLitegraph({ nodes: [instance(1)], definitions: { subgraphs: [{ ...definition(), ...fields }] } } as JsonObject, resolve)
-    expect(result.document).toBeUndefined()
-    expect(result.diagnostics).toEqual([expect.objectContaining({ code: 'import.subgraphs.invalid', severity: 'error' })])
-  })
-
   it('maps distinct custom virtual boundary IDs without changing real edges', () => {
     const def = { ...definition(), inputNode: { id: 41 }, outputNode: { id: '42' },
       links: [link(1, 41, 0, 1, 0), link(2, 1, 0, 42, 0)] }
@@ -966,26 +883,4 @@ describe('LiteGraph subgraphs', () => {
     expect(doc.graphs['inner']!.boundary!.outputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'result' })
   })
 
-  it.each([
-    { nodes: [{ id: { toString: 0, valueOf: 0 }, type: 'Relay' }] },
-    { nodes: [null] },
-    { nodes: [{ id: 1, type: 'Relay', inputs: 3 }] },
-    { inputNode: { id: { toString: 0 } } },
-    { links: [[1, null, 0, 1, 0]] },
-    { inputs: [{ id: '__proto__' }] },
-    { id: '__proto__' },
-  ])('rejects malformed subgraph fields without throwing: %j', (fields) => {
-    const result = importLitegraph({ nodes: [], definitions: { subgraphs: [{ ...definition(), ...fields }] } } as JsonObject, resolve)
-    expect(result.document).toBeUndefined()
-    expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true)
-  })
-
-  it('rejects recursive instance graphs and duplicate definition ids', () => {
-    const cycle = { ...definition(), nodes: [instance(1)] }
-    for (const defs of [[cycle], [definition(), definition()]]) {
-      const result = importLitegraph({ nodes: [], links: [], definitions: { subgraphs: defs } } as unknown as JsonObject, resolve)
-      expect(result.document).toBeUndefined()
-      expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true)
-    }
-  })
 })

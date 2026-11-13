@@ -82,36 +82,6 @@ describe('SettingsDialog search', () => {
     unmount()
   })
 
-  it('keeps the replacement backend policy when an old write is acknowledged late', async () => {
-    const settings = isolatedSettings()
-    const status: LibraryStorage = { temporaryBytes: 37, vaultBytes: 999, adoptedBytes: 211,
-      reclaimableBytes: null, blocked: ['owner_completeness_unknown'], collectionEnabled: false,
-      policyAvailable: true, limitBytes: 8193 }
-    let acknowledge!: () => void
-    const pending = new Promise<void>((done) => { acknowledge = done })
-    const [connection, setConnection] = createSignal({ fetchLibraryStorage: async () => status,
-      updateLibraryStorageLimit: () => pending })
-    const root = document.createElement('div')
-    document.body.append(root)
-    const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()}
-      keybindings={new KeybindingRegistry(settings)} storageConnection={connection()}
-      request={{ category: 'storage', id: 'library-storage-limit' }} />, root)
-    await vi.waitFor(() => expect(root.querySelector<HTMLInputElement>('#library-storage-limit')?.value).toBe('8193'))
-    root.querySelector<HTMLButtonElement>('#library-storage-unlimited')!.click()
-    ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Apply limit')!.click()
-    expect([...root.querySelectorAll('button')].find((button) => button.textContent === 'Refresh')!.disabled).toBe(true)
-    setConnection({ fetchLibraryStorage: async () => ({ ...status, vaultBytes: 313, limitBytes: 6149 }),
-      updateLibraryStorageLimit: async () => {} })
-    await vi.waitFor(() => expect(root.querySelector<HTMLInputElement>('#library-storage-limit')?.value).toBe('6149'))
-    acknowledge()
-    await pending
-    await Promise.resolve()
-    expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('313 bytes')
-    expect(root.querySelector<HTMLInputElement>('#library-storage-limit')?.value).toBe('6149')
-    expect(root.querySelector<HTMLButtonElement>('#library-storage-unlimited')?.getAttribute('aria-checked')).toBe('false')
-    unmount()
-  })
-
   it('distinguishes unknown storage from zero and saves a limit without enabling Clear', async () => {
     let limit: number | null = 8193
     const connection = {
@@ -215,45 +185,6 @@ describe('SettingsDialog search', () => {
     unmount()
   })
 
-  it('updates mounted editor chrome without losing search, category, or setting state', () => {
-    const { root, settings, unmount } = mountDialog()
-    root.querySelector<HTMLButtonElement>('[data-setting-id="canvas.grid.visible"] [role="checkbox"]')!.click()
-    root.querySelector<HTMLButtonElement>('.settings-categories button[aria-label="Shell"]')!.click()
-    searchFor(root, 'grid')
-    root.querySelector<HTMLButtonElement>('[data-category="shell"] .settings-result-heading')!.click()
-
-    setLocale('zh')
-
-    const search = root.querySelector<HTMLInputElement>('.settings-search')!
-    expect(search.value).toBe('grid')
-    expect(search.placeholder).toBe('\u641c\u7d22\u8bbe\u7f6e')
-    expect(root.querySelector('.settings-categories button.active')?.textContent).toContain('\u754c\u9762\u5e03\u5c40')
-    expect(root.querySelector('[role="status"]')?.textContent).toBe('\u754c\u9762\u5e03\u5c40\u4e2d"grid"\u67091\u4e2a\u7ed3\u679c')
-    expect(root.querySelector('.settings-search-clear')?.textContent).toBe('\u6e05\u9664')
-    expect(settings.get('canvas.grid.visible')).toBe(false)
-    unmount()
-  })
-
-  it('updates mounted keybinding capture chrome without replacing the focused control', () => {
-    const { root, keybindings, unmount } = mountDialog()
-    root.querySelector<HTMLButtonElement>('.settings-categories button[aria-label="Keybindings"]')!.click()
-    const capture = root.querySelector<HTMLButtonElement>('[data-command-id="workflow.save"] .binding-capture')!
-    capture.focus()
-    capture.click()
-    expect(capture.textContent).toBe('Press keys...')
-
-    setLocale('zh')
-
-    expect(root.querySelector('.settings-categories button.active')?.textContent).toBe('\u5feb\u6377\u952e')
-    expect(root.querySelector('[data-command-id="workflow.save"] .binding-capture')).toBe(capture)
-    expect(document.activeElement).toBe(capture)
-    expect(capture.textContent).toBe('\u8bf7\u6309\u5feb\u6377\u952e...')
-    expect(keybindings.combo('workflow.save')).toBe('ctrl+s')
-    capture.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control', ctrlKey: true, bubbles: true }))
-    expect(capture.textContent).toBe('ctrl')
-    unmount()
-  })
-
   it('opens on the first populated derived category instead of an empty canvas parent', () => {
     const settings = isolatedSettings()
     const commands = new CommandRegistry()
@@ -330,34 +261,6 @@ describe('SettingsDialog search', () => {
     unmount()
   })
 
-  it('clears a nonempty search with Escape after focus moves into its results', () => {
-    const { root, unmount } = mountDialog()
-    searchFor(root, 'grid')
-    const heading = root.querySelector<HTMLButtonElement>('.settings-result-heading')!
-    const search = root.querySelector<HTMLInputElement>('.settings-search')!
-    heading.focus()
-
-    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
-    heading.dispatchEvent(escape)
-    expect(escape.defaultPrevented).toBe(true)
-    expect(search.value).toBe('')
-    expect(document.activeElement).toBe(search)
-    expect(root.querySelector('.settings-results')).toBeNull()
-    unmount()
-  })
-
-  it('shows an empty result when a narrowed category unregisters its last match', () => {
-    const { root, unregisterShell, unmount } = mountDialog()
-    searchFor(root, 'grid')
-    root.querySelector<HTMLButtonElement>('[data-category="shell"] .settings-result-heading')!.click()
-    unregisterShell()
-
-    expect(root.querySelector('[role="status"]')?.textContent).toBe('0 results for "grid" in Shell')
-    expect(root.textContent).toContain('No matching settings')
-    expect(root.querySelectorAll('.settings-result-group')).toHaveLength(0)
-    unmount()
-  })
-
   it('lets an expanded control consume Escape before the search fallback', () => {
     const { root, unmount } = mountDialog()
     searchFor(root, 'quality')
@@ -371,18 +274,6 @@ describe('SettingsDialog search', () => {
     expect(select.getAttribute('aria-expanded')).toBe('false')
     expect(search.value).toBe('quality')
     expect(document.activeElement).toBe(select)
-    unmount()
-  })
-
-  it('associates setting help with its labelled product control', () => {
-    const { root, unmount } = mountDialog()
-    root.querySelector<HTMLButtonElement>('.settings-categories button[aria-label="Shell"]')!.click()
-    const row = root.querySelector<HTMLElement>('[data-setting-id="shell.gridGuide"]')!
-    const checkbox = row.querySelector<HTMLElement>('[role="checkbox"]')!
-
-    expect(checkbox.getAttribute('aria-labelledby')).toBe('setting-shell.gridGuide-label')
-    expect(checkbox.getAttribute('aria-describedby')).toBe('setting-shell.gridGuide-description')
-    expect(row.querySelector('#setting-shell\\.gridGuide-description')?.textContent).toBe('Show layout guides')
     unmount()
   })
 

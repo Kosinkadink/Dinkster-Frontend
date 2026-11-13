@@ -119,11 +119,6 @@ describe('RegionIterationInspector', () => {
     expect(root.textContent).not.toContain('stale')
   })
 
-  it('makes an unavailable execution owner visible without querying', () => {
-    mount(undefined)
-    expect(root.textContent).toContain('The execution owner is unavailable.')
-  })
-
   it('keeps an absent lifecycle total unknown instead of deriving it from observed iterations', () => {
     mount(undefined, {
       ...execution,

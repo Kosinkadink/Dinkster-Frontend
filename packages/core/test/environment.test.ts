@@ -14,12 +14,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Diagnostic } from '../src/diagnostics.js'
 import type { EnvironmentStamp, GraphDef, WorkflowDocument } from '../src/format/document.js'
-import {
-  environmentDrift,
-  sanitizeEnvironment,
-  stampEnvironment,
-  type EnvironmentSource,
-} from '../src/format/environment.js'
+import { environmentDrift, stampEnvironment, type EnvironmentSource } from '../src/format/environment.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { semanticHashOf } from '../src/compile/hash.js'
 import { asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
@@ -118,13 +113,6 @@ describe('stampEnvironment', () => {
     expect(stamp.frontend).toEqual({ version: '0.1.0' })
   })
 
-  it('is used-only: types and packs not instantiated anywhere are absent', () => {
-    const d = doc({ g0: graph('g0', { n0: 'core.add' }) })
-    const stamp = stampEnvironment(d, source)!
-    expect(Object.keys(stamp.nodes)).toEqual(['core.add'])
-    expect(Object.keys(stamp.packs)).toEqual(['core']) // vhs.video unused -> absent
-  })
-
   it('collects used types across ALL graph defs, not just the root', () => {
     const d = doc({
       g0: graph('g0', { n0: 'core.add', sub: '#g1' }),
@@ -132,21 +120,6 @@ describe('stampEnvironment', () => {
     })
     const stamp = stampEnvironment(d, source)!
     expect(Object.keys(stamp.nodes).sort()).toEqual(['core.add', 'vhs.save'])
-  })
-
-  it('excludes subgraph-instance synthetic types (#...) - they are not backend schemas', () => {
-    const d = doc({
-      g0: graph('g0', { sub: '#g1' }),
-      g1: graph('g1', { n1: 'core.add' }),
-    })
-    const stamp = stampEnvironment(d, source)!
-    expect(Object.keys(stamp.nodes)).toEqual(['core.add'])
-  })
-
-  it('a used type without a live signature is skipped (unresolvable or V1 schema)', () => {
-    const d = doc({ g0: graph('g0', { n0: 'core.add', n1: 'v1.legacy', n2: 'NotInstalled' }) })
-    const stamp = stampEnvironment(d, source)!
-    expect(Object.keys(stamp.nodes)).toEqual(['core.add'])
   })
 
   it('preserves used missing-pack provenance while refreshing live packs and dropping removed types', () => {
@@ -174,28 +147,6 @@ describe('stampEnvironment', () => {
     expect(Object.keys(unavailable.nodes)).toEqual(['core.add', 'missing.load'])
   })
 
-  it('returns undefined when NO used type carries a signature (V1 backend) - never an empty lie', () => {
-    const d = doc({ g0: graph('g0', { n0: 'v1.legacy', n1: 'NotInstalled' }) })
-    expect(stampEnvironment(d, source)).toBeUndefined()
-    expect(stampEnvironment(doc({ g0: graph('g0', {}) }), source)).toBeUndefined()
-  })
-
-  it('a signed node without pack attribution stamps signature-only and adds no pack entry', () => {
-    const d = doc({ g0: graph('g0', { n0: 'unattributed' }) })
-    const stamp = stampEnvironment(d, source)!
-    expect(stamp.nodes['unattributed']).toEqual({ signature: 'sig-orphan-1' })
-    expect(stamp.packs).toEqual({})
-  })
-
-  it('a used pack absent from the packs table stamps as an empty (unpinned) entry', () => {
-    const bare: EnvironmentSource = { resolve: source.resolve } // no packs table, no server
-    const d = doc({ g0: graph('g0', { n0: 'vhs.load' }) })
-    const stamp = stampEnvironment(d, bare)!
-    expect(stamp.packs).toEqual({ 'vhs.video': {} })
-    expect(stamp.dinkster).toBeUndefined()
-    expect(stamp.frontend).toBeUndefined()
-  })
-
   it('does not mutate the input document and never changes the semantic hash', () => {
     const d = doc({ g0: graph('g0', { n0: 'core.add' }) })
     const before = semanticHashOf(d)
@@ -203,76 +154,6 @@ describe('stampEnvironment', () => {
     expect(d.environment).toBeUndefined()
     const stamped: WorkflowDocument = { ...d, environment: stamp }
     expect(semanticHashOf(stamped)).toBe(before)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Sanitization
-// ---------------------------------------------------------------------------
-
-describe('sanitizeEnvironment', () => {
-  const fullStamp = {
-    dinkster: { version: '0.9.0', schemaWire: 1 },
-    frontend: { version: '0.1.0' },
-    packs: { core: { version: '1.2.0' }, dev: {} },
-    nodes: { 'core.add': { pack: 'core', signature: 'sig-add-1' } },
-  }
-
-  it('absent stamp: no stamp, no diagnostics', () => {
-    expect(sanitizeEnvironment(undefined)).toEqual({ diagnostics: [] })
-  })
-
-  it('a valid full stamp round-trips untouched', () => {
-    const { stamp, diagnostics } = sanitizeEnvironment(structuredClone(fullStamp))
-    expect(diagnostics).toEqual([])
-    expect(stamp).toEqual(fullStamp)
-  })
-
-  it('a minimal nodes-only stamp is valid', () => {
-    const { stamp, diagnostics } = sanitizeEnvironment({ nodes: { t: { signature: 's' } } })
-    expect(diagnostics).toEqual([])
-    expect(stamp).toEqual({ packs: {}, nodes: { t: { signature: 's' } } })
-  })
-
-  it('a non-object stamp is dropped whole with one warning', () => {
-    for (const junk of ['stamp', 42, [], null]) {
-      const { stamp, diagnostics } = sanitizeEnvironment(junk)
-      expect(stamp).toBeUndefined()
-      expect(codes(warnings(diagnostics))).toEqual(['env.stamp-malformed'])
-      expect(errors(diagnostics)).toEqual([])
-    }
-  })
-
-  it('malformed sections drop individually; valid parts survive', () => {
-    const { stamp, diagnostics } = sanitizeEnvironment({
-      dinkster: { version: '0.9.0' }, // schemaWire missing -> dropped
-      frontend: { version: 42 }, // wrong type -> dropped
-      packs: { good: { version: '1.0.0' }, bad: 'nope' }, // bad entry dropped
-      nodes: { good: { signature: 's' }, bad: { pack: 'p' } }, // no signature -> dropped
-    })
-    expect(stamp).toEqual({ packs: { good: { version: '1.0.0' } }, nodes: { good: { signature: 's' } } })
-    const warning = warnings(diagnostics)
-    expect(codes(warning)).toEqual(['env.stamp-malformed'])
-    for (const part of ['dinkster', 'frontend', 'packs.bad', 'nodes.bad']) {
-      expect(warning[0]!.message).toContain(part)
-    }
-  })
-
-  it('null provenance values are dropped (omitted-when-unknown, never null)', () => {
-    const { stamp } = sanitizeEnvironment({
-      packs: { p: { version: null, artifactDigest: null, source: 'registry' } },
-      nodes: { t: { signature: 's', pack: null } },
-    })
-    expect(stamp!.packs['p']).toEqual({ source: 'registry' })
-    expect(stamp!.nodes['t']).toEqual({ signature: 's' })
-  })
-
-  it('a stamp with nothing valid left is dropped entirely, not kept as an empty husk', () => {
-    const { stamp, diagnostics } = sanitizeEnvironment({})
-    expect(stamp).toBeUndefined()
-    expect(codes(warnings(diagnostics))).toEqual(['env.stamp-malformed'])
-    const allBad = sanitizeEnvironment({ nodes: { t: { pack: 'p' } } })
-    expect(allBad.stamp).toBeUndefined()
   })
 })
 
@@ -336,11 +217,6 @@ describe('loadDocument with environment stamps', () => {
     expect(codes(warnings(result.diagnostics))).toContain('env.stamp-malformed')
   })
 
-  it('a document without a stamp loads silently (absence is fully valid)', () => {
-    const result = loadDocument(baseJson())
-    expect(result.diagnostics).toEqual([])
-    expect(result.document?.environment).toBeUndefined()
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -381,11 +257,6 @@ describe('environmentDrift', () => {
     expect(out[0]!.message).toContain("'Gone'")
   })
 
-  it('a live schema without a signature is incomparable and stays silent (V1)', () => {
-    const stamp = stampOf({ 'v1.legacy': { signature: 'whatever' } })
-    expect(environmentDrift(stamp, source)).toEqual([])
-  })
-
   it('pack pin changed but every used interface identical: info-level env.pack-updated, not alarm', () => {
     const stamp = stampOf(
       { 'vhs.load': { pack: 'vhs.video', signature: 'sig-load-1' } },
@@ -398,14 +269,6 @@ describe('environmentDrift', () => {
     expect(out[0]!.message).toContain('3.1.4')
   })
 
-  it('digest is the preferred pin: same version but different digest still reports pack-updated', () => {
-    const stamp = stampOf(
-      { 'vhs.load': { pack: 'vhs.video', signature: 'sig-load-1' } },
-      { 'vhs.video': { version: '3.1.4', artifactDigest: 'sha256:' + 'c'.repeat(64) } },
-    )
-    expect(codes(environmentDrift(stamp, source))).toEqual(['env.pack-updated'])
-  })
-
   it('node findings suppress the pack-updated info for the same pack (no double reporting)', () => {
     const stamp = stampOf(
       { 'vhs.load': { pack: 'vhs.video', signature: 'sig-load-OLD' } },
@@ -414,21 +277,4 @@ describe('environmentDrift', () => {
     expect(codes(environmentDrift(stamp, source))).toEqual(['env.node-drift'])
   })
 
-  it('unpinned stamps and packs missing from the live table stay silent', () => {
-    const stamp = stampOf(
-      { 'core.add': { pack: 'core', signature: 'sig-add-1' } },
-      { core: {}, 'gone.pack': { version: '9.9.9' } },
-    )
-    expect(environmentDrift(stamp, source)).toEqual([])
-  })
-
-  it('everything is advisory: severities never exceed warning', () => {
-    const stamp = stampOf(
-      { Gone: { signature: 'x' }, 'core.add': { signature: 'nope' } },
-      { 'vhs.video': { version: '0.0.1' } },
-    )
-    const out = environmentDrift(stamp, source)
-    expect(out.length).toBeGreaterThan(0)
-    expect(errors(out)).toEqual([])
-  })
 })

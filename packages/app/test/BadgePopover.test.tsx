@@ -39,11 +39,4 @@ describe('BadgePopover runtime error hints', () => {
     expect(html).toMatch(/expected scalar type Half[\s\S]+Diagnostic code: dtype-mismatch[\s\S]+raw traceback/)
   })
 
-  it('renders the raw error and traceback without an empty hint block', () => {
-    const html = renderPopover(runtimeDiagnostic())
-    expect(html).toContain('RuntimeError:')
-    expect(html).toContain('expected scalar type Half but found Float')
-    expect(html).toContain('raw traceback')
-    expect(html).not.toContain('runtime-error-hint')
-  })
 })

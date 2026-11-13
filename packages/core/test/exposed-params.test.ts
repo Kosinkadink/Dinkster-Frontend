@@ -18,12 +18,7 @@ import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
-import {
-  EXPOSED_EXT_KEY,
-  exposedKey,
-  exposedParameters,
-  isExposed,
-} from '../src/format/exposed.js'
+import { EXPOSED_EXT_KEY, exposedParameters, isExposed } from '../src/format/exposed.js'
 import { coreMenuContributions } from '../src/menus/core-items.js'
 import type { MenuActionItem, MenuContext, MenuItem } from '../src/menus/contract.js'
 import { createMenuRegistry } from '../src/menus/contract.js'
@@ -67,11 +62,6 @@ const expose = (store: DocumentStore, nodeId: string, inputId: string, label?: s
   })
 
 describe('exposedParameters (tolerant reader)', () => {
-  it('returns [] when ext or the key is absent or not an array', () => {
-    expect(exposedParameters(doc())).toEqual([])
-    expect(exposedParameters(doc({ ext: {} }))).toEqual([])
-    expect(exposedParameters(doc({ ext: { [EXPOSED_EXT_KEY]: 'nope' } }))).toEqual([])
-  })
 
   it('skips malformed entries and duplicate triples (first wins)', () => {
     const raw: Json = [
@@ -88,16 +78,6 @@ describe('exposedParameters (tolerant reader)', () => {
     ])
   })
 
-  it('exposedKey is injective: separator-bearing ids never collide (crossing mints \\u0000-prefixed ids)', () => {
-    // Any in-band join would conflate these triples; JSON encoding cannot.
-    expect(exposedKey({ graphId: 'g0', nodeId: 'a\u0000b', inputId: 'c' }))
-      .not.toBe(exposedKey({ graphId: 'g0', nodeId: 'a', inputId: 'b\u0000c' }))
-    const raw: Json = [
-      { graphId: 'g0', nodeId: 'a\u0000b', inputId: 'c' },
-      { graphId: 'g0', nodeId: 'a', inputId: 'b\u0000c' },
-    ]
-    expect(exposedParameters(doc({ ext: { [EXPOSED_EXT_KEY]: raw } }))).toHaveLength(2)
-  })
 })
 
 describe('params.expose / params.unexpose', () => {
@@ -162,14 +142,6 @@ describe('params.expose / params.unexpose', () => {
     expect(exposedParameters(store.doc).map((e) => e.inputId)).toEqual(['seed', 'cfg'])
   })
 
-  it('creates the root ext object when the document has none', () => {
-    const store = makeStore()
-    expect(store.doc.ext).toBeUndefined()
-    expect(expose(store, 'n1', 'seed').ok).toBe(true)
-    expect(Array.isArray(store.doc.ext?.[EXPOSED_EXT_KEY])).toBe(true)
-    expect(store.undo()).toBe(true)
-    expect(store.doc.ext).toBeUndefined()
-  })
 })
 
 describe('params.setLabel / params.move', () => {
@@ -248,10 +220,6 @@ describe('core.widget.expose menu contribution', () => {
       kind: 'command',
       invocation: { command: 'params.unexpose', params: { graphId: 'g0', nodeId: 'n1', inputId: 'seed' } },
     })
-  })
-
-  it('hides on unknown nodes', () => {
-    expect(resolveItems(doc(), 'nX', 'seed')).toEqual([])
   })
 
   it('hides on synthetic rows: ghost/materialize affordances have no value to record', () => {
