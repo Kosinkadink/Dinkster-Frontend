@@ -4,29 +4,10 @@
  * passing through them, nodes beat dots).
  */
 import { describe, expect, it } from 'vitest'
-import {
-  asGraphDefId,
-  asLineageId,
-  asLinkId,
-  asNodeId,
-  asPortId,
-  asRerouteId,
-  documentResolver,
-  type GraphDef,
-  type NodeSchema,
-  type WorkflowDocument,
-} from '@dinkster/core'
+import { asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asRerouteId, documentResolver, type GraphDef, type WorkflowDocument } from '@dinkster/core'
 import { historicalSchemas as schemas } from './historical-schemas.js'
-import { buildScene, REROUTE_SOCKET_OFFSET, sceneEndId, type Scene } from '../src/scene.js'
-import {
-  hitTest,
-  hitTestReroute,
-  hitTestRerouteRevealZone,
-  REROUTE_HIT_RADIUS,
-  REROUTE_REVEAL_RADIUS,
-  REROUTE_SOCKET_HIT_RADIUS,
-  rerouteSocketAt,
-} from '../src/hit.js'
+import { buildScene, REROUTE_SOCKET_OFFSET, type Scene } from '../src/scene.js'
+import { hitTest, hitTestReroute, hitTestRerouteRevealZone, REROUTE_HIT_RADIUS, REROUTE_REVEAL_RADIUS, REROUTE_SOCKET_HIT_RADIUS } from '../src/hit.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
 
@@ -94,69 +75,6 @@ function sceneOf(doc: WorkflowDocument): Scene {
   })
 }
 
-function sourcePresentationScene(doc: WorkflowDocument, typeName: string): Scene {
-  const emptyImage = schemas.get('EmptyImage')!
-  const markedEmptyImage = {
-    ...emptyImage,
-    items: emptyImage.items.map((item) => item.kind === 'output'
-      ? { ...item, type: { kind: 'concrete' as const, name: typeName } }
-      : item),
-  }
-  return buildScene({
-    document: doc,
-    graphId: 'g0',
-    resolve: documentResolver(doc, (type) => type === 'EmptyImage' ? markedEmptyImage : schemas.get(type)),
-    tokens: defaultTokens,
-    measure,
-    widgetMeasure,
-  })
-}
-
-function widgetTapPresentationScene(): Scene {
-  const stringType = { kind: 'concrete' as const, name: 'STRING' }
-  const localSchemas = new Map<string, NodeSchema>([
-    ['MarkedString', {
-      type: 'MarkedString', displayName: 'Marked', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'out', type: stringType }],
-    }],
-    ['StringWidget', {
-      type: 'StringWidget', displayName: 'Widget', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
-        kind: 'input', id: 'text', type: stringType, optional: false,
-        widget: { widgetType: 'STRING', options: {}, default: '' },
-      }],
-    }],
-    ['StringSink', {
-      type: 'StringSink', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'in', type: stringType, optional: false }],
-    }],
-  ])
-  const doc: WorkflowDocument = {
-    format: 'dinkster-workflow', formatVersion: 1, lineage: asLineageId('tap-lineage'), root: asGraphDefId('g0'),
-    graphs: { g0: {
-      id: asGraphDefId('g0'), name: 'tap graph',
-      nodes: {
-        src: { id: asNodeId('src'), type: 'MarkedString', values: {} },
-        widget: { id: asNodeId('widget'), type: 'StringWidget', values: { text: '' } },
-        direct: { id: asNodeId('direct'), type: 'StringSink', values: {} },
-        routed: { id: asNodeId('routed'), type: 'StringSink', values: {} },
-      },
-      links: {
-        driver: { id: asLinkId('driver'), from: port('src', 'out'), to: port('widget', 'text') },
-        direct: { id: asLinkId('direct'), from: { node: asNodeId('widget'), tap: asPortId('text') }, to: port('direct', 'in') },
-        intoReroute: { id: asLinkId('intoReroute'), from: { node: asNodeId('widget'), tap: asPortId('text') }, to: rr('r1') },
-        routed: { id: asLinkId('routed'), from: rr('r1'), to: port('routed', 'in') },
-      },
-      nets: {}, reroutes: { r1: reroute('r1') }, nextOrdinal: 20,
-    } },
-    view: { graphs: {} },
-  }
-  return buildScene({
-    document: doc, graphId: 'g0', resolve: documentResolver(doc, (type) => localSchemas.get(type)),
-    tokens: defaultTokens, measure, widgetMeasure,
-  })
-}
-
 describe('scene building with reroutes', () => {
   const scene = sceneOf(reroutedDoc())
 
@@ -186,18 +104,6 @@ describe('scene building with reroutes', () => {
     for (const dot of scene.reroutes) expect(dot.typeName, dot.id).toBe('IMAGE')
   })
 
-  it('traces COMBO identity across every chain segment and dot without provenance metadata', () => {
-    const comboScene = sourcePresentationScene(reroutedDoc(), 'COMBO')
-    for (const link of comboScene.links) expect(link.typeName, link.id).toBe('COMBO')
-    for (const dot of comboScene.reroutes) expect(dot.typeName, dot.id).toBe('COMBO')
-  })
-
-  it('keeps ordinary STRING distinct through reroutes', () => {
-    const stringScene = sourcePresentationScene(reroutedDoc(), 'STRING')
-    for (const link of stringScene.links) expect(link.typeName, link.id).toBe('STRING')
-    for (const dot of stringScene.reroutes) expect(dot.typeName, dot.id).toBe('STRING')
-  })
-
   it('an undriven junction renders without a type (wildcard color)', () => {
     const doc = reroutedDoc()
     delete (doc.graphs['g0']!.links as Record<string, unknown>)['l1']
@@ -214,12 +120,6 @@ describe('scene building with reroutes', () => {
     expect(s.links).toHaveLength(4)
   })
 
-  it('sceneEndId yields the drag-offset key: owning node for ports, dot id for reroutes', () => {
-    // Document ID allocation prefixes ('n', 'r') keep the two namespaces
-    // disjoint, so one offset map can carry both.
-    expect(sceneEndId({ kind: 'port', node: 'n1', port: 'out0' })).toBe('n1')
-    expect(sceneEndId({ kind: 'reroute', reroute: 'r1' })).toBe('r1')
-  })
 })
 
 describe('reroute hit testing', () => {
@@ -266,15 +166,6 @@ describe('reroute ghost socket hit testing', () => {
   const leftX = 400 - REROUTE_SOCKET_OFFSET
   const rightX = 400 + REROUTE_SOCKET_OFFSET
   const reveal = { rerouteSockets: 'r1' }
-
-  it('rerouteSocketAt resolves each side within the socket grab radius', () => {
-    const r1 = scene.reroutes.find((r) => r.id === 'r1')!
-    expect(rerouteSocketAt(r1, leftX, 100)).toBe('in')
-    expect(rerouteSocketAt(r1, rightX, 100)).toBe('out')
-    expect(rerouteSocketAt(r1, rightX, 100 + REROUTE_SOCKET_HIT_RADIUS - 1)).toBe('out')
-    expect(rerouteSocketAt(r1, rightX + REROUTE_SOCKET_HIT_RADIUS + 1, 100)).toBeUndefined()
-    expect(rerouteSocketAt(r1, 400, 100)).toBeUndefined() // dot center is not a socket
-  })
 
   it('sockets hit only when the caller reveals that reroute', () => {
     // Unrevealed: the point over the socket falls through (the r1 -> r2

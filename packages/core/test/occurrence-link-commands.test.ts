@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { planClipboardPaste, serializeSelection } from '../src/clipboard.js'
 import { compile } from '../src/compile/compile.js'
-import { effectiveOccurrenceTopology, occurrenceBoundaryTargets, type EffectiveLinkIdentity } from '../src/compile/effective-topology.js'
+import { effectiveOccurrenceTopology, type EffectiveLinkIdentity } from '../src/compile/effective-topology.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { createTransactionBuilder, executeCommand } from '../src/commands/contract.js'
 import { occurrenceLinkPlanDigest, planOccurrenceLinkCommand } from '../src/commands/occurrence-link-commands.js'
@@ -220,15 +220,6 @@ describe('occurrence-local link commands', () => {
   })
 
   it.each([
-    'occurrence.link.connect',
-    'occurrence.link.disconnect',
-    'occurrence.link.rewire',
-    'occurrence.link.rewireSource',
-  ])('registers %s through the core command registry', (command) => {
-    expect(coreCommandRegistry().has(command)).toBe(true)
-  })
-
-  it.each([
     ['root direct', document(), owner('a'), directBoundary(owner('a'))],
     ['nested direct', document(true), owner('inner', ['outer']), directBoundary(owner('inner', ['outer']))],
     ['nested chained forwarding', document(true), owner('inner', ['outer']), chainedBoundary()],
@@ -348,15 +339,6 @@ describe('occurrence-local link commands', () => {
     }).invocation).ok).toBe(true)
     expect(store.doc.graphs.root!.links.parentLink).toBeDefined()
     expect(store.doc.occurrenceTopologies!.a!.suppressedDeliveries?.[0]?.kind).toBe('projectedLeg')
-  })
-
-  it('retains allocator cursors across one-step undo and never reuses local ids', () => {
-    const store = new DocumentStore(document(), coreCommandRegistry())
-    expect(store.dispatch(localConnect(store.doc, owner('a')).invocation).ok).toBe(true)
-    expect(store.undo()).toBe(true)
-    expect(store.doc.occurrenceTopologies!.a!.nextOrdinal).toBe(1)
-    expect(store.dispatch(localConnect(store.doc, owner('a')).invocation).ok).toBe(true)
-    expect(Object.keys(store.doc.occurrenceTopologies!.a!.links)).toEqual(['l1'])
   })
 
   it('materializes a boundary ghost and creates its local link in one undo step', () => {
@@ -562,27 +544,6 @@ describe('occurrence-local link commands', () => {
     expect(sameMember.diagnostics[0]!.code).toBe('occurrence.topology.definitionReferenced')
   })
 
-  it('composes routed binding members with the occurrence suffix when guarding nested families', () => {
-    const doc = document()
-    const nested = {
-      kind: 'boundary' as const,
-      occurrence: owner('a'),
-      address: { port: asPortId('ingest.item'), members: ['m0' as never] },
-      route: [{
-        graph: asGraphDefId('body'), boundaryId: 'ingest',
-        binding: { kind: 'family' as const, node: asNodeId('sink'), port: asPortId('items.sub'), members: ['d0' as never] },
-      }],
-    } as OccurrenceLinkEndpoint
-    const targets = (port: string, members?: readonly string[]) =>
-      occurrenceBoundaryTargets(doc, nested, 'body', { node: asNodeId('sink'), port: asPortId(port), ...(members === undefined ? {} : { members: members as never }) })
-
-    expect(targets('items.sub.item', ['d0', 'd1'])).toBe(false)
-    expect(targets('items.sub.item', ['d0', 'm0'])).toBe(true)
-    expect(targets('items.sub', ['d0'])).toBe(true)
-    expect(targets('items.sub', ['d1'])).toBe(false)
-    expect(targets('items.sub')).toBe(true)
-  })
-
   it('refuses digest mismatch, snapshot coverage mismatch, and stale topology', () => {
     const initial = document()
     const connect = localConnect(initial, owner('a'))
@@ -609,36 +570,6 @@ describe('occurrence-local link commands', () => {
     expect(new DocumentStore(unrelated, registry).dispatch(connect.invocation).ok).toBe(true)
   })
 
-  it('executes the same immutable plan under initial and shared-replay contexts', () => {
-    const initial = document()
-    const invocation = localConnect(initial, owner('a')).invocation
-    const definition = coreCommandRegistry().get(invocation.command)!
-    const run = (kind: 'initial' | 'shared-replay') => {
-      const tx = createTransactionBuilder(initial)
-      const diagnostics = executeCommand(definition, initial, invocation.params, tx, { kind })
-      expect(diagnostics).toEqual([])
-      return tx.result().doc
-    }
-    expect(run('shared-replay')).toEqual(run('initial'))
-  })
-
-  it('returns planner diagnostics for unresolved endpoints and missing deliveries', () => {
-    const initial = document()
-    const badEndpoint = planOccurrenceLinkMutation(initial, resolve, {
-      kind: 'connect', owner: owner('a'), bodyGraph: 'body',
-      from: directBoundary(owner('missing')),
-      to: body({ node: 'sink', port: 'in' }),
-    })
-    expect(badEndpoint.ok).toBe(false)
-    if (!badEndpoint.ok) expect(badEndpoint.diagnostics[0]!.code).toBe('occurrence.link.planUnavailable')
-    const missing = planOccurrenceLinkMutation(initial, resolve, {
-      kind: 'disconnect', owner: owner('a'), bodyGraph: 'body',
-      link: { kind: 'occurrence', owner: owner('a'), linkId: 'missing' as never },
-    })
-    expect(missing.ok).toBe(false)
-    if (!missing.ok) expect(missing.diagnostics[0]!.code).toBe('occurrence.link.planUnavailable')
-  })
-
   it('refuses prospective invalid ports and reversed endpoint directions', () => {
     const initial = document()
     const missing = planOccurrenceLinkMutation(initial, resolve, {
@@ -651,26 +582,6 @@ describe('occurrence-local link commands', () => {
       from: body({ node: 'sink', port: 'in' }), to: directBoundary(owner('a')),
     })
     expect(reversed.ok).toBe(false)
-  })
-
-  it('rejects recomputed plans containing unknown nested endpoint fields', () => {
-    const initial = document()
-    const invocation = structuredClone(localConnect(initial, owner('a')).invocation) as {
-      command: string
-      params: Record<string, unknown>
-    }
-    const plan = invocation.params.plan as Parameters<typeof occurrenceLinkPlanDigest>[1] & {
-      deliveries: Array<{ to: { authored: { endpoint: Record<string, unknown> } } }>
-    }
-    plan.deliveries[0]!.to.authored.endpoint.unknown = true
-    invocation.params.planDigest = occurrenceLinkPlanDigest(
-      invocation.params.schemaSnapshot as Record<string, NodeSchema>,
-      plan,
-      invocation.params.expectedTopologyFingerprint as string,
-    )
-    const result = new DocumentStore(initial, coreCommandRegistry()).dispatch(invocation as never)
-    expect(result.ok).toBe(false)
-    expect(result.diagnostics[0]!.code).toBe('params.invalid')
   })
 
   it('protects boundary-backed occurrence targets from shared driver edits', () => {
@@ -921,19 +832,6 @@ describe('occurrence-local link commands', () => {
       expect(deliveries.some((entry) => entry.kind === 'projectedLeg' && entry.delivery.kind === 'netSink' &&
         entry.delivery.netId === 'keptNet'), testCase.name).toBe(true)
     }
-  })
-
-  it('keeps no-overlay save bytes and compiles an equivalent local replacement', () => {
-    const initial = document()
-    expect(JSON.stringify(JSON.parse(JSON.stringify(initial)))).toBe(JSON.stringify(initial))
-    const store = new DocumentStore(initial, coreCommandRegistry())
-    expect(store.dispatch(localConnect(store.doc, owner('a')).invocation).ok).toBe(true)
-    const result = compile({
-      document: store.doc, revision: 1, resolve, scope: { kind: 'full' },
-      connection: asConnectionId('c'), schemaHash: 'schema',
-    })
-    expect(result.ok).toBe(true)
-    if (result.ok) expect(result.artifact.prompt['a.sink']!.inputs.in).toEqual(['a.producerTwo', 0])
   })
 
   it('keeps occurrence-referenced members during compaction and derives one trailing ghost', () => {

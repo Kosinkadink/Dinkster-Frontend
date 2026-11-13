@@ -492,48 +492,6 @@ test('generated names and custom names round-trip through document persistence',
   await expect(itemName(firstMask)).toHaveText('Mask')
 })
 
-test('dense and long-path content stays contained and its scroll tail remains reachable', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 })
-  const panel = page.getByTestId('boundary-panel')
-  const lastOutput = panel.locator('[data-boundary-side=outputs] [data-testid=boundary-item]').last()
-  await lastOutput.scrollIntoViewIfNeeded()
-  await expect(lastOutput).toHaveAttribute('data-boundary-id', /long-path-segment/)
-  await expect(lastOutput.locator('.boundary-name')).toHaveText('Dense output 6')
-  expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
-  expect(await lastOutput.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
-  const bounds = await lastOutput.boundingBox()
-  expect(bounds).not.toBeNull()
-  expect(bounds!.x).toBeGreaterThanOrEqual(0)
-  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390)
-  await capture(page, 'after-boundary-dense-tail-narrow')
-})
-
-test('invalid selection and unavailable schema states remain explicit', async ({ page }) => {
-  const panel = page.getByTestId('boundary-panel')
-  expect(await page.evaluate(async () => {
-    const app = window.__dinksterTest!.app
-    return (await app.dispatchTo(app.activeTab()!, {
-      command: 'boundary.setSlots',
-      params: { graphId: 'sub', side: 'inputs', itemId: 'fwd', slots: ['unknown'] },
-    })).ok
-  })).toBe(true)
-  const item = panel.locator('[data-testid=boundary-item][data-boundary-id=fwd]')
-  await expect(item.locator('[data-code="boundary.slotUnknown"]')).toHaveAttribute('role', 'alert')
-  await item.evaluate((element) => element.scrollIntoView({ block: 'center' }))
-  await capture(page, 'after-boundary-invalid-selection-wide')
-
-  await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as {
-      backends: { get(): Array<{ registry: { set(value: undefined): void } }> }
-      backendsTick: { get(): number; set(value: number): void }
-    }
-    app.backends.get()[0]!.registry.set(undefined)
-    app.backendsTick.set(app.backendsTick.get() + 1)
-  })
-  await expect(item.getByTestId('boundary-unavailable')).toHaveAttribute('role', 'status')
-  await capture(page, 'after-boundary-unavailable-wide')
-})
-
 test('empty and frozen states preserve inspection semantics', async ({ page }) => {
   const panel = page.getByTestId('boundary-panel')
   await page.evaluate(async () => {

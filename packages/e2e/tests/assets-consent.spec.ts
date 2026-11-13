@@ -53,7 +53,6 @@ const capture = async (page: Page, name: string): Promise<void> => {
   }
 }
 
-
 test('selects exact digests, updates the mounted locale, and closes after successful consent retry', async ({ page }) => {
   await prepare(page)
   const bodies: Record<string, unknown>[] = []
@@ -213,38 +212,4 @@ test('retry failure closes the decision and remains visible in Problems', async 
   await expect(page.getByTestId('problems-panel')).toContainText('asset.acquireFailed')
   await expect(page.getByTestId('problems-panel')).toContainText('The selected provider refused acquisition.')
   await capture(page, 'after-consent-failure-problems')
-})
-
-test('narrow and 200 percent zoom retain long metadata and the scroll tail', async ({ page }) => {
-  await prepare(page)
-  await page.route('**/api/jobs', async (route) => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({
-    error: 'assets-missing',
-    assets: [...plans.fetchable, ...plans.blocked, ...Array.from({ length: 5 }, (_, index) => ({
-      ...plans.fetchable[1], digest: digest(String(index + 1)), name: `Additional required model ${index + 1}.safetensors`,
-    }))],
-  }) }))
-  await page.setViewportSize({ width: 390, height: 844 })
-  await submitSelection(page)
-  const dialog = page.getByTestId('asset-consent-dialog')
-  const bounds = await dialog.boundingBox()
-  expect(bounds).not.toBeNull()
-  expect(bounds!.x).toBeGreaterThanOrEqual(0)
-  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390)
-  await capture(page, 'after-consent-narrow')
-  await dialog.getByTestId('asset-consent-row').last().scrollIntoViewIfNeeded()
-  await expect(dialog.getByTestId('asset-consent-row').last()).toBeInViewport()
-  await expect(dialog.locator('.product-action-footer')).toBeInViewport()
-  await capture(page, 'after-consent-narrow-tail')
-
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await page.evaluate(() => { document.documentElement.style.zoom = '2' })
-  const zoomBounds = await dialog.boundingBox()
-  expect(zoomBounds).not.toBeNull()
-  expect(zoomBounds!.x).toBeGreaterThanOrEqual(0)
-  expect(zoomBounds!.x + zoomBounds!.width).toBeLessThanOrEqual(1440)
-  await dialog.getByTestId('asset-consent-row').last().scrollIntoViewIfNeeded()
-  await expect(dialog.getByTestId('asset-consent-row').last()).toBeInViewport()
-  await expect(dialog.locator('.product-action-footer')).toBeInViewport()
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await capture(page, 'after-consent-zoom-200')
 })

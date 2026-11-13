@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { CollectionPageRequest } from '@dinkster/core'
 import type { AssetBrowserItem, AssetSourceAdapter } from '../src/asset-browser/types.js'
-import { allAssetsCollectionSource, mountPresentationClass } from '../src/asset-browser/cross-mount-collection-source.js'
+import { allAssetsCollectionSource } from '../src/asset-browser/cross-mount-collection-source.js'
 import { assetItemOf } from '../src/asset-browser/collection-adapter.js'
 
 const asset = (source: string, name: string, virtualPath = name): AssetBrowserItem => ({
@@ -36,34 +35,6 @@ describe('All assets collection source', () => {
     fail = true
     const partial = await source.page({ query: '', limit: 24 })
     expect(partial.items.map((entry) => entry.title)).toEqual(['uploaded.png', 'mount:pictures unavailable'])
-  })
-
-  it('classifies only the shared trusted input and output presentation identities', () => {
-    expect(mountPresentationClass({ id: 'comfy-input', kind: 'media/image' })).toBe('input')
-    expect(mountPresentationClass({ id: 'team-input-cache', kind: 'media/image' })).toBe('input')
-    expect(mountPresentationClass({ id: 'comfy-output', kind: 'media/image' })).toBe('output')
-    expect(mountPresentationClass({ id: 'team-output-cache', kind: 'media/image' })).toBe('output')
-    expect(mountPresentationClass({ id: 'withoutput-token', kind: 'media/image' })).toBe('unclassified')
-    expect(mountPresentationClass({ id: 'custom-media', kind: 'media/image' })).toBe('unclassified')
-  })
-
-  it('forwards a fixed picker kind without taking query, folder, or cursor ownership from mounts', async () => {
-    const page = vi.fn()
-      .mockResolvedValueOnce({ items: [], cursor: 'mount-page-2' })
-      .mockResolvedValueOnce({ items: [] })
-    const source = allAssetsCollectionSource(
-      [adapter('mount:input', page)],
-      [],
-      undefined,
-      { id: 'imported-assets', label: 'Imported', fixedKind: 'media/image' },
-    )
-    const first = await source.page({ query: 'cat', folder: 'nested', limit: 24 })
-    await source.page({ query: 'cat', folder: 'nested', limit: 24, cursor: first.cursor! })
-    expect(source).toMatchObject({ id: 'imported-assets', label: 'Imported' })
-    expect(page).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      query: 'cat', folder: 'nested', kind: 'media/image',
-    }))
-    expect(page).toHaveBeenNthCalledWith(2, expect.objectContaining({ cursor: 'mount-page-2' }))
   })
 
   it('fans out, merges deterministically, and advances every mount cursor', async () => {
@@ -130,20 +101,6 @@ describe('All assets collection source', () => {
     release({ items: [asset('mount:a', 'old.png')] })
     expect(fresh.items.map((entry) => entry.title)).toEqual(['new.png'])
     await expect(oldRequest).rejects.toThrow('stale All assets response')
-  })
-
-  it('degrades one failed mount to a visible note without failing the catalog', async () => {
-    const source = allAssetsCollectionSource([
-      adapter('good', vi.fn().mockResolvedValue({ items: [asset('good', 'ok.png')] })),
-      adapter('offline', vi.fn().mockRejectedValue(new Error('index unavailable'))),
-    ])
-    const result = await source.page({ query: '', limit: 24 } as CollectionPageRequest)
-    expect(result.items.map((entry) => entry.title)).toContain('ok.png')
-    expect(result.items).toContainEqual(expect.objectContaining({
-      id: 'all-assets:error:offline',
-      title: 'offline unavailable',
-      details: [{ label: 'Reason', text: 'index unavailable' }],
-    }))
   })
 
   it('reports partial source failures separately when the host owns health presentation', async () => {

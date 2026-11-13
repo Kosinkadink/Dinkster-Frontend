@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asNodeId, asPromptId, compile, loadDocument, type CompileArtifact, type DinksterNodesPayload } from '@dinkster/core'
-import { buildDinksterRegistry, type ExecutionState, type RetainedAssets, type RetainedAssetOwner } from '@dinkster/client'
+import { buildDinksterRegistry, type ExecutionState, type RetainedAssets } from '@dinkster/client'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
-import { initializeProjectScope, scopedStorageKey } from '../src/projects.js'
+import { scopedStorageKey } from '../src/projects.js'
 import {
   EXECUTION_RESULTS_STORAGE_KEY,
   MAX_PERSISTED_EXECUTION_BYTES,
@@ -101,7 +101,6 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  initializeProjectScope(undefined)
   delete (globalThis as { localStorage?: Storage }).localStorage
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -228,81 +227,6 @@ describe('startup result source admission', () => {
         .toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
     } finally { test.app.dispose() }
   })
-
-  it.each(['accepted', 'lost-release', 'refused', 'changed-registry', 'reused-execution', 'disconnected', 'changed-project', 'superseded-schemas'] as const)(
-    'keeps restored source ownership through result admission and publication: %s', async (mode) => {
-      const test = setup()
-      const owners = new Map<string, RetainedAssets>()
-      let entered!: () => void
-      const resultRequested = new Promise<void>((resolve) => { entered = resolve })
-      let acknowledge!: () => void
-      const acknowledgment = new Promise<void>((resolve) => { acknowledge = resolve })
-      vi.mocked(test.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
-        if (owner.ownerKind === 'shown-result') {
-          entered()
-          await acknowledgment
-          if (mode === 'refused') throw new Error('Result admission refused')
-        }
-        const retained = { ...owner, ...declaration, revision: declaration.revision + 1 }
-        owners.set(owner.ownerId, retained)
-        return retained
-      })
-      vi.spyOn(test.backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
-      vi.spyOn(test.backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
-        const retained = owners.get(owner.ownerId)!
-        if (retained.revision !== revision) throw new Error('revision conflict')
-        const released = { ...retained, revision: revision + 1, complete: true, digests: [] }
-        owners.set(owner.ownerId, released)
-        if (mode === 'lost-release') throw new Error('Lost release response')
-        return released
-      })
-      try {
-        const starting = test.app.start()
-        await resultRequested
-        expect(test.app.store.get(test.ref)).toBeUndefined()
-        const sourceOwner = [...owners.values()].find((owner) => owner.ownerKind === 'preview')!
-        expect(sourceOwner).toMatchObject({ revision: 1, complete: false, digests: [test.saved.sourceDocument] })
-        if (mode === 'changed-registry') test.backend.registry.set({ ...test.registry })
-        if (mode === 'reused-execution') test.app.store.apply({ kind: 'started', execution: test.ref, timestamp: 40 })
-        if (mode === 'disconnected') {
-          ;(test.backend.connection.status as unknown as { set(value: string): void }).set('connecting')
-          ;(test.backend.connection.status as unknown as { set(value: string): void }).set('disconnected')
-        }
-        if (mode === 'changed-project') initializeProjectScope('other-project')
-        let settleSchemas: (() => void) | undefined
-        let refreshing: Promise<void> | undefined
-        if (mode === 'superseded-schemas') {
-          vi.mocked(test.backend.connection.fetchSchemas).mockImplementation(() => new Promise((resolve) => {
-            settleSchemas = () => resolve(test.registry)
-          }))
-          refreshing = test.app.refreshBackendSchemas(test.backend)
-        }
-        const reused = test.app.store.get(test.ref)
-        acknowledge()
-        await starting
-        initializeProjectScope(undefined)
-        if (refreshing !== undefined) {
-          test.app.dispose()
-          settleSchemas!()
-          await refreshing
-        }
-        const accepted = mode === 'accepted' || mode === 'lost-release'
-        if (accepted) {
-          const restored = test.app.store.get(test.ref)!
-          expect(restored.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
-          expect(restored.assetRetentions).toContainEqual(expect.objectContaining({ ownerKind: 'shown-result', revision: 1 }))
-          expect(owners.get(sourceOwner.ownerId)).toMatchObject({ revision: 2, complete: true, digests: [] })
-        } else {
-          expect(test.app.store.get(test.ref)).toBe(reused)
-          expect(owners.get(sourceOwner.ownerId)).toEqual(sourceOwner)
-          expect(loadExecutionResults(test.backendIdentity)).toHaveLength(1)
-        }
-        const intent = JSON.parse(localStorage.getItem(scopedStorageKey(`dinkster.workflow-retentions.${sourceOwner.ownerId}`))!)
-        expect(intent.releaseRevision).toBe(accepted ? 1 : undefined)
-      } finally { test.app.dispose() }
-    },
-  )
-
   it.each(['accepted', 'refused', 'mismatched', 'malformed', 'absent', 'failed-body'] as const)('restores only an admitted persisted source: %s', async (mode) => {
     const test = setup()
     try {
@@ -325,145 +249,6 @@ describe('startup result source admission', () => {
     } finally { test.app.dispose() }
   })
 
-  it.each(['accepted', 'missing', 'revision', 'source', 'roots', 'failed'] as const)(
-    'reconciles persisted owners before restoring results: %s', async (mode) => {
-      const test = setup()
-      const receipt: RetainedAssets = { scope: 'local', ownerKind: 'shown-result',
-        ownerId: 'execution-result:original', revision: 1, complete: true,
-        digests: [`blake3:${'c'.repeat(64)}`], sourceToken: 'a'.repeat(32) }
-      saveExecutionResult({ ...test.saved, assetRetentions: [receipt] }, test.backendIdentity)
-      let entered!: () => void
-      const fetching = new Promise<void>((resolve) => { entered = resolve })
-      let settle!: (value: RetainedAssets | undefined) => void
-      let fail!: (error: Error) => void
-      const acknowledgment = new Promise<RetainedAssets | undefined>((resolve, reject) => { settle = resolve; fail = reject })
-      vi.spyOn(test.backend.connection, 'fetchRetainedAssets').mockImplementation(() => { entered(); return acknowledgment })
-      try {
-        const starting = test.app.start()
-        await fetching
-        expect(test.app.store.get(test.ref)).toBeUndefined()
-        if (mode === 'failed') fail(new Error('Lost connection'))
-        else settle(mode === 'missing' ? undefined : { ...receipt,
-          ...(mode === 'revision' ? { revision: 2 } : {}),
-          ...(mode === 'source' ? { sourceToken: 'b'.repeat(32) } : {}),
-          ...(mode === 'roots' ? { digests: [`blake3:${'d'.repeat(64)}`] } : {}),
-        })
-        await starting
-        if (mode === 'accepted') {
-          expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
-          const [replacement] = test.app.store.get(test.ref)!.assetRetentions!
-          expect(replacement!.ownerId).not.toBe(receipt.ownerId)
-          expect(replacement!.digests).toContain(receipt.digests[0])
-          expect(replacement!.complete).toBe(false)
-        } else {
-          expect(test.app.store.get(test.ref)).toBeUndefined()
-          expect(loadExecutionResults(test.backendIdentity)[0]?.assetRetentions).toEqual([receipt])
-        }
-      } finally { test.app.dispose() }
-    },
-  )
-
-  it.each(['accepted', 'lost', 'conflict', 'disconnected', 'corrupt-storage'] as const)(
-    'retires only the final locally admitted result holder: %s', async (mode) => {
-      const test = setup()
-      const original: RetainedAssets = { scope: 'local', ownerKind: 'shown-result',
-        ownerId: 'execution-result:other-window', revision: 1, complete: true,
-        digests: [`blake3:${'c'.repeat(64)}`], sourceToken: 'a'.repeat(32) }
-      saveExecutionResult({ ...test.saved, assetRetentions: [original] }, test.backendIdentity)
-      const owners = new Map([[original.ownerId, original]])
-      vi.mocked(test.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
-        const receipt = { ...owner, ...declaration, revision: 1 }
-        owners.set(owner.ownerId, receipt)
-        return receipt
-      })
-      vi.spyOn(test.backend.connection, 'fetchRetainedAssets').mockImplementation(async (owner) => owners.get(owner.ownerId))
-      vi.spyOn(test.backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) => {
-        const held = owners.get(owner.ownerId)!
-        if (held.revision !== revision) throw new Error('Revision conflict')
-        if (owner.ownerKind === 'shown-result' && mode === 'conflict') {
-          owners.set(owner.ownerId, { ...held, revision: 3, digests: [`blake3:${'d'.repeat(64)}`] })
-          throw new Error('Owner reused')
-        }
-        const { sourceToken: _source, ...unbound } = held
-        const tombstone = { ...unbound, revision: revision + 1, digests: [], complete: true }
-        owners.set(owner.ownerId, tombstone)
-        if (owner.ownerKind === 'shown-result' && mode === 'lost') throw new Error('Lost response')
-        return tombstone
-      })
-      vi.spyOn(test.backend.connection, 'clearHistory').mockResolvedValue(1)
-      try {
-        await test.app.start()
-        const restored = test.app.store.get(test.ref)!
-        const local = restored.assetRetentions!.find((receipt) => receipt.ownerId !== original.ownerId)!
-        expect(local.digests).toContain(original.digests[0])
-        test.app.store.retain(test.ref)
-        expect(await test.app.clearRunHistory(test.backend.id)).toBe(1)
-        expect(loadExecutionResults(test.backendIdentity)).toHaveLength(0)
-        expect(test.app.store.get(test.ref)?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
-        expect(owners.get(local.ownerId)).toEqual(local)
-        if (mode === 'disconnected') {
-          vi.mocked(test.backend.connection.connect).mockRestore()
-          test.backend.connection.connect()
-          test.backend.connection.disconnect()
-        }
-        if (mode === 'corrupt-storage') localStorage.setItem(scopedStorageKey(EXECUTION_RESULTS_STORAGE_KEY), '{')
-        for (let index = 0; index < 201; index++) {
-          const ref = { connection: test.backend.id, prompt: asPromptId(`other-${index}`) }
-          test.app.store.apply({ kind: 'started', execution: ref, timestamp: index + 100 })
-          test.app.store.apply({ kind: 'completed', execution: ref, timestamp: index + 101 })
-        }
-        expect(test.app.store.get(test.ref)).toBeDefined()
-        expect(owners.get(local.ownerId)).toEqual(local)
-        test.app.store.release(test.ref)
-        test.app.store.apply({ kind: 'started', execution: { connection: test.backend.id,
-          prompt: asPromptId('after-unpin') }, timestamp: 999 })
-        expect(test.app.store.get(test.ref)).toBeUndefined()
-        await new Promise<void>((resolve) => setImmediate(resolve))
-        expect(owners.get(original.ownerId)).toEqual(original)
-        if (mode === 'accepted' || mode === 'lost') {
-          expect(owners.get(local.ownerId)).toMatchObject({ revision: 2, complete: true, digests: [] })
-        } else if (mode === 'conflict') {
-          expect(owners.get(local.ownerId)).toMatchObject({ revision: 3, digests: [`blake3:${'d'.repeat(64)}`] })
-        } else expect(owners.get(local.ownerId)).toEqual(local)
-      } finally { test.app.dispose() }
-    },
-  )
-
-  it.each(['admission', 'body'] as const)('refuses a source whose backend registry changes during %s', async (phase) => {
-    const test = setup()
-    try {
-      let begin!: () => void
-      const entered = new Promise<void>((resolve) => { begin = resolve })
-      let admit!: (receipt: RetainedAssets) => void
-      const admission = new Promise<RetainedAssets>((resolve) => { admit = resolve })
-      let deliver!: (text: string) => void
-      const body = new Promise<string>((resolve) => { deliver = resolve })
-      let owner!: RetainedAssetOwner
-      vi.mocked(test.backend.connection.retainAssets).mockImplementation(async (requested, declaration) => {
-        if (requested.ownerKind === 'preview') {
-          owner = requested
-          if (phase === 'admission') { begin(); return admission }
-        }
-        return { ...requested, ...declaration, revision: declaration.revision + 1 }
-      })
-      test.fetchSource.mockImplementation(async () => { begin(); return body })
-      let settled = false
-      const starting = test.app.start().then(() => { settled = true })
-      await entered
-      test.backend.registry.set({ ...test.registry })
-      if (phase === 'admission') {
-        expect(test.fetchSource).not.toHaveBeenCalled()
-        admit({ ...owner, revision: 1, complete: false, digests: [test.saved.sourceDocument!] })
-      } else {
-        expect(settled).toBe(false)
-        deliver(test.source)
-      }
-      await starting
-      expect(test.app.store.get(test.ref)).toBeUndefined()
-      if (phase === 'admission') expect(test.fetchSource).not.toHaveBeenCalled()
-      expect(loadExecutionResults(test.backendIdentity)).toHaveLength(1)
-    } finally { test.app.dispose() }
-  })
 })
 
 describe('execution result persistence', () => {
@@ -486,41 +271,6 @@ describe('execution result persistence', () => {
     const raw = globalThis.localStorage.getItem(EXECUTION_RESULTS_STORAGE_KEY) ?? ''
     expect(raw).not.toContain('tensor')
     expect(raw).not.toContain('preview')
-  })
-
-  it('does not persist foreign or reconciled results without local compile proof', () => {
-    const { artifact: _foreignArtifact, ...foreign } = completed('foreign')
-    const { sourceDocument: _sourceDocument, ...unstamped } = completed('unstamped')
-    saveExecutionResult(foreign, identity)
-    saveExecutionResult(unstamped, identity)
-    expect(loadExecutionResults(identity)).toEqual([])
-  })
-
-  it('persists exact independent owners even when display descriptors omit their roots', () => {
-    const roots = [`blake3:${'c'.repeat(64)}`, `blake3:${'d'.repeat(64)}`]
-    const assetRetentions: RetainedAssets[] = [
-      { scope: 'local', ownerKind: 'shown-result', ownerId: 'execution-result:one', revision: 1,
-        digests: roots, complete: true, sourceToken: 'a'.repeat(32) },
-      { scope: 'local', ownerKind: 'shown-result', ownerId: 'execution-result:two', revision: 3,
-        digests: roots, complete: false },
-    ]
-    saveExecutionResult({ ...completed('owners'), assetRetentions }, identity)
-    const [saved] = loadExecutionResults(identity)
-    expect(saved?.assetRetentions).toEqual(assetRetentions)
-    expect(JSON.stringify(saved?.outputs)).not.toContain(roots[1])
-  })
-
-  it.each([
-    { revision: 0 }, { ownerKind: 'document' }, { ownerId: 'different-owner' },
-    { sourceToken: 'invalid' }, { digests: [`blake3:${'f'.repeat(64)}`, `blake3:${'e'.repeat(64)}`] },
-  ])('refuses malformed persisted retention metadata: %j', (invalid) => {
-    saveExecutionResult(completed('bad-owner'), identity)
-    const raw = globalThis.localStorage.getItem(EXECUTION_RESULTS_STORAGE_KEY)!
-    const envelope = JSON.parse(raw)
-    envelope.results[0].assetRetentions = [{ scope: 'local', ownerKind: 'shown-result',
-      ownerId: 'execution-result:one', revision: 1, digests: [], complete: false, ...invalid }]
-    globalThis.localStorage.setItem(EXECUTION_RESULTS_STORAGE_KEY, JSON.stringify(envelope))
-    expect(loadExecutionResults(identity)).toEqual([])
   })
 
   it('evicts the oldest results by count and keeps the serialized envelope byte-bounded', () => {

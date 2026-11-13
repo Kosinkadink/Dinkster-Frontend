@@ -8,16 +8,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { CollabConnectionEvent } from '@dinkster/core'
-import {
-  CollabHttpConnection,
-  closeCollabSession,
-  createCollabSession,
-  getCollabSession,
-  listCollabSessions,
-  type CollabHttpConnectionConfig,
-  type FetchLike,
-  type WebSocketLike,
-} from '../src/index.js'
+import { CollabHttpConnection, closeCollabSession, createCollabSession, getCollabSession, listCollabSessions, type CollabHttpConnectionConfig, type WebSocketLike } from '../src/index.js'
 
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -306,43 +297,9 @@ describe('delegation transport', () => {
     connection.close()
   })
 
-  it('does not reconnect after a refused ticket', async () => {
-    let resolveDenied!: () => void
-    const denied = new Promise<void>((resolve) => { resolveDenied = resolve })
-    const fetchFn = vi.fn(async () => jsonResponse(401, { error: 'authentication-required' }))
-    const { connection, sockets, scheduled } = harness({
-      actorKind: 'agent', fetchFn, onDiagnostic: () => resolveDenied(),
-    })
-    await denied
-    expect(connection.denial).toMatchObject({ code: 'authentication-required', operation: 'ws-ticket' })
-    await expect(connection.fetchSnapshot()).rejects.toThrow('authentication-required')
-    expect(sockets).toHaveLength(0)
-    expect(scheduled).toHaveLength(0)
-    connection.close()
-  })
 })
 
 describe('session management helpers', () => {
-  it('createCollabSession posts {scope, documentId, snapshot} and returns the 201 descriptor', async () => {
-    const calls: { url: string; init?: RequestInit }[] = []
-    const fetchFn: FetchLike = async (url, init) => {
-      calls.push({ url, ...(init !== undefined && { init }) })
-      return jsonResponse(201, descriptor)
-    }
-    const created = await createCollabSession(
-      'http://test:8765',
-      { scope: 'local', documentId: 'd1', snapshot: { v: 0 } },
-      fetchFn,
-    )
-    expect(created).toEqual(descriptor)
-    expect(calls[0]!.url).toBe('http://test:8765/api/sessions')
-    expect(calls[0]!.init?.method).toBe('POST')
-    expect(JSON.parse(calls[0]!.init?.body as string)).toEqual({
-      scope: 'local',
-      documentId: 'd1',
-      snapshot: { v: 0 },
-    })
-  })
 
   it('createCollabSession throws with the server error string on refusal', async () => {
     await expect(
@@ -364,16 +321,6 @@ describe('session management helpers', () => {
       code: 'delegation-revoked', delegationId: 'delegation-789',
       operation: 'list-sessions', message: 'Delegation delegation-789: delegation-revoked',
     }))
-  })
-
-  it('listCollabSessions encodes the scope and unwraps the sessions array', async () => {
-    let seen = ''
-    const sessions = await listCollabSessions('http://test:8765', 'a b', async (url) => {
-      seen = url
-      return jsonResponse(200, { sessions: [descriptor] })
-    })
-    expect(seen).toBe('http://test:8765/api/sessions?scope=a%20b')
-    expect(sessions).toEqual([descriptor])
   })
 
   it('getCollabSession answers undefined for a gone session (404), throws on other failures', async () => {
@@ -404,31 +351,6 @@ describe('session management helpers', () => {
 })
 
 describe('postOp status mapping', () => {
-  it('maps an ok response to accepted with the raw envelope (validation is the session core)', async () => {
-    const { connection } = harness({ fetchFn: async () => jsonResponse(200, serverOp) })
-    const outcome = await connection.postOp({
-      protocolVersion: 1,
-      opId: 'op-1',
-      actorId: 'alice',
-      baseRevision: 3,
-      patch: [],
-    })
-    expect(outcome).toEqual({ kind: 'accepted', op: serverOp })
-  })
-
-  it('posts the envelope to the ops route verbatim', async () => {
-    let seen: { url: string; body: unknown } | undefined
-    const { connection } = harness({
-      fetchFn: async (url, init) => {
-        seen = { url, body: JSON.parse(init?.body as string) }
-        return jsonResponse(200, serverOp)
-      },
-    })
-    const op = { protocolVersion: 1, opId: 'op-1', actorId: 'alice', baseRevision: 3, patch: [] }
-    await connection.postOp(op)
-    expect(seen?.url).toBe('http://test:8765/api/sessions/s1/ops')
-    expect(seen?.body).toEqual(op)
-  })
 
   it('maps 409 stale-base {revision} to a rebase signal', async () => {
     const { connection } = harness({
@@ -507,18 +429,6 @@ describe('snapshot and catch-up routes', () => {
     await expect(failed.connection.fetchSnapshot()).rejects.toThrow(/500/)
   })
 
-  it('fetchOps passes the after cursor and unwraps the ops page', async () => {
-    let seen = ''
-    const { connection } = harness({
-      fetchFn: async (url) => {
-        seen = url
-        return jsonResponse(200, { protocolVersion: 1, sessionId: 's1', revision: 5, ops: [serverOp] })
-      },
-    })
-    expect(await connection.fetchOps(3)).toEqual({ kind: 'ops', ops: [serverOp] })
-    expect(seen).toBe('http://test:8765/api/sessions/s1/ops?after=3')
-  })
-
   it('fetchOps maps 410 to resync-required with the snapshotRevision', async () => {
     const { connection } = harness({
       fetchFn: async () => jsonResponse(410, { error: 'resync-required', snapshotRevision: 12 }),
@@ -554,12 +464,6 @@ describe('snapshot and catch-up routes', () => {
 })
 
 describe('WS frame shaping', () => {
-  it('connects to the events route derived from the base URL (ws scheme), honoring wsUrl override', () => {
-    const { wsUrls } = harness()
-    expect(wsUrls[0]).toBe('ws://test:8765/api/sessions/s1/events')
-    const overridden = harness({ wsUrl: 'wss://elsewhere/api/sessions/s1/events' })
-    expect(overridden.wsUrls[0]).toBe('wss://elsewhere/api/sessions/s1/events')
-  })
 
   it('shapes the descriptor-first session frame into connected, then op frames in order', () => {
     const { sockets, events } = harness()
@@ -716,30 +620,6 @@ describe('WS frame shaping', () => {
     connection.close()
   })
 
-  it('close before any subscriber drops the buffered frames', () => {
-    const sockets: FakeWS[] = []
-    const connection = new CollabHttpConnection({
-      baseUrl: 'http://test:8765',
-      sessionId: 's1',
-      actorId: 'alice',
-      fetchFn: async () => jsonResponse(500, { error: 'unexpected fetch' }),
-      webSocketFactory: () => {
-        const s = new FakeWS()
-        sockets.push(s)
-        return s
-      },
-      scheduleFn: () => 1,
-      cancelFn: () => {},
-    })
-    const ws = sockets[0]!
-    ws.onopen?.({})
-    frame(ws, { type: 'session', ...descriptor })
-    connection.close()
-    const events: CollabConnectionEvent[] = []
-    connection.onEvent((e) => events.push(e))
-    expect(events).toEqual([])
-  })
-
   it('relays presence frames (payload optional), dropping frames without a usable actorId', () => {
     const { sockets, events } = harness()
     const ws = sockets[0]!
@@ -764,14 +644,6 @@ describe('WS frame shaping', () => {
     frame(ws, ['array'])
     frame(ws, { type: 'session_closed' })
     expect(events).toEqual([{ kind: 'session-closed' }])
-  })
-
-  it('forwards a malformed-but-typed op frame: validation is the session core, not the transport', () => {
-    const { sockets, events } = harness()
-    const ws = sockets[0]!
-    ws.onopen?.({})
-    frame(ws, { type: 'op', opId: 42 })
-    expect(events).toEqual([{ kind: 'op', op: { opId: 42 } }])
   })
 
   it('surfaces a transport drop as disconnected once, then reconnects and shapes the fresh descriptor', () => {

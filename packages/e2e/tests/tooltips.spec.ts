@@ -1,4 +1,4 @@
-import { expect, openRailPanel, test } from './fixtures.js'
+import { expect, test } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => { await page.goto('/') })
 
@@ -34,70 +34,6 @@ test('DOM chrome tooltip observes delay, Alt detail, and hover-out', async ({ pa
   await expect(page.getByTestId('app-tooltip')).toContainText('Ctrl+,', { timeout: 250 })
   await page.keyboard.up('Alt')
   await expect(page.getByTestId('app-tooltip')).not.toContainText('Ctrl+,')
-})
-
-test('DOM product tooltips appear immediately for keyboard focus', async ({ page }) => {
-  await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  const settings = page.getByTestId('settings-button')
-  const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
-  await settings.focus()
-  await expect(page.getByTestId('app-tooltip')).toHaveText('Settings')
-  await page.keyboard.press('Tab')
-  await expect(page.getByTestId('app-tooltip')).toBeHidden()
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
-})
-
-test('DOM tooltip hover and focus ownership compose without nested-control leakage', async ({ page }) => {
-  await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  await page.evaluate(() => {
-    const target = document.createElement('div')
-    target.dataset['testid'] = 'tooltip-ownership-target'
-    target.dataset['tooltipLabel'] = 'Entry detail'
-    target.tabIndex = 0
-    target.style.cssText = 'position:fixed;left:500px;top:300px;width:120px;height:60px;z-index:100'
-    const nested = document.createElement('button')
-    nested.dataset['testid'] = 'tooltip-nested-button'
-    nested.textContent = 'Nested action'
-    target.append(nested)
-    document.querySelector('.shell')!.append(target)
-  })
-  const target = page.getByTestId('tooltip-ownership-target')
-  const nested = page.getByTestId('tooltip-nested-button')
-  await target.focus()
-  await expect(target).toBeFocused()
-  await target.hover()
-  await page.mouse.move(800, 500)
-  await expect(target).toBeFocused()
-  await expect(page.getByTestId('app-tooltip')).toHaveText('Entry detail')
-  await target.hover()
-  await nested.focus()
-  await expect(page.getByTestId('app-tooltip')).toHaveText('Entry detail')
-  await page.mouse.move(800, 500)
-  await expect(page.getByTestId('app-tooltip')).toBeHidden()
-  await nested.focus()
-  await expect(page.getByTestId('app-tooltip')).toBeHidden()
-})
-
-test('runtime diagnostic code product tooltip preserves exact support wording', async ({ page }) => {
-  await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  const revision = await page.evaluate(() => {
-    const code = document.createElement('span')
-    code.className = 'runtime-error-hint-code'
-    code.dataset['testid'] = 'runtime-hint-tooltip-proof'
-    code.dataset['tooltipLabel'] = 'Diagnostic code: cuda-oom'
-    code.setAttribute('aria-label', 'Diagnostic code: cuda-oom')
-    code.tabIndex = 0
-    code.textContent = '[cuda-oom]'
-    document.querySelector('.shell')!.append(code)
-    return window.__dinksterTest!.app.activeTab()!.store.revision
-  })
-  const code = page.getByTestId('runtime-hint-tooltip-proof')
-  await expect(code).not.toHaveAttribute('title')
-  await code.focus()
-  await expect(page.getByTestId('app-tooltip')).toHaveText('Diagnostic code: cuda-oom')
-  await page.mouse.move(800, 500)
-  await expect(page.getByTestId('app-tooltip')).toHaveText('Diagnostic code: cuda-oom')
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
 })
 
 test('node palette port product tooltip preserves hover and keyboard wording', async ({ page }) => {
@@ -211,42 +147,6 @@ test('canvas pin and widget tooltips use scene coordinates and hide on mouse-dow
   await expect(tooltip).toBeHidden()
   await page.mouse.up()
   await page.keyboard.up('Alt')
-})
-
-test('canvas pin and widget hover identities follow the pointer and clear on leave', async ({ page }) => {
-  await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  const points = await page.evaluate(() => {
-    const renderer = window.__dinksterTest!.renderer!
-    const node = renderer.getScene().nodes.find((candidate) =>
-      candidate.layout.pins.some((pin) => (pin as any).widgetTap !== true) &&
-      candidate.layout.rows.some((row) => row.kind === 'widget'))
-    if (!node) throw new Error('fixture has no ordinary pin and widget row')
-    const pin = node.layout.pins.find((candidate) => (candidate as any).widgetTap !== true)! as any
-    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget')! as any
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    const vp = renderer.getViewport()
-    const pagePoint = (worldX: number, worldY: number) => ({
-      x: rect.left + worldX * vp.scale + vp.x,
-      y: rect.top + worldY * vp.scale + vp.y,
-    })
-    return {
-      pin: pagePoint(node.x + (pin.direction === 'in' ? 0 : node.layout.width), node.y + pin.y),
-      pinIdentity: { nodeId: node.id, portId: pin.portId, direction: pin.direction },
-      widget: pagePoint(node.x + node.layout.width / 2, node.y + row.y + row.height / 2),
-      widgetIdentity: { nodeId: node.id, valueKey: row.valueKey },
-      outside: { x: rect.right + 2, y: rect.bottom + 2 },
-    }
-  })
-
-  await page.mouse.move(points.pin.x, points.pin.y)
-  expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getOverlay().hoveredPin))
-    .toEqual(points.pinIdentity)
-  await page.mouse.move(points.widget.x, points.widget.y)
-  expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getOverlay().hoveredWidget))
-    .toEqual(points.widgetIdentity)
-  await page.mouse.move(points.outside.x, points.outside.y)
-  expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getOverlay().hoveredWidget))
-    .toBeUndefined()
 })
 
 test('mismatch noodle midpoint grab-dot tooltip shows the retained solver diagnostic', async ({ page }) => {

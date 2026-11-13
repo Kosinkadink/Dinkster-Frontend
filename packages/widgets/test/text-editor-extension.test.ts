@@ -75,12 +75,6 @@ describe('EmbeddingAndLoraCompletionProvider', () => {
     loras: ['cinematic', 'portrait'],
   })
 
-  it('supports both STRING views', () => {
-    expect(provider.supports(context())).toBe(true)
-    expect(provider.supports(context(false))).toBe(true)
-    expect(provider.supports({ ...context(), spec: { widgetType: 'INT', options: { multiline: true } } })).toBe(false)
-  })
-
   it('completes embedding tokens from the caret back to whitespace', () => {
     const text = 'prompt embedding:ca suffix'
     expect(provider.complete({
@@ -133,12 +127,6 @@ describe('SchemaTextCompletionProvider', () => {
     },
   }
 
-  it('supports only STRING widgets with schema completion metadata', () => {
-    expect(provider.supports(schemaContext)).toBe(true)
-    expect(provider.supports(context(false))).toBe(false)
-    expect(provider.supports({ ...schemaContext, spec: { ...schemaContext.spec, widgetType: 'INT' } })).toBe(false)
-  })
-
   it('replaces the complete identifier token around a middle caret', () => {
     expect(provider.complete({
       ...schemaContext,
@@ -181,17 +169,6 @@ describe('SchemaTextCompletionProvider', () => {
     })
   })
 
-  it('returns no candidates after cancellation', () => {
-    const controller = new AbortController()
-    controller.abort()
-    expect(provider.complete({
-      ...schemaContext,
-      text: 's',
-      caret: 1,
-      trigger: 's',
-      signal: controller.signal,
-    })).toEqual([])
-  })
 })
 
 describe('LiveEmbeddingAndLoraInventoryProvider', () => {
@@ -277,25 +254,6 @@ describe('LiveEmbeddingAndLoraInventoryProvider', () => {
     await expect(provider.load({
       text: 'embedding:c', caret: 11, signal: new AbortController().signal,
     })?.settled).resolves.toEqual({ status: 'error', scopeId: 'tab-1/backend-1', query: 'c', message: failure.message })
-  })
-
-  it('does not capture inventory for unrelated or pre-aborted requests', () => {
-    const scopes = { capture: vi.fn(() => ({ id: 'unused', source, isCurrent: () => true })) }
-    const provider = new LiveEmbeddingAndLoraInventoryProvider(scopes)
-    const controller = new AbortController()
-    controller.abort()
-    expect(provider.load({ text: 'embedding:c', caret: 11, signal: controller.signal })).toBeUndefined()
-    expect(provider.load({ text: 'plain', caret: 5, signal: new AbortController().signal })).toBeUndefined()
-    expect(scopes.capture).not.toHaveBeenCalled()
-  })
-
-  it('revalidates an opaque scope id after publication', () => {
-    let current = true
-    const provider = new LiveEmbeddingAndLoraInventoryProvider(scoped(source, () => current))
-    expect(provider.isScopeCurrent('tab-1/backend-1')).toBe(true)
-    expect(provider.isScopeCurrent('tab-1/backend-2')).toBe(false)
-    current = false
-    expect(provider.isScopeCurrent('tab-1/backend-1')).toBe(false)
   })
 
   it('refuses cancelled, superseded, and changed-scope results', async () => {

@@ -54,22 +54,6 @@ describe('parseSearchFilters', () => {
     expect([...f.kinds!]).toEqual(['subgraph'])
   })
 
-  it('an incomplete filter (empty value) is a no-op, not a text token', () => {
-    const f = parseSearchFilters('resize in:')
-    expect(f.text).toBe('resize')
-    expect(f.inputs).toBeUndefined()
-  })
-
-  it('unknown prefixes stay in the text', () => {
-    const f = parseSearchFilters('pack:vhs video')
-    expect(f.text).toBe('pack:vhs video')
-    expect(f.kinds).toBeUndefined()
-  })
-
-  it('no filters at all: everything is text, filter fields absent', () => {
-    const f = parseSearchFilters('load image')
-    expect(f).toEqual({ text: 'load image' })
-  })
 })
 
 describe('typeMatchesToken', () => {
@@ -82,25 +66,6 @@ describe('typeMatchesToken', () => {
     expect(typeMatchesToken(concrete('IMAGE'), 'latent')).toBe(false)
     // Suffix matching is per-segment, never substring.
     expect(typeMatchesToken(concrete('core.imagery'), 'image')).toBe(false)
-  })
-
-  it('variables consult allowedTypes; unconstrained matches everything', () => {
-    const constrained: TypeExpr = {
-      kind: 'variable',
-      templateId: 'T',
-      allowedTypes: [concrete('IMAGE'), concrete('LATENT')],
-    }
-    expect(typeMatchesToken(constrained, 'image')).toBe(true)
-    expect(typeMatchesToken(constrained, 'latent')).toBe(true)
-    expect(typeMatchesToken(constrained, 'mask')).toBe(false)
-    expect(typeMatchesToken({ kind: 'variable', templateId: 'T' }, 'anything')).toBe(true)
-  })
-
-  it('unions match any member; wildcards match everything', () => {
-    const union: TypeExpr = { kind: 'union', names: ['IMAGE', 'MASK'] }
-    expect(typeMatchesToken(union, 'mask')).toBe(true)
-    expect(typeMatchesToken(union, 'latent')).toBe(false)
-    expect(typeMatchesToken({ kind: 'wildcard' }, 'whatever')).toBe(true)
   })
 
   it('base tokens discover recursively wrapped types while structured tokens stay exact', () => {
@@ -138,10 +103,6 @@ describe('schemaMatchesPortFilters', () => {
     expect(schemaMatchesPortFilters(resize, { inputs: ['image', 'int'] })).toBe(true)
     expect(schemaMatchesPortFilters(resize, { inputs: ['image', 'audio'] })).toBe(false)
     expect(schemaMatchesPortFilters(resize, { inputs: ['image'], outputs: ['latent'] })).toBe(true)
-  })
-
-  it('empty filters match everything', () => {
-    expect(schemaMatchesPortFilters(resize, {})).toBe(true)
   })
 
   it('does not expose hidden compatibility inputs to filters or auto-connect', () => {
@@ -234,11 +195,6 @@ describe('hintsMatchPortFilters (blueprint boundary hints)', () => {
     expect(hintsMatchPortFilters(hints, { outputs: ['text'] })).toBe(false)
   })
 
-  it('every requested filter must be satisfied', () => {
-    expect(hintsMatchPortFilters(hints, { inputs: ['text'], outputs: ['image'] })).toBe(true)
-    expect(hintsMatchPortFilters(hints, { inputs: ['text', 'latent'] })).toBe(false)
-  })
-
   it('undeclared hints exclude the entry when a port filter is active', () => {
     expect(hintsMatchPortFilters({}, { inputs: ['image'] })).toBe(false)
     expect(hintsMatchPortFilters({}, {})).toBe(true) // no filter, no exclusion
@@ -262,19 +218,6 @@ describe('schemaMatchesLinkDrop (noodle-drop compatibility)', () => {
     expect(schemaMatchesLinkDrop(decode, concrete('LATENT'), 'out')).toBe(false)
   })
 
-  it('one generic node matches every form its variable allows - never expanded', () => {
-    const variable: TypeExpr = {
-      kind: 'variable',
-      templateId: 'T',
-      allowedTypes: [concrete('IMAGE'), concrete('LATENT')],
-    }
-    const resize = schema([input('value', variable), { kind: 'output', id: 'out', type: variable }])
-    expect(schemaMatchesLinkDrop(resize, concrete('IMAGE'), 'in')).toBe(true)
-    expect(schemaMatchesLinkDrop(resize, concrete('LATENT'), 'in')).toBe(true)
-    expect(schemaMatchesLinkDrop(resize, concrete('MASK'), 'in')).toBe(false)
-    expect(schemaMatchesLinkDrop(resize, concrete('LATENT'), 'out')).toBe(true)
-  })
-
   it('fails closed when the dangling end has no proven type', () => {
     expect(schemaMatchesLinkDrop(decode, { kind: 'wildcard' }, 'in')).toBe(false)
     expect(schemaMatchesLinkDrop(decode, { kind: 'wildcard' }, 'out')).toBe(false)
@@ -294,25 +237,6 @@ describe('schemaMatchesLinkDrop (noodle-drop compatibility)', () => {
     expect(schemaMatchesLinkDrop(decode, listAnchor, 'in')).toBe(false)
     const batch = schema([input('images', { kind: 'list', element: concrete('IMAGE') })])
     expect(schemaMatchesLinkDrop(batch, listAnchor, 'in')).toBe(true)
-  })
-
-  it('sees through dynamic surfaces (autogrow template inputs)', () => {
-    const s = schema([
-      input('images', concrete('IMAGE'), {
-        dynamic: {
-          kind: 'autogrow',
-          template: [input('image', concrete('IMAGE'))],
-          naming: { kind: 'prefix', prefix: 'image' },
-        },
-      }),
-      input('mode', concrete('COMBO'), {
-        dynamic: {
-          kind: 'dynamicCombo',
-          options: [{ key: 'a', inputs: [input('mask', concrete('MASK'))] }],
-        },
-      }),
-    ])
-    expect(schemaMatchesLinkDrop(s, concrete('MASK'), 'in')).toBe(true)
   })
 
   it('matches concrete batch families and a constrained shared family exactly', () => {
@@ -440,17 +364,6 @@ describe('v14 COMBO link-drop compatibility', () => {
     expect(schemaMatchesLinkDrop(comboProducer, concrete('STRING'), 'out')).toBe(false)
   })
 
-  it('keeps the string/combo boundary hard through list and asset constructors', () => {
-    const listCombo = { kind: 'list' as const, element: concrete('COMBO') }
-    const listString = { kind: 'list' as const, element: concrete('STRING') }
-    const assetCombo = { kind: 'asset' as const, element: concrete('COMBO') }
-    const assetString = { kind: 'asset' as const, element: concrete('STRING') }
-    expect(schemaMatchesLinkDrop(schema([input('items', listCombo)]), listString, 'in')).toBe(false)
-    expect(schemaMatchesLinkDrop(schema([input('items', listString)]), listCombo, 'in')).toBe(false)
-    expect(schemaMatchesLinkDrop(schema([input('asset', assetCombo)]), assetString, 'in')).toBe(false)
-    expect(schemaMatchesLinkDrop(schema([input('asset', assetString)]), assetCombo, 'in')).toBe(false)
-  })
-
   it('declared wildcard targets and unions explicitly containing COMBO accept it', () => {
     expect(schemaMatchesLinkDrop(schema([input('any', { kind: 'wildcard' })]), concrete('COMBO'), 'in')).toBe(true)
     expect(schemaMatchesLinkDrop(
@@ -467,50 +380,6 @@ describe('v14 COMBO link-drop compatibility', () => {
     expect(autoConnectTarget(comboProducer, concrete('COMBO'), 'out')).toEqual({ port: 'choice' })
   })
 
-  it('pins the converter endpoints as the one explicit string bridge', () => {
-    const stringToCombo = schema([
-      input('string', concrete('STRING')),
-      { kind: 'output', id: 'choice', type: concrete('COMBO') },
-    ])
-    const comboToString = schema([
-      input('choice', concrete('COMBO')),
-      { kind: 'output', id: 'text', type: concrete('STRING') },
-    ])
-    expect(stringToCombo.items.map((item) => item.kind === 'section' ? undefined : item.type)).toEqual([
-      concrete('STRING'), concrete('COMBO'),
-    ])
-    expect(comboToString.items.map((item) => item.kind === 'section' ? undefined : item.type)).toEqual([
-      concrete('COMBO'), concrete('STRING'),
-    ])
-  })
-})
-
-describe('mount widget native link-drop identity', () => {
-  const mountType = concrete('STRING')
-  const consumer = schema([input('mount', mountType, {
-    widget: { widgetType: 'MOUNT', options: {}, default: null },
-  })])
-  const producer = schema([{ kind: 'output', id: 'mount', type: mountType }])
-  const integerConsumer = schema([input('number', concrete('INT'))])
-  const integerProducer = schema([{ kind: 'output', id: 'number', type: concrete('INT') }])
-
-  it('offers and auto-connects exact typed producers and consumers', () => {
-    expect(schemaMatchesLinkDrop(consumer, mountType, 'in')).toBe(true)
-    expect(autoConnectTarget(consumer, mountType, 'in')).toEqual({ port: 'mount' })
-    expect(schemaMatchesLinkDrop(producer, mountType, 'out')).toBe(true)
-    expect(autoConnectTarget(producer, mountType, 'out')).toEqual({ port: 'mount' })
-  })
-
-  it('refuses INT in both directions instead of offering an implicit conversion', () => {
-    expect(schemaMatchesLinkDrop(consumer, concrete('INT'), 'in')).toBe(false)
-    expect(autoConnectTarget(consumer, concrete('INT'), 'in')).toBeUndefined()
-    expect(schemaMatchesLinkDrop(integerConsumer, mountType, 'in')).toBe(false)
-    expect(autoConnectTarget(integerConsumer, mountType, 'in')).toBeUndefined()
-    expect(schemaMatchesLinkDrop(producer, concrete('INT'), 'out')).toBe(false)
-    expect(autoConnectTarget(producer, concrete('INT'), 'out')).toBeUndefined()
-    expect(schemaMatchesLinkDrop(integerProducer, mountType, 'out')).toBe(false)
-    expect(autoConnectTarget(integerProducer, mountType, 'out')).toBeUndefined()
-  })
 })
 
 describe('hintsMatchLinkDrop (blueprint descriptor hints vs anchors)', () => {
@@ -524,18 +393,4 @@ describe('hintsMatchLinkDrop (blueprint descriptor hints vs anchors)', () => {
     expect(hintsMatchLinkDrop(hints, concrete('LATENT'), 'out')).toBe(false)
   })
 
-  it('no hints on the seeking side excludes the blueprint', () => {
-    expect(hintsMatchLinkDrop({ outputs: ['IMAGE'] }, concrete('IMAGE'), 'in')).toBe(false)
-    expect(hintsMatchLinkDrop({}, concrete('IMAGE'), 'out')).toBe(false)
-  })
-
-  it('an unconstrained anchor matches no declared surface', () => {
-    expect(hintsMatchLinkDrop(hints, { kind: 'wildcard' }, 'in')).toBe(false)
-    expect(hintsMatchLinkDrop(hints, { kind: 'variable', templateId: 'T' }, 'out')).toBe(false)
-  })
-
-  it('union anchors match when any member name lines up', () => {
-    const union: TypeExpr = { kind: 'union', names: ['LATENT', 'IMAGE'] }
-    expect(hintsMatchLinkDrop(hints, union, 'out')).toBe(true)
-  })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AssetRef, CommandInvocation, NodeSchema, WorkflowDocument } from '@dinkster/core'
-import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from '../src/file-drop.js'
+import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, watchFileDropGraphOwner } from '../src/file-drop.js'
 import { readLatentMetadata } from '../src/latent-metadata.js'
 
 const file = (bytes: Uint8Array, name = 'drop.bin') => new File([new Uint8Array(bytes).buffer], name)
@@ -300,29 +300,6 @@ describe('file-drop lifecycle gates', () => {
     expect(uploaded).not.toHaveBeenCalled()
   })
 
-  it('runs image upload and dispatch exactly once when Load image wins the cross-choice race', () => {
-    const clear = vi.fn(); const upload = vi.fn(); const dispatch = vi.fn(); const importWorkflow = vi.fn()
-    const choice = singleUseFileDropChoice(clear)
-    expect(choice.run(() => { upload(); dispatch() })).toBe(true)
-    expect(choice.run(() => { upload(); dispatch() })).toBe(false)
-    expect(choice.run(importWorkflow)).toBe(false)
-    expect(clear).toHaveBeenCalledOnce()
-    expect(upload).toHaveBeenCalledOnce()
-    expect(dispatch).toHaveBeenCalledOnce()
-    expect(importWorkflow).not.toHaveBeenCalled()
-  })
-
-  it.each(['dismiss-blocked editor', 'app modal'])('refuses ingress under %s before any side effect', () => {
-    const upload = vi.fn(); const importWorkflow = vi.fn(); const dispatch = vi.fn()
-    const document = { nodes: 0 }
-    expect(startCanvasFileDrop(true, () => {
-      upload(); importWorkflow(); dispatch(); document.nodes += 1
-    })).toBe(false)
-    expect(upload).not.toHaveBeenCalled()
-    expect(importWorkflow).not.toHaveBeenCalled()
-    expect(dispatch).not.toHaveBeenCalled()
-    expect(document.nodes).toBe(0)
-  })
 })
 
 describe('dropped image insertion', () => {

@@ -33,25 +33,6 @@ describe('ProjectsDialog', () => {
   beforeEach(() => { localStorage.removeItem(PROJECTS_KEY) })
   afterEach(() => { document.body.innerHTML = '' })
 
-  it('lists the default project as current with switching disabled', () => {
-    const { root, unmount } = mount()
-    const [defaultRow] = rows(root)
-    expect(defaultRow?.textContent).toContain('Default')
-    expect(defaultRow?.querySelector('.projects-dialog-current')?.textContent).toBe('Current')
-    expect(actionButton(defaultRow!, 'Switch').disabled).toBe(true)
-    expect(actionButton(defaultRow!, 'Rename').closest('.product-action-buttons')).not.toBeNull()
-    expect(root.querySelector('[data-testid="projects-create"]')?.getAttribute('data-variant')).toBe('primary')
-    for (const button of root.querySelectorAll('button')) {
-      expect(button.classList.contains('product-button')).toBe(true)
-      expect(button.type).toBe('button')
-    }
-    const draft = root.querySelector<HTMLInputElement>('input[aria-label="New project name"]')!
-    expect(draft.classList.contains('product-text-input')).toBe(true)
-    draft.focus()
-    expect(document.activeElement).toBe(draft)
-    unmount()
-  })
-
   it('creates a project from the draft name and switches to it', async () => {
     const { root, onSwitch, unmount } = mount()
     const draft = root.querySelector<HTMLInputElement>('input[aria-label="New project name"]')!

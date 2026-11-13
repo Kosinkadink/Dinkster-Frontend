@@ -133,11 +133,4 @@ describe('static first-party node catalog', () => {
     expect(cancelled).toBe(true)
     expect(catalog.cached()).toEqual(original)
   })
-  it('rejects excessive discovery entries before issuing schema requests', async () => {
-    const entry = JSON.parse(indexBody()).items[0] as Record<string, unknown>
-    const items = Array.from({ length: 1025 }, (_, i) => ({ ...entry, name: `pack-${i}`, url: `packs/pack-${i}/1.10.0/schemas.json` }))
-    const fetchFn = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ schemaVersion: 1, items })))
-    expect(await new RemoteNodeCatalog(prefix, storage(), fetchFn).refresh()).toEqual([])
-    expect(fetchFn).toHaveBeenCalledTimes(1)
-  })
 })

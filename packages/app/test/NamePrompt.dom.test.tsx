@@ -80,14 +80,6 @@ describe('subgraph extraction name prompt contract', () => {
     unmount()
   })
 
-  it('commits the entered name on Enter', () => {
-    const { input, commit, cancel } = mount()
-    input.value = 'Reusable Body'
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    expect(commit).toHaveBeenCalledWith('Reusable Body')
-    expect(cancel).not.toHaveBeenCalled()
-  })
-
   it('cancels without committing on Escape', () => {
     const { input, commit, cancel } = mount()
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))

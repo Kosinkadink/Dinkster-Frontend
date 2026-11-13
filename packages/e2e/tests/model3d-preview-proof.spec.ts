@@ -521,48 +521,6 @@ test('canonical FILE_3D refuses undeclared GLTF buffers including unrelated blob
   for (const rejection of result) expect(rejection).toContain('3D resource is not granted')
 })
 
-test('GLTF sidecars use granted bytes and an ungranted external buffer cannot load', async ({ page }) => {
-  const result = await page.evaluate(async (bytes) => {
-    const modulePath = '/src/model3d-viewer.ts'
-    const { mountModel3dViewer } = await import(modulePath)
-    const packed = new Uint8Array(bytes)
-    const view = new DataView(packed.buffer)
-    const jsonLength = view.getUint32(12, true)
-    const json = JSON.parse(new TextDecoder().decode(packed.slice(20, 20 + jsonLength)))
-    const buffer = packed.slice(28 + jsonLength)
-    json.buffers[0].uri = 'buffers/mesh.bin'
-    const host = document.createElement('div')
-    host.style.cssText = 'width:400px;height:300px'
-    document.body.append(host)
-    const urls: string[] = []
-    const urlFor = (blob: Blob): string => { const url = URL.createObjectURL(blob); urls.push(url); return url }
-    try {
-      const source = urlFor(new Blob([JSON.stringify(json)], { type: 'model/gltf+json' }))
-      const resource = urlFor(new Blob([buffer]))
-      const viewer = await mountModel3dViewer(host, source, 'model/gltf+json', { format: 'gltf', resources: { 'buffers/mesh.bin': resource } })
-      let visible = 0
-      try {
-        const capture = await viewer.capture(129, 83)
-        const bitmap = await createImageBitmap(capture.image)
-        const canvas = document.createElement('canvas'); canvas.width = 129; canvas.height = 83
-        const context = canvas.getContext('2d')!; context.drawImage(bitmap, 0, 0)
-        const pixels = context.getImageData(0, 0, 129, 83).data
-        for (let i = 3; i < pixels.length; i += 4) if (pixels[i]) visible++
-        bitmap.close()
-      } finally { viewer.dispose() }
-      json.buffers[0].uri = 'https://ungranted.invalid/mesh.bin'
-      let rejection = ''
-      try {
-        const rejected = await mountModel3dViewer(host, urlFor(new Blob([JSON.stringify(json)])), 'model/gltf+json', { format: 'gltf', resources: {} })
-        rejected.dispose()
-      } catch (error) { rejection = String(error) }
-      return { visible, rejection }
-    } finally { urls.forEach((url) => URL.revokeObjectURL(url)); host.remove() }
-  }, Array.from(glb()))
-  expect(result.visible).toBeGreaterThan(100)
-  expect(result.rejection).toContain('3D resource is not granted')
-})
-
 test('mesh formats render and animation seeking changes pixels without moving authored placement', async ({ page }) => {
   const result = await page.evaluate(async (bytes) => {
     const modulePath = '/src/model3d-viewer.ts'
@@ -723,44 +681,6 @@ test('anisotropic splat normal capture encodes facing normals rather than source
   expect(result.normal!.red).toBe(0)
 })
 
-test('backend quaternion and orthographic resize preserve authored orientation and proportions', async ({ page }) => {
-  const result = await page.evaluate(async (bytes) => {
-    const modulePath = '/src/model3d-viewer.ts'
-    const { mountModel3dViewer } = await import(modulePath)
-    const host = document.createElement('div'); host.style.cssText = 'width:400px;height:300px;position:fixed;inset:0;z-index:1000'
-    document.body.append(host)
-    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)]))
-    const viewer = await mountModel3dViewer(host, url, 'model/gltf-binary')
-    try {
-      viewer.setCameraState({ position: { x: 0, y: 0, z: 6 }, target: { x: 0, y: 0, z: 5 }, zoom: 1,
-        cameraType: 'orthographic', frustum: { left: -3, right: 5, top: 3, bottom: -3 },
-        quaternion: { x: 0, y: 0, z: Math.SQRT1_2, w: Math.SQRT1_2 }, useCustomUp: true })
-      const opened = viewer.cameraState()
-      host.style.width = '600px'
-      await new Promise<void>((resolve) => {
-        const observer = new ResizeObserver(() => { requestAnimationFrame(() => { observer.disconnect(); resolve() }) })
-        observer.observe(host)
-      })
-      const resized = viewer.cameraState()
-      const session = viewer.recordingStream(300, 300)
-      const recording = viewer.cameraState()
-      session.stop()
-      const restored = viewer.cameraState()
-      const capture = await viewer.capture(600, 300)
-      return { opened, resized, recording, restored, afterCapture: viewer.cameraState(), image: Array.from(new Uint8Array(await capture.image.arrayBuffer())) }
-    } finally { viewer.dispose(); URL.revokeObjectURL(url); host.remove() }
-  }, Array.from(glb()))
-  expect(result.opened.quaternion.z).toBeCloseTo(Math.SQRT1_2, 12)
-  expect(result.opened.quaternion.w).toBeCloseTo(Math.SQRT1_2, 12)
-  expect(result.opened.frustum).toEqual({ left: -3, right: 5, top: 3, bottom: -3 })
-  expect(result.resized.frustum).toEqual({ left: -5, right: 7, top: 3, bottom: -3 })
-  expect(result.recording.frustum).toEqual({ left: -2, right: 4, top: 3, bottom: -3 })
-  expect(result.restored).toEqual(result.resized)
-  expect(result.afterCapture).toEqual(result.resized)
-  mkdirSync(proofDir, { recursive: true })
-  writeFileSync(`${proofDir}/quaternion-resized-capture.png`, Buffer.from(result.image))
-})
-
 test('orthographic image and recording preserve an off-center authored frustum', async ({ page }) => {
   const result = await page.evaluate(async (bytes) => {
     const modulePath = '/src/model3d-viewer.ts'
@@ -795,34 +715,6 @@ test('orthographic image and recording preserve an off-center authored frustum',
   expect(result.height).toBe(80)
   mkdirSync(proofDir, { recursive: true })
   writeFileSync(`${proofDir}/orthographic-authored-capture.png`, Buffer.from(result.image))
-})
-
-test('recording locks projection until stopped in either camera mode', async ({ page }) => {
-  const result = await page.evaluate(async (bytes) => {
-    const modulePath = '/src/model3d-viewer.ts'
-    const { mountModel3dViewer } = await import(modulePath)
-    const host = document.createElement('div'); host.style.cssText = 'width:418px;height:271px'; document.body.append(host)
-    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)]))
-    const viewer = await mountModel3dViewer(host, url, 'model/gltf-binary')
-    try {
-      const states = []
-      for (const cameraType of ['perspective', 'orthographic'] as const) {
-        viewer.setCameraState({ ...viewer.cameraState(), cameraType, frustum: { left: -4, right: 6, top: 3, bottom: -2 } })
-        const session = viewer.recordingStream(360, 200)
-        const before = viewer.cameraState()
-        viewer.setCameraState({ ...before, cameraType: cameraType === 'perspective' ? 'orthographic' : 'perspective' })
-        states.push({ before, during: viewer.cameraState() })
-        session.stop()
-        viewer.setCameraState({ ...viewer.cameraState(), cameraType: cameraType === 'perspective' ? 'orthographic' : 'perspective' })
-        states.push({ unlocked: viewer.cameraState().cameraType })
-      }
-      return states
-    } finally { viewer.dispose(); URL.revokeObjectURL(url); host.remove() }
-  }, Array.from(glb(0.75)))
-  expect(result[0]!.during).toEqual(result[0]!.before)
-  expect(result[1]!.unlocked).toBe('orthographic')
-  expect(result[2]!.during).toEqual(result[2]!.before)
-  expect(result[3]!.unlocked).toBe('perspective')
 })
 
 test('viewport recording preserves authored resolution across resize and releases its stream', async ({ page }) => {

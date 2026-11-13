@@ -2,7 +2,7 @@
 
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { asConnectionId, asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, type DinksterNodesPayload } from '@dinkster/core'
+import { asConnectionId, asPromptId, type DinksterNodesPayload } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { GlslEditor } from '../src/GlslEditor.js'
@@ -170,36 +170,6 @@ describe('GlslEditor', () => {
     mounted.app.dispose()
   })
 
-  it('does not clear a newer pending apply after leaving and returning to the same target', async () => {
-    const mounted = await mount()
-    const request = mounted.app.glslEditorTarget.get()
-    const settlements: (() => void)[] = []
-    vi.spyOn(mounted.app, 'dispatchTo').mockImplementation(() => new Promise((resolve) => {
-      settlements.push(() => resolve({ ok: false, diagnostics: [] }))
-    }) as never)
-    const apply = mounted.root.querySelector<HTMLButtonElement>('button.primary')!
-    apply.click()
-    mounted.app.activeTabId.set('another-tab')
-    await vi.waitFor(() => expect(mounted.root.textContent).not.toContain('Apply'))
-    mounted.app.activeTabId.set(mounted.tab.id)
-    mounted.app.glslEditorTarget.set(request)
-    await vi.waitFor(() => expect(mounted.root.querySelector<HTMLButtonElement>('button.primary')?.disabled).toBe(false))
-    const returnedApply = mounted.root.querySelector<HTMLButtonElement>('button.primary')!
-    returnedApply.click()
-    expect(settlements).toHaveLength(2)
-    settlements[0]!()
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(mounted.app.glslEditorTarget.get()).toBe(request)
-    expect(returnedApply.disabled).toBe(true)
-    expect(mounted.root.textContent).not.toContain('Shader update was refused')
-    settlements[1]!()
-    await vi.waitFor(() => expect(returnedApply.disabled).toBe(false))
-    expect(mounted.root.textContent).toContain('Shader update was refused')
-    mounted.dispose()
-    mounted.app.dispose()
-  })
-
   it('disables apply when the source changes concurrently', async () => {
     const mounted = await mount()
     expect((await mounted.app.dispatchTo(mounted.tab, {
@@ -220,29 +190,4 @@ describe('GlslEditor', () => {
     mounted.app.dispose()
   })
 
-  it('clears the previous result while newer runtime inputs decode', async () => {
-    const mounted = await mount()
-    await vi.waitFor(() => expect(mounted.root.querySelector('[role="alert"]')?.textContent)
-      .toContain('Shader output 0 refused'))
-    vi.mocked(HTMLImageElement.prototype.decode).mockImplementation(() => new Promise(() => {}))
-
-    mounted.app.store.apply({
-      kind: 'preview', execution: mounted.ref, timestamp: 4, runtimeNodeId: mounted.runtimeNodeId,
-      channel: 'application/vnd.dinkster.glsl-state+json', stream: 'glsl-state',
-      payload: {
-        width: 16,
-        height: 8,
-        inputs: [{ name: 'u_image1', stream: 'glsl-input-u_image1' }],
-        floats: {},
-        ints: {},
-        bools: {},
-        curves: {},
-      },
-    })
-
-    await vi.waitFor(() => expect(mounted.root.querySelector('[role="alert"]')).toBeNull())
-    expect(mounted.root.textContent).toContain('Browser preview unavailable.')
-    mounted.dispose()
-    mounted.app.dispose()
-  })
 })

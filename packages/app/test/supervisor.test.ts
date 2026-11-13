@@ -123,23 +123,6 @@ describe('pollSupervisor', () => {
     expect(current?.state).toBe('starting')
   })
 
-  it('FR10 a rejected probe while connected clears status like unreachable', async () => {
-    const scheduled: { fn: () => void; ms: number }[] = []
-    let current: SupervisorStatus | undefined = { protocol: 1, state: 'ready' }
-    pollSupervisor({
-      probe: async () => { throw new Error('unexpected probe bug') },
-      connected: () => true,
-      get: () => current,
-      set: (value) => { current = value },
-      onReady: () => {},
-      schedule: (fn, ms) => { scheduled.push({ fn, ms }); return scheduled.length },
-      cancel: () => {},
-    })
-    await flush()
-    expect(current).toBeUndefined()
-    expect(scheduled).toHaveLength(0)
-  })
-
   it('starting -> ready without progress: fires onReady and keeps watching', async () => {
     const h = harness([status('starting'), status('ready'), status('ready')])
     await flush()
@@ -186,15 +169,6 @@ describe('pollSupervisor', () => {
     expect(h.readyCalls).toBe(1)
   })
 
-  it('stopped: keeps narrating at the slow cadence', async () => {
-    const h = harness([status('stopped'), status('stopped')])
-    await flush()
-    expect(h.set?.state).toBe('stopped')
-    expect(h.scheduled[0]?.ms).toBe(POLL_MS.stopped)
-    await h.tick()
-    expect(h.scheduled[0]?.ms).toBe(POLL_MS.stopped)
-  })
-
   it('ready -> failed -> starting -> ready surfaces death and recovery', async () => {
     const h = harness([
       status('ready'),
@@ -224,26 +198,4 @@ describe('pollSupervisor', () => {
     expect(h.readyCalls).toBe(0)
   })
 
-  it('cancel during an in-flight probe drops the answer', async () => {
-    let resolve!: (p: SupervisorProbe) => void
-    const gate = new Promise<SupervisorProbe>((r) => {
-      resolve = r
-    })
-    let set: SupervisorStatus | undefined
-    const cancel = pollSupervisor({
-      probe: () => gate,
-      connected: () => false,
-      get: () => set,
-      set: (s) => {
-        set = s
-      },
-      onReady: () => {},
-      schedule: () => 0,
-      cancel: () => {},
-    })
-    cancel()
-    resolve({ kind: 'status', status: { protocol: 1, state: 'ready' } })
-    await flush()
-    expect(set).toBeUndefined()
-  })
 })

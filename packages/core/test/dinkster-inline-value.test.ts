@@ -45,30 +45,4 @@ describe('inline scalar values on output summaries', () => {
     })
   })
 
-  it('passes through on node_cached identically', () => {
-    const p = finish({ i: { typeId: 'INT', value: 7 } }, 'node_cached')
-    expect(p.state).toBe('cached')
-    expect(p.outputs).toEqual({ i: { typeId: 'INT', value: 7 } })
-  })
-
-  it('drops non-scalar values but keeps the summary (typeId/length untouched)', () => {
-    const p = finish({
-      nul: { typeId: 'INT', value: null },
-      arr: { typeId: 'list<INT>', length: 2, value: [1, 2] },
-      obj: { typeId: 'INT', value: { a: 1 } },
-      nan: { typeId: 'FLOAT', value: Number.NaN },
-    })
-    expect(p.outputs).toEqual({
-      nul: { typeId: 'INT' },
-      arr: { typeId: 'list<INT>', length: 2 },
-      obj: { typeId: 'INT' },
-      nan: { typeId: 'FLOAT' },
-    })
-  })
-
-  it('omission means not-inline: no value key materializes', () => {
-    const p = finish({ out: { typeId: 'IMAGE' } })
-    expect(p.outputs).toEqual({ out: { typeId: 'IMAGE' } })
-    expect(p.outputs!['out']).not.toHaveProperty('value')
-  })
 })

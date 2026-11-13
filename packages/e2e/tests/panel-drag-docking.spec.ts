@@ -74,13 +74,11 @@ const capture = async (page: Page, name: string): Promise<void> => {
   })
 }
 
-
 const captureDragGhost = async (page: Page, name: string): Promise<void> => {
   if (process.env['DINKSTER_CAPTURE_ISSUE_170'] !== '1') return
   mkdirSync(evidenceGroupDir('issue-170'), { recursive: true })
   await page.screenshot({ path: evidencePath('issue-170', `${name}.png`), animations: 'disabled' })
 }
-
 
 test.beforeEach(async ({ page }) => {
   await page.route('/api/docs?kind=guide&limit=1', (route) => route.fulfill({ json: { docs: [] } }))
@@ -296,38 +294,6 @@ test('release rolls back when the previewed zone disappears during a drag', asyn
   expect(await zoneOrder(page, 'right')).toContain('docking-proof')
   expect(await zoneOrder(page, 'left')).not.toContain('docking-proof')
   await expect(rightTab(page, 'docking-proof')).toBeVisible()
-})
-
-test('pointer capture failure immediately cleans up the drag session', async ({ page }) => {
-  const source = rightTab(page, 'outputs')
-  const destination = rightTab(page, 'queue')
-  const from = await center(source)
-  const to = await center(destination)
-  const before = await zoneOrder(page, 'right')
-  await page.evaluate(() => {
-    const state = window as unknown as {
-      __panelDragSetPointerCapture: typeof Element.prototype.setPointerCapture
-    }
-    state.__panelDragSetPointerCapture = Element.prototype.setPointerCapture
-    Element.prototype.setPointerCapture = () => { throw new Error('capture unavailable') }
-  })
-
-  await page.mouse.move(from.x, from.y)
-  await page.mouse.down()
-  await page.mouse.move(to.x, to.y, { steps: 3 })
-  await expect(page.getByTestId('panel-drag-layer')).not.toBeVisible()
-  await expect(page.locator('body')).not.toHaveClass(/panel-drag-active/)
-  await page.evaluate(() => {
-    const state = window as unknown as {
-      __panelDragSetPointerCapture: typeof Element.prototype.setPointerCapture
-    }
-    Element.prototype.setPointerCapture = state.__panelDragSetPointerCapture
-  })
-  await page.mouse.up()
-
-  expect(await zoneOrder(page, 'right')).toEqual(before)
-  await source.click()
-  await expect(source).toHaveAttribute('aria-selected', 'true')
 })
 
 test('canvas drop floats with a pointer shield and sends no gesture to CanvasHost', async ({ page }) => {

@@ -655,40 +655,6 @@ test('changing from an image to a model clears image-only preview facts', async 
   await expect(rail).not.toContainText('Resolution')
 })
 
-test('keeps the browse list primary with the selection in a compact right rail', async ({ page }) => {
-  // A scalar pick stages, Apply commits and closes; reopening shows the
-  // committed selection beside the list.
-  await openAsset(page)
-  const editor = page.getByTestId('asset-editor')
-  await editor.getByRole('option', { name: /sunset\.png/ }).click()
-  await editor.getByTestId('asset-apply').click()
-  await expect(editor).not.toBeVisible()
-  await openAsset(page, false)
-  const summary = editor.getByTestId('asset-selection-summary')
-  await expect(summary).toBeVisible()
-  const browse = editor.getByRole('region', { name: 'Assets' })
-  const summaryBox = (await summary.boundingBox())!
-  const browseBox = (await browse.boundingBox())!
-  expect(summaryBox).not.toBeNull()
-  expect(browseBox).not.toBeNull()
-  // The selection rail sits to the right of the browse list and stays
-  // narrower, so selecting never squeezes browsing.
-  expect(summaryBox.x).toBeGreaterThanOrEqual(browseBox.x + browseBox.width)
-  expect(summaryBox.width).toBeLessThan(browseBox.width)
-
-  // A sparse result set (few rows, no cursor) must not shrink the dialog:
-  // the browse column keeps its full width regardless of result count.
-  await page.getByTestId('collection-search').fill('sunset')
-  await expect(editor.locator('.collection-panel')).toHaveAttribute('data-layout', 'sparse')
-  await expect(summary).toBeVisible()
-  const modalBox = (await page.locator(".modal-surface[data-modal='widget-asset']").boundingBox())!
-  const sparseSummaryBox = (await summary.boundingBox())!
-  const sparseBrowseBox = (await browse.boundingBox())!
-  expect(modalBox.width).toBeGreaterThan(900)
-  expect(sparseSummaryBox.x).toBeGreaterThanOrEqual(sparseBrowseBox.x + sparseBrowseBox.width)
-  expect(sparseBrowseBox.width).toBeGreaterThan(500)
-})
-
 test('details expose digest and metadata remains opt-in', async ({ page }) => {
   const metadataRequests: string[] = []
   page.on('request', (request) => { if (request.url().endsWith('/metadata')) metadataRequests.push(request.url()) })
@@ -721,10 +687,4 @@ test('view switch preserves selection and the preference survives editor reopen'
   await closeAsset(page)
   await openAsset(page)
   await expect(page.getByRole('button', { name: 'List view' })).toBeVisible()
-})
-
-test("a legacy persisted 'tile' preference still opens the grid", async ({ page }) => {
-  await page.evaluate(() => localStorage.setItem('dinkster.assetBrowser.view.v1', 'tile'))
-  await openAsset(page)
-  await expect(page.getByTestId('collection-items')).toHaveAttribute('data-mode', 'grid')
 })

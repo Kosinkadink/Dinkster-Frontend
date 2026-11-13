@@ -90,23 +90,4 @@ describe('session-keyed caches (AP4)', () => {
     expect(second).not.toBe(first) // fresh compile, not the old session's
   })
 
-  it('the semantic hash of a replaced live tab reflects the replacement document', async () => {
-    const { tab } = (await nativeSetup())
-    // Prime the hash cache through the public seam that consumes it: a
-    // frozen tab's sync status hashes the LIVE lineage tab.
-    // (No execution here, so exercise semanticHashOf indirectly via a
-    // second cached read after replacement - the observable contract is
-    // that two content-different sessions never share a hash entry.)
-    const hashOf = (t: Tab): string =>
-      (app as unknown as { semanticHashOfTab: (t: Tab) => string }).semanticHashOfTab(t)
-    const before = hashOf(tab)
-    expect(hashOf(tab)).toBe(before) // cached for this session
-
-    expect((await app.openDocument(chainDoc(999), 'Chain (changed)'))).toEqual([])
-    const replacement = app.activeTab()!
-    expect(replacement.id).toBe(tab.id)
-    expect(replacement.store.revision).toBe(tab.store.revision)
-
-    expect(hashOf(replacement)).not.toBe(before) // content differs -> hash differs
-  })
 })

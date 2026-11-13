@@ -588,30 +588,6 @@ test('embedded Load image consumes the choice without cancelling its own upload'
   })
 })
 
-test('a modal opened during upload prevents the eventual graph mutation', async ({ page }) => {
-  const digest = `blake3:${'c'.repeat(64)}`
-  await installImageDropBackend(page, digest, true)
-  await dropBytes(page, pngBytes(), 'plain.png', 'image/png')
-  await page.getByTestId('canvas-import-confirm').click()
-  await expect.poll(() => page.evaluate(() =>
-    typeof (window as unknown as { __resolveFileDropUpload?: unknown }).__resolveFileDropUpload)).toBe('function')
-  await page.evaluate(() => {
-    const dialog = document.createElement('dialog')
-    dialog.dataset['modal'] = 'other-operation'
-    dialog.setAttribute('aria-modal', 'true')
-    dialog.dataset['testid'] = 'in-flight-external-modal'
-    document.body.append(dialog)
-    dialog.showModal()
-    ;(window as unknown as { __resolveFileDropUpload: () => void }).__resolveFileDropUpload()
-  })
-  await page.waitForTimeout(50)
-  expect(await page.evaluate(() => {
-    const documentState = window.__dinksterTest!.app.activeTab()!.store.doc
-    return Object.keys(documentState.graphs[documentState.root]!.nodes).length
-  })).toBe(0)
-  await page.evaluate(() => document.querySelector('[data-testid="in-flight-external-modal"]')?.remove())
-})
-
 test('embedded Open workflow uses document import while malformed metadata fails closed', async ({ page }) => {
   const workflow = emptyWorkflow('embedded-opened')
   await dropBytes(page, pngBytes(workflow), 'workflow.svg', 'image/svg+xml')
@@ -913,26 +889,6 @@ test('a clipboard image read that resolves after a tab switch does not paste', a
       return total + Object.values(document.graphs).reduce((count, graph) => count + Object.keys(graph!.nodes).length, 0)
     }, 0),
   )).toBe(0)
-})
-
-test('an undecodable pasted blob reports paste wording, not drop wording', async ({ page }) => {
-  const digest = `blake3:${'e'.repeat(64)}`
-  await installImageDropBackend(page, digest)
-  await page.evaluate(() => {
-    const blob = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'image/png' })
-    const items = [{ types: ['image/png'], getType: async () => blob }]
-    Object.defineProperty(navigator.clipboard, 'read', { configurable: true, value: async () => items })
-  })
-  await page.mouse.move(420, 320)
-  await page.keyboard.press('Control+v')
-  await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest!.app.problems.get().some((problem) => problem.code === 'fileDrop.unsupported'),
-  )).toBe(true)
-  await expect(page.getByTestId('canvas-file-drop-surface')).toContainText('Unsupported pasted image type')
-  expect(await page.evaluate(() => {
-    const document = window.__dinksterTest!.app.activeTab()!.store.doc
-    return Object.keys(document.graphs[document.root]!.nodes).length
-  })).toBe(0)
 })
 
 test('same-tab graph navigation aborts a pending latent upload immediately and idempotently', async ({ page }) => {

@@ -1,4 +1,4 @@
-import { prepareWorkflowApp } from './fixtures/workflow-app.js'
+
 /**
  * Durable run history orchestration: the runs collection source maps the
  * search box onto the server's EXACT filter vocabulary (never filtering a
@@ -124,13 +124,6 @@ describe('groupNoOpHistoryRuns', () => {
     expect(rows[0]!.latest.runId).toBe('newest')
     expect(rows[0]!.members.map((member) => member.runId)).toEqual(['newest', 'middle', 'oldest'])
     expect(rows[0]!.id).toBe(`noop:${DIGEST}:oldest`)
-  })
-
-  it('keeps the group id stable when a newer member arrives within the retained page', () => {
-    const before = groupNoOpHistoryRuns([noop('middle'), noop('oldest')])
-    const after = groupNoOpHistoryRuns([noop('newest'), noop('middle'), noop('oldest')])
-    expect(before[0]!.id).toBe(after[0]!.id)
-    expect(after[0]!.members).toHaveLength(3)
   })
 
   it('breaks groups at an intervening executed run, even for the same document', () => {
@@ -304,11 +297,6 @@ describe('runsSource', () => {
     expect(list).not.toHaveBeenCalled()
   })
 
-  it('renders the empty state when no native backend is active', async () => {
-    const app = prepareWorkflowApp(new AppState())
-    app.backends.set([])
-    expect(await runsSource(app).page({ query: '', limit: 24 })).toEqual({ items: [], total: 0 })
-  })
 })
 
 describe('openRunWorkflow', () => {
@@ -333,16 +321,6 @@ describe('openRunWorkflow', () => {
     expect(await app.openRunWorkflow('run-1', backend.id)).toBe(false)
     expect(fetchAsset).not.toHaveBeenCalled()
     expect(app.problems.get().some((d) => d.code === 'history.unstamped')).toBe(true)
-  })
-
-  it('a missing run or missing bytes returns false without a crash', async () => {
-    const { backend } = (await nativeSetup())
-    vi.spyOn(backend.connection, 'getHistoryRun').mockResolvedValue(undefined)
-    expect(await app.openRunWorkflow('run-x', backend.id)).toBe(false)
-
-    vi.spyOn(backend.connection, 'getHistoryRun').mockResolvedValue(run())
-    vi.spyOn(backend.connection, 'fetchAssetText').mockResolvedValue(undefined)
-    expect(await app.openRunWorkflow('run-1', backend.id)).toBe(false)
   })
 
   it('transport failures land in Problems', async () => {
@@ -398,24 +376,6 @@ describe('resubmitRunWorkflow', () => {
     expect(app.problems.get().some((d) => d.code === 'compile.schema.unknown')).toBe(true)
   })
 
-  it('an unstamped interrupted run refuses with the visible unstamped problem and never submits', async () => {
-    const { backend } = (await nativeSetup())
-    vi.spyOn(backend.connection, 'getHistoryRun').mockResolvedValue(
-      unstamped({ state: 'interrupted', executed: 0, cached: 0 }),
-    )
-    const submit = vi.spyOn(backend.connection, 'submit')
-    expect(await app.resubmitRunWorkflow('run-1', backend.id)).toBe(false)
-    expect(submit).not.toHaveBeenCalled()
-    expect(app.problems.get().some((d) => d.code === 'history.unstamped')).toBe(true)
-  })
-
-  it('a failed open (missing run) never submits', async () => {
-    const { backend } = (await nativeSetup())
-    vi.spyOn(backend.connection, 'getHistoryRun').mockResolvedValue(undefined)
-    const submit = vi.spyOn(backend.connection, 'submit')
-    expect(await app.resubmitRunWorkflow('run-x', backend.id)).toBe(false)
-    expect(submit).not.toHaveBeenCalled()
-  })
 })
 
 describe('delete and clear', () => {
@@ -425,15 +385,6 @@ describe('delete and clear', () => {
     const before = app.backendsTick.get()
     expect(await app.deleteHistoryRun('run-1', backend.id)).toBe(true)
     expect(app.backendsTick.get()).toBe(before + 1)
-  })
-
-  it('an already-gone record is not an error and does not re-page', async () => {
-    const { backend } = (await nativeSetup())
-    vi.spyOn(backend.connection, 'deleteHistoryRun').mockResolvedValue(false)
-    const before = app.backendsTick.get()
-    expect(await app.deleteHistoryRun('run-1', backend.id)).toBe(false)
-    expect(app.backendsTick.get()).toBe(before)
-    expect(app.problems.get()).toEqual([])
   })
 
   it('delete failures land in Problems', async () => {

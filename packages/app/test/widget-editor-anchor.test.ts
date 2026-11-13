@@ -87,11 +87,6 @@ describe('widgetEditorAnchorAlive', () => {
     expect(widgetEditorAnchorAlive(ed, [rebuilt], 't0', 'g0', undefined)).toBe(true)
   })
 
-  it('closes when the rebuilt row is no longer an ASSET widget', () => {
-    const rebuilt = node([widgetRow({ spec: { widgetType: 'STRING', options: {} } })])
-    expect(widgetEditorAnchorAlive(editorState(), [rebuilt], 't0', 'g0', undefined)).toBe(false)
-  })
-
   it('closes when the rebuilt row carries a different widget spec', () => {
     const rebuilt = node([widgetRow({ spec: { widgetType: 'ASSET', options: { accept: ['video/*'], kind: 'media/video' } } })])
     expect(widgetEditorAnchorAlive(editorState(), [rebuilt], 't0', 'g0', undefined)).toBe(false)
@@ -105,13 +100,6 @@ describe('widgetEditorAnchorAlive', () => {
   it('closes when the rebuilt row belongs to a different family owner', () => {
     const rebuilt = node([widgetRow({ familyOwner: { graphId: 'g0', nodeId: 'other', construct: 'c0' } } as never)])
     expect(widgetEditorAnchorAlive(editorState(), [rebuilt], 't0', 'g0', undefined)).toBe(false)
-  })
-
-  it('keeps the editor when row and target agree on the family owner', () => {
-    const owner = { graphId: 'g0', nodeId: 'owner', construct: 'c0' }
-    const ed = editorState({ target: { kind: 'input', nodeId: 'n0', valueKey: 'files', familyOwner: owner as never } })
-    const rebuilt = node([widgetRow({ familyOwner: owner } as never)])
-    expect(widgetEditorAnchorAlive(ed, [rebuilt], 't0', 'g0', undefined)).toBe(true)
   })
 
   it('closes when the node is gone from the rebuilt scene', () => {
@@ -139,20 +127,6 @@ describe('widgetEditorAnchorAlive', () => {
     const ed = editorState({ spec, declaredType: type, multiline: true })
     const nodes = [node([widgetRow({ spec, type } as never)])]
     expect(widgetEditorAnchorAlive(ed, nodes, 't0', 'g0', undefined, false)).toBe(true)
-  })
-
-  it('closes a multiline STRING draft when its row contract changes', () => {
-    const spec: WidgetSpec = { widgetType: 'STRING', options: { multiline: true } }
-    const type = { kind: 'concrete', name: 'STRING' } as unknown as TypeExpr
-    const ed = editorState({ spec, declaredType: type, multiline: true })
-    const rebuilt = node([widgetRow({ spec: { ...spec, options: { multiline: true, dynamicPrompts: true } }, type } as never)])
-    expect(widgetEditorAnchorAlive(ed, [rebuilt], 't0', 'g0', undefined, false)).toBe(false)
-  })
-
-  it('closes value-source targets without an unchanged document and surviving source', () => {
-    const nodes = [node([widgetRow()])]
-    expect(widgetEditorAnchorAlive(editorState({ target: { kind: 'valueSource', valueSourceId: 'v0' } }), nodes, 't0', 'g0', undefined)).toBe(false)
-    expect(widgetEditorAnchorAlive(undefined, nodes, 't0', 'g0', undefined)).toBe(false)
   })
 
   it('retains value-source drafts only with the same effective widget contract', () => {

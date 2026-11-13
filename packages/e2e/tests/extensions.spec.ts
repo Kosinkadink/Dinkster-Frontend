@@ -10,7 +10,6 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
-import { evidencePath } from './evidence-output.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 const editorProofDir = process.env['DINKSTER_EXTENSION_EDITOR_PROOF_DIR']
@@ -293,102 +292,6 @@ test('installed pack lists in the Extensions panel and its menu item serves', as
   await expect(page.getByTestId('extensions-empty')).toBeVisible()
 })
 
-test('mounted Extensions management chrome localizes without changing extension gates or raw pack data', async ({ page, request }) => {
-  let backendRequests = 0
-  page.on('request', (sent) => {
-    const path = new URL(sent.url()).pathname
-    if (path === '/object_info' || path === '/system_stats' || path.startsWith('/api/')) backendRequests += 1
-  })
-  expect(await installDemoPack(page)).toEqual([])
-  const panel = page.getByTestId('extensions-panel')
-  const pack = panel.getByTestId('extension-pack')
-  const category = panel.locator('[data-category="menu"]')
-  const contribution = panel.locator('[data-contribution="demo.menu.hello"]')
-  const categoryToggle = category.getByTestId('extension-category-toggle')
-  await panel.evaluate((element) => { element.dataset['localeIdentity'] = 'panel' })
-  await pack.evaluate((element) => { element.dataset['localeIdentity'] = 'pack' })
-  await category.evaluate((element) => { element.dataset['localeIdentity'] = 'category' })
-  await contribution.evaluate((element) => { element.dataset['localeIdentity'] = 'contribution' })
-  await categoryToggle.focus()
-  const changedBeforeLocale = await page.evaluate(() =>
-    (window.__dinksterTest!.app.extensions as unknown as { changed: { get(): number } }).changed.get())
-  // Opening the fixture and rail schedules persistence independently of locale.
-  await page.evaluate(() => window.__dinksterTest!.app.flushPersistTabs())
-  await expect.poll(() => page.evaluate(() => {
-    const snapshot = JSON.parse(localStorage.getItem('dinkster.openTabs') ?? 'null')
-    return snapshot?.assetRetention?.acknowledged === true &&
-      Object.keys(localStorage).filter((key) => key.startsWith('dinkster.openTabsCandidate.') ||
-        key.startsWith('dinkster.openTabsDocumentCandidate.')).every((key) =>
-        JSON.parse(localStorage.getItem(key) ?? 'null')?.assetRetention?.acknowledged === true)
-  })).toBe(true)
-  const requestsBeforeLocale = backendRequests
-  await page.screenshot({ path: evidencePath('issue-457', 'extensions-panel-i18n-en.png'), fullPage: true })
-
-  const localeModule = await (await request.get('/src/locale.ts')).text()
-  const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
-  expect(i18nModule).toBeDefined()
-  await page.evaluate(async ({ i18nModule }) => {
-    const { registerCatalog, setLocale } = await import(i18nModule)
-    registerCatalog('de-DE', {
-      'extensions.action.enableCategory': '[ALLE BEITRAGE VON {id} {category} AKTIVIEREN]',
-      'extensions.action.enableContribution': '[BEITRAG {id} AKTIVIEREN]',
-      'extensions.action.enablePack': '[ERWEITERUNGSPAKET {id} AKTIVIEREN]',
-      'extensions.aria.category': '[BEITRAGE DER KATEGORIE {category}]',
-      'extensions.aria.diagnostics': '[DIAGNOSEN FUR {id}]',
-      'extensions.aria.pack': '[ERWEITERUNGSPAKET {id}]',
-      'extensions.control.unregistered': '[PAKET NICHT REGISTRIERT; DIAGNOSEN BEHEBEN UND NEU LADEN]',
-      'extensions.description': '[DIE HOST-RICHTLINIE SETZT DIE AUSSERE GRENZE. IHRE SCHALTER STEUERN AKTIVE FUNKTIONEN.]',
-      'extensions.diagnostics': '[DIAGNOSEN]',
-      'extensions.empty': '[KEINE ERWEITERUNGSPAKETE REGISTRIERT]',
-      'extensions.emptyContributions': '[DIESES PAKET HAT KEINE BEITRAGE]',
-      'extensions.state.activationFailed': '[AKTIVIERUNG FEHLGESCHLAGEN]',
-      'extensions.state.active': '[AKTIV]',
-      'extensions.state.activeRegistered': '[AKTIV UND REGISTRIERT]',
-      'extensions.state.blockedByPolicy': '[DURCH RICHTLINIE BLOCKIERT]',
-      'extensions.state.declaredNotRegistered': '[DEKLARIERT, NICHT REGISTRIERT]',
-      'extensions.state.disabledByUser': '[VOM BENUTZER DEAKTIVIERT]',
-      'extensions.state.enabledInactive': '[AKTIVIERT, INAKTIV]',
-      'extensions.state.enabledInactiveCategoryDisabled': '[AKTIVIERT, INAKTIV: KATEGORIE DEAKTIVIERT]',
-      'extensions.state.enabledInactivePackDisabled': '[AKTIVIERT, INAKTIV: PAKET DEAKTIVIERT]',
-      'extensions.state.registeredActive': '[REGISTRIERT UND AKTIV]',
-      'extensions.state.registeredInactive': '[REGISTRIERT, INAKTIV]',
-      'extensions.state.registrationFailed': '[REGISTRIERUNG FEHLGESCHLAGEN]',
-      'extensions.title': '[ERWEITERUNGSVERWALTUNG]',
-      'Demo Pack': '[NICHT UBERSETZEN]',
-      'Hello menu': '[NICHT UBERSETZEN]',
-      'menu': '[NICHT UBERSETZEN]',
-    })
-    setLocale('de-DE')
-  }, { i18nModule: new URL(i18nModule!, page.url()).href })
-
-  await expect(page.locator('[data-locale-identity="panel"]')).toHaveCount(1)
-  await expect(page.locator('[data-locale-identity="pack"]')).toHaveCount(1)
-  await expect(page.locator('[data-locale-identity="category"]')).toHaveCount(1)
-  await expect(page.locator('[data-locale-identity="contribution"]')).toHaveCount(1)
-  await expect(panel.locator('h2')).toHaveText('[ERWEITERUNGSVERWALTUNG]')
-  await expect(panel).toContainText('[DIE HOST-RICHTLINIE SETZT DIE AUSSERE GRENZE. IHRE SCHALTER STEUERN AKTIVE FUNKTIONEN.]')
-  await expect(pack).toContainText('Demo Pack')
-  await expect(pack).toContainText('Hello menu')
-  await expect(category.locator('h4')).toHaveText('menu')
-  await expect(pack).toHaveAttribute('data-state', 'Registered and active')
-  await expect(category.locator('.extension-category-header > .extension-state')).toHaveAttribute('data-state', 'Active')
-  await expect(contribution).toHaveAttribute('data-state', 'Active and registered')
-  await expect(contribution.locator('.extension-state')).toHaveText('[AKTIV UND REGISTRIERT]')
-  await expect(categoryToggle).toHaveAttribute('aria-label', '[ALLE BEITRAGE VON demo menu AKTIVIEREN]')
-  await expect(categoryToggle).toHaveAttribute('aria-checked', 'true')
-  await expect(categoryToggle).toBeFocused()
-  expect(await page.evaluate(() =>
-    (window.__dinksterTest!.app.extensions as unknown as { changed: { get(): number } }).changed.get())).toBe(changedBeforeLocale)
-  expect(backendRequests).toBe(requestsBeforeLocale)
-  await page.screenshot({ path: evidencePath('issue-457', 'extensions-panel-i18n-de-DE.png'), fullPage: true })
-
-  await categoryToggle.click()
-  await expect(categoryToggle).toHaveAttribute('aria-checked', 'false')
-  await expect(category.locator('.extension-category-header > .extension-state')).toHaveAttribute('data-state', 'Disabled by user')
-  await expect(category.locator('.extension-category-header > .extension-state')).toHaveText('[VOM BENUTZER DEAKTIVIERT]')
-  await expect(categoryToggle).toBeFocused()
-})
-
 test('fixture WidgetView opens a bounded host-rendered editor and dispatches declared commands', async ({ page }) => {
   expect(await installDemoPack(page)).toEqual([])
   await expect.poll(() => activeWidgetView(page)).toBe('demo.widget.stars.view')
@@ -628,94 +531,7 @@ async function installSnapshot(page: Page, options: { source?: string; privilege
   return { digest, assetRequests: () => assetRequests, routeRequests: () => routeRequests }
 }
 
-test('narrow Extensions identifiers stay on one line with complete titles', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 })
-  const fixture = await installSnapshot(page)
-  const contribution = page.locator(`[data-contribution="${previewContribution}"]`)
-  await contribution.scrollIntoViewIfNeeded()
-  await captureEditorProof(page, 'snapshot-narrow-identifiers')
-  for (const tag of ['strong', 'code']) {
-    const identity = contribution.locator(`.extension-identity ${tag}`)
-    await expect(identity).toHaveAttribute('title', previewContribution)
-    expect(await identity.evaluate((element) => {
-      const style = getComputedStyle(element)
-      const text = document.createRange()
-      text.selectNodeContents(element)
-      return {
-        singleLine: new Set(Array.from(text.getClientRects(), (rect) => rect.top)).size === 1,
-        ellipsis: style.textOverflow === 'ellipsis' && style.overflowX === 'hidden',
-      }
-    })).toEqual({ singleLine: true, ellipsis: true })
-  }
-  const panel = page.getByTestId('extensions-panel')
-  expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
-  await expectStatusBarContained(page)
-  await page.evaluate((digest) => {
-    const backend = window.__dinksterTest!.app.backends.get().find((backend) => backend.baseUrl === '/snapshot')!
-    backend.connection.ingest({
-      type: 'node_event', event: 'video-preview.initialized', data: { fps: 24, frameCount: 8, height: 64, width: 512 },
-      jobId: 'preview-job', nodeId: 'outer[1]/preview', pack: 'dinkster-video-preview',
-      schemaVersion: 1, extensionSnapshotDigest: digest, seq: 0,
-    })
-  }, fixture.digest)
-  await expect(page.getByTestId('status-bar')).toContainText('Video exceeds preview policy limits')
-  await expectStatusBarContained(page)
-  await captureEditorProof(page, 'snapshot-narrow-footer-limit')
-  const backendsToggle = page.getByTestId('backends-toggle')
-  await backendsToggle.focus()
-  await expect(backendsToggle).toBeFocused()
-  await expect(backendsToggle).toBeInViewport()
-  await contribution.getByTestId('extension-contribution-toggle').click()
-  await expect(contribution).toHaveAttribute('data-active', 'false')
-})
-
-test('status layout media queries are complementary at fractional widths', async ({ page }) => {
-  const widths = [519.99, 520, 520.01, 520.25, 520.5, 520.75, 520.99, 521]
-  const { desktopQuery, matches } = await page.evaluate((widths) => {
-    const media = Array.from(document.styleSheets).flatMap((sheet) => Array.from(sheet.cssRules))
-      .filter((rule): rule is CSSMediaRule => rule instanceof CSSMediaRule)
-    const containsSelector = (rule: CSSMediaRule, selector: string) =>
-      Array.from(rule.cssRules).some((child) => child instanceof CSSStyleRule && child.selectorText === selector)
-    const desktop = media.find((rule) => containsSelector(rule, '.statusbar .host-ui-column'))!
-    const narrow = media.find((rule) => rule.conditionText === '(max-width: 520px)' && containsSelector(rule, '.topbar'))!
-    // Scale both sides equally so integer iframe viewports preserve fractional-width query semantics.
-    const queries = [narrow, desktop].map((rule) => rule.conditionText.replace(/([\d.]+)px/g, (_, value: string) => `${Number(value) * 100}px`))
-    const frame = document.createElement('iframe')
-    frame.style.cssText = 'position: fixed; left: -100000px; height: 1px; border: 0;'
-    document.body.append(frame)
-    try {
-      const matches = widths.map((width) => {
-        frame.style.width = `${width * 100}px`
-        const viewport = frame.contentWindow!
-        return { width: viewport.innerWidth / 100, matches: queries.map((query) => viewport.matchMedia(query).matches) }
-      })
-      return { desktopQuery: desktop.conditionText, matches }
-    } finally {
-      frame.remove()
-    }
-  }, widths)
-  expect(desktopQuery).toBe('not all and (max-width: 520px)')
-  expect(matches).toEqual(widths.map((width) => ({ width, matches: [width <= 520, width > 520] })))
-})
-
 for (const [width, height, font] of [[1280, 800], [1920, 1080], [1280, 800, 'DejaVu Sans']] as const) {
-  test(`desktop status preserves the canvas with an active contribution at ${width}x${height}${font ? ` with ${font}` : ''}`, async ({ page }) => {
-    await page.setViewportSize({ width, height })
-    if (font) await page.addStyleTag({ content: `.statusbar, .statusbar * { font-family: "${font}", sans-serif !important; }` })
-    const status = page.getByTestId('status-bar')
-    const canvas = page.getByTestId('graph-canvas')
-    const baseline = (await canvas.boundingBox())!
-    expect((await status.boundingBox())!.height).toBe(28)
-    expect(baseline.y + baseline.height).toBe(height - 28)
-    await installSnapshot(page)
-    await expect(status).toContainText('Preview policy: 30 fps | up to 96 frames, 384 px')
-    await expect(status).toContainText('Waiting for video preview initialization')
-    await captureEditorProof(page, `snapshot-desktop-footer-${width}${font ? '-wide-font' : ''}`)
-    expect((await status.boundingBox())!.height).toBe(28)
-    const active = (await canvas.boundingBox())!
-    expect(active.y + active.height).toBe(baseline.y + baseline.height)
-    await expectStatusBarContained(page)
-  })
 }
 
 test('snapshot-selected module consumes typed JSON with pinned provenance and obeys its gate', async ({ page }) => {

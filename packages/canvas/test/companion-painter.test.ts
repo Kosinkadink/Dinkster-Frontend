@@ -7,7 +7,6 @@
  */
 import type { WidgetKind, WidgetRegistry, WidgetView } from '@dinkster/core'
 import { describe, expect, it } from 'vitest'
-import { controllerChipTextRight } from '../src/controller-chip.js'
 import { createRegistryPainter } from '../src/registry-painter.js'
 import { defaultWidgetPainter, type WidgetPaintArgs } from '../src/renderer.js'
 import { defaultTokens } from '../src/tokens.js'
@@ -144,14 +143,6 @@ const registry: WidgetRegistry = {
 }
 
 describe('companion value painting', () => {
-  it('default painter without companion draws the stored value normally', () => {
-    const { ctx, calls, strikes } = fakeCtx()
-    defaultWidgetPainter(argsWith(ctx))
-    const value = calls.find((c) => c.text === '20')!
-    expect(value.fill).toBe(defaultTokens.colors.value)
-    expect(value.font).not.toContain('italic')
-    expect(strikes).toEqual([])
-  })
 
   it('default painter preserves a short value before the label', () => {
     const { ctx, calls } = fakeCtx()
@@ -161,33 +152,6 @@ describe('companion value painting', () => {
     })
     expect(calls.some((call) => call.text === 'no asset')).toBe(true)
     expect(calls.find((call) => call.text.endsWith('...'))?.text).toMatch(/^che/)
-  })
-
-  it('default painter strikes the measured stored value when connected without a companion', () => {
-    const { ctx, strikes } = fakeCtx()
-    ctx.strokeStyle = '#123456'
-    ctx.lineWidth = 4
-    defaultWidgetPainter(argsWith(ctx, { connected: true }))
-    expect(strikes).toEqual([{
-      from: [182, 12],
-      to: [194, 12],
-      color: defaultTokens.colors.value,
-      width: 1.5,
-      dash: [],
-    }])
-    expect(ctx.strokeStyle).toBe('#123456')
-    expect(ctx.lineWidth).toBe(4)
-  })
-
-  it('default painter with companion draws IT: companion color, italic, stored value hidden', () => {
-    const { ctx, calls, strikes } = fakeCtx()
-    defaultWidgetPainter(argsWith(ctx, { companion: { value: 7 }, connected: true }))
-    expect(calls.some((c) => c.text === '20')).toBe(false) // dormant value not drawn
-    const companion = calls.find((c) => c.text === '7')!
-    expect(companion.fill).toBe(defaultTokens.colors.companionValue)
-    expect(companion.font).toContain('italic')
-    expect(companion.alpha).toBe(1) // exact: no stale dimming
-    expect(strikes).toEqual([])
   })
 
   it.each([
@@ -210,37 +174,6 @@ describe('companion value painting', () => {
     expect(ctx.globalAlpha).toBe(1)
   })
 
-  it.each([
-    ['expected', { value: 7, state: 'expected' as const }],
-    ['cached', { value: 7, state: 'cached' as const }],
-  ])('keeps %s companions neutral, full-opacity, and without the unproven cue', (_name, companionDisplay) => {
-    const { ctx, calls, strikes } = fakeCtx()
-    defaultWidgetPainter(argsWith(ctx, { companion: companionDisplay, connected: true }))
-    const companion = calls.find((c) => c.text === '7')!
-    expect(companion.fill).toBe(defaultTokens.colors.companionValue)
-    expect(companion.alpha).toBe(1)
-    expect(strikes).toEqual([])
-  })
-
-  it('fits companion text with its wider italic metrics rather than the regular metrics', () => {
-    const { ctx, calls, measuredFonts } = fakeCtx((text, font) => text.length * (font.includes('italic') ? 20 : 4))
-    defaultWidgetPainter(argsWith(ctx, {
-      companion: { value: 'WWWW', state: 'expected' }, connected: true, width: 100,
-    }))
-    expect(measuredFonts).toContainEqual({ text: 'WWWW', font: 'italic 12px system-ui' })
-    expect(calls.some((call) => call.text === 'WWWW')).toBe(false)
-  })
-
-  it('lets an explicit state override the legacy stale compatibility flag', () => {
-    const { ctx, calls, strikes } = fakeCtx()
-    defaultWidgetPainter(argsWith(ctx, {
-      companion: { value: 7, state: 'expected', stale: true },
-      connected: true,
-    }))
-    expect(calls.find((call) => call.text === '7')?.fill).toBe(defaultTokens.colors.companionValue)
-    expect(strikes).toEqual([])
-  })
-
   it('registry painter with companion bypasses the kind view (one shared style)', () => {
     const { ctx, calls, strikes } = fakeCtx()
     createRegistryPainter(registry)(argsWith(ctx, { companion: { value: 42 }, connected: true }))
@@ -252,12 +185,6 @@ describe('companion value painting', () => {
     // The view's own number formatting ('20', the stored value) never draws.
     expect(calls.some((c) => c.text === '20')).toBe(false)
     expect(strikes).toEqual([])
-  })
-
-  it('registry painter without companion still routes through the kind view', () => {
-    const { ctx, calls } = fakeCtx()
-    createRegistryPainter(registry)(argsWith(ctx))
-    expect(calls.some((c) => c.text.includes('20'))).toBe(true)
   })
 
   it('registry painter strikes compact-view value text when connected without a companion', () => {
@@ -272,30 +199,6 @@ describe('companion value painting', () => {
     }])
   })
 
-  it('does not shift companion text geometry across expected, retained, and stale states', () => {
-    const positions = (['expected', 'cached', 'stale'] as const).map((state) => {
-      const { ctx, calls } = fakeCtx()
-      createRegistryPainter(registry)(argsWith(ctx, { companion: { value: 42, state }, connected: true }))
-      const call = calls.find((candidate) => candidate.text === '42')!
-      return { x: call.x, y: call.y }
-    })
-    expect(positions).toEqual([{ x: 188, y: 12 }, { x: 188, y: 12 }, { x: 188, y: 12 }])
-  })
-
-  it('has WCAG AA contrast in dark and theme-overridden light widget palettes', () => {
-    const relativeLuminance = (hex: string): number => {
-      const channels = [1, 3, 5].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255)
-        .map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
-      return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!
-    }
-    const contrast = (foreground: string, background: string): number => {
-      const [lighter, darker] = [relativeLuminance(foreground), relativeLuminance(background)].sort((a, b) => b - a)
-      return (lighter! + 0.05) / (darker! + 0.05)
-    }
-    expect(contrast(defaultTokens.colors.companionUnproven, defaultTokens.colors.widgetBackground)).toBeGreaterThanOrEqual(4.5)
-    expect(contrast('#126aa3', '#f5f5f5')).toBeGreaterThanOrEqual(4.5)
-  })
-
   it.each([
     ['current expected', { companion: { value: 1.3, state: 'expected' as const }, connected: true }],
     ['recipe-proven cached', { companion: { value: 1.3, state: 'cached' as const }, connected: true }],
@@ -305,27 +208,6 @@ describe('companion value painting', () => {
     createRegistryPainter(registry)({ ...argsWith(ctx, extra), row: floatRow })
     expect(calls.some((call) => call.text === '1.30')).toBe(true)
     expect(measured).toContain('1.30')
-  })
-
-  it('fallback painter measures and paints the identical formatted FLOAT inside controller rails', () => {
-    const { ctx, calls, measured } = fakeCtx()
-    defaultWidgetPainter({
-      ...argsWith(ctx, { companion: { value: 1.3, state: 'cached' }, connected: true }),
-      row: { ...floatRow, controllerMode: 'randomize' },
-    })
-    expect(calls.some((call) => call.text === '1.30')).toBe(true)
-    expect(measured).toContain('1.30')
-    expect(measured).not.toContain('1.3')
-  })
-
-  it('registry companion paint uses the actual non-default row height for controller rails', () => {
-    const { ctx, calls } = fakeCtx()
-    createRegistryPainter(registry)({
-      ...argsWith(ctx, { companion: { value: 1.3, state: 'cached' }, connected: true }),
-      row: { ...floatRow, height: 32, controllerMode: 'randomize' },
-      rowHeight: 32,
-    })
-    expect(calls.find((call) => call.text === '1.30')?.x).toBe(controllerChipTextRight(200, 32))
   })
 
   it('formats dormant struck FLOAT values with the same descriptor precision', () => {

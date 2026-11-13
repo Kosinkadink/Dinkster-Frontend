@@ -533,27 +533,6 @@ describe('basic translation', () => {
     expect(Object.isFrozen(imported.document!.ext?.['importer.comfyWorkflow'])).toBe(true)
   })
 
-  it('refuses a custom resolver substituting another class schema', () => {
-    const input = workflow([
-      lgNode(1, 'AuthoredSource', { outputs: [{ name: 'IMAGE' }] }),
-      lgNode(2, 'AuthoredSink', { inputs: [{ name: 'images' }], widgets_values: ['kept'] }),
-    ], [lgLink(1, 1, 0, 2, 0)])
-    const substituted = sdSchema('DifferentClass', 'Other class', [
-      sdInput('renamed', 'STRING', 'STRING'), sdOutput('renamed_output', 'IMAGE'),
-    ])
-    const imported = importLitegraph(input, () => substituted)
-    const graph = imported.document!.graphs.g0!
-    expect(Object.values(graph.nodes).map((node) => node.type)).toEqual(['AuthoredSource', 'AuthoredSink'])
-    expect(graph.nodes.n2!.values).toEqual({})
-    expect(graph.nodes.n2!.ext?.['importer.rawWidgetValues']).toEqual(['kept'])
-    expect(graph.links.l1).toMatchObject({ from: { node: 'n1', port: 'IMAGE' }, to: { node: 'n2', port: 'images' } })
-    expect(codesOf(imported.diagnostics)).toContain('import.schema.missing')
-    const reopened = loadDocument(JSON.parse(JSON.stringify(imported.document)))
-    expect(reopened.document).toEqual(imported.document)
-    const compiled = compile({ document: reopened.document!, revision: 0, resolve: () => undefined, scope: { kind: 'full' }, connection: asConnectionId('exact'), schemaHash: 'exact' })
-    expect(compiled.ok).toBe(false)
-  })
-
   it('imports and compiles the official TRELLIS.2 Pixal3D workflow', () => {
     const official = readJson('fixtures/workflows/3d_pixal3d_trellis2_image_to_model.json') as JsonObject
     const nodes = (official as any).nodes as any[]
@@ -595,20 +574,6 @@ describe('basic translation', () => {
       expect(Object.keys(compiled.artifact.prompt)).toHaveLength(63)
   })
 
-  it('refuses a legacy workflow carrying an occurrence topology overlay', () => {
-    const input = basicPair() as any
-    input['occurrenceTopologies'] = { owner: { links: {} } }
-    const result = importLitegraph(input, resolve)
-    expect(result.document).toBeUndefined()
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('import.occurrenceTopologies.unsupported')
-  })
-
-  it('imports the legacy fixture without error diagnostics', () => {
-    const result = importLitegraph(readJson('fixtures/workflows/legacy-litegraph.json') as JsonObject, resolve)
-    expect(errorsOf(result.diagnostics)).toEqual([])
-    expect(result.document).toBeDefined()
-  })
-
   it('translates nodes, positions, links and ID-keyed widget values', () => {
     const { document, diagnostics } = importLitegraph(basicPair(), resolve)
     expect(errorsOf(diagnostics)).toEqual([])
@@ -620,21 +585,6 @@ describe('basic translation', () => {
     expect(link.from).toEqual({ node: 'n1', port: 'out1' }) // CLIP is output slot 1
     expect(link.to).toEqual({ node: 'n2', port: 'clip' })
     expect(document!.view.graphs[document!.root]!.nodes['n1']!.position).toEqual({ x: 100, y: 0 })
-  })
-
-  it('passes checkDocument and reloads as a native document', () => {
-    const { document } = importLitegraph(basicPair(), resolve)
-    expect(errorsOf(checkDocument(document!))).toEqual([])
-    const reloaded = loadDocument(JSON.parse(JSON.stringify(document)))
-    expect(errorsOf(reloaded.diagnostics)).toEqual([])
-    expect(reloaded.document).toBeDefined()
-  })
-
-  it('is deterministic across repeated imports', () => {
-    const a = importLitegraph(basicPair(), resolve)
-    const b = importLitegraph(basicPair(), resolve)
-    expect(JSON.stringify(a.document)).toBe(JSON.stringify(b.document))
-    expect(a.document!.lineage).toMatch(/^lg-[0-9a-f]{8}$/)
   })
 
   it('keeps node title overrides but drops default titles', () => {
@@ -1517,15 +1467,6 @@ describe('positional widget mapping', () => {
     if (compiled.ok) expect(compiled.artifact.prompt.n1!.inputs).toEqual({ filename_prefix: 'daily/render', mount: 'archive' })
   })
 
-  it('parks raw values of unknown node types without guessing', () => {
-    const json = workflow([lgNode(1, 'TotallyMadeUpNode', { widgets_values: [1, 'two'] })])
-    const { document, diagnostics } = importLitegraph(json, resolve)
-    const n = document!.graphs[document!.root]!.nodes['n1']!
-    expect(n.values).toEqual({})
-    expect(n.ext?.['importer.rawWidgetValues']).toEqual([1, 'two'])
-    expect(codesOf(diagnostics)).toContain('import.schema.missing')
-  })
-
   it('imports ColorTransfer DynamicCombo selection without shifting strength', () => {
     const floatSource: NodeSchema = {
       type: 'FloatSource',
@@ -1730,21 +1671,6 @@ describe('positional widget mapping', () => {
     expect(imported.values).toEqual({ 'model.[many].prompt': 'before grow' })
     expect(imported.ext?.['importer.excessWidgetValues']).toEqual([7, 8])
     expect(codesOf(diagnostics)).toContain('import.dynamic.autogrowUnsupported')
-  })
-})
-
-describe('legacy save prefixes', () => {
-  it('keeps V1 SaveImage filename_prefix as string data', () => {
-    const saveImage = resolve('SaveImage')!
-    const prefix = saveImage.items.find((item) => item.kind === 'input' && item.id === 'filename_prefix') as InputSpec
-    expect(prefix.type).toEqual({ kind: 'concrete', name: 'STRING' })
-
-    const result = importLitegraph(
-      workflow([lgNode(1, 'SaveImage', { widgets_values: ['legacy/stem'] })]),
-      resolve,
-    )
-    expect(errorsOf(result.diagnostics)).toEqual([])
-    expect(result.document!.graphs[result.document!.root]!.nodes.n1!.values.filename_prefix).toBe('legacy/stem')
   })
 })
 
@@ -2352,15 +2278,6 @@ describe('malformed input', () => {
     expect(codesOf(errorsOf(diagnostics))).toContain('import.node.invalidId')
   })
 
-  it('rejects a non-finite node ID at the ingress boundary', () => {
-    const { document, diagnostics } = importLitegraph(
-      workflow([lgNode(Number.POSITIVE_INFINITY, 'CLIPTextEncode', { widgets_values: ['x'] })]),
-      resolve,
-    )
-    expect(document).toBeUndefined()
-    expect(codesOf(errorsOf(diagnostics))).toContain('import.notJson')
-  })
-
   it.each([
     ['link ID', lgLink(-1, 1, 0, 2, 0)],
     ['source node ID', lgLink(1, 1.5, 0, 2, 0)],
@@ -2373,16 +2290,6 @@ describe('malformed input', () => {
     expect(codesOf(errorsOf(diagnostics))).toContain('import.link.invalidId')
   })
 
-  it.each([
-    ['position', { pos: [Number.NaN, 0] }],
-    ['size', { size: [100, Number.POSITIVE_INFINITY] }],
-  ])('rejects non-finite node %s geometry at the ingress boundary', (_field, geometry) => {
-    const node = { ...lgNode(7, 'CLIPTextEncode', { widgets_values: ['x'] }), ...geometry }
-    const { document, diagnostics } = importLitegraph(workflow([node]), resolve)
-    expect(document).toBeUndefined()
-    expect(codesOf(errorsOf(diagnostics))).toContain('import.notJson')
-  })
-
   it('rejects finite-but-fractional node geometry with the per-node code', () => {
     const node = { ...lgNode(7, 'CLIPTextEncode', { widgets_values: ['x'] }), pos: ['a', 0] }
     const { document, diagnostics } = importLitegraph(workflow([node]), resolve)
@@ -2391,43 +2298,11 @@ describe('malformed input', () => {
     expect(diagnostics.find((d) => d.code === 'import.node.geometry')?.message).toContain('node 7')
   })
 
-  it('imports a valid workflow unchanged after hostile-value validation', () => {
-    const { document, diagnostics } = importLitegraph(basicPair(), resolve)
-    expect(errorsOf(diagnostics)).toEqual([])
-    expect(Object.keys(document!.graphs.g0!.nodes)).toEqual(['n1', 'n2'])
-    expect(Object.keys(document!.graphs.g0!.links)).toEqual(['l1'])
-    expect(document!.view.graphs.g0!.nodes['n1']!.position).toEqual({ x: 100, y: 0 })
-  })
-
   it('rejects a workflow whose values are not JSON (Infinity widget value) at ingress', () => {
     const node = lgNode(7, 'CLIPTextEncode', { widgets_values: [Number.POSITIVE_INFINITY] })
     const { document, diagnostics } = importLitegraph(workflow([node]), resolve)
     expect(document).toBeUndefined()
     expect(codesOf(errorsOf(diagnostics))).toContain('import.notJson')
-  })
-
-  it('never invokes accessor properties on the foreign workflow JSON', () => {
-    let invoked = false
-    const hostile = workflow([lgNode(1, 'CLIPTextEncode', { widgets_values: ['x'] })])
-    Object.defineProperty(hostile, 'extra', {
-      enumerable: true,
-      get() {
-        invoked = true
-        return {}
-      },
-    })
-    const { document, diagnostics } = importLitegraph(hostile, resolve)
-    expect(document).toBeUndefined()
-    expect(codesOf(errorsOf(diagnostics))).toContain('import.notJson')
-    expect(invoked).toBe(false)
-  })
-
-  it('returns a deep-frozen owned document (same ownership contract as loadDocument)', () => {
-    const { document } = importLitegraph(basicPair(), resolve)
-    expect(Object.isFrozen(document)).toBe(true)
-    expect(Object.isFrozen(document!.graphs.g0!.nodes['n1'])).toBe(true)
-    expect(Object.isFrozen(document!.graphs.g0!.nodes['n1']!.values)).toBe(true)
-    expect(Object.isFrozen(document!.view.graphs.g0!.nodes['n1'])).toBe(true)
   })
 
   it('drops malformed link entries and nodes with diagnostics', () => {

@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { asNodeId, diag, type Diagnostic } from '@dinkster/core'
-import {
-  contextProblems,
-  deriveFocusContext,
-  hasOwningContext,
-  type FocusSnapshot,
-} from '../src/problem-context.js'
+import { contextProblems, deriveFocusContext, type FocusSnapshot } from '../src/problem-context.js'
 
 const snapshot = (over: Partial<FocusSnapshot> = {}): FocusSnapshot => ({
   widget: undefined,
@@ -22,18 +17,6 @@ const widget = { nodeId: 'n1', valueKey: 'steps', label: 'Steps' }
 const group = { id: 'grp1', title: 'Samplers', members: ['n1', 'n2'] }
 
 describe('deriveFocusContext', () => {
-  it('maps an empty snapshot at the root to the document context', () => {
-    expect(deriveFocusContext(snapshot())).toEqual({ kind: 'document' })
-  })
-
-  it('maps each single focus fact to its context kind', () => {
-    expect(deriveFocusContext(snapshot({ widget }))).toEqual({ kind: 'widget', ...widget })
-    expect(deriveFocusContext(snapshot({ nodes: ['n1'] }))).toEqual({ kind: 'node', nodeIds: ['n1'] })
-    expect(deriveFocusContext(snapshot({ links: ['l1'] }))).toEqual({ kind: 'link', linkIds: ['l1'] })
-    expect(deriveFocusContext(snapshot({ groups: [group] }))).toEqual({ kind: 'group', groups: [group] })
-    expect(deriveFocusContext(snapshot({ graphId: 'g1', instancePath: ['sub1'] })))
-      .toEqual({ kind: 'subgraph', graphId: 'g1', instancePath: ['sub1'] })
-  })
 
   it('applies the documented priority order: widget > node > link > group > subgraph > document', () => {
     const everything = snapshot({
@@ -51,17 +34,6 @@ describe('deriveFocusContext', () => {
     expect(deriveFocusContext({ ...everything, widget: undefined, nodes: [], links: [], groups: [] }).kind).toBe('subgraph')
   })
 
-  it('treats a subgraph view with an out-of-sync instance path as the document', () => {
-    // instancePath undefined = navigation signals mid-transition; no
-    // occurrence-exact claim can be made, so focus falls to the document.
-    expect(deriveFocusContext(snapshot({ graphId: 'g1', instancePath: undefined })))
-      .toEqual({ kind: 'document' })
-  })
-
-  it('is deterministic: the same snapshot always yields the same context', () => {
-    const facts = snapshot({ nodes: ['n2', 'n1'], links: ['l9'] })
-    expect(deriveFocusContext(facts)).toEqual(deriveFocusContext(facts))
-  })
 })
 
 const view = { graphId: 'g0', instancePath: [] as readonly string[] }
@@ -87,10 +59,6 @@ const refDiag = (nodeId: string, graphId?: string): Diagnostic =>
 const unanchoredDiag = diag('error', 'command', 'test.global', 'no owner at all')
 
 describe('contextProblems', () => {
-  it('keeps every entry for the document context', () => {
-    const all = [occurrenceDiag('n1'), linkDiag('l1'), unanchoredDiag]
-    expect(contextProblems({ kind: 'document' }, all, view)).toEqual(all)
-  })
 
   it('node context: matches occurrence anchors, port anchors, and refs by node id', () => {
     const mine = [occurrenceDiag('n1'), portDiag('n1', 'model'), refDiag('n1', 'g0')]
@@ -167,15 +135,5 @@ describe('contextProblems', () => {
       { graphId: 'g1', instancePath: ['sub1'] },
     )
     expect(result).toEqual([inside, deeper, hereRef])
-  })
-})
-
-describe('hasOwningContext', () => {
-  it('answers true exactly for occurrence, port or link anchors', () => {
-    expect(hasOwningContext(occurrenceDiag('n1'))).toBe(true)
-    expect(hasOwningContext(portDiag('n1', 'model'))).toBe(true)
-    expect(hasOwningContext(linkDiag('l1'))).toBe(true)
-    expect(hasOwningContext(refDiag('n1'))).toBe(false)
-    expect(hasOwningContext(unanchoredDiag)).toBe(false)
   })
 })

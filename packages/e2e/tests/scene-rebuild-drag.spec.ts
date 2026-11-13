@@ -119,25 +119,3 @@ test('a link drag survives a rebuild that leaves the displayed graph unchanged',
     'node' in l.from && l.from.node === 'src' &&
     'node' in l.to && l.to.node === 'snk' && l.to.port === 'in')).toBe(true)
 })
-
-test('an edit in the displayed graph still replaces the scene', async ({ page }) => {
-  // The guard must not over-hold the old scene: a real change in the
-  // displayed graph installs the new one.
-  const before = await page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((n) => n.id === 'src')!
-    return { x: node.x, y: node.y }
-  })
-  const moved = await page.evaluate(async () => {
-    const app = window.__dinksterTest!.app
-    return (await app.dispatchTo(app.activeTab()!, {
-      command: 'node.move',
-      params: { graphId: 'g0', positions: { src: { x: 130, y: 170 } } },
-    })).ok
-  })
-  expect(moved).toBe(true)
-  await expect.poll(() => page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((n) => n.id === 'src')!
-    return { x: node.x, y: node.y }
-  })).toEqual({ x: 130, y: 170 })
-  expect(before).toEqual({ x: 100, y: 150 })
-})

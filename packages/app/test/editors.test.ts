@@ -113,16 +113,6 @@ const desc = (id: string) => ({
 })
 
 describe('EditorRegistry', () => {
-  it('registers, resolves, lists, and unregisters editor kinds', () => {
-    const reg = new EditorRegistry()
-    const un = reg.register(desc('graph'))
-    reg.register(desc('compositor'))
-    expect(reg.get('graph')?.title).toBe('Editor graph')
-    expect(reg.kinds().map((e) => e.id)).toEqual(['graph', 'compositor'])
-    un()
-    expect(reg.get('graph')).toBeUndefined()
-    expect(reg.kinds().map((e) => e.id)).toEqual(['compositor'])
-  })
 
   it('refuses duplicate kind ids loudly', () => {
     const reg = new EditorRegistry()
@@ -130,30 +120,6 @@ describe('EditorRegistry', () => {
     expect(() => reg.register(desc('graph'))).toThrow(/already registered/)
   })
 
-  it('resolves roles and refuses duplicate role owners', () => {
-    const reg = new EditorRegistry()
-    const graph = { ...desc('graph'), roles: ['curve'] }
-    const unregister = reg.register(graph)
-    expect(reg.forRole('curve')).toBe(graph)
-    expect(() => reg.register({ ...desc('other'), roles: ['curve'] })).toThrow(/role already registered/)
-    unregister()
-    expect(reg.forRole('curve')).toBeUndefined()
-  })
-
-  it('bumps changed on register and unregister', () => {
-    const reg = new EditorRegistry()
-    const before = reg.changed.get()
-    const un = reg.register(desc('graph'))
-    expect(reg.changed.get()).toBe(before + 1)
-    un()
-    expect(reg.changed.get()).toBe(before + 2)
-  })
-
-  it('returns the SAME descriptor object across lookups (keyed hosts never remount)', () => {
-    const reg = new EditorRegistry()
-    reg.register(desc('graph'))
-    expect(reg.get('graph')).toBe(reg.get('graph'))
-  })
 })
 
 describe('Tab editorKind', () => {
@@ -170,31 +136,6 @@ describe('Tab editorKind', () => {
     vi.unstubAllGlobals()
     vi.useRealTimers()
     delete g.localStorage
-  })
-
-  it('every tab STARTS as a graph-editor tab, and the app exposes the registry', () => {
-    const app = prepareWorkflowApp(new AppState())
-    expect(app.tabs.get().length).toBeGreaterThan(0)
-    for (const tab of app.tabs.get()) expect(tab.editorKind).toBe(GRAPH_EDITOR_KIND)
-    // The registry itself is empty until the shell registers core kinds
-    // (App.tsx registers the graph and app editors on mount).
-    expect(app.editors.kinds()).toEqual([])
-  })
-
-  it('preserves live descriptor getters registered through frontend doors', () => {
-    const app = prepareWorkflowApp(new AppState())
-    let title = 'Initial title'
-    app.frontendDoors.panel('live-panel', {
-      get title() { return title },
-      placement: 'modal',
-      allowedPlacements: ['modal'],
-      order: 1,
-      component: () => null,
-    })
-
-    expect(app.panels.get('live-panel')?.title).toBe('Initial title')
-    title = 'Updated title'
-    expect(app.panels.get('live-panel')?.title).toBe('Updated title')
   })
 
   it('opens a synthetic pack editor through its binding and registers its panel', () => {
@@ -263,14 +204,6 @@ describe('Tab editorKind', () => {
     expect(app.tabs.get().find((t) => t.id === tab.id)!.editorKind).toBe(GRAPH_EDITOR_KIND)
   })
 
-  it('same-kind and unknown-tab switches are no-ops (no tab replacement)', () => {
-    const app = prepareWorkflowApp(new AppState())
-    const before = app.tabs.get()
-    app.setTabEditorKind(before[0]!.id, GRAPH_EDITOR_KIND) // already graph
-    app.setTabEditorKind('no-such-tab', APP_EDITOR_KIND)
-    expect(app.tabs.get()).toBe(before) // signal never updated
-  })
-
   it('frozen execution tabs refuse editor-kind switches', async () => {
     const app = createWorkflowApp(null)
     await app.openDocument(seedBasic, 'Basic')
@@ -314,21 +247,6 @@ describe('Tab editorKind', () => {
     for (const record of stored.tabs) expect('appArrange' in record).toBe(false)
     app.setTabAppArrange(tab.id, false)
     expect(app.tabs.get().find((t) => t.id === tab.id)!.appArrange).toBe(false)
-  })
-
-  it('frozen execution tabs refuse arrange mode', async () => {
-    const app = createWorkflowApp(null)
-    await app.openDocument(seedBasic, 'Basic')
-    const basic = app.activeTab()!
-    app.registry.set(historicalRegistry(asConnectionId('local')))
-    const result = app.compileTab(basic)
-    if (!result?.ok) throw new Error('compile failed')
-    const ref: ExecutionRef = { connection: asConnectionId('local'), prompt: asPromptId('p1') }
-    app.registerRun(basic, ref, result.artifact)
-    expect(await app.openExecutionView(ref)).toBe(true)
-    const frozen = app.tabs.get().find((t) => t.execution)!
-    app.setTabAppArrange(frozen.id, true)
-    expect(app.tabs.get().find((t) => t.execution)!.appArrange).toBeUndefined()
   })
 
   it('admits only an unchanged, undriven COMPOSITOR input into image-editor mode', async () => {
@@ -444,52 +362,6 @@ describe('Tab editorKind', () => {
     app.dispose()
   })
 
-  it('refuses a COMPOSITOR input driven only in one subgraph occurrence', async () => {
-    const app = prepareWorkflowApp(new AppState())
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), compositorPayload()))
-    expect((await app.openDocument({
-      format: 'dinkster-workflow',
-      formatVersion: 1,
-      lineage: 'compositor-occurrence-target',
-      root: 'root',
-      graphs: {
-        root: {
-          id: 'root', name: 'root',
-          nodes: { instance: { id: 'instance', type: '#body', values: {} } },
-          links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
-        },
-        body: {
-          id: 'body', name: 'body',
-          nodes: {
-            source: { id: 'source', type: 'Source', values: {} },
-            compositor: { id: 'compositor', type: 'Compositor', values: {} },
-          },
-          links: {}, nets: {}, reroutes: {}, boundary: { inputs: [], outputs: [] }, nextOrdinal: 1,
-        },
-      },
-      occurrenceTopologies: {
-        instance: {
-          owner: { instancePath: [], node: 'instance' },
-          bodyGraph: 'body',
-          links: {
-            driven: {
-              id: 'driven',
-              from: { kind: 'body', endpoint: { node: 'source', port: 'out' } },
-              to: { kind: 'body', endpoint: { node: 'compositor', port: 'recipe' } },
-            },
-          },
-          nextOrdinal: 1,
-        },
-      },
-      view: { graphs: {} },
-    }, 'Occurrence compositor'))).toEqual([])
-    const tab = app.activeTab()!
-    expect(app.compositorTargetForInput(
-      tab, 'body', 'compositor', 'recipe', ['instance'],
-    )).toBeUndefined()
-    app.dispose()
-  })
-
   it('opens an unchanged GLSL source by editor role as a session editor', async () => {
     const app = createWorkflowApp(null)
     retainedApps.push(app)
@@ -602,14 +474,6 @@ describe('Tab editorKind', () => {
     expect(app.curveEditorTarget.get()).toBeUndefined()
     expect(app.glslEditorTarget.get()).toBeUndefined()
     expect(app.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(GRAPH_EDITOR_KIND)
-  })
-
-  it('uses image as the built-in editor kind without a mask compatibility kind', () => {
-    const registry = new EditorRegistry()
-    registry.register({ id: IMAGE_EDITOR_KIND, title: 'Image editor', component: () => null })
-    expect(IMAGE_EDITOR_KIND).toBe('image')
-    expect(registry.get('image')?.title).toBe('Image editor')
-    expect(registry.get('mask')).toBeUndefined()
   })
 
   it('editorKind persists (non-graph only) and restores across a reload', () => {

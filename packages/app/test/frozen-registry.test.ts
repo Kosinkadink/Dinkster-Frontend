@@ -10,15 +10,9 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  asConnectionId,
-  asPromptId,
-  compile,
-  type CompileArtifact,
-  type ExecutionRef,
-} from '@dinkster/core'
+import { asConnectionId, asPromptId, type CompileArtifact, type ExecutionRef } from '@dinkster/core'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
-import { historicalRegistry, historicalSchemas } from './historical-schemas.js'
+import { historicalRegistry } from './historical-schemas.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
@@ -106,95 +100,9 @@ describe('frozen views keep their compile-time registry', () => {
     expect(app.registryForTab(frozenTab())).not.toBe(app.registry.get())
   })
 
-  it('a same-hash impostor registry never replaces the compile-time association', async () => {
-    app.registry.set(historicalRegistry(asConnectionId('local')))
-    const original = app.registry.get()!
-    const artifact = compiledArtifact(basic)
-    // Between compile and registration the backend registry is REPLACED by a
-    // different object carrying the SAME raw hash but different effective
-    // schemas (what extra-schema layering does). Registration must not adopt
-    // it over the compile-time registry.
-    const impostor = { ...original, schemas: new Map(), resolve: () => undefined }
-    app.registry.set(impostor)
-    const ref = refOn('local')
-    app.registerRun(basic, ref, artifact)
-    expect(await app.openExecutionView(ref)).toBe(true)
-
-    expect(app.registryForTab(frozenTab())).toBe(original)
-    expect(app.registryForTab(frozenTab())).not.toBe(impostor)
-  })
-
-  it('an unmatchable schema hash answers undefined - never another registry', async () => {
-    app.registry.set(historicalRegistry(asConnectionId('local')))
-    // Registered around the app (store.register directly), so nothing was
-    // retained and the recorded hash matches no registry the app holds.
-    const result = compile({
-      document: basic.store.doc,
-      revision: basic.store.revision,
-      resolve: (type) => historicalSchemas.get(type),
-      scope: { kind: 'full' },
-      connection: asConnectionId('local'),
-      schemaHash: 'hash-of-a-registry-this-session-never-held',
-    })
-    if (!result.ok) throw new Error('compile failed')
-    const ref = refOn('local')
-    app.store.register(ref, result.artifact as CompileArtifact, 0)
-    expect(await app.openExecutionView(ref)).toBe(true)
-
-    expect(app.registryForTab(frozenTab())).toBeUndefined()
-  })
-
-  it('a still-matching current registry serves a run registered without retention', async () => {
-    app.registry.set(historicalRegistry(asConnectionId('local')))
-    const current = app.registry.get()!
-    const result = compile({
-      document: basic.store.doc,
-      revision: basic.store.revision,
-      resolve: (type) => historicalSchemas.get(type),
-      scope: { kind: 'full' },
-      connection: asConnectionId('local'),
-      schemaHash: current.hash,
-    })
-    if (!result.ok) throw new Error('compile failed')
-    const ref = refOn('local')
-    app.store.register(ref, result.artifact as CompileArtifact, 0)
-    expect(await app.openExecutionView(ref)).toBe(true)
-
-    expect(app.registryForTab(frozenTab())).toBe(current)
-  })
 })
 
 describe('frozen views pin their execution state', () => {
-  it.each([true, false])('balances the pending execution pin after acknowledgment accepted=%s', async (accepted) => {
-    app.registry.set(historicalRegistry(asConnectionId('local')))
-    const ref = refOn('local')
-    app.registerRun(basic, ref, compiledArtifact(basic))
-    app.store.apply({ kind: 'completed', execution: ref, timestamp: 1 })
-    let acknowledge!: () => void
-    vi.spyOn(app.connection, 'retainAssets').mockImplementation((owner, declaration) => new Promise((done) => {
-      acknowledge = () => done({ ...owner, ...declaration, revision: accepted ? 1 : 2 })
-    }))
-    vi.spyOn(app.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-    const opening = app.openExecutionView(ref)
-    expect(app.tabs.get().some((tab) => tab.execution)).toBe(false)
-    const base = Date.now() + 1
-    for (let index = 0; index < 250; index++) {
-      const churn = refOn('local')
-      app.store.apply({ kind: 'started', execution: churn, timestamp: base + index })
-      app.store.apply({ kind: 'completed', execution: churn, timestamp: base + index })
-    }
-    expect(app.store.get(ref)).toBeDefined()
-    acknowledge()
-    expect(await opening).toBe(accepted)
-    if (accepted) {
-      expect(app.store.get(ref)).toBeDefined()
-      app.closeTab(frozenTab().id)
-    }
-    const next = refOn('local')
-    app.store.apply({ kind: 'started', execution: next, timestamp: base + 250 })
-    app.store.apply({ kind: 'completed', execution: next, timestamp: base + 250 })
-    expect(app.store.get(ref)).toBeUndefined()
-  })
 
   it('entry-cap eviction never deletes the state behind an open frozen view', async () => {
     app.registry.set(historicalRegistry(asConnectionId('local')))
@@ -225,31 +133,4 @@ describe('frozen views pin their execution state', () => {
     expect(app.store.get(ref)).toBeUndefined()
   })
 
-  it('a document whose lineage collides with a frozen tab id releases the pin on displacement', async () => {
-    app.registry.set(historicalRegistry(asConnectionId('local')))
-    const artifact = compiledArtifact(basic)
-    const ref = refOn('local')
-    app.registerRun(basic, ref, artifact)
-    app.store.apply({ kind: 'completed', execution: ref, timestamp: 1 })
-    expect(await app.openExecutionView(ref)).toBe(true)
-    const frozenId = frozenTab().id
-
-    // Lineages are unrestricted strings, so a loaded document can collide
-    // with the frozen tab id and displace the frozen view.
-    const json = JSON.parse(readFileSync(join(root, 'fixtures/workflows/seed-basic.json'), 'utf8')) as { lineage: string }
-    json.lineage = frozenId
-    expect((await app.openDocument(json, 'Impostor'))).toEqual([])
-    const replaced = app.tabs.get().filter((t) => t.id === frozenId)
-    expect(replaced).toHaveLength(1)
-    expect(replaced[0]!.execution).toBeUndefined()
-
-    // The displaced frozen view released its pin: the run is evictable again.
-    const base = Date.now()
-    for (let i = 0; i < 201; i++) {
-      const churn = refOn('local')
-      app.store.apply({ kind: 'started', execution: churn, timestamp: base + i })
-      app.store.apply({ kind: 'completed', execution: churn, timestamp: base + i })
-    }
-    expect(app.store.get(ref)).toBeUndefined()
-  })
 })

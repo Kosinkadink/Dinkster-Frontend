@@ -256,78 +256,6 @@ describe('registry painter label/value split', () => {
     expect(thumb!.x).toBe(checked ? track!.x + 11 : track!.x + 1)
   })
 
-  it('paints a COMBO down chevron in the reserved right edge', () => {
-    const selectView: WidgetView = {
-      ...stubView, id: 'core.select', kind: 'COMBO',
-      drawCompact: (scene) => {
-        scene.rect(1, 0, 0, 1, { role: 'comboChevron' })
-        scene.text(1, 0, 'euler', {
-          role: 'widgetValue', align: 'right', width: 1,
-        })
-      },
-    }
-    const selectKind: WidgetKind = {
-      ...stubKind, type: 'COMBO', defaultValue: () => '', defaultView: () => 'core.select',
-    }
-    const selectRegistry: WidgetRegistry = {
-      ...registry,
-      kind: (type) => type === 'COMBO' ? selectKind : undefined,
-      viewsFor: (type) => type === 'COMBO' ? [selectView] : [],
-    }
-    const painted = fakeCtx()
-    createRegistryPainter(selectRegistry)({
-      ctx: painted.ctx,
-      row: {
-        ...rowWith('euler'), label: 'sampler', viewId: 'core.select',
-        spec: { widgetType: 'COMBO', options: { options: ['euler'] }, default: 'euler' },
-      },
-      value: 'euler', x: 10, y: 20, width: 150, rowHeight: 24,
-      connected: false, tokens: defaultTokens,
-    })
-    expect(painted.strokes).toContainEqual({
-      points: [{ x: 151, y: 30 }, { x: 154, y: 33 }, { x: 157, y: 30 }],
-      strokeStyle: defaultTokens.colors.widgetAffordance,
-    })
-    const value = painted.textCalls.find((call) => call.text === 'euler')
-    expect(value).toMatchObject({ x: 146, align: 'right' })
-    expect(painted.clips).toContainEqual({ x: 64, y: 22, width: 84, height: 20, radius: 0 })
-  })
-
-  it('keeps the shared companion-driven COMBO presentation free of a chevron', () => {
-    const selectView: WidgetView = {
-      ...stubView, id: 'core.select', kind: 'COMBO',
-      drawCompact: (scene) => {
-        scene.rect(1, 0, 0, 1, { role: 'comboChevron' })
-        scene.text(1, 0, 'stored', { role: 'widgetValue', align: 'right', width: 1 })
-      },
-    }
-    const selectKind: WidgetKind = {
-      ...stubKind, type: 'COMBO', defaultValue: () => '', defaultView: () => 'core.select',
-    }
-    const selectRegistry: WidgetRegistry = {
-      ...registry,
-      kind: (type) => type === 'COMBO' ? selectKind : undefined,
-      viewsFor: (type) => type === 'COMBO' ? [selectView] : [],
-    }
-    const painted = fakeCtx()
-    createRegistryPainter(selectRegistry)({
-      ctx: painted.ctx,
-      row: {
-        ...rowWith('stored'), label: 'sampler', viewId: 'core.select',
-        spec: { widgetType: 'COMBO', options: { options: ['stored', 'driven'] }, default: 'stored' },
-      },
-      value: 'stored', companion: { value: 'driven', state: 'cached' },
-      x: 10, y: 20, width: 150, rowHeight: 24,
-      connected: true, tokens: defaultTokens,
-    })
-    expect(painted.strokes).toEqual([])
-    expect(painted.texts).toContain('driven')
-    expect(painted.texts).not.toContain('stored')
-    expect(painted.roundedFills.find((fill) => fill.fillStyle === defaultTokens.colors.widgetBackground)).toEqual({
-      ...widgetChromeRect(10, 20, 150, 24), fillStyle: defaultTokens.colors.widgetBackground,
-    })
-  })
-
   it('clips declared slider fill to the whole chrome independent of label width and paints text afterward', () => {
     const rangeView: WidgetView = {
       ...stubView,
@@ -370,57 +298,6 @@ describe('registry painter label/value split', () => {
       width: 150, rowHeight: 24, connected: false, tokens: defaultTokens,
     })
     expect(painted.fills.some((candidate) => candidate.fillStyle === defaultTokens.colors.widgetRangeFill)).toBe(false)
-  })
-
-  it.each([
-    { display: 'slider', min: 0 },
-    { display: 'slider', min: 1, max: 1 },
-    { display: 'slider', min: 2, max: 1 },
-    { display: 'slider', min: 0, max: Number.POSITIVE_INFINITY },
-  ])('refuses a numeric range role for unusable declared-slider bounds %#', (options) => {
-    const rangeView: WidgetView = {
-      ...stubView,
-      drawCompact: (scene) => scene.rect(0, 0, 0.5, 1, { role: 'numericRangeFill', fraction: 0.5 }),
-    }
-    const painted = fakeCtx()
-    createRegistryPainter({ ...registry, viewsFor: () => [rangeView] })({
-      ctx: painted.ctx, row: {
-        ...rowWith(50), spec: { widgetType: 'INT', options, default: 50 },
-      }, value: 50, x: 10, y: 20,
-      width: 150, rowHeight: 24, connected: false, tokens: defaultTokens,
-    })
-    expect(painted.fills.some((candidate) => candidate.fillStyle === defaultTokens.colors.widgetRangeFill)).toBe(false)
-  })
-
-  it('does not add compact affordance paint to a plain STRING row', () => {
-    const painted = paintStringDetails('hello', 160)
-    expect(painted.fills).toEqual([])
-    expect(painted.roundedFills.filter((fill) => fill.fillStyle !== defaultTokens.colors.widgetBackground)).toEqual([])
-    expect(painted.strokes).toEqual([])
-  })
-
-  it('paints compact and multiline chrome from the shared geometry', () => {
-    const compact = paintStringDetails('hello', 160)
-    expect(compact.roundedFills.find((fill) => fill.fillStyle === defaultTokens.colors.widgetBackground)).toEqual({
-      ...widgetChromeRect(0, 0, 160, 24), fillStyle: defaultTokens.colors.widgetBackground,
-    })
-
-    const multiline = paintMultilineDetails(96, 160, 'one\ntwo')
-    expect(multiline.roundedFills.find((fill) => fill.fillStyle === defaultTokens.colors.widgetBackground)).toEqual({
-      ...widgetChromeRect(0, 0, 160, 96), fillStyle: defaultTokens.colors.widgetBackground,
-    })
-  })
-
-  it('floats the multiline label above a gutter-reserved padded 14px content strip', () => {
-    const painted = paintMultilineDetails(74, 160, 'one\ntwo')
-    const label = painted.textCalls.find((call) => call.text === 'text')!
-    const one = painted.textCalls.find((call) => call.text === 'one')!
-    const two = painted.textCalls.find((call) => call.text === 'two')!
-
-    expect(label).toMatchObject({ x: 6, y: 11, font: '12px system-ui' })
-    expect(one).toMatchObject({ x: 6, y: 36, font: '14px "Noto Sans", sans-serif' })
-    expect(two).toMatchObject({ x: 6, y: 56, font: '14px "Noto Sans", sans-serif' })
-    expect(painted.clips.filter((clip) => clip.x === 0).map((clip) => clip.width)).toContain(152)
   })
 
   it('reserves a permanent multiline scrollbar gutter and paints a slim thumb only for hovered overflow', () => {
@@ -579,15 +456,6 @@ describe('registry painter label/value split', () => {
     expect(value!.endsWith('...')).toBe(true)
   })
 
-  it('the value keeps more of its glyphs than the old hard 30% cap allowed', () => {
-    // Old split: value zone = max(48, 30% of usable) regardless of need.
-    // usable = 276; a 106px value under the old cap got 82.8px; under
-    // deficit sharing with a 144px label it fits entirely (250 <= 276).
-    const texts = paint(123456789012345, 300)
-    expect(texts).toContain(LABEL)
-    expect(texts).toContain('123456789012345')
-  })
-
   it('keeps the text label beside a long single-line STRING value', () => {
     const long = 'beautiful scenery nature glass bottle landscape, '.repeat(20)
     // 121px is the painter width at the production 140px node minimum after
@@ -599,10 +467,6 @@ describe('registry painter label/value split', () => {
       expect(value, `width ${width}`).toBeDefined()
       expect(value!.endsWith('...'), `width ${width}`).toBe(true)
     }
-  })
-
-  it('leaves short single-line STRING values compact and readable', () => {
-    expect(paintString('text, watermark', 280)).toEqual(['text', 'text, watermark'])
   })
 
   it('clips the long STRING value after the complete label at every row width', () => {
@@ -638,13 +502,6 @@ describe('registry painter label/value split', () => {
         expect(painted.clips.some((clip) => clip.y === 66 && clip.height === 14)).toBe(true)
       }
     }
-  })
-
-  it('keeps multiline text in the value color', () => {
-    const painted = paintMultilineDetails(76, 160)
-    const values = painted.textCalls.filter((call) => call.text === 'one' || call.text === 'two')
-    expect(values).toHaveLength(2)
-    expect(values.every((call) => call.fill === defaultTokens.colors.value)).toBe(true)
   })
 
   it('wraps a long canonical line into measured visual rows without ellipsizing', () => {

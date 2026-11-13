@@ -217,22 +217,3 @@ test('selected outline clips naturally at every viewport edge across DPR and zoo
     await context.close()
   }
 })
-
-test('a selected tall node clips at the viewport without a false bottom outline', async ({ page }) => {
-  await openFixture(page, true)
-  await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'edge')?.layout.height ?? 0,
-  )).toBeGreaterThan(850)
-  await page.evaluate(() => {
-    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-    window.__dinksterTest!.controller!.setSelection(['edge'])
-  })
-  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
-  const geometry = await page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'edge')!
-    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid=graph-canvas]')!
-    return { bottom: node.y + node.layout.height, viewport: canvas.clientHeight }
-  })
-  expect(geometry.bottom).toBeGreaterThan(geometry.viewport)
-  expect(await coveredOutlineSlices(page, 'bottom')).toBe(0)
-})

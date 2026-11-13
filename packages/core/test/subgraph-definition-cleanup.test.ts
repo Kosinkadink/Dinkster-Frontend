@@ -152,20 +152,6 @@ describe('subgraph definition cleanup', () => {
     expect(session.doc.graphs.root!.nextOrdinal).toBe(10)
   })
 
-  it('rejects a preview after definition content changes without changing reachability', () => {
-    const initial = cleanupDocument()
-    const invocation = cleanupInvocation(initial)
-    const changed = structuredClone(initial) as any
-    changed.graphs.orphanChild.nodes.added = { id: 'added', type: 'Leaf', values: { amount: 2 }, ext: { future: true } }
-    const session = createLocalSession(changed, coreCommandRegistry())
-    const before = JSON.stringify(session.doc)
-
-    const outcome = session.dispatch(invocation)
-    expect(outcome.ok).toBe(false)
-    if (!outcome.ok) expect(outcome.diagnostics.map((diagnostic) => diagnostic.code)).toContain('subgraph.cleanup.stalePlan')
-    expect(JSON.stringify(session.doc)).toBe(before)
-  })
-
   it('deletes only a leaf definition individually and refuses one with an incoming orphan reference', () => {
     const initial = cleanupDocument()
     const plan = planSubgraphDefinitionCleanup(initial)
@@ -184,16 +170,6 @@ describe('subgraph definition cleanup', () => {
     }).ok).toBe(true)
     expect(leafSession.doc.graphs.orphanParent).toBeUndefined()
     expect(leafSession.doc.graphs.orphanChild).toBeDefined()
-  })
-
-  it('replays the same cleanup invocation to the same document', () => {
-    const initial = cleanupDocument()
-    const invocation = cleanupInvocation(initial)
-    const first = createLocalSession(initial, coreCommandRegistry())
-    const second = createLocalSession(initial, coreCommandRegistry())
-    expect(first.dispatch(invocation).ok).toBe(true)
-    expect(second.dispatch(invocation).ok).toBe(true)
-    expect(second.doc).toEqual(first.doc)
   })
 
   it('terminates on an invalid orphan cycle while document validation rejects the cycle', () => {

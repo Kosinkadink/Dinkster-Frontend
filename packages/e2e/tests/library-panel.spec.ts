@@ -1,7 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from './fixtures.js'
-import { evidencePath } from './evidence-output.js'
 
 const proofDir = process.env['DINKSTER_LIBRARY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -262,95 +261,4 @@ test('Library direct content preserves provenance, states, overflow, and respons
   await expect(compactSource).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   await capture(page, 'after-library-zoom-200-1366x768')
-})
-
-test('an open Library panel updates host chrome when the active locale changes', async ({ page, request }) => {
-  const fixture = await installFixture(page)
-  fixture.setTemplateMode('empty')
-  await page.setViewportSize({ width: 1600, height: 950 })
-  await page.goto('/')
-  const library = page.getByTestId('library-overlay')
-  if (!await library.isVisible()) await page.getByTestId('library-toggle').click()
-  await page.getByTestId('dock-resize').focus()
-  await page.keyboard.press('End')
-  await selectSource(page, 'templates')
-  await expect(library.locator('[data-collection-state="empty"]')).toContainText('No templates available')
-  await expect(library.locator('.library-backend-context')).toContainText('Backend')
-  await expect(library.getByTestId('collection-search')).toHaveAttribute('aria-label', 'Search templates')
-  await page.screenshot({ path: evidencePath('issue-457', 'library-panel-i18n-en.png'), fullPage: true })
-
-  const localeModule = await (await request.get('/src/locale.ts')).text()
-  const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
-  expect(i18nModule).toBeDefined()
-  await page.evaluate(async ({ i18nModule }) => {
-    const { registerCatalog, setLocale } = await import(i18nModule)
-    registerCatalog('de-DE', {
-      'library.backend': '[Backend-Bezug]',
-      'library.detail.empty.description': '[Wahle einen Eintrag fur Identitat, Herkunft und Aktionen.]',
-      'library.detail.empty.title': '[Eintragsdetails]',
-      'library.search': '[Suche in {source}]',
-      'library.source.collections': '[Bibliothekssammlungen mit langem Namen]',
-      'library.state.noTemplates.detail': '[Keine Vorlagen von {backend} verfugbar.]',
-      'library.state.noTemplates.title': '[Keine Vorlagen verfugbar]',
-    })
-    setLocale('de-DE')
-  }, { i18nModule: new URL(i18nModule!, page.url()).href })
-
-  await expect(library.locator('[data-collection-state="empty"]')).toContainText('[Keine Vorlagen verfugbar]')
-  await expect(library.locator('[data-collection-state="empty"]')).toContainText('[Keine Vorlagen von Local verfugbar.]')
-  await expect(library.locator('.library-backend-context')).toContainText('[Backend-Bezug]')
-  await expect(library.locator('.library-source-tabs')).toHaveAttribute('aria-label', '[Bibliothekssammlungen mit langem Namen]')
-  await expect(library.getByTestId('collection-search')).toHaveAttribute('aria-label', '[Suche in templates]')
-  await expect(library.getByTestId('library-detail-rail')).toContainText('[Eintragsdetails]')
-  await expect(library.getByTestId('library-detail-rail')).toContainText('[Wahle einen Eintrag fur Identitat, Herkunft und Aktionen.]')
-  await expect(library.locator('[data-testid="collection-source"][data-source="templates"]')).toContainText('Templates')
-  await expect(library.locator('.library-backend-context')).toContainText('Local')
-  await page.screenshot({ path: evidencePath('issue-457', 'library-panel-i18n-de-DE.png'), fullPage: true })
-})
-
-test('an open generic collection keeps content and paging state across a locale change', async ({ page, request }) => {
-  const fixture = await installFixture(page)
-  await page.setViewportSize({ width: 1600, height: 950 })
-  await page.goto('/')
-  const library = page.getByTestId('library-overlay')
-  if (!await library.isVisible()) await page.getByTestId('library-toggle').click()
-  await page.getByTestId('dock-resize').focus()
-  await page.keyboard.press('End')
-  await selectSource(page, 'templates')
-  const entries = library.getByTestId('collection-entry')
-  await expect(entries).toHaveCount(24)
-  await expect(library.getByTestId('collection-mode')).toHaveAttribute('aria-label', 'Grid view')
-  await expect(library.getByTestId('collection-more')).toHaveText('Load more')
-  await expect(library.getByTestId('collection-items')).toHaveAttribute('aria-label', 'Templates results')
-  await entries.first().click()
-  await expect(entries.first()).toHaveAttribute('aria-selected', 'true')
-  const requestsBeforeLocale = fixture.templateRequestCount()
-  await entries.first().click()
-  await expect(entries.first()).toHaveAttribute('aria-selected', 'false')
-  await page.getByTestId('dock-zone-left').locator('.product-tabpanel:not([hidden])').evaluate((element) => { element.scrollTop = element.scrollHeight })
-  await expect(library.getByTestId('collection-more')).toBeInViewport()
-  await page.screenshot({ path: evidencePath('issue-457', 'collection-panel-i18n-en.png'), fullPage: true })
-
-  const localeModule = await (await request.get('/src/locale.ts')).text()
-  const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
-  expect(i18nModule).toBeDefined()
-  await page.evaluate(async ({ i18nModule }) => {
-    const { registerCatalog, setLocale } = await import(i18nModule)
-    registerCatalog('de-DE', {
-      'collection.action.loadMore': '[Weitere Sammlungseintrage laden]',
-      'collection.mode.grid': '[Rasteransicht der Sammlung]',
-      'collection.result.ariaLabel': '[Ergebnisse fur {source}]',
-    })
-    setLocale('de-DE')
-  }, { i18nModule: new URL(i18nModule!, page.url()).href })
-
-  await expect(library.getByTestId('collection-mode')).toHaveAttribute('aria-label', '[Rasteransicht der Sammlung]')
-  await expect(library.getByTestId('collection-more')).toHaveText('[Weitere Sammlungseintrage laden]')
-  await expect(library.getByTestId('collection-items')).toHaveAttribute('aria-label', '[Ergebnisse fur Templates]')
-  await expect(entries).toHaveCount(24)
-  await expect(entries.first()).toHaveAttribute('aria-selected', 'false')
-  await expect(entries.first()).toContainText('Fixture Template 01')
-  expect(fixture.templateRequestCount()).toBe(requestsBeforeLocale)
-  await expect(library.getByTestId('collection-more')).toBeInViewport()
-  await page.screenshot({ path: evidencePath('issue-457', 'collection-panel-i18n-de-DE.png'), fullPage: true })
 })

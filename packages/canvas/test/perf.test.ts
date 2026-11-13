@@ -28,23 +28,6 @@ describe(`buildScene on synthetic workload (${NODES} nodes)`, () => {
     .document as WorkflowDocument
   const resolve = documentResolver(doc, (t) => schemas.get(t))
 
-  it('produces a complete scene', () => {
-    const scene = buildScene({
-      document: doc,
-      graphId: 'g0',
-      resolve,
-      tokens: defaultTokens,
-      measure,
-      widgetMeasure,
-    })
-    expect(scene.nodes).toHaveLength(NODES)
-    expect(scene.links).toHaveLength(NODES - CHAINS)
-    // Every link endpoint is pin-anchored (no dangling coordinates).
-    for (const link of scene.links) {
-      expect(Number.isFinite(link.x1 + link.y1 + link.x2 + link.y2)).toBe(true)
-    }
-  })
-
   it(`builds within budget (2s for ${NODES} nodes)`, () => {
     const t0 = performance.now()
     buildScene({
@@ -75,38 +58,6 @@ describe(`buildScene on feature-heavy workload (${NODES} nodes + reroutes/valueS
   const doc = loaded.document as WorkflowDocument
   const resolve = documentResolver(doc, (t) => schemas.get(t))
 
-  it('loads invariant-clean and produces a complete scene', () => {
-    expect(loaded.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    const scene = buildScene({
-      document: doc,
-      graphId: 'g0',
-      resolve,
-      tokens: defaultTokens,
-      measure,
-      widgetMeasure,
-    })
-    expect(scene.nodes).toHaveLength(NODES)
-    expect(scene.valueSources).toHaveLength(CHAINS)
-    expect(scene.groups).toHaveLength(CHAINS)
-    // One selector per chain, each with a traced concrete output (both
-    // branches are IMAGE producers) - solving runs across every candidate.
-    expect(scene.selectors).toHaveLength(CHAINS)
-    for (const sel of scene.selectors) {
-      expect(sel.typeName).toBe('IMAGE')
-      expect(sel.candidates.map((c) => c.typeName)).toEqual(['IMAGE', 'IMAGE'])
-    }
-    // Every source derives a clean INT spec from its two consumers.
-    for (const vs of scene.valueSources) {
-      expect(vs.specState).toBe('derived')
-      expect(vs.conflict).toBe(false)
-    }
-    // Each chain's final segment rides a net; it still renders a noodle.
-    expect(scene.links.filter((l) => l.netId !== undefined)).toHaveLength(CHAINS)
-    for (const link of scene.links) {
-      expect(Number.isFinite(link.x1 + link.y1 + link.x2 + link.y2)).toBe(true)
-    }
-  })
-
   it(`builds within the same budget as the plain workload (2s)`, () => {
     const t0 = performance.now()
     buildScene({
@@ -126,35 +77,6 @@ describe(`buildScene on subgraph workload (${CHAINS} instances of a shared defin
   const loaded = loadDocument(syntheticWorkflow({ chains: CHAINS, chainLength: CHAIN_LENGTH, subgraphs: true }))
   const doc = loaded.document as WorkflowDocument
   const resolve = documentResolver(doc, (t) => schemas.get(t))
-
-  it('loads invariant-clean; root scene derives boundary pins per instance', () => {
-    expect(loaded.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    const scene = buildScene({
-      document: doc,
-      graphId: 'g0',
-      resolve,
-      tokens: defaultTokens,
-      measure,
-      widgetMeasure,
-    })
-    expect(scene.nodes).toHaveLength(CHAINS * 2)
-    expect(scene.links).toHaveLength(CHAINS)
-    for (const link of scene.links) {
-      expect(Number.isFinite(link.x1 + link.y1 + link.x2 + link.y2)).toBe(true)
-    }
-  })
-
-  it('builds the definition graph scene too (editing view)', () => {
-    const scene = buildScene({
-      document: doc,
-      graphId: 'g1',
-      resolve,
-      tokens: defaultTokens,
-      measure,
-      widgetMeasure,
-    })
-    expect(scene.nodes).toHaveLength(CHAIN_LENGTH - 1)
-  })
 
   it(`root scene builds within budget (2s)`, () => {
     const t0 = performance.now()

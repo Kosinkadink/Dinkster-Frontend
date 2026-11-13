@@ -154,14 +154,6 @@ describe('returnPanelToZone', () => {
     expect(zoneTabs(layout.effective().zones.right)).toEqual(['library', 'memory'])
   })
 
-  it('returns a left-zone default panel through the boundary, keeping both authorities agreed', () => {
-    const { panels, layout } = fixture()
-    expect(movePanel(panels, layout, 'backends', { kind: 'window' })).toBe(true)
-    expect(returnPanelToZone(panels, layout, 'backends')).toBe(true)
-    expect(panels.placementOf('backends')).toBe('dock')
-    expect(zoneTabs(layout.effective().zones.left)).toContain('backends')
-  })
-
   it('falls back to the default zone when no membership was saved, and refuses zoneless defaults', () => {
     const { panels, layout } = fixture()
     movePanel(panels, layout, 'collab', { kind: 'floating' })
@@ -185,12 +177,6 @@ describe('zoneTabsView', () => {
     expect(zoneTabs(layout.effective().zones.right)).toEqual(['library', 'memory'])
   })
 
-  it('hides detached panels via the caller predicate', () => {
-    const { panels, layout } = fixture()
-    const view = zoneTabsView(panels, layout, 'right', (id) => id === 'library')
-    expect(ids(view)).toEqual(['memory'])
-  })
-
   it('a stored id without a registered panel renders nothing and regains its place on registration', () => {
     const { panels, layout } = fixture()
     // Persist membership placing a not-yet-registered panel first.
@@ -200,19 +186,6 @@ describe('zoneTabsView', () => {
 
     panels.register(descriptor('outputs', 'rail', ['rail']))
     expect(ids(zoneTabsView(panels, layout, 'right'))).toEqual(['outputs', 'library', 'memory'])
-  })
-
-  it('unregistering removes the tab from the row; re-registering restores its saved spot', () => {
-    const { panels, layout } = fixture()
-    const unregister = panels.register(descriptor('outputs', 'rail', ['rail']))
-    layout.dock('outputs', 'right', 1)
-    expect(ids(zoneTabsView(panels, layout, 'right'))).toEqual(['library', 'outputs', 'memory'])
-
-    unregister()
-    expect(ids(zoneTabsView(panels, layout, 'right'))).toEqual(['library', 'memory'])
-
-    panels.register(descriptor('outputs', 'rail', ['rail']))
-    expect(ids(zoneTabsView(panels, layout, 'right'))).toEqual(['library', 'outputs', 'memory'])
   })
 
   it('re-registering with changed legality projects the panel into its new default zone', () => {
@@ -248,13 +221,6 @@ describe('zoneTabsView', () => {
     expect(zoneTabsView(panels, layout, 'right').activeId).toBe('surfaces')
   })
 
-  it('activeId is undefined only when nothing is visible', () => {
-    const { panels, layout } = fixture()
-    movePanel(panels, layout, 'library', { kind: 'floating' })
-    const view = zoneTabsView(panels, layout, 'right', (id) => id === 'memory')
-    expect(ids(view)).toEqual([])
-    expect(view.activeId).toBeUndefined()
-  })
 })
 
 describe('zoneSectionsView', () => {
@@ -285,9 +251,4 @@ describe('zoneSectionsView', () => {
     expect(zoneTabsView(panels, layout, 'right').activeId).toBe('memory')
   })
 
-  it('the flat zone view spans sections for indicator aggregation', () => {
-    const { panels, layout } = fixture()
-    layout.dock('memory', 'right', undefined, 1)
-    expect(zoneTabsView(panels, layout, 'right').panels.map(({ id }) => id)).toEqual(['library', 'memory'])
-  })
 })

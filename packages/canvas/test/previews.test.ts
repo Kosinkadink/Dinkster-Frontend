@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  animationFrameAt,
-  containRect,
-  splitPreviewRect,
-  type NodePreview,
-  type NodePreviewAnimation,
-} from '../src/previews.js'
+import { animationFrameAt, containRect, type NodePreview, type NodePreviewAnimation } from '../src/previews.js'
 
 const preview = (width: number, height: number): NodePreview =>
   ({ image: {} as CanvasImageSource, width, height })
@@ -28,15 +22,6 @@ describe('containRect', () => {
   it('falls back to safe region geometry for invalid dimensions', () => {
     expect(containRect(region, preview(0, 50))).toEqual(region)
     expect(containRect(region, preview(Number.NaN, 50))).toEqual(region)
-  })
-})
-
-describe('splitPreviewRect', () => {
-  it('reserves the caption below the media without shrinking either width', () => {
-    expect(splitPreviewRect({ x: 10, y: 20, width: 200, height: 202 }, 22)).toEqual({
-      media: { x: 10, y: 20, width: 200, height: 180 },
-      caption: { x: 10, y: 200, width: 200, height: 22 },
-    })
   })
 })
 

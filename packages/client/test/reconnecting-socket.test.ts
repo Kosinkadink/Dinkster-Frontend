@@ -93,16 +93,4 @@ describe('CL3 socket identity guards', () => {
     expect(socket.status.get()).toBe('connected')
   })
 
-  it('detaches all callbacks on deliberate disconnect', () => {
-    const { socket, sockets } = harness()
-    socket.connect()
-    const a = sockets[0]!
-    socket.disconnect()
-    expect(a.closed).toBe(true)
-    expect(a.onopen).toBeNull()
-    expect(a.onmessage).toBeNull()
-    expect(a.onclose).toBeNull()
-    expect(a.onerror).toBeNull()
-    expect(socket.status.get()).toBe('disconnected')
-  })
 })

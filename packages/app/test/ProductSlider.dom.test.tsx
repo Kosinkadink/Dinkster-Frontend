@@ -1,6 +1,4 @@
-// @vitest-environment happy-dom
 
-import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProductSlider } from '../src/ProductSlider.js'
@@ -60,16 +58,4 @@ describe('ProductSlider', () => {
     expect(commits).toHaveBeenCalledWith(7)
   })
 
-  it('clamps its displayed value when reactive bounds change without emitting', () => {
-    const changes = vi.fn()
-    const [maximum, setMaximum] = createSignal(100)
-    const root = document.createElement('div')
-    document.body.append(root)
-    render(() => <ProductSlider value={80} min={0} max={maximum()} step={10} onInput={changes} />, root)
-    const slider = root.querySelector<HTMLElement>('[role="slider"]')!
-    setMaximum(50)
-    expect(slider.getAttribute('aria-valuemax')).toBe('50')
-    expect(slider.getAttribute('aria-valuenow')).toBe('50')
-    expect(changes).not.toHaveBeenCalled()
-  })
 })

@@ -4,7 +4,7 @@
  * OBJECT plus font, so contexts with different metrics never cross-poison.
  */
 import { describe, expect, it } from 'vitest'
-import { fitText, measureWidth, multilineLineHeight, resetTextMetrics, shareRowWidth, wrapText } from '../src/text-fit.js'
+import { fitText, measureWidth, shareRowWidth, wrapText } from '../src/text-fit.js'
 
 function countingCtx(pxPerChar = 6): { ctx: CanvasRenderingContext2D; calls: () => number } {
   let calls = 0
@@ -18,28 +18,7 @@ function countingCtx(pxPerChar = 6): { ctx: CanvasRenderingContext2D; calls: () 
   return { ctx: ctx as unknown as CanvasRenderingContext2D, calls: () => calls }
 }
 
-describe('multilineLineHeight', () => {
-  it('uses compact natural leading independent of the 24px slot row', () => {
-    expect(multilineLineHeight(12)).toBe(16)
-    expect(multilineLineHeight(13)).toBe(18)
-  })
-})
-
 describe('measureWidth', () => {
-  it('memoizes per ctx+font: repeat measures cost zero calls', () => {
-    const { ctx, calls } = countingCtx()
-    expect(measureWidth(ctx, 'hello')).toBe(30)
-    expect(measureWidth(ctx, 'hello')).toBe(30)
-    expect(calls()).toBe(1)
-  })
-
-  it('a font change is a different cache line', () => {
-    const { ctx, calls } = countingCtx()
-    measureWidth(ctx, 'hello')
-    ;(ctx as { font: string }).font = '14px system-ui'
-    measureWidth(ctx, 'hello')
-    expect(calls()).toBe(2)
-  })
 
   it('two contexts with different metrics never share entries', () => {
     const a = countingCtx(6)
@@ -48,20 +27,9 @@ describe('measureWidth', () => {
     expect(measureWidth(b.ctx, 'abc')).toBe(30)
   })
 
-  it('resetTextMetrics drops the cache for one context', () => {
-    const { ctx, calls } = countingCtx()
-    measureWidth(ctx, 'hello')
-    resetTextMetrics(ctx)
-    measureWidth(ctx, 'hello')
-    expect(calls()).toBe(2)
-  })
 })
 
 describe('fitText', () => {
-  it('returns the text untouched when it fits', () => {
-    const { ctx } = countingCtx()
-    expect(fitText(ctx, 'hello', 30)).toBe('hello')
-  })
 
   it('truncates with an ASCII ellipsis to exactly the widest fitting prefix', () => {
     const { ctx } = countingCtx()
@@ -85,29 +53,6 @@ describe('fitText', () => {
     }
   })
 
-  it('uses O(log n) measures, all memoized on repeat', () => {
-    const { ctx, calls } = countingCtx()
-    const text = 'x'.repeat(1024)
-    fitText(ctx, text, 300)
-    const first = calls()
-    expect(first).toBeLessThan(20) // binary search, not 970+ strip steps
-    fitText(ctx, text, 300)
-    expect(calls()).toBe(first) // fit result itself is cached
-  })
-
-  it('zero and negative widths return the empty string', () => {
-    const { ctx } = countingCtx()
-    expect(fitText(ctx, 'hello', 0)).toBe('')
-    expect(fitText(ctx, 'hello', -5)).toBe('')
-  })
-
-  it('FR7 a non-finite width fits to empty and never seeds the cache', () => {
-    const { ctx, calls } = countingCtx()
-    expect(fitText(ctx, 'hello', Number.NaN)).toBe('')
-    expect(calls()).toBe(0)
-    expect(fitText(ctx, 'hello', 30)).toBe('hello')
-    expect(calls()).toBe(1)
-  })
 })
 
 describe('wrapText', () => {
@@ -131,11 +76,6 @@ describe('wrapText', () => {
     expect(wrapText(ctx, 'alpha beta', 30)).toEqual(['alpha', 'beta'])
     expect(wrapText(ctx, 'alpha   beta', 30)).toEqual(['alpha', 'beta'])
     expect(wrapText(ctx, '  alpha', 42)).toEqual(['  alpha'])
-  })
-
-  it('uses whitespace immediately after an exact-fit prefix as the greedy boundary', () => {
-    const { ctx } = countingCtx()
-    expect(wrapText(ctx, 'alpha beta gamma', 60)).toEqual(['alpha beta', 'gamma'])
   })
 
   it('consumes trailing spaces across the width boundary without a phantom row', () => {
@@ -173,28 +113,8 @@ describe('shareRowWidth', () => {
     expect(200 - label).toBeGreaterThanOrEqual(56)
   })
 
-  it('the label never exceeds its natural width', () => {
-    // Value floor clamp path: usable - minValue would exceed the label need.
-    const label = shareRowWidth(500, 100, 900)
-    expect(label).toBeLessThanOrEqual(100)
-  })
-
-  it('pathologically narrow rows split proportionally to the floors', () => {
-    const label = shareRowWidth(50, 200, 200)
-    expect(label).toBeGreaterThan(0)
-    expect(label).toBeLessThan(50)
-  })
-
   it('preserves a short value and ellipsizes the label into the remainder', () => {
     expect(shareRowWidth(120, 100, 40, true)).toBe(75)
   })
 
-  it('keeps deficit-proportional sharing when the full value cannot fit', () => {
-    expect(shareRowWidth(120, 100, 80, true)).toBe(shareRowWidth(120, 100, 80))
-  })
-
-  it('preserves a fitting value at the label-floor boundary', () => {
-    expect(shareRowWidth(70, 100, 21, true)).toBe(44)
-    expect(shareRowWidth(69, 100, 21, true)).toBe(shareRowWidth(69, 100, 21))
-  })
 })

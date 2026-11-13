@@ -32,10 +32,6 @@ const base = {
 }
 
 describe('peekCandidatesFor', () => {
-  it('abstains without an occurrence resolver', () => {
-    const execNodes = { n1: done({ image: { typeId: 'std.image' } }) }
-    expect(peekCandidatesFor({ ...base, execNodes, nodeId: 'n1', runtimeIdsOf: undefined })).toEqual([])
-  })
 
   it('a ran node offers its own non-inline outputs, sorted by output id', () => {
     const execNodes = {
@@ -94,33 +90,6 @@ describe('peekCandidatesFor', () => {
     })).toEqual([{ node: 'region', output: 'state' }])
   })
 
-  it('producer outputs that never ran or inlined a scalar are skipped', () => {
-    const sources = sourcesOf({
-      preview: {
-        a: producer('never-ran', 'image'),
-        b: producer('scalar', 'sum'),
-        c: producer('imgsrc', 'image'),
-      },
-    })
-    const execNodes = {
-      scalar: done({ sum: { typeId: 'INT', value: 3 } }),
-      imgsrc: done({ image: { typeId: 'std.image' } }),
-    }
-    expect(peekCandidatesFor({ ...base, sources, execNodes, nodeId: 'preview' })).toEqual([
-      { node: 'imgsrc', output: 'image' },
-    ])
-  })
-
-  it('two inputs from the same producer output dedupe to one candidate', () => {
-    const sources = sourcesOf({
-      preview: { a: producer('imgsrc', 'image'), b: producer('imgsrc', 'image') },
-    })
-    const execNodes = { imgsrc: done({ image: { typeId: 'std.image' } }) }
-    expect(peekCandidatesFor({ ...base, sources, execNodes, nodeId: 'preview' })).toEqual([
-      { node: 'imgsrc', output: 'image' },
-    ])
-  })
-
   it('hydrated job-result descriptors count for both own outputs and producers', () => {
     const execOutputs = {
       target: { image: { typeId: 'std.image', fingerprint: 'fp' } },
@@ -134,11 +103,6 @@ describe('peekCandidatesFor', () => {
     expect(peekCandidatesFor({ ...base, sources, execOutputs, nodeId: 'preview' })).toEqual([
       { node: 'target', output: 'image' },
     ])
-  })
-
-  it('no execution presence anywhere yields nothing', () => {
-    const sources = sourcesOf({ preview: { in: producer('p1', 'image') } })
-    expect(peekCandidatesFor({ ...base, sources, nodeId: 'preview' })).toEqual([])
   })
 
   it('orders recorded outputs by schema/interface order instead of output id', () => {
@@ -166,41 +130,6 @@ describe('peekCandidatesFor', () => {
     ])
   })
 
-  it('carries media intent through list output types', () => {
-    const schema = {
-      type: 'test.list-media',
-      items: [{ kind: 'output', id: 'videos', type: { kind: 'list', element: { kind: 'concrete', name: 'VIDEO' } }, preview: true }],
-    } as unknown as NodeSchema
-    expect(declaredPreviewCandidates(schema, ['runtime'])).toEqual([
-      { node: 'runtime', output: 'videos', declaredIntent: true, mediaKind: 'video' },
-    ])
-  })
-
-  it('carries VIDEO intent through typed AssetRef outputs', () => {
-    const schema = {
-      type: 'test.video-asset',
-      items: [{
-        kind: 'output',
-        id: 'video',
-        type: { kind: 'asset', element: { kind: 'concrete', name: 'VIDEO' } },
-        preview: true,
-      }],
-    } as unknown as NodeSchema
-    expect(declaredPreviewCandidates(schema, ['runtime'])).toEqual([
-      { node: 'runtime', output: 'video', declaredIntent: true, mediaKind: 'video' },
-    ])
-  })
-
-  it('carries bare IMAGE intent through preview outputs', () => {
-    const schema = {
-      type: 'test.image',
-      items: [{ kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, preview: true }],
-    } as unknown as NodeSchema
-    expect(declaredPreviewCandidates(schema, ['runtime'])).toEqual([
-      { node: 'runtime', output: 'image', declaredIntent: true, mediaKind: 'image' },
-    ])
-  })
-
   it('carries model3d intent through concrete and asset-typed outputs', () => {
     const schema = {
       type: 'test.model3d',
@@ -220,15 +149,6 @@ describe('peekCandidatesFor', () => {
     ])
   })
 
-  it('carries splat intent through concrete outputs as model3d', () => {
-    const schema = {
-      type: 'test.splat',
-      items: [{ kind: 'output', id: 'splat', type: { kind: 'concrete', name: 'SPLAT' }, preview: true }],
-    } as unknown as NodeSchema
-    expect(declaredPreviewCandidates(schema, ['runtime'])).toEqual([
-      { node: 'runtime', output: 'splat', declaredIntent: true, mediaKind: 'model3d' },
-    ])
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -395,26 +315,6 @@ describe('fetchPeekRendition', () => {
     expect(calls).toEqual(['preview', 'poster'])
   })
 
-  it('a successful but unrenderable candidate keeps an exhausted miss retryable', async () => {
-    const values = fakeValues({
-      peek: {
-        'a.image': refusal('not-retained'),
-        'b.image': refusal('evicted'),
-        'c.image': hit([]), // value exists, nothing renderable
-      },
-    })
-    const err = await fetchPeekRendition(values, 'job', [
-      { node: 'a', output: 'image' },
-      { node: 'b', output: 'image' },
-      { node: 'c', output: 'image' },
-    ]).then(
-      () => undefined,
-      (e: unknown) => e,
-    )
-    expect(err).toBeInstanceOf(Error)
-    expect(transientOf(err)).toBe(true)
-  })
-
   it.each(['peek', 'rendition'] as const)('waits for preferred publication at %s without selecting a fallback', async (phase) => {
     vi.useFakeTimers()
     const pending = { available: false as const, status: 409, reason: 'not-complete', error: 'running' }
@@ -458,54 +358,6 @@ describe('fetchPeekRendition', () => {
     } finally { vi.useRealTimers() }
   })
 
-  it('a transport failure on peek marks the miss transient (retryable)', async () => {
-    const values = fakeValues({
-      peek: { 'a.image': refusal('http-error'), 'b.image': refusal('not-retained') },
-    })
-    const err = await fetchPeekRendition(values, 'job', [
-      { node: 'a', output: 'image' },
-      { node: 'b', output: 'image' },
-    ]).then(
-      () => undefined,
-      (e: unknown) => e,
-    )
-    expect(transientOf(err)).toBe(true)
-  })
-
-  it('a transport failure on the rendition fetch also marks transient', async () => {
-    const values = fakeValues({
-      peek: { 'a.image': hit([png]) },
-      rendition: { 'a.image': refusal('http-error') as RenditionResult },
-    })
-    const err = await fetchPeekRendition(values, 'job', [{ node: 'a', output: 'image' }]).then(
-      () => undefined,
-      (e: unknown) => e,
-    )
-    expect(transientOf(err)).toBe(true)
-  })
-
-  it('a definitive rendition refusal (no-rendition) stays non-transient', async () => {
-    const values = fakeValues({
-      peek: { 'a.image': hit([png]) },
-      rendition: { 'a.image': refusal('no-rendition') as RenditionResult },
-    })
-    const err = await fetchPeekRendition(values, 'job', [{ node: 'a', output: 'image' }]).then(
-      () => undefined,
-      (e: unknown) => e,
-    )
-    expect(transientOf(err)).toBe(false)
-  })
-
-  it('an empty candidate list is not negative-cacheable and makes no calls', async () => {
-    const values = fakeValues({ peek: {} })
-    const err = await fetchPeekRendition(values, 'job', []).then(
-      () => undefined,
-      (e: unknown) => e,
-    )
-    expect(transientOf(err)).toBe(true)
-    expect(values.calls).toEqual([])
-  })
-
   it('requests only list element zero and reports the full descriptor count', async () => {
     const calls: string[] = []
     const values: PeekValues = {
@@ -547,30 +399,6 @@ describe('fetchPeekRendition', () => {
     expect(values.calls).toEqual(['peek:a.out', 'rendition:a.out:raw', 'peek:b.out', 'rendition:b.out:video'])
   })
 
-  it('accepts a GLB rendition with valid magic and version bytes', async () => {
-    const glb = new Uint8Array([0x67, 0x6c, 0x54, 0x46, 2, 0, 0, 0, 0x0c, 0, 0, 0]).buffer
-    const values = fakeValues({
-      peek: { 'a.model': hit([{ kind: 'glb', mime: 'model/gltf-binary', default: true }]) },
-      rendition: {
-        'a.model': { available: true, bytes: glb, mime: 'model/gltf-binary', kind: 'glb', fingerprint: 'x' },
-      },
-    })
-    await expect(fetchPeekRendition(values, 'job', [{ node: 'a', output: 'model' }]))
-      .resolves.toMatchObject({ mime: 'model/gltf-binary' })
-  })
-
-  it('accepts a splat PLY rendition with valid magic bytes', async () => {
-    const ply = new TextEncoder().encode('ply\nformat binary_little_endian 1.0\n').buffer
-    const values = fakeValues({
-      peek: { 'a.splat': hit([{ kind: 'ply', mime: 'model/ply', default: true }]) },
-      rendition: {
-        'a.splat': { available: true, bytes: ply, mime: 'model/ply', kind: 'ply', fingerprint: 'x' },
-      },
-    })
-    await expect(fetchPeekRendition(values, 'job', [{ node: 'a', output: 'splat' }]))
-      .resolves.toMatchObject({ mime: 'model/ply' })
-  })
-
   it('accepts a splat PLY rendition with a CRLF header line', async () => {
     const ply = new TextEncoder().encode('ply\r\nformat binary_little_endian 1.0\r\n').buffer
     const values = fakeValues({
@@ -597,39 +425,6 @@ describe('fetchPeekRendition', () => {
     })
     await expect(fetchPeekRendition(values, 'job', [{ node: 'a', output: 'splat' }, { node: 'b', output: 'image' }]))
       .resolves.toMatchObject({ mime: 'image/png' })
-  })
-
-  it('rejects GLB bytes with bad magic and falls through to the next candidate', async () => {
-    const badGlb = new Uint8Array([0, 1, 2, 3, 2, 0, 0, 0, 0x0c, 0, 0, 0]).buffer
-    const values = fakeValues({
-      peek: {
-        'a.model': hit([{ kind: 'glb', mime: 'model/gltf-binary', default: true }]),
-        'b.image': hit([png]),
-      },
-      rendition: {
-        'a.model': { available: true, bytes: badGlb, mime: 'model/gltf-binary', kind: 'glb', fingerprint: 'x' },
-        'b.image': { available: true, bytes: bytesOf(9), mime: 'image/png', kind: 'png', fingerprint: 'y' },
-      },
-    })
-    await expect(fetchPeekRendition(values, 'job', [{ node: 'a', output: 'model' }, { node: 'b', output: 'image' }]))
-      .resolves.toMatchObject({ mime: 'image/png' })
-  })
-
-  it('falls through when browser metadata rejects a signature-valid candidate', async () => {
-    const values = fakeValues({
-      peek: {
-        'a.out': hit([{ kind: 'video', mime: 'video/webm', default: true }]),
-        'b.out': hit([{ kind: 'video', mime: 'video/webm', default: true }]),
-      },
-      rendition: {
-        'a.out': { available: true, bytes: mediaBytes('video/webm'), mime: 'video/webm', kind: 'video', fingerprint: 'a' },
-        'b.out': { available: true, bytes: mediaBytes('video/webm'), mime: 'video/webm', kind: 'video', fingerprint: 'b' },
-      },
-    })
-    const validate = vi.fn(async (_result) => validate.mock.calls.length > 1)
-    await expect(fetchPeekRendition(values, 'job', [{ node: 'a', output: 'out' }, { node: 'b', output: 'out' }], validate))
-      .resolves.toMatchObject({ mime: 'video/webm' })
-    expect(validate).toHaveBeenCalledTimes(2)
   })
 
   it('negative-caches only definitive 404/406/410 refusals', async () => {

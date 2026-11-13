@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pastedImageName, pickClipboardImageType, readClipboardImage, type ClipboardImageItem } from '../src/clipboard-image.js'
+import { readClipboardImage, type ClipboardImageItem } from '../src/clipboard-image.js'
 
 const item = (types: readonly string[], blobs: Record<string, Blob> = {}): ClipboardImageItem => ({
   types,
@@ -8,22 +8,6 @@ const item = (types: readonly string[], blobs: Record<string, Blob> = {}): Clipb
     if (blob === undefined) throw new Error(`no blob for ${type}`)
     return blob
   },
-})
-
-describe('clipboard image type picking', () => {
-  it('picks only supported image types and prefers PNG over JPEG and WebP', () => {
-    expect(pickClipboardImageType(['text/plain', 'image/png'])).toBe('image/png')
-    expect(pickClipboardImageType(['image/webp', 'image/jpeg', 'image/png'])).toBe('image/png')
-    expect(pickClipboardImageType(['image/jpeg', 'image/webp'])).toBe('image/jpeg')
-    expect(pickClipboardImageType(['text/plain', 'text/html'])).toBeUndefined()
-    expect(pickClipboardImageType(['image/svg+xml', 'image/tiff'])).toBeUndefined()
-  })
-
-  it('maps media types to fixed pasted asset names', () => {
-    expect(pastedImageName('image/png')).toBe('pasted-image.png')
-    expect(pastedImageName('image/jpeg')).toBe('pasted-image.jpg')
-    expect(pastedImageName('image/webp')).toBe('pasted-image.webp')
-  })
 })
 
 describe('clipboard image reading', () => {

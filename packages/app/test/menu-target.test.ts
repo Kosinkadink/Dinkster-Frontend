@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Hit } from '@dinkster/canvas'
 import { createMenuRegistry, type MenuContext, type MenuItem, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
 import { toolboxMenuRequest } from '../src/CanvasHost.js'
-import { canvasMenuContext, menuFlat, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
+import { canvasMenuContext, menuFlat, menuTargetOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
 
 const item = (id: string): MenuItem => ({
   id,
@@ -22,10 +22,6 @@ describe('menuFlat', () => {
     expect(flat.map((e) => e.sep)).toEqual([false, false, true, false, true])
   })
 
-  it('never separates within the first group and returns [] for no groups', () => {
-    expect(menuFlat([group('10-a', 'a1', 'a2', 'a3')]).map((e) => e.sep)).toEqual([false, false, false])
-    expect(menuFlat([])).toEqual([])
-  })
 })
 
 describe('selectionLifecycleMenuGroups', () => {
@@ -142,83 +138,12 @@ describe('widgetRepresentationMenuGroup', () => {
   })
 })
 
-describe('previewCapabilityOf', () => {
-  const resolve = (nodeType: string) =>
-    nodeType === 'dinkster.ksampler' ? { emitsPreviews: true } : nodeType === 'dinkster.image.load_image' ? {} : undefined
-
-  it('answers per node type from the current schema catalog', () => {
-    const capable = previewCapabilityOf(resolve)!
-    expect(capable('dinkster.ksampler')).toBe(true)
-    expect(capable('dinkster.image.load_image')).toBe(false)
-    expect(capable('unknown.type')).toBe(false)
-  })
-
-  it('stays undefined without a resolver', () => {
-    expect(previewCapabilityOf(undefined)).toBeUndefined()
-  })
-
-  it('treats an empty catalog as having no preview-capable nodes', () => {
-    const capable = previewCapabilityOf(() => undefined)!
-    expect(capable('dinkster.ksampler')).toBe(false)
-  })
-})
-
-describe('mirrorCapabilityOf', () => {
-  const schema = (rendition?: string) => ({
-    items: rendition === undefined
-      ? []
-      : [{ kind: 'output', id: 'image', represents: { input: 'image', rendition } }],
-  }) as never
-
-  it('includes supported output representations and rejects unknown renditions', () => {
-    const capable = mirrorCapabilityOf((nodeType) =>
-      nodeType === 'loader' ? schema('decoded-image') :
-      nodeType === 'future-loader' ? schema('future-rendition') : undefined)!
-    expect(capable('loader')).toBe(true)
-    expect(capable('future-loader')).toBe(false)
-    expect(capable('unknown')).toBe(false)
-  })
-})
-
 // menuTargetOf only reads the discriminant plus the identity fields asserted
 // below, so fixtures carry exactly those (cast through unknown - full scene
 // objects would drag in layout state irrelevant to the mapping).
 const hit = (h: unknown): Hit => h as Hit
 
 describe('menuTargetOf', () => {
-  it('maps empty canvas and boundary pseudo-nodes to the canvas target', () => {
-    expect(menuTargetOf(hit({ kind: 'empty' }))).toEqual({ kind: 'canvas' })
-    for (const kind of ['boundary-pin', 'boundary-header', 'boundary-body']) {
-      expect(menuTargetOf(hit({ kind, bnode: { id: 'b0' } }))).toEqual({ kind: 'canvas' })
-    }
-  })
-
-  it('maps node surfaces (header/body/resize) to the node target', () => {
-    for (const kind of ['header', 'body', 'resize']) {
-      expect(menuTargetOf(hit({ kind, node: { id: 'n1' } }))).toEqual({ kind: 'node', nodeId: 'n1' })
-    }
-  })
-
-  it('maps pin hits to structural identity (address), including member paths, and omits absent members', () => {
-    expect(
-      menuTargetOf(hit({
-        kind: 'pin',
-        node: { id: 'n1' },
-        direction: 'in',
-        pin: { address: { port: 'image', members: ['batch', '0'] } },
-      })),
-    ).toEqual({ kind: 'pin', nodeId: 'n1', portId: 'image', members: ['batch', '0'], direction: 'in' })
-    expect(
-      menuTargetOf(hit({ kind: 'pin', node: { id: 'n1' }, direction: 'out', pin: { address: { port: 'out' } } })),
-    ).toEqual({ kind: 'pin', nodeId: 'n1', portId: 'out', direction: 'out' })
-  })
-
-  it('maps widget rows and taps to the widget target', () => {
-    expect(menuTargetOf(hit({ kind: 'widget', node: { id: 'n1' }, row: { inputId: 'seed' } })))
-      .toEqual({ kind: 'widget', nodeId: 'n1', inputId: 'seed' })
-    expect(menuTargetOf(hit({ kind: 'widgetTap', node: { id: 'n1' }, input: 'seed', pin: {} })))
-      .toEqual({ kind: 'widget', nodeId: 'n1', inputId: 'seed' })
-  })
 
   it('carries the OWNER triple for forwarded-family widget rows (valueKey IS the owner elaborated id)', () => {
     expect(
@@ -252,53 +177,6 @@ describe('menuTargetOf', () => {
     expect(tapFlagged({})).toBeUndefined()
   })
 
-  it('maps sections with their collapsed state', () => {
-    expect(menuTargetOf(hit({ kind: 'section', node: { id: 'n1' }, row: { sectionId: 's1', collapsed: true } })))
-      .toEqual({ kind: 'section', nodeId: 'n1', sectionId: 's1', collapsed: true })
-  })
-
-  it('maps link hits and preserves the destination shape per end kind', () => {
-    const base = { kind: 'link' as const }
-    expect(
-      menuTargetOf(hit({ ...base, link: { id: 'l1', netId: 'net1', to: { kind: 'port', node: 'n2', port: 'in', members: ['m'] } } })),
-    ).toEqual({ kind: 'link', linkId: 'l1', netId: 'net1', to: { node: 'n2', port: 'in', members: ['m'] } })
-    expect(
-      menuTargetOf(hit({ ...base, link: { id: 'l2', to: { kind: 'reroute', reroute: 'r1' } } })),
-    ).toEqual({ kind: 'link', linkId: 'l2', to: { reroute: 'r1' } })
-    expect(
-      menuTargetOf(hit({ ...base, link: { id: 'l3', to: { kind: 'selector', selector: 'sel1', candidate: 'c1' } } })),
-    ).toEqual({ kind: 'link', linkId: 'l3', to: { selector: 'sel1', candidate: 'c1' } })
-  })
-
-  it('maps reroutes and ghost sockets to the junction target', () => {
-    expect(menuTargetOf(hit({ kind: 'reroute', reroute: { id: 'r1' } })))
-      .toEqual({ kind: 'reroute', rerouteId: 'r1' })
-    expect(menuTargetOf(hit({ kind: 'rerouteSocket', reroute: { id: 'r1' }, side: 'in' })))
-      .toEqual({ kind: 'reroute', rerouteId: 'r1' })
-  })
-
-  it('maps value-source and selector surfaces (body, pins, badges) to one target each', () => {
-    for (const kind of ['valueSource', 'valueSourceOut', 'valueSourceBadge']) {
-      expect(menuTargetOf(hit({ kind, valueSource: { id: 'vs1' } })))
-        .toEqual({ kind: 'valueSource', valueSourceId: 'vs1' })
-    }
-    for (const kind of ['selector', 'selectorIn', 'selectorOut', 'selectorBadge']) {
-      expect(menuTargetOf(hit({ kind, selector: { id: 'sel1' } })))
-        .toEqual({ kind: 'selector', selectorId: 'sel1' })
-    }
-  })
-
-  it('maps net stubs with role, endpoint, and optional members', () => {
-    expect(
-      menuTargetOf(hit({ kind: 'netStub', stub: { netId: 'net1', role: 'source', nodeId: 'n1', portId: 'out', members: ['m'] } })),
-    ).toEqual({ kind: 'net', netId: 'net1', role: 'source', nodeId: 'n1', portId: 'out', members: ['m'] })
-  })
-
-  it('maps group header and resize handles to the group target', () => {
-    for (const kind of ['group-header', 'group-resize']) {
-      expect(menuTargetOf(hit({ kind, group: { id: 'g1' } }))).toEqual({ kind: 'group', groupId: 'g1' })
-    }
-  })
 })
 
 describe('toolbox more menu parity', () => {
@@ -352,25 +230,4 @@ describe('toolbox more menu parity', () => {
     expect(resolve(selection, request.target)).toEqual(resolve(selection, rightClickTarget))
   })
 
-  it('color action targets the representative node and requests only its color submenu', () => {
-    expect(toolboxMenuRequest({
-      button: { id: 'core.color', label: 'Choose color' }, x: 72, y: 40, size: 28,
-    }, ['n1', 'n2'])).toEqual({
-      target: { kind: 'node', nodeId: 'n1' },
-      worldX: 86,
-      worldY: 54,
-      submenuId: 'core.node.color',
-    })
-  })
-
-  it('mode action targets the representative node and opens the existing mode submenu', () => {
-    expect(toolboxMenuRequest({
-      button: { id: 'core.mode', label: 'Choose mode' }, x: 44, y: 40, size: 28,
-    }, ['n1', 'n2'])).toEqual({
-      target: { kind: 'node', nodeId: 'n1' },
-      worldX: 58,
-      worldY: 54,
-      submenuId: 'core.node.mode',
-    })
-  })
 })

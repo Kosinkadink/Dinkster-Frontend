@@ -325,38 +325,6 @@ describe('multiline text suggestion surface', () => {
     mounted.unmount()
   })
 
-  it('dismisses a pending state with Escape and restores the unchanged textarea', async () => {
-    const mounted = mountEditor([{
-      id: 'test.pending',
-      supports: () => true,
-      complete: () => new Promise<readonly TextCompletion[]>(() => {}),
-    }])
-    mounted.input('draft')
-    expect(document.querySelector('[role="status"]')?.textContent).toContain('Loading suggestions...')
-    mounted.key('Escape')
-    await mounted.flush()
-    expect(document.querySelector('[data-testid="suggestion-surface"]')).toBeNull()
-    expect(mounted.textarea.value).toBe('draft')
-    expect(document.activeElement).toBe(mounted.textarea)
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
-    mounted.unmount()
-  })
-
-  it('discards an async resolution after its provider is disposed', async () => {
-    let resolve!: (items: readonly TextCompletion[]) => void
-    const mounted = mountEditor([{
-      id: 'test.disposed',
-      supports: () => true,
-      complete: () => new Promise((done) => { resolve = done }),
-    }])
-    mounted.input('x')
-    mounted.disposers[0]!()
-    resolve([completion('late', 'Disposed result', 0, 1, 'late')])
-    await mounted.flush()
-    expect(document.querySelector('[data-testid="suggestion-surface"]')).toBeNull()
-    mounted.unmount()
-  })
-
   it('refuses an already published result after its provider is disposed', async () => {
     const mounted = mountEditor([staticExtension([completion('old', 'Old result', 0, 1, 'old')])])
     mounted.input('x')

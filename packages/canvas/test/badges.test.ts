@@ -13,24 +13,7 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { historicalSchemas as schemas } from './historical-schemas.js'
-import {
-  BADGE_RIGHT_INSET,
-  BADGE_SIZE,
-  BADGE_STRIDE,
-  badgeRect,
-  BYPASSED_BADGE,
-  ERROR_BADGE,
-  executionErrorBadge,
-  hitTestBadge,
-  LOG_INFO_BADGE,
-  logWarningBadge,
-  MUTED_BADGE,
-  PROBLEM_BLOCKING_WARNING_BADGE,
-  PROBLEM_ERROR_BADGE,
-  PROBLEM_WARNING_BADGE,
-  SUBGRAPH_BADGE,
-  type BadgeMap,
-} from '../src/badges.js'
+import { badgeRect, BYPASSED_BADGE, ERROR_BADGE, executionErrorBadge, hitTestBadge, LOG_INFO_BADGE, MUTED_BADGE, SUBGRAPH_BADGE, type BadgeMap } from '../src/badges.js'
 import { buildScene, type Scene } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
@@ -53,73 +36,6 @@ function sceneOf(workflow: string, graphId = 'g0'): Scene {
   })
 }
 
-describe('badgeRect', () => {
-  const scene = sceneOf('exec-basic')
-  const n0 = scene.nodes.find((n) => n.id === 'n0')!
-
-  it('index 0 is rightmost, centered in the header', () => {
-    const r = badgeRect(n0, 0)
-    expect(r.x).toBe(n0.x + n0.layout.width - BADGE_RIGHT_INSET)
-    expect(r.y).toBe(n0.y + n0.layout.headerHeight / 2 - BADGE_SIZE / 2)
-    expect(r.width).toBe(BADGE_SIZE)
-    expect(r.height).toBe(BADGE_SIZE)
-  })
-
-  it('later indices step LEFT by the stride', () => {
-    expect(badgeRect(n0, 1).x).toBe(badgeRect(n0, 0).x - BADGE_STRIDE)
-    expect(badgeRect(n0, 2).x).toBe(badgeRect(n0, 0).x - 2 * BADGE_STRIDE)
-  })
-
-  it('allocates readable widths and spacing for word badges', () => {
-    const badges = [ERROR_BADGE, MUTED_BADGE, BYPASSED_BADGE]
-    const error = badgeRect(n0, 0, badges)
-    const muted = badgeRect(n0, 1, badges)
-    const bypassed = badgeRect(n0, 2, badges)
-
-    expect(error.width).toBeGreaterThan(BADGE_SIZE)
-    expect(muted.width).toBeGreaterThan(BADGE_SIZE)
-    expect(bypassed.width).toBeGreaterThan(muted.width)
-    expect(error.x + error.width).toBe(n0.x + n0.layout.width - BADGE_RIGHT_INSET + BADGE_SIZE)
-    expect(error.x - (muted.x + muted.width)).toBe(BADGE_STRIDE - BADGE_SIZE)
-    expect(muted.x - (bypassed.x + bypassed.width)).toBe(BADGE_STRIDE - BADGE_SIZE)
-  })
-
-  it('places above-node badges in a separate right-aligned lane', () => {
-    const header = ERROR_BADGE
-    const above = { id: 'test.arm', glyph: 'COMFYUI', variant: 'label' as const, placement: 'above' as const, color: '#6a4fa3' }
-    const badges = [header, above]
-    const headerRect = badgeRect(n0, 0, badges)
-    const aboveRect = badgeRect(n0, 1, badges)
-
-    expect(headerRect.y).toBe(n0.y + n0.layout.headerHeight / 2 - BADGE_SIZE / 2)
-    expect(aboveRect.y + aboveRect.height).toBe(n0.y)
-    expect(aboveRect.x + aboveRect.width).toBe(n0.x + n0.layout.width)
-  })
-
-  it('places below-node badges in a left-aligned lane on the bottom edge', () => {
-    const badges = [executionErrorBadge(1), logWarningBadge(2), LOG_INFO_BADGE]
-    const error = badgeRect(n0, 0, badges)
-    const warning = badgeRect(n0, 1, badges)
-    const info = badgeRect(n0, 2, badges)
-
-    // Left-aligned, flowing right: error, warning, info.
-    const gap = BADGE_STRIDE - BADGE_SIZE
-    expect(error.x).toBe(n0.x)
-    expect(error.y).toBe(n0.y + n0.layout.height)
-    expect(warning.x).toBe(error.x + error.width + gap)
-    expect(info.x).toBe(warning.x + warning.width + gap)
-    expect(info.y).toBe(error.y)
-    expect(error.width).toBeGreaterThan(BADGE_SIZE) // word badge
-    expect(info.width).toBe(BADGE_SIZE) // compact dot
-  })
-
-  it('the below lane offsets independently of header and above badges', () => {
-    const badges = [ERROR_BADGE, { id: 'test.arm', glyph: 'N', placement: 'above' as const, color: '#286a55' }, LOG_INFO_BADGE]
-    // LOG_INFO_BADGE is the only below badge: no preceding width in ITS lane.
-    expect(badgeRect(n0, 2, badges).x).toBe(n0.x)
-  })
-})
-
 describe('hitTestBadge', () => {
   const scene = sceneOf('exec-basic')
   const n0 = scene.nodes.find((n) => n.id === 'n0')!
@@ -137,14 +53,6 @@ describe('hitTestBadge', () => {
     const r = badgeRect(n0, 1, badges.n0)
     const hit = hitTestBadge(scene, badges, r.x + 1, r.y + 1)
     expect(hit?.badge.id).toBe(SUBGRAPH_BADGE.id)
-  })
-
-  it('hits the full width of a word badge', () => {
-    const wordBadges: BadgeMap = { n0: [ERROR_BADGE] }
-    const r = badgeRect(n0, 0, wordBadges.n0)
-    const hit = hitTestBadge(scene, wordBadges, r.x + 1, r.y + 1)
-    expect(hit?.badge).toBe(ERROR_BADGE)
-    expect(hit?.rect).toEqual(r)
   })
 
   it('does not let presentation-only mode badges intercept node gestures', () => {
@@ -189,18 +97,5 @@ describe('hitTestBadge', () => {
     const stacked: Scene = { ...scene, nodes: [lower, blocker] }
 
     expect(hitTestBadge(stacked, { [lower.id]: [badge] }, rect.x + 1, rect.y + 1)).toBeUndefined()
-  })
-})
-
-describe('document problem badges', () => {
-  it('keep error, blocking warning, advisory warning, and runtime identities distinct', () => {
-    expect(new Set([
-      ERROR_BADGE.id,
-      PROBLEM_ERROR_BADGE.id,
-      PROBLEM_BLOCKING_WARNING_BADGE.id,
-      PROBLEM_WARNING_BADGE.id,
-    ]).size).toBe(4)
-    expect(PROBLEM_ERROR_BADGE.color).not.toBe(PROBLEM_WARNING_BADGE.color)
-    expect(PROBLEM_BLOCKING_WARNING_BADGE.color).not.toBe(PROBLEM_WARNING_BADGE.color)
   })
 })

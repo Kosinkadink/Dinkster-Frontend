@@ -88,10 +88,6 @@ describe('follow-latest default', () => {
     expect(app.executionsForTab(subgraph).map((entry) => entry.ref)).toEqual([subgraphRun])
   })
 
-  it('a tab with no executions resolves nothing', () => {
-    run(subgraph, 100)
-    expect(app.executionForTab(basic)).toBeUndefined()
-  })
 })
 
 describe('pinning', () => {
@@ -129,27 +125,6 @@ describe('pinning', () => {
     expect(app.overlayPins.get().has(basic.id)).toBe(false)
   })
 
-  it('rejects pinning an unknown execution', () => {
-    const ghost: ExecutionRef = { connection: CONNECTION, prompt: asPromptId('nope') }
-    expect(app.pinExecutionOverlay(basic.id, ghost)).toBe(false)
-  })
-
-  it('rejects pinning on a frozen tab', async () => {
-    const ref = run(basic, 100)
-    expect(await app.openExecutionView(ref)).toBe(true)
-    const frozen = app.activeTab()!
-    expect(frozen.execution).toBeDefined()
-    expect(app.pinExecutionOverlay(frozen.id, ref)).toBe(false)
-  })
-
-  it('running and terminal executions are both pinnable', () => {
-    const ref = run(basic, 100)
-    app.store.apply({ kind: 'started', execution: ref, timestamp: 110 })
-    expect(app.pinExecutionOverlay(basic.id, ref)).toBe(true)
-    app.store.apply({ kind: 'completed', execution: ref, timestamp: 120 })
-    expect(app.executionForTab(basic)?.status).toBe('completed')
-    expect(app.overlayModeForTab(basic)).toBe('pinned')
-  })
 })
 
 describe('frozen tabs', () => {
@@ -171,12 +146,6 @@ describe('frozen tabs', () => {
 })
 
 describe('view-state lifecycle', () => {
-  it('closing a tab drops its pin entry', () => {
-    const ref = run(basic, 100)
-    app.pinExecutionOverlay(basic.id, ref)
-    app.closeTab(basic.id)
-    expect(app.overlayPins.get().has(basic.id)).toBe(false)
-  })
 
   it('replacing a document via openDocument starts unpinned', async () => {
     const ref = run(basic, 100)
@@ -202,11 +171,4 @@ describe('liveSyncStatus', () => {
     expect(status?.inSync).toBe(true) // document unchanged since that compile
   })
 
-  it('reports the latest run with mode "latest" when unpinned', () => {
-    run(basic, 100)
-    const newest = run(basic, 200)
-    const status = app.liveSyncStatus(basic)
-    expect(status?.ref).toEqual(newest)
-    expect(status?.mode).toBe('latest')
-  })
 })

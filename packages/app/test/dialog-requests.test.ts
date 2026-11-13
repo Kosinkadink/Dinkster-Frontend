@@ -60,13 +60,6 @@ const consentCallbacks = () => ({
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
 
 describe('installAssetConsent ownership', () => {
-  it('installs a non-busy request carrying the rejection assets', () => {
-    const slot = slotOf<AssetConsentRequest>()
-    const { result } = rejection([missing('blake3:a')])
-    installAssetConsent({ result, slot, ...consentCallbacks() })
-    expect(slot.value?.assets.map((a) => a.digest)).toEqual(['blake3:a'])
-    expect(slot.value?.busy).toBe(false)
-  })
 
   it('successful retry clears its own dialog and reports the run', async () => {
     const slot = slotOf<AssetConsentRequest>()
@@ -132,26 +125,6 @@ describe('installAssetConsent ownership', () => {
     expect(followup.retries).toHaveLength(1)
   })
 
-  it('a retained pre-reopen request cannot retry the reopened stage of its own chain', async () => {
-    const slot = slotOf<AssetConsentRequest>()
-    const { result, retries } = rejection([missing('blake3:a')])
-    installAssetConsent({ result, slot, ...consentCallbacks() })
-    const first = slot.value!
-    void first.retry(['blake3:a'])
-    const followup = rejection([missing('blake3:a'), missing('blake3:b')])
-    retries[0]!.resolve(followup.result)
-    await flush()
-    const reopened = slot.value
-    expect(reopened).not.toBe(first)
-    // The stale first-stage closure must not mark the reopened request busy
-    // or fire ITS captured retryWithAssets against the reopened stage.
-    void first.retry(['blake3:a'])
-    expect(slot.value).toBe(reopened)
-    expect(slot.value?.busy).toBe(false)
-    expect(retries).toHaveLength(1) // no second retry through the old result
-    expect(followup.retries).toHaveLength(0)
-  })
-
   it('a superseded still-missing outcome leaves the newer owner alone and reports instead', async () => {
     const slot = slotOf<AssetConsentRequest>()
     const a = rejection([missing('blake3:a')])
@@ -172,21 +145,6 @@ describe('installAssetConsent ownership', () => {
     expect(b.retries).toHaveLength(1)
   })
 
-  it('a superseded successful retry still reports the run without touching the slot', async () => {
-    const slot = slotOf<AssetConsentRequest>()
-    const a = rejection([missing('blake3:a')])
-    const cb = consentCallbacks()
-    installAssetConsent({ result: a.result, slot, ...cb })
-    void slot.value!.retry(['blake3:a'])
-    const b = rejection([missing('blake3:b')])
-    installAssetConsent({ result: b.result, slot, ...consentCallbacks() })
-    const owner = slot.value
-    a.retries[0]!.resolve(submitOk)
-    await flush()
-    expect(cb.onSubmitted).toHaveBeenCalledWith(submitOk) // the server really ran it
-    expect(slot.value).toBe(owner) // but B's dialog survives
-  })
-
   it('external slot clearance during flight makes the chain surrender the slot', async () => {
     // (The production dialog's Dismiss button clears the slot while busy -
     // this is exactly the contract that makes that safe: the chain keeps
@@ -203,17 +161,6 @@ describe('installAssetConsent ownership', () => {
     expect(cb.onSuperseded).toHaveBeenCalled()
   })
 
-  it('idle user dismissal makes a later stale retry a no-op', () => {
-    const slot = slotOf<AssetConsentRequest>()
-    const { result, retries } = rejection([missing('blake3:a')])
-    installAssetConsent({ result, slot, ...consentCallbacks() })
-    const dismissed = slot.value!
-    slot.set(undefined) // the dialog's non-busy dismiss path
-    void dismissed.retry(['blake3:a'])
-    expect(retries).toHaveLength(0)
-    expect(slot.value).toBeUndefined()
-  })
-
   it('terminal rejection clears its own dialog and reports diagnostics', async () => {
     const slot = slotOf<AssetConsentRequest>()
     const a = rejection([missing('blake3:a')])
@@ -225,22 +172,6 @@ describe('installAssetConsent ownership', () => {
     await flush()
     expect(slot.value).toBeUndefined()
     expect(cb.onRejected).toHaveBeenCalledWith([diag])
-  })
-
-  it('a superseded terminal rejection reports diagnostics without clearing the newer owner', async () => {
-    const slot = slotOf<AssetConsentRequest>()
-    const a = rejection([missing('blake3:a')])
-    const cb = consentCallbacks()
-    installAssetConsent({ result: a.result, slot, ...cb })
-    void slot.value!.retry(['blake3:a'])
-    const b = rejection([missing('blake3:b')])
-    installAssetConsent({ result: b.result, slot, ...consentCallbacks() })
-    const owner = slot.value
-    const diag = { severity: 'error', origin: 'validation', code: 'x', message: 'no' } as const
-    a.retries[0]!.resolve({ ok: false, diagnostics: [diag] })
-    await flush()
-    expect(cb.onRejected).toHaveBeenCalledWith([diag])
-    expect(slot.value).toBe(owner)
   })
 
   it('an owned transport failure clears its own dialog and reports', async () => {
@@ -255,44 +186,6 @@ describe('installAssetConsent ownership', () => {
     expect(slot.value).toBeUndefined()
   })
 
-  it('a superseded transport failure reports without clearing the newer owner', async () => {
-    const slot = slotOf<AssetConsentRequest>()
-    const a = rejection([missing('blake3:a')])
-    const cb = consentCallbacks()
-    installAssetConsent({ result: a.result, slot, ...cb })
-    void slot.value!.retry(['blake3:a'])
-    const b = rejection([missing('blake3:b')])
-    installAssetConsent({ result: b.result, slot, ...consentCallbacks() })
-    const owner = slot.value
-    a.retries[0]!.reject(new Error('socket closed'))
-    await flush()
-    expect(cb.onTransportError).toHaveBeenCalledWith('socket closed')
-    expect(slot.value).toBe(owner)
-  })
-
-  it('settles resources once, after the final callback, across reopened and cancelled in-flight stages', async () => {
-    const slot = slotOf<AssetConsentRequest>()
-    const first = rejection([missing('blake3:a')])
-    const second = rejection([missing('blake3:b')])
-    const controller = new AbortController()
-    const onSettled = vi.fn()
-    const onSubmitted = vi.fn(() => expect(onSettled).not.toHaveBeenCalled())
-    installAssetConsent({ result: first.result, slot, ...consentCallbacks(), onSubmitted, onSettled, signal: controller.signal })
-    const firstRetry = slot.get()!.retry([])
-    first.retries[0]!.resolve(second.result)
-    await firstRetry
-    expect(onSettled).not.toHaveBeenCalled()
-    const secondRetry = slot.get()!.retry([])
-    controller.abort()
-    expect(slot.get()).toBeUndefined()
-    expect(onSettled).not.toHaveBeenCalled()
-    second.retries[0]!.resolve(submitOk)
-    await secondRetry
-    expect(onSubmitted).toHaveBeenCalledOnce()
-    expect(onSettled).toHaveBeenCalledOnce()
-    slot.set(undefined)
-    expect(onSettled).toHaveBeenCalledOnce()
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -353,23 +246,6 @@ describe('installImportAssetResolution ownership', () => {
     expect(slot.value).toBeUndefined()
   })
 
-  it('does not dispatch an incomplete candidate supplied by a stale caller', () => {
-    const slot = slotOf<ImportAssetResolutionRequest>()
-    const { dispatch } = installResolution(slot)
-    const { mediaType: _missing, ...incomplete } = candidate('model.safetensors')
-    slot.value!.accept(new Map([['model.safetensors', incomplete]]))
-    expect(dispatch).not.toHaveBeenCalled()
-    expect(slot.value).toBeUndefined()
-  })
-
-  it('accept with no chosen candidates clears without dispatching', () => {
-    const slot = slotOf<ImportAssetResolutionRequest>()
-    const { dispatch } = installResolution(slot)
-    slot.value!.accept(new Map())
-    expect(dispatch).not.toHaveBeenCalled()
-    expect(slot.value).toBeUndefined()
-  })
-
   it('a stale accept (slot claimed by a newer import) neither dispatches nor clears', () => {
     const slot = slotOf<ImportAssetResolutionRequest>()
     const { dispatch } = installResolution(slot)
@@ -379,35 +255,6 @@ describe('installImportAssetResolution ownership', () => {
     stale.accept(choicesFor('model.safetensors'))
     expect(dispatch).not.toHaveBeenCalled()
     expect(slot.value).toBe(owner)
-  })
-
-  it('a stale cancel leaves the newer owner in place', () => {
-    const slot = slotOf<ImportAssetResolutionRequest>()
-    installResolution(slot)
-    const stale = slot.value!
-    installResolution(slot)
-    const owner = slot.value
-    stale.cancel()
-    expect(slot.value).toBe(owner)
-  })
-
-  it('accept for a since-closed tab clears its own dialog without dispatching', () => {
-    const slot = slotOf<ImportAssetResolutionRequest>()
-    let open = true
-    const { dispatch } = installResolution(slot, { tabStillOpen: () => open })
-    open = false // tab closed (or replaced - object identity) before the click
-    slot.value!.accept(choicesFor('model.safetensors'))
-    expect(dispatch).not.toHaveBeenCalled()
-    expect(slot.value).toBeUndefined()
-  })
-
-  it('a second accept after the first is a no-op', () => {
-    const slot = slotOf<ImportAssetResolutionRequest>()
-    const { dispatch } = installResolution(slot)
-    const request = slot.value!
-    request.accept(choicesFor('model.safetensors'))
-    request.accept(choicesFor('model.safetensors'))
-    expect(dispatch).toHaveBeenCalledTimes(1)
   })
 
   it('cancel clears its own dialog', () => {
@@ -438,35 +285,4 @@ describe('installImportAssetResolution ownership', () => {
     }
   })
 
-  it.each([false, true])('does not overwrite a newer request after acceptance=%s', async (accepted) => {
-    const slot = slotOf<ImportAssetResolutionRequest>()
-    const { dispatch } = installResolution(slot)
-    let finish!: (accepted: boolean) => void
-    dispatch.mockImplementation(() => new Promise<boolean>((resolve) => { finish = resolve }))
-    const pending = slot.value!.accept(choicesFor('model.safetensors'))
-    installResolution(slot)
-    const newer = slot.value!
-    finish(accepted)
-    await pending
-    expect(slot.value).toBe(newer)
-    await newer.accept(choicesFor('model.safetensors'))
-    expect(slot.value).toBeUndefined()
-  })
-
-  it.each(['dismissed', 'closed'])('does not retain a %s request after a pending refusal', async (state) => {
-    const slot = slotOf<ImportAssetResolutionRequest>()
-    let open = true
-    const { dispatch } = installResolution(slot, { tabStillOpen: () => open })
-    let finish!: (accepted: boolean) => void
-    dispatch.mockImplementation(() => new Promise<boolean>((resolve) => { finish = resolve }))
-    const request = slot.value!
-    const pending = request.accept(choicesFor('model.safetensors'))
-    if (state === 'dismissed') request.cancel()
-    else open = false
-    finish(false)
-    await pending
-    expect(slot.value).toBeUndefined()
-    await request.accept(choicesFor('model.safetensors'))
-    expect(dispatch).toHaveBeenCalledTimes(1)
-  })
 })

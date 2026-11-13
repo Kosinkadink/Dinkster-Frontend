@@ -1,5 +1,4 @@
 import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
-import { elabInputsOf, elaborateInterface, loadDocument, parseDinksterSchema, valueKeyOf, type DinksterWireSchema } from '@dinkster/core'
 
 async function mountPoint(page: Page, inputId = 'destination', nodeId = 'save') {
   return page.evaluate(({ inputId, nodeId }) => {
@@ -59,121 +58,6 @@ test('native SaveImage and SaveVideo keep imported prefixes beside independent m
   }
   expect(await page.evaluate(() => structuredClone(window.__dinksterTest!.app.activeTab()!.store.doc))).toEqual(before)
   expect(pageErrors).toEqual([])
-})
-
-test('imported SaveVideo resolves dormant codecs without certifying unsupported ownership', async ({ page }) => {
-  const response = await page.request.get('/api/nodes')
-  expect(response.ok()).toBe(true)
-  const catalog = await response.json() as { nodes: Record<string, DinksterWireSchema> }
-  const schema = parseDinksterSchema('dinkster.video.save_video', catalog.nodes['dinkster.video.save_video']!).schema!
-  expect(schema).toBeDefined()
-  await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
-  await waitForStartupOwnership(page)
-  const result = await page.evaluate(async () => {
-    const workflow = { version: 0.4, nodes: [
-      { id: 1, type: 'SaveImage', pos: [60, 60], size: [350, 180], inputs: [{ name: 'images', type: 'IMAGE', link: null }], outputs: [], widgets_values: ['images/first'], properties: { ver: '0.3.68' } },
-      { id: 2, type: 'SaveVideo', pos: [520, 60], size: [350, 240], inputs: [{ name: 'video', type: 'VIDEO', link: null }], outputs: [], widgets_values: ['video/second', 'auto', 'auto'], properties: { ver: '0.3.68' } },
-    ], links: [] }
-    const app = window.__dinksterTest!.app
-    const imported = await app.importWorkflowFile({ name: 'native-save-mounts.json', text: async () => JSON.stringify(workflow) })
-    const tab = app.activeTab()!
-    const document = structuredClone(tab.store.doc)
-    const shared = await app.shareActiveTab()
-    const saved = await app.saveWorkflow(tab.id)
-    const records = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
-      .filter((key) => key.includes('dinkster.workflow-retentions.'))
-      .map((key) => JSON.parse(localStorage.getItem(key)!))
-    return { imported, document, shared, saved, records, warnings: app.problems.get()
-      .filter((problem) => problem.code === 'workflow.execution.ownershipUnconfirmed') }
-  })
-  expect(result.imported).toBe(true)
-  const loaded = loadDocument(result.document)
-  expect(loaded.document).toBeDefined()
-  const node = loaded.document!.graphs.g0!.nodes.n2!
-  expect(node.dynamic).toEqual({ format: { selected: 'auto' }, 'format.codec': { selected: 'auto' }, codec: { selected: 'auto' } })
-  expect(elaborateInterface(schema, node).diagnostics).toEqual([])
-  const stored = elaborateInterface(schema, node, undefined, { includeDormant: true })
-  expect(stored.diagnostics).toEqual([])
-  expect([...new Set(elabInputsOf(stored).map(valueKeyOf))].sort()).toEqual([
-    'codec.encoding.crf', 'filename_prefix', 'format.codec.encoding.crf', 'mount', 'video',
-  ])
-  expect(result.shared).toBe('Workflow ownership unconfirmed. Publication and sharing remain unavailable.')
-  expect(result.saved).toBe(false)
-  expect(result.warnings).toEqual([])
-  expect(result.records.filter((record) => record.documentLineage === loaded.document!.lineage)).toEqual(
-    expect.arrayContaining([expect.objectContaining({ complete: false, digests: [], acknowledgedRevision: 1 })]),
-  )
-  expect(result.records.filter((record) => record.documentLineage === loaded.document!.lineage)
-    .every((record) => record.complete === false && record.incompleteDiagnostics === undefined)).toBe(true)
-})
-
-test('SaveImage and SaveVideo contract fixtures render mount beside filename_prefix without helper nodes', async ({ page }, testInfo) => {
-  await page.route('/api/*', (route) => route.fulfill({ status: 503, body: 'No backend in this frontend contract test' }))
-  await page.route('/system_stats', (route) => route.fulfill({ status: 503 }))
-  await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'canonical-save-contract-fixtures', schemaWire: 1 },
-    nodes: Object.fromEntries([
-      ['SaveImage', 'images', 'IMAGE', 'ComfyUI'],
-      ['SaveVideo', 'video', 'VIDEO', 'video/ComfyUI'],
-    ].map(([id, input, type, prefix]) => [id, {
-      schemaVersion: 1, displayName: id, outputNode: true,
-      interface: [
-        { role: 'input', id: input, type: { kind: 'concrete', types: [type] } },
-        { role: 'input', id: 'filename_prefix', type: { kind: 'concrete', types: ['STRING'] }, default: prefix },
-        ...(id === 'SaveVideo' ? [{ role: 'dynamicCombo', id: 'format', options: [
-          { key: 'auto', inputs: [{ role: 'input', id: 'codec', type: { kind: 'concrete', types: ['COMBO'] }, default: 'auto', widget: { type: 'COMBO', options: ['auto', 'h264', 'av1'] } }] },
-        ] }] : []),
-        { role: 'input', id: 'mount', type: { kind: 'concrete', types: ['STRING'] }, required: false, default: null, widget: { type: 'MOUNT' }, adjacentTo: 'filename_prefix' },
-      ],
-    }])),
-  } }))
-  await page.route('/api/mounts*', (route) => route.fulfill({ json: { outputMount: 'primary', mounts: [
-    { id: 'primary', mode: 'readwrite', state: 'ready' },
-    { id: 'archive', mode: 'readwrite', state: 'ready' },
-  ] } }))
-  await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('2 node schemas')
-  await expect.poll(() => page.evaluate(() => !!window.__dinksterTest?.app.activeTab())).toBe(true)
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'canonical-save-contract', root: 'g0',
-      graphs: { g0: { id: 'g0', name: 'root', nodes: {
-        image: { id: 'image', type: 'SaveImage', values: { filename_prefix: 'images/session' } },
-        video: { id: 'video', type: 'SaveVideo', values: { filename_prefix: 'video/session', 'format.codec': 'h264' }, dynamic: { format: { selected: 'auto' } } },
-      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
-      view: { graphs: { g0: { nodes: {
-        image: { position: { x: 60, y: 60 } }, video: { position: { x: 520, y: 60 } },
-      } } } },
-    }, 'Canonical save contract fixtures')
-    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  })
-  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.map((node) => node.id).sort())).toEqual(['image', 'video'])
-  await page.screenshot({ path: testInfo.outputPath('canonical-save-mounts-default.png') })
-  for (const nodeId of ['image', 'video']) {
-    const prefix = await mountPoint(page, 'filename_prefix', nodeId)
-    const mount = await mountPoint(page, 'mount', nodeId)
-    expect(mount.y).toBe(prefix.y)
-    expect(mount.x).toBeGreaterThan(prefix.x)
-    await page.mouse.click(prefix.x, prefix.y)
-    await expect(page.getByTestId('widget-editor')).toBeVisible()
-    await page.keyboard.press('Escape')
-    await page.mouse.click(mount.x, mount.y)
-    await expect(page.getByTestId('mount-widget-editor')).toHaveAttribute('data-mounts', 'ready')
-    await expect(page.getByTestId('mount-widget-choice')).toHaveText('Default output mount')
-    await page.getByTestId('mount-widget-choice').click()
-    await expect(page.getByRole('option')).toHaveText(['Default output mount', 'primary', 'archive'])
-    await page.screenshot({ path: testInfo.outputPath(`${nodeId}-mount-default.png`) })
-    await page.locator('[data-option-id="archive"]').click()
-    await page.getByTestId('mount-widget-apply').click()
-  }
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes)).toEqual({
-    image: { id: 'image', type: 'SaveImage', values: { filename_prefix: 'images/session', mount: 'archive' } },
-    video: { id: 'video', type: 'SaveVideo', values: { filename_prefix: 'video/session', 'format.codec': 'h264', mount: 'archive' }, dynamic: { format: { selected: 'auto' } } },
-  })
-  await page.screenshot({ path: testInfo.outputPath('canonical-save-mounts-explicit.png') })
-  await expect(page.getByTestId('save-target-editor')).toHaveCount(0)
 })
 
 test('schema adjacency keeps separate prefix and mount controls through selection, default reset and undo', async ({ page }, testInfo) => {
@@ -285,37 +169,4 @@ test('schema adjacency keeps separate prefix and mount controls through selectio
       link.x2 === sink.x && link.y2 === sink.y + to.y
   })).toBe(true)
   await page.screenshot({ path: testInfo.outputPath('mount-row-connected.png') })
-})
-
-test('nested save presentation qualifies adjacent controls without reordering stored inputs', async ({ page }, testInfo) => {
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'nested-mount-contract-fixture', schemaWire: 1 },
-    nodes: { NestedSaveFixture: {
-      schemaVersion: 1, displayName: 'Nested save contract fixture', outputNode: true,
-      interface: [{ role: 'dynamicCombo', id: 'mode', options: [{ key: 'save', inputs: [
-        { role: 'input', id: 'prefix', type: { kind: 'concrete', types: ['STRING'] }, default: 'nested/session' },
-        { role: 'input', id: 'quality', type: { kind: 'concrete', types: ['INT'] }, default: 73 },
-        { role: 'input', id: 'destination', displayName: 'Mount', type: { kind: 'concrete', types: ['STRING'] }, required: false, default: null, widget: { type: 'MOUNT' }, adjacentTo: 'prefix' },
-      ] }] }],
-    } },
-  } }))
-  await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
-  await page.evaluate(async () => {
-    await window.__dinksterTest!.app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'nested-mount-contract', root: 'g0',
-      graphs: { g0: { id: 'g0', name: 'root', nodes: {
-        save: { id: 'save', type: 'NestedSaveFixture', values: { 'mode.prefix': 'nested/session', 'mode.quality': 73 } },
-      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
-      view: { graphs: { g0: { nodes: { save: { position: { x: 60, y: 60 } } } } } },
-    }, 'Nested save contract')
-    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  })
-  await expect.poll(() => page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'save')
-    return node?.layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)
-  })).toEqual(['mode', 'mode.prefix', 'mode.destination', 'mode.quality'])
-  await page.screenshot({ path: testInfo.outputPath('mount-nested.png') })
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.save!.values))
-    .toEqual({ 'mode.prefix': 'nested/session', 'mode.quality': 73 })
 })

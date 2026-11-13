@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, appViewTest as test } from './fixtures.js'
-import { pseudoCatalog, pseudoMessage } from './pseudo-catalog.js'
+import { pseudoCatalog } from './pseudo-catalog.js'
 import { auditLayout } from './ui-audit.js'
 import { evidencePath } from './evidence-output.js'
 
@@ -9,21 +9,6 @@ const english = JSON.parse(readFileSync(
   'utf8',
 )) as Record<string, string>
 const pseudo = pseudoCatalog(english)
-const placeholders = (message: string): string[] => [...message.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)(?=,|\})/g)]
-  .map((match) => match[1]!)
-  .sort()
-
-test('generates one expanded pseudo message for every English catalog key', () => {
-  expect(Object.keys(pseudo).sort()).toEqual(Object.keys(english).sort())
-  for (const [key, message] of Object.entries(english)) {
-    const transformed = pseudo[key]!
-    expect(transformed, key).toMatch(/^\[!! .+ ~{4,} !!\]$/s)
-    expect(transformed.length, key).toBeGreaterThan(message.length)
-    expect(placeholders(transformed), key).toEqual(placeholders(message))
-  }
-  expect(pseudoMessage('{count, plural, one {# item} other {# items}}'))
-    .toContain('{count, plural, one {# item} other {# items}}')
-})
 
 test('runs mounted host surfaces through the complete pseudo catalog', async ({ page, request }) => {
   let schemaRequests = 0

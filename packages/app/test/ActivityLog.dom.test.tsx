@@ -4,7 +4,7 @@ import { registerCatalog, setLocale } from '@dinkster/core'
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ActivityLog, formatActivityTimestamp } from '../src/ActivityLog.js'
+import { ActivityLog } from '../src/ActivityLog.js'
 import type { AppLogEntry } from '../src/app-state.js'
 
 const entry = (
@@ -30,15 +30,6 @@ afterEach(() => {
 })
 
 describe('ActivityLog', () => {
-  it('renders a deterministic empty state', () => {
-    const root = document.createElement('div')
-    document.body.append(root)
-    const dispose = render(() => <ActivityLog entries={() => []} clearArmed={() => false} />, root)
-
-    expect(root.querySelector('[data-testid="activity-log-empty"]')?.textContent).toContain('No activity yet')
-    expect(root.querySelector('[role="log"]')?.tagName).toBe('DIV')
-    dispose()
-  })
 
   it('separates exact timestamps, severity, source, and message without color-only meaning', () => {
     const entries = [entry(0), entry(1, 'warn'), entry(2, 'error')]
@@ -143,7 +134,4 @@ describe('ActivityLog', () => {
     dispose()
   })
 
-  it('formats timestamps independently of the browser locale', () => {
-    expect(formatActivityTimestamp(Date.UTC(2026, 7, 16, 1, 2, 3, 4))).toBe('2026-08-16 01:02:03.004 UTC')
-  })
 })

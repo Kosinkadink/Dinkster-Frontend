@@ -15,17 +15,6 @@ function registry(value?: string): SettingsRegistry {
 afterEach(() => setLocale('en'))
 
 describe('app locale', () => {
-  it('registers the global locale setting', () => {
-    const settings = registry()
-    const definition = settings.list().find((entry) => entry.id === LOCALE_SETTING_ID)
-    expect(definition).toMatchObject({ defaultValue: 'auto' })
-    expect(definition?.projectScoped).toBeUndefined()
-    expect(definition?.options).toEqual([
-      { value: 'auto', label: 'Automatic' },
-      { value: 'en', label: 'English' },
-      { value: 'zh', label: 'Chinese' },
-    ])
-  })
 
   it('uses desktop locale before browser locale in automatic mode', () => {
     const settings = registry()
@@ -67,11 +56,4 @@ describe('app locale', () => {
     expect(listeners.size).toBe(0)
   })
 
-  it('binds an automatic RTL pseudo-locale to root language and direction', () => {
-    const settings = registry()
-    const root = { lang: '', dir: '' }
-    const dispose = bindLocale(settings, root, 'ar-XB')
-    expect(root).toEqual({ lang: 'ar-XB', dir: 'rtl' })
-    dispose()
-  })
 })

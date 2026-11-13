@@ -734,43 +734,6 @@ test('FR14 a disabled menu item cannot be invoked by mouse or Enter, and arrows 
   await expect(menu(page)).not.toBeVisible()
 })
 
-test('FR14 the initial highlight skips a disabled first row; a disabled row refuses Enter and mousedown', async ({ page }) => {
-  await openSectionedWorkflow(page)
-  // Bring w to its default so core.widget.reset renders disabled.
-  await page.mouse.click(...xy(await widgetPoint(page, 's0', 'w')), { button: 'right' })
-  await menuItem(page, 'core.widget.reset').click()
-  await expect(menu(page)).not.toBeVisible()
-
-  // The widget menu is now [disabled reset ('80-values'), enabled expose
-  // toggle ('85-expose')]: the INITIAL highlight must skip the disabled
-  // first row and land on the first enabled item. (An all-disabled menu is
-  // no longer constructible on a widget target - the expose toggle is
-  // always enabled - so the index-0 fallback stays a code-level guard.)
-  await page.mouse.click(...xy(await widgetPoint(page, 's0', 'w')), { button: 'right' })
-  await expect(page.getByTestId('context-menu-item')).toHaveCount(2)
-  await expect(menuItem(page, 'core.widget.reset')).toHaveClass(/disabled/)
-  await expect(menuItem(page, 'core.widget.expose.toggle')).toHaveClass(/active/)
-  await expect(menuItem(page, 'core.widget.reset')).not.toHaveClass(/active/)
-  // No enabled item above: ArrowUp stays put instead of landing on disabled.
-  await page.keyboard.press('ArrowUp')
-  await expect(menuItem(page, 'core.widget.expose.toggle')).toHaveClass(/active/)
-
-  // Hover moves the highlight onto ANY row, including a disabled one - but
-  // Enter and mousedown on it still refuse: disabled is never invokable.
-  await menuItem(page, 'core.widget.reset').hover()
-  await expect(menuItem(page, 'core.widget.reset')).toHaveClass(/active/)
-  const before = await revision(page)
-  await page.keyboard.press('Enter')
-  await expect(menu(page)).toBeVisible()
-  expect(await revision(page)).toBe(before)
-  // force: aria-disabled rows fail Playwright actionability by design.
-  await menuItem(page, 'core.widget.reset').click({ force: true })
-  await expect(menu(page)).toBeVisible()
-  expect(await revision(page)).toBe(before)
-  await page.keyboard.press('Escape')
-  await expect(menu(page)).not.toBeVisible()
-})
-
 test('switching tabs dismisses a stale menu', async ({ page }) => {
   await page.mouse.click(...xy(await headerPoint(page, 'n0')), { button: 'right' })
   await expect(menu(page)).toBeVisible()

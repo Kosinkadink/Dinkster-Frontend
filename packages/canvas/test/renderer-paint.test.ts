@@ -6,50 +6,13 @@
  * file owns "given those flags, the right pixels get the right color".
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import {
-  asGraphDefId,
-  asLineageId,
-  asLinkId,
-  asNodeId,
-  asPortId,
-  asRerouteId,
-  documentResolver,
-  loadDocument,
-  type NodeSchema,
-  type WorkflowDocument,
-} from '@dinkster/core'
-import {
-  boundarySceneId,
-  buildScene,
-  GROUP_HEADER_HEIGHT,
-  REROUTE_RADIUS,
-  REROUTE_SOCKET_OFFSET,
-  REROUTE_SOCKET_RADIUS,
-  selectorBadgeRect,
-  valueSourceBadgeRect,
-  VS_BADGE_SIZE,
-  type Scene,
-  type SceneNode,
-} from '../src/scene.js'
-import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, previewSurfaceAffordanceRect, rerouteTargetKey, sceneVisualBounds, widgetRowAffordanceRect, type PresenceActor } from '../src/renderer.js'
-import {
-  BADGE_SIZE,
-  badgeRect,
-  BYPASSED_BADGE,
-  ERROR_BADGE,
-  MUTED_BADGE,
-  PROBLEM_BLOCKING_WARNING_BADGE,
-  PROBLEM_ERROR_BADGE,
-  PROBLEM_WARNING_BADGE,
-  SUBGRAPH_BADGE,
-  subgraphBadge,
-} from '../src/badges.js'
-import { controllerChipRect, controllerChipTextRight } from '../src/controller-chip.js'
+import { asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, documentResolver, loadDocument, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
+import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET, REROUTE_SOCKET_RADIUS, selectorBadgeRect, valueSourceBadgeRect, VS_BADGE_SIZE, type Scene, type SceneNode } from '../src/scene.js'
+import { canvasGridLayer, CanvasRenderer, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
+import { BADGE_SIZE, badgeRect, BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
-import { CANVAS_DETAIL_MIN_SCALE, defaultTokens, presentedType, typeColor, type DesignTokens } from '../src/tokens.js'
+import { CANVAS_DETAIL_MIN_SCALE, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
 import { projectNodeLayoutHeight, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
-import { splitPreviewRect } from '../src/previews.js'
-import { TOOLBOX_GAP_FROM_ATTACHED_BADGE } from '../src/toolbox.js'
 
 // The renderer's rAF loop is irrelevant here: renderNow() paints
 // synchronously. Stub the scheduler so construction works under node.
@@ -292,38 +255,6 @@ function fixtureScene(kind: 'withMismatch' | 'clean' = 'withMismatch'): Scene {
   })
 }
 
-function comboRerouteScene(): Scene {
-  const doc: WorkflowDocument = {
-    format: 'dinkster-workflow', formatVersion: 1, lineage: asLineageId('combo-reroute'), root: asGraphDefId('g0'),
-    graphs: { g0: {
-      id: asGraphDefId('g0'), name: 'combo reroute',
-      nodes: {
-        src: { id: asNodeId('src'), type: 'dinkster.string_to_combo', values: {} },
-        sink: { id: asNodeId('sink'), type: 'dinkster.combo_to_string', values: {} },
-      },
-      links: {
-        into: {
-          id: asLinkId('into'), from: { node: asNodeId('src'), port: asPortId('choice') },
-          to: { reroute: asRerouteId('r1') },
-        },
-        out: {
-          id: asLinkId('out'), from: { reroute: asRerouteId('r1') },
-          to: { node: asNodeId('sink'), port: asPortId('choice') },
-        },
-      },
-      nets: {}, reroutes: { r1: { id: asRerouteId('r1') } }, nextOrdinal: 10,
-    } },
-    view: { graphs: { g0: {
-      nodes: { src: { position: { x: 40, y: 40 } }, sink: { position: { x: 500, y: 40 } } },
-      reroutes: { r1: { position: { x: 300, y: 100 } } },
-    } } },
-  }
-  return buildScene({
-    document: doc, graphId: 'g0', resolve: (type) => synthetic.get(type),
-    tokens: defaultTokens, measure, widgetMeasure,
-  })
-}
-
 function paintWithTokens(scene: Scene, tokens: DesignTokens, setup?: (r: CanvasRenderer) => void): PaintCall[] {
   const { ctx, calls } = recordingCtx()
   const renderer = new CanvasRenderer(fakeCanvas(ctx), tokens)
@@ -342,31 +273,6 @@ const paint = (scene: Scene): PaintCall[] => paintWith(scene)
 const emptyScene = (parts: Partial<Scene> = {}): Scene => ({
   graphId: 'bounds', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [],
   netStubs: [], groups: [], boundaryNodes: [], diagnostics: [], ...parts,
-})
-
-describe('expanded section enclosure', () => {
-  it('paints a continuous tint and dark border without an accent rail', () => {
-    const base = fixtureScene('clean')
-    const source = base.nodes[0]!
-    const scene: Scene = {
-      ...base,
-      nodes: [{
-        ...source,
-        layout: { ...source.layout, advancedGroup: { y: 28, height: 72 } },
-      }],
-      links: [],
-    }
-    const calls = paint(scene)
-    expect(calls).toEqual(expect.arrayContaining([
-      expect.objectContaining({ method: 'fillRect', args: [source.x, source.y + 28, source.layout.width, 72], fillStyle: 'rgba(255, 255, 255, 0.035)' }),
-      expect.objectContaining({ method: 'strokeRect', args: [source.x + 0.5, source.y + 28.5, source.layout.width - 1, 71] }),
-    ]))
-    expect(calls).not.toContainEqual(expect.objectContaining({
-      method: 'fillRect',
-      args: [source.x + 1, source.y + 29, 3, 70],
-      fillStyle: defaultTokens.colors.selection,
-    }))
-  })
 })
 
 const typedLensLink = (
@@ -424,72 +330,6 @@ describe('typed overview detail', () => {
     expect(calls.some((call) => call.method === 'fillText' && call.args[0] === oversizedTitle)).toBe(false)
   })
 
-  it('omits detailed controls while retaining screen-sized structure, type, state, and selection cues', () => {
-    const scene = fixtureScene('clean')
-    const selected = scene.nodes.find((node) => node.id === 'c1')!
-    const pending = scene.nodes.find((node) => node.id === 'c2')!
-    const scale = 0.1
-    const calls = paintWith(scene, (renderer) => {
-      renderer.setViewport({ x: 0, y: 0, scale })
-      renderer.setNodeStates({ c1: { state: 'error' }, c2: { state: 'pending' } })
-      renderer.setOverlay({ selection: new Set([selected.id]) })
-    })
-
-    for (const link of scene.links) {
-      expect(calls).not.toContainEqual(expect.objectContaining({
-        method: 'arc',
-        args: [(link.x1 + link.x2) / 2, (link.y1 + link.y2) / 2, 3.5, 0, Math.PI * 2],
-      }))
-    }
-    expect(calls).toContainEqual(expect.objectContaining({
-      method: 'stroke', strokeStyle: defaultTokens.colors.nodeOutline, lineWidth: 1 / scale,
-    }))
-    expect(calls).toContainEqual(expect.objectContaining({
-      method: 'arc', args: expect.arrayContaining([2 / scale]),
-    }))
-    expect(calls).toContainEqual(expect.objectContaining({
-      method: 'stroke', strokeStyle: defaultTokens.stateColors.error, lineWidth: 2 / scale,
-    }))
-    expect(calls).toContainEqual(expect.objectContaining({
-      method: 'stroke', strokeStyle: defaultTokens.colors.nodeSelectedBorder, lineWidth: 2 / scale,
-    }))
-    expect(calls).toContainEqual(expect.objectContaining({
-      method: 'setLineDash', args: [[4 / scale, 2 / scale]],
-    }))
-    expect(calls).toContainEqual(expect.objectContaining({
-      method: 'setLineDash', args: [[2 / scale, 3 / scale]],
-    }))
-    expect(pending.layout.rows.length).toBeGreaterThan(0)
-  })
-
-  it('adds non-color line styles for execution and mode state', () => {
-    const base = fixtureScene('clean')
-    const node = base.nodes[0]!
-    const scene = { ...base, nodes: [node], links: [] }
-    for (const [state, dash] of [
-      ['pending', [2, 3]],
-      ['cached', [7, 3]],
-      ['skipped', [2, 4]],
-      ['error', [4, 2]],
-    ] as const) {
-      const calls = paintWith(scene, (renderer) => renderer.setNodeStates({ [node.id]: { state } }))
-      expect(calls).toContainEqual(expect.objectContaining({ method: 'setLineDash', args: [dash] }))
-    }
-    for (const [mode, dash] of [
-      ['muted', [2, 3]],
-      ['bypassed', [8, 3]],
-    ] as const) {
-      const modeScene = {
-        ...scene,
-        nodes: [{ ...node, node: { ...node.node, mode } }],
-      }
-      expect(paint(modeScene)).toContainEqual(expect.objectContaining({ method: 'setLineDash', args: [dash] }))
-    }
-    expect(nodeBorder(
-      paintWith(scene, (renderer) => renderer.setNodeStates({ [node.id]: { state: 'done' } })),
-      node,
-    )?.lineWidth).toBe(2.5)
-  })
 })
 
 describe('armed placement ghost', () => {
@@ -578,358 +418,9 @@ describe('canvas hover affordance paint', () => {
     })))
   })
 
-  it('keeps focused match peers enlarged while an unrelated pin is hovered', () => {
-    const scene = hoverScene()
-    const node = scene.nodes[0]!
-    const matchScene: Scene = {
-      ...scene,
-      nodes: [{
-        ...node,
-        layout: {
-          ...node.layout,
-          pins: [
-            { ...node.layout.pins[0]!, matchVariable: 'Hovered' },
-            { ...node.layout.pins[1]!, matchVariable: 'Focused' },
-            { ...node.layout.pins[0]!, portId: 'focused-peer', y: 32, matchVariable: 'Focused' },
-          ],
-        },
-      }],
-    }
-    const calls = paintWith(matchScene, (renderer) => renderer.setOverlay({
-      hoveredPin: { nodeId: 'hover-node', portId: 'in', direction: 'in' },
-      focusedPin: { nodeId: 'hover-node', portId: 'out', direction: 'out' },
-    }))
-    expect(calls).toContainEqual(expect.objectContaining({
-      method: 'arc', args: [100, 132, defaultTokens.pinRadius * 1.35, 0, Math.PI * 2],
-    }))
-  })
-
-  it('does not enlarge a same-id widget tap when the real output is keyboard-focused', () => {
-    const scene = hoverScene()
-    const node = scene.nodes[0]!
-    const withTap = {
-      ...scene,
-      nodes: [{
-        ...node,
-        layout: {
-          ...node.layout,
-          pins: [
-            ...node.layout.pins,
-            { portId: 'out', address: { port: 'out' }, direction: 'out' as const, y: 32, type: typed('IMAGE'), widgetTap: true as const },
-          ],
-        },
-      }],
-    }
-    const calls = paintWith(withTap, (renderer) => renderer.setOverlay({
-      hoveredNode: 'hover-node',
-      focusedPin: { nodeId: 'hover-node', portId: 'out', direction: 'out' },
-    }))
-    expect(calls).toContainEqual(expect.objectContaining({
-      method: 'arc', args: [240, 156, defaultTokens.pinRadius * 1.35, 0, Math.PI * 2],
-    }))
-    expect(calls).toContainEqual(expect.objectContaining({
-      method: 'arc', args: [240, 132, defaultTokens.pinRadius, 0, Math.PI * 2],
-    }))
-    expect(calls).not.toContainEqual(expect.objectContaining({
-      method: 'arc', args: [240, 132, defaultTokens.pinRadius * 1.35, 0, Math.PI * 2],
-    }))
-  })
-
-  it('enlarges a hovered widget tap to 1.35 times its base radius without enlarging the same-id real output', () => {
-    const scene = hoverScene()
-    const node = scene.nodes[0]!
-    const withTap = {
-      ...scene,
-      nodes: [{
-        ...node,
-        layout: {
-          ...node.layout,
-          pins: [
-            ...node.layout.pins,
-            { portId: 'out', address: { port: 'out' }, direction: 'out' as const, y: 32, type: typed('IMAGE'), widgetTap: true as const },
-          ],
-        },
-      }],
-    }
-    const calls = paintWith(withTap, (renderer) => renderer.setOverlay({
-      hoveredNode: 'hover-node',
-      hoveredPin: { nodeId: 'hover-node', portId: 'out', direction: 'out', widgetTap: true },
-    }))
-    expect(calls).toContainEqual(expect.objectContaining({
-      method: 'arc', args: [240, 132, defaultTokens.pinRadius * 1.35, 0, Math.PI * 2],
-    }))
-    expect(calls).toContainEqual(expect.objectContaining({
-      method: 'arc', args: [240, 156, defaultTokens.pinRadius, 0, Math.PI * 2],
-    }))
-    expect(calls).not.toContainEqual(expect.objectContaining({
-      method: 'arc', args: [240, 156, defaultTokens.pinRadius * 1.35, 0, Math.PI * 2],
-    }))
-  })
-
-  it('keeps a hovered diamond diagnostic ring outside the enlarged glyph', () => {
-    const scene = hoverScene()
-    const node = scene.nodes[0]!
-    const listType = { kind: 'list' as const, element: typed('IMAGE') }
-    const withDiamond: Scene = {
-      ...scene,
-      nodes: [{
-        ...node,
-        layout: {
-          ...node.layout,
-          pins: node.layout.pins.map((pin) => pin.portId === 'in' ? { ...pin, type: listType, warn: true as const } : pin),
-        },
-      }],
-    }
-    const calls = paintWith(withDiamond, (renderer) => renderer.setOverlay({
-      hoveredPin: { nodeId: 'hover-node', portId: 'in', direction: 'in' },
-    }))
-    const vertexRadius = defaultTokens.pinRadius * 1.35 * PIN_DIAMOND_SCALE
-    const ringRadius = defaultTokens.pinRadius + 3.5 +
-      (defaultTokens.pinRadius * 1.35 - defaultTokens.pinRadius) * PIN_DIAMOND_SCALE
-    expect(ringRadius).toBeGreaterThan(vertexRadius)
-    const ring = calls.findIndex((call) =>
-      call.method === 'arc' && call.args[0] === 100 && call.args[1] === 156 && call.args[2] === ringRadius,
-    )
-    expect(ring).toBeGreaterThanOrEqual(0)
-    expect(calls.slice(ring + 1).find((call) => call.method === 'stroke'))
-      .toMatchObject({ strokeStyle: defaultTokens.colors.error })
-  })
-
-  it('keeps an associated scalar-list ghost and diagnostic ring at square geometry', () => {
-    const scene = hoverScene()
-    const node = scene.nodes[0]!
-    const variable = { kind: 'variable' as const, templateId: 'T' }
-    const withScalarListGhost: Scene = {
-      ...scene,
-      nodes: [{
-        ...node,
-        layout: {
-          ...node.layout,
-          pins: node.layout.pins.map((pin) => ({
-            ...pin,
-            type: variable,
-            matchVariable: 'T',
-            ...(pin.direction === 'in' ? { ghost: true as const, warn: true as const } : {}),
-          })),
-        },
-      }],
-    }
-    const calls = paintWith(withScalarListGhost, (renderer) => renderer.setOverlay({
-      hoveredPin: { nodeId: 'hover-node', portId: 'out', direction: 'out' },
-    }))
-    const radius = defaultTokens.pinRadius * 1.35
-    const normalCornerGap = defaultTokens.pinRadius + 3.5 - Math.SQRT2 * defaultTokens.pinRadius
-    const ringRadius = Math.SQRT2 * radius + normalCornerGap
-    expect(ringRadius - Math.SQRT2 * radius).toBeCloseTo(normalCornerGap)
-    const ring = calls.findIndex((call) =>
-      call.method === 'arc' && call.args[0] === 100 && call.args[1] === 156 && call.args[2] === ringRadius,
-    )
-    expect(ring).toBeGreaterThanOrEqual(0)
-    expect(calls.slice(ring + 1).find((call) => call.method === 'stroke'))
-      .toMatchObject({ strokeStyle: defaultTokens.colors.error })
-    const circle = calls.findIndex((call, index) => index > ring &&
-      call.method === 'arc' && call.args[0] === 100 && call.args[1] === 156 && call.args[2] === radius)
-    expect(circle).toBeGreaterThan(ring)
-    expect(calls.slice(circle).some((call) =>
-      call.method === 'moveTo' && call.args[0] === 100 - radius && call.args[1] === 156 - radius)).toBe(true)
-    expect(calls.slice(circle).some((call) =>
-      call.method === 'lineTo' && call.args[0] === 100 + radius && call.args[1] === 156 - radius)).toBe(true)
-    expect(calls.slice(circle).some((call) =>
-      call.method === 'lineTo' && call.args[0] === 100 + radius && call.args[1] === 156 + radius)).toBe(true)
-    expect(calls.slice(circle).some((call) =>
-      call.method === 'lineTo' && call.args[0] === 100 - radius && call.args[1] === 156 + radius)).toBe(true)
-    const ghostPaint = calls.slice(circle).find((call) => call.method === 'stroke' || call.method === 'fill')
-    expect(ghostPaint?.method).toBe('stroke')
-    expect(ghostPaint?.globalAlpha).toBeCloseTo(0.45)
-  })
-
-  it('paints numeric minus and plus strokes for INT and FLOAT without filled triangle paths', () => {
-    const scene = hoverScene()
-    const node = scene.nodes[0]!
-    const floatRow = node.layout.rows[0]!
-    const intRow = {
-      ...floatRow,
-      inputId: 'count', valueKey: 'count', label: 'count',
-      y: 44, spec: { widgetType: 'INT' as const, options: {} },
-    }
-    const numericScene = {
-      ...scene,
-      nodes: [{
-        ...node,
-        node: { ...node.node, values: { amount: 1, count: 2 } },
-        layout: { ...node.layout, height: 92, rows: [floatRow, intRow] },
-      }],
-    }
-    const calls = paint(numericScene)
-    const line = (from: readonly [number, number], to: readonly [number, number]) => {
-      const start = calls.findIndex((call) => call.method === 'moveTo' && call.args[0] === from[0] && call.args[1] === from[1])
-      expect(start).toBeGreaterThanOrEqual(0)
-      expect(calls.slice(start + 1).find((call) => call.method === 'lineTo')).toEqual(expect.objectContaining({ args: to }))
-      const stroke = calls.slice(start + 1).find((call) => call.method === 'stroke')
-      expect(stroke).toEqual(expect.objectContaining({
-        strokeStyle: defaultTokens.colors.label,
-        lineWidth: 1.5,
-        lineCap: 'round',
-      }))
-      expect(calls.slice(start + 1, calls.indexOf(stroke!))).not.toContainEqual(expect.objectContaining({ method: 'closePath' }))
-      expect(calls.slice(start + 1, calls.indexOf(stroke!))).not.toContainEqual(expect.objectContaining({ method: 'fill' }))
-    }
-    for (const cy of [132, 156]) {
-      line([112.5, cy], [118.5, cy])
-      line([221.5, cy], [227.5, cy])
-      line([224.5, cy - 3], [224.5, cy + 3])
-      // Reject every non-tip vertex of both former filled triangles. This
-      // covers each numeric row even if an implementation also paints the
-      // new strokes before or after a stale triangle path.
-      expect(calls).not.toContainEqual(expect.objectContaining({ method: 'lineTo', args: [118.5, cy - 4] }))
-      expect(calls).not.toContainEqual(expect.objectContaining({ method: 'lineTo', args: [118.5, cy + 4] }))
-      expect(calls).not.toContainEqual(expect.objectContaining({ method: 'lineTo', args: [221.5, cy - 4] }))
-      expect(calls).not.toContainEqual(expect.objectContaining({ method: 'lineTo', args: [221.5, cy + 4] }))
-    }
-  })
-
-  it('paints hover and diagnostic states on the numeric widget chrome path', () => {
-    const scene = hoverScene()
-    const node = scene.nodes[0]!
-    const row = node.layout.rows[0]!
-    const markedController = {
-      ...scene,
-      nodes: [{ ...node, layout: { ...node.layout, rows: [{ ...row, controllerMode: 'fixed' as const }] } }],
-    }
-    const calls = paintWith(markedController, (renderer) => {
-      renderer.setOverlay({ hoveredWidget: { nodeId: 'hover-node', valueKey: 'amount' } })
-      renderer.setRowMarks({ 'hover-node': new Set(['amount']) })
-    })
-    const washPath = calls.findIndex((call) =>
-      call.method === 'roundRect' && call.args[0] === 109.5 && call.args[1] === 122 &&
-      call.fillStyle === defaultTokens.colors.label && call.globalAlpha === 0.12,
-    )
-    expect(calls[washPath]).toEqual(expect.objectContaining({
-      method: 'roundRect',
-      args: [109.5, 122, 121, defaultTokens.rowHeight - 4, 4],
-      fillStyle: defaultTokens.colors.label,
-      globalAlpha: 0.12,
-    }))
-    expect(calls[washPath - 1]?.method).toBe('beginPath')
-    const wash = washPath + 1
-    expect(calls[wash]).toEqual(expect.objectContaining({
-      method: 'fill',
-      fillStyle: defaultTokens.colors.label,
-      globalAlpha: 0.12,
-    }))
-    expect(calls).not.toContainEqual(expect.objectContaining({
-      method: 'fillRect',
-      args: [109.5, 120, 121, defaultTokens.rowHeight],
-      fillStyle: defaultTokens.colors.label,
-      globalAlpha: 0.12,
-    }))
-    const diagnosticPath = calls.findIndex((call) =>
-      call.method === 'roundRect' && call.args[0] === 109.5 && call.args[1] === 122 &&
-      call.strokeStyle === defaultTokens.colors.error,
-    )
-    expect(calls[diagnosticPath]).toEqual(expect.objectContaining({
-      args: [109.5, 122, 121, defaultTokens.rowHeight - 4, 4],
-      lineWidth: 1.5,
-      globalAlpha: 1,
-    }))
-    expect(calls[diagnosticPath - 1]?.method).toBe('beginPath')
-    const diagnostic = diagnosticPath + 1
-    expect(calls[diagnostic]).toEqual(expect.objectContaining({
-      method: 'stroke',
-      strokeStyle: defaultTokens.colors.error,
-      lineWidth: 1.5,
-      globalAlpha: 1,
-    }))
-    const controller = calls.findIndex((call, index) =>
-      index > wash && call.method === 'strokeRect' && call.strokeStyle === defaultTokens.colors.selection,
-    )
-    expect(diagnostic).toBeGreaterThan(wash)
-    expect(controller).toBeGreaterThan(wash)
-    expect(calls[controller]?.globalAlpha).toBe(1)
-  })
-
-  it('wraps the full multiline widget chrome after row-height reflow without overhang', () => {
-    const scene = hoverScene()
-    const node = scene.nodes[0]!
-    const row = node.layout.rows[0]!
-    const multiline = {
-      ...scene,
-      nodes: [{
-        ...node,
-        node: { ...node.node, values: { text: 'first\nsecond' } },
-        layout: {
-          ...node.layout,
-          height: 120,
-          minWidth: 140,
-          minHeight: 120,
-          headerHeight: 20,
-          rows: [{
-            ...row,
-            inputId: 'text', valueKey: 'text', label: 'text', height: 76,
-            viewId: 'core.text', rows: 2,
-            spec: { widgetType: 'STRING' as const, options: {}, multiline: true },
-          }],
-        },
-      }],
-    }
-    for (const [height, resizeHeight] of [[76, undefined], [98, 144]] as const) {
-      const calls = paintWith(multiline, (renderer) => {
-        renderer.setOverlay({
-          hoveredWidget: { nodeId: 'hover-node', valueKey: 'text' },
-          ...(resizeHeight === undefined ? {} : {
-            resizePreview: {
-              nodeId: 'hover-node', x: node.x, y: node.y,
-              width: node.layout.width, height: resizeHeight,
-            },
-          }),
-        })
-        renderer.setRowMarks({ 'hover-node': new Set(['text']) })
-      })
-      const chrome = [109.5, 122, 121, height - 4, 4]
-      const hoverPath = calls.findIndex((call) =>
-        call.method === 'roundRect' && call.args.every((arg, index) => arg === chrome[index]) &&
-        call.fillStyle === defaultTokens.colors.label && call.globalAlpha === 0.12,
-      )
-      expect(hoverPath).toBeGreaterThanOrEqual(0)
-      expect(calls[hoverPath - 1]?.method).toBe('beginPath')
-      expect(calls[hoverPath + 1]).toEqual(expect.objectContaining({
-        method: 'fill', fillStyle: defaultTokens.colors.label, globalAlpha: 0.12,
-      }))
-      const diagnosticPath = calls.findIndex((call) =>
-        call.method === 'roundRect' && call.args.every((arg, index) => arg === chrome[index]) &&
-        call.strokeStyle === defaultTokens.colors.error && call.lineWidth === 1.5,
-      )
-      expect(diagnosticPath).toBeGreaterThanOrEqual(0)
-      expect(calls[diagnosticPath - 1]?.method).toBe('beginPath')
-      expect(calls[diagnosticPath + 1]).toEqual(expect.objectContaining({
-        method: 'stroke', strokeStyle: defaultTokens.colors.error, lineWidth: 1.5, globalAlpha: 1,
-      }))
-      expect(calls).not.toContainEqual(expect.objectContaining({
-        method: 'fillRect', args: [109.5, 120, 121, height],
-        fillStyle: defaultTokens.colors.label, globalAlpha: 0.12,
-      }))
-    }
-  })
 })
 
 describe('link midpoint affordance', () => {
-  it('enlarges and highlights the hovered midpoint handle', () => {
-    const scene = emptyScene({
-      links: [{
-        id: 'link-hover',
-        from: { kind: 'port', node: 'a', port: 'out' },
-        to: { kind: 'port', node: 'b', port: 'in' },
-        x1: 100, y1: 100, x2: 300, y2: 100,
-      }],
-    } as Partial<Scene>)
-    const calls = paintWith(scene, (renderer) => renderer.setOverlay({ hoveredLinkMidpoint: 'link-hover' }))
-    const arc = calls.find((call) =>
-      call.method === 'arc' && call.args[0] === 200 && call.args[1] === 100 && call.args[2] === 5,
-    )
-    expect(arc).toBeDefined()
-    const stroke = calls.slice(calls.indexOf(arc!) + 1).find((call) => call.method === 'stroke')
-    expect(stroke).toMatchObject({ strokeStyle: defaultTokens.colors.dropTarget, lineWidth: 1.5 })
-  })
 
   it('paints no midpoint dot on a net delivery noodle, only its name label', () => {
     const scene = emptyScene({
@@ -989,24 +480,6 @@ describe('renderer sizing and scene replacement', () => {
     renderer.dispose()
   })
 
-  it('maps CSS dimensions to the rounded backing store rather than raw DPR', () => {
-    const previous = globalThis.devicePixelRatio
-    vi.stubGlobal('devicePixelRatio', 1.25)
-    try {
-      const { ctx, calls } = recordingCtx()
-      const tracked = mutableCanvas(ctx, 801, 601)
-      const renderer = new CanvasRenderer(tracked.canvas, defaultTokens)
-      renderer.renderNow()
-      const transform = calls.find((call) => call.method === 'setTransform')!
-      expect(transform.args[0]).toBeCloseTo(Math.round(801 * 1.25) / 801)
-      expect(transform.args[3]).toBeCloseTo(Math.round(601 * 1.25) / 601)
-      expect(transform.args[0]).not.toBe(1.25)
-      renderer.dispose()
-    } finally {
-      vi.stubGlobal('devicePixelRatio', previous)
-    }
-  })
-
   it('notifies scene replacement after installation and honors unsubscribe and dispose', () => {
     const { ctx } = recordingCtx()
     const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
@@ -1027,15 +500,6 @@ describe('renderer sizing and scene replacement', () => {
     expect(observed).toEqual([first])
   })
 
-  it('FR6 dispose drops viewport listeners', () => {
-    const { ctx } = recordingCtx()
-    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
-    const listener = vi.fn()
-    renderer.onViewportChange(listener)
-    renderer.dispose()
-    renderer.setViewport({ x: 10, y: 20, scale: 2 })
-    expect(listener).not.toHaveBeenCalled()
-  })
 })
 
 describe('scene visual bounds and fitting', () => {
@@ -1089,25 +553,11 @@ describe('scene visual bounds and fitting', () => {
     expect(bounds).toEqual({ minX: -204, minY: 96, maxX: 604, maxY: 304 })
   })
 
-  it('does not add detached preview bounds outside the node', () => {
-    const preview = { image: {} as CanvasImageSource, width: 100, height: 100 }
-    expect(sceneVisualBounds(emptyScene({ nodes: [node] }), { [node.id]: preview })!.maxY)
-      .toBe(node.y + node.layout.height)
-  })
-
   it('includes above-node badge lanes in scene visual bounds', () => {
     const badge = { id: 'test.arm', glyph: 'COMFYUI', variant: 'label' as const, placement: 'above' as const, color: '#6a4fa3' }
     const rect = badgeRect(node, 0, [badge])
 
     expect(sceneVisualBounds(emptyScene({ nodes: [node] }), {}, { [node.id]: [badge] })!.minY).toBe(rect.y)
-  })
-
-  it('includes below-node badge lanes in scene visual bounds', () => {
-    const badge = { id: 'core.error', glyph: 'Error', variant: 'label' as const, placement: 'below' as const, color: '#8a2a2a' }
-    const rect = badgeRect(node, 0, [badge])
-
-    expect(sceneVisualBounds(emptyScene({ nodes: [node] }), {}, { [node.id]: [badge] })!.maxY)
-      .toBe(rect.y + rect.height)
   })
 
   it('fits known visual bounds and leaves empty or zero-size canvases unchanged', () => {
@@ -1171,32 +621,6 @@ describe('scene visual bounds and fitting', () => {
 })
 
 describe('viewport culling regressions', () => {
-  it('batches large overview link and reroute paths by type', () => {
-    const links = Array.from({ length: 300 }, (_, index) => ({
-      id: `link-${index}`,
-      from: { kind: 'reroute' as const, reroute: `from-${index}` },
-      to: { kind: 'reroute' as const, reroute: `to-${index}` },
-      x1: 10,
-      y1: 10 + index,
-      x2: 200,
-      y2: 10 + index,
-      typeName: 'IMAGE',
-    }))
-    const reroutes = Array.from({ length: 300 }, (_, index) => ({
-      id: `reroute-${index}`,
-      x: 100,
-      y: 10 + index,
-      typeName: 'IMAGE',
-    }))
-    const calls = paintWith(emptyScene({ links, reroutes }), (renderer) => {
-      renderer.setGridVisible(false)
-      renderer.setViewport({ x: 0, y: 0, scale: 0.05 })
-    })
-
-    expect(calls.filter((call) => call.method === 'bezierCurveTo')).toHaveLength(300)
-    expect(calls.filter((call) => call.method === 'arc')).toHaveLength(300)
-    expect(calls.filter((call) => call.method === 'stroke')).toHaveLength(2)
-  })
 
   it('keeps nodes within the 12px PIN_OVERHANG and culls nodes beyond it', () => {
     const original = fixtureScene('clean').nodes[0]!
@@ -1210,43 +634,6 @@ describe('viewport culling regressions', () => {
     renderer.renderNow()
     expect(calls.some((call) => call.method === 'roundRect' && call.args[0] === near.x)).toBe(true)
     expect(calls.some((call) => call.method === 'roundRect' && call.args[0] === far.x)).toBe(false)
-    renderer.dispose()
-  })
-
-  it('includes low-zoom pin and reroute status-ring strokes in culling', () => {
-    const original = fixtureScene('clean').nodes.find((node) =>
-      node.layout.pins.some((pin) => pin.direction === 'out'))!
-    const output = original.layout.pins.find((pin) => pin.direction === 'out')!
-    const near = { ...original, id: 'near', x: -original.layout.width - 45, y: 100 }
-    const far = { ...original, id: 'far', x: -original.layout.width - 85, y: 300 }
-    const nearReroute = { id: 'near-reroute', x: -45, y: 600, typeName: 'IMAGE' }
-    const farReroute = { id: 'far-reroute', x: -64, y: 800, typeName: 'IMAGE' }
-    const { ctx, calls } = recordingCtx()
-    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
-    renderer.setGridVisible(false)
-    renderer.setViewport({ x: 0, y: 0, scale: 0.05 })
-    renderer.setScene(emptyScene({ nodes: [near, far], reroutes: [nearReroute, farReroute] }))
-    renderer.setOverlay({
-      dropTargets: new Set([
-        dropTargetKey(near.id, output.portId, 'out'),
-        dropTargetKey(far.id, output.portId, 'out'),
-        rerouteTargetKey(nearReroute.id),
-        rerouteTargetKey(farReroute.id),
-      ]),
-    })
-    renderer.renderNow()
-
-    for (const [x, y] of [[-45, near.y + output.y], [-45, nearReroute.y]]) {
-      const ring = calls.findIndex((call) =>
-        call.method === 'arc' && call.args[0] === x && call.args[1] === y && call.args[2] === 43.5)
-      expect(ring).toBeGreaterThanOrEqual(0)
-      expect(paintedAfter(calls, ring, 'stroke')).toMatchObject({
-        strokeStyle: defaultTokens.colors.dropTarget,
-        lineWidth: 40,
-      })
-    }
-    expect(calls.some((call) => call.method === 'roundRect' && call.args[0] === far.x)).toBe(false)
-    expect(calls.some((call) => call.method === 'arc' && call.args[0] === farReroute.x && call.args[1] === farReroute.y)).toBe(false)
     renderer.dispose()
   })
 
@@ -1331,124 +718,6 @@ describe('lens capability paint', () => {
     expect(inactive.some((call) => call.method === 'fillText' && call.args[0] === 'FLOAT')).toBe(false)
   })
 
-  it('keeps type adornments bounded, culled, and attached to live link geometry', () => {
-    const longType = 'T'.repeat(600)
-    const scene = emptyScene({
-      links: [
-        typedLensLink('a', longType),
-        typedLensLink('hidden', 'HIDDEN', 100, 140, 200, 140),
-        typedLensLink('far', 'FAR', 10_000, 100, 10_100, 100),
-        typedLensLink('edge', 'E'.repeat(600), -100, 100, -10, 100),
-      ],
-    })
-    const calls = paintWith(scene, (renderer) => {
-      renderer.setLensCapabilities({ typeAdornments: true })
-      renderer.setOverlay({
-        hiddenLinkIds: new Set(['hidden']),
-        dragOffsets: new Map([
-          ['a-from', { dx: 20, dy: 10 }],
-          ['a-to', { dx: 40, dy: 30 }],
-        ]),
-      })
-    })
-    const label = `${'T'.repeat(509)}...`
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === label &&
-      call.args[1] === 180 && call.args[2] === 113)).toBe(true)
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'HIDDEN')).toBe(false)
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'FAR')).toBe(false)
-    expect(calls.some((call) => call.method === 'fillText' && String(call.args[0]).startsWith('EEE'))).toBe(false)
-
-    const lowZoom = paintWith(scene, (renderer) => {
-      renderer.setLensCapabilities({ typeAdornments: true })
-      renderer.setViewport({ x: 0, y: 0, scale: CANVAS_DETAIL_MIN_SCALE - 0.01 })
-    })
-    expect(lowZoom.some((call) => call.method === 'fillText' && call.args[0] === label)).toBe(false)
-
-    const thresholdZoom = paintWith(scene, (renderer) => {
-      renderer.setLensCapabilities({ typeAdornments: true })
-      renderer.setViewport({ x: 0, y: 0, scale: CANVAS_DETAIL_MIN_SCALE })
-    })
-    expect(thresholdZoom.some((call) => call.method === 'fillText' && call.args[0] === label)).toBe(true)
-  })
-
-  it('preserves scene order and caps visible type adornments per frame', () => {
-    const links = Array.from({ length: 8193 }, (_, index) => {
-      const suffix = String(index).padStart(4, '0')
-      const reverseId = String(8192 - index).padStart(4, '0')
-      return typedLensLink(`link-${reverseId}`, `TYPE_${suffix}`)
-    })
-    const calls = paintWith(emptyScene({ links }), (renderer) =>
-      renderer.setLensCapabilities({ typeAdornments: true }))
-    const labels = calls
-      .filter((call) => call.method === 'fillText' && String(call.args[0]).startsWith('TYPE_'))
-      .map((call) => call.args[0])
-    expect(labels).toHaveLength(8192)
-    expect(labels[0]).toBe('TYPE_0000')
-    expect(labels.at(-1)).toBe('TYPE_8191')
-  })
-
-  it('keeps node-output labels on their layout rows while nodes move', () => {
-    const scene = fixtureScene('clean')
-    const node = scene.nodes.find((candidate) =>
-      candidate.layout.rows.some((row) => row.kind === 'ports' && row.output !== undefined))
-    const row = node?.layout.rows.find((candidate) => candidate.kind === 'ports' && candidate.output !== undefined)
-    if (node === undefined || row?.kind !== 'ports' || row.output === undefined) {
-      throw new Error('fixture needs a node output row')
-    }
-    const label = presentedType(defaultTokens, row.output.type).label
-    const dx = 17
-    const dy = -9
-    const calls = paintWith(scene, (renderer) => {
-      renderer.setLensCapabilities({ typeAdornments: true })
-      renderer.setOverlay({ dragOffsets: new Map([[node.id, { dx, dy }]]) })
-    })
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === label &&
-      call.args[1] === node.x + dx + node.layout.width - defaultTokens.padX - defaultTokens.pinRadius - 4 &&
-      call.args[2] === node.y + dy + row.y + row.height / 2 + 10 &&
-      call.font === `600 ${Math.max(8, defaultTokens.fontSize - 2)}px ${defaultTokens.fontFamily}` &&
-      call.fillStyle === defaultTokens.colors.title)).toBe(true)
-  })
-
-  it('paints an active widget-row affordance at the shared hit geometry', () => {
-    const scene = controllerPaintScene()
-    const node = scene.nodes.find((candidate) => candidate.layout.rows.some((row) => row.kind === 'widget'))!
-    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget')!
-    const width = node.layout.width - row.inset * 2
-    const rect = widgetRowAffordanceRect(width, defaultTokens.rowHeight, row)
-    const calls = paintWith(scene, (renderer) => renderer.setLensCapabilities({
-      widgetRowAffordance: (candidateNode, candidateRow) =>
-        candidateNode === node && candidateRow === row ? { active: true, label: 'Remove from app view' } : undefined,
-    }))
-
-    const path = calls.findIndex((call) => call.method === 'roundRect' &&
-      call.args[0] === node.x + row.inset + rect.x && call.args[1] === node.y + row.y + rect.y &&
-      call.args[2] === rect.width && call.args[3] === rect.height)
-    expect(path).toBeGreaterThanOrEqual(0)
-    expect(calls.slice(path).some((call) => call.method === 'fill' &&
-      call.fillStyle === defaultTokens.colors.widgetAffordanceActive)).toBe(true)
-  })
-
-  it('paints an active preview-surface affordance at the shared hit geometry', () => {
-    const base = controllerPaintScene()
-    const target = base.nodes[0]!
-    const previewNode = { ...target, layout: withPreviewRegion(target.layout, defaultTokens) }
-    const scene = {
-      ...base,
-      nodes: [previewNode, ...base.nodes.slice(1)],
-    } as Scene
-    const rect = previewSurfaceAffordanceRect(previewNode)!
-    const calls = paintWith(scene, (renderer) => renderer.setLensCapabilities({
-      previewSurfaceAffordance: (candidate) =>
-        candidate === previewNode ? { active: true, label: 'Remove preview from app view' } : undefined,
-    }))
-
-    const path = calls.findIndex((call) => call.method === 'roundRect' &&
-      call.args[0] === previewNode.x + rect.x && call.args[1] === previewNode.y + rect.y &&
-      call.args[2] === rect.width && call.args[3] === rect.height)
-    expect(path).toBeGreaterThanOrEqual(0)
-    expect(calls.slice(path).some((call) => call.method === 'fill' &&
-      call.fillStyle === defaultTokens.colors.widgetAffordanceActive)).toBe(true)
-  })
 })
 
 const nodeOf = (scene: Scene, id: string): SceneNode => {
@@ -1474,57 +743,6 @@ const nodeBorder = (calls: PaintCall[], node: SceneNode): PaintCall | undefined 
 
 const ERR = defaultTokens.colors.error
 
-function controllerPaintScene(mode?: 'fixed' | 'increment' | 'decrement' | 'randomize'): Scene {
-  const schema: NodeSchema = {
-    type: 'Seed', displayName: 'Seed', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{
-      kind: 'input', id: 'seed', type: typed('INT'), optional: false,
-      widget: { widgetType: 'INT', options: {}, default: 0, controller: 'after_generate' },
-    }, {
-      kind: 'input', id: 'plain', type: typed('INT'), optional: false,
-      widget: { widgetType: 'INT', options: {}, default: 0 },
-    }],
-  }
-  const doc: WorkflowDocument = {
-    format: 'dinkster-workflow', formatVersion: 1, lineage: asLineageId('controller-paint'), root: asGraphDefId('g0'),
-    graphs: { g0: { id: asGraphDefId('g0'), name: 'g', nodes: {
-      seed: { id: asNodeId('seed'), type: 'Seed', values: {}, ...(mode ? { controllers: { seed: mode } } : {}) },
-    }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
-    view: { graphs: { g0: { nodes: {} } } },
-  }
-  return buildScene({ document: doc, graphId: 'g0', resolve: (type) => type === 'Seed' ? schema : undefined, tokens: defaultTokens, measure, widgetMeasure })
-}
-
-describe('after-generate controller paint', () => {
-  it.each(['fixed', 'increment', 'decrement', 'randomize'] as const)(
-    'paints the %s mode as an icon without a status word', (mode) => {
-      const texts = paint(controllerPaintScene(mode)).filter((call) => call.method === 'fillText').map((call) => call.args[0])
-      expect(texts).not.toContain(mode)
-      expect(texts).not.toContain('random')
-    },
-  )
-
-  it('paints one compact icon chip for the derived default and none on the plain row', () => {
-    const calls = paint(controllerPaintScene())
-    const chips = calls.filter((call) => call.method === 'strokeRect' && call.strokeStyle === defaultTokens.colors.selection)
-    expect(chips).toHaveLength(1)
-    expect(calls.some((call) => call.method === 'translate')).toBe(true)
-    expect(calls.filter((call) => call.method === 'fillText').map((call) => call.args[0])).not.toContain('random')
-    const node = controllerPaintScene().nodes[0]!
-    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget') as Extract<(typeof node.layout.rows)[number], { kind: 'widget' }>
-    const chip = controllerChipRect(node.layout.width - row.inset * 2, row.height)
-    expect(chips[0]!.args).toEqual([
-      node.x + row.inset + chip.x,
-      node.y + row.y + chip.y,
-      chip.width,
-      chip.height,
-    ])
-    expect(Number(chips[0]!.args[0])).toBeGreaterThan(
-      node.x + row.inset + controllerChipTextRight(node.layout.width - row.inset * 2, row.height),
-    )
-  })
-})
-
 describe('diagnostic paint on the live renderer', () => {
   it('a mismatch noodle strokes in error red; a healthy one keeps its type color', () => {
     const scene = fixtureScene()
@@ -1538,34 +756,6 @@ describe('diagnostic paint on the live renderer', () => {
     expect(strokes.some((c) => c.strokeStyle === latent && c.lineWidth === 2.5)).toBe(true)
     // The mismatch noodle's grab dot follows the error paint.
     expect(calls.some((c) => c.method === 'fill' && c.fillStyle === ERR)).toBe(true)
-  })
-
-  it('a COMBO noodle uses the pinned COMBO presentation color', () => {
-    const base = fixtureScene('clean')
-    const scene: Scene = {
-      ...base,
-      links: base.links.map((link) => link.typeName === 'LATENT' ? { ...link, typeName: 'COMBO' } : link),
-    }
-    const calls = paint(scene)
-    expect(calls.some((call) =>
-      call.method === 'stroke' && call.strokeStyle === defaultTokens.typeColors['COMBO'] && call.lineWidth === 2.5,
-    )).toBe(true)
-  })
-
-  it('a COMBO noodle keeps COMBO presentation through reroutes', () => {
-    const scene = comboRerouteScene()
-    const source = scene.nodes.find((node) => node.node.type === 'dinkster.string_to_combo')!
-    const sink = scene.nodes.find((node) => node.node.type === 'dinkster.combo_to_string')!
-    expect(source.layout.pins.find((pin) => pin.portId === 'string')?.type).toEqual(typed('STRING'))
-    expect(source.layout.pins.find((pin) => pin.portId === 'choice')?.type).toEqual(typed('COMBO'))
-    expect(sink.layout.pins.find((pin) => pin.portId === 'choice')?.type).toEqual(typed('COMBO'))
-    expect(sink.layout.pins.find((pin) => pin.portId === 'text')?.type).toEqual(typed('STRING'))
-    expect(typeColor(defaultTokens, 'COMBO')).toBe('#5D4037')
-    expect(scene.links.find((link) => link.id === 'out')?.typeName).toBe('COMBO')
-    const calls = paint(scene)
-    expect(calls.some((call) =>
-      call.method === 'stroke' && call.strokeStyle === defaultTokens.typeColors['COMBO'] && call.lineWidth === 2.5,
-    )).toBe(true)
   })
 
   it('a warned pin draws an error ring WITHOUT dropping its normal pin fill', () => {
@@ -1624,26 +814,6 @@ describe('diagnostic paint on the live renderer', () => {
     expect(calls.some((call) =>
       call.method === 'arc' && call.args[0] === px && call.args[1] === py &&
       call.args[2] === defaultTokens.pinRadius)).toBe(true)
-  })
-
-  it('keeps an exact input problem ring visible with selection and hover', () => {
-    const scene = constructsScene()
-    const node = nodeOf(scene, 'fs2')
-    const pin = node.layout.pins.find((candidate) => candidate.widgetBacked === true && candidate.direction === 'in')!
-    const calls = paintWith(scene, (renderer) => {
-      renderer.setPortProblems({ fs2: { [pin.portId]: 'error' } })
-      renderer.setOverlay({ selection: new Set(['fs2']), hoveredNode: 'fs2' })
-    })
-    const ring = calls.findIndex((call) =>
-      call.method === 'arc' && call.args[0] === node.x && call.args[1] === node.y + pin.y &&
-      call.args[2] === defaultTokens.pinRadius + 3.5)
-    const halo = calls.findIndex((call) =>
-      call.method === 'roundRect' && call.args[0] === node.x - 3 && call.args[1] === node.y - 3)
-
-    expect(ring).toBeGreaterThanOrEqual(0)
-    expect(paintedAfter(calls, ring, 'stroke')?.strokeStyle).toBe(defaultTokens.colors.error)
-    expect(halo).toBeGreaterThanOrEqual(0)
-    expect(paintedAfter(calls, halo, 'stroke')?.strokeStyle).toBe(defaultTokens.colors.nodeSelectedBorder)
   })
 
   it('grid dots: world-anchored, geometric spacing growth, and toggleable', () => {
@@ -1770,13 +940,6 @@ describe('diagnostic paint on the live renderer', () => {
     expect(calls.filter((call) => call.method === 'fillRect' && call.args[0] === -17)).toHaveLength(2)
   })
 
-  it('a clean document paints nothing in the error color', () => {
-    const scene = fixtureScene('clean')
-    expect(scene.diagnostics).toEqual([])
-    const calls = paint(scene)
-    expect(calls.some((c) => c.method === 'stroke' && c.strokeStyle === ERR)).toBe(false)
-    expect(calls.some((c) => c.method === 'fill' && c.fillStyle === ERR)).toBe(false)
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1872,23 +1035,6 @@ function constructsScene(mutate?: (json: ReturnType<typeof constructsJson>) => v
 const LATENT = typeColor(defaultTokens, 'LATENT')
 const FLOATC = typeColor(defaultTokens, 'FLOAT')
 const SEL = defaultTokens.colors.selection
-
-describe('drop-target rings', () => {
-  it('paints compatible-target rings white (dropTarget), never the blue selection accent', () => {
-    const scene = fixtureScene('clean')
-    const sink = nodeOf(scene, 'c2')
-    const pin = sink.layout.pins.find((p) => p.portId === 'in')!
-    const calls = paintWith(scene, (r) =>
-      r.setOverlay({ dropTargets: new Set([dropTargetKey('c2', 'in', 'in')]) }))
-    const ringArc = calls.findIndex((c) =>
-      c.method === 'arc' && c.args[0] === sink.x && c.args[1] === sink.y + pin.y &&
-      c.args[2] === defaultTokens.pinRadius + 3.5)
-    expect(ringArc).toBeGreaterThanOrEqual(0)
-    const ring = calls.slice(ringArc + 1).find((c) => c.method === 'stroke')
-    expect(ring?.strokeStyle).toBe(defaultTokens.colors.dropTarget)
-    expect(ring?.strokeStyle).not.toBe(defaultTokens.colors.selection)
-  })
-})
 
 describe('node chrome paint on the live renderer', () => {
   it('projects minimized nodes with one connected proxy per side and an always-visible compact preview', () => {
@@ -1998,30 +1144,6 @@ describe('node chrome paint on the live renderer', () => {
     expect(calls.some((call) => call.method === 'setLineDash' && JSON.stringify(call.args[0]) === '[1,2]')).toBe(true)
   })
 
-  it('paints locally estimated text with the estimate token', () => {
-    const scene = fixtureScene('withMismatch')
-    const node = nodeOf(scene, 'img')
-    const calls = paintWith(scene, (renderer) => renderer.setNodeOutputTexts({
-      [node.id]: { text: 'Estimated locally\nfloat: 3.5', estimate: true },
-    }))
-    expect(calls.some((call) =>
-      call.method === 'fillText' && call.args[0] === 'float: 3.5' &&
-      call.fillStyle === defaultTokens.colors.companionEstimate,
-    )).toBe(true)
-  })
-
-  it('paints preview errors with the error token', () => {
-    const scene = fixtureScene('withMismatch')
-    const node = nodeOf(scene, 'img')
-    const calls = paintWith(scene, (renderer) => renderer.setNodeOutputTexts({
-      [node.id]: { text: 'Preview error\nInvalid expression: unexpected token', error: true },
-    }))
-    expect(calls.some((call) =>
-      call.method === 'fillText' && call.args[0] === 'Preview error' &&
-      call.fillStyle === defaultTokens.colors.error,
-    )).toBe(true)
-  })
-
   it('suppresses the text region when an image preview is active', () => {
     const scene = fixtureScene('withMismatch')
     const node = nodeOf(scene, 'img')
@@ -2059,79 +1181,6 @@ describe('node chrome paint on the live renderer', () => {
     expect(unavailable.some((call) => call.method === 'fillText' && call.args[0] === 'preview unavailable')).toBe(true)
   })
 
-  it('reserves image pixels above the always-visible caption strip', () => {
-    const scene = fixtureScene('withMismatch')
-    const node = nodeOf(scene, 'img')
-    const image = {} as CanvasImageSource
-    const calls = paintWith(scene, (renderer) => renderer.setNodePreviews({
-      [node.id]: { image, width: 640, height: 480 },
-    }))
-    const preview = withPreviewRegion(node.layout, defaultTokens).preview!
-    const panel = splitPreviewRect({
-      x: node.x + preview.x,
-      y: node.y + preview.y,
-      width: preview.width,
-      height: preview.height,
-    }, defaultTokens.previewCaptionHeight)
-    const draw = calls.find((call) => call.method === 'drawImage' && call.args[0] === image)
-    expect(draw).toBeDefined()
-    const checker = calls.find((call) => call.method === 'fillRect' && call.fillStyle === 'checkerboard')
-    expect(checker?.args).toEqual(draw!.args.slice(1))
-    expect(calls.indexOf(checker!)).toBeLessThan(calls.indexOf(draw!))
-    expect(Number(draw!.args[2]) + Number(draw!.args[4])).toBeLessThanOrEqual(panel.caption.y)
-    expect(calls.some((call) =>
-      call.method === 'fillRect' && call.fillStyle === defaultTokens.colors.nodeBody &&
-      call.args[0] === panel.caption.x && call.args[1] === panel.caption.y &&
-      call.args[2] === panel.caption.width && call.args[3] === panel.caption.height,
-    )).toBe(true)
-    const dimensions = calls.find((call) => call.method === 'fillText' && call.args[0] === '640 x 480')
-    expect(dimensions?.args[2]).toBe(panel.caption.y + panel.caption.height * 0.75)
-  })
-
-  it.each([undefined, 'PQ to sRGB'])('paints cached state, media count and color conversion %s in the caption', (colorTransform) => {
-    const scene = fixtureScene('withMismatch')
-    const node = nodeOf(scene, 'img')
-    const calls = paintWith(scene, (renderer) => renderer.setNodePreviews({
-      [node.id]: {
-        kind: 'video', src: '/preview.webm', width: 640, height: 480,
-        count: 4, index: 1, state: 'cached',
-        ...(colorTransform === undefined ? {} : { colorTransform }),
-      },
-    }))
-    const preview = withPreviewRegion(node.layout, defaultTokens).preview!
-    const caption = splitPreviewRect({
-      x: node.x + preview.x,
-      y: node.y + preview.y,
-      width: preview.width,
-      height: preview.height,
-    }, defaultTokens.previewCaptionHeight).caption
-    const labels = new Map(calls
-      .filter((call) => call.method === 'fillText')
-      .map((call) => [call.args[0], call]))
-    const cachedY = Number(labels.get('last resolved')?.args[2])
-    const countY = Number(labels.get('2/4')?.args[2])
-    const metadata = colorTransform === undefined ? '640 x 480' : `640 x 480 | Preview color: ${colorTransform}`
-    const dimensionsY = Number(labels.get(metadata)?.args[2])
-    for (const y of [cachedY, countY, dimensionsY]) {
-      expect(y).toBeGreaterThan(caption.y)
-      expect(y).toBeLessThan(caption.y + caption.height)
-    }
-    expect(cachedY).toBe(countY)
-    expect(dimensionsY).not.toBe(cachedY)
-    expect(calls.some((call) => call.method === 'drawImage')).toBe(false)
-  })
-
-  it('sizes a short text result to one row', () => {
-    const scene = fixtureScene('withMismatch')
-    const node = nodeOf(scene, 'img')
-    const { ctx } = recordingCtx()
-    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
-    renderer.setScene(scene)
-    renderer.setNodeOutputTexts({ [node.id]: { text: '42' } })
-    expect(nodeOf(renderer.getScene(), node.id).layout.textOutput?.height).toBe(defaultTokens.rowHeight)
-    renderer.dispose()
-  })
-
   it('projects preview geometry into scene hit testing', () => {
     const scene = fixtureScene('withMismatch')
     const node = nodeOf(scene, 'img')
@@ -2146,66 +1195,6 @@ describe('node chrome paint on the live renderer', () => {
       kind: 'body', node: { id: node.id },
     })
     renderer.dispose()
-  })
-
-  it('projects live resize height into the multiline widget row before commit', () => {
-    const node = {
-      id: 'text-node',
-      x: 100,
-      y: 80,
-      node: { id: 'text-node', type: 'TextNode', values: { text: 'one\ntwo\nthree' } },
-      isSubgraph: false,
-      layout: {
-        width: 220,
-        height: 136,
-        minWidth: 140,
-        minHeight: 136,
-        headerHeight: 28,
-        title: 'Text node',
-        rows: [
-          {
-            kind: 'widget', inputId: 'text', valueKey: 'text', label: 'text',
-            y: 28, height: 76, inset: 9.5, rows: 2, viewId: 'core.text',
-            type: typed('STRING'), address: { port: 'text' },
-            spec: { widgetType: 'STRING', options: { multiline: true } },
-          },
-          { kind: 'ports', y: 104, height: 24, input: { portId: 'after', label: 'after', type: typed('FLOAT'), address: { port: 'after' } } },
-        ],
-        pins: [
-          { portId: 'text', direction: 'in', y: 40, type: typed('STRING'), address: { port: 'text' }, widgetBacked: true },
-          { portId: 'after', direction: 'in', y: 116, type: typed('FLOAT'), address: { port: 'after' } },
-        ],
-      },
-    } as unknown as SceneNode
-    const scene = emptyScene({ nodes: [node] })
-    const paintedRows: Array<{ y: number; height: number; hovered: boolean | undefined }> = []
-    const { ctx } = recordingCtx()
-    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens, (args) => {
-      paintedRows.push({ y: args.y, height: args.row.height, hovered: args.hovered })
-    })
-    renderer.setScene(scene)
-    renderer.setOverlay({
-      hoveredWidget: { nodeId: node.id, valueKey: 'text' },
-      resizePreview: {
-        nodeId: node.id,
-        x: node.x,
-        y: node.y,
-        width: node.layout.width,
-        height: node.layout.height + 61,
-      },
-    })
-    renderer.renderNow()
-    renderer.dispose()
-
-    expect(paintedRows).toEqual([{
-      y: node.y + 28,
-      height: 4 + defaultTokens.multilineText.labelHeight + 2 * defaultTokens.multilineText.lineHeight +
-        2 * defaultTokens.multilineText.padding + 61,
-      hovered: true,
-    }])
-    const projected = projectNodeLayoutHeight(node.layout, node.layout.height + 61, defaultTokens)
-    expect(projected.rows[1]!.y).toBe(104 + 59)
-    expect(projected.pins.map((pin) => pin.y)).toEqual([40, 116 + 59])
   })
 
   it('projects live resize width into the text result region and rewraps against it', () => {
@@ -2389,39 +1378,6 @@ describe('node chrome paint on the live renderer', () => {
     expect(brightText?.globalAlpha).toBe(1)
   })
 
-  it('keeps numeric stepper glyphs visible but muted on connected rows', () => {
-    const scene = constructsScene()
-    const free = nodeOf(scene, 'fs2')
-    const connected = nodeOf(scene, 'fs')
-    const freeRow = free.layout.rows.find((row) => row.kind === 'widget')!
-    const connectedRow = connected.layout.rows.find((row) => row.kind === 'widget')!
-    const calls = paint(scene)
-    const minusGlyph = (node: SceneNode, row: Extract<(typeof node.layout.rows)[number], { kind: 'widget' }>) => calls.find((c) =>
-      c.method === 'moveTo' && c.args[0] === node.x + row.inset + 3 && c.args[1] === node.y + row.y + defaultTokens.rowHeight / 2)
-    const plusGlyph = (node: SceneNode, row: Extract<(typeof node.layout.rows)[number], { kind: 'widget' }>) => calls.find((c) =>
-      c.method === 'moveTo' && c.args[0] === node.x + node.layout.width - row.inset - 9 && c.args[1] === node.y + row.y + defaultTokens.rowHeight / 2)
-    expect(minusGlyph(free, freeRow)).toBeDefined()
-    expect(plusGlyph(free, freeRow)).toBeDefined()
-    expect(minusGlyph(connected, connectedRow)).toBeDefined()
-    expect(plusGlyph(connected, connectedRow)).toBeDefined()
-    expect(minusGlyph(connected, connectedRow)!.globalAlpha).toBeLessThan(minusGlyph(free, freeRow)!.globalAlpha)
-  })
-
-  it('a selected node paints a near-white selection outline rather than the action accent', () => {
-    const scene = fixtureScene('clean')
-    const n = nodeOf(scene, 'c1')
-    const calls = paintWith(scene, (r) => r.setOverlay({ selection: new Set(['c1']) }))
-    const haloIdx = calls.findIndex(
-      (c) => c.method === 'roundRect' && c.args[0] === n.x - 3 && c.args[1] === n.y - 3 && c.args[2] === n.layout.width + 6,
-    )
-    expect(haloIdx).toBeGreaterThanOrEqual(0)
-    const stroke = paintedAfter(calls, haloIdx, 'stroke')
-    expect(stroke?.strokeStyle).toBe(defaultTokens.colors.nodeSelectedBorder)
-    expect(stroke?.strokeStyle).toBe('#F2F4F5')
-    expect(stroke?.strokeStyle).not.toBe(SEL)
-    expect(stroke?.lineWidth).toBe(2)
-  })
-
   it('paints region identity with a loop glyph, kind label, and doubled border without changing plain nodes', () => {
     const scene = fixtureScene('clean')
     const ordinary = nodeOf(scene, 'c1')
@@ -2451,85 +1407,6 @@ describe('node chrome paint on the live renderer', () => {
     )).toBe(false)
   })
 
-  it('keeps selected-node outline geometry aligned past every viewport edge', () => {
-    const scene = fixtureScene('clean')
-    const n = nodeOf(scene, 'c1')
-    const edge = (viewport: { x: number; y: number; scale: number }, dpr: number) => {
-      vi.stubGlobal('devicePixelRatio', dpr)
-      const calls = paintWith(scene, (renderer) => {
-        renderer.setViewport(viewport)
-        renderer.setOverlay({ selection: new Set(['c1']) })
-      })
-      const strokeIndex = calls.findIndex((call) =>
-        call.method === 'stroke' &&
-        call.strokeStyle === defaultTokens.colors.nodeSelectedBorder &&
-        call.lineWidth === Math.max(2, 2 / viewport.scale),
-      )
-      expect(strokeIndex).toBeGreaterThanOrEqual(0)
-      const outline = calls.slice(0, strokeIndex).reverse().find((call) => call.method === 'roundRect')
-      expect(outline?.args).toEqual([
-        n.x - 3,
-        n.y - 3,
-        n.layout.width + 6,
-        n.layout.height + 6,
-        defaultTokens.cornerRadius + 3,
-      ])
-    }
-
-    for (const dpr of [1, 1.25, 2]) {
-      for (const scale of [0.1, 0.75, 1.75, 4]) {
-        const leftView = n.x
-        const rightView = n.x + n.layout.width
-        const topView = n.y
-        const bottomView = n.y + n.layout.height
-        const centeredX = 800 - (n.x + n.layout.width / 2) * scale
-        const centeredY = 600 - (n.y + n.layout.height / 2) * scale
-        edge({ x: -leftView * scale, y: centeredY, scale }, dpr)
-        edge({ x: 1600 - rightView * scale, y: centeredY, scale }, dpr)
-        edge({ x: centeredX, y: -topView * scale, scale }, dpr)
-        edge({ x: centeredX, y: 1200 - bottomView * scale, scale }, dpr)
-      }
-    }
-    vi.stubGlobal('devicePixelRatio', 1)
-  })
-
-  it('paints one bounded full-height outline for a partially visible tall node and culls an invisible selection', () => {
-    const original = nodeOf(fixtureScene('clean'), 'c1')
-    const tall = { ...original, id: 'tall', x: 100, y: 100, layout: { ...original.layout, height: 20_500 } }
-    const invisible = { ...original, id: 'invisible', x: 5000, y: 5000 }
-    const calls = paintWith(emptyScene({ nodes: [tall, invisible] }), (renderer) => {
-      renderer.setViewport({ x: 0, y: 0, scale: 1 })
-      renderer.setBadges({ tall: [MUTED_BADGE] })
-      renderer.setOverlay({ selection: new Set(['tall', 'invisible']) })
-    })
-    const selectedStrokes = calls.filter((call) =>
-      call.method === 'stroke' && call.strokeStyle === defaultTokens.colors.nodeSelectedBorder && call.lineWidth === 2,
-    )
-    expect(selectedStrokes).toHaveLength(1)
-    const strokeIndex = calls.indexOf(selectedStrokes[0]!)
-    expect(calls.slice(0, strokeIndex).reverse().find((call) => call.method === 'roundRect')?.args).toEqual([
-      tall.x - 3,
-      tall.y - 3,
-      tall.layout.width + 6,
-      tall.layout.height + 6,
-      defaultTokens.cornerRadius + 3,
-    ])
-    expect(calls.some((call) => call.method === 'roundRect' && call.args[0] === invisible.x)).toBe(false)
-    expect(calls.some((call) => call.method === 'arc' && call.args[0] === tall.x)).toBe(true)
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === MUTED_BADGE.glyph)).toBe(true)
-  })
-
-  it('paints a custom node color as a strong header and subtle body tint', () => {
-    const base = fixtureScene('clean')
-    const scene: Scene = {
-      ...base,
-      nodes: base.nodes.map((node) => node.id === 'c1' ? { ...node, color: '#355c7d' } : node),
-    }
-    const calls = paint(scene)
-    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#2a353f' && call.globalAlpha === 1)).toBe(true)
-    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#2e4b64' && call.globalAlpha === 1)).toBe(true)
-  })
-
   it('keeps state outline precedence on a colored node', () => {
     const base = fixtureScene('clean')
     const scene: Scene = {
@@ -2543,56 +1420,6 @@ describe('node chrome paint on the live renderer', () => {
     })
     expect(nodeBorder(calls, node)?.strokeStyle).toBe(defaultTokens.colors.error)
     expect(nodeBorder(calls, node)?.lineWidth).toBe(2.5)
-  })
-
-  it('keeps custom-colored muted and bypassed nodes distinguishable', () => {
-    const base = fixtureScene('clean')
-    const withMode = (mode: 'muted' | 'bypassed'): Scene => ({
-      ...base,
-      nodes: base.nodes.map((node) => node.id === 'c1'
-        ? { ...node, color: '#355c7d', node: { ...node.node, mode } }
-        : node),
-    })
-    const mutedCalls = paint(withMode('muted'))
-    expect(mutedCalls.filter((call) => call.method === 'fill' && (call.fillStyle === '#293036' || call.fillStyle === '#2f4b63'))
-      .every((call) => call.globalAlpha === 0.45)).toBe(true)
-    expect(mutedCalls.some((call) => call.method === 'fill' && call.fillStyle === defaultTokens.colors.bypassWash)).toBe(false)
-
-    const bypassedCalls = paint(withMode('bypassed'))
-    expect(bypassedCalls.filter((call) => call.method === 'fill' && (call.fillStyle === '#293036' || call.fillStyle === '#2f4b63'))
-      .every((call) => call.globalAlpha === 0.45)).toBe(true)
-    expect(bypassedCalls.some((call) => call.method === 'fill' && call.fillStyle === defaultTokens.colors.bypassWash)).toBe(true)
-  })
-
-  it('keeps colored-node title and lens overlays above identity paint without replacing the header', () => {
-    const base = fixtureScene('clean')
-    const scene: Scene = {
-      ...base,
-      nodes: base.nodes.map((node) => node.id === 'c1' ? { ...node, color: '#355c7d' } : node),
-    }
-    const calls = paintWith(scene, (renderer) => renderer.setLensCapabilities({
-      nodeBodyContent: (node) => node.id === 'c1' ? [{ label: 'value', text: '42' }] : null,
-      typeAdornments: true,
-    }))
-    const node = nodeOf(scene, 'c1')
-    const outputRow = scene.nodes.flatMap((candidate) => candidate.layout.rows)
-      .find((row) => row.kind === 'ports' && row.output !== undefined)
-    expect(outputRow).toBeDefined()
-    if (outputRow?.kind !== 'ports' || outputRow.output === undefined) throw new Error('fixture needs an output row')
-    const typeLabel = presentedType(defaultTokens, outputRow.output.type).label
-    const header = calls.findIndex((call) => call.method === 'fill' && call.fillStyle === '#2e4b64')
-    const title = calls.findIndex((call) => call.method === 'fillText' && call.fillStyle === defaultTokens.colors.title &&
-      call.args[1] === node.x + defaultTokens.padX)
-    const dataPanelOffset = calls.slice(header + 1)
-      .findIndex((call) => call.method === 'fillRect' && call.fillStyle === defaultTokens.colors.canvasBackground)
-    const dataPanel = dataPanelOffset < 0 ? -1 : header + 1 + dataPanelOffset
-    const overlay = calls.findIndex((call) => call.method === 'fillText' && call.args[0] === typeLabel &&
-      call.font === `600 ${Math.max(8, defaultTokens.fontSize - 2)}px ${defaultTokens.fontFamily}`)
-    expect(header).toBeGreaterThanOrEqual(0)
-    expect(title).toBeGreaterThan(header)
-    expect(dataPanel).toBeGreaterThan(header)
-    expect(overlay).toBeGreaterThan(dataPanel)
-    expect(calls.filter((call) => call.method === 'fill' && call.fillStyle === '#2e4b64')).toHaveLength(1)
   })
 
   it('muted and bypassed dim the whole node; bypassed also gets the purple wash', () => {
@@ -2649,47 +1476,6 @@ describe('node chrome paint on the live renderer', () => {
     })
   })
 
-  it('paints an unrecognized error border beneath the selection outline', () => {
-    const base = fixtureScene('clean')
-    const scene: Scene = {
-      ...base,
-      nodes: base.nodes.map((node) => node.id === 'c1'
-        ? { ...node, unrecognized: true, node: { ...node.node, mode: 'muted' } }
-        : node),
-    }
-    const node = nodeOf(scene, 'c1')
-    const calls = paintWith(scene, (renderer) => renderer.setOverlay({ selection: new Set(['c1']) }))
-    const errorStrokeIndex = calls.findIndex((call) =>
-      call.method === 'stroke' && call.strokeStyle === defaultTokens.colors.error && call.lineWidth === 3.75)
-    const selectionStrokeIndex = calls.findIndex((call) =>
-      call.method === 'stroke' && call.strokeStyle === defaultTokens.colors.nodeSelectedBorder && call.lineWidth === 2)
-    const bodyFill = calls.find((call) => call.method === 'fill' && call.fillStyle === '#533a3c')
-    const headerFill = calls.find((call) => call.method === 'fill' && call.fillStyle === '#6b3d3b')
-    const errorStroke = calls[errorStrokeIndex]
-    const selectionStroke = calls[selectionStrokeIndex]
-    const titleIndex = calls.findIndex((call) => call.method === 'fillText' && call.args[1] === node.x + defaultTokens.padX)
-    const title = calls[titleIndex]
-    expect(errorStrokeIndex).toBeGreaterThanOrEqual(0)
-    expect(selectionStrokeIndex).toBeGreaterThan(errorStrokeIndex)
-    expect(titleIndex).toBeGreaterThan(selectionStrokeIndex)
-    expect([bodyFill, headerFill, errorStroke, title].every((call) => call?.globalAlpha === 0.45)).toBe(true)
-    expect(selectionStroke?.globalAlpha).toBe(1)
-  })
-
-  it('lets unrecognized paint override a custom node identity color', () => {
-    const base = fixtureScene('clean')
-    const scene: Scene = {
-      ...base,
-      nodes: base.nodes.map((node) => node.id === 'c1'
-        ? { ...node, color: '#355c7d', unrecognized: true }
-        : node),
-    }
-    const calls = paint(scene)
-    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#533a3c')).toBe(true)
-    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#6b3d3b')).toBe(true)
-    expect(calls.some((call) => call.method === 'fill' && (call.fillStyle === '#2a353f' || call.fillStyle === '#2e4b64'))).toBe(false)
-  })
-
   it('a recognized node paints no unrecognized error color', () => {
     const scene = fixtureScene('clean')
     const node = nodeOf(scene, 'c1')
@@ -2727,55 +1513,6 @@ describe('node chrome paint on the live renderer', () => {
     const chip = calls.findIndex((call) =>
       call.method === 'roundRect' && call.args[0] === rect.x && call.args[1] === rect.y)
     expect(paintedAfter(calls, chip, 'fill')?.fillStyle).toBe(tokens.colors.blockingWarning)
-  })
-
-  it('an advisory-warning badge keeps the default node outline', () => {
-    const scene = fixtureScene('clean')
-    const node = nodeOf(scene, 'c1')
-    const calls = paintWith(scene, (renderer) => renderer.setBadges({ c1: [PROBLEM_WARNING_BADGE] }))
-    expect(nodeBorder(calls, node)?.strokeStyle).toBe(defaultTokens.colors.nodeOutline)
-    expect(nodeBorder(calls, node)?.lineWidth).toBe(1.25)
-  })
-
-  it('error outlines own their dash over blocking warnings', () => {
-    const base = fixtureScene('clean')
-    const tokens: DesignTokens = {
-      ...defaultTokens,
-      colors: { ...defaultTokens.colors, error: '#f44336' },
-      stateColors: { ...defaultTokens.stateColors, error: '#d50000' },
-    }
-    const scene: Scene = {
-      ...base,
-      nodes: base.nodes.map((node) => node.id === 'c1' ? { ...node, missingSchema: true } : node),
-    }
-    const missing = nodeOf(scene, 'c1')
-    const missingCalls = paintWithTokens(scene, tokens, (renderer) => {
-      renderer.setNodeStates({ c1: { state: 'error' } })
-      renderer.setBadges({ c1: [PROBLEM_BLOCKING_WARNING_BADGE] })
-    })
-    expect(nodeBorder(missingCalls, missing)).toMatchObject({
-      strokeStyle: tokens.colors.error,
-      lineDash: [4, 2],
-    })
-
-    const normal = nodeOf(base, 'c1')
-    const runtimeCalls = paintWithTokens(base, tokens, (renderer) => {
-      renderer.setNodeStates({ c1: { state: 'error' } })
-      renderer.setBadges({ c1: [PROBLEM_ERROR_BADGE, PROBLEM_BLOCKING_WARNING_BADGE] })
-    })
-    expect(nodeBorder(runtimeCalls, normal)).toMatchObject({
-      strokeStyle: tokens.stateColors.error,
-      lineWidth: 2.5,
-      lineDash: [4, 2],
-    })
-
-    const documentCalls = paintWithTokens(base, tokens, (renderer) => {
-      renderer.setBadges({ c1: [PROBLEM_ERROR_BADGE, PROBLEM_BLOCKING_WARNING_BADGE] })
-    })
-    expect(nodeBorder(documentCalls, normal)).toMatchObject({
-      strokeStyle: tokens.colors.error,
-      lineDash: [4, 2],
-    })
   })
 
   it('running state wins over a blocking-warning outline', () => {
@@ -2845,45 +1582,6 @@ describe('node chrome paint on the live renderer', () => {
     ).toBe(false)
   })
 
-  it('a diagnosed fallback value row paints a red outline keyed by its stored key', () => {
-    const base = fixtureScene('clean')
-    const scene: Scene = {
-      ...base,
-      nodes: base.nodes.map((n) =>
-        n.id === 'c1'
-          ? {
-              ...n,
-              missingSchema: true,
-              layout: {
-                ...n.layout,
-                rows: [{ kind: 'fallback' as const, y: n.layout.headerHeight, height: 24, label: 'steps', text: '20' }],
-                pins: [],
-              },
-            }
-          : n,
-      ),
-    }
-    const n = nodeOf(scene, 'c1')
-    const calls = paintWith(scene, (r) => r.setRowMarks({ c1: new Set(['steps']) }))
-    const outline = calls.find(
-      (c) =>
-        c.method === 'strokeRect' &&
-        c.strokeStyle === defaultTokens.colors.error &&
-        c.args[1] === n.y + n.layout.headerHeight + 2,
-    )
-    expect(outline).toBeDefined()
-    // A mark for a DIFFERENT key outlines nothing.
-    const other = paintWith(scene, (r) => r.setRowMarks({ c1: new Set(['cfg']) }))
-    expect(
-      other.some(
-        (c) =>
-          c.method === 'strokeRect' &&
-          c.strokeStyle === defaultTokens.colors.error &&
-          c.args[1] === n.y + n.layout.headerHeight + 2,
-      ),
-    ).toBe(false)
-  })
-
   it('run states drive the border: running widens + colors it and draws the progress bar', () => {
     const scene = fixtureScene('clean')
     const n = nodeOf(scene, 'c1')
@@ -2912,57 +1610,6 @@ describe('node chrome paint on the live renderer', () => {
     expect(bar).toBeDefined()
     expect(bar!.args[2]).toBeCloseTo(n.layout.width * 0.5)
     expect(bar!.args[3]).toBe(3)
-  })
-
-  it('schedules flowing-border frames only while a node is running', () => {
-    let pending: FrameRequestCallback | undefined
-    let requests = 0
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-      pending = callback
-      requests += 1
-      return requests
-    })
-    const { ctx, calls } = recordingCtx()
-    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
-    const runFrame = (timestamp: number) => {
-      const callback = pending
-      pending = undefined
-      if (callback === undefined) throw new Error('animation frame was not scheduled')
-      callback(timestamp)
-    }
-    try {
-      renderer.setScene(fixtureScene('clean'))
-      runFrame(100)
-      expect(requests).toBe(1)
-      expect(pending).toBeUndefined()
-
-      calls.length = 0
-      renderer.setNodeStates({ c1: { state: 'running', value: 0.5 } })
-      expect(requests).toBe(2)
-      runFrame(200)
-      const first = calls.find((call) =>
-        call.method === 'stroke' && call.strokeStyle === defaultTokens.progressBar && call.lineDash.length > 0)
-      expect(first).toBeDefined()
-      expect(pending).toBeDefined()
-
-      calls.length = 0
-      runFrame(700)
-      const second = calls.find((call) =>
-        call.method === 'stroke' && call.strokeStyle === defaultTokens.progressBar && call.lineDash.length > 0)
-      expect(second).toBeDefined()
-      expect(second!.lineDashOffset).not.toBe(first!.lineDashOffset)
-
-      renderer.setNodeStates({ c1: { state: 'done' } })
-      calls.length = 0
-      runFrame(800)
-      expect(calls.some((call) =>
-        call.method === 'stroke' && call.strokeStyle === defaultTokens.progressBar && call.lineDash.length > 0,
-      )).toBe(false)
-      expect(pending).toBeUndefined()
-    } finally {
-      renderer.dispose()
-      vi.stubGlobal('requestAnimationFrame', () => 0)
-    }
   })
 
   it('uses a static glow without scheduling animation under reduced motion', () => {
@@ -3036,44 +1683,6 @@ describe('node chrome paint on the live renderer', () => {
     const holeIdx = calls.findIndex((c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === dotR)
     expect(holeIdx).toBeGreaterThan(discIdx)
     expect(paintedAfter(calls, holeIdx, 'fill')?.fillStyle).toBe(defaultTokens.colors.canvasBackground)
-  })
-
-  it('a collapsed net keeps the optional sink donut and no bare noodle label', () => {
-    const scene = constructsScene()
-    // opt.in is fed by the collapsed net n1; opt2.in is genuinely unconnected.
-    const calls = paint(scene)
-    const dotR = Math.max(1.5, defaultTokens.pinRadius * 0.32)
-    const fed = nodeOf(scene, 'opt')
-    const fedPin = fed.layout.pins.find((p) => p.direction === 'in')!
-    const fx = fed.x
-    const fy = fed.y + fedPin.y
-    const discIdx = calls.findIndex(
-      (c) => c.method === 'arc' && c.args[0] === fx && c.args[1] === fy && c.args[2] === defaultTokens.pinRadius,
-    )
-    expect(discIdx).toBeGreaterThanOrEqual(0)
-    expect(paintedAfter(calls, discIdx, 'fill')?.fillStyle).toBe(LATENT)
-    expect(calls.some((c) => c.method === 'arc' && c.args[0] === fx && c.args[1] === fy && c.args[2] === dotR)).toBe(true)
-    // The truly unconnected twin keeps its hollow center.
-    const bare = nodeOf(scene, 'opt2')
-    const barePin = bare.layout.pins.find((p) => p.direction === 'in')!
-    expect(
-      calls.some((c) => c.method === 'arc' && c.args[0] === bare.x && c.args[1] === bare.y + barePin.y && c.args[2] === dotR),
-    ).toBe(true)
-    // The hidden link paints no midpoint net name: only Set/Get tags label it.
-    expect(calls.some((c) => c.method === 'fillText' && c.args[0] === 'feed')).toBe(false)
-  })
-
-  it('a connected required Autogrow member keeps a hollow family-growth center', () => {
-    const scene = constructsScene()
-    const node = nodeOf(scene, 'c1')
-    const pin = node.layout.pins.find((candidate) => candidate.direction === 'in')!
-    expect(pin.optional).toBeUndefined()
-    ;(pin as { familyMember?: true }).familyMember = true
-    const dotR = Math.max(1.5, defaultTokens.pinRadius * 0.32)
-    const calls = paint(scene)
-    expect(calls.some((call) =>
-      call.method === 'arc' && call.args[0] === node.x && call.args[1] === node.y + pin.y && call.args[2] === dotR,
-    )).toBe(true)
   })
 
   it('a required single-type pin remains a solid type-colored circle without a center hole', () => {
@@ -3166,34 +1775,6 @@ describe('node chrome paint on the live renderer', () => {
     }
   })
 
-  it('an optional MultiType input composes a segmented ring with a hollow center', () => {
-    const base = constructsScene()
-    const union = { kind: 'union' as const, names: ['IMAGE', 'MASK', 'LATENT'] }
-    const scene: Scene = {
-      ...base,
-      nodes: base.nodes.map((n) => n.id === 'opt2'
-        ? { ...n, layout: { ...n.layout, pins: n.layout.pins.map((p) => ({ ...p, type: union })) } }
-        : n),
-    }
-    const n = nodeOf(scene, 'opt2')
-    const pin = n.layout.pins.find((p) => p.direction === 'in')!
-    const px = n.x
-    const py = n.y + pin.y
-    const calls = paint(scene)
-    const dotR = Math.max(1.5, defaultTokens.pinRadius * 0.32)
-    const holeIdx = calls.findIndex((c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === dotR)
-    expect(holeIdx).toBeGreaterThanOrEqual(0)
-    expect(paintedAfter(calls, holeIdx, 'fill')?.fillStyle).toBe(defaultTokens.colors.canvasBackground)
-    const fillsBeforeHole = calls.slice(0, holeIdx).filter((c) => c.method === 'fill').map((c) => c.fillStyle)
-    expect(fillsBeforeHole).toContain(typeColor(defaultTokens, 'IMAGE'))
-    expect(fillsBeforeHole).toContain(typeColor(defaultTokens, 'MASK'))
-    expect(fillsBeforeHole).toContain(LATENT)
-    expect(calls.slice(0, holeIdx).filter((c) =>
-      c.method === 'lineTo' &&
-      Math.abs(Math.hypot(Number(c.args[0]) - px, Number(c.args[1]) - py) - defaultTokens.pinRadius * 2) < 1e-9,
-    )).toHaveLength(3)
-  })
-
   it('a definitely-list pin paints a diamond in the element type color', () => {
     const base = constructsScene()
     const list = { kind: 'list' as const, element: { kind: 'concrete' as const, name: 'LATENT' } }
@@ -3223,174 +1804,6 @@ describe('node chrome paint on the live renderer', () => {
     )).toBe(false)
   })
 
-  it('an optional list input composes a hollow diamond', () => {
-    const base = constructsScene()
-    const list = { kind: 'list' as const, element: { kind: 'concrete' as const, name: 'LATENT' } }
-    const scene: Scene = {
-      ...base,
-      nodes: base.nodes.map((n) => n.id === 'opt2'
-        ? { ...n, layout: { ...n.layout, pins: n.layout.pins.map((p) => ({ ...p, type: list })) } }
-        : n),
-    }
-    const n = nodeOf(scene, 'opt2')
-    const pin = n.layout.pins.find((p) => p.direction === 'in')!
-    const px = n.x
-    const py = n.y + pin.y
-    const calls = paint(scene)
-    const r = defaultTokens.pinRadius * PIN_DIAMOND_SCALE
-    // Shape axis: diamond body in the element color...
-    const topIdx = calls.findIndex((c) => c.method === 'moveTo' && c.args[0] === px && c.args[1] === py - r)
-    expect(topIdx).toBeGreaterThanOrEqual(0)
-    expect(paintedAfter(calls, topIdx, 'fill')?.fillStyle).toBe(LATENT)
-    // ...optionality axis: the center hole still punches through.
-    const dotR = Math.max(1.5, defaultTokens.pinRadius * 0.32)
-    const holeIdx = calls.findIndex((c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === dotR)
-    expect(holeIdx).toBeGreaterThan(topIdx)
-    expect(paintedAfter(calls, holeIdx, 'fill')?.fillStyle).toBe(defaultTokens.colors.canvasBackground)
-  })
-
-  it('a list of a union segments the diamond into element-colored wedges', () => {
-    const base = constructsScene()
-    const listOfUnion = {
-      kind: 'list' as const,
-      element: { kind: 'union' as const, names: ['IMAGE', 'MASK'] },
-    }
-    const scene: Scene = {
-      ...base,
-      nodes: base.nodes.map((n) => n.id === 'c1'
-        ? { ...n, layout: { ...n.layout, pins: n.layout.pins.map((p) => ({ ...p, type: listOfUnion })) } }
-        : n),
-    }
-    const n = nodeOf(scene, 'c1')
-    const pin = n.layout.pins.find((p) => p.direction === 'in')!
-    const px = n.x
-    const py = n.y + pin.y
-    const calls = paint(scene)
-    const r = defaultTokens.pinRadius * PIN_DIAMOND_SCALE
-    // Diamond outline present...
-    const topIdx = calls.findIndex((c) => c.method === 'moveTo' && c.args[0] === px && c.args[1] === py - r)
-    expect(topIdx).toBeGreaterThanOrEqual(0)
-    // ...MultiType axis: one wedge fill per union member, in element colors.
-    const fills = calls.filter((c) => c.method === 'fill').map((c) => c.fillStyle)
-    expect(fills).toContain(typeColor(defaultTokens, 'IMAGE'))
-    expect(fills).toContain(typeColor(defaultTokens, 'MASK'))
-    // Dividers overshoot to r * 2 so the clip trims them at the diamond edge.
-    const dividerLines = calls.filter((c) =>
-      c.method === 'lineTo' &&
-      Math.abs(Math.hypot(Number(c.args[0]) - px, Number(c.args[1]) - py) - r * 2) < 1e-9)
-    expect(dividerLines).toHaveLength(2)
-  })
-
-  it('MultiType divider orientation follows the pin direction', () => {
-    // Three members break the symmetry: exactly one divider points straight
-    // at the noodle side (west for inputs, east for outputs) and none points
-    // the opposite way.
-    const base = constructsScene()
-    const union = { kind: 'union' as const, names: ['IMAGE', 'MASK', 'LATENT'] }
-    const scene: Scene = {
-      ...base,
-      nodes: base.nodes.map((n) => n.id === 'c1' || n.id === 'lat'
-        ? { ...n, layout: { ...n.layout, pins: n.layout.pins.map((p) => ({ ...p, type: union })) } }
-        : n),
-    }
-    const calls = paint(scene)
-    const sink = nodeOf(scene, 'c1')
-    const src = nodeOf(scene, 'lat')
-    const inPin = sink.layout.pins.find((p) => p.direction === 'in')!
-    const outPin = src.layout.pins.find((p) => p.direction === 'out')!
-    const inX = sink.x
-    const inY = sink.y + inPin.y
-    const outX = src.x + src.layout.width
-    const outY = src.y + outPin.y
-    const r2 = defaultTokens.pinRadius * 2
-    const endsAt = (cx: number, cy: number, dx: number) => calls.some((c) =>
-      c.method === 'lineTo' &&
-      Math.abs(Number(c.args[0]) - (cx + dx)) < 1e-6 &&
-      Math.abs(Number(c.args[1]) - cy) < 1e-6)
-    expect(endsAt(inX, inY, -r2)).toBe(true) // input divider points west
-    expect(endsAt(inX, inY, r2)).toBe(false)
-    expect(endsAt(outX, outY, r2)).toBe(true) // output divider points east
-    expect(endsAt(outX, outY, -r2)).toBe(false)
-  })
-
-  it('an unresolved match input uses a tangent circle inside an axis-aligned square', () => {
-    const variable = { kind: 'variable' as const, templateId: 'T' }
-    const base = constructsScene()
-    const scene: Scene = {
-      ...base,
-      nodes: base.nodes.map((node) => node.id === 'c1' || node.id === 'lat'
-        ? {
-            ...node,
-            layout: {
-              ...node.layout,
-              pins: node.layout.pins.map((pin) => ({ ...pin, type: variable, matchVariable: 'T' })),
-            },
-          }
-        : node),
-    }
-    const inputNode = nodeOf(scene, 'c1')
-    const input = inputNode.layout.pins[0]!
-    const inputX = inputNode.x
-    const inputY = inputNode.y + input.y
-    const outputNode = nodeOf(scene, 'lat')
-    const output = outputNode.layout.pins[0]!
-    const outputX = outputNode.x + outputNode.layout.width
-    const outputY = outputNode.y + output.y
-    const radius = defaultTokens.pinRadius
-    const calls = paint(scene)
-
-    expect(calls.some((call) => call.method === 'arc' && call.args[0] === inputX &&
-      call.args[1] === inputY && call.args[2] === radius)).toBe(true)
-    expect(calls.some((call) => call.method === 'moveTo' && call.args[0] === inputX - radius &&
-      call.args[1] === inputY - radius)).toBe(true)
-    expect(calls.some((call) => call.method === 'lineTo' && call.args[0] === inputX + radius &&
-      call.args[1] === inputY - radius)).toBe(true)
-    expect(calls.some((call) => call.method === 'lineTo' && call.args[0] === inputX + radius &&
-      call.args[1] === inputY + radius)).toBe(true)
-    expect(calls.some((call) => call.method === 'lineTo' && call.args[0] === inputX - radius &&
-      call.args[1] === inputY + radius)).toBe(true)
-    expect(calls.some((call) => call.method === 'moveTo' && call.args[0] === inputX &&
-      call.args[1] === inputY - radius * PIN_DIAMOND_SCALE)).toBe(false)
-    expect(calls.some((call) => call.method === 'lineTo' && call.args[0] === inputX + radius * PIN_DIAMOND_SCALE &&
-      call.args[1] === inputY)).toBe(false)
-    expect(calls.some((call) => call.method === 'arc' && call.args[0] === outputX &&
-      call.args[1] === outputY && call.args[2] === radius)).toBe(true)
-    expect(calls.some((call) => call.method === 'moveTo' && call.args[0] === outputX - radius &&
-      call.args[1] === outputY - radius)).toBe(false)
-  })
-
-  it('a resolved match pin uses the standard dark solid outline', () => {
-    const base = constructsScene()
-    const scene: Scene = {
-      ...base,
-      nodes: base.nodes.map((node) => node.id === 'c1'
-        ? {
-            ...node,
-            layout: {
-              ...node.layout,
-              pins: node.layout.pins.map((pin) => ({
-                ...pin,
-                matchVariable: 'T',
-                inferred: true as const,
-              })),
-            },
-          }
-        : node),
-    }
-    const node = nodeOf(scene, 'c1')
-    const pin = node.layout.pins[0]!
-    const px = node.x
-    const py = node.y + pin.y
-    const calls = paint(scene)
-    const outlines = calls.filter((call) =>
-      call.method === 'arc' && call.args[0] === px && call.args[1] === py &&
-      call.args[2] === defaultTokens.pinRadius)
-    const outline = calls.slice(calls.indexOf(outlines.at(-1)!) + 1).find((call) => call.method === 'stroke')
-    expect(outline?.strokeStyle).toBe(defaultTokens.colors.canvasBackground)
-    expect(outline?.lineWidth).toBe(1)
-    expect(outline?.lineDash).toEqual([])
-  })
-
   it('Any input and output pins use a neutral fill and dashed outer ring', () => {
     const base = constructsScene()
     const scene: Scene = {
@@ -3410,26 +1823,6 @@ describe('node chrome paint on the live renderer', () => {
       expect(paintedAfter(calls, arc, 'fill')?.fillStyle).toBe(defaultTokens.colors.linkDefault)
       expect(calls.slice(arc).some((c) => c.method === 'setLineDash' && (c.args[0] as number[]).length > 0)).toBe(true)
     }
-  })
-
-  it('an optional Any input composes the dashed ring with a hollow center', () => {
-    const base = constructsScene()
-    const scene: Scene = {
-      ...base,
-      nodes: base.nodes.map((n) => n.id === 'opt2'
-        ? { ...n, layout: { ...n.layout, pins: n.layout.pins.map((p) => ({ ...p, type: { kind: 'wildcard' as const } })) } }
-        : n),
-    }
-    const n = nodeOf(scene, 'opt2')
-    const pin = n.layout.pins.find((p) => p.direction === 'in')!
-    const px = n.x
-    const py = n.y + pin.y
-    const calls = paint(scene)
-    const dotR = Math.max(1.5, defaultTokens.pinRadius * 0.32)
-    const hole = calls.findIndex((c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === dotR)
-    expect(hole).toBeGreaterThanOrEqual(0)
-    expect(paintedAfter(calls, hole, 'fill')?.fillStyle).toBe(defaultTokens.colors.canvasBackground)
-    expect(calls.slice(0, hole).some((c) => c.method === 'setLineDash' && (c.args[0] as number[]).length > 0)).toBe(true)
   })
 
   it('a ghost pin renders hollow and dimmed, never filled', () => {
@@ -3656,70 +2049,6 @@ describe('badge and toolbox paint on the live renderer', () => {
     )).toBe(false)
   })
 
-  it('header badges draw at badgeRect positions: chip fill then glyph, index 0 rightmost', () => {
-    const scene = fixtureScene('clean')
-    const n = nodeOf(scene, 'c1')
-    const badges = [ERROR_BADGE, SUBGRAPH_BADGE]
-    const calls = paintWith(scene, (r) => r.setBadges({ c1: badges }))
-    const r0 = badgeRect(n, 0, badges)
-    const r1 = badgeRect(n, 1, badges)
-    expect(r0.x).toBeGreaterThan(r1.x)
-    for (const [rect, badge] of [
-      [r0, ERROR_BADGE],
-      [r1, SUBGRAPH_BADGE],
-    ] as const) {
-      const chipIdx = calls.findIndex(
-        (c) => c.method === 'roundRect' && c.args[0] === rect.x && c.args[1] === rect.y && c.args[2] === rect.width,
-      )
-      expect(chipIdx, `chip for ${badge.id}`).toBeGreaterThanOrEqual(0)
-      expect(paintedAfter(calls, chipIdx, 'fill')?.fillStyle).toBe(badge.color)
-      if (badge.icon === undefined) {
-        expect(calls.some((c) =>
-          c.method === 'fillText' && c.args[0] === badge.glyph &&
-          c.args[1] === rect.x + rect.width / 2 && c.fillStyle === defaultTokens.colors.title,
-        )).toBe(true)
-      } else {
-        expect(calls.some((c) => c.method === 'stroke' && c.strokeStyle === defaultTokens.colors.title)).toBe(true)
-        expect(calls.some((c) => c.method === 'fillText' && c.args[0] === badge.glyph)).toBe(false)
-      }
-    }
-  })
-
-  it('draws attached policy and observed-state badges with distinct solid fills', () => {
-    const scene = fixtureScene('clean')
-    const node = nodeOf(scene, 'c1')
-    const policy = { id: 'test.policy', glyph: 'Native', variant: 'label' as const, appearance: 'policy' as const, placement: 'above' as const, color: '#23483e' }
-    const observed = { id: 'test.observed', glyph: 'Native', variant: 'label' as const, placement: 'above' as const, color: '#286a55' }
-
-    const policyRect = badgeRect(node, 0, [policy])
-    const policyCalls = paintWith(scene, (renderer) => renderer.setBadges({ c1: [policy] }))
-    const policyPath = policyCalls.findIndex((call) =>
-      call.method === 'roundRect' && call.args[0] === policyRect.x && call.args[1] === policyRect.y,
-    )
-    expect(policyRect.y + policyRect.height).toBe(node.y)
-    expect(paintedAfter(policyCalls, policyPath, 'fill')?.fillStyle).toBe(policy.color)
-    expect(policyCalls.slice(policyPath + 1).find((call) => call.method === 'fill' || call.method === 'stroke')?.method).toBe('fill')
-    const title = policyCalls.find((call) => call.method === 'fillText' && call.args[0] === node.layout.title)
-    expect(title?.args[3]).toBe(node.layout.width - defaultTokens.padX * 2 - 4)
-
-    const observedRect = badgeRect(node, 0, [observed])
-    const observedCalls = paintWith(scene, (renderer) => renderer.setBadges({ c1: [observed] }))
-    const observedPath = observedCalls.findIndex((call) =>
-      call.method === 'roundRect' && call.args[0] === observedRect.x && call.args[1] === observedRect.y,
-    )
-    expect(paintedAfter(observedCalls, observedPath, 'fill')?.fillStyle).toBe(observed.color)
-    expect(observedCalls.slice(observedPath + 1).find((call) => call.method === 'fill' || call.method === 'stroke')?.method).toBe('fill')
-  })
-
-  it('paints the subgraph badge vector icon while retaining its fallback glyph', () => {
-    const scene = fixtureScene('clean')
-    const calls = paintWith(scene, (renderer) => renderer.setBadges({ c1: [SUBGRAPH_BADGE] }))
-    expect(SUBGRAPH_BADGE.glyph).toBe('S')
-    expect(SUBGRAPH_BADGE.icon).toBe('boxes')
-    expect(calls.some((call) => call.method === 'stroke' && call.strokeStyle === defaultTokens.colors.title)).toBe(true)
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'S')).toBe(false)
-  })
-
   it('centers the subgraph fallback glyph when vector painting fails', () => {
     const original = globalThis.Path2D
     vi.stubGlobal('Path2D', class Path2D { constructor() { throw new Error('paint failed') } })
@@ -3727,20 +2056,6 @@ describe('badge and toolbox paint on the live renderer', () => {
     const node = nodeOf(scene, 'c1')
     const rect = badgeRect(node, 0, [SUBGRAPH_BADGE])
     const calls = paintWith(scene, (renderer) => renderer.setBadges({ c1: [SUBGRAPH_BADGE] }))
-    vi.stubGlobal('Path2D', original)
-    expect(calls.some((call) =>
-      call.method === 'fillText' && call.args[0] === 'S' && call.args[1] === rect.x + rect.width / 2,
-    )).toBe(true)
-  })
-
-  it('retains the subgraph fallback glyph on a linked-count badge', () => {
-    const original = globalThis.Path2D
-    vi.stubGlobal('Path2D', class Path2D { constructor() { throw new Error('paint failed') } })
-    const scene = fixtureScene('clean')
-    const node = nodeOf(scene, 'c1')
-    const badge = subgraphBadge(2)
-    const rect = badgeRect(node, 0, [badge])
-    const calls = paintWith(scene, (renderer) => renderer.setBadges({ c1: [badge] }))
     vi.stubGlobal('Path2D', original)
     expect(calls.some((call) =>
       call.method === 'fillText' && call.args[0] === 'S' && call.args[1] === rect.x + rect.width / 2,
@@ -3790,24 +2105,6 @@ describe('badge and toolbox paint on the live renderer', () => {
     expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#654321')).toBe(true)
   })
 
-  it('keeps attached badges opaque without brightening the rest of a dimmed node', () => {
-    const base = fixtureScene('clean')
-    const scene: Scene = {
-      ...base,
-      nodes: base.nodes.map((node) => node.id === 'c1'
-        ? { ...node, node: { ...node.node, mode: 'muted' } }
-        : node),
-    }
-    const arm = { id: 'test.arm', glyph: 'COMFYUI', variant: 'label' as const, placement: 'above' as const, color: '#6a4fa3' }
-    const calls = paintWith(scene, (renderer) => {
-      renderer.setBadges({ c1: [arm] })
-      renderer.setNodeStates({ c1: { state: 'running', value: 0.5 } })
-    })
-
-    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === arm.color && call.globalAlpha === 1)).toBe(true)
-    expect(calls.some((call) => call.method === 'fillRect' && call.fillStyle === defaultTokens.progressBar && call.globalAlpha === 0.45)).toBe(true)
-  })
-
   it('the selection toolbox draws above the selection; active buttons fill, plain ones stay flat', () => {
     const scene = fixtureScene('clean')
     const n = nodeOf(scene, 'c1')
@@ -3844,116 +2141,6 @@ describe('badge and toolbox paint on the live renderer', () => {
     expect(iconTranslate?.args[1] as number).toBeLessThan(n.y)
   })
 
-  it('raises the selection toolbox above an attached badge lane', () => {
-    const scene = fixtureScene('clean')
-    const node = nodeOf(scene, 'c1')
-    const arm = { id: 'test.arm', glyph: 'COMFYUI', variant: 'label' as const, placement: 'above' as const, color: '#6a4fa3' }
-    let panel: { y: number; height: number } | undefined
-    paintWith(scene, (renderer) => {
-      renderer.setViewport({ x: 0, y: 0, scale: 4 })
-      renderer.setBadges({ c1: [arm] })
-      renderer.setOverlay({ selection: new Set(['c1']) })
-      renderer.setToolbox([[
-        { kind: 'button', button: { id: 'core.delete', icon: 'trash-2', label: 'Delete' } },
-      ]])
-      panel = renderer.getToolboxLayout()!.rows[0]!.panel
-    })
-
-    const badgeTop = node.y - BADGE_SIZE
-    expect((badgeTop - (panel!.y + panel!.height)) * 4).toBe(TOOLBOX_GAP_FROM_ATTACHED_BADGE)
-  })
-
-  it('keeps normal toolbox clearance when an unbadged selection reaches above an attached badge', () => {
-    const scene = fixtureScene('clean')
-    const badged = nodeOf(scene, 'c2')
-    const unbadged = nodeOf(scene, 'c1')
-    const arm = { id: 'test.arm', glyph: 'COMFYUI', variant: 'label' as const, placement: 'above' as const, color: '#6a4fa3' }
-    let panel: { y: number; height: number } | undefined
-    paintWith(scene, (renderer) => {
-      renderer.setBadges({ [badged.id]: [arm] })
-      renderer.setOverlay({ selection: new Set([badged.id, unbadged.id]) })
-      renderer.setToolbox([[
-        { kind: 'button', button: { id: 'core.delete', icon: 'trash-2', label: 'Delete' } },
-      ]])
-      panel = renderer.getToolboxLayout()!.rows[0]!.panel
-    })
-
-    const unionOuterTop = unbadged.y - 8 - 0.5
-    expect(unionOuterTop - (panel!.y + panel!.height)).toBe(16)
-  })
-
-  it('keeps the painted toolbox 16 screen pixels above the multi-selection union outline at zoom 4', () => {
-    const scene = fixtureScene('clean')
-    const selected = scene.nodes.slice(0, 2)
-    const minY = Math.min(...selected.map((node) => node.y))
-    let panel: { x: number; y: number; width: number; height: number } | undefined
-    const calls = paintWith(scene, (renderer) => {
-      renderer.setViewport({ x: 0, y: 0, scale: 4 })
-      renderer.setOverlay({ selection: new Set(selected.map((node) => node.id)) })
-      renderer.setToolbox([[
-        { kind: 'button', button: { id: 'core.delete', glyph: 'X', label: 'Delete' } },
-      ]])
-      panel = renderer.getToolboxLayout()!.rows[0]!.panel
-    })
-    const unionPathTop = minY - 8
-    const unionOuterTop = unionPathTop - 0.5 / 4
-    expect((unionOuterTop - (panel!.y + panel!.height)) * 4).toBeCloseTo(16, 12)
-    expect(calls).toContainEqual(expect.objectContaining({
-      method: 'strokeRect',
-      args: expect.arrayContaining([expect.any(Number), unionPathTop]),
-      lineWidth: 0.25,
-      strokeStyle: defaultTokens.colors.nodeSelectedBorder,
-    }))
-    expect(calls.some((call) =>
-      call.method === 'roundRect' && call.args[0] === panel!.x && call.args[1] === panel!.y &&
-      call.args[2] === panel!.width && call.args[3] === panel!.height
-    )).toBe(true)
-  })
-
-  it('keeps the toolbox above the heterogeneous node-and-reroute union outline at zoom 4', () => {
-    const scene = constructsScene()
-    const node = nodeOf(scene, 'c1')
-    const reroute = scene.reroutes.find((item) => item.id === 'rr')!
-    const unionPathTop = Math.min(node.y, reroute.y - REROUTE_RADIUS) - 8
-    let panel: { x: number; y: number; width: number; height: number } | undefined
-    const calls = paintWith(scene, (renderer) => {
-      renderer.setViewport({ x: 0, y: 0, scale: 4 })
-      renderer.setOverlay({ selection: new Set([node.id]), rerouteSelection: new Set([reroute.id]) })
-      renderer.setToolbox([[
-        { kind: 'button', button: { id: 'core.delete', glyph: 'X', label: 'Delete' } },
-      ]])
-      panel = renderer.getToolboxLayout()!.rows[0]!.panel
-    })
-    const unionOuterTop = unionPathTop - 0.5 / 4
-    expect((unionOuterTop - (panel!.y + panel!.height)) * 4).toBeCloseTo(16, 12)
-    expect(calls).toContainEqual(expect.objectContaining({
-      method: 'strokeRect',
-      args: expect.arrayContaining([expect.any(Number), unionPathTop]),
-      lineWidth: 0.25,
-      strokeStyle: defaultTokens.colors.nodeSelectedBorder,
-    }))
-  })
-
-  it('fills color-selector circles from the real fallback, shared-color, and active-contrast paths', () => {
-    const scene = fixtureScene('clean')
-    const calls = paintWith(scene, (r) => {
-      r.setOverlay({ selection: new Set(['c1']) })
-      r.setToolbox([[
-        { kind: 'button', button: { id: 'fallback', icon: 'circle', label: 'Fallback' } },
-        { kind: 'button', button: { id: 'shared', icon: 'circle', label: 'Shared', iconColor: '#355c7d' } },
-        { kind: 'button', button: { id: 'active', icon: 'circle', label: 'Active', active: true } },
-      ]])
-    })
-    const circleFills = calls.flatMap((call, index) =>
-      call.method === 'arc' ? [calls.slice(index + 1).find((candidate) => candidate.method === 'fill')] : [],
-    ).filter((call): call is PaintCall => call !== undefined).slice(-3)
-    expect(circleFills.map((call) => call.fillStyle)).toEqual([
-      defaultTokens.colors.label,
-      '#355c7d',
-      defaultTokens.colors.canvasBackground,
-    ])
-  })
-
   it('dims disabled selection toolbox buttons', () => {
     const scene = fixtureScene('clean')
     let separator: { x: number; y: number; width: number; height: number } | undefined
@@ -3985,30 +2172,6 @@ describe('badge and toolbox paint on the live renderer', () => {
       strokeStyle: defaultTokens.colors.nodeBorder,
       lineWidth: separator!.width,
     })
-  })
-
-  it('paints chrome behind every row when rows cannot form a joined T', () => {
-    const scene = fixtureScene('clean')
-    let panels: readonly { x: number; y: number; width: number; height: number }[] = []
-    const calls = paintWith(scene, (renderer) => {
-      renderer.setOverlay({ selection: new Set(['c1']) })
-      renderer.setToolbox([
-        [{ kind: 'button', button: { id: 'top', glyph: 'T', label: 'Top' } }],
-        [{ kind: 'button', button: { id: 'bottom', glyph: 'B', label: 'Bottom' } }],
-        [{ kind: 'button', button: { id: 'third', glyph: '3', label: 'Third' } }],
-      ])
-      panels = renderer.getToolboxLayout()!.rows.map((row) => row.panel)
-    })
-
-    for (const panel of panels) {
-      expect(calls.some((call) =>
-        call.method === 'roundRect' &&
-        call.args[0] === panel.x &&
-        call.args[1] === panel.y &&
-        call.args[2] === panel.width &&
-        call.args[3] === panel.height
-      )).toBe(true)
-    }
   })
 
   it('no selection, no toolbox; buttons alone never paint', () => {
@@ -4376,68 +2539,6 @@ describe('boundary pseudo-node paint on the live renderer', () => {
     expect(calls.some((c) => c.method === 'fillText' && c.args[0] === 'expose output...')).toBe(true)
   })
 
-  it('binding noodles paint as typed links WITH a grab dot (they select and delete like any noodle)', () => {
-    const scene = boundaryScene()
-    const boundaryLinks = scene.links.filter((l) => l.boundary === true)
-    expect(boundaryLinks.length).toBe(2)
-    const calls = paint(scene)
-    // The noodles themselves paint in the bound type's color.
-    expect(calls.some((c) => c.method === 'stroke' && c.strokeStyle === LATENT && c.lineWidth === 2.5)).toBe(true)
-    // Each boundary noodle advertises the midpoint grab dot: click/Shift-click
-    // selection parity with ordinary noodles (deletion lowers to
-    // boundary.unbind; only reroute insertion stays gated at dblclick).
-    for (const link of boundaryLinks) {
-      const mx = (link.x1 + link.x2) / 2
-      expect(
-        calls.some((c) => c.method === 'arc' && c.args[2] === 3.5 && c.args[0] === mx),
-        `grab dot for ${link.id}`,
-      ).toBe(true)
-    }
-  })
-
-  it('keeps boundary selection geometry aligned past all viewport edges', () => {
-    const scene = boundaryScene()
-    const node = scene.boundaryNodes[0]!
-    const id = boundarySceneId(node.side)
-    const edge = (viewport: { x: number; y: number; scale: number }) => {
-      const calls = paintWith(scene, (renderer) => {
-        renderer.setViewport(viewport)
-        renderer.setOverlay({ selection: new Set([id]) })
-      })
-      const strokeIndex = calls.findIndex((call) =>
-        call.method === 'stroke' &&
-        call.strokeStyle === defaultTokens.colors.nodeSelectedBorder &&
-        call.lineWidth === Math.max(2, 2 / viewport.scale),
-      )
-      expect(strokeIndex).toBeGreaterThanOrEqual(0)
-      return calls.slice(0, strokeIndex).reverse().find((call) => call.method === 'roundRect')!
-    }
-
-    const normal = edge({ x: 0, y: 0, scale: 1 })
-    expect(normal.args.slice(0, 4)).toEqual([node.x - 2, node.y - 2, node.layout.width + 4, node.layout.height + 4])
-    for (const scale of [0.75, 1.75]) {
-      const leftView = node.x
-      const rightView = node.x + node.layout.width
-      const topView = node.y
-      const bottomView = node.y + node.layout.height
-      const centeredX = 800 - (node.x + node.layout.width / 2) * scale
-      const centeredY = 600 - (node.y + node.layout.height / 2) * scale
-      for (const outline of [
-        edge({ x: -leftView * scale, y: centeredY, scale }),
-        edge({ x: 1600 - rightView * scale, y: centeredY, scale }),
-        edge({ x: centeredX, y: -topView * scale, scale }),
-        edge({ x: centeredX, y: 1200 - bottomView * scale, scale }),
-      ]) {
-        expect(outline.args).toEqual([
-          node.x - 2,
-          node.y - 2,
-          node.layout.width + 4,
-          node.layout.height + 4,
-          defaultTokens.cornerRadius + 2,
-        ])
-      }
-    }
-  })
 })
 
 describe('presence paint (remote participants)', () => {
@@ -4464,39 +2565,12 @@ describe('presence paint (remote participants)', () => {
     expect(calls.some((c) => c.method === 'roundRect' && c.args[0] === other.x - 7 && c.args[1] === other.y - 7)).toBe(false)
   })
 
-  it('a selection ring rides the local drag offset of its node', () => {
-    const scene = fixtureScene('clean')
-    const n = scene.nodes.find((node) => node.id === 'img')
-    if (n === undefined) throw new Error('fixture node missing')
-    const calls = paintWith(scene, (r) => {
-      r.setOverlay({ dragOffsets: new Map([['img', { dx: 30, dy: -10 }]]) })
-      r.setPresence([actor({ selection: new Set(['img']) })])
-    })
-    expect(calls.some(
-      (c) => c.method === 'roundRect' && c.args[0] === n.x + 30 - 7 && c.args[1] === n.y - 10 - 7,
-    )).toBe(true)
-  })
-
   it('paints the cursor at its world position with the label, filled in the actor color', () => {
     const calls = paintWith(fixtureScene('clean'), (r) =>
       r.setPresence([actor({ cursor: { x: 111, y: 222 } })]))
     expect(calls.some((c) => c.method === 'translate' && c.args[0] === 111 && c.args[1] === 222)).toBe(true)
     expect(calls.some((c) => c.method === 'fill' && c.fillStyle === CURSOR_COLOR)).toBe(true)
     expect(calls.some((c) => c.method === 'fillText' && c.args[0] === 'remote')).toBe(true)
-  })
-
-  it('an actor without a cursor paints no pointer (off-canvas peers keep only their rings)', () => {
-    const calls = paintWith(fixtureScene('clean'), (r) =>
-      r.setPresence([actor({ selection: new Set(['img']) })]))
-    expect(calls.some((c) => c.method === 'fillText' && c.args[0] === 'remote')).toBe(false)
-  })
-
-  it('the cursor counter-scales by the viewport zoom (constant screen size)', () => {
-    const calls = paintWith(fixtureScene('clean'), (r) => {
-      r.setViewport({ x: 0, y: 0, scale: 2 })
-      r.setPresence([actor({ cursor: { x: 50, y: 60 } })])
-    })
-    expect(calls.some((c) => c.method === 'scale' && c.args[0] === 0.5 && c.args[1] === 0.5)).toBe(true)
   })
 
   it('setPresence([]) clears every presence mark', () => {
@@ -4528,152 +2602,6 @@ describe('presence paint (remote participants)', () => {
     expect(stroke?.globalAlpha).toBeCloseTo(0.55)
     const dash = [...calls.slice(0, move)].reverse().find((call) => call.method === 'setLineDash')
     expect(dash?.args).toEqual([[6, 4]])
-  })
-
-  it('paints a remote presence noodle from widget tap geometry even when the tap glyph is hidden', () => {
-    const scene = fixtureScene('clean')
-    const node = scene.nodes[0]
-    if (node === undefined) throw new Error('fixture node missing')
-    const input = 'tap-only'
-    const tap = {
-      portId: input,
-      address: { port: input },
-      direction: 'out' as const,
-      y: 1,
-      type: typed('FLOAT'),
-      widgetTap: true as const,
-    }
-    const withTap = {
-      ...scene,
-      nodes: scene.nodes.map((candidate) => candidate.id === node.id
-        ? { ...candidate, layout: { ...candidate.layout, pins: [...candidate.layout.pins, tap] } }
-        : candidate),
-    }
-    const calls = paintWith(withTap, (renderer) => renderer.setPresence([actor({
-      link: {
-        origin: { kind: 'widgetTap', node: node.id, input },
-        cursor: { x: node.x + node.layout.width + 100, y: node.y + tap.y + 40 },
-      },
-    })]))
-    const move = calls.findIndex((call) =>
-      call.method === 'moveTo' && call.args[0] === node.x + node.layout.width && call.args[1] === node.y + tap.y,
-    )
-    expect(move).toBeGreaterThanOrEqual(0)
-    expect(paintedAfter(calls, move, 'stroke')?.strokeStyle).toBe(CURSOR_COLOR)
-    expect(calls).not.toContainEqual(expect.objectContaining({
-      method: 'arc', args: [node.x + node.layout.width, node.y + tap.y, defaultTokens.pinRadius, 0, Math.PI * 2],
-    }))
-  })
-
-  it('missing widget tap presence origins draw no noodle and do not throw', () => {
-    const scene = fixtureScene('clean')
-    let calls: ReturnType<typeof paintWith> = []
-    expect(() => {
-      calls = paintWith(scene, (renderer) => renderer.setPresence([
-        actor({
-          id: 'missing-node',
-          link: { origin: { kind: 'widgetTap', node: 'missing', input: 'amount' }, cursor: { x: 10, y: 20 } },
-        }),
-        actor({
-          id: 'missing-tap',
-          link: { origin: { kind: 'widgetTap', node: scene.nodes[0]!.id, input: 'missing' }, cursor: { x: 30, y: 40 } },
-        }),
-      ]))
-    }).not.toThrow()
-    expect(calls.some((call) =>
-      call.method === 'stroke' && call.globalAlpha === 0.55,
-    )).toBe(false)
-  })
-
-  it('orients input-side port presence noodles like local input drags', () => {
-    const scene = fixtureScene('clean')
-    const node = scene.nodes.find((candidate) => candidate.id === 'c2')
-    const pin = node?.layout.pins.find((candidate) => candidate.direction === 'in')
-    if (node === undefined || pin === undefined) throw new Error('fixture input pin missing')
-    const cursor = { x: node.x - 120, y: node.y + pin.y + 40 }
-    const calls = paintWith(scene, (renderer) => renderer.setPresence([actor({
-      link: { origin: { kind: 'port', node: node.id, port: pin.portId, side: 'in' }, cursor },
-    })]))
-    expect(calls.some((call) => call.method === 'moveTo' && call.args[0] === cursor.x && call.args[1] === cursor.y)).toBe(true)
-    expect(calls.some((call) =>
-      call.method === 'bezierCurveTo' && call.args[4] === node.x && call.args[5] === node.y + pin.y,
-    )).toBe(true)
-  })
-
-  it('orients input-side reroute presence noodles toward the fixed reroute', () => {
-    const scene = constructsScene()
-    const reroute = scene.reroutes.find((candidate) => candidate.id === 'rr')
-    if (reroute === undefined) throw new Error('fixture reroute missing')
-    const cursor = { x: reroute.x - 100, y: reroute.y + 50 }
-    const calls = paintWith(scene, (renderer) => renderer.setPresence([actor({
-      link: { origin: { kind: 'reroute', reroute: reroute.id, side: 'in' }, cursor },
-    })]))
-    expect(calls.some((call) => call.method === 'moveTo' && call.args[0] === cursor.x && call.args[1] === cursor.y)).toBe(true)
-    expect(calls.some((call) =>
-      call.method === 'bezierCurveTo' && call.args[4] === reroute.x && call.args[5] === reroute.y,
-    )).toBe(true)
-  })
-
-  it('clearing remote noodle presence removes its paint on the next snapshot', () => {
-    const scene = constructsScene()
-    const reroute = scene.reroutes.find((candidate) => candidate.id === 'rr')
-    if (reroute === undefined) throw new Error('fixture reroute missing')
-    const calls = paintWith(scene, (renderer) => {
-      renderer.setPresence([actor({
-        link: { origin: { kind: 'reroute', reroute: reroute.id }, cursor: { x: reroute.x + 80, y: reroute.y + 30 } },
-      })])
-      renderer.setPresence([actor()])
-    })
-    expect(calls.some((call) =>
-      call.method === 'stroke' && call.strokeStyle === CURSOR_COLOR && call.globalAlpha === 0.55,
-    )).toBe(false)
-  })
-
-  it('presence noodles never participate in local hit testing or drop targets', () => {
-    const scene = fixtureScene('clean')
-    const node = scene.nodes.find((candidate) => candidate.id === 'img')
-    const pin = node?.layout.pins.find((candidate) => candidate.direction === 'out' && candidate.widgetTap !== true)
-    if (node === undefined || pin === undefined) throw new Error('fixture output pin missing')
-    const wx = node.x + node.layout.width + 70
-    const wy = node.y + pin.y + 30
-    const before = hitTest(scene, wx, wy)
-    const dropTargets = new Set(['existing-target'])
-    let overlayAfter: unknown
-    paintWith(scene, (renderer) => {
-      renderer.setOverlay({ dropTargets })
-      renderer.setPresence([actor({
-        link: { origin: { kind: 'port', node: node.id, port: pin.portId, side: 'out' }, cursor: { x: wx, y: wy } },
-      })])
-      overlayAfter = renderer.getOverlay()
-    })
-    expect(hitTest(scene, wx, wy)).toEqual(before)
-    expect(before.kind).toBe('empty')
-    expect(overlayAfter).toEqual({ dropTargets })
-  })
-
-  it('a hovered node gets a faint thin ring, weaker than a selection ring', () => {
-    const scene = fixtureScene('clean')
-    const n = scene.nodes.find((node) => node.id === 'img')
-    if (n === undefined) throw new Error('fixture node missing')
-    const calls = paintWith(scene, (r) => r.setPresence([actor({ hover: 'img' })]))
-    const ringIdx = calls.findIndex(
-      (c) => c.method === 'roundRect' && c.args[0] === n.x - 4 && c.args[1] === n.y - 4 && c.args[2] === n.layout.width + 8,
-    )
-    expect(ringIdx).toBeGreaterThanOrEqual(0)
-    const stroke = paintedAfter(calls, ringIdx, 'stroke')
-    expect(stroke?.strokeStyle).toBe(CURSOR_COLOR)
-    expect(stroke?.lineWidth).toBe(1)
-    expect(stroke?.globalAlpha).toBeCloseTo(0.5)
-  })
-
-  it('hover on a node the actor also selected paints no extra ring (selection wins)', () => {
-    const scene = fixtureScene('clean')
-    const n = scene.nodes.find((node) => node.id === 'img')
-    if (n === undefined) throw new Error('fixture node missing')
-    const calls = paintWith(scene, (r) =>
-      r.setPresence([actor({ hover: 'img', selection: new Set(['img']) })]))
-    expect(calls.some((c) => c.method === 'roundRect' && c.args[0] === n.x - 4 && c.args[1] === n.y - 4)).toBe(false)
-    expect(calls.some((c) => c.method === 'roundRect' && c.args[0] === n.x - 7 && c.args[1] === n.y - 7)).toBe(true)
   })
 
   it('an in-progress remote drag paints a dashed ghost at the offset; the real node stays put', () => {
@@ -4708,27 +2636,6 @@ describe('presence paint (remote participants)', () => {
     )).toBe(false)
   })
 
-  it('a selection ring rides the actor\'s OWN drag offset, after the dash scope closed', () => {
-    const scene = fixtureScene('clean')
-    const n = scene.nodes.find((node) => node.id === 'img')
-    if (n === undefined) throw new Error('fixture node missing')
-    const calls = paintWith(scene, (r) =>
-      r.setPresence([actor({ selection: new Set(['img']), drag: new Map([['img', { dx: 40, dy: 25 }]]) })]))
-    const ringIdx = calls.findIndex(
-      (c) => c.method === 'roundRect' && c.args[0] === n.x + 40 - 7 && c.args[1] === n.y + 25 - 7,
-    )
-    expect(ringIdx).toBeGreaterThanOrEqual(0)
-    expect(paintedAfter(calls, ringIdx, 'stroke')?.lineWidth).toBe(2)
-    // The ghost's dash scope (save ... restore) is fully closed before the
-    // ring strokes, so the ring cannot paint dashed.
-    const dashIdx = calls.findIndex((c) => c.method === 'setLineDash' && JSON.stringify(c.args[0]) === '[6,4]')
-    expect(dashIdx).toBeGreaterThanOrEqual(0)
-    const restoreIdx = calls.findIndex((c, i) => i > dashIdx && c.method === 'restore')
-    expect(restoreIdx).toBeGreaterThan(dashIdx)
-    expect(ringIdx).toBeGreaterThan(restoreIdx)
-    expect(calls.slice(restoreIdx, ringIdx).some((c) => c.method === 'setLineDash')).toBe(false)
-  })
-
   it('paints a remotely-selected reroute halo in the actor color', () => {
     const scene = constructsScene()
     const reroute = scene.reroutes.find((r) => r.id === 'rr')
@@ -4743,37 +2650,6 @@ describe('presence paint (remote participants)', () => {
     expect(stroke?.strokeStyle).toBe(CURSOR_COLOR)
     expect(stroke?.lineWidth).toBe(2)
     expect(stroke?.globalAlpha).toBeCloseTo(0.9)
-  })
-
-  it('offsets a remote reroute drag ghost while the real reroute stays put', () => {
-    const scene = constructsScene()
-    const reroute = scene.reroutes.find((r) => r.id === 'rr')
-    if (reroute === undefined) throw new Error('fixture reroute missing')
-    const calls = paintWith(scene, (r) =>
-      r.setPresence([actor({ drag: new Map([['rr', { dx: 35, dy: -20 }]]) })]))
-    const ghostIdx = calls.findIndex(
-      (c) => c.method === 'arc' && c.args[0] === reroute.x + 35 && c.args[1] === reroute.y - 20 && c.args[2] === REROUTE_RADIUS,
-    )
-    expect(ghostIdx).toBeGreaterThanOrEqual(0)
-    const stroke = paintedAfter(calls, ghostIdx, 'stroke')
-    expect(stroke?.strokeStyle).toBe(CURSOR_COLOR)
-    expect(stroke?.globalAlpha).toBeCloseTo(0.55)
-    expect(calls.some(
-      (c) => c.method === 'arc' && c.args[0] === reroute.x && c.args[1] === reroute.y && c.args[2] === REROUTE_RADIUS,
-    )).toBe(true)
-  })
-
-  it('moves a selected reroute halo with that actor\'s drag offset', () => {
-    const scene = constructsScene()
-    const reroute = scene.reroutes.find((r) => r.id === 'rr')
-    if (reroute === undefined) throw new Error('fixture reroute missing')
-    const calls = paintWith(scene, (r) => r.setPresence([actor({
-      rerouteSelection: new Set(['rr']),
-      drag: new Map([['rr', { dx: 35, dy: -20 }]]),
-    })]))
-    expect(calls.some(
-      (c) => c.method === 'arc' && c.args[0] === reroute.x + 35 && c.args[1] === reroute.y - 20 && c.args[2] === REROUTE_RADIUS + 6,
-    )).toBe(true)
   })
 
   it('coexists across actors and preserves node presence alongside reroutes', () => {

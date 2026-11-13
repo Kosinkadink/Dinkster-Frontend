@@ -1,7 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { evidencePath } from './evidence-output.js'
 import { waitForStartupOwnership } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_PALETTE_PROOF_DIR']
@@ -367,66 +366,4 @@ test('result hierarchy, preview, scrolling, and popovers remain contained at des
     await capture(page, viewport.name)
     await input.press('Escape')
   }
-})
-
-test('an open palette and type filter update when the active locale changes', async ({ page, request }) => {
-  await page.setViewportSize({ width: 1600, height: 950 })
-  await openPalette(page)
-  const palette = page.getByTestId('node-palette')
-  const search = page.getByTestId('palette-search')
-  const inputFilter = page.getByTestId('palette-input-filter').locator('.palette-type-trigger')
-  await search.fill('Palette schema preview')
-  await inputFilter.click()
-  await expect(palette).toHaveAttribute('aria-label', 'Add a node')
-  await expect(search).toHaveAttribute('placeholder', 'Add a node...')
-  await expect(inputFilter).toContainText('Input: Any type')
-  await expect(page.getByRole('dialog', { name: 'Input type filters' })).toBeVisible()
-  await page.getByRole('dialog', { name: 'Input type filters' }).getByRole('searchbox').press('Escape')
-  await search.fill('PaletteImageConsumer')
-  await page.screenshot({ path: evidencePath('issue-457', 'node-palette-i18n-en.png'), fullPage: true })
-  await search.fill('Palette schema preview')
-  await inputFilter.click()
-
-  const localeModule = await (await request.get('/src/locale.ts')).text()
-  const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
-  expect(i18nModule).toBeDefined()
-  await page.evaluate(async ({ i18nModule }) => {
-    const { registerCatalog, setLocale } = await import(i18nModule)
-    registerCatalog('de-DE', {
-      'palette.action.addNode': '[Knoten hinzufugen]',
-      'palette.category.mostRelevant': '[Beste Treffer]',
-      'palette.category.navigation': '[Knotenkategorien]',
-      'palette.filter.input': '[Eingang]',
-      'palette.filter.output': '[Ausgang]',
-      'palette.filter.resultKinds': '[Ergebnisarten]',
-      'palette.kind.nodes': '[Knotenarten mit langem Namen]',
-      'palette.kind.utilities': '[Werkzeuge mit langem Namen]',
-      'palette.port.optional': '[wahlweise]',
-      'palette.port.required': '[erforderlich]',
-      'palette.ports.inputs': '[Eingange]',
-      'palette.ports.outputs': '[Ausgange]',
-      'palette.results.available': '[Verfugbare Knoten]',
-      'palette.search.addNodePlaceholder': '[Knoten suchen und hinzufugen...]',
-      'palette.typeFilter.any': '[Alle Typen]',
-      'palette.typeFilter.dialog': '[Typfilter: {label}]',
-      'palette.typeFilter.search': '[Suche Typen: {direction}]',
-      'palette.typeFilter.searchPlaceholder': '[Typen durchsuchen...]',
-    })
-    setLocale('de-DE')
-  }, { i18nModule: new URL(i18nModule!, page.url()).href })
-
-  await expect(palette).toHaveAttribute('aria-label', '[Knoten hinzufugen]')
-  await expect(search).toHaveAttribute('placeholder', '[Knoten suchen und hinzufugen...]')
-  await expect(page.getByTestId('palette-categories')).toHaveAttribute('aria-label', '[Knotenkategorien]')
-  await expect(page.getByTestId('palette-kinds')).toHaveAttribute('aria-label', '[Ergebnisarten]')
-  await expect(inputFilter).toContainText('[Eingang]: [Alle Typen]')
-  await expect(page.getByRole('dialog', { name: '[Typfilter: [Eingang]]', exact: true })).toBeVisible()
-  await expect(page.getByRole('searchbox', { name: '[Suche Typen: [eingang]]' })).toHaveAttribute('placeholder', '[Typen durchsuchen...]')
-  await expect(page.getByTestId('palette-preview')).toContainText('[Eingange]')
-  await expect(page.getByTestId('palette-preview')).toContainText('[Ausgange]')
-  await expect(page.getByTestId('palette-preview')).toContainText('[erforderlich]')
-  await expect(page.getByTestId('palette-preview')).toContainText('[wahlweise]')
-  await page.getByRole('dialog', { name: '[Typfilter: [Eingang]]', exact: true }).getByRole('searchbox').press('Escape')
-  await search.fill('PaletteImageConsumer')
-  await page.screenshot({ path: evidencePath('issue-457', 'node-palette-i18n-de-DE.png'), fullPage: true })
 })

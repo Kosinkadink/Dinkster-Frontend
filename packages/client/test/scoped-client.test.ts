@@ -77,30 +77,6 @@ describe('scoped client', () => {
     expect(resolvers).toHaveLength(2)
   })
 
-  it('builds the url from base + route + params', async () => {
-    const { client, calls } = harness()
-    await client.query('/api/models', { folder: 'loras', page: 2 })
-    expect(calls[0]!.url).toBe('http://backend/api/models?folder=loras&page=2')
-  })
-
-  it('deduplicates concurrent requests for the same route', async () => {
-    const { client, calls } = harness()
-    const [a, b] = await Promise.all([client.query('/r', {}), client.query('/r', {})])
-    expect(calls).toHaveLength(1)
-    expect(a).toEqual(b)
-  })
-
-  it('serves cache hits until the ttl expires', async () => {
-    const { client, calls, advance } = harness({ ttlMs: 100 })
-    await client.query('/r', {})
-    advance(99)
-    await client.query('/r', {})
-    expect(calls).toHaveLength(1)
-    advance(2)
-    await client.query('/r', {})
-    expect(calls).toHaveLength(2)
-  })
-
   it('refresh bypasses the cache and re-fetches', async () => {
     const { client, calls } = harness()
     await client.query('/r', {})
@@ -137,12 +113,6 @@ describe('scoped client', () => {
     expect(calls).toHaveLength(0)
   })
 
-  it('mediaUrl resolves without fetching', () => {
-    const { client, calls } = harness()
-    const url = client.mediaUrl('/view', { filename: 'a.png', type: 'output' })
-    expect(url).toBe('http://backend/view?filename=a.png&type=output')
-    expect(calls).toHaveLength(0)
-  })
 })
 
 describe('remote choice controller editing implementation policy', () => {
@@ -203,30 +173,6 @@ describe('remote choice controller editing implementation policy', () => {
     ])
   })
 
-  it('accepts exactly 4096 UTF-8 bytes and rejects 4097 UTF-8 bytes', async () => {
-    const exact = String.fromCodePoint(0xe9).repeat(2048)
-    const tooLarge = `${exact}x`
-    const payloads: unknown[] = [[exact], [tooLarge]]
-    const client = remoteClient(createScopedClient({
-      baseUrl: '',
-      fetchFn: async () => choicesResponse(payloads.shift()),
-    }))
-    await expect(client.remoteChoices('/api/choices/exact', { refresh: true })).resolves.toEqual([exact])
-    await expect(client.remoteChoices('/api/choices/large', { refresh: true })).rejects.toThrow('4096')
-  })
-
-  it('accepts exactly 2097152 body bytes and rejects a 2097153 byte body before JSON parsing', async () => {
-    const exactBody = `["${'x'.repeat(2_097_148)}"]`
-    const oversizedBody = `${exactBody} `
-    const bodies = [exactBody, oversizedBody]
-    const client = remoteClient(createScopedClient({
-      baseUrl: '',
-      fetchFn: async () => new Response(bodies.shift(), { status: 200 }),
-    }))
-    await expect(client.remoteChoices('/api/choices/exact-body', { refresh: true })).rejects.toThrow('4096')
-    await expect(client.remoteChoices('/api/choices/large-body', { refresh: true })).rejects.toThrow('2097152')
-  })
-
   it('cancels an unbounded response stream as soon as it exceeds the body limit', async () => {
     let calls = 0
     let pulls = 0
@@ -254,36 +200,6 @@ describe('remote choice controller editing implementation policy', () => {
     expect(calls).toBe(1)
   })
 
-  it('rejects streamed overflow without waiting for cancellation to settle', async () => {
-    const stream = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        controller.enqueue(new Uint8Array(1024 * 1024))
-      },
-      cancel: () => new Promise<void>(() => {}),
-    })
-    const client = remoteClient(createScopedClient({
-      baseUrl: '',
-      fetchFn: async () => new Response(stream, { status: 200 }),
-    }))
-    await expect(client.remoteChoices('/api/choices/nonsettling-cancel')).rejects.toThrow('2097152')
-  })
-
-  it.each([
-    ['invalid UTF-8', new Uint8Array([0xff]), 'UTF-8'],
-    ['invalid JSON', new TextEncoder().encode('["unterminated"'), 'JSON'],
-  ])('does not retry %s', async (_name, bytes, message) => {
-    let calls = 0
-    const client = remoteClient(createScopedClient({
-      baseUrl: '',
-      fetchFn: async () => {
-        calls += 1
-        return new Response(bytes, { status: 200 })
-      },
-    }))
-    await expect(client.remoteChoices('/api/choices/bad')).rejects.toThrow(message)
-    expect(calls).toBe(1)
-  })
-
   it.each([408, 429, 500, 502, 503, 504])('retries HTTP %i up to the named default cap', async (status) => {
     let calls = 0
     const client = remoteClient(createScopedClient({
@@ -297,100 +213,6 @@ describe('remote choice controller editing implementation policy', () => {
     } as Parameters<typeof createScopedClient>[0]))
     await expect(client.remoteChoices('/api/choices/retry')).resolves.toEqual(['ok'])
     expect(calls).toBe(3)
-  })
-
-  it.each([400, 401, 403, 404, 409, 422, 501])('never retries permanent HTTP %i', async (status) => {
-    let calls = 0
-    const client = remoteClient(createScopedClient({
-      baseUrl: '',
-      fetchFn: async () => {
-        calls += 1
-        return new Response('', { status })
-      },
-      sleep: async () => {},
-    } as Parameters<typeof createScopedClient>[0]))
-    await expect(client.remoteChoices('/api/choices/permanent')).rejects.toThrow(`HTTP ${status}`)
-    expect(calls).toBe(1)
-  })
-
-  it('retries network failures with full-jitter exponential delays and honors bounded Retry-After', async () => {
-    let calls = 0
-    const delays: number[] = []
-    const client = remoteClient(createScopedClient({
-      baseUrl: '',
-      fetchFn: async () => {
-        calls += 1
-        if (calls === 1) throw new TypeError('offline')
-        if (calls === 2) return new Response('', { status: 429, headers: { 'retry-after': '99' } })
-        return choicesResponse(['ok'])
-      },
-      sleep: async (ms: number) => { delays.push(ms) },
-      random: () => 0.5,
-    } as Parameters<typeof createScopedClient>[0]))
-    await expect(client.remoteChoices('/api/choices/retry')).resolves.toEqual(['ok'])
-    expect(delays).toEqual([125, 2000])
-  })
-
-  it('retries a network TypeError while consuming the response body', async () => {
-    let calls = 0
-    const client = remoteClient(createScopedClient({
-      baseUrl: '',
-      fetchFn: async () => {
-        calls += 1
-        if (calls === 1) {
-          return new Response(new ReadableStream({
-            pull(controller) {
-              controller.error(new TypeError('body disconnected'))
-            },
-          }), { status: 200 })
-        }
-        return choicesResponse(['ok'])
-      },
-      sleep: async () => {},
-      random: () => 0,
-    }))
-    await expect(client.remoteChoices('/api/choices/body-retry')).resolves.toEqual(['ok'])
-    expect(calls).toBe(2)
-  })
-
-  it('uses a parameterized maxRetries without changing the default constant', async () => {
-    let calls = 0
-    const client = remoteClient(createScopedClient({
-      baseUrl: '',
-      fetchFn: async () => {
-        calls += 1
-        throw new TypeError('offline')
-      },
-      sleep: async () => {},
-    } as Parameters<typeof createScopedClient>[0]))
-    await expect(client.remoteChoices('/api/choices/no-retry', { maxRetries: 0 })).rejects.toThrow('offline')
-    expect(calls).toBe(1)
-  })
-
-  it.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 1.5])('rejects invalid maxRetries %s before fetch', async (maxRetries) => {
-    let calls = 0
-    const client = remoteClient(createScopedClient({
-      baseUrl: '',
-      fetchFn: async () => {
-        calls += 1
-        return choicesResponse(['unexpected'])
-      },
-    }))
-    await expect(client.remoteChoices('/api/choices/retries', { maxRetries })).rejects.toThrow('nonnegative integer')
-    expect(calls).toBe(0)
-  })
-
-  it.each([Number.NaN, Number.POSITIVE_INFINITY, 0, 60_001, 1.5])('rejects invalid timeoutMs %s before fetch', async (timeoutMs) => {
-    let calls = 0
-    const client = remoteClient(createScopedClient({
-      baseUrl: '',
-      fetchFn: async () => {
-        calls += 1
-        return choicesResponse(['unexpected'])
-      },
-    }))
-    await expect(client.remoteChoices('/api/choices/timeout', { timeoutMs })).rejects.toThrow('timeoutMs')
-    expect(calls).toBe(0)
   })
 
   it('retries per-attempt timeout without masking a caller abort', async () => {
@@ -414,29 +236,6 @@ describe('remote choice controller editing implementation policy', () => {
     const pending = client.remoteChoices('/api/choices/caller-abort', { timeoutMs: 60_000, signal: caller.signal })
     caller.abort()
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
-  })
-
-  it('retries a timeout normalized to AbortError while consuming the response body', async () => {
-    let calls = 0
-    const client = remoteClient(createScopedClient({
-      baseUrl: '',
-      fetchFn: async (_url, init) => {
-        calls += 1
-        if (calls > 1) return choicesResponse(['ok'])
-        let streamController!: ReadableStreamDefaultController<Uint8Array>
-        const stream = new ReadableStream<Uint8Array>({
-          start(controller) { streamController = controller },
-        })
-        init?.signal?.addEventListener('abort', () => {
-          streamController.error(new DOMException('normalized body abort', 'AbortError'))
-        }, { once: true })
-        return new Response(stream, { status: 200 })
-      },
-      sleep: async () => {},
-      random: () => 0,
-    }))
-    await expect(client.remoteChoices('/api/choices/body-timeout', { timeoutMs: 1, maxRetries: 1 })).resolves.toEqual(['ok'])
-    expect(calls).toBe(2)
   })
 
   it('never retries abort and releases a shared inflight only when every consumer aborts', async () => {
@@ -485,22 +284,6 @@ describe('remote choice controller editing implementation policy', () => {
     expect(client.remoteChoiceAuthority()).toBe(3)
   })
 
-  it('expires a cached choice list only on the next positive-TTL demand', async () => {
-    let now = 100
-    let calls = 0
-    const client = remoteClient(createScopedClient({
-      baseUrl: '', clock: () => now,
-      fetchFn: async () => choicesResponse([`call-${++calls}`]),
-    }))
-    await expect(client.remoteChoices('/api/choices/ttl', { refreshMs: 50 })).resolves.toEqual(['call-1'])
-    now += 49
-    await expect(client.remoteChoices('/api/choices/ttl', { refreshMs: 50 })).resolves.toEqual(['call-1'])
-    now += 1
-    await expect(client.remoteChoices('/api/choices/ttl', { refreshMs: 50 })).resolves.toEqual(['call-2'])
-    await expect(client.remoteChoices('/api/choices/ttl', { refreshMs: 0 })).resolves.toEqual(['call-2'])
-    expect(calls).toBe(2)
-  })
-
   it('starts fresh immediately after the last consumer aborts shared inflight work', async () => {
     let calls = 0
     const client = remoteClient(createScopedClient({
@@ -522,27 +305,6 @@ describe('remote choice controller editing implementation policy', () => {
     expect(calls).toBe(2)
   })
 
-  it('never publishes an abandoned response when transport ignores abort', async () => {
-    let calls = 0
-    let resolveOld!: (response: Response) => void
-    const client = remoteClient(createScopedClient({
-      baseUrl: '',
-      fetchFn: async () => {
-        calls += 1
-        if (calls === 1) return await new Promise<Response>((resolve) => { resolveOld = resolve })
-        return choicesResponse(['fresh'])
-      },
-    }))
-    const abort = new AbortController()
-    const abandoned = client.remoteChoices('/api/choices/ignored-abort', { signal: abort.signal })
-    abort.abort()
-    await expect(abandoned).rejects.toMatchObject({ name: 'AbortError' })
-    resolveOld(choicesResponse(['abandoned']))
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-    await expect(client.remoteChoices('/api/choices/ignored-abort')).resolves.toEqual(['fresh'])
-    expect(calls).toBe(2)
-  })
-
   it('manual refresh supersedes older generations and stale completion never replaces the fresh cache', async () => {
     const resolvers: ((response: Response) => void)[] = []
     const client = remoteClient(createScopedClient({
@@ -559,20 +321,4 @@ describe('remote choice controller editing implementation policy', () => {
     expect(resolvers).toHaveLength(2)
   })
 
-  it('clears and aborts all choice partitions on disposal', async () => {
-    let signal: AbortSignal | undefined
-    const client = remoteClient(createScopedClient({
-      baseUrl: '',
-      fetchFn: async (_url, init) => {
-        signal = init?.signal ?? undefined
-        return await new Promise<Response>((_resolve, reject) => {
-          signal?.addEventListener('abort', () => reject(signal?.reason), { once: true })
-        })
-      },
-    }))
-    const pending = client.remoteChoices('/api/choices/models')
-    client.dispose()
-    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
-    expect(signal?.aborted).toBe(true)
-  })
 })

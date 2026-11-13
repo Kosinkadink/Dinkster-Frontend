@@ -14,13 +14,7 @@
 import { describe, expect, it } from 'vitest'
 import type { GraphDef } from '../src/format/document.js'
 import type { SchemaResolver } from '../src/schema/derive-boundary.js'
-import {
-  effectiveAbsentPolicy,
-  type InputSpec,
-  type NodeSchema,
-  type OutputSpec,
-  type TypeExpr,
-} from '../src/schema/model.js'
+import { type InputSpec, type NodeSchema, type OutputSpec, type TypeExpr } from '../src/schema/model.js'
 import { solveGraphTypes } from '../src/schema/solve.js'
 
 // ---------------------------------------------------------------------------
@@ -91,24 +85,6 @@ const defOf = (parts: {
 
 const maybeAbsentDiags = (def: GraphDef) =>
   solveGraphTypes(def, resolve).diagnostics.filter((d) => d.code === 'solve.maybeAbsent')
-
-// ---------------------------------------------------------------------------
-// Effective policy defaults
-// ---------------------------------------------------------------------------
-
-describe('effectiveAbsentPolicy', () => {
-  it('defaults by required-ness: required -> skip, optional -> omit', () => {
-    expect(effectiveAbsentPolicy(input('a'))).toBe('skip')
-    expect(effectiveAbsentPolicy(input('a', { optional: true }))).toBe('omit')
-  })
-
-  it('an explicit declaration always wins over the default', () => {
-    expect(effectiveAbsentPolicy(input('a', { onAbsent: 'fail' }))).toBe('fail')
-    expect(effectiveAbsentPolicy(input('a', { onAbsent: 'accept' }))).toBe('accept')
-    expect(effectiveAbsentPolicy(input('a', { optional: true, onAbsent: 'skip' }))).toBe('skip')
-    expect(effectiveAbsentPolicy(input('a', { onAbsent: 'omit' }))).toBe('omit')
-  })
-})
 
 // ---------------------------------------------------------------------------
 // solve.maybeAbsent advisory

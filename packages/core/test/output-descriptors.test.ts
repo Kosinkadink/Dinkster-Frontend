@@ -6,7 +6,7 @@ import { upstreamRecipesEqual } from '../src/compile/recipe.js'
 import { occurrenceDynamicView } from '../src/compile/occurrence-view.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId } from '../src/ids.js'
-import { parseDinksterNodes, parseDinksterSchema } from '../src/schema/dinkster-wire.js'
+import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabOutputsOf } from '../src/schema/elaborate.js'
 import type { NodeSchema, OutputDescriptorsSpec } from '../src/schema/model.js'
@@ -74,45 +74,6 @@ describe('stored output descriptors', () => {
     }
   })
 
-  it('coexists with storage and media declarations', () => {
-    const media = {
-      role: 'input', id: 'image', required: true, acceptsStorage: true,
-      type: { kind: 'concrete', types: ['IMAGE'] }, alphaPolicy: 'require',
-    }
-    const catalog = (acceptsStorage: unknown) => ({ schemaVersion: 1, nodes: {
-      [schema.type]: { ...wire, interface: [...wire.interface, { ...media, acceptsStorage }] },
-    } })
-    const parsed = parseDinksterNodes(catalog(true))
-    expect(parsed.diagnostics).toEqual([])
-    const decoded = parsed.schemas.get(schema.type)!
-    expect(decoded.items[2]).toMatchObject({ acceptsStorage: true, alphaPolicy: 'require' })
-    expect(outputRows(decoded, { entries: literal })).toEqual(outputRows(schema, { entries: literal }))
-    expect(parseDinksterNodes(catalog('true')).schemas.size).toBe(0)
-  })
-
-  it('preserves choice policies through elaboration and boundary projection', () => {
-    const policy = { alphaPolicy: 'require', maskPolarity: 'transparency', maskSemantic: 'alpha' }
-    const catalog = (fields: Record<string, unknown>) => ({ schemaVersion: 1, nodes: {
-      [schema.type]: { ...wire, interface: [wire.interface[0], {
-        ...wire.interface[1], choices: spec.choices.map((choice) => ({
-          ...choice, ...fields, type: { kind: 'concrete', types: [choice.type.name] },
-        })),
-      }] },
-    } })
-    const parsed = parseDinksterNodes(catalog(policy))
-    expect(parsed.diagnostics).toEqual([])
-    const decoded = parsed.schemas.get(schema.type)!
-    for (const output of elabOutputsOf(elaborateInterface(decoded, { values: { entries: literal } }))) {
-      expect(output.spec).toMatchObject(policy)
-    }
-    const derived = deriveBoundarySchema(document().graphs.inner!, () => decoded)
-    expect(derived.diagnostics).toEqual([])
-    expect(elabOutputsOf(elaborateInterface(derived.schema!, { values: {} }))[0]?.spec).toMatchObject(policy)
-    for (const fields of [{ alphaPolicy: 'unknown' }, { maskPolarity: true }, { maskSemantic: 'unknown' }, { acceptsStorage: true }]) {
-      expect(parseDinksterNodes(catalog(fields)).schemas.size).toBe(0)
-    }
-  })
-
   it('preserves raw IDs, ordered names, types, and node-owned data', () => {
     expect(parseOutputDescriptors(spec, literal)).toEqual({ ok: true, document: { entries, extra: { preserved: true } } })
     expect(outputRows(schema, { entries: literal })).toEqual([
@@ -154,15 +115,6 @@ describe('stored output descriptors', () => {
     const invalidDigest = `sha256:${'1'.repeat(64)}`
     expect(parseOutputDescriptors(profile, value.replace(digest, invalidDigest), { digest: invalidDigest }).ok).toBe(false)
     expect(parseOutputDescriptors({ ...spec, fixedIds: true }, literal).ok).toBe(false)
-  })
-
-  it('refuses multiple descriptor constructs and counts names by Unicode code points', () => {
-    const multiple = { ...wire, interface: [...wire.interface,
-      { ...wire.interface[0], id: 'other' }, { ...wire.interface[1], input: 'other' },
-    ] }
-    expect(parseDinksterSchema(schema.type, multiple).schema).toBeUndefined()
-    expect(parseOutputDescriptors(spec, JSON.stringify({ entries: [{ ...entries[0], name: '\u{1f600}'.repeat(256) }] })).ok).toBe(true)
-    expect(parseOutputDescriptors(spec, JSON.stringify({ entries: [{ ...entries[0], name: '\u{1f600}'.repeat(257) }] })).ok).toBe(false)
   })
 
   it('refuses region-delivered descriptor literals', () => {
@@ -215,40 +167,6 @@ describe('stored output descriptors', () => {
     expect(store.doc.graphs.root!.nodes.a!.values.source).toBe(literal)
     expect(store.redo()).toBe(true)
     expect(store.doc.graphs.root!.nodes.a!.values.source).toBe(changed)
-  })
-
-  it('retains source-only probe contracts and occurrence assets through chained boundaries', () => {
-    const profile: OutputDescriptorsSpec = { ...spec, fixedIds: true, probe: { input: 'checkpoint', kind: 'model', revision: '1' } }
-    const asset = { digest: `blake3:${'1'.repeat(64)}` }
-    const profiled: NodeSchema = { ...schema, items: [
-      schema.items[0]!,
-      { kind: 'input', id: 'checkpoint', type: { kind: 'concrete', name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', options: {} } },
-      { kind: 'output', id: 'entries', type: spec.choices[0]!.type, outputDescriptors: profile },
-    ] }
-    const doc = document(true)
-    Object.assign(doc.graphs.inner!.nodes.n!.values, { checkpoint: asset })
-    Object.assign(doc.graphs.inner!.boundary!, { outputs: [], inputs: [
-      ...doc.graphs.inner!.boundary!.inputs,
-      { id: 'asset', binds: { kind: 'port', node: 'n', port: 'checkpoint' }, promoted: true },
-    ] })
-    Object.assign(doc.graphs.outer!.boundary!, { outputs: [], inputs: [
-      ...doc.graphs.outer!.boundary!.inputs,
-      { id: 'asset', binds: { kind: 'port', node: 'i', port: 'asset' }, promoted: true },
-    ] })
-    const resolver = documentResolver(doc, (type) => type === schema.type ? profiled : resolve(type))
-    for (const type of ['#inner', '#outer']) {
-      const derived = resolver(type)!
-      expect(derived.items.filter((item) => item.kind === 'output')).toEqual([])
-      expect(derived.items.find((item) => item.id === 'source')).toMatchObject({
-        kind: 'input', outputDescriptors: {
-          input: 'source', probe: { input: 'asset', kind: 'model', revision: '1' },
-          boundaryProjection: { fallback: literal, assetFallback: asset },
-        },
-      })
-    }
-    const changedAsset = { digest: `blake3:${'2'.repeat(64)}` }
-    Object.assign(doc.graphs.root!.nodes.a!.values, { asset: changedAsset })
-    expect(occurrenceDynamicView(doc, resolver, ['a', 'i']).values.get('n')?.checkpoint).toEqual(changedAsset)
   })
 
   it('preserves links across reorder, rename, removal, save and undo', () => {

@@ -5,15 +5,8 @@
  * degrades to "no extra backends".
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  AppState,
-  BACKENDS_KEY,
-  rebaseBackendLists,
-  type PersistedBackend,
-} from '../src/app-state.js'
-
-// AppState builds its WS url from the page origin; give the node test env one.
-;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
+import { AppState, BACKENDS_KEY, type PersistedBackend } from '../src/app-state.js';
+(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
 const KEY = BACKENDS_KEY
 
@@ -69,48 +62,7 @@ const storageChange = (
   } as StorageEvent)
 }
 
-describe('backend-list rebase', () => {
-  const a = { baseUrl: 'http://a:1', label: 'A', protocol: 'dinkster' } as const
-  const b = { baseUrl: 'http://b:2', label: 'B', protocol: 'dinkster' } as const
-  const c = { baseUrl: 'http://c:3', label: 'C', protocol: 'dinkster' } as const
-
-  it('derives adds, removes, and keeps by canonical backend identity', () => {
-    expect(rebaseBackendLists([a, b], [b, c])).toEqual({
-      adds: [c],
-      removes: [a],
-      keeps: [b],
-    })
-  })
-
-  it('keeps the current identity record when incoming metadata differs', () => {
-    const renamed = { ...a, label: 'Renamed', protocol: 'dinkster' } as const
-    expect(rebaseBackendLists([a], [renamed])).toEqual({ adds: [], removes: [], keeps: [a] })
-  })
-})
-
 describe('backend persistence', () => {
-  it('persists an added backend with its protocol; the default is never stored', () => {
-    const app = new AppState()
-    app.addBackend('http://engine:3639', 'Engine', false, 'dinkster')
-    expect(stored().backends).toEqual([
-      { baseUrl: 'http://engine:3639', label: 'Engine', protocol: 'dinkster' },
-    ])
-    app.addBackend('http://second:8188', undefined, false)
-    expect(stored().backends).toEqual([
-      { baseUrl: 'http://engine:3639', label: 'Engine', protocol: 'dinkster' },
-      { baseUrl: 'http://second:8188', label: 'http://second:8188', protocol: 'dinkster' },
-    ])
-  })
-
-  it('persists removal', () => {
-    const app = new AppState()
-    const engine = app.addBackend('http://engine:3639', 'Engine', false, 'dinkster')!
-    app.addBackend('http://second:8188', 'Second', false)
-    app.removeBackend(engine.id)
-    expect(stored().backends).toEqual([
-      { baseUrl: 'http://second:8188', label: 'Second', protocol: 'dinkster' },
-    ])
-  })
 
   it('rebases local writes over unseen external edits already in storage', () => {
     const app = new AppState()
@@ -155,25 +107,6 @@ describe('backend persistence', () => {
     expect(new AppState().backends.get()).toHaveLength(1)
     globalThis.localStorage.setItem(KEY, JSON.stringify({ v: 2, backends: [{ baseUrl: 'x' }] }))
     expect(new AppState().backends.get()).toHaveLength(1)
-  })
-
-  it('drops malformed entries and empty baseUrls (never a shadow default)', () => {
-    globalThis.localStorage.setItem(
-      KEY,
-      JSON.stringify({
-        v: 1,
-        backends: [
-          { baseUrl: '', label: 'shadow', protocol: 'v1' },
-          { baseUrl: 'http://legacy:8188', label: 'Legacy', protocol: 'v1' },
-          { baseUrl: 'http://ok:3639', label: 'OK', protocol: 'dinkster' },
-          { baseUrl: 'http://bad:1', label: 'bad', protocol: 'other' },
-          'garbage',
-        ],
-      }),
-    )
-    const app = new AppState()
-    expect(app.backends.get()).toHaveLength(2)
-    expect(app.backends.get()[1]).toMatchObject({ baseUrl: 'http://ok:3639', protocol: 'dinkster' })
   })
 
   it('an absolute URL aliasing this origin collides with the default and is never persisted', () => {

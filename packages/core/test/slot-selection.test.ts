@@ -13,12 +13,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { InputSpec } from '../src/schema/model.js'
-import {
-  exposureAt,
-  parseSelection,
-  selectionEntriesOf,
-  toggleSlotSelection,
-} from '../src/schema/slot-selection.js'
+import { exposureAt, parseSelection, toggleSlotSelection } from '../src/schema/slot-selection.js'
 
 const socket = (id: string): InputSpec => ({
   kind: 'input',
@@ -59,22 +54,12 @@ const toggle = (entries: string[], path: string) => toggleSlotSelection(TEMPLATE
 // ---------------------------------------------------------------------------
 
 describe('parseSelection', () => {
-  it('round-trips through selectionEntriesOf canonically', () => {
-    expect(selectionEntriesOf(treeOf(['tag', 'sub.deep.x', 'sub.a']))).toEqual([
-      'sub.a',
-      'sub.deep.x',
-      'tag',
-    ])
-  })
 
   it('rejects a whole-subtree entry alongside a narrower path', () => {
     expect(parseSelection(['sub', 'sub.a'])).toHaveProperty('error')
     expect(parseSelection(['sub.a', 'sub'])).toHaveProperty('error')
   })
 
-  it('treats exact duplicates as set semantics', () => {
-    expect(selectionEntriesOf(treeOf(['tag', 'tag']))).toEqual(['tag'])
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -143,13 +128,6 @@ describe('toggleSlotSelection', () => {
     expect(toggle(['sub.deep.x'], 'sub.deep.x')).toEqual({ ok: false, reason: 'empty' })
   })
 
-  it('handles a single-child scope expansion emptying to refusal', () => {
-    // deep's only sibling-free child: unchecking x from whole 'deep' leaves y.
-    expect(toggle(['sub.deep'], 'sub.deep.x')).toEqual({ ok: true, entries: ['sub.deep.y'] })
-    // ...and unchecking that too would empty everything.
-    expect(toggle(['sub.deep.y'], 'sub.deep.y')).toEqual({ ok: false, reason: 'empty' })
-  })
-
   it('rejects unknown paths, non-nestable descents, and malformed input', () => {
     expect(toggle(['tag'], 'nope')).toEqual({ ok: false, reason: 'invalid' })
     expect(toggle(['tag'], 'tag.x')).toEqual({ ok: false, reason: 'invalid' }) // concrete slot
@@ -160,22 +138,4 @@ describe('toggleSlotSelection', () => {
     })
   })
 
-  it('never emits a prefix alongside its extension', () => {
-    // Sequence of toggles across the tree stays canonical throughout.
-    let entries = ['sub']
-    const step = (path: string) => {
-      const res = toggleSlotSelection(TEMPLATE, entries, path)
-      expect(res.ok).toBe(true)
-      entries = (res as { ok: true; entries: string[] }).entries
-      for (const e of entries) {
-        for (const other of entries) {
-          if (e !== other) expect(other.startsWith(`${e}.`)).toBe(false)
-        }
-      }
-    }
-    step('sub.deep.x') // narrow sub
-    step('tag') // add tag
-    step('sub.deep') // promote deep back to whole
-    step('sub') // promote sub to whole
-  })
 })

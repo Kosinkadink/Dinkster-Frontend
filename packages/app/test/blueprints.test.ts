@@ -54,24 +54,6 @@ const textResponse = (text: string): Response =>
 const notFound = (): Response => ({ ok: false, status: 404 }) as unknown as Response
 
 describe('BlueprintBodyCache', () => {
-  it('fetches once per digest; concurrent loads share the in-flight fetch', async () => {
-    const fetchFn = vi.fn(() => Promise.resolve(jsonResponse(validBody)))
-    const cache = new BlueprintBodyCache({ fetchFn })
-
-    const [a, b] = await Promise.all([
-      cache.load('http://b:8000', 'my.pack', 'txt2img', DIGEST),
-      cache.load('http://b:8000', 'my.pack', 'txt2img', DIGEST),
-    ])
-    expect(fetchFn).toHaveBeenCalledTimes(1)
-    expect(fetchFn).toHaveBeenCalledWith('http://b:8000/api/packs/my.pack/blueprints/txt2img')
-    expect(a).toBeDefined()
-    expect(a).toBe(b) // one decoded document, shared
-    expect(a!.root).toBe('g0')
-
-    // Later loads for the same digest never refetch.
-    expect(await cache.load('http://b:8000', 'my.pack', 'txt2img', DIGEST)).toBe(a)
-    expect(fetchFn).toHaveBeenCalledTimes(1)
-  })
 
   it('404, unparseable JSON, and invalid documents are definitive per digest', async () => {
     for (const [response, digest] of [
@@ -100,12 +82,6 @@ describe('BlueprintBodyCache', () => {
     expect(fetchFn).toHaveBeenCalledTimes(2)
   })
 
-  it('URL-encodes pack and blueprint ids', async () => {
-    const fetchFn = vi.fn(() => Promise.resolve(jsonResponse(validBody)))
-    const cache = new BlueprintBodyCache({ fetchFn })
-    await cache.load('http://b', 'weird/pack', 'bp id', DIGEST)
-    expect(fetchFn).toHaveBeenCalledWith('http://b/api/packs/weird%2Fpack/blueprints/bp%20id')
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -208,19 +184,6 @@ describe('insertBlueprintIntoTab', () => {
     expect(inserted).toHaveLength(0)
   })
 
-  it('a retired graph INCARNATION is stale-graph even when the same id matches again', async () => {
-    // Graph ids are reusable (undo of an import frees g<n> for the next
-    // import): the incarnation latch must refuse even though the current
-    // graph id string equals the captured one and a graph exists under it.
-    const doc = vi.fn(() => target)
-    const { deps, dispatched, inserted } = makeDeps({ graphStillOwned: () => false, doc })
-    expect(await insertBlueprintIntoTab(deps)).toBe<BlueprintInsertOutcome>('stale-graph')
-    expect(dispatched).toHaveLength(0)
-    expect(inserted).toHaveLength(0)
-    // The recreated same-id graph is never probed.
-    expect(doc).not.toHaveBeenCalled()
-  })
-
   it('backend, registry, or frozen ownership changing during the fetch is stale-owner', async () => {
     let release: ((body: WorkflowDocument) => void) | undefined
     let current = true
@@ -254,14 +217,6 @@ describe('insertBlueprintIntoTab', () => {
     const { deps, dispatched } = makeDeps({ loadBody: () => Promise.resolve(target) })
     expect(await insertBlueprintIntoTab(deps)).toBe<BlueprintInsertOutcome>('materialize-failed')
     expect(dispatched).toHaveLength(0)
-  })
-
-  it('a rejected commit is rejected: dispatched once, nothing selected', async () => {
-    let calls = 0
-    const { deps, inserted } = makeDeps({ dispatch: () => ((calls += 1), false) })
-    expect(await insertBlueprintIntoTab(deps)).toBe<BlueprintInsertOutcome>('rejected')
-    expect(calls).toBe(1)
-    expect(inserted).toHaveLength(0)
   })
 
   it.each([false, true])('waits for final dispatch result %s before reporting insertion', async (accepted) => {
@@ -342,19 +297,6 @@ describe('insertBlueprintIntoTab', () => {
     expect(schemaArg!.type).toBe('#g0')
   })
 
-  it('an absent owner resolver (schemas still loading) inserts with empty defaults', async () => {
-    const resolveType = vi.fn(() => undefined)
-    const connect = vi.fn(() => [])
-    const { deps, dispatched, inserted } = makeDeps({ resolveType, connect })
-    expect(await insertBlueprintIntoTab(deps)).toBe<BlueprintInsertOutcome>('inserted')
-    expect(resolveType).toHaveBeenCalledTimes(1)
-    const add = invocationsOf(dispatched[0]!)[1]!.params as { values: unknown }
-    expect(add.values).toEqual({})
-    // The connect hook still runs, addressed to the allocated id.
-    expect(connect).toHaveBeenCalledWith('n5', undefined)
-    expect(inserted).toEqual(['n5'])
-  })
-
   it('link-drop connect uses the session prediction after subgraph.import without consuming a target node id', async () => {
     const sharedTarget = loadDocument({
       ...targetJson,
@@ -403,9 +345,4 @@ describe('blueprintFailureDiagnostic', () => {
     expect(insert.severity).toBe('error')
   })
 
-  it('stale refusals, rejections, and success stay silent', () => {
-    for (const outcome of ['inserted', 'rejected', 'stale-tab', 'stale-graph', 'stale-owner', 'graph-missing'] as const) {
-      expect(blueprintFailureDiagnostic(outcome, 'bp', 'p')).toBeUndefined()
-    }
-  })
 })

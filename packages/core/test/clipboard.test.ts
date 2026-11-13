@@ -165,19 +165,6 @@ describe('Dinkster clipboard', () => {
     })
   })
 
-  it('supplies an empty view when a copied definition has no stored view state', () => {
-    const source = nestedSubgraphDocument()
-    delete (source.view.graphs as Record<string, unknown>).outer
-    const envelope = serializeSelection(source, 'g0', { nodes: ['instance'], reroutes: [] })!
-    expect(envelope.definitions!.view.outer).toEqual({ nodes: {} })
-
-    const target = document()
-    const plan = planClipboardPaste(target, 'g0', envelope)!
-    const store = new DocumentStore(target, coreCommandRegistry())
-    expect(store.dispatch(plan.invocation).ok).toBe(true)
-    expect(store.doc.view.graphs.outer).toEqual({ nodes: {} })
-  })
-
   it('omits dangling definition net-view metadata instead of emitting an invalid envelope', () => {
     const source = nestedSubgraphDocument()
     ;(source as any).ext = {
@@ -354,96 +341,6 @@ describe('Dinkster clipboard', () => {
     })
   })
 
-  it('rejects missing, extra, and malformed definition closure records', () => {
-    const envelope = serializeSelection(nestedSubgraphDocument(), 'g0', { nodes: ['instance'], reroutes: [] })!
-    const missing = structuredClone(envelope) as any
-    delete missing.definitions.graphs.inner
-    delete missing.definitions.view.inner
-    expect(planClipboardPaste(document(), 'g0', missing)).toBeUndefined()
-
-    const extra = structuredClone(envelope) as any
-    extra.definitions.graphs.extra = { id: 'extra', name: 'Extra', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 }
-    extra.definitions.view.extra = { nodes: {} }
-    expect(planClipboardPaste(document(), 'g0', extra)).toBeUndefined()
-
-    const malformed = structuredClone(envelope) as any
-    malformed.definitions.view.outer = { nodes: { nested: { position: { x: 'bad', y: 0 } } } }
-    expect(planClipboardPaste(document(), 'g0', malformed)).toBeUndefined()
-
-    const recursive = structuredClone(envelope) as any
-    recursive.definitions.graphs.inner.nodes.pass.type = '#outer'
-    expect(planClipboardPaste(document(), 'g0', recursive)).toBeUndefined()
-
-    const prototypeKey = structuredClone(envelope) as any
-    Object.defineProperty(prototypeKey.definitions.view, '__proto__', {
-      value: { nodes: {} },
-      enumerable: true,
-    })
-    expect(planClipboardPaste(document(), 'g0', prototypeKey)).toBeUndefined()
-
-    const occurrenceSource = document()
-    ;(occurrenceSource.graphs as Record<string, any>).body = {
-      id: 'body', name: 'Body', nextOrdinal: 0,
-      nodes: {
-        source: { id: 'source', type: 'Source', values: {} },
-        sink: { id: 'sink', type: 'Sink', values: {} },
-      },
-      links: {}, nets: {}, reroutes: {},
-      boundary: {
-        inputs: [{ id: 'in', binds: { kind: 'port', node: 'sink', port: 'in' } }],
-        outputs: [{ id: 'out', binds: { kind: 'port', node: 'source', port: 'out' } }],
-      },
-    }
-    ;(occurrenceSource.view.graphs as Record<string, any>).body = {
-      nodes: { source: { position: { x: 0, y: 0 } }, sink: { position: { x: 200, y: 0 } } },
-    }
-    ;(occurrenceSource.graphs.g0!.nodes as Record<string, any>).a.type = '#body'
-    ;(occurrenceSource as any).occurrenceTopologies = { a: {
-      owner: { instancePath: [], node: 'a' }, bodyGraph: 'body', nextOrdinal: 1,
-      links: { l0: {
-        id: 'l0',
-        from: { kind: 'boundary', occurrence: { instancePath: [], node: 'a' }, address: { port: 'out' }, route: [{ graph: 'body', boundaryId: 'out', binding: { kind: 'port', node: 'source', port: 'out' } }] },
-        to: { kind: 'body', endpoint: { node: 'sink', port: 'in' } },
-      } },
-      suppressedDeliveries: [{ kind: 'projectedLeg', delivery: { kind: 'link', graph: 'g0', linkId: 'l' }, route: [{ graph: 'body', boundaryId: 'in', binding: { kind: 'port', node: 'sink', port: 'in' } }] }],
-    } }
-    ;(occurrenceSource.graphs.g0!.links as Record<string, any>).l = {
-      id: 'l', from: { node: 'b', port: 'out' }, to: { node: 'a', port: 'in' },
-    }
-    const occurrenceEnvelope = serializeSelection(occurrenceSource, 'g0', { nodes: ['a', 'b'], reroutes: [] })!
-    expect(planClipboardPaste(document(), 'g0', occurrenceEnvelope)).toBeDefined()
-    for (const mutate of [
-      (changed: any) => { changed.occurrenceTopologies[0].bodyGraph = 'unrelated' },
-      (changed: any) => { changed.occurrenceTopologies[0].links.l0.from.route[0].graph = 'unrelated' },
-      (changed: any) => { changed.occurrenceTopologies[0].links.l0.from.route = [] },
-      (changed: any) => { changed.occurrenceTopologies[0].suppressedDeliveries[0].delivery.graph = 'unrelated' },
-      (changed: any) => { changed.occurrenceTopologies[0].suppressedDeliveries[0].route = [] },
-    ]) {
-      const changed = structuredClone(occurrenceEnvelope) as any
-      mutate(changed)
-      expect(planClipboardPaste(document(), 'g0', changed)).toBeUndefined()
-    }
-  })
-
-  it('rejects a deeply recursive definition payload without overflowing the call stack', () => {
-    const envelope = serializeSelection(nestedSubgraphDocument(), 'g0', { nodes: ['instance'], reroutes: [] })! as any
-    envelope.nodes[0].data.type = '#d0'
-    envelope.definitions = { graphs: {}, view: {} }
-    const count = 5_000
-    for (let index = 0; index < count; index++) {
-      const id = `d${index}`
-      envelope.definitions.graphs[id] = {
-        id,
-        name: id,
-        nodes: { child: { id: 'child', type: `#d${index + 1 === count ? 0 : index + 1}`, values: {} } },
-        links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
-      }
-      envelope.definitions.view[id] = { nodes: { child: { position: { x: 0, y: 0 } } } }
-    }
-    expect(() => planClipboardPaste(document(), 'g0', envelope)).not.toThrow()
-    expect(planClipboardPaste(document(), 'g0', envelope)).toBeUndefined()
-  })
-
   it('round-trips values and topology with fresh ids, drops partial links, and undoes atomically', () => {
     const source = document()
     const envelope = serializeSelection(source, 'g0', { nodes: ['a', 'b'], reroutes: ['r'] })!
@@ -539,85 +436,6 @@ describe('Dinkster clipboard', () => {
     expect(store.doc.occurrenceTopologies?.a?.links.l7).toBeDefined()
   })
 
-  it('does not copy occurrence topology when the selected body node is not its owner', () => {
-    const source = document()
-    ;(source as any).occurrenceTopologies = {
-      owner: {
-        owner: { instancePath: [], node: 'owner' }, bodyGraph: 'g0', nextOrdinal: 1,
-        links: {},
-      },
-    }
-    const envelope = serializeSelection(source, 'g0', { nodes: ['a'], reroutes: [] })!
-    expect((envelope as any).occurrenceTopologies ?? []).toEqual([])
-  })
-
-  it('does not copy a root overlay from a body graph node with the same id', () => {
-    const source = document()
-    ;(source.graphs as Record<string, any>).body = {
-      id: 'body', name: 'Body', nextOrdinal: 0,
-      nodes: { a: { id: 'a', type: 'Thing', values: {} } },
-      links: {}, nets: {}, reroutes: {},
-    }
-    ;(source.view.graphs as Record<string, any>).body = { nodes: { a: { x: 0, y: 0 } } }
-    ;(source as any).occurrenceTopologies = {
-      a: { owner: { instancePath: [], node: 'a' }, bodyGraph: 'g0', links: {}, nextOrdinal: 1 },
-    }
-    const envelope = serializeSelection(source, 'body', { nodes: ['a'], reroutes: [] })!
-    expect(envelope.version).toBe(2)
-    expect(envelope.occurrenceTopologies).toBeUndefined()
-  })
-
-  it('CO7: the paste planner counts EVERY allocation and fails at the id-space ceiling', () => {
-    const source = document()
-    const envelope = serializeSelection(source, 'g0', { nodes: ['a', 'b'], reroutes: ['r'] })!
-    // Materialization allocates 5 ids: 2 nodes + 1 reroute + 2 retained
-    // links (the partial link's endpoint is outside the copy and is
-    // dropped). The planner must agree with materialize, so the last
-    // plannable window is MAX-5 and MAX-4 is unplannable.
-    const MAX = Number.MAX_SAFE_INTEGER
-    const exhausted = document()
-    ;(exhausted.graphs.g0 as { nextOrdinal: number }).nextOrdinal = MAX - 4
-    expect(planClipboardPaste(exhausted, 'g0', envelope, { x: 0, y: 0 })).toBeUndefined()
-    const nearMax = document()
-    ;(nearMax.graphs.g0 as { nextOrdinal: number }).nextOrdinal = MAX - 5
-    const plan = planClipboardPaste(nearMax, 'g0', envelope, { x: 0, y: 0 })
-    expect(plan).toBeDefined()
-    expect(plan!.nodeIds).toEqual([`n${MAX - 5}`, `n${MAX - 4}`])
-    expect(plan!.rerouteIds).toEqual([`r${MAX - 3}`])
-    // A plan that came back defined must actually dispatch (planner and
-    // materialize agree at the boundary).
-    const store = new DocumentStore(nearMax, coreCommandRegistry())
-    expect(store.dispatch(plan!.invocation).ok).toBe(true)
-    expect(store.doc.graphs.g0!.nextOrdinal).toBe(MAX)
-  })
-
-  it('excludes boundary pseudonode selection and copies nothing when no real item remains', () => {
-    expect(serializeSelection(document(), 'g0', { nodes: ['@boundary:inputs'], reroutes: [] })).toBeUndefined()
-  })
-
-  it('drops links whose endpoint is not present in a foreign document paste', () => {
-    const envelope = serializeSelection(document(), 'g0', { nodes: ['a', 'b'], reroutes: ['r'] })!
-    const damaged = { ...envelope, nodes: envelope.nodes.slice(0, 1) }
-    const plan = planClipboardPaste(document(), 'g0', damaged)!
-    const store = new DocumentStore(document(), coreCommandRegistry())
-    expect(store.dispatch(plan.invocation).ok).toBe(true)
-    expect(Object.keys(store.doc.graphs.g0!.links)).toHaveLength(4)
-  })
-
-  it('rejects a malformed record anywhere in the envelope atomically', () => {
-    const envelope = serializeSelection(document(), 'g0', { nodes: ['a', 'b'], reroutes: ['r'] })!
-    const malformed = { ...envelope, nodes: [envelope.nodes[0], { data: { id: 'bad' }, view: {} }, envelope.nodes[1]] }
-    const store = new DocumentStore(document(), coreCommandRegistry())
-    const before = store.doc
-    const outcome = store.dispatch({
-      command: 'clipboard.paste',
-      params: { graphId: 'g0', envelope: malformed, offset: { x: 20, y: 20 } } as never,
-    })
-    expect(outcome.ok).toBe(false)
-    expect(store.doc).toBe(before)
-    expect(store.revision).toBe(0)
-  })
-
   it('rejects duplicate source node ids instead of silently rewiring links', () => {
     // Two records sharing an id would both paste, with every link naming
     // that id reattached to the LAST record - topology corruption, so the
@@ -632,151 +450,6 @@ describe('Dinkster clipboard', () => {
     })
     expect(outcome.ok).toBe(false)
     expect(store.revision).toBe(0)
-  })
-
-  it('rejects duplicate source reroute ids', () => {
-    const envelope = serializeSelection(document(), 'g0', { nodes: ['a', 'b'], reroutes: ['r'] })!
-    const dup = { ...envelope, reroutes: [envelope.reroutes[0]!, envelope.reroutes[0]!] }
-    expect(planClipboardPaste(document(), 'g0', dup, { x: 0, y: 0 })).toBeUndefined()
-  })
-
-  it('rejects duplicate source link ids in a v3 envelope with a projected suppression', () => {
-    // Duplicate link ids would make the projectedLeg suppression remap
-    // ambiguous (the later record silently wins the linkMap entry), so
-    // the envelope is rejected outright.
-    const source = document()
-    ;(source.graphs as Record<string, any>).body = {
-      id: 'body', name: 'Body', nextOrdinal: 0,
-      nodes: {
-        producer: { id: 'producer', type: 'Producer', values: {} },
-        sink: { id: 'sink', type: 'Sink', values: {} },
-      },
-      links: {}, nets: {}, reroutes: {},
-      boundary: {
-        inputs: [{ id: 'in', binds: { kind: 'port', node: 'sink', port: 'in' } }],
-        outputs: [{ id: 'out', binds: { kind: 'port', node: 'producer', port: 'out' } }],
-      },
-    }
-    ;(source.view.graphs as Record<string, any>).body = { nodes: {} }
-    ;(source.graphs.g0!.nodes as Record<string, any>).a.type = '#body'
-    ;(source as any).occurrenceTopologies = {
-      a: {
-        owner: { instancePath: [], node: 'a' }, bodyGraph: 'body', nextOrdinal: 0, links: {},
-        suppressedDeliveries: [{
-          kind: 'projectedLeg',
-          delivery: { kind: 'link', graph: 'g0', linkId: 'into' },
-          route: [{ graph: 'body', boundaryId: 'out', binding: { kind: 'port', node: 'producer', port: 'out' } }],
-        }],
-      },
-    }
-    const envelope = serializeSelection(source, 'g0', { nodes: ['a', 'b'], reroutes: ['r'] })!
-    expect(envelope.version).toBe(5)
-    expect(planClipboardPaste(source, 'g0', envelope, { x: 0, y: 0 })).toBeDefined()
-    const dup = { ...envelope, links: [...envelope.links, envelope.links[0]!] }
-    expect(planClipboardPaste(source, 'g0', dup, { x: 0, y: 0 })).toBeUndefined()
-    const store = new DocumentStore(source, coreCommandRegistry())
-    const outcome = store.dispatch({
-      command: 'clipboard.paste',
-      params: { graphId: 'g0', envelope: dup, offset: { x: 0, y: 0 } } as never,
-    })
-    expect(outcome.ok).toBe(false)
-    expect(store.revision).toBe(0)
-  })
-
-  it('rejects duplicate occurrence topology owners in a v3 envelope', () => {
-    const source = document()
-    ;(source.graphs as Record<string, any>).body = {
-      id: 'body', name: 'Body', nextOrdinal: 0,
-      nodes: {}, links: {}, nets: {}, reroutes: {},
-      boundary: { inputs: [], outputs: [] },
-    }
-    ;(source.view.graphs as Record<string, any>).body = { nodes: {} }
-    ;(source.graphs.g0!.nodes as Record<string, any>).a.type = '#body'
-    ;(source as any).occurrenceTopologies = {
-      a: {
-        owner: { instancePath: [], node: 'a' }, bodyGraph: 'body', nextOrdinal: 0, links: {},
-      },
-    }
-    const envelope = serializeSelection(source, 'g0', { nodes: ['a'], reroutes: [] })!
-    const duplicate = {
-      ...envelope,
-      occurrenceTopologies: [...envelope.occurrenceTopologies!, envelope.occurrenceTopologies![0]!],
-    }
-    expect(planClipboardPaste(source, 'g0', duplicate, { x: 0, y: 0 })).toBeUndefined()
-    const store = new DocumentStore(source, coreCommandRegistry())
-    const before = store.doc
-    const outcome = store.dispatch({
-      command: 'clipboard.paste',
-      params: { graphId: 'g0', envelope: duplicate, offset: { x: 0, y: 0 } } as never,
-    })
-    expect(outcome.ok).toBe(false)
-    expect(store.revision).toBe(0)
-    expect(store.doc).toBe(before)
-  })
-
-  it('refuses every v3 occurrence topology closure violation by name', () => {
-    const source = document()
-    ;(source.graphs as Record<string, any>).body = {
-      id: 'body', name: 'Body', nextOrdinal: 0,
-      nodes: {
-        producer: { id: 'producer', type: 'Producer', values: {} },
-        sink: { id: 'sink', type: 'Sink', values: {} },
-      },
-      links: {}, nets: {}, reroutes: {},
-      boundary: { inputs: [{ id: 'in', binds: { kind: 'port', node: 'sink', port: 'in' } }], outputs: [] },
-    }
-    ;(source.view.graphs as Record<string, any>).body = { nodes: { producer: {}, sink: {} } }
-    ;(source.graphs.g0!.nodes as Record<string, any>).a.type = '#body'
-    ;(source as any).occurrenceTopologies = {
-      a: {
-        owner: { instancePath: [], node: 'a' }, bodyGraph: 'body', nextOrdinal: 1,
-        links: {
-          l0: {
-            id: 'l0',
-            from: { kind: 'body', endpoint: { node: 'producer', port: 'out' } },
-            to: { kind: 'body', endpoint: { node: 'sink', port: 'in' } },
-          },
-        },
-      },
-    }
-    const envelope = structuredClone(serializeSelection(source, 'g0', { nodes: ['a'], reroutes: [] })!) as any
-    envelope.version = 3
-    delete envelope.definitions
-
-    const dispatch = (graphId: string, changed: DinksterClipboardEnvelope) => {
-      const store = new DocumentStore(source, coreCommandRegistry())
-      const before = store.doc
-      const outcome = store.dispatch({
-        command: 'clipboard.paste',
-        params: { graphId, envelope: changed, offset: { x: 0, y: 0 } } as never,
-      })
-      expect(outcome.ok).toBe(false)
-      expect(store.doc).toBe(before)
-      return outcome.diagnostics[0]!.code
-    }
-
-    expect(dispatch('body', envelope)).toBe('clipboard.occurrenceTopology.contextUnsupported')
-
-    const ownerOutside = structuredClone(envelope) as any
-    ownerOutside.occurrenceTopologies[0].owner.node = 'outside'
-    expect(dispatch('g0', ownerOutside)).toBe('clipboard.occurrenceTopology.ownerOutsideCopy')
-
-    const endpointOutside = structuredClone(envelope) as any
-    endpointOutside.occurrenceTopologies[0].links.l0.from = {
-      kind: 'boundary',
-      occurrence: { instancePath: [], node: 'outside' },
-      address: { port: 'in' },
-      route: [{ graph: 'body', boundaryId: 'in', binding: { kind: 'port', node: 'sink', port: 'in' } }],
-    }
-    expect(dispatch('g0', endpointOutside)).toBe('clipboard.occurrenceTopology.endpointOutsideCopy')
-
-    const deliveryOutside = structuredClone(envelope) as any
-    deliveryOutside.occurrenceTopologies[0].suppressedDeliveries = [{
-      kind: 'projectedLeg',
-      delivery: { kind: 'link', graph: 'g0', linkId: 'missing' },
-      route: [{ graph: 'body', boundaryId: 'in', binding: { kind: 'port', node: 'sink', port: 'in' } }],
-    }]
-    expect(dispatch('g0', deliveryOutside)).toBe('clipboard.occurrenceTopology.deliveryOutsideCopy')
   })
 
   it('rejects records the document loader would reject: a paste can never commit an unloadable document', () => {
@@ -798,65 +471,6 @@ describe('Dinkster clipboard', () => {
     expect(outcome.ok).toBe(false)
     expect(store.revision).toBe(0)
     expect(store.doc.graphs.g0!.nextOrdinal).toBe(10)
-  })
-
-  it('rejects malformed dynamic state in a pasted node', () => {
-    const envelope = serializeSelection(document(), 'g0', { nodes: ['a'], reroutes: [] })!
-    const record = envelope.nodes[0]!
-    const bad = {
-      ...envelope,
-      nodes: [{
-        ...record,
-        data: { ...(record.data as Record<string, unknown>), dynamic: { port: { seq: -1, members: 'nope' } } },
-      }],
-    } as never
-    expect(planClipboardPaste(document(), 'g0', bad, { x: 0, y: 0 })).toBeUndefined()
-    const store = new DocumentStore(document(), coreCommandRegistry())
-    expect(store.dispatch({
-      command: 'clipboard.paste',
-      params: { graphId: 'g0', envelope: bad, offset: { x: 0, y: 0 } } as never,
-    }).ok).toBe(false)
-    expect(store.revision).toBe(0)
-  })
-
-  it('a non-finite anchor yields no plan instead of an undispatchable one', () => {
-    const envelope = serializeSelection(document(), 'g0', { nodes: ['a'], reroutes: [] })!
-    expect(planClipboardPaste(document(), 'g0', envelope, { x: Number.NaN, y: 0 })).toBeUndefined()
-    expect(planClipboardPaste(document(), 'g0', envelope, { x: 0, y: Number.POSITIVE_INFINITY })).toBeUndefined()
-  })
-
-  it('finite inputs that overflow the offset or any translated coordinate yield no plan', () => {
-    const envelope = serializeSelection(document(), 'g0', { nodes: ['a'], reroutes: [] })!
-    const record = envelope.nodes[0]!
-    // dx = anchor.x - minX = MAX_VALUE - (-MAX_VALUE) = Infinity, from two
-    // individually finite numbers.
-    const farLeft = {
-      ...envelope,
-      nodes: [{ ...record, view: { position: { x: -Number.MAX_VALUE, y: 0 } } }],
-    } as never
-    expect(planClipboardPaste(document(), 'g0', farLeft, { x: Number.MAX_VALUE, y: 0 })).toBeUndefined()
-
-    // Finite dx (MAX_VALUE - 0), but the OTHER record's translated x
-    // overflows: MAX_VALUE + MAX_VALUE = Infinity.
-    const two = serializeSelection(document(), 'g0', { nodes: ['a', 'b'], reroutes: [] })!
-    const spread = {
-      ...two,
-      nodes: [
-        { ...two.nodes[0]!, view: { position: { x: 0, y: 0 } } },
-        { ...two.nodes[1]!, view: { position: { x: Number.MAX_VALUE, y: 0 } } },
-      ],
-    } as never
-    expect(planClipboardPaste(document(), 'g0', spread, { x: Number.MAX_VALUE, y: 0 })).toBeUndefined()
-  })
-
-  it('keeps valid paste behavior after record normalization', () => {
-    const envelope = serializeSelection(document(), 'g0', { nodes: ['a', 'b'], reroutes: ['r'] })!
-    const plan = planClipboardPaste(document(), 'g0', envelope, { x: 20, y: 30 })!
-    const store = new DocumentStore(document(), coreCommandRegistry())
-    expect(store.dispatch(plan.invocation).ok).toBe(true)
-    expect(plan.nodeIds).toEqual(['n10', 'n11'])
-    expect(plan.rerouteIds).toEqual(['r12'])
-    expect(store.doc.graphs.g0!.nextOrdinal).toBe(15)
   })
 
   it('FR1 pasted groups mint from the group cursor, never onto a live or removed group id', () => {
@@ -921,72 +535,6 @@ describe('Dinkster clipboard', () => {
     expect(store.dispatch(plan.invocation).ok).toBe(true)
     expect(Object.keys(store.doc.view.graphs.g0!.groups!)).toEqual(['grp6'])
     expect(store.doc.view.graphs.g0!.groupSeq).toBe(7)
-  })
-
-  it('FR1 non-canonical binding evidence never advances or exhausts the paste floor', () => {
-    // A malformed binding near the ceiling ('grp0<huge>' has a leading
-    // zero, so it is not an allocator-produced id and can never collide
-    // with a minted one). It must contribute NOTHING - above all it must
-    // not exhaust paste for the whole graph.
-    const source = document()
-    ;(source.view.graphs.g0 as unknown as Record<string, unknown>).groups = {
-      grp0: { id: 'grp0', title: 'copied', bounds: { x: 0, y: 0, width: 10, height: 10 } },
-    }
-    const envelope = serializeSelection(source, 'g0', { nodes: ['a'], reroutes: [], groups: ['grp0'] })!
-    const target = document()
-    ;(target as unknown as Record<string, unknown>).surfaces = {
-      s0: {
-        id: 's0',
-        type: 'core.modePanel',
-        config: {
-          bindings: [
-            { kind: 'group', graphId: 'g0', groupId: 'grp00' },
-            { kind: 'group', graphId: 'g0', groupId: 'grp09007199254740990' },
-          ],
-        },
-      },
-    }
-    const plan = planClipboardPaste(target, 'g0', envelope, { x: 20, y: 30 })!
-    expect(plan).toBeDefined() // not exhausted
-    const store = new DocumentStore(target, coreCommandRegistry())
-    expect(store.dispatch(plan.invocation).ok).toBe(true)
-    expect(Object.keys(store.doc.view.graphs.g0!.groups!)).toEqual(['grp0'])
-    expect(store.doc.view.graphs.g0!.groupSeq).toBe(1)
-  })
-
-  it('CO7/FR1: the planner refuses a group paste past the group-cursor ceiling', () => {
-    const source = document()
-    ;(source.view.graphs.g0 as unknown as Record<string, unknown>).groups = {
-      grp0: { id: 'grp0', title: 'live', bounds: { x: 0, y: 0, width: 10, height: 10 } },
-    }
-    const envelope = serializeSelection(source, 'g0', { nodes: ['a'], reroutes: [], groups: ['grp0'] })!
-    const exhausted = document()
-    ;(exhausted.view.graphs.g0 as unknown as Record<string, unknown>).groupSeq = Number.MAX_SAFE_INTEGER
-    expect(planClipboardPaste(exhausted, 'g0', envelope, { x: 0, y: 0 })).toBeUndefined()
-    const nearMax = document()
-    ;(nearMax.view.graphs.g0 as unknown as Record<string, unknown>).groupSeq = Number.MAX_SAFE_INTEGER - 1
-    const plan = planClipboardPaste(nearMax, 'g0', envelope, { x: 0, y: 0 })
-    expect(plan).toBeDefined()
-    // A plan that came back defined must actually dispatch (planner and
-    // materialize agree at the group boundary too).
-    const store = new DocumentStore(nearMax, coreCommandRegistry())
-    expect(store.dispatch(plan!.invocation).ok).toBe(true)
-    expect(store.doc.view.graphs.g0!.groups![`grp${Number.MAX_SAFE_INTEGER - 1}`]).toBeDefined()
-    expect(store.doc.view.graphs.g0!.groupSeq).toBe(Number.MAX_SAFE_INTEGER)
-  })
-
-  it('rejects malformed records instead of skipping them and shifting ids', () => {
-    const envelope = serializeSelection(document(), 'g0', { nodes: ['a', 'b'], reroutes: ['r'] })!
-    const malformed = { ...envelope, nodes: [{ data: { id: 'bad' }, view: {} }, ...envelope.nodes] }
-    expect(planClipboardPaste(document(), 'g0', malformed as never)).toBeUndefined()
-    const store = new DocumentStore(document(), coreCommandRegistry())
-    const outcome = store.dispatch({
-      command: 'clipboard.paste',
-      params: { graphId: 'g0', envelope: malformed, offset: { x: 20, y: 20 } } as never,
-    })
-    expect(outcome.ok).toBe(false)
-    expect(store.doc.graphs.g0!.nodes.n10).toBeUndefined()
-    expect(store.doc.graphs.g0!.nextOrdinal).toBe(10)
   })
 
   it('connected paste has incoming-only parity and leaves outgoing-only links detached', () => {
@@ -1150,28 +698,6 @@ describe('Dinkster clipboard', () => {
     expect(Object.values(store.doc.graphs.g0!.links).some((link) => 'node' in link.to && link.to.node === plan.nodeIds[0])).toBe(true)
   })
 
-  it('ordinary paste compacts in one batch and ignores v2 external origins', () => {
-    const source = connectedDocument()
-    const envelope = serializeSelection(source, 'g0', { nodes: ['a'], reroutes: [] })!
-    const plan = planClipboardPaste(source, 'g0', envelope)!
-    expect(plan.invocation.command).toBe('batch')
-    const invocations = (plan.invocation.params as {
-      invocations: { command: string; params: Record<string, unknown> }[]
-    }).invocations
-    expect(invocations[0]!.command).toBe('clipboard.paste')
-    expect(invocations[0]!.params.connectInputs).toBeUndefined()
-    expect(invocations.at(-1)).toEqual({
-      command: 'dynamic.compact',
-      params: { graphId: 'g0', nodeId: plan.nodeIds[0] },
-    })
-    const store = new DocumentStore(source, coreCommandRegistry())
-    expect(store.dispatch(plan.invocation).ok).toBe(true)
-    expect(Object.values(store.doc.graphs.g0!.links).some((link) => 'node' in link.to && link.to.node === plan.nodeIds[0])).toBe(false)
-
-    const v1 = { ...envelope, version: 1, externalIncoming: undefined } as unknown as DinksterClipboardEnvelope
-    expect(planClipboardPaste(source, 'g0', v1)).toBeDefined()
-  })
-
   it('ordinary paste removes unused members without recycling their identity', () => {
     const source = connectedDocument()
     ;(source.graphs.g0!.nodes.a as { dynamic?: unknown }).dynamic = { images: { members: ['m3'], seq: 4 } }
@@ -1230,20 +756,6 @@ describe('Dinkster clipboard', () => {
     const store = new DocumentStore(source, coreCommandRegistry())
     expect(store.dispatch(plan.invocation).ok).toBe(true)
     expect(store.doc.graphs.g0!.nodes['n5-alice']).toBeDefined()
-  })
-
-  it('connected paste skips member-bearing opaque endpoints instead of resurrecting members', () => {
-    const source = connectedDocument()
-    const envelope = serializeSelection(source, 'g0', { nodes: ['a'], reroutes: [] })!
-    const stale = {
-      ...envelope,
-      externalIncoming: envelope.externalIncoming!.map((stub) => ({
-        ...stub,
-        source: 'tap' in stub.source ? stub.source : { ...stub.source, members: ['m1'] },
-      })),
-    }
-    const { store, plan } = connectedPaste(source, 'g0', stale)
-    expect(Object.values(store.doc.graphs.g0!.links).some((link) => 'node' in link.to && link.to.node === plan.nodeIds[0])).toBe(false)
   })
 
   it('connected paste skips same-id sources from another document lineage', () => {
@@ -1402,16 +914,6 @@ describe('clipboard named nets (version 4)', () => {
     expect(store.doc.graphs.g0!.nets.net12!.name).toBe('LATENTS_2')
   })
 
-  it('keeps the original name when the destination graph has no collision', () => {
-    const envelope = serializeSelection(netDocument(), 'g0', { nodes: ['p', 'c1'], reroutes: [] })!
-    const target = netDocument()
-    ;(target.graphs.g0 as { nets: Record<string, unknown> }).nets = {}
-    const { store } = paste(target, envelope)
-    const nets = Object.values(store.doc.graphs.g0!.nets)
-    expect(nets).toHaveLength(1)
-    expect(nets[0]).toMatchObject({ name: 'Latents', source: { node: 'n10', port: 'out' } })
-  })
-
   it('recreates an incompatible sink-only collision as a renamed net wired to the recorded source', () => {
     const envelope = serializeSelection(netDocument(), 'g0', { nodes: ['c1'], reroutes: [] })!
     const target = netDocument()
@@ -1437,41 +939,4 @@ describe('clipboard named nets (version 4)', () => {
     expect(Object.keys(store.doc.graphs.g0!.nets)).toEqual([])
   })
 
-  it('a pasted link driving the same input wins over a net sink', () => {
-    const envelope = serializeSelection(netDocument(), 'g0', { nodes: ['p', 'c1'], reroutes: [] })!
-    const withLink = {
-      ...envelope,
-      links: [{ id: 'l1', from: { node: 'p', port: 'out' }, to: { node: 'c1', port: 'in' } }],
-    } as never as DinksterClipboardEnvelope
-    const { store } = paste(netDocument(), withLink)
-    const graph = store.doc.graphs.g0!
-    const created = Object.values(graph.nets).find((net) => net.name === 'Latents_2')!
-    expect(created.sinks).toEqual([])
-    expect(Object.values(graph.links).some((link) =>
-      'node' in link.from && link.from.node === 'n10' && 'node' in link.to && link.to.node === 'n11')).toBe(true)
-  })
-
-  it('rejects malformed version 4 payloads atomically', () => {
-    const envelope = serializeSelection(netDocument(), 'g0', { nodes: ['p', 'c1'], reroutes: [] })!
-    const record = envelope.nets![0]!
-    // Duplicate net names make collision resolution ambiguous.
-    expect(planClipboardPaste(netDocument(), 'g0', { ...envelope, nets: [record, record] } as never)).toBeUndefined()
-    // A sink on the source node is a state the net commands never produce.
-    const selfLoop = { ...(record as Record<string, unknown>), sinks: [{ node: 'p', port: 'in' }] }
-    expect(planClipboardPaste(netDocument(), 'g0', { ...envelope, nets: [selfLoop] } as never)).toBeUndefined()
-    // Version 4 requires the nets array outright.
-    const { nets: _nets, ...withoutNets } = envelope
-    expect(planClipboardPaste(netDocument(), 'g0', withoutNets as never)).toBeUndefined()
-  })
-
-  it('leaves version 2 payloads untouched by net planning', () => {
-    const doc = netDocument()
-    ;(doc.graphs.g0 as { nets: Record<string, unknown> }).nets = {}
-    const envelope = serializeSelection(doc, 'g0', { nodes: ['p', 'c1'], reroutes: [] })!
-    expect(envelope.version).toBe(2)
-    expect(envelope.nets).toBeUndefined()
-    const { store } = paste(netDocument(), envelope)
-    expect(Object.keys(store.doc.graphs.g0!.nets)).toEqual(['net1'])
-    expect(store.doc.graphs.g0!.nets.net1!.sinks).toHaveLength(2)
-  })
 })

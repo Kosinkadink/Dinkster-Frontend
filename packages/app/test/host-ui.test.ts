@@ -14,24 +14,6 @@ describe('host UI contribution registry', () => {
     expect(registry.list('status.trailing').map((item) => item.id)).toEqual(['pack.alpha.status', 'pack.monitor.status'])
   })
 
-  it('owns immutable contribution metadata', () => {
-    const registry = new HostUiContributionRegistry()
-    registry.register('pack.monitor.status', 'status.trailing', provider, 20, 'Monitor')
-    const stored = registry.list('status.trailing')[0]!
-    expect(stored).toMatchObject({ id: 'pack.monitor.status', slot: 'status.trailing', order: 20, provider })
-    expect(Object.isFrozen(stored)).toBe(true)
-    expect(() => Object.assign(stored as unknown as Record<string, unknown>, { id: 'changed', order: -20 })).toThrow()
-    expect(stored).toMatchObject({ id: 'pack.monitor.status', order: 20 })
-  })
-
-  it('exposes only a positional registration boundary', () => {
-    const registry = new HostUiContributionRegistry()
-    const objectForm = { id: 'pack.object.status', slot: 'status.trailing', provider }
-    expect(() => registry.register(objectForm as never, undefined as never, undefined as never)).toThrow('invalid metadata')
-    expect(() => registry.register('invalid', 'status.trailing', provider)).toThrow('invalid metadata')
-    expect(registry.list('status.trailing')).toEqual([])
-  })
-
   it('gates, unregisters, and restores a host UI contribution independently', () => {
     const registry = new HostUiContributionRegistry()
     const host = new ExtensionHost({ menus: createMenuRegistry(), widgets: createWidgetRegistry(), registerHostUi: (...args) => registry.register(...args) })

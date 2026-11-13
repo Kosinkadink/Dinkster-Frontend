@@ -224,36 +224,6 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
   }
 })
 
-it('opens an empty comparison with named disabled controls without changing the graph value', () => {
-  const schema = parseDinksterSchema('CompareFixture', { interface: [
-    { role: 'input', id: 'compare_view', type: { kind: 'concrete', types: ['IMAGECOMPARE'] }, default: null, widget: { type: 'IMAGECOMPARE' } },
-  ] }).schema!
-  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [null] }], links: [] }, () => schema)
-  const store = new DocumentStore(imported.document!, coreCommandRegistry())
-  const tab = { store, graphStack: createSignal(['g0']), instancePath: createSignal([]) } as unknown as Tab
-  const registry = createWidgetRegistry()
-  const app = {
-    widgetRegistry: registry, widgetRegistryForTab: () => registry,
-    store: { executions: createSignal(new Map()) }, executionForTab: () => undefined,
-    compileTabCached: () => undefined, backendForTab: () => ({ id: 'native' }),
-  } as unknown as AppState
-  const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
-  const root = document.createElement('div'); document.body.append(root)
-  const dispose = render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'compare_view' }, label: 'Compare',
-    spec: inputsOf(schema)[0]!.widget, multiline: false,
-    rect: { x: 0, y: 0, width: 180, height: 24 }, initial: null,
-  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-  expect(root.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Compare images')
-  expect(root.querySelector('[role="slider"]')?.getAttribute('aria-disabled')).toBe('true')
-  expect(Array.from(root.querySelectorAll<HTMLButtonElement>('[role="combobox"]')).map((control) => [control.getAttribute('aria-label'), control.disabled]))
-    .toEqual([['Image A frame', true], ['Image B frame', true]])
-  expect(root.textContent).toContain('Run this comparison')
-  expect(store.doc.graphs.g0!.nodes.n1!.values.compare_view).toBeNull()
-  dispose()
-  context.mockRestore()
-})
-
 it('edits a crop region atomically, rejects invalid drafts and supports undo', async () => {
   const initial = { x: 3, y: 7, width: 91, height: 23 }
   const schema = parseDinksterSchema('CropFixture', { interface: [

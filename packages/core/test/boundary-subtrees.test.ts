@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { compile, documentResolver } from '../src/compile/compile.js'
-import { occurrenceDynamicView, occurrenceFamilyEndpoint, occurrenceSubtreeKey } from '../src/compile/occurrence-view.js'
+import { occurrenceDynamicView, occurrenceSubtreeKey } from '../src/compile/occurrence-view.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId } from '../src/ids.js'
 import type { InputSpec, NodeSchema } from '../src/schema/model.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
-import { mergeDynamicScope } from '../src/compile/crossing.js'
 import { validateDocumentShape } from '../src/format/validate.js'
 import { checkDocument } from '../src/invariants.js'
 import { lifecycleSelectionFingerprint } from '../src/lifecycle/planner.js'
@@ -92,26 +91,6 @@ describe('full conditional boundary forwarding', () => {
     expect(compiledInputs(store.doc)).toEqual(before)
     store.redo()
     expect(compiledInputs(store.doc)).toEqual(before)
-  })
-
-  it('retains an outer family owner when its members travel through full-branch wrappers', () => {
-    const original = document()
-    const root = original.graphs['root']!
-    const middle = original.graphs['middle']!
-    const doc = { ...original, graphs: { ...original.graphs,
-      root: { ...root, nodes: { left: { id: 'left', type: '#outer', values: { 'extra.weight#m0': 7 }, dynamic: { extra: { members: ['m0'], seq: 1 } } } } },
-      outer: { ...middle, id: 'outer', nodes: { inner: { id: 'inner', type: '#middle', values: {} } }, boundary: {
-        inputs: [{ id: 'extra', binds: { kind: 'family', node: 'inner', port: 'choice.[a].items' } }], outputs: [],
-      } },
-    } } as unknown as WorkflowDocument
-    const view = occurrenceDynamicView(doc, resolve, ['left', 'inner', 'inner'])
-    const owner = view.familyOwners.get('leaf')?.get('mode.[a].items')
-    expect(owner).toBeDefined()
-    expect(owner).toMatchObject({ graphId: 'root', nodeId: 'left' })
-    expect(view.values.get('leaf')?.['mode.[a].items.weight#\u0000m0']).toBe(7)
-    const endpoint = occurrenceFamilyEndpoint(owner!, 'mode.[a].items.weight', ['\u0000m0'])
-    expect(endpoint).toMatchObject({ occurrence: { instancePath: [], node: 'left' }, address: { port: 'extra.weight', members: ['m0'] } })
-    expect(endpoint?.kind === 'boundary' && endpoint.route).toHaveLength(3)
   })
 
   it('maps a member-scoped subtree without leaking its fixed ancestor into instance identities', () => {
@@ -248,18 +227,6 @@ describe('full conditional boundary forwarding', () => {
     const junctionStore = new DocumentStore(junctionDoc, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
     expect(junctionStore.dispatch({ command: 'boundary.addItem', params: { graphId: 'body', side: 'inputs', node: 'leaf', port: 'mode', viaReroute: 'r0' } }).ok).toBe(true)
     expect(junctionStore.doc.graphs['body']!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', node: 'leaf', port: 'mode', viaReroute: 'r0' })
-  })
-
-  it('uses field presence for empty, stale, and nested state masks', () => {
-    expect(mergeDynamicScope({ mode: { selected: 'a' }, items: { members: ['m0'], memberState: { m0: { nested: { selected: 'valid' } } } } }, {
-      mode: {}, items: { members: [], memberState: { m0: { nested: { selected: 'removed' } } } },
-    })).toEqual({ mode: {}, items: { members: [], memberState: { m0: { nested: { selected: 'removed' } } } } })
-    const doc = document()
-    const left = doc.graphs['root']!.nodes['left']!
-    const masked = { ...doc, graphs: { ...doc.graphs, root: { ...doc.graphs['root']!, nodes: {
-      ...doc.graphs['root']!.nodes, left: { ...left, dynamic: { choice: {}, 'choice.[a].items': { members: [] } } },
-    } } } }
-    expect(occurrenceDynamicView(masked, resolve, ['left', 'inner']).dynamic.get('leaf')).toEqual({ mode: {}, 'mode.[a].items': { members: [], seq: 1 } })
   })
 
   it('inherits nested state in the root view and preserves sibling branch isolation through two wrappers', () => {

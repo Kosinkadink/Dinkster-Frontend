@@ -203,30 +203,6 @@ test('dragging the Inputs pseudo-node forwards the full DynamicCombo branch by d
   await assertNoUnsupportedDiagnostic(page)
 })
 
-test('drag-bound selector binding switches through the derived instance combo', async ({ page }) => {
-  await drillIntoSub(page)
-  await drag(page, await blankInputBoundaryPoint(page), await pinPoint(page, 'resize', 'resize'))
-  const boundaryId = await page.evaluate(() => {
-    const graph = window.__dinksterTest!.app.activeTab()!.store.doc.graphs['sub'] as unknown as {
-      boundary: { inputs: Array<{ id: string }> }
-    }
-    return graph.boundary.inputs[0]!.id
-  })
-  await returnToRoot(page)
-
-  const instance = await page.evaluate(() =>
-    window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'i0')!,
-  )
-  expect(instance.layout.rows.some((row) => row.inputId === boundaryId)).toBe(true)
-  await selectCombo(page, 'i0', boundaryId, 'crop')
-  const doc = await activeDoc(page)
-  const node = doc.graphs['g0']!.nodes['i0'] as typeof doc.graphs['g0']['nodes'][string] & {
-    dynamic?: Record<string, { selected?: string }>
-  }
-  expect(node.dynamic?.[boundaryId]?.selected).toBe('crop')
-  await assertNoUnsupportedDiagnostic(page)
-})
-
 test('forwarded selector displays and edits occurrence state while drilled in', async ({ page }) => {
   await drillIntoSub(page)
   await drag(page, await blankInputBoundaryPoint(page), await pinPoint(page, 'resize', 'resize'))

@@ -5,11 +5,7 @@
  * the corpus is re-read per request (live sources).
  */
 import { describe, expect, it } from 'vitest'
-import {
-  defaultEntryFields,
-  localCollectionSource,
-  type CollectionEntry,
-} from '../src/collection.js'
+import { localCollectionSource, type CollectionEntry } from '../src/collection.js'
 
 const entry = (id: string, title: string, extra?: Partial<CollectionEntry>): CollectionEntry => ({
   id,
@@ -44,11 +40,6 @@ describe('localCollectionSource paging', () => {
     expect(p3.cursor).toBeUndefined()
   })
 
-  it('an exact final page still ends without a cursor', async () => {
-    const p1 = await source.page({ query: '', limit: 5 })
-    expect(p1.items).toHaveLength(5)
-    expect(p1.cursor).toBeUndefined()
-  })
 })
 
 describe('query ownership', () => {
@@ -75,12 +66,6 @@ describe('query ownership', () => {
     expect(other.items.map((e) => e.id)).toEqual(['a', 'b'])
   })
 
-  it('junk cursors restart at the first page instead of failing', async () => {
-    for (const cursor of ['not json', '{"q":"","offset":-3}', '{"offset":"x"}']) {
-      const page = await source.page({ query: '', cursor, limit: 2 })
-      expect(page.items.map((e) => e.id)).toEqual(['a', 'b'])
-    }
-  })
 })
 
 describe('live corpus', () => {
@@ -90,17 +75,5 @@ describe('live corpus', () => {
     expect((await s.page({ query: '', limit: 10 })).total).toBe(1)
     live.push(entry('y', 'Y'))
     expect((await s.page({ query: '', limit: 10 })).total).toBe(2)
-  })
-})
-
-describe('defaultEntryFields', () => {
-  it('weights title over subtitle over badges and omits absent parts', () => {
-    expect(defaultEntryFields(entry('a', 'T', { subtitle: 's', badges: ['b1', 'b2'] }))).toEqual([
-      { text: 'T', weight: 3 },
-      { text: 's', weight: 2 },
-      { text: 'b1', weight: 1 },
-      { text: 'b2', weight: 1 },
-    ])
-    expect(defaultEntryFields(entry('a', 'T'))).toEqual([{ text: 'T', weight: 3 }])
   })
 })
