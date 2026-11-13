@@ -713,7 +713,12 @@ test('right-zone tab strip shrinks tabs with ellipsis instead of a native scroll
   await expect(menu).toBeVisible()
   const items = menu.getByRole('menuitemradio')
   expect(await items.count()).toBe(await tabs.count())
-  expect(await items.allTextContents()).toEqual(await tabs.allTextContents())
+  // Read both live badges in one task so a diagnostic update cannot split the comparison.
+  const labels = await zone.evaluate((element) => ({
+    menu: Array.from(element.querySelectorAll('[data-testid="dock-zone-overflow-menu"] [role="menuitemradio"]'), (item) => item.textContent),
+    tabs: Array.from(element.querySelectorAll('[role="tab"]'), (tab) => tab.textContent),
+  }))
+  expect(labels.menu).toEqual(labels.tabs)
 
   // Activating a hidden tab closes the menu and makes that tab wholly visible.
   const title = hiddenTitles.at(-1)!
