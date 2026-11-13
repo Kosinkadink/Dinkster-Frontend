@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appendMemorySample, deviceBarSegments, liveMemorySamples, MEMORY_HISTORY_LIMIT, MEMORY_LIVE_VIEWPORT_LIMIT, overBudgetBytes, residencySegments, type MemorySample } from '../src/memory-visualization.js'
+import { appendMemorySample, deviceBarSegments, liveMemorySamples, overBudgetBytes, residencySegments, type MemorySample } from '../src/memory-visualization.js'
 
 const sample = (timestamp: number): MemorySample => ({ timestamp, footprintBytes: timestamp, reservedBytes: 0, capacityBytes: 1 })
 
@@ -18,8 +18,6 @@ describe('memory visualization history', () => {
       expect(history.length).toBeLessThanOrEqual(120)
     }
 
-    expect(MEMORY_HISTORY_LIMIT).toBe(120)
-    expect(MEMORY_LIVE_VIEWPORT_LIMIT).toBe(120)
     expect(history).toHaveLength(120)
     expect(history[0]?.timestamp).toBe(381_000)
     expect(history.at(-1)?.timestamp).toBe(500_000)
