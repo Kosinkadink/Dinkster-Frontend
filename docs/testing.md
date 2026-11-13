@@ -2,17 +2,21 @@
 
 ## Fast pull-request checks
 
-`.github/workflows/ci.yml` runs product screenshots and fast checks, each
-with a ten-minute limit. The required fast check also fails if screenshots
-fail, so a visual regression cannot bypass the existing merge requirement.
-After `pnpm install --frozen-lockfile`, reproduce it with:
+`.github/workflows/ci.yml` runs product screenshots and source checks on
+pull requests. Ready pull requests also run every kept unit test and the
+native startup browser job. The required fast check fails if screenshots
+or required native startup fail, so neither can bypass the merge requirement.
+Returning a pull request to draft stops selecting unit and native startup
+jobs; marking it ready starts them without another push.
+After `pnpm install --frozen-lockfile`, reproduce source checks with:
 
 ```bash
 pnpm ci:fast
 ```
 
 This command runs `check-extension-literals`, `check-ui-strings`, and
-`typecheck` (the latter also runs `check-path-case`) and the complete kept unit suite.
+`typecheck` (the latter also runs `check-path-case`). Run `pnpm test` for the
+complete kept unit suite, including its performance budgets.
 The extension check pins every intentional backend node-id literal and widget
 type comparison to an exact source location, owning issue, and non-increasing
 ceiling. The committed ceilings are zero node-id literals and 85 widget-type
@@ -31,11 +35,17 @@ to `scripts/ci-fast.mjs`; it does not impose formatting
 on existing application files. There is no repository-wide formatter or
 linter configuration.
 
-The fast job does not run a browser, performance budgets or E2E shards.
+The fast job runs source checks and, on ready pull requests, unit tests.
 The screenshot job installs Chromium and runs `pnpm test:visual` on the same
 Linux runner image as full validation, without a live backend. It discovers
 specs containing screenshot assertions so new screenshot specs join the check.
-PR labels do not enable heavy jobs.
+The separate native startup job prepares the pinned default packs and dev
+pack, starts the real native servers, runs the live client/app cases, then
+runs `playwright.hosted.config.ts --project=native-startup --workers=1`.
+It retains browser failures and live Vitest reports. The execution interpreter
+installs CPU Torch for the live Preview Any node; no ComfyUI checkout or model
+inference dependencies are needed. Browser shards stay on main full
+validation. PR labels do not enable heavy jobs.
 
 CPU catalog preparation sets `UV_TORCH_BACKEND=cpu` for its child package
 installers. `--accelerator cpu` selects pack requirements, while the uv
@@ -113,8 +123,8 @@ hours from 06:00 through 22:00 Pacific, daily at 10:43 UTC, and on manual
 dispatch. The `on.schedule`
 cron list in that file is the single schedule definition; change its first
 cron line to change the two-hour cadence. Scheduled runs skip the heavy jobs
-when the latest successful durable main run already validated the same commit;
-reduced push runs do not satisfy that check. Main pushes use one non-cancelling
+when that exact main commit already has a completed full-validation run,
+whether its conclusion was red or green. Main pushes use one non-cancelling
 concurrency group. GitHub keeps one active push run and only the newest pending
 push run, replacing older pending runs as new commits arrive. A merge whose
 pending run is replaced is covered by the next completed run at a descendant
@@ -122,12 +132,8 @@ head. Find candidate runs in the Actions `Full validation` history, then confirm
 coverage from a local clone with
 `git merge-base --is-ancestor <merge-sha> <run-head-sha>`. Scheduled,
 dispatched runs use a separate non-cancelling durable group,
-so push traffic neither queues nor replaces them. To test an unmerged branch
-that contains the workflow:
-
-```bash
-gh workflow run full-validation.yml --repo Kosinkadink/Dinkster-Frontend --ref <branch>
-```
+so push traffic neither queues nor replaces them. Pull requests use their
+required checks, not full-validation dispatches or reruns.
 
 The dispatch ref selects both the workflow and frontend checkout. Main pushes,
 scheduled runs, called runs, and dispatched runs all use the complete matrix.
@@ -202,9 +208,10 @@ The hosted native server also accepts the `localhost` Host alias so the
 run-history backend-switch test can address the same server through two
 distinct backend identities without an HTTP 421 schema rejection.
 
-Owners still run lint, typecheck, full unit/component suites, app build,
-fixture drift and relevant browser checks locally before landing. The fast
-subset is feedback, not a substitute for those gates. Desktop publication
+Owners run source checks, app build, fixture drift and relevant browser
+checks locally before landing. Ready pull requests require the complete unit
+suite and native startup at the exact head; draft source checks do not
+substitute for those gates. Desktop publication
 and published-install verification remain separate manual workflows; this
 split neither publishes a release nor enables the unpublished Desktop gate.
 
