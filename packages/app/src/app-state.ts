@@ -4805,6 +4805,9 @@ export class AppState {
             void this.refreshPackLocaleOverlay(nativeBackend, fresh)
             requestCurrentDiagnostics(gen)
             freshGen = gen
+            await this.restoreExecutionResults(nativeBackend, layered, () => current() && gen === staleGen)
+            if (gen < staleGen) continue
+            if (!current()) return targetEpoch
             // Older backend without epochs: one refetch is the best we can do.
             if (fresh.epoch === undefined || fresh.epoch >= targetEpoch) return targetEpoch
             // No progress and no newer ping arrived: stop rather than spin.
@@ -8434,10 +8437,6 @@ export class AppState {
     backend.connection.connect()
     if (backend.protocol === 'dinkster') this.superviseBackend(backend)
     await this.loadBackendSchemas(backend)
-    const registry = backend.registry.get()
-    if (backend.protocol === 'dinkster' && registry !== undefined) {
-      await this.restoreExecutionResults(backend, registry)
-    }
   }
 
   private executionResultIdentity(
@@ -8578,16 +8577,23 @@ export class AppState {
   private async restoreExecutionResults(
     backend: Backend & { readonly protocol: 'dinkster' },
     registry: SchemaRegistry,
+    schemasCurrent: () => boolean,
   ): Promise<void> {
     const identity = this.executionResultIdentity(backend, registry)
-    if (identity === undefined) return
+    if (identity === undefined || !schemasCurrent()) return
+    const project = activeProjectId()
     let connectionChanged = false
     const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
-    const current = (): boolean => !this.disposed && !connectionChanged &&
-      this.backends.get().includes(backend) && backend.registry.get() === registry
+    const current = (): boolean => {
+      const held = backend.registry.get()
+      return !this.disposed && !connectionChanged && activeProjectId() === project &&
+        this.backends.get().includes(backend) && schemasCurrent() &&
+        (held === registry || (held !== undefined && this.packLocaleSources.get(held) === registry))
+    }
     try {
       for (const result of loadExecutionResults(identity)) {
         if (!current()) return
+        if (this.store.get(result.ref) !== undefined) continue
         try {
           const restored = await readAssetPreview(backend.connection, result.sourceDocument, async () => {
             const source = await backend.connection.fetchAssetText(result.sourceDocument)
@@ -8720,7 +8726,10 @@ export class AppState {
       // Advisory and non-blocking: older native backends without the endpoint
       // simply report no problems, while v1's implementation is a no-op.
       backend.refreshDiagnostics()
-      if (backend.protocol === 'dinkster') void this.refreshPackLocaleOverlay(backend, registry)
+      if (backend.protocol === 'dinkster') {
+        void this.refreshPackLocaleOverlay(backend, registry)
+        await this.restoreExecutionResults(backend, layered, current)
+      }
     } catch (e) {
       if (!current()) return
       if (e instanceof EngineNotReadyError && backend.protocol === 'dinkster') {

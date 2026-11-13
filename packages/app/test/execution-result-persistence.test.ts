@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asNodeId, asPromptId, compile, loadDocument, type CompileArtifact, type DinksterNodesPayload } from '@dinkster/core'
-import { buildDinksterRegistry, type ExecutionState } from '@dinkster/client'
+import { buildDinksterRegistry, type ExecutionState, type RetainedAssets } from '@dinkster/client'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { scopedStorageKey } from '../src/projects.js'
 import {
@@ -151,6 +151,82 @@ describe('startup result source admission', () => {
     return { app, backend, registry, ref, nodeId, saved, backendIdentity, fetchSource, source: JSON.stringify(loaded.document) }
   }
 
+  it.each(['startup', 'startup-first', 'refresh-first'] as const)('restores two source-bound results through public value admission before publication: %s', async (order) => {
+    const test = setup()
+    const schemas: Array<(registry: typeof test.registry) => void> = []
+    if (order !== 'startup') {
+      vi.mocked(test.backend.connection.fetchSchemas).mockImplementation(() => new Promise((resolve) => { schemas.push(resolve) }))
+    }
+    const second = { ...test.saved, ref: { ...test.ref, prompt: asPromptId('restored-second') }, jobRef: 'run-restored-second' }
+    saveExecutionResult(second, test.backendIdentity)
+    vi.mocked(test.backend.connection.values().peek).mockRestore()
+    const owners = new Map<string, RetainedAssets>()
+    const results = [test.saved, second]
+    vi.mocked(test.backend.connection.fetchJob).mockImplementation(async (prompt) => {
+      const saved = results.find((result) => result.ref.prompt === prompt)!
+      return { state: 'completed', jobRef: saved.jobRef, sourceDocument: saved.sourceDocument,
+        submittedBy: saved.submittedBy, nodeStates: { [test.nodeId]: 'completed' }, outputs: saved.outputs }
+    })
+    vi.mocked(test.backend.connection.getHistoryRun).mockImplementation(async (jobRef) => {
+      const saved = results.find((result) => result.jobRef === jobRef)!
+      return { runId: jobRef, scope: 'local', clientId: test.backendIdentity.clientId, jobId: saved.ref.prompt,
+        state: 'completed', priority: 0, submittedAt: 1, finishedAt: 10, executed: 1, cached: 0, skipped: 0,
+        sourceDocument: saved.sourceDocument, principalId: 'user-1', principalKind: 'human' }
+    })
+    vi.mocked(test.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
+      const receipt = { ...owner, ...declaration, revision: 1 }
+      owners.set(owner.ownerId, receipt)
+      return receipt
+    })
+    vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input, 'http://test')
+      if (url.pathname === '/api/values') {
+        const saved = results.find((result) => result.ref.prompt === url.searchParams.get('jobId'))
+        return Response.json({ available: true, descriptor: { typeId: 'INT', fingerprint: 'sum-seven', value: 7 },
+          renditions: [], resultOffer: { token: 'a'.repeat(32), scope: 'local', jobRef: saved?.jobRef ?? 'foreign-job',
+            attemptId: 1, nodeId: test.nodeId, outputId: 'sum', publication: 1,
+            digests: [test.saved.sourceDocument!], complete: false } })
+      }
+      if (init?.method === 'PUT' && url.pathname.includes('/retentions/shown-result/')) {
+        const ownerId = decodeURIComponent(url.pathname.split('/').at(-1)!)
+        const receipt: RetainedAssets = { scope: 'local', ownerKind: 'shown-result', ownerId, revision: 1,
+          digests: [test.saved.sourceDocument!], complete: false, sourceToken: 'a'.repeat(32) }
+        owners.set(ownerId, receipt)
+        return Response.json(receipt)
+      }
+      return new Response('', { status: 404 })
+    }))
+    try {
+      const starting = test.app.start()
+      if (order !== 'startup') {
+        ;(test.backend.connection.status as unknown as { set(value: string): void }).set('connected')
+        expect(schemas).toHaveLength(2)
+        if (order === 'startup-first') {
+          schemas[0]!(test.registry)
+          await starting
+          expect(test.app.store.get(test.ref)).toBeUndefined()
+          schemas[1]!(test.registry)
+        } else {
+          schemas[1]!(test.registry)
+          await vi.waitFor(() => expect(test.app.store.get(second.ref)).toBeDefined())
+          schemas[0]!(test.registry)
+        }
+      }
+      await starting
+      await vi.waitFor(() => expect(test.app.store.get(second.ref)).toBeDefined())
+      for (const saved of results) {
+        const restored = test.app.store.get(saved.ref)!
+        expect(restored?.outputs[test.nodeId]?.sum).toMatchObject({ value: 7 })
+        expect(restored.assetRetentions).toHaveLength(1)
+        const receipt = restored.assetRetentions![0]!
+        expect(receipt.digests).toContain(test.saved.sourceDocument)
+        expect(owners.get(receipt.ownerId)).toEqual(receipt)
+      }
+      expect(loadExecutionResults(test.backendIdentity)).toHaveLength(2)
+      expect(await test.backend.connection.values().peek({ jobId: 'foreign-read', nodeId: test.nodeId, outputId: 'sum' }))
+        .toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
+    } finally { test.app.dispose() }
+  })
   it.each(['accepted', 'refused', 'mismatched', 'malformed', 'absent', 'failed-body'] as const)('restores only an admitted persisted source: %s', async (mode) => {
     const test = setup()
     try {
