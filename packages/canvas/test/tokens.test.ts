@@ -137,8 +137,6 @@ describe('defaultTokens', () => {
     const plain = presentedType(defaultTokens, { kind: 'concrete', name: 'dinkster.brand_new' })
     expect(plain.label).toBe('dinkster.brand_new')
     expect(plain.tooltip).toBe('dinkster.brand_new')
-    // Alias-table completeness is enforced structurally by
-    // native-type-audit.test.ts, not by a count.
   })
 
   it('never treats inherited object members as aliases', () => {

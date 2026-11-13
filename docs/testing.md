@@ -12,7 +12,7 @@ pnpm ci:fast
 ```
 
 This command runs `check-extension-literals`, `check-ui-strings`, and
-`typecheck` (the latter also runs `check-path-case`) and a fixed unit subset.
+`typecheck` (the latter also runs `check-path-case`) and the complete kept unit suite.
 The extension check pins every intentional backend node-id literal and widget
 type comparison to an exact source location, owning issue, and non-increasing
 ceiling. The committed ceilings are zero node-id literals and 85 widget-type
@@ -27,8 +27,7 @@ line or column coordinates changed and no ceiling changed, then run
 They do not raise the zero node-ID ceiling: an additional occurrence, another
 ID or the same ID in another file still fails. `--write` refreshes locations,
 not the permitted file, ID or number of occurrences. The Prettier check is limited
-to `scripts/ci-fast.mjs` and
-`packages/e2e/test/ci-workflow.test.ts`; it does not impose formatting
+to `scripts/ci-fast.mjs`; it does not impose formatting
 on existing application files. There is no repository-wide formatter or
 linter configuration.
 
@@ -43,28 +42,9 @@ installers. `--accelerator cpu` selects pack requirements, while the uv
 setting selects CPU PyTorch wheels and avoids installing CUDA runtimes on
 the hosted CPU runners.
 
-The subset uses synthetic inputs and checked-in fixtures:
-
-- Core `format.schema.test.ts`: document schema/runtime validator agreement.
-- Core `dinkster-graph.test.ts`: graph validation and wire type round trips.
-- Core `dinkster-inline-value.test.ts`: scalar event decoding and invalid inputs.
-- E2E `ci-workflow.test.ts`: workflow triggers, unit selection, credentials
-  and browser-isolation contracts.
-- App `extension-dogfooding.test.ts`: built-in widget registration, command
-  inventory/actions, background grid drawing and node-mode decorations through
-  their public registries.
-- App `disabled-features.dom.test.tsx`, using the component config: mounted
-  editor registration, App-view feature gating and shell cleanup, alongside
-  template-surface gating, backend targeting, review toggles and live
-  shared-session tooltip hints. Only the graph canvas is stubbed, not the shell.
-- `scripts/check-host-ui-contract.test.mjs`: removed extension UI symbols
-  stay absent and the widget environment exposes only its scoped client.
-- `scripts/check-extension-literals.test.mjs`, `scripts/check-ui-strings.test.mjs`,
-  and `scripts/check-path-case.test.mjs`: regression tests for source checks.
-
-Node script tests use `--test-isolation=none` in the fast lane. Recorded
-core schema and event goldens run in fast and full unit suites, not again
-in the stock-backend browser job. `pnpm --filter @dinkster/app build`
+`pnpm test` runs the kept unit and component tests through each workspace
+package's test command. Tests of repository scripts and workflow files are
+not part of the suite. `pnpm --filter @dinkster/app build`
 checks its emitted HTML, nonempty module entry and inline semantic-token
 content/order after Vite builds once; unit tests do not invoke a second build.
 The `production-build` browser keeper
