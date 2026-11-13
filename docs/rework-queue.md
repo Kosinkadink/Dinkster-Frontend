@@ -1,5 +1,52 @@
 # Rework Queue
 
+## Standalone tabs proof page
+
+- What and purpose: an isolated page exercised ProductTabs keyboard focus, selection and ARIA behavior without application state.
+- Why off main: nothing in the product navigates to it. ProductTabs, its DOM contract tests and the real dock consumers remain.
+- Kept code: [draft-frontend-unused-code-before-removal-781](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-frontend-unused-code-before-removal-781), commit `45ade63cc4b2bdc31b61b0da318c36b665cdc513`. Paths: `packages/app/tabs-proof.html`, `packages/app/src/tabs-proof.tsx`, `packages/e2e/tests/audit-tabs-proof.spec.ts`; entries in `scripts/{raw-control,ui-string}-allowlist.json`.
+- Return condition: a supported, reachable component showcase needs this surface. Restore its browser spec with the page, and check keyboard activation, dynamic focus repair and the host dock independently.
+
+## Asset reference repair planner
+
+- What and purpose: a planner described atomic asset-reference substitutions with document preconditions and undo.
+- Why off main: only its own tests call the planner; the product does not offer or execute this repair plan. The separately used AssetRef type moves unchanged to `packages/core/src/format/document.ts` and remains publicly exported. Existing asset retention and import resolution remain.
+- Kept code: [draft-frontend-unused-code-before-removal-781](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-frontend-unused-code-before-removal-781), commit `45ade63cc4b2bdc31b61b0da318c36b665cdc513`. Paths: `packages/core/src/asset-ref-repair.ts`, `packages/core/test/asset-ref-repair.test.ts`, export in `packages/core/src/index.ts`.
+- Return condition: a real repair UI owns the full validation/apply/undo contract and has a served asset authority to validate replacements. Prove an actual missing-asset repair and one-step undo, including refusal after document drift.
+
+## Unused asset source abstraction
+
+- What and purpose: an adapter-neutral asset identity, resolution and catalog state model, exercised against mock adapters.
+- Why off main: no wire adapter or product caller uses it. The actual AssetSourceAdapter, local library and mount collections stay.
+- Kept code: [draft-frontend-unused-code-before-removal-781](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-frontend-unused-code-before-removal-781), commit `45ade63cc4b2bdc31b61b0da318c36b665cdc513`. Paths: `packages/app/src/asset-browser/asset-source.ts`, `packages/app/test/asset-source.test.ts`, `docs/asset-source-abstraction.md`.
+- Return condition: a real catalog consumer and backend adapter require this contract rather than the existing source model. Demonstrate actual query, paging, selection, stale-response handling and resolution without treating foreign record ids as authority.
+
+## Note-only LiteGraph export
+
+- What and purpose: a helper exported virtual Note and MarkdownNote records, including text and view geometry, into LiteGraph fragments.
+- Why off main: no product export action uses it and it does not export a complete workflow. Note/MarkdownNote import and native document serialization remain.
+- Kept code: [draft-frontend-unused-code-before-removal-781](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-frontend-unused-code-before-removal-781), commit `45ade63cc4b2bdc31b61b0da318c36b665cdc513`. Paths: `packages/core/src/format/export-litegraph.ts`, export in `packages/core/src/index.ts`, exporter assertions in `packages/core/test/import-litegraph.test.ts`.
+- Return condition: a supported workflow export feature defines its format and loss policy. Test through that product action, including note content, geometry and color. A note fragment alone is not full workflow export.
+
+## Obsolete loop-to-region lowering
+
+- What and purpose: the fallback importer lowered legacy StartLoop/EndLoop topology to explicit regions and emitted withdrawn `std.*` helper nodes.
+- Why off main: registered native expanding loop nodes pass through directly; the fallback is not a served product path. The independently active list-consumer conversion, native expanding loop import, and their tests remain.
+- Kept code: [draft-frontend-unused-code-before-removal-781](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-frontend-unused-code-before-removal-781), commit `45ade63cc4b2bdc31b61b0da318c36b665cdc513`. Paths: `packages/core/src/format/import-litegraph-loops.ts` (`convertLitegraphLoops` and its private helpers), its call in `packages/core/src/format/import-litegraph.ts`, `packages/core/src/extensions/import-helpers.ts`, fallback cases in `packages/core/test/import-litegraph-loops.test.ts`, and `packages/core/test/fixtures/comfyui-generic-loops/`.
+- Return condition: a supported importer contract requires structural lowering rather than native loop execution, and every emitted helper is served. Prove semantic execution on a real backend, nested boundaries and authored lazy branches; never restore withdrawn ids as silent fallback.
+
+## Regions rework
+
+- User direction: regions have never worked for the user and will need a rework. This is future design work, not another starting-body repair.
+- Current behavior stays: Map, Fold and While starting bodies use served nodes; this entry does not redesign or remove them.
+- Return condition: agree on the intended authoring and execution experience, then validate it through real workflows, nested bodies, errors and save/reopen. No region rework is ordered here.
+
+## Node-defined text-input autocomplete
+
+- Future purpose: a node asks for and defines completion inside a text input, rather than the frontend inventing a fixed completion vocabulary.
+- Current limitation: embedding and LoRA name completion asks the backend for two lists it does not serve. The user ruled this extremely low priority; the existing autocomplete code stays on main untouched.
+- Return condition: a served, node-defined completion contract and a useful product workflow exist. Test actual suggestions, selection and insertion against that contract; do not hard-code embedding or LoRA lists as the generalized API.
+
 ## Picker download-unavailable pane
 
 - What and purpose: an unavailable-download heading, backend acquisition-contract explanation and disabled Download button appeared in missing imported-model and logical-model variant details. It attempted to explain why the picker could not download immediately.
@@ -146,6 +193,7 @@ User-requested (verbatim intent, ledger rows slice 61-63):
 - Kept code: [draft-frontend-features-before-removal-776](https://github.com/Kosinkadink/Dinkster-Frontend/tree/draft-frontend-features-before-removal-776), commit `26d9be97f039c40f1e9fc97e566ac44b976b90be`. Main paths: `packages/core/src/extensions/commands/mask-paint.ts`, `packages/core/src/mask-paint-recipe.ts`, `packages/app/src/{ImageEditor.tsx,image-editor.ts,app-state.ts}`. Tests: mask cases in `packages/core/test/image-commands.test.ts`, `packages/app/test/{image-editor.test.ts,editors.test.ts}`, and `packages/e2e/tests/image-mask-graph-live.spec.ts`.
 - Backend needed: a served image loader with role `image-source`, an `image` asset input and IMAGE/MASK outputs; `dinkster.mask.paint` with role `mask-paint`, image asset `source`, multiline STRING `operations`, and MASK output. Asset upload/read routes must remain available. No feature-specific server start flag exists. Backend draft source is on [draft-nodes-before-first-party-packs-638](https://github.com/Kosinkadink/Dinkster/tree/draft-nodes-before-first-party-packs-638), recorded at `728f58b22ccf6bb64c7e2b8ee38f35c69fbf4a75`.
 - Return and hand test: restore only this feature and serve its nodes through an installed pack. Load an image, connect its mask to two consumers, open the image editor, paint, and apply to graph. Verify one paint node replaces only the mask consumers, reopening edits that same recipe, and one Undo/Redo restores/reapplies the complete graph edit. Check stale source/topology refusal and Bake to asset separately.
+- Refused-Apply retention: require exactly one retention request for Apply's own candidate owner. The returning browser test must count by that owner id, not by the document retention route: recovery staging uses the same route with independent owners and separate requests. [The measured run at `c80ca840af27`](https://github.com/Kosinkadink/comfy-vibe-station/issues/792#issuecomment-6837033922) captured three requests: one refused Apply and two recovery-staging requests. Preserve document, refusal and independent-owner assertions; do not suppress recovery retention to satisfy the Apply count.
 
 ## Layer-document graph export and opening
 

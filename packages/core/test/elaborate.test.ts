@@ -1055,6 +1055,39 @@ describe('dynamicCombo', () => {
 
 describe('dynamicSlot', () => {
   const slot = slotConstruct('model', [intInput('lora_strength'), socketInput('clip', 'CLIP')])
+  it('keeps required wire-15 variant selection reachable without materializing an absent choice', () => {
+    const required: InputSpec = {
+      kind: 'input', id: 'source', optional: false,
+      type: { kind: 'union', names: ['STRING', 'INT'] },
+      dynamic: {
+        kind: 'dynamicSlot', materialization: 'wire15',
+        slotType: { kind: 'union', names: ['STRING', 'INT'] }, inputs: [],
+        variants: [
+          { key: 'text', type: { kind: 'concrete', name: 'STRING' }, inputs: [] },
+          { key: 'integer', type: { kind: 'concrete', name: 'INT' }, inputs: [] },
+        ],
+      },
+    }
+    const cleared = elaborateInterface(schemaOf([required]), { values: { source: 7 }, dynamic: { source: {} } })
+    expect(elabInputsOf(cleared)).toHaveLength(1)
+    expect(elabInputsOf(cleared)[0]).toMatchObject({
+      address: { port: 'source' }, spec: { optional: false, type: required.type },
+      origin: { kind: 'slot', construct: 'source', variants: [
+        { key: 'text', type: { kind: 'concrete', name: 'STRING' } },
+        { key: 'integer', type: { kind: 'concrete', name: 'INT' } },
+      ] },
+    })
+    expect(elabInputsOf(cleared)[0]!.apiName).toBeUndefined()
+    expect(cleared.diagnostics).toContainEqual(expect.objectContaining({ severity: 'error', code: 'prompt.missing_dynamic_choice' }))
+
+    const reselected = elaborateInterface(schemaOf([required]), { values: { source: 7 }, dynamic: { source: { selected: 'integer' } } })
+    expect(reselected.diagnostics).toEqual([])
+    expect(elabInputsOf(reselected)[0]).toMatchObject({ apiName: 'source', spec: { type: { kind: 'concrete', name: 'INT' } } })
+    const optional = elaborateInterface(schemaOf([{ ...required, optional: true }]), noState)
+    expect(elabInputsOf(optional)).toEqual([])
+    expect(optional.diagnostics).toEqual([])
+  })
+
   const specialized = (variantInputs: InputSpec[] = [intInput('weight')]): InputSpec => ({
     ...slotConstruct('model', [intInput('shared')]),
     dynamic: {

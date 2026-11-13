@@ -355,8 +355,16 @@ function censusWorkflowAssetRoots(
         message: `${node.title ?? node.type} (${node.id}): ${diagnostic.message}`,
       })
     }
-    if (active.diagnostics.some((diagnostic) => diagnostic.severity === 'error') ||
-      stored.diagnostics.some((diagnostic) => diagnostic.severity === 'error' &&
+    const missingChoices = active.diagnostics.filter((diagnostic) => diagnostic.code === 'prompt.missing_dynamic_choice')
+    if (missingChoices.length > 0) {
+      complete = false
+      incompleteDiagnostics.push(...missingChoices)
+    }
+    // An absent required choice is editable, but cannot certify ownership or execute.
+    const invalidIdentity = (diagnostic: Diagnostic): boolean => diagnostic.severity === 'error' &&
+      !(purpose === 'admission' && diagnostic.code === 'prompt.missing_dynamic_choice')
+    if (active.diagnostics.some(invalidIdentity) ||
+      stored.diagnostics.some((diagnostic) => invalidIdentity(diagnostic) &&
         (purpose === 'publication' || diagnostic.code !== 'elab.dormant.unsupported'))) {
       complete = false
       const invalidIdentities = [...active.diagnostics, ...stored.diagnostics].some((diagnostic) =>

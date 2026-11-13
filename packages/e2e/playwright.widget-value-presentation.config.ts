@@ -14,7 +14,7 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
   webServer: {
-    command: 'pnpm --filter @dinkster/app dev --host 127.0.0.1 --port 5391 --strictPort',
+    command: 'pnpm --filter @dinkster/app dev --mode test --host 127.0.0.1 --port 5391 --strictPort',
     url: 'http://127.0.0.1:5391',
     cwd: '../..',
     reuseExistingServer: false,

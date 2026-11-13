@@ -1,7 +1,7 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 154,
+    "rawControl": 153,
     "inlineStyle": 64,
     "cssLiteral": 65
   },
@@ -387,18 +387,6 @@
     {
       "kind": "rawControl",
       "path": "packages/app/src/help/Markdown.tsx",
-      "count": 1,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/tabs-proof.tsx",
-      "count": 1,
-      "issue": 382
-    },
-    {
-      "kind": "inlineStyle",
-      "path": "packages/app/src/tabs-proof.tsx",
       "count": 1,
       "issue": 382
     },

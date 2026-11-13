@@ -41,6 +41,14 @@ export interface JsonObject {
   readonly [key: string]: Json
 }
 
+export type AssetRef = JsonObject & {
+  readonly digest: string
+  readonly name: string
+  readonly size: number
+  readonly mediaType: string
+  readonly virtualPath: string
+}
+
 /** Namespaced extension data: key = extension id (e.g. 'vhs'). */
 export type ExtData = Readonly<Record<string, Json>>
 
