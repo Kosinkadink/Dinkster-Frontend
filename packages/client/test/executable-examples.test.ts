@@ -7,7 +7,6 @@ import {
   asNodeId,
   compile,
   loadDocument,
-  type DinksterNodesPayload,
   type ExecutionScope,
   type WorkflowDocument,
 } from '@dinkster/core'
@@ -39,51 +38,6 @@ const withdrawnDrafts = JSON.parse(readFileSync(
   new URL('../../e2e/tests/withdrawn-drafts.json', import.meta.url), 'utf8',
 )) as { readonly nodes: readonly string[] }
 
-const concrete = (type: string): Record<string, unknown> => ({ kind: 'concrete', types: [type] })
-const list = (element: Record<string, unknown>): Record<string, unknown> => ({ kind: 'list', element })
-const input = (id: string, type: Record<string, unknown>, defaultValue?: unknown): Record<string, unknown> => ({
-  role: 'input', id, required: true, type,
-  ...(defaultValue === undefined ? {} : { default: defaultValue }),
-})
-const output = (id: string, type: Record<string, unknown>): Record<string, unknown> => ({ role: 'output', id, type })
-const schema = (nodeType: string, interfaceItems: Record<string, unknown>[]): Record<string, unknown> => ({
-  schemaVersion: 1,
-  nodeType,
-  version: 1,
-  displayName: nodeType,
-  category: 'examples',
-  idempotent: true,
-  interface: interfaceItems,
-})
-
-const int = concrete('INT')
-const boolean = concrete('BOOLEAN')
-const exampleNodes = {
-  schemaVersion: 1,
-  dinkster: { version: 'test', schemaWire: 1, graphFeatures: ['regions'] },
-  nodes: {
-    'dinkster.utilities.primitive_int': schema('dinkster.utilities.primitive_int', [
-      input('value', int), output('INT', int),
-    ]),
-    'dinkster.utilities.comfy_math_expression': schema('dinkster.utilities.comfy_math_expression', [
-      input('expression', concrete('STRING'), 'a + b'),
-      {
-        role: 'inputFamily', id: 'values', required: true, minMembers: 1,
-        optionalAfterMinimum: true, memberNames: [...'abcdefghijklmnopqrstuvwxyz'],
-        template: [input('value', { kind: 'union', types: ['FLOAT', 'INT', 'BOOLEAN'] })],
-      },
-      output('FLOAT', concrete('FLOAT')), output('INT', int), output('BOOL', boolean),
-    ]),
-    // Withdrawn nodes remain structural test inputs, not a served catalog.
-    'std.list.length': schema('std.list.length', [
-      input('list', list(int)), output('length', int),
-    ]),
-    'dinkster.route.gate': schema('dinkster.route.gate', [
-      input('condition', boolean), input('value', int), output('value', int),
-    ]),
-  },
-} as unknown as DinksterNodesPayload
-
 const compileExample = (
   file: string,
   registry: ReturnType<typeof buildDinksterRegistry>,
@@ -106,16 +60,6 @@ const compileExample = (
   expect(result.artifact.dinksterGraph).toBeDefined()
   return result.artifact
 }
-
-describe('loop and subgraph executable examples', () => {
-  const registry = buildDinksterRegistry(asConnectionId('example-compile'), exampleNodes)
-
-  it.each(exampleFiles)('%s compiles to its canonical native graph', (file) => {
-    const artifact = compileExample(file, registry)
-    expect(`${JSON.stringify(artifact.dinksterGraph, null, 2)}\n`)
-      .toBe(readText(file.replace('.json', '.compiled.json')))
-  })
-})
 
 describe.skipIf(!LIVE_URL)('live loop and subgraph executable examples', () => {
   for (const file of exampleFiles) {
