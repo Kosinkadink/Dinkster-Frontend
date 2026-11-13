@@ -51,7 +51,6 @@ const BACKEND_SERIAL_SPECS = [
   // clears the whole local scope.
   'workflow-library.spec.ts',
   'asset-widget.spec.ts',
-  'audit-widget-parity-live.spec.ts',
   'run-history.spec.ts',
   'peek-preview.spec.ts',
   'dev-blueprint-live.spec.ts',
