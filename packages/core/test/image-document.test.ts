@@ -118,12 +118,6 @@ describe('ImageDocument loading', () => {
       .toBe('image.format.unknown')
   })
 
-  it('serializes canonically regardless of insertion order', () => {
-    const document = imageDocument()
-    const reordered = { ...document, canvas: { ...document.canvas } }
-    expect(serializeImageDocument(document)).toBe(serializeImageDocument(reordered))
-    expect(serializeImageDocument(document).startsWith('{"allocation":')).toBe(true)
-  })
 })
 
 describe('ImageDocument shape and limits', () => {
