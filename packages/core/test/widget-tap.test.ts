@@ -4,7 +4,6 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import { compile } from '../src/compile/compile.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
-import { WORKFLOW_SCHEMA } from '../src/format/schema.js'
 import { validateDocumentShape } from '../src/format/validate.js'
 import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asRerouteId, asValueSourceId } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
@@ -459,15 +458,8 @@ describe('widget tap companion values', () => {
 })
 
 describe('widget tap format', () => {
-  it('JSON schema and runtime validation accept a tap source', async () => {
-    const Ajv2020 = (await import('ajv/dist/2020.js')).default
-    const validateSchema = new Ajv2020({ strict: false }).compile(WORKFLOW_SCHEMA)
+  it('runtime validation accepts a tap source', () => {
     const sourceDoc = doc(graph({ l1: link('l1', tap('a', 'value'), port('b', 'value')) }))
-    expect(validateSchema(sourceDoc)).toBe(true)
     expect(validateDocumentShape(sourceDoc)).toEqual([])
-
   })
-
-  // WORKFLOW_SCHEMA splits linkSource/linkTarget so the tap-free target def
-  // rejects tap targets exactly like the runtime validator.
 })

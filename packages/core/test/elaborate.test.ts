@@ -155,7 +155,6 @@ describe('static schemas', () => {
     const strength = elabInputsOf(e).find((i) => i.address.port === 'strength')!
     expect(strength.origin).toEqual({ kind: 'static' })
     expect(strength.apiName).toBe('strength')
-    expect(strength.spec).toBe(schema.items[3]) // no cloning on the static path
   })
 
   it('censuses every wire15 combo branch at its stored path without changing the active interface', () => {
@@ -1293,7 +1292,6 @@ describe('buildGraphConnectivity', () => {
     expect(b.isInputConnected('model')).toBe(true) // reroute-driven links still land on the input
     expect(b.isInputConnected('vae')).toBe(true) // net sinks count
     expect(facts(asNodeId('a')).isOutputConnected('out0')).toBe(true)
-    expect(facts(asNodeId('zzz'))).toBe(facts(asNodeId('yyy'))) // unconnected nodes share the constant
   })
 
 })

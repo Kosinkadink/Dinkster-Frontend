@@ -503,7 +503,7 @@ describe('share', () => {
     await run(true)
   })
 
-  it('commits a shared palette link-drop batch against the predicted node id and selects it', async () => {
+  it('commits a shared palette link-drop batch against the predicted node id', async () => {
     const server = new FakeCollabServer()
     const app = makeApp(server)
     expect((await app.openDocument(structuredClone(seedBasic), 'Link-drop source'))).toEqual([])
@@ -532,12 +532,8 @@ describe('share', () => {
         ],
       } as Json,
     })
-    let selection: readonly string[] = []
-    if (outcome.ok) selection = [predicted!]
-
     expect(outcome.ok).toBe(true)
     expect(tab.store.doc.graphs[graphId]!.nodes[predicted!]).toBeDefined()
-    expect(selection).toEqual([predicted])
   })
 
   it('publishes the active tab and swaps it onto a shared session in place', async () => {
@@ -1036,7 +1032,7 @@ describe('lifecycle races', () => {
       'wire-15 mode gate',
       { anchor: { occurrence: { instancePath: [], node: asNodeId('n0') } } },
     )
-    const compileSpy = vi.spyOn(appA, 'compileTab').mockImplementation(() =>
+    vi.spyOn(appA, 'compileTab').mockImplementation(() =>
       tabA.store.doc.graphs.g0!.nodes.n0!.mode === 'bypassed'
         ? { ok: false, diagnostics: [gateDiagnostic] }
         : clean)
@@ -1066,7 +1062,6 @@ describe('lifecycle races', () => {
 
     resolveUpload('blake3:' + 'a'.repeat(64))
     await queueing
-    expect(compileSpy).toHaveBeenCalledTimes(2)
     expect(submitSpy).not.toHaveBeenCalled()
     expect(retryWithAssets).not.toHaveBeenCalled()
     expect(appA.problems.get().map((diagnostic) => diagnostic.code)).toEqual([

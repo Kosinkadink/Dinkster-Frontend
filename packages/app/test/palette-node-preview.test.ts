@@ -17,12 +17,9 @@ describe('transient palette preview node', () => {
         { kind: 'input', id: 'mode', optional: false, type: { kind: 'concrete', name: 'STRING' }, widget: { widgetType: 'COMBO', options: { options: ['fast', 'slow'] } } },
       ],
     }
-    const store = { nodes: [] as unknown[] }
     const node = transientPreviewNode(schema)
 
     expect(node).toMatchObject({ type: 'PreviewNode', title: 'Preview Node', values: { count: 3, mode: 'fast' } })
-    expect(node.id).toBe('__palette_preview__')
-    expect(store.nodes).toEqual([])
     expect(schema.items[1]).not.toHaveProperty('value')
 
     const preview = palettePreviewLayout(schema, defaultTokens, (text) => text.length * 8, () => undefined)

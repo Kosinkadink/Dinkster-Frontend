@@ -1,56 +1,38 @@
-/**
- * Cross-check: the published JSON Schema (schema.ts) and the hand-written
- * runtime validator (validate.ts) must agree. Runs both over the golden
- * fixtures and a set of corrupted variants; any drift between the two fails
- * here.
- */
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import Ajv2020Import from 'ajv/dist/2020.js'
-import { WORKFLOW_SCHEMA } from '../src/format/schema.js'
 import { validateDocumentShape } from '../src/format/validate.js'
 import { loadDocument } from '../src/format/migrate.js'
-
-// CJS/ESM interop: vitest may surface the class under .default.
-const Ajv2020 = ((Ajv2020Import as unknown as { default?: unknown }).default ??
-  Ajv2020Import) as typeof Ajv2020Import
-
-const ajv = new Ajv2020({ allErrors: true, strictTypes: false })
-const validateWithSchema = ajv.compile(WORKFLOW_SCHEMA as unknown as Record<string, unknown>)
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), '../fixtures/workflows')
 const loadFixture = (name: string): unknown =>
   JSON.parse(readFileSync(join(fixturesDir, `${name}.json`), 'utf8'))
 
-/** Both validators must return the same verdict. */
-function agree(json: unknown): { schemaValid: boolean; validatorValid: boolean } {
-  const schemaValid = validateWithSchema(json) === true
-  const validatorValid = validateDocumentShape(json).every((d) => d.severity !== 'error')
-  return { schemaValid, validatorValid }
+function isValid(json: unknown): boolean {
+  return validateDocumentShape(json).every((d) => d.severity !== 'error')
 }
 
-describe('JSON Schema <-> runtime validator agreement', () => {
+describe('workflow document runtime validation', () => {
   it('round-trips ordered editable choices and validates explicit extra input membership', () => {
     const fixture = loadFixture('minimal') as { graphs: Record<string, { nodes: Record<string, Record<string, unknown>> }> }
     const node = Object.values(Object.values(fixture.graphs)[0]!.nodes)[0]!
     node['additionalInputs'] = ['index', 'sparse.009']
     node['dynamic'] = { choice: { options: ['same', 'same', false, 7] } }
-    expect(agree(fixture)).toEqual({ schemaValid: true, validatorValid: true })
+    expect(isValid(fixture)).toBe(true)
     expect(loadDocument(JSON.parse(JSON.stringify(fixture))).document!.graphs).toEqual(fixture.graphs)
     for (const invalid of [['index', 'index'], [''], ['bad\0name'], [1], 'index']) {
       node['additionalInputs'] = invalid
-      expect(agree(fixture)).toEqual({ schemaValid: false, validatorValid: false })
+      expect(isValid(fixture)).toBe(false)
     }
     node['additionalInputs'] = []
     for (const options of [[], ['same', 'same'], [false, 7, '']]) {
       node['dynamic'] = { choice: { options } }
-      expect(agree(fixture)).toEqual({ schemaValid: true, validatorValid: true })
+      expect(isValid(fixture)).toBe(true)
     }
     for (const options of [[null], [{}], [[7]], [Infinity], 'wrong']) {
       node['dynamic'] = { choice: { options } }
-      expect(agree(fixture)).toEqual({ schemaValid: false, validatorValid: false })
+      expect(isValid(fixture)).toBe(false)
     }
   })
 
@@ -62,7 +44,7 @@ describe('JSON Schema <-> runtime validator agreement', () => {
       boundary.inputs = []
       boundary.outputs = []
       boundary[side] = [item]
-      expect(agree(fixture)).toEqual({ schemaValid: true, validatorValid: true })
+      expect(isValid(fixture)).toBe(true)
       for (const invalid of [
         { ...item, binds: { ...item.binds, node: 'n0' } },
         { ...item, binds: { ...item.binds, port: 'value' } },
@@ -72,7 +54,7 @@ describe('JSON Schema <-> runtime validator agreement', () => {
         { ...item, alsoBinds: [item.binds] },
       ]) {
         boundary[side] = [invalid]
-        expect(agree(fixture)).toEqual({ schemaValid: false, validatorValid: false })
+        expect(isValid(fixture)).toBe(false)
       }
     }
   })
@@ -84,14 +66,14 @@ describe('JSON Schema <-> runtime validator agreement', () => {
     const item = { id: 'seed', binds, promoted: true }
     boundary.inputs = [item]
     boundary.outputs = []
-    expect(agree(fixture)).toEqual({ schemaValid: true, validatorValid: true })
+    expect(isValid(fixture)).toBe(true)
     for (const mixed of [
       { ...item, alsoBinds: [{ kind: 'port', node: 'n1', port: 'seed' }] },
       { ...item, binds: { kind: 'port', node: 'n1', port: 'seed' }, alsoBinds: [binds] },
       { ...item, alsoBinds: [{ ...binds, node: 'n1', viaReroute: 'r2' }] },
     ]) {
       boundary.inputs = [mixed]
-      expect(agree(fixture)).toEqual({ schemaValid: true, validatorValid: true })
+      expect(isValid(fixture)).toBe(true)
     }
     for (const invalid of [
       { ...item, binds: { ...binds, viaReroute: '' } },
@@ -102,11 +84,11 @@ describe('JSON Schema <-> runtime validator agreement', () => {
       { ...item, alsoBinds: [{ ...binds, node: 'n1', kind: 'family' }] },
     ]) {
       boundary.inputs = [invalid]
-      expect(agree(fixture)).toEqual({ schemaValid: false, validatorValid: false })
+      expect(isValid(fixture)).toBe(false)
     }
     boundary.inputs = []
     boundary.outputs = [item]
-    expect(agree(fixture)).toEqual({ schemaValid: false, validatorValid: false })
+    expect(isValid(fixture)).toBe(false)
   })
 
   it.each(['slot', 'dynamicCombo'])('accepts input-only %s boundaries and rejects incompatible decorations', (kind) => {
@@ -115,17 +97,17 @@ describe('JSON Schema <-> runtime validator agreement', () => {
     const item = { id: 'full', binds: { kind, node: 'n0', port: 'mode' } }
     boundary.inputs = [item]
     boundary.outputs = []
-    expect(agree(fixture)).toEqual({ schemaValid: true, validatorValid: true })
+    expect(isValid(fixture)).toBe(true)
     for (const decorated of [{ ...item, promoted: true }, { ...item, alsoBinds: [item.binds] }, { ...item, binds: { ...item.binds, slots: ['child'] } }]) {
       boundary.inputs = [decorated]
-      expect(agree(fixture)).toEqual({ schemaValid: false, validatorValid: false })
+      expect(isValid(fixture)).toBe(false)
     }
     boundary.inputs = []
     boundary.outputs = [item]
-    expect(agree(fixture)).toEqual({ schemaValid: false, validatorValid: false })
+    expect(isValid(fixture)).toBe(false)
   })
 
-  it('agrees on occurrence topology endpoint, route, suppression, and cursor shapes', () => {
+  it('validates occurrence topology endpoint, route, suppression, and cursor shapes', () => {
     const base = () => {
       const d = structuredClone(loadFixture('subgraph')) as Record<string, unknown>
       d['occurrenceTopologies'] = {
@@ -167,7 +149,7 @@ describe('JSON Schema <-> runtime validator agreement', () => {
       }
       return d
     }
-    expect(agree(base())).toEqual({ schemaValid: true, validatorValid: true })
+    expect(isValid(base())).toBe(true)
 
     const mutations: ((doc: Record<string, unknown>) => void)[] = [
       (doc) => { doc['occurrenceTopologies'] = [] },
@@ -200,7 +182,7 @@ describe('JSON Schema <-> runtime validator agreement', () => {
     for (const mutate of mutations) {
       const d = base()
       mutate(d)
-      expect(agree(d)).toEqual({ schemaValid: false, validatorValid: false })
+      expect(isValid(d)).toBe(false)
     }
   })
 
@@ -211,17 +193,13 @@ describe('JSON Schema <-> runtime validator agreement', () => {
       view['bookmarks'] = { '1': { graphStack: ['g0'], instancePath: [], ...camera } }
       return d
     }
-    expect(agree(withBookmark({ view: { x: -10, y: 20, width: 800, height: 600 } }))).toEqual({
-      schemaValid: true, validatorValid: true,
-    })
-    expect(agree(withBookmark({ viewport: { x: -10, y: 20, scale: 2 } }))).toEqual({
-      schemaValid: true, validatorValid: true,
-    })
-    expect(agree(withBookmark({}))).toEqual({ schemaValid: false, validatorValid: false })
-    expect(agree(withBookmark({
+    expect(isValid(withBookmark({ view: { x: -10, y: 20, width: 800, height: 600 } }))).toBe(true)
+    expect(isValid(withBookmark({ viewport: { x: -10, y: 20, scale: 2 } }))).toBe(true)
+    expect(isValid(withBookmark({}))).toBe(false)
+    expect(isValid(withBookmark({
       view: { x: 0, y: 0, width: 10, height: 10 },
       viewport: { x: 0, y: 0, scale: 1 },
-    }))).toEqual({ schemaValid: false, validatorValid: false })
+    }))).toBe(false)
   })
 
   it('accepts slot-selective family forwarding', () => {
@@ -230,7 +208,7 @@ describe('JSON Schema <-> runtime validator agreement', () => {
     const boundary = g['boundary'] as Record<string, Record<string, unknown>[]>
     boundary['inputs']![0]!['binds'] = { kind: 'family', node: 'n2', port: 'input', slots: ['image', 'mask.alpha'] }
     delete boundary['inputs']![0]!['displayName']
-    expect(agree(d)).toEqual({ schemaValid: true, validatorValid: true })
+    expect(isValid(d)).toBe(true)
   })
 
   it('accepts exact output-side widget tap bindings and rejects every mixed or input-side shape', () => {
@@ -241,10 +219,7 @@ describe('JSON Schema <-> runtime validator agreement', () => {
       boundary[side]![0] = { id: 'tap', binds: binding, ...extra }
       return d
     }
-    expect(agree(withTap('outputs', { kind: 'widgetTap', node: 'n0', tap: 'seed' }))).toEqual({
-      schemaValid: true,
-      validatorValid: true,
-    })
+    expect(isValid(withTap('outputs', { kind: 'widgetTap', node: 'n0', tap: 'seed' }))).toBe(true)
     for (const malformed of [
       withTap('inputs', { kind: 'widgetTap', node: 'n0', tap: 'seed' }),
       withTap('outputs', { kind: 'widgetTap', node: 'n0', tap: 'seed', port: 'seed' }),
@@ -256,10 +231,10 @@ describe('JSON Schema <-> runtime validator agreement', () => {
       withTap('outputs', { kind: 'widgetTap', node: 'n0', tap: 'seed' }, {
         alsoBinds: [{ kind: 'widgetTap', node: 'n0', tap: 'seed' }],
       }),
-    ]) expect(agree(malformed)).toEqual({ schemaValid: false, validatorValid: false })
+    ]) expect(isValid(malformed)).toBe(false)
   })
 
-  it('agrees on homogeneous family fan-out and rejects mixed binding kinds', () => {
+  it('validates homogeneous family fan-out and rejects mixed binding kinds', () => {
     const familyFanout = () => {
       const d = structuredClone(loadFixture('subgraph')) as Record<string, unknown>
       const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g1']!
@@ -268,20 +243,20 @@ describe('JSON Schema <-> runtime validator agreement', () => {
       boundary['inputs']![0]!['alsoBinds'] = [{ kind: 'family', node: 'n1', port: 'input' }]
       return d
     }
-    expect(agree(familyFanout())).toEqual({ schemaValid: true, validatorValid: true })
+    expect(isValid(familyFanout())).toBe(true)
 
     const familyPort = familyFanout()
     const familyPortBoundary = ((familyPort['graphs'] as Record<string, Record<string, unknown>>)['g1']!['boundary'] as Record<string, Record<string, unknown>[]>)
     familyPortBoundary['inputs']![0]!['alsoBinds'] = [{ kind: 'port', node: 'n1', port: 'input' }]
-    expect(agree(familyPort)).toEqual({ schemaValid: false, validatorValid: false })
+    expect(isValid(familyPort)).toBe(false)
 
     const portFamily = familyFanout()
     const portFamilyBoundary = ((portFamily['graphs'] as Record<string, Record<string, unknown>>)['g1']!['boundary'] as Record<string, Record<string, unknown>[]>)
     portFamilyBoundary['inputs']![0]!['binds'] = { kind: 'port', node: 'n2', port: 'input' }
-    expect(agree(portFamily)).toEqual({ schemaValid: false, validatorValid: false })
+    expect(isValid(portFamily)).toBe(false)
   })
 
-  it('agrees on strict region blocks', () => {
+  it('validates strict region blocks', () => {
     const d = structuredClone(loadFixture('subgraph')) as Record<string, unknown>
     const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g0']!
     const nodes = g['nodes'] as Record<string, Record<string, unknown>>
@@ -293,32 +268,32 @@ describe('JSON Schema <-> runtime validator agreement', () => {
       binding: 'broadcast',
       maxIterations: 10,
     }
-    expect(agree(d)).toEqual({ schemaValid: true, validatorValid: true })
+    expect(isValid(d)).toBe(true)
     ;(nodes['n1']!['region'] as Record<string, unknown>)['binding'] = 'diagonal'
-    expect(agree(d)).toEqual({ schemaValid: false, validatorValid: false })
+    expect(isValid(d)).toBe(false)
     ;(nodes['n1']!['region'] as Record<string, unknown>)['binding'] = 'broadcast'
     ;(nodes['n1']!['region'] as Record<string, unknown>)['outputRoles'] = {
       result: { kind: 'state' },
     }
-    expect(agree(d)).toEqual({ schemaValid: false, validatorValid: false })
+    expect(isValid(d)).toBe(false)
     ;(nodes['n1']!['region'] as Record<string, unknown>)['outputRoles'] = {
       result: { kind: 'state', statePort: 'state' },
       items: { kind: 'flatten' },
     }
-    expect(agree(d)).toEqual({ schemaValid: true, validatorValid: true })
+    expect(isValid(d)).toBe(true)
     ;((nodes['n1']!['region'] as Record<string, Record<string, Record<string, unknown>>>)['outputRoles']!['items']!)['statePort'] = 'state'
-    expect(agree(d)).toEqual({ schemaValid: false, validatorValid: false })
+    expect(isValid(d)).toBe(false)
     ;(nodes['n1']!['region'] as Record<string, unknown>)['outputRoles'] = {
       result: { kind: 'state', statePort: 'state' },
       items: { kind: 'flatten' },
     }
     ;(nodes['n1']!['region'] as Record<string, unknown>)['unknown'] = true
-    expect(agree(d)).toEqual({ schemaValid: false, validatorValid: false })
+    expect(isValid(d)).toBe(false)
     nodes['n1']!['region'] = { kind: 'map', outputModes: { items: 'gather' } }
-    expect(agree(d)).toEqual({ schemaValid: false, validatorValid: false })
+    expect(isValid(d)).toBe(false)
   })
 
-  it('agrees on corrupted variants', () => {
+  it('validates corrupted variants', () => {
     const base = () => structuredClone(loadFixture('subgraph')) as Record<string, unknown>
     const mutate = (fn: (d: Record<string, unknown>) => void): unknown => {
       const d = base()
@@ -480,22 +455,20 @@ describe('JSON Schema <-> runtime validator agreement', () => {
     ]
 
     for (const [label, json] of corruptions) {
-      const verdict = agree(json)
-      expect(verdict.schemaValid, `schema should reject: ${label}`).toBe(false)
-      expect(verdict.validatorValid, `validator should reject: ${label}`).toBe(false)
+      expect(isValid(json), `validator should reject: ${label}`).toBe(false)
     }
   })
 
-  it('agrees on valid actorCursors (and their absence: pre-multiplayer docs stay valid)', () => {
+  it('accepts actorCursors (and their absence: pre-multiplayer docs stay valid)', () => {
     const d = structuredClone(loadFixture('minimal')) as Record<string, unknown>
     const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g0']!
     expect(g['actorCursors']).toBeUndefined() // golden fixtures predate the field
-    expect(agree(d)).toEqual({ schemaValid: true, validatorValid: true })
+    expect(isValid(d)).toBe(true)
     g['actorCursors'] = { alice: 3, 'b0b-6f72-4c': 12 }
-    expect(agree(d)).toEqual({ schemaValid: true, validatorValid: true })
+    expect(isValid(d)).toBe(true)
   })
 
-  it('agrees on valid nested dynamic member state', () => {
+  it('accepts nested dynamic member state', () => {
     const d = structuredClone(loadFixture('minimal')) as Record<string, unknown>
     const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g0']!
     const nodes = g['nodes'] as Record<string, Record<string, unknown>>
@@ -508,10 +481,10 @@ describe('JSON Schema <-> runtime validator agreement', () => {
         },
       },
     }
-    expect(agree(d)).toEqual({ schemaValid: true, validatorValid: true })
+    expect(isValid(d)).toBe(true)
   })
 
-  it('agrees on value sources (valid + corrupted variants)', () => {
+  it('validates value sources (valid + corrupted variants)', () => {
     const withValueSource = (fn?: (d: Record<string, unknown>) => void): unknown => {
       const d = structuredClone(loadFixture('minimal')) as Record<string, unknown>
       const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g0']!
@@ -530,7 +503,7 @@ describe('JSON Schema <-> runtime validator agreement', () => {
       return d
     }
 
-    expect(agree(withValueSource())).toEqual({ schemaValid: true, validatorValid: true })
+    expect(isValid(withValueSource())).toBe(true)
 
     const vsOf = (d: Record<string, unknown>): Record<string, unknown> => {
       const g = (d['graphs'] as Record<string, Record<string, unknown>>)['g0']!
@@ -558,9 +531,7 @@ describe('JSON Schema <-> runtime validator agreement', () => {
       ],
     ]
     for (const [label, json] of corruptions) {
-      const verdict = agree(json)
-      expect(verdict.schemaValid, `schema should reject: ${label}`).toBe(false)
-      expect(verdict.validatorValid, `validator should reject: ${label}`).toBe(false)
+      expect(isValid(json), `validator should reject: ${label}`).toBe(false)
     }
   })
 

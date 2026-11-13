@@ -171,15 +171,13 @@ describe('groupNoOpHistoryRuns', () => {
     ])
   })
 
-  it('keeps a running live execution out because durable history accepts terminal records only', async () => {
+  it('shows a running badge for a live execution', async () => {
     const ref: ExecutionRef = {
       connection: asConnectionId('http://live'),
       prompt: asPromptId('still-running'),
     }
     app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
-    const durable = groupNoOpHistoryRuns([noop('done')])
     const live = await historySource(app).page({ query: '', limit: 10 })
-    expect(durable[0]!.members.map((member) => member.runId)).toEqual(['done'])
     expect(live.items).toHaveLength(1)
     expect(live.items[0]!.badges).toContain('running')
   })

@@ -219,15 +219,13 @@ describe('partialExecutionButtons', () => {
 
   it('keeps unavailable modes visible and carries their disabled reason', () => {
     expect(partialExecutionButtons({ between: 'requires a contiguous multi-node selection' })).toMatchObject([
-      { id: 'core.queueUpToHere', icon: 'play-to', label: 'Execute up to' },
+      { id: 'core.queueUpToHere' },
       {
         id: 'core.queueBetween',
-        icon: 'play-between',
-        label: 'Execute between',
         disabled: true,
         reason: 'requires a contiguous multi-node selection',
       },
-      { id: 'core.queueFromHere', icon: 'play-from', label: 'Execute from onwards' },
+      { id: 'core.queueFromHere' },
     ])
   })
 })

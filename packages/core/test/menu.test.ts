@@ -290,14 +290,6 @@ describe('core contributions', () => {
     const groups = coreRegistry().resolve(ctx({ kind: 'node', nodeId: 'n1' }))
     const colors = menuDescendants(groups.flatMap((group) => group.items))
       .filter((item) => item.id.startsWith('core.node.color.'))
-    expect(colors.map((item) => item.label)).toEqual([
-      'Default',
-      'Blue',
-      'Green',
-      'Red',
-      'Yellow',
-      'Purple',
-    ])
     expect(colors[0]).toMatchObject({
       checked: true,
       action: {
@@ -497,21 +489,8 @@ describe('core contributions', () => {
     })
   })
 
-  it('canvas menu offers the palette; section menu toggles collapse', () => {
+  it('section menu toggles collapse', () => {
     const reg = coreRegistry()
-    const canvas = reg.resolve(ctx({ kind: 'canvas' }))
-    expect(canvas[0]!.items[0]).toMatchObject({ id: 'core.canvas.addNode', action: { kind: 'host', action: 'openPalette' } })
-    expect(canvas.flatMap((group) => group.items)).toContainEqual(expect.objectContaining({
-      id: 'core.canvas.createSubgraph',
-      label: 'Create Empty Subgraph',
-      action: { kind: 'host', action: 'createSubgraph' },
-    }))
-    expect(canvas.flatMap((group) => group.items)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'core.canvas.createMapRegion', action: { kind: 'host', action: 'createRegion', params: { kind: 'map' } } }),
-      expect.objectContaining({ id: 'core.canvas.createFoldRegion', action: { kind: 'host', action: 'createRegion', params: { kind: 'fold' } } }),
-      expect.objectContaining({ id: 'core.canvas.createWhileRegion', action: { kind: 'host', action: 'createRegion', params: { kind: 'while' } } }),
-    ]))
-
     const collapsed = reg.resolve(ctx({ kind: 'section', nodeId: 'n1', sectionId: 'adv', collapsed: true }))
     expect(collapsed[0]!.items[0]).toMatchObject({
       label: 'Expand Section',

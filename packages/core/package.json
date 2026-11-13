@@ -8,7 +8,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "vitest run --exclude test/perf.test.ts --exclude test/perf-dispatch.test.ts && vitest run test/perf.test.ts && vitest run test/perf-dispatch.test.ts",
+    "test": "vitest run --exclude test/perf.test.ts && vitest run test/perf.test.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },

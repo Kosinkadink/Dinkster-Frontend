@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  GLSL_STATE_PREVIEW_CHANNEL,
-  GLSL_STATE_PREVIEW_STREAM,
-  glslShaderStateOf,
-} from '../src/glsl-shader.js'
+import { glslShaderStateOf } from '../src/glsl-shader.js'
 
 const curve = Array.from({ length: 256 }, (_, index) => index / 255)
 const state = {
@@ -26,8 +22,6 @@ describe('GLSL runtime state grammar', () => {
     expect(parsed).not.toBe(state)
     expect(parsed?.inputs).not.toBe(state.inputs)
     expect(parsed?.curves['u_curve2']).not.toBe(curve)
-    expect(GLSL_STATE_PREVIEW_CHANNEL).toBe('application/vnd.dinkster.glsl-state+json')
-    expect(GLSL_STATE_PREVIEW_STREAM).toBe('glsl-state')
   })
 
 })

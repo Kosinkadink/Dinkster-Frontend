@@ -26,7 +26,7 @@ process.env['DINKSTER_E2E_NATIVE_FRONTEND'] =
  */
 /**
  * Specs that touch SHARED MUTABLE backend state (native :8765 writes - run-history even
- * clears scope=local) or that measure timing budgets. These must run one
+ * clears scope=local). These must run one
  * at a time; everything else is client-side or route-mocked and safe to
  * parallelize at file granularity (no spec uses beforeAll or
  * describe.serial). A NEW SPEC THAT EXECUTES PROMPTS OR WRITES SERVER
@@ -89,7 +89,6 @@ const BACKEND_SERIAL_SPECS = [
   'local-assets-live.spec.ts',
 ]
 
-const PERFORMANCE_SPECS = ['perf.spec.ts']
 const NATIVE_STARTUP_SPECS = ['startup-discovery.spec.ts']
 
 export default defineConfig({
@@ -100,27 +99,16 @@ export default defineConfig({
     [process.env['CI'] ? 'dot' : 'list'],
     ['./custom-widget-server-reporter.ts'],
   ],
-  // SH3 (amended 2026-07-27): every worker shares ONE dev server and ONE
-  // live backend per protocol. The dev server tolerates concurrent
-  // clients, but specs that execute prompts or write server state
-  // (BACKEND_SERIAL_SPECS above) and timing-budget specs do not. The
-  // suite is therefore split into three projects:
-  //   parallel-safe:  client-side/route-mocked specs; run with
-  //                   --workers=10 (see the test:e2e package script).
-  //   backend-serial: shared-state specs; MUST run --workers=1.
-  //   performance:    timing budgets in a clean process; MUST run --workers=1.
-  // The default worker count stays 1 so a bare `playwright test` is
-  // exactly the old trustworthy serial run; parallelism is opted into by
-  // the package scripts. Re-check any parallel-only failure serially
-  // before acting on it, and if it reproduces only in parallel, the spec
-  // belongs in BACKEND_SERIAL_SPECS.
+  // Workers share one dev server and live backend per protocol. Client-only
+  // specs run in parallel-safe; execution and shared-state writers run in
+  // backend-serial with one worker. Startup checks use native-startup.
+  // Re-check parallel-only failures serially before changing their project.
   workers: 1,
   projects: [
     {
       name: 'parallel-safe',
       testIgnore: [
         ...BACKEND_SERIAL_SPECS,
-        ...PERFORMANCE_SPECS,
         ...NATIVE_STARTUP_SPECS,
         'extension-contract-pack.spec.ts',
         'product-surface-visuals.spec.ts',
@@ -129,10 +117,6 @@ export default defineConfig({
     {
       name: 'backend-serial',
       testMatch: BACKEND_SERIAL_SPECS.map((f) => `tests/${f}`),
-    },
-    {
-      name: 'performance',
-      testMatch: PERFORMANCE_SPECS.map((f) => `tests/${f}`),
     },
     {
       name: 'native-startup',

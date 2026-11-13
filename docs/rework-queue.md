@@ -144,7 +144,7 @@ user's manual testing pass.
 ## E2E backend-serial two-lane split (dev tooling)
 
 - What it is: Splitting the `backend-serial` Playwright project into two concurrent serial lanes: the V1 `:8199` execution writers (one shared queue/history) and the native `:8765` writers (library/uploads/run-history) touch disjoint server state, so each lane could run with 1 worker in parallel with the other. Would cut the full-suite wall time from ~5.8 min to roughly 4 min (the 2026-07-27 parallelization already took it from 10.6 min; see `packages/e2e/playwright.config.ts` and README "E2E smoke tests").
-- Why deferred: User accepted the current 1.8x speedup as sufficient for now, and the timing-budget specs (`perf.spec.ts`) flake under CPU contention, so they would need isolation from both lanes - extra care for a modest further gain.
+- Why deferred: User accepted the current 1.8x speedup as sufficient for now. The uncalibrated browser timing cases are removed and do not constrain future execution-lane splits.
 - Still active: The two-project split (parallel-safe at 10 workers, backend-serial at 1) is in place and green; `test:e2e:serial` remains the trustworthy all-serial fallback.
 - Revive when: E2E wall time becomes a bottleneck again, or the backend-serial spec count grows enough that 3.7 min serial dominates further.
 

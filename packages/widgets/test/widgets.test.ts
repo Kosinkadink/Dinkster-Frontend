@@ -242,7 +242,6 @@ describe('registry', () => {
     expect(r.previewRendererFor('image/png')?.mediaKind).toBe('image')
     expect(r.previewRendererFor('video/webm')?.mediaKind).toBe('video')
     expect(r.previewRendererFor('model/gltf-binary')?.mediaKind).toBe('model3d')
-    expect(r.previewRendererFor('model/gltf-binary')?.id).toBe('core.model3d-preview')
     expect(r.previewRendererFor('audio/wav')).toBeUndefined()
     expect(r.previewRendererFor('application/json')).toBeUndefined()
   })

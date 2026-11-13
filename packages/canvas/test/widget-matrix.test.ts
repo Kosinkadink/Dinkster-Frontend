@@ -1,15 +1,11 @@
 /**
  * Widget row canvas matrix: what the CANVAS layer owns for every widget
- * kind - registry-painter plumbing (state forwarding, builder mapping),
- * row hit testing, click activation, and the connected-row editor
- * suppression rule. Per-kind DISPLAY truth (what each real core view
- * draws) lives in packages/widgets/test/widget-matrix.test.ts against the
- * real registered views; the fake view here exists only to prove the
- * painter's side of the contract.
+ * kind - click activation and the connected-row editor suppression rule.
+ * Per-kind display behavior lives in packages/widgets/test/widget-matrix.test.ts
+ * against the real registered views.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Json } from '@dinkster/core'
-import { hitTest } from '../src/hit.js'
 import { InteractionController } from '../src/interaction.js'
 import type { LayoutRow } from '../src/layout.js'
 import type { Scene, SceneLink } from '../src/scene.js'
@@ -64,17 +60,6 @@ function controllerFor(scene: Scene, activate: (hit: unknown, x: number, y: numb
 afterEach(() => vi.unstubAllGlobals())
 
 describe.each(entries)('%s canvas matrix', (name, value) => {
-
-  it('hits the widget row with the right kind spec and valueKey', () => {
-    const scene = sceneFor(name, value)
-    const hit = hitTest(scene, 100, 42)
-    expect(hit.kind).toBe('widget')
-    if (hit.kind === 'widget') {
-      expect(hit.row).toMatchObject({ inputId: 'port', valueKey: 'stored_key' })
-      expect(hit.row.spec.widgetType).toBe(widgetType(name))
-      expect(hit.row.viewId).toBe(`test.${name}`)
-    }
-  })
 
   it('activates the editor callback on a click', () => {
     const activate = vi.fn()

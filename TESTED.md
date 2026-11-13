@@ -57,5 +57,6 @@
 | Frontend-only Note and Markdown Note nodes | RipperPC (CPU-only) | 2026-09-20 | [comfy-vibe-station#151 evidence](https://github.com/Kosinkadink/comfy-vibe-station/issues/151#issuecomment-5748921593) |
 | Stable Diffusion template search aliases | X570 | 2026-09-21 | [comfy-vibe-station#253](https://github.com/Kosinkadink/comfy-vibe-station/issues/253) |
 | Native-catalog legacy nested-subgraph import | X570 (CPU-only) | 2026-09-24 | [comfy-vibe-station#431 evidence](https://github.com/Kosinkadink/comfy-vibe-station/issues/431#issuecomment-5810896290) |
+| Audited unsure keeps retain observable behavior while unsupported timing and fixture restatements are removed | X570 Linux CPU, Node 26.13.0, Chromium | 2026-11-13 | [All 500 group decisions and validation](https://github.com/Kosinkadink/comfy-vibe-station/issues/873#issuecomment-6865084005): 496 YES and four NO; full workspace units/components 5,999 passed with 22 existing gated skips, fast checks and app build passed. Targeted numerical browser comparisons and settings editing passed at their recorded heads; no product source, numerical tolerance, retry, timeout or skip changed. |
 
 These evidence links are in the maintainers' private tracker and require access.

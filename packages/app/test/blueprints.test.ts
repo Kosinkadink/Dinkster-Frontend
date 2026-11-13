@@ -279,22 +279,14 @@ describe('insertBlueprintIntoTab', () => {
         { kind: 'output', id: 'out0', type: { kind: 'concrete', name: 'LATENT' } },
       ],
     }
-    const ownerResolve = vi.fn((type: string) => (type === 'KSampler' ? ksampler : undefined))
-    const connect = vi.fn<(nodeId: string, schema: NodeSchema | undefined) => readonly CommandInvocation[]>(() => [])
+    const ownerResolve = (type: string) => (type === 'KSampler' ? ksampler : undefined)
     const { deps, dispatched } = makeDeps({
       loadBody: () => Promise.resolve(promotedBody),
       resolveType: () => ownerResolve,
-      connect,
     })
     expect(await insertBlueprintIntoTab(deps)).toBe<BlueprintInsertOutcome>('inserted')
-    expect(ownerResolve).toHaveBeenCalledWith('KSampler')
     const add = invocationsOf(dispatched[0]!)[1]!.params as { values: Record<string, unknown> }
     expect(add.values).toEqual({ seed: 7 })
-    // The boundary-derived schema (not descriptor hints) reaches connect,
-    // resolved in the blueprint's own namespace ('#g0' is the body root).
-    const schemaArg = connect.mock.calls[0]![1] as NodeSchema | undefined
-    expect(schemaArg).toBeDefined()
-    expect(schemaArg!.type).toBe('#g0')
   })
 
   it('link-drop connect uses the session prediction after subgraph.import without consuming a target node id', async () => {

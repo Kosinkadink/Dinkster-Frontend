@@ -1,14 +1,10 @@
 # Performance baselines
 
-Numbers from `packages/e2e/tests/perf.spec.ts` on the station11 dev machine
-(headless Chromium, Vite dev server). Budgets in the spec are architectural
-backstops; the tables below are the measured record used to judge refactors.
-Rerun with:
-
-```bash
-cd packages/e2e
-pnpm exec playwright test perf --reporter=json  # annotations carry the numbers
-```
+Historical measurements from the former `packages/e2e/tests/perf.spec.ts`
+and the other workloads identified below. The browser timing cases and their
+performance project are removed: their absolute limits were not calibrated
+from the slowest hosted runner with a threefold margin. These tables remain
+an unchanged measurement record, not active test gates or rerun instructions.
 
 ## Viewport (pan + zoom, 120 frames, read-only hot path)
 
@@ -293,7 +289,7 @@ Node-side vitest microbench (not the browser e2e loop above): a synthetic
 1200-node document driven straight through DocumentStore.dispatch, no
 renderer. Measures the command pipeline cost of the document ownership and
 JSON command boundary.
-Rerun with `pnpm --filter @dinkster/core test -- --run test/perf-dispatch.test.ts`.
+The uncalibrated timing cases are removed; these measurements remain historical.
 
 | Workload | Date | State | us/op |
 | --- | --- | --- | --- |
@@ -373,23 +369,10 @@ used isolated `127.0.0.1:5429`; a local read-only legacy fixture used
 local system, queue, history, and WebSocket responses. Protected ports 5199
 and 8765 were not used or signaled.
 
-The exact setup is tracked in
+That commit retains the historical setup in
 `packages/e2e/playwright.perf-isolated.config.ts` and
-`packages/e2e/bench/local-comfy-fixture.mjs`. From the repository root, change
-to the E2E package and run each sample separately so every report owns a fresh
-frontend, fixture, and Chromium process:
-
-```bash
-cd packages/e2e
-pnpm exec playwright test --config=playwright.perf-isolated.config.ts --reporter=json > /tmp/dinkster-perf-run1.json
-pnpm exec playwright test --config=playwright.perf-isolated.config.ts --reporter=json > /tmp/dinkster-perf-run2.json
-pnpm exec playwright test --config=playwright.perf-isolated.config.ts --reporter=json > /tmp/dinkster-perf-run3.json
-```
-
-Override only with unused ports by setting `DINKSTER_PERF_FRONTEND_PORT` and
-`DINKSTER_PERF_FIXTURE_PORT`; the config rejects protected ports 5199 and 8765.
-Keep both port values and the full environment identical for merge-base/head
-comparisons.
+`packages/e2e/bench/local-comfy-fixture.mjs`. Those files and their timing
+cases are no longer part of the active suite.
 
 | Metric | Run 1 | Run 2 | Run 3 | Median |
 | --- | ---: | ---: | ---: | ---: |
