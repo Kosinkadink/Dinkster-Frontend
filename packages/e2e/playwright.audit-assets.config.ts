@@ -40,7 +40,8 @@ export default defineConfig({
   webServer: [
     {
       command: [
-        JSON.stringify(resolve(dinksterRoot, '.venv/bin/dinkster-serve')),
+        JSON.stringify(resolve(dinksterRoot, '.venv/bin/python')),
+        '-m dinkster.serve',
         '--host 127.0.0.1',
         `--port ${nativePort}`,
         '--engine-variant linux-cpu',
