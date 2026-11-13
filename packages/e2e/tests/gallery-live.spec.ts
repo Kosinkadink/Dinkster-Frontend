@@ -1,7 +1,5 @@
 /**
- * LIVE half of the Widget & Socket Gallery contract: gallery.spec.ts proves
- * the frontend against deterministic fixtures; this suite proves the same
- * coverage against a real native backend by opening the backend's shipped
+ * Widget & Socket Gallery coverage against a real native backend opens its shipped
  * dev-gallery template (pack "core", node types dev.gallery.*, composed
  * from the `dinkster-nodes-dev` pack through the production templates surface, so
  * wire decode gaps cannot hide behind fixture equivalence.

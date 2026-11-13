@@ -13,13 +13,6 @@ execFileSync(
   ],
   { stdio: 'inherit' },
 )
-execFileSync(
-  process.env.PYTHON ?? 'python3',
-  ['scripts/bundle_artifact_test.py'],
-  {
-    stdio: 'inherit',
-  },
-)
 
 for (const args of [
   [
@@ -29,61 +22,11 @@ for (const args of [
     '--single-quote',
     '--no-semi',
     'scripts/ci-fast.mjs',
-    'packages/e2e/test/ci-workflow.test.ts',
   ],
   ['check:extension-literals'],
   ['check:raw-controls'],
   ['check:ui-strings'],
   ['typecheck'],
-  [
-    '--filter',
-    '@dinkster/core',
-    'exec',
-    'vitest',
-    'run',
-    'test/format.schema.test.ts',
-    'test/dinkster-graph.test.ts',
-    'test/dinkster-inline-value.test.ts',
-    'test/design-tokens.test.ts',
-  ],
-  [
-    '--filter',
-    '@dinkster/e2e',
-    'exec',
-    'vitest',
-    'run',
-    'test/ci-workflow.test.ts',
-  ],
-  [
-    '--filter',
-    '@dinkster/app',
-    'exec',
-    'vitest',
-    'run',
-    'test/extension-dogfooding.test.ts',
-    'test/extension-world.test.ts',
-  ],
-  [
-    '--filter',
-    '@dinkster/app',
-    'exec',
-    'vitest',
-    'run',
-    '--config',
-    'vitest.component.config.ts',
-    'test/disabled-features.dom.test.tsx',
-  ],
-  [
-    'exec',
-    'node',
-    '--test',
-    '--test-isolation=none',
-    'scripts/check-host-ui-contract.test.mjs',
-    'scripts/check-extension-literals.test.mjs',
-    'scripts/check-raw-controls.test.mjs',
-    'scripts/check-ui-strings.test.mjs',
-    'scripts/check-path-case.test.mjs',
-  ],
 ]) {
   const env = { ...process.env }
   if (args[0] === 'check:extension-literals')

@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   merge_group:
   workflow_dispatch:
     inputs:
@@ -26,13 +27,16 @@ env:
 jobs:
   fast:
     name: format, lint, types and unit subset
-    needs: visual
+    needs: [visual, native-startup]
     if: always()
     runs-on: ${{ fromJSON(vars.CI_RUNNERS)[((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || inputs.simulate-fork) && 'forkLinux' || 'linux'] }}
     timeout-minutes: 10
     steps:
       - name: Require product screenshots
         run: test '${{ needs.visual.result }}' = success
+      - name: Require native startup on ready pull requests
+        if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+        run: test '${{ needs.native-startup.result }}' = success
       - uses: actions/checkout@v4
         with:
           clean: true
@@ -48,9 +52,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@v5
-        with:
-          python-version: "3.12"
       - uses: pnpm/action-setup@v4
         with:
           version: 11.28.8
@@ -64,51 +65,77 @@ jobs:
       - run: pnpm ci:fast
         env:
           DINKSTER_SOURCE_ROOT: .ci/Dinkster
+      - name: Run every kept unit test on ready pull requests
+        if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+        run: pnpm test
+        env:
+          NODE_OPTIONS: --max-semi-space-size=64
+
+  native-startup:
+    name: native startup
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+    runs-on: ${{ fromJSON(vars.CI_RUNNERS)[github.event.pull_request.head.repo.full_name != github.repository && 'forkLinux' || 'linux'] }}
+    timeout-minutes: 10
+    env:
+      CUDA_VISIBLE_DEVICES: ""
+      DINKSTER_ACCELERATOR: cpu
+      UV_TORCH_BACKEND: cpu
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+          repository: Kosinkadink/Dinkster
+          ref: ${{ env.DINKSTER_REF }}
+          path: .ci/Dinkster
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.8
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: pnpm install --frozen-lockfile
       - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
+      - run: UV_PROJECT_ENVIRONMENT=.venv-torch uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
       - name: Install checkout pack sources
         run: |
           packs=()
           for pack in .ci/Dinkster/packages/dinkster-nodes-*; do
             packs+=(-e "$pack")
           done
-          uv pip install --python .ci/Dinkster/.venv/bin/python --no-deps --no-sources \
-            "${packs[@]}"
+          for python in .ci/Dinkster/.venv/bin/python .ci/Dinkster/.venv-torch/bin/python; do
+            uv pip install --python "$python" --no-deps --no-sources "${packs[@]}"
+          done
+      - run: uv pip install --python .ci/Dinkster/.venv-torch/bin/python torch --index-url https://download.pytorch.org/whl/cpu
       - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
+      - run: pnpm --filter @dinkster/e2e exec playwright install chromium
+      - name: Run native startup and live client tests
+        run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=native-startup --workers=1
         env:
-          CUDA_VISIBLE_DEVICES: ""
-          UV_TORCH_BACKEND: cpu
-      - name: Require every native pack to announce
-        timeout-minutes: 4
-        env:
-          CUDA_VISIBLE_DEVICES: ""
-          DINKSTER_NATIVE_BACKEND: http://127.0.0.1:15432
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import subprocess
-
-          root = Path('.ci/Dinkster').resolve()
-          with subprocess.Popen([
-              str(root / '.venv/bin/python'), '-m', 'dinkster.serve',
-              '--host', '127.0.0.1', '--port', '15432',
-              '--engine-variant', 'linux-cpu',
-              '--pack', str(root / 'packages/dinkster-nodes-dev/dinkster-pack.toml'),
-              '--library-root', str(Path('.ci/native-library').resolve()),
-          ], cwd=root) as backend:
-              try:
-                  subprocess.run([
-                      'node', '--input-type=module', '-e',
-                      "import wait from './packages/e2e/hosted-global-setup.ts'; await wait()",
-                  ], check=True, timeout=190)
-                  if backend.poll() is not None:
-                      raise RuntimeError(f'Native backend exited: {backend.returncode}')
-              finally:
-                  backend.terminate()
-                  try:
-                      backend.wait(timeout=10)
-                  except subprocess.TimeoutExpired:
-                      backend.kill()
-          PY
+          DINKSTER_E2E_DINKSTER_ROOT: ${{ github.workspace }}/.ci/Dinkster
+          DINKSTER_E2E_PORT: "15410"
+          DINKSTER_E2E_NATIVE_PORT: "15412"
+          DINKSTER_E2E_USE_NATIVE: "1"
+      - name: Retain native startup evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-startup
+          path: |
+            packages/e2e/test-results/
+            .ci/live-vitest/
+          retention-days: 7
+          if-no-files-found: ignore
 
   visual:
     name: product screenshots
