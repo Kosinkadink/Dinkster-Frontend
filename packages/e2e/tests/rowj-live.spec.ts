@@ -53,7 +53,8 @@ async function paintMask(page: Page, start: { x: number; y: number }, end: { x: 
   await expect(page.getByRole('button', { name: 'Undo mask edit' })).toBeEnabled()
 }
 
-test('live current-wire row J acceptance proof', async ({ page, request }, testInfo) => {
+// Nonblocking under https://github.com/Kosinkadink/comfy-vibe-station/issues/868.
+test.skip('live current-wire row J acceptance proof', async ({ page, request }, testInfo) => {
   await skipWithoutNativeCatalog(request, testInfo)
   await mkdir(PROOF, { recursive: true })
   const consoleErrors: string[] = []

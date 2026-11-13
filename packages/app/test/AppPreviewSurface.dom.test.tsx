@@ -7,10 +7,64 @@ import { AppView } from '../src/AppView.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import type { PreviewLoader } from '../src/node-previews.js'
 import type { RetainedAssets } from '@dinkster/client'
+import { asPromptId } from '@dinkster/core'
 
 afterEach(() => document.body.replaceChildren())
 
 describe('AppView document-owned previews', () => {
+  it('reveals a saved output from App View through its execution owner', async () => {
+    const app = createWorkflowApp([{
+      type: 'ImageOutput', displayName: 'Image output', category: 'test', source: 'v3', isOutputNode: true,
+      emitsPreviews: true, items: [],
+    }])
+    const owner = app.addBackend('http://owner.test:3639', 'Execution owner', false, 'dinkster')!
+    owner.registry.set({ ...app.registry.get()!, connection: owner.id })
+    vi.spyOn(owner.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(owner.connection, 'retainAssets').mockImplementation(async (holder, declaration) =>
+      ({ ...holder, ...declaration, revision: declaration.revision + 1 }))
+    app.widgetRegistry.registerPreviewRenderer({ id: 'test.image', canRender: (mime) => mime === 'image/png', mediaKind: 'image', drawCompact: () => {} })
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'app-output-reveal', root: 'root',
+      graphs: { root: { id: 'root', name: 'Workflow', links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
+        nodes: { save: { id: 'save', type: 'ImageOutput', values: {} } } } },
+      view: { graphs: { root: { nodes: {} } } },
+      ext: { 'dinkster.exposedPreviews': [{ graphId: 'root', nodeId: 'save', label: 'Saved image' }] },
+    }, 'Saved image')
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, owner.id)
+    const compiled = app.compileTab(tab)
+    if (!compiled?.ok) throw new Error('Image output fixture did not compile')
+    const ref = { connection: owner.id, prompt: asPromptId('saved-image') }
+    app.registerRun(tab, ref, compiled.artifact, 1)
+    const runtimeNodeId = Object.values(compiled.artifact.provenance.fromSource).flat()[0]!
+    const digest = `blake3:${'e'.repeat(64)}`
+    app.store.apply({ kind: 'started', execution: ref, timestamp: 2 })
+    app.store.hydrateArtifacts(ref, [{ nodeId: runtimeNodeId, digest, name: 'saved.png',
+      mediaType: 'image/png', size: 7, virtualPath: 'output/saved.png' }])
+    const revealFile = vi.fn().mockResolvedValue(undefined)
+    window.dinksterDesktop = { fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: true }), revealFile } as any
+    vi.spyOn(HTMLDialogElement.prototype, 'showModal').mockImplementation(function (this: HTMLDialogElement) {
+      this.setAttribute('open', '')
+    })
+    vi.stubGlobal('Image', class { src = ''; naturalWidth = 2; naturalHeight = 1; decode = async () => {} })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })))
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <AppView app={app} />, root)
+    try {
+      const button = (label: string) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((candidate) => candidate.textContent === label)
+      await vi.waitFor(() => expect(button('Open image viewer')).toBeDefined())
+      button('Open image viewer')!.click()
+      await vi.waitFor(() => expect(button('Show in folder')).toBeDefined())
+      button('Show in folder')!.click()
+      await vi.waitFor(() => expect(revealFile).toHaveBeenCalledWith('http://owner.test:3639/', {
+        digest, scope: 'local', project: 'default',
+      }))
+    } finally {
+      dispose(); app.dispose(); delete window.dinksterDesktop; vi.restoreAllMocks(); vi.unstubAllGlobals()
+    }
+  })
+
   it.each(['live', 'edited', 'closed'] as const)('admits exposed input images and refuses stale publication: %s', async (scenario) => {
     const app = createWorkflowApp([{
       type: 'ImageInput', displayName: 'Image input', category: 'test', source: 'v3', isOutputNode: false,

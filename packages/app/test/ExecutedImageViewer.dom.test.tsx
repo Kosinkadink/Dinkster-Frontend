@@ -16,6 +16,7 @@ beforeEach(() => {
 
 afterEach(() => {
   document.body.replaceChildren()
+  delete window.dinksterDesktop
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -88,11 +89,11 @@ describe('executionOutputProvenance', () => {
   })
 })
 
-function mount(initialIndex = 0, onReveal?: (image: ExecutedImage) => void) {
+function mount(initialIndex = 0, backendUrl?: string) {
   const root = document.createElement('div')
   document.body.append(root)
   const close = vi.fn()
-  const dispose = render(() => <ExecutedImageViewer images={images} initialIndex={initialIndex} provenance={provenance} {...(onReveal === undefined ? {} : { onReveal })} onRequestClose={close} />, root)
+  const dispose = render(() => <ExecutedImageViewer images={images} initialIndex={initialIndex} provenance={{ ...provenance, backendAvailable: backendUrl !== undefined }} backendUrl={backendUrl} onRequestClose={close} />, root)
   return { root, close, dispose }
 }
 
@@ -242,16 +243,44 @@ describe('ExecutedImageViewer', () => {
     mounted.dispose()
   })
 
-  it('shows the mounted path and offers the Desktop reveal action', () => {
-    const reveal = vi.fn()
-    const mounted = mount(1, reveal)
-    expect(mounted.root.querySelector('.output-facts')?.textContent).toContain('mounts/output/ComfyUI_00001.png')
-    expect(mounted.root.querySelectorAll('.output-facts wbr')).toHaveLength(2)
-    const revealButton = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Show in folder')
-    revealButton!.click()
-    expect(reveal).toHaveBeenCalledWith(images[1])
-    mounted.dispose()
+  it('reveals the saved output through its backend identity and reports native failure without leaking paths', async () => {
+    const revealFile = vi.fn().mockRejectedValue(new Error('/private/operator/path'))
+    window.dinksterDesktop = { fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: true }), revealFile } as any
+    const mounted = mount(1, 'http://owner.test:3639')
+    try {
+      expect(mounted.root.querySelector('.output-facts')?.textContent).toContain('mounts/output/ComfyUI_00001.png')
+      expect(mounted.root.querySelectorAll('.output-facts wbr')).toHaveLength(2)
+      await vi.waitFor(() => expect(mounted.root.textContent).toContain('Show in folder'))
+      const revealButton = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Show in folder')!
+      revealButton.click()
+      await vi.waitFor(() => expect(mounted.root.textContent).toContain("Could not open the saved file's folder"))
+      expect(revealFile).toHaveBeenCalledWith('http://owner.test:3639/', {
+        digest: images[1]!.digest, scope: 'local', project: 'default',
+      })
+      expect(mounted.root.textContent).not.toContain('/private/operator/path')
+      mounted.root.querySelector<HTMLButtonElement>('[aria-label="Previous image"]')!.click()
+      expect(mounted.root.textContent).not.toContain('Show in folder')
+    } finally { mounted.dispose() }
   })
+
+  it.each(['browser', 'denied', 'failed', 'disconnected'])(
+    'does not offer native reveal when the owner capability is %s', async (capability) => {
+      const revealFile = vi.fn()
+      if (capability !== 'browser') window.dinksterDesktop = {
+        fileCapabilities: async () => {
+          if (capability === 'failed') throw new Error('unavailable')
+          return { nativeFolderChoice: false, reveal: capability === 'disconnected' }
+        }, revealFile,
+      } as any
+      const mounted = mount(1, capability === 'disconnected' ? undefined : 'http://remote.test')
+      try {
+        await Promise.resolve()
+        await Promise.resolve()
+        expect(mounted.root.textContent).not.toContain('Show in folder')
+        expect(revealFile).not.toHaveBeenCalled()
+      } finally { mounted.dispose() }
+    },
+  )
 
   it('middle-truncates an asset digest while preserving copy access to the full value', () => {
     const mounted = mount(1)

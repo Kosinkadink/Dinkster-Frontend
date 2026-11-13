@@ -6498,6 +6498,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             batch={viewer().preview.output.batch}
             initialIndex={viewer().preview.output.index}
             provenance={viewer().provenance}
+            backendUrl={props.app.backends.get().find((backend) => backend.id === viewer().provenance.backendId)?.baseUrl}
             onRequestClose={closeOutputViewer}
           />}
         </Show>}
