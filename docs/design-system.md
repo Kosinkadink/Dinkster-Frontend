@@ -1,5 +1,20 @@
 # Design System
 
+## Browser icons
+
+Browser tabs use the approved colored D in `branding/favicon/`. Its square
+canvas fits the D's horizontal edges and centers it vertically; the artwork,
+colors and proportions match `branding/svg/dinkster-symbol-color.svg`.
+Shared branding and desktop icons retain their original framing.
+
+The app serves `/favicon.ico` plus SVG and 32px PNG references. The 180px
+Apple touch icon uses the same D at 90% width on opaque dark `#111316`;
+manifest icons use transparent 192px and 512px exports. Vite serves those files
+in development and includes them in production builds. Regenerate with
+`python branding/sources/export_favicons.py --inkscape /path/to/inkscape` using
+Inkscape 1.2.2. The exporter changes only the SVG viewBox, renders each PNG
+from that vector and packages the 16-256px PNGs into ICO without resizing.
+
 ## Source of truth
 
 `branding/tokens/dinkster-colors.json` owns the dark/light palette and brand
