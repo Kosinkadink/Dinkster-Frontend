@@ -1055,12 +1055,68 @@ describe('dynamicCombo', () => {
 
 describe('dynamicSlot', () => {
   const slot = slotConstruct('model', [intInput('lora_strength'), socketInput('clip', 'CLIP')])
+  it('keeps required wire-15 variant selection reachable without materializing an absent choice', () => {
+    const required: InputSpec = {
+      kind: 'input', id: 'source', optional: false,
+      type: { kind: 'union', names: ['STRING', 'INT'] },
+      dynamic: {
+        kind: 'dynamicSlot', materialization: 'wire15',
+        slotType: { kind: 'union', names: ['STRING', 'INT'] }, inputs: [],
+        variants: [
+          { key: 'text', type: { kind: 'concrete', name: 'STRING' }, inputs: [] },
+          { key: 'integer', type: { kind: 'concrete', name: 'INT' }, inputs: [] },
+        ],
+      },
+    }
+    const cleared = elaborateInterface(schemaOf([required]), { values: { source: 7 }, dynamic: { source: {} } })
+    expect(elabInputsOf(cleared)).toHaveLength(1)
+    expect(elabInputsOf(cleared)[0]).toMatchObject({
+      address: { port: 'source' }, spec: { optional: false, type: required.type },
+      origin: { kind: 'slot', construct: 'source', variants: [
+        { key: 'text', type: { kind: 'concrete', name: 'STRING' } },
+        { key: 'integer', type: { kind: 'concrete', name: 'INT' } },
+      ] },
+    })
+    expect(elabInputsOf(cleared)[0]!.apiName).toBeUndefined()
+    expect(cleared.diagnostics).toContainEqual(expect.objectContaining({ severity: 'error', code: 'prompt.missing_dynamic_choice' }))
+
+    const reselected = elaborateInterface(schemaOf([required]), { values: { source: 7 }, dynamic: { source: { selected: 'integer' } } })
+    expect(reselected.diagnostics).toEqual([])
+    expect(elabInputsOf(reselected)[0]).toMatchObject({ apiName: 'source', spec: { type: { kind: 'concrete', name: 'INT' } } })
+    const optional = elaborateInterface(schemaOf([{ ...required, optional: true }]), noState)
+    expect(elabInputsOf(optional)).toEqual([])
+    expect(optional.diagnostics).toEqual([])
+  })
+
   const specialized = (variantInputs: InputSpec[] = [intInput('weight')]): InputSpec => ({
     ...slotConstruct('model', [intInput('shared')]),
     dynamic: {
       kind: 'dynamicSlot', slotType: { kind: 'concrete', name: 'MODEL' }, inputs: [intInput('shared')],
       variants: [{ key: 'lora', type: { kind: 'concrete', name: 'LORA' }, inputs: variantInputs }],
     },
+  })
+
+  it('censuses wire15 slot branches without submitting dormant paths and keeps the item budget', () => {
+    const source: InputSpec = { ...slotConstruct('source', [intInput('shared')]), dynamic: {
+      kind: 'dynamicSlot', materialization: 'wire15', slotType: { kind: 'concrete', name: 'STRING' },
+      inputs: [intInput('shared')], variants: [
+        { key: 'text', type: { kind: 'concrete', name: 'STRING' }, inputs: [intInput('amount')] },
+        { key: 'integer', type: { kind: 'concrete', name: 'INT' }, inputs: [socketInput('amount', 'ASSET')] },
+      ],
+    } }
+    const node = { values: { source: 'hello' }, dynamic: { source: { selected: 'text' } } }
+    const active = elaborateInterface(schemaOf([source]), node)
+    expect(elabInputsOf(active).map((input) => input.apiName)).toEqual(['source', 'source.shared', 'source.amount'])
+    const census = elaborateInterface(schemaOf([source]), node, EMPTY_CONNECTIVITY, { includeDormant: true })
+    expect(census.diagnostics).toEqual([])
+    expect(elabInputsOf(census).map((input) => [input.address.port, input.spec.type, input.apiName])).toEqual([
+      ['source', { kind: 'concrete', name: 'STRING' }, undefined],
+      ['source.shared', { kind: 'concrete', name: 'INT' }, undefined],
+      ['source.amount', { kind: 'concrete', name: 'INT' }, undefined],
+      ['source.amount', { kind: 'concrete', name: 'ASSET' }, undefined],
+    ])
+    expect(elaborateInterface(schemaOf([source]), node, EMPTY_CONNECTIVITY, { includeDormant: true, budget: { maxItems: 3 } })
+      .diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['elab.budget.items'])
   })
 
   it('disconnected: only the slot itself, typed and optional', () => {

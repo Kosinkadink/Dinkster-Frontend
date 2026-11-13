@@ -60,10 +60,7 @@ import { checkDocument } from '../invariants.js'
 import { isPortEndpoint } from '../ids.js'
 import { isAssetRefValue } from '../schema/widget-defaults.js'
 import { importLitegraphSubgraphs } from './import-litegraph-subgraphs.js'
-import {
-  convertLitegraphLoops,
-  convertLitegraphListConsumers,
-} from './import-litegraph-loops.js'
+import { convertLitegraphListConsumers } from './import-litegraph-loops.js'
 import { createTransactionBuilder } from '../commands/contract.js'
 import { REPLACE_COMMANDS } from '../commands/replace-commands.js'
 import { planReplacement } from '../replace/plan.js'
@@ -2234,7 +2231,6 @@ function importLitegraphGraph(
     },
   } as unknown as JsonObject
 
-  convertLitegraphLoops(document, rawNodes, rawLinks, resolve, diags)
   convertLitegraphListConsumers(document, resolve)
 
   // Error-level import diagnostics (e.g. untranslatable subgraph definitions)

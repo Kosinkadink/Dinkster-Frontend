@@ -98,6 +98,21 @@ describe('executedImageInventory', () => {
     expect(result[0]?.virtualPath).toBe('mounts/output/ComfyUI_00001.png')
   })
 
+  it('includes saved files beside tensor renditions without repeating typed assets or other nodes', () => {
+    const saved = { nodeId: 'save', digest: digest('a'), name: 'saved.png', size: 7,
+      mediaType: 'image/png', virtualPath: 'mounts/renders/saved.png' }
+    const state = { ...execution({ save: { images: { typeId: 'IMAGE', meta: { shape: [1, 8, 16, 3] } } } }),
+      artifacts: [saved, { ...saved, nodeId: 'other' }, { ...saved, mediaType: 'audio/wav', digest: digest('b') },
+        { ...saved, name: 'original.exr', mediaType: 'image/x-exr', digest: digest('c'), size: 2 ** 30 + 1,
+          preview: { digest: digest('d'), name: 'preview.png', size: 128, mediaType: 'image/png', virtualPath: 'previews/preview.png' } }] }
+    const options = { runtimeIds: ['save'], assetUrlForExecution: (_ref: unknown, value: string) => `asset/${value}` }
+    const result = executedImageInventory(state, options)
+    expect(result).toEqual([expect.objectContaining({ kind: 'artifact', runtimeId: 'save',
+      digest: digest('a'), virtualPath: 'mounts/renders/saved.png', url: `asset/${digest('a')}` })])
+    const typed = { ...state, outputs: { save: { assets: asset(digest('a'), 'saved.png') } } }
+    expect(executedImageInventory(typed, options)).toHaveLength(1)
+  })
+
   it('rejects malformed typed assets and ignores legacy file entries', () => {
     const valid = digest('d')
     const nested = { ...asset(digest('f'), 'nested.png'), typeId: 'asset<list<comfy.IMAGE>>' }

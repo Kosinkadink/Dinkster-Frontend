@@ -67,6 +67,12 @@ core schema and event goldens run in fast and full unit suites, not again
 in the stock-backend browser job. `pnpm --filter @dinkster/app build`
 checks its emitted HTML, nonempty module entry and inline semantic-token
 content/order after Vite builds once; unit tests do not invoke a second build.
+The `production-build` browser keeper
+loads a separately built production app, checks that its shell and Settings
+work, and verifies that `window.__dinksterTest` is absent even with test-like
+URL parameters. Only Vite's explicit `--mode test` publishes the mutable app,
+canvas and synthetic-workload bridge. Browser configurations opt in to that
+mode; ordinary development and production builds do not expose it.
 The widget document-value matrix runs in core alongside its store contract.
 Execution and backend component tests check mounted labels, ownership and
 actions; the tooltip AST check only bans native HTML titles. The existing
@@ -80,6 +86,13 @@ job. Pull requests select its `linux` entry for same-repository branches and
 values select hosted images for main validation, schedules, and manual runs.
 
 ## Full validation
+
+The live image upload proof requires `dinkster.image.load_image` and
+`dinkster.image.save_image` from the same-origin catalog and fails with the
+missing node IDs when either is absent. Its execution graph connects the
+loader's `IMAGE` output to the saver's `images` input; upload byte equality,
+canonical asset references, export/reopen and completed execution remain
+required.
 
 The hosted guide backend composes only `packages/e2e/fixtures/guide-pack`,
 a node-free pack with one guide, in a separate library. Its port defaults to
@@ -193,6 +206,8 @@ schemas and API routes. The shared fixture does not select a stock protocol,
 block native discovery, or add backend settings responses. App View remains an
 explicit per-test option, and spec-local routes take precedence over context
 routes. No standing development server is reused or stopped.
+Product option fixtures resolve controls by option ID rather than global list
+position so collection updates cannot redirect a pending selection.
 Palette surface fixtures await startup ownership before publishing schemas or
 opening their document so they do not invalidate the restored inventory's acknowledgment.
 Remote combo refresh proof waits for the previous option to detach and the

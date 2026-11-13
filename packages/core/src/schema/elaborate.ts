@@ -1319,9 +1319,27 @@ const dynamicSlotHandler: DynamicKindHandler = {
     const state = scope.stateOf(construct)
     const selectedVariant = spec.variants?.find((variant) => variant.key === state?.selected)
 
+    if (spec.materialization === 'wire15' && spec.variants !== undefined &&
+      !ctx.acceptsDynamicChoice(state, construct, spec.variants.map((variant) => variant.key))) {
+      ctx.report('error', 'prompt.bad_dynamic_choice',
+        `${ctx.nodeType}.${construct}: dynamic choice must name a declared variant, received ${String(state?.selected)}`, construct)
+      return
+    }
+
     if (ctx.includeDormant) {
       if (spec.materialization === 'wire15') {
-        ctx.report('error', 'elab.dormant.unsupported', 'Dormant wire15 inputs require branch-specific identity resolution', construct)
+        const censusScope: ElabScope = { ...scope, apiPrefix: undefined, wire15Materialization: true }
+        // The selector binds the slot's own value; dependent paths survive branch changes.
+        if (spec.variants === undefined || selectedVariant !== undefined) ctx.emit({ kind: 'input', address: { port: construct },
+          spec: { ...rekey(item, construct), type: selectedVariant?.type ?? spec.slotType }, origin: { kind: 'slot', construct } }, censusScope)
+        ctx.elaborateInputs(spec.inputs, { ...censusScope, valuePrefix: construct,
+          staticOrigin: { kind: 'dependent', construct } })
+        for (const variant of spec.variants ?? []) {
+          const branch: ElabScope = { ...censusScope,
+            censusBranch: [...scope.censusBranch ?? [], construct, variant.key] }
+          ctx.elaborateInputs(variant.inputs, { ...branch, valuePrefix: construct,
+            staticOrigin: { kind: 'dependent', construct, variant: variant.key } })
+        }
         return
       }
       ctx.emit({ kind: 'input', address: { port: construct },
@@ -1372,9 +1390,21 @@ const dynamicSlotHandler: DynamicKindHandler = {
       const requested = state?.selected as unknown
       if (requested === undefined) {
         if (item.optional === false) {
+          ctx.emit(
+            {
+              kind: 'input', address: { port: construct },
+              spec: { ...rekey(item, construct), type: spec.slotType },
+              origin: {
+                kind: 'slot', construct,
+                variants: spec.variants.map(({ key, type }) => ({ key, type })),
+                ...(spec.typeTemplateId !== undefined ? { typeTemplateId: spec.typeTemplateId } : {}),
+              },
+            },
+            { ...scope, wire15Materialization: true },
+          )
           ctx.report(
             'error',
-            'prompt.bad_dynamic_choice',
+            'prompt.missing_dynamic_choice',
             `${ctx.nodeType}.${construct}: required dynamic slot must name a declared variant`,
             construct,
           )

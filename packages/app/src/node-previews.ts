@@ -125,7 +125,7 @@ export interface PreviewSource {
   readonly mediaKind?: 'image' | 'video' | 'audio' | 'model3d'
   readonly output?: { readonly index: number; readonly count: number }
   /** Exact schema output the imagery is attributed to, where known. */
-  readonly outputId?: string
+  readonly outputId?: string | undefined
   readonly imageBatch?: ExecutedImageBatch | undefined
   readonly refusal?: string | undefined
   readonly cancellationKey?: string
@@ -503,7 +503,10 @@ export function deriveNodePreviewSurface(args: {
   const preview = representedOutput
     ? { ...animatedPreview, state: 'estimate' as const }
     : animatedPreview
-  const retainedPreview = source.runtimeId !== undefined && args.retainedRuntimeIds?.has(source.runtimeId) === true
+  const retainedPreview = source.runtimeId !== undefined && (
+    args.retainedRuntimeIds?.has(source.runtimeId) === true ||
+    (!args.frozen && !args.running && args.exactProducer?.(source.runtimeId) !== true)
+  )
     ? { ...preview, state: 'cached' as const }
     : preview
   return {
@@ -540,6 +543,7 @@ export function createPreviewLoader(deps: {
   const imageMisses = new Set<string>()
   const imageBatches = new Map<string, ExecutedImageBatch>()
   const imageRefusals = new Map<string, string>()
+  const peekAttribution = new WeakMap<NodePreview, { readonly runtimeId: string; readonly outputId: string }>()
   const requests = new Map<string, { readonly key: string; readonly controller: AbortController }>()
   const file3dResources = new WeakMap<NodePreview, () => void>()
   const assetReaderHolder = {}
@@ -973,6 +977,14 @@ export function createPreviewLoader(deps: {
       return {
         key,
         cancellationKey: baseKey,
+        get runtimeId() {
+          const preview = cache.get(key)
+          return preview === undefined ? undefined : peekAttribution.get(preview)?.runtimeId
+        },
+        get outputId() {
+          const preview = cache.get(key)
+          return preview === undefined ? undefined : peekAttribution.get(preview)?.outputId
+        },
         get imageBatch() { return imageBatches.get(baseKey) },
         get refusal() { return imageRefusals.get(baseKey) },
         ...(declaredIntent ? { declaredIntent: true as const } : {}),
@@ -989,7 +1001,9 @@ export function createPreviewLoader(deps: {
             const result = await image.load!(signal ?? new AbortController().signal)
             signal?.throwIfAborted()
             if (!result.available) throw Object.assign(new Error(`${result.reason}: ${result.error}`), { negativeCache: [400, 404, 406, 410].includes(result.status) })
-            return decodeRendition({ ...result, node: image.runtimeId, output: image.outputId, count: known.count })
+            const preview = await decodeRendition({ ...result, node: image.runtimeId, output: image.outputId, count: known.count })
+            peekAttribution.set(preview, { runtimeId: image.runtimeId, outputId: image.outputId })
+            return preview
           }
           const result = await fetchPeekRendition(values, exec.ref.prompt, candidates, deps.validateMediaRendition, { batchIndex, ...(signal === undefined ? {} : { signal }) }).catch((error: unknown) => {
             if (error instanceof ImageBatchUnsupportedError && !disposed && !signal?.aborted) {
@@ -1049,7 +1063,9 @@ export function createPreviewLoader(deps: {
           const videoInspection = await videoInspectionFor(result, values, candidates, deps.validateMediaRendition, signal)
           signal?.throwIfAborted()
           const preview = await decodeRendition(result)
-          return videoInspection === undefined ? preview : { ...preview, kind: 'video', videoInspection }
+          const decoded = videoInspection === undefined ? preview : { ...preview, kind: 'video' as const, videoInspection }
+          peekAttribution.set(decoded, { runtimeId: result.node, outputId: result.output })
+          return decoded
         },
       }
     },

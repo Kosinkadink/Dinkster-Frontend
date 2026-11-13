@@ -14,7 +14,7 @@ export interface ExecutedImage {
   readonly outputId: string
   readonly descriptorIndex: number
   readonly url: string
-  readonly kind: 'asset' | 'rendition'
+  readonly kind: 'asset' | 'rendition' | 'artifact'
   readonly mediaType: string
   readonly descriptor?: ValueDescriptor
   readonly listPath?: readonly number[]
@@ -125,10 +125,24 @@ export function executedImageInventory(
       }
     }
   }
+  for (const [index, artifact] of (execution.artifacts ?? []).entries()) {
+    if (allowed !== undefined && !allowed.has(artifact.nodeId)) continue
+    if (!artifact.mediaType.startsWith('image/') || !CAS_DIGEST.test(artifact.digest) || artifact.preview !== undefined) continue
+    if (images.some((image) => image.kind === 'asset' && image.runtimeId === artifact.nodeId && image.digest === artifact.digest)) continue
+    images.push({
+      key: `${execution.key}:artifact:${artifact.nodeId}:${index}:${artifact.digest}`,
+      runtimeId: artifact.nodeId, outputId: 'saved file', descriptorIndex: index,
+      url: options.assetUrlForExecution(execution.ref, artifact.digest),
+      kind: 'artifact', mediaType: artifact.mediaType, digest: artifact.digest,
+      ...(assetReader === undefined ? {} : { assetReader: (holder: object) => assetReader(execution, [artifact.digest], holder) }),
+      name: artifact.name, virtualPath: artifact.virtualPath,
+    })
+  }
   return images
 }
 
 export function executedImageLabel(image: ExecutedImage, index: number, total: number): string {
   const identity = image.name ?? image.digest ?? image.outputId
+  if (image.kind === 'artifact') return `Image ${index + 1} of ${total}, node ${image.runtimeId}, saved file ${image.descriptorIndex + 1}, ${identity}`
   return `Image ${index + 1} of ${total}, node ${image.runtimeId}, output ${image.outputId}, descriptor ${image.descriptorIndex + 1}, ${identity}`
 }

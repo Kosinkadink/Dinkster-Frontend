@@ -54,6 +54,7 @@ import {
   type TypeExpr,
   type WorkflowDocument,
 } from '@dinkster/core'
+import { isSaveTarget } from '@dinkster/widgets'
 import { isAssetRef } from './image-editor.js'
 import { activeProjectId, scopedStorageKey } from './projects.js'
 import { imageDocumentDigest } from './image-document-local.js'
@@ -71,11 +72,47 @@ const compositorCensuses = new WeakMap<object, {
 
 const primitiveNames = new Set(['STRING', 'INT', 'FLOAT', 'BOOLEAN', 'COMBO', 'COLOR'])
 // Widgets with required socket types declare that binding explicitly.
-const widgetTypes = new Map<string, readonly string[] | undefined>([
-  ['STRING', undefined], ['INT', undefined], ['FLOAT', undefined], ['NUMBER', undefined],
-  ['BOOLEAN', undefined], ['COMBO', undefined], ['ASSET', undefined], ['MOUNT', ['STRING']],
-  ['COLOR', ['COLOR', 'STRING']], ['COMPOSITOR', ['COMPOSITOR']], ['CURVE', ['CURVE']],
+const widgetTypes = new Map<string, {
+  readonly sockets?: readonly string[]
+  readonly listElements?: readonly string[]
+  readonly asset?: boolean
+  readonly opaque?: boolean
+  readonly validate?: (value: Json) => boolean
+}>([
+  ['STRING', {}], ['INT', {}], ['FLOAT', {}], ['NUMBER', {}],
+  ['BOOLEAN', {}], ['COMBO', {}], ['ASSET', {}],
+  ['MOUNT', { sockets: ['STRING'], validate: (value) => value === null || typeof value === 'string' }],
+  ['COLOR', { sockets: ['COLOR', 'STRING'] }], ['COMPOSITOR', { sockets: ['COMPOSITOR'] }], ['CURVE', { sockets: ['CURVE'] }],
+  ['MARKDOWN', { sockets: ['STRING'] }], ['CAMERA_ANGLE_VIEW', { sockets: ['STRING'] }],
+  ['BUTTON', { sockets: ['STRING'], validate: (value) => value === null || typeof value === 'string' }],
+  ['IMAGECOMPARE', { sockets: ['IMAGECOMPARE'], validate: (value) => value === null }],
+  ['RESOLUTION_PREVIEW', { sockets: ['RESOLUTION_PREVIEW'], validate: (value) => value === null }],
+  ['MULTI_COMBO', { listElements: ['COMBO'], validate: (value) => Array.isArray(value) && value.every((entry) => typeof entry === 'string') }],
+  ['COLORS', { listElements: ['STRING'], validate: (value) => Array.isArray(value) && value.every((entry) => typeof entry === 'string') }],
+  ['LIST', { listElements: ['STRING', 'INT', 'FLOAT'] }],
+  ['SAVE_TARGET', { sockets: ['SAVE_TARGET'], validate: (value) => value === null || isSaveTarget(value) }],
+  ['BOUNDING_BOX', { sockets: ['BOUNDING_BOX'], validate: (value) =>
+    typeof value === 'object' && value !== null && !Array.isArray(value) && Object.keys(value).length === 4 &&
+    ['x', 'y', 'width', 'height'].every((key) => Object.hasOwn(value, key)) &&
+    Object.values(value).every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate)) }],
+  ['AUDIO_RECORD', { sockets: ['AUDIO', 'AUDIO_RECORD', 'ASSET'], asset: true,
+    validate: (value) => value === null || isAssetRef(value) && value.mediaType.startsWith('audio/') }],
+  ['WEBCAM', { sockets: ['WEBCAM', 'ASSET'], asset: true,
+    validate: (value) => value === null || isAssetRef(value) && value.mediaType.startsWith('image/') }],
+  // These editors preserve open-ended imported records, not a closed ownership contract.
+  ['LOAD_3D', { opaque: true }], ['VIDEO_EDIT', { opaque: true }],
 ])
+
+function widgetBindingSupported(type: TypeExpr, widgetType: string): boolean {
+  const contract = widgetTypes.get(widgetType)
+  if (contract === undefined || contract.opaque) return false
+  if (contract.listElements !== undefined) {
+    return type.kind === 'list' && type.element.kind === 'concrete' &&
+      contract.listElements.includes(type.element.name)
+  }
+  return contract.sockets === undefined || type.kind === 'concrete' && contract.sockets.includes(type.name) ||
+    contract.asset === true && type.kind === 'asset'
+}
 
 function assetFreeDynamicState(value: unknown, depth = 0): boolean {
   if (depth > MAX_DYNAMIC_STATE_DEPTH || typeof value !== 'object' || value === null || Array.isArray(value)) return false
@@ -148,8 +185,14 @@ function censusWorkflowAssetRoots(
     if (namedAsset && value === null) return true
     // Asset widgets can hold unresolved imported names, never a certified digest set.
     if (namedAsset && typeof value === 'string') { complete = false; return false }
+    if (widgetType !== undefined && widgetTypes.has(widgetType) && !widgetBindingSupported(type, widgetType)) {
+      complete = false
+      opaqueRoots(value)
+      return false
+    }
     const typed = parseTypedLiteralWire(value)
-    const socketTypes = widgetTypes.get(widgetType ?? '')
+    const contract = widgetTypes.get(widgetType ?? '')
+    const socketTypes = contract?.sockets
     const color = socketTypes?.includes('COLOR') === true || (type.kind === 'concrete' && type.name === 'COLOR')
     if (type.kind === 'concrete' && (
       (color && typed === undefined && typeof value !== 'string') ||
@@ -201,14 +244,16 @@ function censusWorkflowAssetRoots(
         })
       if (!valid) { complete = false; opaqueRoots(value) }
       return valid
+    } else if (contract?.validate !== undefined) {
+      const valid = contract.validate(value)
+      if (!valid) complete = false
+      opaqueRoots(value)
+      return valid
     } else if (socketTypes !== undefined && (type.kind !== 'concrete' || !socketTypes.includes(type.name) ||
-      (value !== null && typeof value !== 'string'))) {
+      typeof value !== 'string')) {
       complete = false
       opaqueRoots(value)
       return false
-    } else if (socketTypes !== undefined && value === null) {
-      // The default output mount is a selection sentinel, not an asset identity.
-      return true
     } else if (!supported(type)) {
       complete = false
       opaqueRoots(value)
@@ -310,8 +355,16 @@ function censusWorkflowAssetRoots(
         message: `${node.title ?? node.type} (${node.id}): ${diagnostic.message}`,
       })
     }
-    if (active.diagnostics.some((diagnostic) => diagnostic.severity === 'error') ||
-      stored.diagnostics.some((diagnostic) => diagnostic.severity === 'error' &&
+    const missingChoices = active.diagnostics.filter((diagnostic) => diagnostic.code === 'prompt.missing_dynamic_choice')
+    if (missingChoices.length > 0) {
+      complete = false
+      incompleteDiagnostics.push(...missingChoices)
+    }
+    // An absent required choice is editable, but cannot certify ownership or execute.
+    const invalidIdentity = (diagnostic: Diagnostic): boolean => diagnostic.severity === 'error' &&
+      !(purpose === 'admission' && diagnostic.code === 'prompt.missing_dynamic_choice')
+    if (active.diagnostics.some(invalidIdentity) ||
+      stored.diagnostics.some((diagnostic) => invalidIdentity(diagnostic) &&
         (purpose === 'publication' || diagnostic.code !== 'elab.dormant.unsupported'))) {
       complete = false
       const invalidIdentities = [...active.diagnostics, ...stored.diagnostics].some((diagnostic) =>
@@ -333,10 +386,8 @@ function censusWorkflowAssetRoots(
     const inputs = unsupportedDormant.length > 0 ? [...elabInputsOf(stored), ...elabInputsOf(active)] : elabInputsOf(stored)
     for (const input of inputs) {
       const { spec } = input
-      const socketTypes = widgetTypes.get(spec.widget?.widgetType ?? '')
       if (spec.ext !== undefined && Object.keys(spec.ext).some((key) => key !== 'default')) complete = false
-      if (spec.widget !== undefined && (!widgetTypes.has(spec.widget.widgetType) ||
-        (socketTypes !== undefined && (spec.type.kind !== 'concrete' || !socketTypes.includes(spec.type.name))))) {
+      if (spec.widget !== undefined && !widgetBindingSupported(spec.type, spec.widget.widgetType)) {
         complete = false
         incompleteDiagnostics.push({ severity: 'error', origin: 'schema', code: 'workflow.asset.unresolvedInput',
           refs: [{ graphId: graph.id, nodeId: node.id }],
@@ -356,10 +407,14 @@ function censusWorkflowAssetRoots(
       }
     }
     for (const [input, value] of Object.entries(node.values)) {
-      const matching = inputs.filter((item) => valueKeyOf(item) === input)
+      const candidates = inputs.filter((item) => valueKeyOf(item) === input)
+      const conflicting = candidates.some((item) => item.wire15Materialization) &&
+        new Set(candidates.map((item) => canonicalJson(item.spec.type))).size > 1
+      const typed = parseTypedLiteralWire(value)
+      const matching = conflicting && typed !== undefined ? candidates.filter((item) =>
+        canonicalJson(item.spec.type) === canonicalJson(typeExprFromTypeId(typed.type))) : candidates
       if (matching.length === 0) complete = false
-      const ambiguous = matching.some((item) => item.wire15Materialization) &&
-        new Set(matching.map((item) => canonicalJson(item.spec.type))).size > 1 && parseTypedLiteralWire(value) === undefined
+      const ambiguous = conflicting && typed === undefined
       if (ambiguous) {
         complete = false
         incompleteDiagnostics.push({ severity: 'error', origin: 'schema', code: 'workflow.asset.ambiguousInput',

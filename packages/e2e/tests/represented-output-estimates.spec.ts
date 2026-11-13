@@ -18,7 +18,7 @@ const asset = {
 
 const loadImageWire31 = {
   schemaVersion: 1,
-  nodeType: 'dinkster.load_image',
+  nodeType: 'dinkster.image.load_image',
   displayName: 'Load Image',
   category: 'image',
   interface: [
@@ -66,7 +66,7 @@ test('an uploaded selected asset estimates its represented output before executi
     schemaVersion: 1,
     epoch: 1,
     dinkster: { version: 'represented-output-proof', schemaWire: 1 },
-    nodes: { 'dinkster.load_image': loadImageWire31 },
+    nodes: { 'dinkster.image.load_image': loadImageWire31 },
   } }))
   await page.route('**/api/assets/**', async (route) => {
     const url = new URL(route.request().url())
@@ -85,7 +85,7 @@ test('an uploaded selected asset estimates its represented output before executi
       schemas: [...registry.schemas.keys()],
       diagnostics: registry.diagnostics.map((diagnostic) => diagnostic.code),
     }
-  })).toEqual({ schemas: ['dinkster.load_image'], diagnostics: [] })
+  })).toEqual({ schemas: ['dinkster.image.load_image'], diagnostics: [] })
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app as unknown as {
       settings: { set(id: string, value: unknown): void }
@@ -102,7 +102,7 @@ test('an uploaded selected asset estimates its represented output before executi
           id: 'g0',
           name: 'root',
           nodes: {
-            loader: { id: 'loader', type: 'dinkster.load_image', values: { image: null } },
+            loader: { id: 'loader', type: 'dinkster.image.load_image', values: { image: null } },
           },
           links: {},
           nets: {},

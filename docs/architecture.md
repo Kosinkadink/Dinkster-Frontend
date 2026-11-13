@@ -380,7 +380,8 @@ sibling's different option set. That exception is bound to the same state
 object and construct; invalid active choices and unvalidated dormant choices
 still refuse. Keys read by neither walk remain unknown-state errors; dormant
 diagnostics still make ownership incomplete. Active elaboration errors still
-refuse admission, and no dormant branch identities are resolved or guessed.
+refuse admission. Dormant wire-15 combo and slot dependents are enumerated from
+their declared branch paths; their active interface and stored keys are unchanged.
 Custom dynamic handlers read root constructs through `ctx.stateOf` and nested
 constructs through `ctx.memberScope(...).stateOf`; raw state-table access is not
 part of the handler context. Enumerating input evidence does not verify a key.
@@ -503,18 +504,31 @@ Concrete nodes use occurrence-aware schemas, including a region's list-valued
 element inputs; definition-only boundary types do not describe those values.
 Standard NUMBER widgets are asset-free metadata; unknown widget kinds still
 make the census incomplete.
+Retained MARKDOWN, BUTTON and CAMERA_ANGLE_VIEW values use their declared
+STRING binding. MULTI_COMBO, COLORS and LIST require their declared primitive
+list bindings; embedded objects do not become asset-free by appearing in a list.
+SAVE_TARGET accepts only null or the closed mount/prefix record, and BOUNDING_BOX
+accepts only its four finite coordinates. AUDIO_RECORD accepts the served AUDIO
+socket binding. It and WEBCAM retain exact asset references with the matching
+media type, or accept null when cleared.
+IMAGECOMPARE and RESOLUTION_PREVIEW accept their null presentation state.
+Open-ended LOAD_3D and VIDEO_EDIT bindings remain incomplete even when unset,
+and retain any known embedded roots. Editor acceptance is not an ownership guarantee.
 Dynamic inputs use canonical elaborated identities: stored inactive combo branches,
 disconnected slot dependents and persisted family members contribute roots, while
 defaults come only from the active interface. Historical connectivity changes
 recheck dynamic nodes even when their objects are shared. Dynamic metadata must
 have the known asset-free shape, and every stored state key must be read in its
 canonical construct/member scope. Unknown stored keys, elaboration diagnostics or
-budget exhaustion, and unsupported dormant wire-15 slots remain incomplete.
-The wire-15 DynamicCombo census visits every branch at its direct stored path,
-without changing the active interface or inventing branch-local storage keys.
-Projected names may recur across branches but not within one branch. A stored
-untyped value with conflicting branch types stays incomplete and names the input
-in its diagnostic; a typed literal supplies its own exact type. Only effective
+budget exhaustion and unsupported declarations remain incomplete.
+The wire-15 DynamicCombo and DynamicSlot census visits every dependent branch
+at its direct stored path, without changing the active interface or inventing
+branch-local storage keys. A closed slot's own value uses its explicit selected
+variant; disconnected open-slot dependents remain enumerable without contributing
+their defaults. Projected names may recur across branches but not within one
+branch. A stored untyped dependent with conflicting branch types stays incomplete
+and names the input in its diagnostic; a typed literal must match a declared
+branch type exactly to disambiguate it. Only effective
 defaults contribute roots, while stored values from all branches are retained.
 Missing node or input schemas, unsupported value types, malformed containers and
 unresolved selection names identify the exact stored input (or effective default)
@@ -828,6 +842,8 @@ Solved types are derived state: recomputed (incrementally, dirty-region) on topo
 **Why this pipeline cannot oscillate** (the old frontend's callback cascades are the cautionary tale): elaboration inputs are restricted by construction to (schema, stored values, link *existence*). Autogrow depends on materialized members, DynamicCombo on a widget value, DynamicSlot on connectedness - none depend on solved types. So the dependency structure is a DAG: `document -> elaboration -> solving -> rendering`, evaluated innermost-definition-first and memoized per definition. There is no feedback edge from solving into elaboration, hence no fixpoint iteration, no ordering sensitivity, and no "connect A then B behaves differently than B then A" class of bugs. Any future feature that would need type-dependent elaboration must be rejected or given an explicit, documented stratification - this invariant is load-bearing.
 
 **Type-driven specialization (DynamicSlot and kin) is a materialized choice.** A schema may declare that a slot specializes on the connected type (per-type nested input sets, per-type widget specs). The mechanism: connecting is a command, and the interaction layer - which may legitimately read solved types for UI decisions - writes the selected variant into the node's **persisted dynamic state**, exactly like a DynamicCombo selection set by a gesture instead of a keystroke. Elaboration keeps its restricted inputs, so the no-feedback DAG holds by construction, and the choice is serialized (exact reproduction), deterministic on load, undo-friendly, and user-overridable like any value. A required closed slot may additionally bind its selected concrete variant type to a MatchType variable shared by outputs. The stored choice remains the sole authority: solving substitutes it through the active interface, but solved graph types never choose or rewrite the variant. If the upstream type later changes, the stored choice goes stale like any other mismatch: the advisory solver marks it, nothing auto-deletes, and re-picking (manually or via a repair command) resolves it. When the connected type is generic/unresolved at connect time, no variant is auto-selected - the slot stays in its unspecialized base form until the type is known at a later gesture or the user picks. The alternative - elaboration reading the *declared* type of the linked producer's port - was considered and rejected: it makes one node's elaboration read another node's elaborated ports (cycle risk once producer ports are themselves dynamic) and still cannot specialize on generic producers (hazard T1).
+
+Clearing a required native closed slot keeps its unspecialized input pin and variant menu reachable. The pin is a selection affordance, not a submitted input: until a declared variant is selected, required-choice validation still rejects execution. Shared editing admits this missing-choice intermediate state with incomplete retained ownership so the user can correct it; it does not certify unknown roots or permit publication. Malformed choices and identities remain refused. Optional unselected native slots remain absent.
 
 ### 4. Subgraphs: definitions as polymorphic type schemes
 
@@ -1468,6 +1484,14 @@ data and is not emitted on the graph wire.
 - **subgraph implementation Subgraphs**: nonrecursive definitions, boundary -> NodeSchema derivation live (concrete + generic ports), per-instance type schemes, promoted parameters, flattening + occurrence provenance, shared-definition edit invalidation.
 - **execution UX implementation Named nets + execution UX**: named nets with hide/show rendering; multi-tab correctness; frozen views + diverged badges; reconnect/history reconciliation; collapsed-subgraph progress aggregation. Concurrent-execution UX: overlay binding/pinning switcher, executions rail with multiple in-flight runs. Multi-backend: BackendConnection UI (add/select connections, per-connection registries and queues, retarget-with-diagnostics). Control surfaces v1 (mode panel, group binding) and selectors (value + random policy, choice recorded in CompileArtifact).
 - **extension API implementation Extensibility + views foundation + polish**: freeze and document extension API v1 (registries + command API), informational deprecation badges, variadic/conditional subgraph boundaries exposed, app-view binding model (design + minimal proof), full importer diagnostics, accessibility completion, perf optimization against the budgets.
+
+## Saved image outputs
+
+The Outputs panel lists retained image files alongside tensor renditions. Saved
+files show the backend's content digest and written virtual path even when the
+save node returns only an IMAGE tensor. A file already represented by a typed
+asset from that node is listed once; files from different nodes retain their
+separate provenance.
 
 ## Key risks / open questions
 

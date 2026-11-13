@@ -54,10 +54,13 @@ const BACKEND_SERIAL_SPECS = [
   'audit-widget-parity-live.spec.ts',
   'run-history.spec.ts',
   'peek-preview.spec.ts',
+  'dev-blueprint-live.spec.ts',
   'preferred-preview-publication-live.spec.ts',
   'native-imagery-live.spec.ts',
+  'mirror-native-live.spec.ts',
   'lora-conditioning-scheduling-live.spec.ts',
   'image-upload-byte-proof.spec.ts',
+  'midgraph-preview-live.spec.ts',
   'gallery-live.spec.ts',
   'starter-templates-live.spec.ts',
   'collab-noodle-presence.spec.ts',
@@ -78,6 +81,7 @@ const BACKEND_SERIAL_SPECS = [
   'video-edit.spec.ts',
   'glsl-shader.spec.ts',
   'executable-examples-live.spec.ts',
+  'dev-node-features-live.spec.ts',
   'app-view-queue-buttons-native.spec.ts',
   'cancel-execution-live.spec.ts',
   'served-contracts-live.spec.ts',
@@ -152,7 +156,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `pnpm --filter @dinkster/app dev --host 127.0.0.1 --port ${devPort} --strictPort`,
+      command: `pnpm --filter @dinkster/app dev --mode test --host 127.0.0.1 --port ${devPort} --strictPort`,
       url: `http://127.0.0.1:${devPort}`,
       reuseExistingServer: false,
       env: {
@@ -162,7 +166,7 @@ export default defineConfig({
       cwd: '../..',
     },
     {
-      command: `pnpm --filter @dinkster/app dev --host 127.0.0.1 --port ${nativeFrontendPort} --strictPort`,
+      command: `pnpm --filter @dinkster/app dev --mode test --host 127.0.0.1 --port ${nativeFrontendPort} --strictPort`,
       url: `http://127.0.0.1:${nativeFrontendPort}`,
       reuseExistingServer: false,
       env: {

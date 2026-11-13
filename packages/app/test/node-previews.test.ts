@@ -1320,9 +1320,17 @@ describe('deriveNodePreviewSurface frame-ring animation', () => {
       deriveNodePreviewSurface(args)
       await flush(); await flush()
       expect(deriveNodePreviewSurface(args).preview).toMatchObject(outputBitmap)
+      expect(deriveNodePreviewSurface(args).source).toMatchObject({ runtimeId: 'n1', outputId: 'IMAGE' })
+      expect(deriveNodePreviewSurface(args).preview).toMatchObject({ ...outputBitmap, state: 'cached' })
+      const edited = { ...args, exactProducer: () => false }
+      expect(deriveNodePreviewSurface(edited).preview).toMatchObject({ ...outputBitmap, state: 'cached' })
+      expect(deriveNodePreviewSurface({ ...edited, frozen: true }).preview).not.toHaveProperty('state')
+      expect(deriveNodePreviewSurface({ ...args, frozen: true }).preview).not.toHaveProperty('state')
+      expect(deriveNodePreviewSurface({ ...args, exactProducer: () => true }).preview).not.toHaveProperty('state')
       deriveNodePreviewSurface({ ...args, running: true })
       await flush()
       expect(deriveNodePreviewSurface({ ...args, running: true }).preview).toMatchObject(frameBitmap)
+      expect(deriveNodePreviewSurface({ ...args, running: true }).preview).not.toHaveProperty('state')
       expect(deriveNodePreviewSurface({ ...args, exec: { ...e, outputs: {} } }).preview).toMatchObject(frameBitmap)
       const partial = {
         ...args, retainedRuntimeIds: new Set(['n1']),
@@ -1497,7 +1505,7 @@ describe('represented asset source precedence', () => {
     runtimeIdsOf: undefined,
     running: false,
     frozen: false,
-    exactProducer: undefined,
+    exactProducer: () => true,
     ...(retainedRuntimeIds === undefined ? {} : { retainedRuntimeIds }),
     companionSources: new Map(),
     values: undefined,

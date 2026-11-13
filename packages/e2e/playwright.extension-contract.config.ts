@@ -79,7 +79,7 @@ export default defineConfig({
       timeout: 180_000,
     },
     {
-      command: `pnpm --filter @dinkster/app dev --host 127.0.0.1 --port ${frontendPort} --strictPort`,
+      command: `pnpm --filter @dinkster/app dev --mode test --host 127.0.0.1 --port ${frontendPort} --strictPort`,
       cwd: frontendRoot,
       env: { ...process.env, DINKSTER_NATIVE_BACKEND: nativeBackend },
       url: `http://127.0.0.1:${frontendPort}`,
