@@ -134,8 +134,7 @@ change. Model upload remains disabled because this picker has no model-upload
 contract. Download remains disabled while the backend has no acquisition
 contract.
 
-Focused proof lives in `packages/app/test/logical-model.test.ts`,
-`packages/app/test/local-mount-logical-model.test.ts`,
+Focused proof lives in `packages/app/test/local-mount-logical-model.test.ts`,
 `packages/app/test/LogicalModelCollection.dom.test.tsx`,
 `packages/app/test/ModalSurface.dom.test.tsx`, and
 `packages/e2e/tests/logical-model-picker.spec.ts`.

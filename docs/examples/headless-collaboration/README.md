@@ -58,6 +58,5 @@ identify it.
 From this directory, after the `pnpm install` above:
 
 ```sh
-pnpm test        # runs the unit test in test/
-pnpm typecheck   # type-checks src/ and test/
+pnpm typecheck   # type-checks src/
 ```
