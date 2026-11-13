@@ -12,7 +12,7 @@ import { requireBackendNodes } from './required-nodes.js'
 
 // Exact native catalog of the backend pinned by the hosted workflows.
 const canonicalCatalogSha256 =
-  'b783fc812470f6410245777d9cdf7734581d8a0c8635051bd63c241bf3cc9007'
+  '373e26281431ea3a891121351ae26f626a76add653b7595912e5e308c123ed03'
 const nativeBackend =
   process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
