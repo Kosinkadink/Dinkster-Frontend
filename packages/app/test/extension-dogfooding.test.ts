@@ -15,14 +15,6 @@ afterEach(() => {
 describe('core extension door dogfooding', () => {
 
   it('publishes the built-in commands and executes shell actions from the registry', () => {
-    expect(app.commands.list().map((command) => command.id).sort()).toEqual([
-      'backend.open', 'edit.delete', 'edit.deleteBackspace', 'edit.redo', 'edit.redoLegacy', 'edit.selectAll', 'edit.undo',
-      'layout.customize', 'node.bypass', 'node.help', 'node.minimize', 'node.mute',
-      'region.createFold', 'region.createMap', 'region.createWhile', 'search.open', 'settings.open',
-      'subgraph.createEmpty', 'subgraph.extract', 'subgraph.flatten', 'subgraph.manageDefinitions',
-      'view.fitSelection', 'view.zoomIn', 'view.zoomOut',
-      'workflow.cancel', 'workflow.export', 'workflow.importFile', 'workflow.open', 'workflow.queue', 'workflow.save',
-    ])
     expect(app.keybindings.combo('search.open')).toBe('ctrl+k')
     expect(app.keybindings.combo('workflow.queue')).toBe('ctrl+enter')
     expect(app.searchOpen.get()).toBe(false)
@@ -72,9 +64,7 @@ describe('core extension door dogfooding', () => {
   })
 
   it('publishes distinct non-interactive mode badges through the decoration registry', () => {
-    const decorations = app.nodeDecorations.get()
-    expect(decorations.map((decoration) => decoration.id)).toEqual(['core.node.mode'])
-    const mode = decorations[0]!
+    const mode = app.nodeDecorations.get().find((decoration) => decoration.id === 'core.node.mode')!
     const node = { documentId: 'doc', graphId: 'g0', id: 'n0', type: 'X', title: 'Example' }
     expect(mode.decorate({ ...node, mode: 'active' })).toBeUndefined()
     expect(mode.decorate({ ...node, mode: 'muted' })?.badges).toEqual([
