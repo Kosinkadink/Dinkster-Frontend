@@ -289,7 +289,7 @@ Node-side vitest microbench (not the browser e2e loop above): a synthetic
 1200-node document driven straight through DocumentStore.dispatch, no
 renderer. Measures the command pipeline cost of the document ownership and
 JSON command boundary.
-Rerun with `pnpm --filter @dinkster/core test -- --run test/perf-dispatch.test.ts`.
+The uncalibrated timing cases are removed; these measurements remain historical.
 
 | Workload | Date | State | us/op |
 | --- | --- | --- | --- |
