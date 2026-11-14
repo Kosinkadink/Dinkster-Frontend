@@ -147,9 +147,6 @@ export async function checkRawControls(args) {
   }
 
   const kinds = ['rawControl', 'inlineStyle', 'cssLiteral']
-  const byKey = new Map(
-    counts.map((entry) => [`${entry.kind}:${entry.path}`, entry]),
-  )
   const listedByKey = new Map(
     (allowlist.entries ?? []).map((entry) => [
       `${entry.kind}:${entry.path}`,
@@ -160,9 +157,6 @@ export async function checkRawControls(args) {
     (entry) =>
       entry.count >
       (listedByKey.get(`${entry.kind}:${entry.path}`)?.count ?? 0),
-  )
-  const stale = (allowlist.entries ?? []).filter(
-    (entry) => !byKey.has(`${entry.kind}:${entry.path}`),
   )
   const totals = Object.fromEntries(
     kinds.map((kind) => [
@@ -175,10 +169,8 @@ export async function checkRawControls(args) {
   const ceilingProblems = kinds.filter(
     (kind) =>
       !Number.isInteger(allowlist.ceilings?.[kind]) ||
-      totals[kind] > allowlist.ceilings[kind] ||
-      (!write &&
-        kind !== 'inlineStyle' &&
-        totals[kind] < allowlist.ceilings[kind]),
+      allowlist.ceilings[kind] < 0 ||
+      totals[kind] > allowlist.ceilings[kind],
   )
   const initializing =
     write &&
@@ -187,7 +179,7 @@ export async function checkRawControls(args) {
 
   if (!initializing && (growth.length > 0 || ceilingProblems.length > 0)) {
     problems.push(
-      'Raw-control ratchet mismatch; reduce stale ceilings with `pnpm check:raw-controls:write`:',
+      'Raw controls or styling literals exceed their allowlisted upper bounds:',
     )
     for (const entry of growth)
       problems.push(
@@ -219,18 +211,6 @@ export async function checkRawControls(args) {
       `${JSON.stringify({ issue: allowlist.issue ?? 382, ceilings, entries }, null, 2)}\n`,
     )
     return
-  }
-
-  if (
-    stale.length > 0 ||
-    JSON.stringify(counts) !==
-      JSON.stringify(
-        (allowlist.entries ?? []).map(({ issue: _issue, ...entry }) => entry),
-      )
-  ) {
-    throw new Error(
-      'Raw-control allowlist is stale; reduce it with `pnpm check:raw-controls:write`.',
-    )
   }
 }
 

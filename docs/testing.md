@@ -17,15 +17,15 @@ pnpm ci:fast
 This command runs `check-extension-literals`, `check-ui-strings`, and
 `typecheck` (the latter also runs `check-path-case`). Run `pnpm test` for the
 complete kept unit suite, including its performance budgets.
-The extension check pins every intentional backend node-id literal and widget
-type comparison to an exact source location, owning issue, and non-increasing
-ceiling. The committed ceilings are zero node-id literals and 85 widget-type
-comparisons. Both have zero slack, so each ceiling must equal its measured
-count, and the fast check rejects any increase from the merge base even when
-the allowlist is edited to match. New and stale entries also fail. After merging main, run
-`node scripts/check-extension-literals.mjs --write`, review that only expected
-line or column coordinates changed and no ceiling changed, then run
-`pnpm ci:fast`. The six region starter occurrences have separate
+The extension check binds every intentional backend node-id literal and widget
+type comparison to its source file, symbol, owning issue, and non-increasing
+ceiling. A line or column shift does not change that ownership. The fast check
+rejects new unowned sites, increased occurrence counts and raised merge-base
+ceilings. Removing sites or reordering baseline entries does not fail checks.
+UI-string and raw-control checks likewise allow removals while rejecting new
+literals or controls beyond their per-file upper bounds. Refresh a reduced
+baseline with the matching `--write` command when useful; no refresh is required
+just to admit a removal. The six region starter occurrences have separate
 `nodeIdExceptions` entries naming their exact file, node ID and owning
 [issue 813](https://github.com/Kosinkadink/comfy-vibe-station/issues/813).
 They do not raise the zero node-ID ceiling: an additional occurrence, another

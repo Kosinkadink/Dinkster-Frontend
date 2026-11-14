@@ -5,6 +5,12 @@ native schema response names its snapshot with `extensionSnapshotDigest`; the
 client verifies the digest and publishes the schema registry and snapshot
 together. A mixed pair is never committed.
 
+Snapshot decoding accepts unique extension, module, event, capability, selector,
+provider and configuration declarations in any order. Duplicate keys and IDs,
+invalid ownership and malformed contracts still refuse the snapshot. Decoding
+preserves the received declaration and contribution order; digest verification
+continues to cover the exact received snapshot bytes.
+
 ## Declarative host UI
 
 `HostUiContributionV1` is the only extension UI contract. It is a versioned,

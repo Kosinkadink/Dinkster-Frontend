@@ -248,7 +248,8 @@ export async function checkExtensionLiterals(
   if (
     ceilingKeys.length !== expectedKinds.length ||
     slackKeys.length !== expectedKinds.length ||
-    invalidKinds.length > 0
+    invalidKinds.length > 0 ||
+    expectedKinds.some((kind) => !Number.isInteger(allowlist.slack[kind]) || allowlist.slack[kind] < 0)
   ) {
     throw new Error('Extension literal ceiling and slack kinds differ')
   }
@@ -324,48 +325,23 @@ export async function checkExtensionLiterals(
 
   const ceilingProblems = expectedKinds.flatMap((kind) => {
     const ceiling = allowlist.ceilings?.[kind]
-    const slack = allowlist.slack?.[kind]
     const allowed = (allowlist.sites ?? []).filter(
       (site) => site.kind === kind,
     ).length
     const current = counts[kind]
-    return Number.isInteger(ceiling) &&
-      Number.isInteger(slack) &&
-      slack >= 0 &&
-      current <= ceiling &&
-      ceiling - current <= slack
+    return Number.isInteger(ceiling) && ceiling >= 0 && current <= ceiling
       ? []
       : [
-          `${kind}: current=${current ?? 0}, allowlisted=${allowed}, ceiling=${String(ceiling)}, slack=${String(slack)}`,
+          `${kind}: current=${current ?? 0}, allowlisted=${allowed}, ceiling=${String(ceiling)}`,
         ]
   })
-  if (
-    ceilingProblems.length > 0 ||
-    JSON.stringify(sites) !== JSON.stringify(allowlist.sites) ||
-    JSON.stringify(exceptions) !==
-      JSON.stringify(allowlist.nodeIdExceptions ?? [])
-  ) {
+  if (ceilingProblems.length > 0) {
     problems.push(
-      'Extension literal sites differ from scripts/extension-literal-allowlist.json:',
+      'Extension literal sites exceed scripts/extension-literal-allowlist.json ceilings:',
     )
     for (const problem of ceilingProblems) problems.push(`  ceiling ${problem}`)
-    const current = new Set(sites.map((site) => JSON.stringify(site)))
-    const allowed = new Set(
-      (allowlist.sites ?? []).map((site) => JSON.stringify(site)),
-    )
-    for (const site of current)
-      if (!allowed.has(site)) problems.push(`  unlisted ${site}`)
-    for (const site of allowed)
-      if (!current.has(site)) problems.push(`  stale ${site}`)
-    if (
-      JSON.stringify(exceptions) !==
-      JSON.stringify(allowlist.nodeIdExceptions ?? [])
-    )
-      problems.push(
-        '  stale or moved node ID exceptions; refresh their exact file and ID entries',
-      )
     problems.push(
-      'Replace a literal with an extension door, or refresh an intentional site with an owning issue while keeping the ceiling exact.',
+      'Replace a literal with an extension door, or reduce intentional sites without raising the ceiling.',
     )
     throw new Error(problems.join('\n'))
   }

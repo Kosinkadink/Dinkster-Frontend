@@ -204,6 +204,41 @@ describe('F0 authored and effective manifests', () => {
     expect(frontendApiSatisfies('1.0.0-alpha.01', '>=1.0.0-alpha')).toBe(false)
   })
 
+  it('admits unordered snapshot membership while retaining duplicate and ownership checks', () => {
+    const digest = `sha256:${'a'.repeat(64)}`
+    const frontend = (id: string) => ({
+      id, moduleUrl: `/api/extension-assets/demo/${digest}/${id}.js`, moduleDigest: digest,
+      authorizedPrivileges: ['app-workflow'], contributions: [],
+    })
+    const row = {
+      id: 'demo', version: '1.0.0', packageDigest: digest,
+      contributionIds: ['demo.second', 'demo.first'],
+      selectorResolutions: [{ selector: 'z', points: ['second', 'first'] }, { selector: 'a', points: ['other'] }],
+      serviceProviders: [{ service: 'z', provider: 'demo.z' }, { service: 'a', provider: 'demo.a' }],
+      capabilities: ['routes', 'accelerator'],
+      behaviorConfiguration: [{ key: 'z', value: 3 }, { key: 'a', value: false }],
+      frontend: [frontend('demo.z'), frontend('demo.a')],
+      events: [{ name: 'demo.z', payload: {} }, { name: 'demo.a', payload: {} }],
+    }
+    const snapshot = {
+      format: 'dinkster.extension-snapshot', version: 1, frontendApi: '1.0.0',
+      extensions: [row, { ...row, id: 'aaa', frontend: [], events: [] }],
+    }
+    const result = decodeEffectiveExtensionSnapshot(snapshot)
+    expect(result.diagnostics).toEqual([])
+    expect(result.snapshot?.extensions).toEqual(snapshot.extensions)
+    expect(Object.isFrozen(result.snapshot?.extensions[0]?.selectorResolutions[0]?.points)).toBe(true)
+    for (const key of ['capabilities', 'selectorResolutions', 'serviceProviders', 'behaviorConfiguration', 'frontend', 'events'] as const) {
+      expect(decodeEffectiveExtensionSnapshot({
+        ...snapshot, extensions: [{ ...row, [key]: [row[key][0], row[key][0]] }],
+      }).snapshot).toBeUndefined()
+    }
+    expect(decodeEffectiveExtensionSnapshot({ ...snapshot, extensions: [row, row] }).snapshot).toBeUndefined()
+    expect(decodeEffectiveExtensionSnapshot({
+      ...snapshot, extensions: [{ ...row, selectorResolutions: [{ selector: 'z', points: ['same', 'same'] }] }],
+    }).snapshot).toBeUndefined()
+  })
+
   it('owns immutable backend module/event declarations and rejects asset identity drift', () => {
     const digest = `sha256:${'a'.repeat(64)}`
     const module = {
