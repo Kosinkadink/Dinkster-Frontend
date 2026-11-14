@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const digest = (character: string) => `blake3:${character.repeat(64)}`
@@ -12,13 +12,19 @@ const plans = {
 } as const
 
 async function prepare(page: Page): Promise<void> {
+  await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'asset-consent-e2e', schemaWire: 1 }, nodes: {},
   } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
   await page.route('**/api/assets', (route) => route.fulfill({ status: 404, body: 'source document storage unavailable in isolated proof' }))
   await page.goto('/')
-  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
+  await expect.poll(() => page.evaluate(() => {
+    const backend = window.__dinksterTest?.app.backends.get()[0]
+    return backend?.registry.get() !== undefined && backend.connection.status.get() === 'connected' &&
+      backend.schemaState.get().status === 'ready'
+  })).toBe(true)
+  await waitForStartupOwnership(page)
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'AssetConsentOutput', displayName: 'Asset consent output', category: 'test', source: 'v3', isOutputNode: true, items: [],
