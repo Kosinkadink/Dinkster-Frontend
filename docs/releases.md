@@ -1,0 +1,9 @@
+# Frontend distributions
+
+The workspace `package.json` owns the frontend release version, independently of the engine and Desktop versions. Release versions use `X.Y.Z`; tags use `vX.Y.Z` and must match that version. Increase the patch version for compatible fixes, the minor version for compatible features, and the major version for breaking frontend behavior.
+
+`frontend-release.json` declares the inclusive range of engine schema API versions the release supports. This is the engine's `schemaWire` contract, not the engine package version or worker protocol. Change the range only when the frontend can use those schema versions.
+
+After building the application, `python scripts/build_release.py` writes a platform-independent `dinkster_frontend-X.Y.Z-py3-none-any.whl`, `frontend-manifest.json`, and `SHA256SUMS` under `dist/`. Pass `--tag vX.Y.Z` to check the release tag. The release workflow builds these files from the tagged commit, publishes the wheel to PyPI using trusted publishing, and attaches the same wheel, manifest and checksums to the GitHub release. Published files do not depend on CI artifact retention. Engine pins use the published wheel URL, version, byte size and SHA-256; GitHub provides a second copy of the same bytes.
+
+The wheel contains `dinkster_frontend/static/` with the built application and complete canonical branding, plus `dinkster_frontend/manifest.json` with the version, source commit and engine API range. It has no Python dependencies. The external manifest also names the wheel's filename, byte size and SHA-256. Consumers verify that digest before opening the wheel and check the embedded version and API range before using its assets. Desktop and the engine can consume the same wheel without rebuilding the application or copying branding from a separate source checkout.
