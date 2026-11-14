@@ -79,11 +79,17 @@ export function assetEntryOf(item: AssetBrowserItem, assetUrl?: (digest: string)
             thumbRender: async (signal?: AbortSignal) => {
               signal?.throwIfAborted()
               if (previewOwner === undefined) throw new Error('Asset preview ownership unavailable')
-              const url = assetUrl(item.digest!)
               const viewer = await import('../model3d-viewer.js')
               signal?.throwIfAborted()
               return readAssetPreview(previewOwner.connection, { complete: true, digests: [item.digest!] },
-                () => viewer.renderModel3dPosterUrl(url, item.mediaType!),
+                async () => {
+                  const bytes = await previewOwner.connection.fetchAssetBytes(item.digest!, signal)
+                  if (bytes === undefined) throw new Error('Asset preview is unavailable')
+                  signal?.throwIfAborted()
+                  const url = URL.createObjectURL(new Blob([bytes], { type: item.mediaType! }))
+                  try { return await viewer.renderModel3dPosterUrl(url, item.mediaType!) }
+                  finally { URL.revokeObjectURL(url) }
+                },
                 () => signal?.aborted !== true && activeProjectId() === project && previewOwner.current())
             },
           }

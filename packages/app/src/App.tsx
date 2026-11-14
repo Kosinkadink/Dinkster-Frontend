@@ -3103,6 +3103,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
     setLoaded(new Set<string>())
   })
   const images = createMemo(() => executedImageInventory(props.execution, {
+    readAsset: (ref, digest, signal) => props.app.readAssetForExecution(ref, digest, signal),
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
     executionAssetReader: (execution, digests, holder) => props.app.executionAssetReader(execution, digests, holder),
     values: values(),

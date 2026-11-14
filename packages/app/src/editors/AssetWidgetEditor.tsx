@@ -380,16 +380,6 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     }
     const request = ++assetPreviewRequest
     assetPreviewAbort?.abort()
-    if (kind === 'video' || kind === 'model3d') {
-      replaceAssetPreview({
-        kind,
-        src: backend.connection.assetUrl(ref.digest),
-        name: ref.name,
-        assetReader: selectionReader,
-        ...(kind === 'model3d' ? { mime: ref.mediaType } : {}),
-      })
-      return
-    }
     const abort = new AbortController()
     assetPreviewAbort = abort
     const reader = selectionReader
@@ -402,7 +392,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       if (!live || request !== assetPreviewRequest || !reader.current() || bytes === undefined ||
         props.app.backendForTab(ed.tab) !== backend || activeProjectId() !== project) return
       const url = URL.createObjectURL(new Blob([bytes], { type: ref.mediaType }))
-      replaceAssetPreview({ kind, src: url, name: ref.name }, url)
+      replaceAssetPreview({ kind, src: url, name: ref.name,
+        ...(kind === 'image' ? {} : { assetReader: reader }),
+        ...(kind === 'model3d' ? { mime: ref.mediaType } : {}),
+      }, url)
     } catch (error) {
       if (live && request === assetPreviewRequest) setAssetError(error instanceof Error ? error.message : String(error))
     }

@@ -31,6 +31,7 @@ export function OutputDescriptorEditor(props: {
   const readOnly = () => profile() || unsafeNumbers()
   let live = true
   let abort: AbortController | undefined
+  const probeHolder = {}
   onCleanup(() => { live = false; abort?.abort() })
   const parsed = createMemo(() => parseOutputDescriptors(props.spec, text(), props.asset))
   const document = createMemo((): OutputDescriptorDocument | undefined => {
@@ -94,10 +95,13 @@ export function OutputDescriptorEditor(props: {
     setBusy(true)
     setError(undefined)
     try {
-      const query = new URLSearchParams({ digest, revision: spec.revision })
-      const response = await fetch(`${backend.baseUrl.replace(/\/$/, '')}/api/output-profiles/${spec.kind}?${query}`, { signal: request.signal })
-      if (!response.ok) throw new Error(message('outputDescriptors.error.probeFailed', { status: response.status }))
-      const next = JSON.stringify(await response.json())
+      const reader = props.app.workflowAssetReader(props.tab, digest, probeHolder)
+      if (reader === undefined) throw new Error(message('outputDescriptors.error.chooseAsset'))
+      const next = await reader.read(async () => {
+        const response = await backend.connection.probeOutputProfile(spec.kind, digest, spec.revision, request.signal)
+        if (!response.ok) throw new Error(message('outputDescriptors.error.probeFailed', { status: response.status }))
+        return JSON.stringify(await response.json())
+      })
       if (!current()) return
       const result = parseOutputDescriptors(props.spec, next, props.asset)
       if (!result.ok) throw new Error(result.error)

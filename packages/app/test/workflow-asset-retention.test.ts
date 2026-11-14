@@ -729,6 +729,7 @@ describe('retained app dispatch', () => {
       const loader = createPreviewLoader({
         assetUrlForExecution: () => '',
         assetUrlForInput: (digest) => ownerApp.connection.assetUrl(digest),
+        inputAssetBytes: () => async () => new Uint8Array([3]).buffer,
         inputAssetReader: (digest, holder) => ownerApp.workflowAssetReader(tab, digest, holder),
         renderModel3dPoster: async () => {
           const read = deferred<void>()

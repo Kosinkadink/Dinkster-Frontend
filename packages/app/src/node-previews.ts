@@ -534,6 +534,9 @@ export function createPreviewLoader(deps: {
   validateMediaRendition?: (result: { readonly bytes: ArrayBuffer; readonly mime: string }, deadline?: number) => Promise<boolean>
   /** Injectable GLB poster render; the default lazy-loads three.js. Tests inject a fake (no WebGL in jsdom). */
   renderModel3dPoster?: (src: string, mime?: string, options?: Model3dLoadOptions) => Promise<{ readonly image: CanvasImageSource; readonly width: number; readonly height: number }>
+  /** Enrolled byte reads preserve the owning execution or selected input backend. */
+  readAssetForExecution?: (ref: ExecutionState['ref'], digest: string, signal?: AbortSignal) => Promise<ArrayBuffer | undefined>
+  inputAssetBytes?: (digest: string) => ((signal?: AbortSignal) => Promise<ArrayBuffer | undefined>) | undefined
   /** Injectable fetch for recorded outputs, which become owned blob URLs so downloads work across origins. */
   fetchRecordedOutput?: (url: string, options?: RequestInit) => Promise<Response>
 }): PreviewLoader & { dispose(): void } {
@@ -715,16 +718,26 @@ export function createPreviewLoader(deps: {
     }
   }
 
+  const recordedAssetBytes = async (ref: ExecutionState['ref'], digest: string, signal?: AbortSignal): Promise<ArrayBuffer> => {
+    if (deps.readAssetForExecution !== undefined) {
+      const bytes = await deps.readAssetForExecution(ref, digest, signal)
+      if (bytes === undefined) throw new Error('Recorded output is unavailable')
+      return bytes
+    }
+    const response = await (deps.fetchRecordedOutput ?? fetch)(deps.assetUrlForExecution(ref, digest), signal === undefined ? undefined : { signal })
+    if (!response.ok) throw new Error(`Recorded output request failed (${response.status})`)
+    return response.arrayBuffer()
+  }
+
   const recordedOutputPreview = async (
-    url: string,
+    ref: ExecutionState['ref'],
+    digest: string,
     name: string,
     mime: string,
     kind: 'image' | 'video' | 'audio' | 'model3d',
     signal?: AbortSignal,
   ): Promise<NodePreview> => {
-    const response = await (deps.fetchRecordedOutput ?? fetch)(url, signal === undefined ? undefined : { signal })
-    if (!response.ok) throw new Error(`recorded output request failed (${response.status})`)
-    const src = URL.createObjectURL(new Blob([await response.arrayBuffer()], { type: mime }))
+    const src = URL.createObjectURL(new Blob([await recordedAssetBytes(ref, digest, signal)], { type: mime }))
     const download = { src, name }
     try {
       if (kind === 'image') return { ...await decodeUrl(src), src, download }
@@ -778,6 +791,7 @@ export function createPreviewLoader(deps: {
       runtimeIds,
       assetUrlForExecution: deps.assetUrlForExecution,
       ...(deps.executionAssetReader === undefined ? {} : { executionAssetReader: deps.executionAssetReader }),
+      ...(deps.readAssetForExecution === undefined ? {} : { readAsset: deps.readAssetForExecution }),
     })
 
   return {
@@ -886,9 +900,7 @@ export function createPreviewLoader(deps: {
         const download = {
           src: artifactUrl, name: downloadName,
           load: async (signal: AbortSignal) => {
-            const response = await (deps.fetchRecordedOutput ?? fetch)(artifactUrl, { signal })
-            if (!response.ok) throw new Error(`Recorded output request failed (${response.status})`)
-            return new Blob([await response.arrayBuffer()], { type: artifact.mediaType })
+            return new Blob([await recordedAssetBytes(exec.ref, artifact.digest, signal)], { type: artifact.mediaType })
           },
         }
         artifactSource = ownedSource({
@@ -902,7 +914,7 @@ export function createPreviewLoader(deps: {
             if (associatedPreview !== undefined && previewUrl !== undefined) {
               try {
                 return {
-                  ...await recordedOutputPreview(previewUrl, associatedPreview.name, associatedPreview.mediaType, 'image', signal),
+                  ...await recordedOutputPreview(exec.ref, associatedPreview.digest, associatedPreview.name, associatedPreview.mediaType, 'image', signal),
                   download,
                 }
               } catch {
@@ -910,7 +922,7 @@ export function createPreviewLoader(deps: {
               }
             }
             if (artifactKind === 'audio') return { kind: 'audio', mime: artifact.mediaType, src: '', download }
-            return recordedOutputPreview(artifactUrl, downloadName, artifact.mediaType, artifactKind, signal)
+            return recordedOutputPreview(exec.ref, artifact.digest, downloadName, artifact.mediaType, artifactKind, signal)
           },
         }, [artifact.digest, ...(associatedPreview === undefined ? [] : [associatedPreview.digest])])
       }
@@ -925,7 +937,7 @@ export function createPreviewLoader(deps: {
           runtimeId: i.runtimeId,
           output: i.output,
           outputId: i.outputId,
-          load: (signal) => recordedOutputPreview(i.url, i.name, i.mediaType, 'image', signal),
+          load: (signal) => recordedOutputPreview(exec.ref, selected!.digest as string, i.name, i.mediaType, 'image', signal),
         }, [selected!.digest as string])
       }
       if (artifactSource) return artifactSource
@@ -945,6 +957,8 @@ export function createPreviewLoader(deps: {
       if (url === undefined) return undefined
       const owner = deps.inputAssetReader?.(digest, assetReaderHolder)
       if (deps.inputAssetReader !== undefined && owner === undefined) return undefined
+      const readBytes = deps.inputAssetBytes?.(digest)
+      if (deps.inputAssetBytes !== undefined && readBytes === undefined) return undefined
       const key = mediaKind !== 'image' ? directMediaKey(digest, mediaType, url) : `asset:${digest}`
       return {
         key: owner === undefined ? key : `${key}:${owner.key}`,
@@ -955,14 +969,29 @@ export function createPreviewLoader(deps: {
         load: (signal) => {
           const decode = async (): Promise<NodePreview> => {
             signal?.throwIfAborted()
-            const preview = mediaKind === 'audio'
-              ? { kind: mediaKind, mime: mediaType, src: url } as const
-              : mediaKind === 'model3d' ? await model3dPreview(url, mediaType) : await decodeUrl(url)
-            if (signal?.aborted || owner?.current() === false) {
-              release(preview)
-              throw new Error('Workflow asset reader changed during decode')
+            const bytes = readBytes === undefined
+              ? await (deps.fetchRecordedOutput ?? fetch)(url, signal === undefined ? undefined : { signal }).then((response) => {
+                  if (!response.ok) throw new Error(`Input asset request failed (${response.status})`)
+                  return response.arrayBuffer()
+                })
+              : await readBytes(signal)
+            if (bytes === undefined) throw new Error('Input asset is unavailable')
+            signal?.throwIfAborted()
+            const src = URL.createObjectURL(new Blob([bytes], { type: mediaType }))
+            let preview: NodePreview | undefined
+            try {
+              preview = mediaKind === 'audio'
+                ? { kind: mediaKind, mime: mediaType, src } as const
+                : mediaKind === 'model3d' ? await model3dPreview(src, mediaType) : { ...await decodeUrl(src), src }
+              if (signal?.aborted || owner?.current() === false) {
+                throw new Error('Workflow asset reader changed during decode')
+              }
+              return preview
+            } catch (error) {
+              if (preview === undefined) URL.revokeObjectURL(src)
+              else release(preview)
+              throw error
             }
-            return preview
           }
           return owner === undefined ? decode() : owner.read(decode)
         },

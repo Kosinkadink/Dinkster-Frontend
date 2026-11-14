@@ -5200,6 +5200,12 @@ export class AppState {
     return `${backend.baseUrl}/api/assets/${encodeURIComponent(digest)}`
   }
 
+  /** Read historical asset bytes through the execution's original backend. */
+  async readAssetForExecution(ref: ExecutionRef, digest: string, signal?: AbortSignal): Promise<ArrayBuffer | undefined> {
+    const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
+    return backend?.connection.fetchAssetBytes(digest, signal)
+  }
+
   /** Read historical native values through their original owner, without reconnecting it. */
   valuesForExecution(ref: ExecutionRef): DinksterValuesClient | undefined {
     const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)

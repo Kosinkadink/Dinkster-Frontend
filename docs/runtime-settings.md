@@ -54,6 +54,10 @@ owner receipts and a saved size limit cannot enable vault cleanup. Installed
 immutable frontend modules keep their native HTTP import URLs: selected,
 digest-verified code GET/HEAD requests are outside retention admission. This
 exception does not cover executable pack routes, asset reads or value reads.
+Output-profile probes and asset previews use the owning backend's enrolled
+connection, including cancellation. Browser image, audio, video and model
+consumers receive owned blob URLs rather than making headerless vault requests;
+preview disposal revokes those URLs.
 
 ## Runtime controls
 

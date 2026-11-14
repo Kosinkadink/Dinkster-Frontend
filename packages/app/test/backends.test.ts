@@ -1003,8 +1003,10 @@ describe('execution output routing', () => {
     })
   })
 
-  it('assetUrlForExecution uses the execution backend, not the default', () => {
+  it('historical asset URLs and bytes use the execution backend, not the default', async () => {
     const b = addOffline('http://other:8188')
+    vi.spyOn(b.connection, 'fetchAssetBytes').mockResolvedValue(new Uint8Array([53, 19]).buffer)
+    vi.spyOn(app.connection, 'fetchAssetBytes').mockResolvedValue(new Uint8Array([1]).buffer)
     const digest = 'blake3:' + 'ab'.repeat(32)
     const onB: ExecutionRef = { connection: b.id, prompt: asPromptId('p1') }
     expect(app.assetUrlForExecution(onB, digest)).toBe(
@@ -1012,6 +1014,11 @@ describe('execution output routing', () => {
     )
     const onDefault: ExecutionRef = { connection: app.connection.id, prompt: asPromptId('p2') }
     expect(app.assetUrlForExecution(onDefault, digest)).not.toContain('http://other:8188')
+    expect(new Uint8Array((await app.readAssetForExecution(onB, digest))!)).toEqual(new Uint8Array([53, 19]))
+    expect(new Uint8Array((await app.readAssetForExecution(onDefault, digest))!)).toEqual(new Uint8Array([1]))
+    app.removeBackend(b.id)
+    expect(new Uint8Array((await app.readAssetForExecution(onB, digest))!)).toEqual(new Uint8Array([53, 19]))
+    expect(await app.readAssetForExecution({ ...onB, connection: asConnectionId('unknown') }, digest)).toBeUndefined()
   })
 
   it('historical asset routes and native value ownership survive backend removal', async () => {

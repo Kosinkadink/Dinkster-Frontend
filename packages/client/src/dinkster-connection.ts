@@ -3347,6 +3347,12 @@ export class DinksterConnection {
     return res.text()
   }
 
+  /** Probe the selected asset without caching or losing the caller's cancellation. */
+  probeOutputProfile(kind: string, digest: string, revision: string, signal: AbortSignal): Promise<Response> {
+    const query = new URLSearchParams({ digest, revision })
+    return this.fetchFn(`${this.baseUrl}/api/output-profiles/${encodeURIComponent(kind)}?${query}`, { signal })
+  }
+
   /** Fetch opaque asset bytes without corrupting images through text decoding. */
   async fetchAssetBytes(digest: string, signal?: AbortSignal): Promise<ArrayBuffer | undefined> {
     const res = await this.fetchFn(`${this.baseUrl}/api/assets/${encodeURIComponent(digest)}`, signal ? { signal } : undefined)

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { RetentionClient } from '../src/index.js'
+import { DinksterConnection, RetentionClient } from '../src/index.js'
+import { asConnectionId } from '@dinkster/core'
 
 const generation = '0123456789abcdef0123456789abcdef'
 const rotated = 'fedcba9876543210fedcba9876543210'
@@ -41,6 +42,35 @@ describe('backend retention enrollment', () => {
     await expect(client.fetch('http://registry/prefix/api/nodes')).rejects.toThrow('cannot leave its backend')
     await expect(client.socketUrl('ws://backend/other/api/events')).rejects.toThrow('cannot leave its backend')
     expect(observed).toEqual(['enroll', 'http://backend/prefix/api/nodes'])
+  })
+
+  it('enrolls output-profile probes and preserves their status and cancellation', async () => {
+    const started = deferred<void>()
+    let pending = false
+    const client = new RetentionClient('http://backend/prefix', async (url, init) => {
+      if (url.endsWith('/retention-clients')) return json(census())
+      const target = new URL(url)
+      expect(target.pathname).toBe('/prefix/api/output-profiles/model%2Fprofile')
+      expect(Object.fromEntries(target.searchParams)).toEqual({ digest: 'blake3:abc', revision: 'r+2' })
+      expect(new Headers(init?.headers).get('X-Dinkster-Retention-Generation')).toBe(generation)
+      if (!pending) return json({ error: 'Refused' }, 409)
+      started.resolve()
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true })
+      })
+    })
+    const connection = new DinksterConnection({ id: asConnectionId('probe'), baseUrl: 'http://backend/prefix',
+      clientId: 'probe', retentionClient: client })
+    const controller = new AbortController()
+    const response = await connection.probeOutputProfile('model/profile', 'blake3:abc', 'r+2', controller.signal)
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: 'Refused' })
+    pending = true
+    const probe = connection.probeOutputProfile('model/profile', 'blake3:abc', 'r+2', controller.signal)
+    const rejected = expect(probe).rejects.toThrow('Probe closed')
+    await started.promise
+    controller.abort(new Error('Probe closed'))
+    await rejected
   })
 
   it('reopens a stored client from the freshly read revision and disconnects without releasing owners', async () => {

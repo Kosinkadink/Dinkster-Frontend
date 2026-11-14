@@ -2233,6 +2233,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // from peekCandidatesFor (host state: companion sources + occurrences).
   const [previewTick, setPreviewTick] = createSolidSignal(0)
   const previewLoader = createPreviewLoader({
+    readAssetForExecution: (ref, digest, signal) => props.app.readAssetForExecution(ref, digest, signal),
+    inputAssetBytes: (digest) => {
+      const tab = activeTab()
+      if (tab === undefined) return undefined
+      const connection = props.app.backendForTab(tab).connection
+      return (signal) => connection.fetchAssetBytes(digest, signal)
+    },
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
     executionAssetReader: (execution, digests, holder) => props.app.executionAssetReader(execution, digests, holder),
     readFile3dAsset: (ref, asset, signal) => props.app.readFile3dAssetForExecution(ref, asset, signal),

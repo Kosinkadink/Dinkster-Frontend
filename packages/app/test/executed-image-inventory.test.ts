@@ -48,6 +48,26 @@ describe('executedImageInventory', () => {
     expect(await unsupported[1]!.load!(new AbortController().signal)).toMatchObject({ available: false, reason: 'no-rendition' })
   })
 
+  it('loads typed assets and saved images through their original execution with cancellation', async () => {
+    const state = { ...execution({ node: { image: asset(digest('a'), 'typed.png') } }),
+      artifacts: [{ nodeId: 'save', digest: digest('b'), name: 'saved.webp', mediaType: 'image/webp', size: 3, virtualPath: '' }] }
+    const controller = new AbortController()
+    const images = executedImageInventory(state, {
+      assetUrlForExecution: () => 'http://must-not-be-fetched',
+      readAsset: async (ref, value, signal) => {
+        signal.throwIfAborted()
+        return new TextEncoder().encode(`${ref.connection}/${ref.prompt}/${value}`).buffer
+      },
+    })
+    for (const [index, char] of ['a', 'b'].entries()) {
+      const result = await images[index]!.load!(controller.signal)
+      expect(result).toMatchObject({ available: true, mime: index === 0 ? 'image/png' : 'image/webp' })
+      if (result.available) expect(new TextDecoder().decode(result.bytes)).toBe(`backend-b/run-7/${digest(char)}`)
+    }
+    controller.abort(new Error('Viewer closed'))
+    await expect(images[0]!.load!(controller.signal)).rejects.toThrow('Viewer closed')
+  })
+
   it('orders runtime ids, native keys, and descriptor refs without provenance dedupe', () => {
     const a = digest('a')
     const b = digest('b')
