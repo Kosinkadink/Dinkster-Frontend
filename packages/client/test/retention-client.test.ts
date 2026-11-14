@@ -118,9 +118,9 @@ describe('backend retention enrollment', () => {
         expect(new Headers(init?.headers).get('X-Dinkster-Retention-Generation')).toBe(rotated)
         if (init?.method === 'GET') return json(census({ generation: rotated, revision: 7 }))
         expect(JSON.parse(init?.body as string)).toEqual({ revision: 7 })
-        return json(census({ generation, revision: 8 }))
+        return json(census({ generation: 'a'.repeat(32), revision: 8 }))
       }, storage)
-      expect(await reloaded.enroll()).toBe(generation)
+      expect(await reloaded.enroll()).toBe('a'.repeat(32))
     } finally {
       vi.unstubAllGlobals()
     }
