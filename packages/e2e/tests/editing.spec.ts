@@ -115,11 +115,13 @@ test.beforeEach(async ({ page }, testInfo) => {
     await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   }
   await page.goto('/')
-  // Scenes need schemas; wait for the registry before touching the canvas.
+  // The initial event connection refreshes schemas and invalidates open menus.
+  // Wait for its catalog before touching the canvas.
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await expect.poll(() => page.evaluate(() => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
-    return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
+    return backend.connection.status.get() === 'connected' &&
+      backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
   })).toBe(true)
   await identityViewport(page)
 })
@@ -566,6 +568,7 @@ async function toolboxButtonPoint(page: Page, buttonId: string): Promise<{ x: nu
 }
 
 test('selection toolbox: mode selector and minimize act without dropping selection', async ({ page }) => {
+  await openauditInteractionFixture(page)
   const canvas = page.getByTestId('graph-canvas')
   await page.mouse.click(...xy(await pointOn(page, 'n0', { kind: 'header' })))
   await expect(canvas).toHaveAttribute('data-selection', '1')
