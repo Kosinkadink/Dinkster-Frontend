@@ -1,18 +1,24 @@
 import { createSignal, For, onCleanup, onMount, Show } from 'solid-js'
-import type { DinksterConnection, LibraryStorage } from '@dinkster/client'
+import type { DinksterConnection, LibraryStorage, LibraryStorageCleanup } from '@dinkster/client'
 import { ProductButton, ProductCheckbox } from './ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { useAppMessage } from './locale.js'
 
 export function LibraryStorageSettings(props: {
-  readonly connection: Pick<DinksterConnection, 'fetchLibraryStorage' | 'updateLibraryStorageLimit'>
+  readonly connection: Pick<DinksterConnection, 'fetchLibraryStorage' | 'updateLibraryStorageLimit' | 'clearLibraryStorage'>
 }) {
   const message = useAppMessage()
   const [status, setStatus] = createSignal<LibraryStorage>()
   const [limit, setLimit] = createSignal<number | null>(null)
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal('')
+  const [clearing, setClearing] = createSignal(false)
+  const [result, setResult] = createSignal<LibraryStorageCleanup>()
+  const canClear = (): boolean => status()?.collectionEnabled === true && status()?.blocked.length === 0
+  const blockedReason = (reason: string): string => reason === 'owner_completeness_unknown'
+    ? message('storageSettings.ownerCompletenessUnknown')
+    : message('storageSettings.backendBlocked', { reason: reason.replaceAll('_', ' ') })
   let current = true
   onCleanup(() => { current = false })
   const refresh = async (): Promise<void> => {
@@ -50,13 +56,40 @@ export function LibraryStorageSettings(props: {
     }
     if (current) await refresh()
   }
+  const clear = async (): Promise<void> => {
+    if (busy() || !canClear()) return
+    setBusy(true)
+    setClearing(true)
+    setError('')
+    setResult(undefined)
+    try {
+      const next = await props.connection.clearLibraryStorage()
+      if (!current) return
+      setResult(next)
+      setStatus((previous) => previous === undefined ? undefined : {
+        ...previous, collectionEnabled: next.collectionEnabled, blocked: next.blocked, reclaimableBytes: null,
+      })
+    } catch (cause) {
+      if (current) setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      if (current) {
+        setClearing(false)
+        setBusy(false)
+      }
+    }
+    if (current && result()?.collectionEnabled) await refresh()
+  }
   const ids = productFieldIds('library-storage-limit')
   const byteFields = ['temporaryBytes', 'vaultBytes', 'adoptedBytes', 'reclaimableBytes'] as const
-  return <section class="runtime-settings" data-testid="library-storage-settings">
+  return <section class="runtime-settings library-storage-settings" data-testid="library-storage-settings">
     <div class="runtime-settings-body">
       <h2>{message('storageSettings.title')}</h2>
       <p>{message('storageSettings.description')}</p>
-      <ProductNotice tone="info">{message('storageSettings.blocked')}</ProductNotice>
+      <Show when={status() && !canClear()}><ProductNotice tone="info">{message('storageSettings.blocked')}</ProductNotice></Show>
+      <Show when={clearing()}><ProductNotice tone="status">{message('storageSettings.clearing')}</ProductNotice></Show>
+      <Show when={result()}>{(finished) => <ProductNotice tone="status">{message('storageSettings.cleared', {
+        bytes: finished().reclaimedBytes, files: finished().reclaimedFiles,
+      })}</ProductNotice>}</Show>
       <Show when={error()}>{(text) => <p role="alert">{text()}</p>}</Show>
       <Show when={status()} fallback={<p role="status">{message(busy() ? 'storageSettings.loading' : 'storageSettings.unavailable')}</p>}>
         {(loaded) => <>
@@ -64,7 +97,7 @@ export function LibraryStorageSettings(props: {
             <output id={`library-storage-${field}`}>{loaded()[field] === null ? message('storageSettings.unknown') : message('storageSettings.bytes', { count: loaded()[field]! })}</output>
           </ProductField>}</For>
           <Show when={loaded().blocked.length > 0}>
-            <ul><For each={loaded().blocked}>{(reason) => <li><code>{reason}</code></li>}</For></ul>
+            <ul><For each={loaded().blocked}>{(reason) => <li>{blockedReason(reason)}</li>}</For></ul>
           </Show>
           <ProductField controlId="library-storage-unlimited" label={message('storageSettings.unlimited')}>
             <ProductCheckbox id="library-storage-unlimited" ariaLabel={message('storageSettings.unlimited')}
@@ -85,7 +118,8 @@ export function LibraryStorageSettings(props: {
         <ProductButton disabled={busy()} onClick={() => { void refresh() }}>{message('storageSettings.refresh')}</ProductButton>
         <ProductButton disabled={busy() || !status()?.policyAvailable || limit() === status()?.limitBytes}
           onClick={() => { void save() }}>{message('storageSettings.apply')}</ProductButton>
-        <ProductButton disabled title={message('storageSettings.blocked')}>{message('storageSettings.clear')}</ProductButton>
+        <ProductButton disabled={busy() || !canClear()} title={canClear() ? undefined : message('storageSettings.blocked')}
+          onClick={() => { void clear() }}>{message('storageSettings.clear')}</ProductButton>
       </ProductActionFooter>
     </div>
   </section>

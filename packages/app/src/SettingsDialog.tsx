@@ -200,7 +200,7 @@ export function SettingsDialog(props: {
   readonly keybindings: KeybindingRegistry
   readonly request?: { readonly category: string; readonly id: string } | undefined
   readonly onRequestConsumed?: () => void
-  readonly storageConnection?: Pick<DinksterConnection, 'fetchLibraryStorage' | 'updateLibraryStorageLimit'> | undefined
+  readonly storageConnection?: Pick<DinksterConnection, 'fetchLibraryStorage' | 'updateLibraryStorageLimit' | 'clearLibraryStorage'> | undefined
   readonly packSettings?: {
     readonly client: PackSettingsClient
     readonly packs: () => readonly { readonly id: string; readonly displayName: string }[]

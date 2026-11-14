@@ -1161,6 +1161,29 @@ describe('library storage accounting', () => {
     }
   })
 
+  it('returns cleanup totals and ownership refusals without replaying a failed clear', async () => {
+    let body: unknown = { collectionEnabled: true, blocked: [], reclaimedBytes: 113, reclaimedFiles: 2 }
+    let code = 200
+    const { conn, requests } = submitHarness(() => jsonResponse(code, body))
+    expect(await conn.clearLibraryStorage()).toEqual(body)
+    expect(requests[0]!.url).toBe('http://test/api/library/storage/clear')
+    expect(requests[0]!.init!.method).toBe('POST')
+    expect(JSON.parse(requests[0]!.init!.body as string)).toEqual({})
+    code = 409
+    body = { collectionEnabled: false, blocked: ['owner_completeness_unknown'], reclaimedBytes: 0, reclaimedFiles: 0 }
+    expect(await conn.clearLibraryStorage()).toEqual(body)
+    for (const invalid of [{ ...body as object, reclaimedBytes: -1 },
+      { ...body as object, reclaimedFiles: 1.5 }, { ...body as object, blocked: [] },
+      { ...body as object, collectionEnabled: true }]) {
+      body = invalid
+      await expect(conn.clearLibraryStorage()).rejects.toThrow('malformed')
+    }
+    code = 503
+    const count = requests.length
+    await expect(conn.clearLibraryStorage()).rejects.toThrow('503')
+    expect(requests).toHaveLength(count + 1)
+  })
+
   it('requires an exact policy acknowledgment and does not replay failed writes', async () => {
     let body: unknown = { limitBytes: 8193, collectionEnabled: false }
     let code = 200
