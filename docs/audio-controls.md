@@ -67,8 +67,7 @@ rendering, loop/gain neutrality and recorded AssetRef staging. Browser tests
 use route-mocked value/upload responses and a generated MediaStream with the
 real browser MediaRecorder. The retained browser Opus case in
 `audio-recording-live.spec.ts` covers WebM upload, AssetRef staging,
-`dinkster.audio.load_audio`, and WAV rendition. It is excluded pending the test
-audit; this exclusion is not proof of codec reliability. Physical
+`dinkster.audio.load_audio`, and WAV rendition against the live backend. Physical
 microphone acceptance runs headed Chromium with `DINKSTER_PHYSICAL_MICROPHONE`
 set to an exact browser device label. It leaves `getUserMedia` native, pins the
 selected live track and its release, proves MediaRecorder/upload byte equality,
