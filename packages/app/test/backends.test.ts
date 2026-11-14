@@ -324,6 +324,7 @@ describe('addBackend / removeBackend', () => {
     setLocale('en')
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input)
+      if (url.endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
       const displayName = url.endsWith(encodeURIComponent(digest('b'))) ? 'Localized label' : 'English label'
       return new Response(JSON.stringify(url.includes('/api/nodes') ? {
         schemaVersion: 1, dinkster: { version: 'locale-test', schemaWire: 1 },
@@ -391,6 +392,7 @@ describe('addBackend / removeBackend', () => {
     }
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input)
+      if (url.endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
       requests.push(url)
       if (url.includes('/api/nodes')) return new Response(JSON.stringify({
         schemaVersion: 1,
@@ -899,6 +901,7 @@ describe('execution output routing', () => {
       let bodyStarted!: () => void
       const started = new Promise<void>((resolve) => { bodyStarted = resolve })
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+        if (String(url).endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
         requests.push(String(url))
         transportSignal = init?.signal
         return { ok: true, status: 200, arrayBuffer: () => {
@@ -934,6 +937,7 @@ describe('execution output routing', () => {
     let version = 1
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = new URL(String(input))
+      if (url.pathname.endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
       const selector = url.searchParams.get('rendition')
       if (selector === null) return Response.json({ available: true,
         descriptor: { typeId: 'AUDIO', fingerprint: `pending-${version}`, meta: {} },
@@ -973,6 +977,7 @@ describe('execution output routing', () => {
     let body!: ReadableStreamDefaultController<Uint8Array>
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = new URL(String(input))
+      if (url.pathname.endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
       const selector = url.searchParams.get('rendition')
       if (selector === null) return Response.json({ available: true,
         descriptor: { typeId: 'AUDIO', fingerprint: 'ended-audio', meta: {} },
@@ -1024,6 +1029,7 @@ describe('execution output routing', () => {
   it('historical asset routes and native value ownership survive backend removal', async () => {
     const requests: URL[] = []
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      if (String(input).endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
       requests.push(new URL(String(input)))
       return Response.json({ available: true, descriptor: { typeId: 'IMAGE', fingerprint: 'recorded-image' }, renditions: [] })
     })
