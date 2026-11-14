@@ -1322,6 +1322,23 @@ describe('retained asset ownership', () => {
     expect(requests).toHaveLength(0)
   })
 
+  it('uses response metadata when releasing and rereading a source-bound receipt', async () => {
+    const resultOwner = { ...owner, ownerKind: 'shown-result' as const }
+    const sourceToken = '0123456789abcdef'.repeat(2)
+    const claimed = { ...resultOwner, revision: 1, digests: [a], complete: true, sourceToken }
+    const released = { ...resultOwner, revision: 2, digests: [], complete: true }
+    let response = claimed as typeof claimed | typeof released
+    const { conn } = submitHarness(() => jsonResponse(200, response))
+    const receipt = await conn.claimResultAssets(resultOwner, sourceToken)
+    expect(receipt).toEqual(claimed)
+    expect(await conn.fetchRetainedAssets(receipt)).toEqual(claimed)
+    response = released
+    expect(await conn.releaseRetainedAssets(receipt, receipt.revision)).toEqual(released)
+    expect(await conn.fetchRetainedAssets(receipt)).toEqual(released)
+    response = { ...claimed, sourceToken: 'f'.repeat(32) }
+    expect(await conn.fetchRetainedAssets(receipt)).toEqual(response)
+  })
+
   it('preserves incomplete ownership and requires an empty next-revision release acknowledgment', async () => {
     const incomplete = { ...owner, revision: 1, digests: [b], complete: false }
     const { conn } = submitHarness(() => jsonResponse(200, incomplete))

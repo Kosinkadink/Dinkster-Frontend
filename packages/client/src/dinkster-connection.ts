@@ -1293,7 +1293,8 @@ export function retainedAssetAcknowledgment(value: unknown, owner: RetainedAsset
     throw new Error('Retained asset acknowledgment is malformed or belongs to another owner')
   }
   return {
-    ...owner, revision: value['revision'], digests: value['digests'] as string[], complete: value['complete'],
+    scope: owner.scope, ownerKind: owner.ownerKind, ownerId: owner.ownerId,
+    revision: value['revision'], digests: value['digests'] as string[], complete: value['complete'],
     ...(value['sourceToken'] === undefined ? {} : { sourceToken: value['sourceToken'] as string }),
   }
 }

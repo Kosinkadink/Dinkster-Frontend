@@ -91,7 +91,9 @@ tab also retires its locally admitted editor drafts, including drafts whose
 renderer already left or whose document continued through a shared/local
 session replacement. A tab switch, editor unmount or read completion alone
 never releases these owners; project and connection generations still gate
-retirement.
+retirement. Retirement acknowledgments and recovery reads use the backend's
+current receipt metadata; a prior source token cannot survive a token-free
+next-revision tombstone.
 
 Saved image tiles in the output rail, Canvas and App View viewers admit their
 own preview owners before fetching CAS bytes. Each mounted tile holds its own
