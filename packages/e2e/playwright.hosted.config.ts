@@ -34,14 +34,15 @@ const port = (name: string, fallback: number): number => {
 
 const frontendRoot = resolve(import.meta.dirname, '../..')
 const dinksterRoot = requiredDirectory('DINKSTER_E2E_DINKSTER_ROOT')
+const generation = requiredDirectory('DINKSTER_E2E_GENERATION')
+const generationPython = resolve(generation, 'python/bin/python')
+accessSync(generationPython)
 const nativeLibrary = resolve(frontendRoot, '.ci/native-library')
 const nativeOutput = resolve(nativeLibrary, 'output')
 const nativeImports = resolve(nativeLibrary, 'imports')
 const nativeCheckpoints = resolve(nativeLibrary, 'checkpoints')
 if (argumentProject) {
-  // Catalog preparation creates pack environments and schema data here before
-  // Playwright loads this config. Reset only mutable test state so the native
-  // server can still compose those prepared default packs.
+  // Reset mutable test state without changing the captured generation.
   rmSync(nativeOutput, { recursive: true, force: true })
   rmSync(nativeImports, { recursive: true, force: true })
   rmSync(resolve(nativeLibrary, 'vault'), { recursive: true, force: true })
@@ -99,19 +100,18 @@ export default defineConfig({
   webServer: [
     {
       command: [
-        JSON.stringify(resolve(dinksterRoot, '.venv/bin/python')),
+        JSON.stringify(generationPython),
         '-m dinkster.serve',
         '--host 127.0.0.1',
         '--allow-host localhost',
         `--port ${nativePort}`,
-        '--engine-variant linux-cpu',
-        `--pack ${JSON.stringify(resolve(dinksterRoot, 'packages/dinkster-nodes-dev/dinkster-pack.toml'))}`,
+        `--generation ${JSON.stringify(generation)}`,
         `--allow-origin http://127.0.0.1:${frontendPort}`,
         `--allow-origin http://127.0.0.1:${nativeFrontendPort}`,
         `--library-root ${JSON.stringify(nativeLibrary)}`,
         '--execution-cache-mode memory',
         '--allow-mount-changes',
-        `--execution-python ${JSON.stringify(resolve(dinksterRoot, '.venv-torch/bin/python'))}`,
+        `--execution-python ${JSON.stringify(generationPython)}`,
       ].join(' '),
       cwd: dinksterRoot,
       env: { ...process.env, CUDA_VISIBLE_DEVICES: '' },
@@ -121,7 +121,7 @@ export default defineConfig({
     },
     {
       command: [
-        JSON.stringify(resolve(dinksterRoot, '.venv/bin/python')),
+        JSON.stringify(generationPython),
         '-m dinkster.serve',
         '--host 127.0.0.1',
         `--port ${guidePort}`,

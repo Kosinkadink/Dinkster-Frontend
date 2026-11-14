@@ -105,19 +105,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pnpm install --frozen-lockfile
-      - run: uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
-      - run: UV_PROJECT_ENVIRONMENT=.venv-torch uv sync --project .ci/Dinkster --locked --package dinkster --no-dev
-      - name: Install checkout pack sources
-        run: |
-          packs=()
-          for pack in .ci/Dinkster/packages/dinkster-nodes-*; do
-            packs+=(-e "$pack")
-          done
-          for python in .ci/Dinkster/.venv/bin/python .ci/Dinkster/.venv-torch/bin/python; do
-            uv pip install --python "$python" --no-deps --no-sources "${packs[@]}"
-          done
-      - run: uv pip install --python .ci/Dinkster/.venv-torch/bin/python torch --index-url https://download.pytorch.org/whl/cpu
-      - run: .ci/Dinkster/.venv/bin/dinkster-pack --accelerator cpu prepare-catalogs --defaults --library-root .ci/native-library
+      - uses: ./.github/actions/prepare-native-generation
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
       - name: Run native startup and live client tests
         run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.hosted.config.ts --project=native-startup --workers=1
