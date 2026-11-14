@@ -1,18 +1,18 @@
 {
-  "_provenance": "Semantic expectations for default packs plus dinkster-nodes-dev at pinned Dinkster a0434ba626acca9a4b2adfd240d67af50e2d3015, wire /api/nodes, 2026-10-28. Node identities and ports match the native pack definitions. Refreshing this file is a reviewed diff; tests must never read the live catalog to build semantic expectations. Readiness counts follow the served catalog, not this snapshot.",
+  "_provenance": "Native node identities and ports checked against default packs plus dinkster-nodes-dev at pinned Dinkster bea09a5890abaa3117d41c5cca6c88bc8e11cf24, wire 45, 2026-11-14. Import graph and diagnostic expectations remain from Dinkster a0434ba626acca9a4b2adfd240d67af50e2d3015, 2026-10-28. Refreshing this file is a reviewed diff; tests must never read the live catalog to build semantic expectations. Readiness counts follow the served catalog, not this snapshot.",
   "emptyLatent": {
-    "type": "EmptyLatentImage",
+    "type": "dinkster.latent.empty_latent_image",
     "alias": "EmptyLatentImage",
     "inputs": ["width", "height", "batch_size"],
     "outputs": ["LATENT"]
   },
   "emptyMinimaxH3Av": {
-    "type": "EmptyMiniMaxH3LatentAV",
+    "type": "dinkster.minimax.empty_mini_max_h3_latent_av",
     "inputs": ["width", "height", "length"],
     "outputs": ["LATENT"]
   },
   "vaeDecode": {
-    "type": "VAEDecode",
+    "type": "dinkster.latent.vae_decode",
     "inputs": ["samples", "vae"],
     "outputs": ["IMAGE"]
   },
