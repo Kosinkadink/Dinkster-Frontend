@@ -236,8 +236,7 @@ test('workspace promotion preserves a local edit while ownership acknowledgment 
   await page.screenshot({ path: info.outputPath('workspace-accepted.png') })
 })
 
-// Nonblocking under https://github.com/Kosinkadink/comfy-vibe-station/issues/868.
-test.skip('two windows converge tab operations and restore the durable inventory', async ({ page, context }) => {
+test('two windows converge tab operations and restore the durable inventory', async ({ page, context }) => {
   await page.addInitScript(() => localStorage.removeItem('dinkster.openTabs'))
   await page.goto('/')
   await waitForStartupOwnership(page)
