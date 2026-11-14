@@ -15,6 +15,8 @@ import {
   createCollabSession,
   getCollabSession,
   listCollabSessions,
+  type RetentionClient,
+  type FetchLike,
 } from '@dinkster/client'
 import { isValidActorId, type CollabConnection, type CollabSessionDescriptor } from '@dinkster/core'
 
@@ -84,18 +86,20 @@ export interface CollabTransport {
   connect(config: { readonly baseUrl: string; readonly sessionId: string; readonly actorId: string }): CollabConnection
 }
 
-/** The production transport: the @dinkster/client HTTP + WS adapter. */
-export const httpCollabTransport: CollabTransport = {
-  bindActor: bindBrowserActor,
-  create: (baseUrl, args) => createCollabSession(baseUrl, args),
-  list: (baseUrl, scope) => listCollabSessions(baseUrl, scope),
-  get: (baseUrl, sessionId) => getCollabSession(baseUrl, sessionId),
-  end: (baseUrl, sessionId) => closeCollabSession(baseUrl, sessionId),
-  connect: (config) => new CollabHttpConnection(config),
+/** Collaboration shares the native connection's admitted backend identity. */
+export function httpCollabTransport(clientFor: (baseUrl: string) => RetentionClient): CollabTransport {
+  return {
+    bindActor: (baseUrl, sessionId, actorId) => bindBrowserActor(baseUrl, sessionId, actorId, clientFor(baseUrl).fetch),
+    create: (baseUrl, args) => createCollabSession(baseUrl, args, clientFor(baseUrl).fetch),
+    list: (baseUrl, scope) => listCollabSessions(baseUrl, scope, clientFor(baseUrl).fetch),
+    get: (baseUrl, sessionId) => getCollabSession(baseUrl, sessionId, clientFor(baseUrl).fetch),
+    end: (baseUrl, sessionId) => closeCollabSession(baseUrl, sessionId, clientFor(baseUrl).fetch),
+    connect: (config) => new CollabHttpConnection({ ...config, retentionClient: clientFor(config.baseUrl) }),
+  }
 }
 
 /** Bind before allocating document ids; a collision gets one fresh identity. */
-export async function bindBrowserActor(baseUrl: string, sessionId: string, actorId: string, fetchFn: typeof fetch = fetch): Promise<string> {
+export async function bindBrowserActor(baseUrl: string, sessionId: string, actorId: string, fetchFn: FetchLike = fetch): Promise<string> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const response = await fetchFn(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/actors`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ actorId }),

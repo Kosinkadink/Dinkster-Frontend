@@ -24,6 +24,7 @@
  */
 
 import { credentialFetch, mintDelegation, type CollabCredentials, type Delegation, type MintDelegation } from './credentials.js'
+import type { RetentionClient } from './retention-client.js'
 import { requestWithDeadline } from './request-deadline.js'
 import {
   asPromptId,
@@ -780,6 +781,8 @@ export interface DinksterConnectionConfig extends CollabCredentials {
   /** WS endpoint override; defaults to baseUrl with ws(s) scheme + /api/events. */
   readonly wsUrl?: string
   readonly fetchFn?: FetchLike
+  /** Shared with discovery and collaboration for the same backend/principal. */
+  readonly retentionClient?: RetentionClient
   readonly webSocketFactory?: WebSocketFactory
   readonly scheduleFn?: ScheduleFn
   readonly cancelFn?: CancelFn
@@ -1802,6 +1805,8 @@ export class DinksterConnection {
   private readonly memoryListeners = new Set<(status: MemoryStatus) => void>()
   private readonly mountListeners = new Set<() => void>()
   private readonly socket: ReconnectingSocket
+  private readonly retentionClient: RetentionClient | undefined
+  private unregisterRetentionStream: (() => void) | undefined
   private readonly jobIdFactory: () => string
   private protocolErrors = 0
   /**
@@ -1842,9 +1847,11 @@ export class DinksterConnection {
     const fetchFn = config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
     this.registryFetchFn = fetchFn
     this.registryStaticUrl = config.registryStaticUrl ?? (() => '')
+    this.retentionClient = config.retentionClient
+    const backendFetch = config.retentionClient?.fetch ?? fetchFn
     this.fetchFn = config.token !== undefined || config.actorKind !== undefined
-      ? credentialFetch(config, fetchFn)
-      : fetchFn
+      ? credentialFetch(config, backendFetch)
+      : backendFetch
     this.jobIdFactory = config.jobIdFactory ?? uuidv4
     // Malformed KNOWN events (recognized type, missing required fields) are
     // protocol errors, never silent drops; unknown kinds and uncorrelated
@@ -1858,8 +1865,10 @@ export class DinksterConnection {
     const eventsUrl = `${config.baseUrl}/api/events?clientId=${encodeURIComponent(config.clientId)}`
     this.socket = new ReconnectingSocket({
       url: wsUrl,
-      ...((config.token !== undefined || config.actorKind === 'agent') && {
+      ...((config.retentionClient !== undefined || config.token !== undefined || config.actorKind === 'agent') && {
         resolveUrl: async () => {
+          const url = config.retentionClient === undefined ? wsUrl : await config.retentionClient.socketUrl(wsUrl)
+          if (config.token === undefined && config.actorKind !== 'agent') return url
           const preflight = await this.fetchFn(eventsUrl)
           if (preflight.status === 401 || preflight.status === 403) {
             throw await this.failExecutionRequest(preflight, 'events')
@@ -1871,7 +1880,7 @@ export class DinksterConnection {
           if (!response.ok) throw new Error(`WebSocket authentication failed: HTTP ${response.status}`)
           const body = await response.json() as { ticket?: unknown }
           if (typeof body.ticket !== 'string') throw new Error('WebSocket authentication returned no ticket')
-          return `${wsUrl}${wsUrl.includes('?') ? '&' : '?'}ticket=${encodeURIComponent(body.ticket)}`
+          return `${url}${url.includes('?') ? '&' : '?'}ticket=${encodeURIComponent(body.ticket)}`
         },
       }),
       ...(config.webSocketFactory ? { webSocketFactory: config.webSocketFactory } : {}),
@@ -2666,11 +2675,14 @@ export class DinksterConnection {
   // -- Workflow library (POST /api/assets + /api/library) --------------------
 
   async fetchLibraryStorage(signal?: AbortSignal): Promise<LibraryStorage> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/library/storage`, {
-      method: 'GET', cache: 'no-store', ...(signal !== undefined ? { signal } : {}),
-    })
-    if (!res.ok) throw new Error(`GET library storage failed: ${res.status}`)
-    return libraryStorage(await res.json())
+    const read = async (fetchFn: FetchLike): Promise<LibraryStorage> => {
+      const res = await fetchFn(`${this.baseUrl}/api/library/storage`, {
+        method: 'GET', cache: 'no-store', ...(signal !== undefined ? { signal } : {}),
+      })
+      if (!res.ok) throw new Error(`GET library storage failed: ${res.status}`)
+      return libraryStorage(await res.json())
+    }
+    return this.retentionClient === undefined ? read(this.fetchFn) : this.retentionClient.collect(read)
   }
 
   async updateLibraryStorageLimit(limitBytes: number | null): Promise<void> {
@@ -2688,8 +2700,14 @@ export class DinksterConnection {
     }
   }
 
-  async clearLibraryStorage(): Promise<LibraryStorageCleanup> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/library/storage/clear`, {
+  clearLibraryStorage(): Promise<LibraryStorageCleanup> {
+    return this.retentionClient === undefined
+      ? this.clearLibraryStorageUsing(this.fetchFn)
+      : this.retentionClient.collect((fetchFn) => this.clearLibraryStorageUsing(fetchFn))
+  }
+
+  private async clearLibraryStorageUsing(fetchFn: FetchLike): Promise<LibraryStorageCleanup> {
+    const res = await fetchFn(`${this.baseUrl}/api/library/storage/clear`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
     })
     if (!res.ok && res.status !== 409) throw new Error(`POST library storage clear failed: ${res.status}`)
@@ -3909,11 +3927,14 @@ export class DinksterConnection {
   // -- WebSocket -----------------------------------------------------------------
 
   connect(): void {
+    this.unregisterRetentionStream ??= this.retentionClient?.registerStream(() => this.socket.suspend())
     this.socket.connect()
   }
 
   disconnect(): void {
     this.socket.disconnect()
+    this.unregisterRetentionStream?.()
+    this.unregisterRetentionStream = undefined
   }
 
   /** See ReconnectingSocket.simulateConnectionLoss. */

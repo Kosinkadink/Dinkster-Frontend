@@ -37,8 +37,15 @@ shows indeterminate progress while it runs, and reports the backend's reclaimed
 byte and file totals, not an estimate. A refusal keeps Clear blocked until a
 successful explicit refresh reports eligibility. Errors remain visible and can
 be retried explicitly; a lost or failed response is never automatically replayed.
-The current backend keeps collection blocked until its complete client census
-is supported; individual complete owner receipts do not enable vault cleanup.
+Native discovery, HTTP, event streams and collaboration share a backend-scoped,
+server-issued retention generation. A saved generation is reopened from its
+current server revision; disconnect does not release retained owners. Storage
+Refresh and Clear temporarily suspend event and collaboration reconnects, close
+those streams, settle reads and acknowledge the exact server census before
+requesting evaluated eligibility or cleanup. Streams resume afterward and
+invalidate that acknowledgment. Other clients, incomplete or unclassified
+owners, and legacy observations still block collection; individual complete
+owner receipts and a saved size limit cannot enable vault cleanup.
 
 ## Runtime controls
 
