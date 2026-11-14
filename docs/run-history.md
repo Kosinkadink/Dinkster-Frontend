@@ -69,17 +69,23 @@ response leaves the stamp uncached and the submission unstamped; the next queue
 can retry. A lost response can be confirmed by exact readback without replaying
 the write. Closing a tab does not release these owners.
 
-Cached-output hydration journals an independent shown-result owner and waits
-for its exact acknowledgment before installing the fetched descriptors.
-Known source-document, snapshot, saved-artifact, preview-file and descriptor
-digests remain retained even when the durable run record is cleared. Opaque
-or truncated runtime values keep this declaration incomplete; it does not
-enable collection. A refusal or stale acknowledgment leaves cached outputs
-unpublished and allows a later execution update to retry. The journal is
-checked read-only on reconnect, without replaying writes or releasing owners.
+Terminal-output hydration claims every sealed output and artifact source before
+installing fetched descriptors. It separately retains the typed producing
+snapshot and source-document digest under an independent shown-result owner.
+The terminal job, attempt, source document and artifact identities must agree;
+missing seals or uncovered outputs withhold publication. A known snapshot can
+be complete without reinterpreting an opaque runtime descriptor or an incomplete
+source offer. Compositor resources use the same verified inventory as workflow
+admission. Runs without a producing snapshot and non-terminal reads remain
+conservative. A refusal or stale acknowledgment leaves cached outputs unpublished
+and allows a later execution update to retry. The journal is checked read-only
+on reconnect, without replaying writes or releasing owners.
 
-Startup restoration uses the same independent ownership acknowledgment after
-validating history, job, source document, compile proof and output descriptors.
+Startup restoration uses the same independent sealed-source and snapshot
+acknowledgments after validating history, job, source document, compile proof
+and output descriptors. Every saved receipt is reconciled before publication.
+Saved roots not covered by the new inventories receive separate incomplete
+protection; restoring a result never releases the source window's owners.
 Pending or refused ownership does not publish a restored execution. Backend,
 connection or registry changes and application disposal discard late startup
 results without deleting their saved retry records.

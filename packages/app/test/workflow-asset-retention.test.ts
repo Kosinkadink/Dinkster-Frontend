@@ -346,6 +346,8 @@ describe('retained app dispatch', () => {
         await vi.waitFor(() => expect(app!.store.get(ref)?.outputs).toEqual(outputs))
         expect(app.store.get(ref)?.artifacts).toEqual([artifact])
         const receipts = app.store.get(ref)?.assetRetentions ?? []
+        expect(receipts.every((receipt) => receipt.complete)).toBe(true)
+        expect(receipts.find((receipt) => receipt.sourceToken === undefined)?.digests).toEqual([asset('a').digest])
         for (const receipt of saved.values()) expect(receipts).toContainEqual(receipt)
         expect(new Set([...saved.values()].map((receipt) => receipt.sourceToken))).toEqual(new Set(sources.map((source) => source.token)))
         expect(new Set([...saved.values()].flatMap((receipt) => receipt.digests))).toEqual(new Set(sources.flatMap((source) => source.digests)))

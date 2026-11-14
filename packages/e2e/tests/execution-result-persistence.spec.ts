@@ -125,6 +125,16 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
       sourceDocument: SOURCE_DIGEST, principalId: servedPrincipalId, principalKind: PRINCIPAL.kind,
     } })
   })
+  await page.route('/api/library/terminal-results/*?scope=local', (route) => {
+    const jobRef = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!)
+    return route.fulfill({ json: { scope: 'local', jobRef, attemptId: 1,
+      state: 'completed', complete: true,
+      identity: { clientId: CLIENT_ID, jobId: jobRef === 'run-a' ? 'job-a' : 'job-b' },
+      resultOffers: Object.fromEntries(offers.filter((offer) => offer.jobRef === jobRef)
+        .map(({ jobId: _jobId, ...offer }) => [offer.nodeId, { [offer.outputId]: offer }])),
+      artifacts: [],
+    } })
+  })
   await page.route('/api/jobs/*/*', (route) => {
     const parts = new URL(route.request().url()).pathname.split('/')
     const jobId = decodeURIComponent(parts.at(-1)!)
@@ -138,7 +148,7 @@ test('runtime scalar survives an unrelated branch and browser reload with cached
       : { other: { value: { typeId: 'INT', fingerprint: 'scalar-3', value: 3 } } }
     return route.fulfill({ json: {
       clientId: decodeURIComponent(parts.at(-2)!), jobId, jobRef: runId, runId, scope: 'local',
-      state: 'completed', nodeStates, outputs, artifacts: [],
+      state: 'completed', attemptId: 1, nodeStates, outputs, artifacts: [],
       submittedBy: { ...PRINCIPAL, principalId: servedPrincipalId },
       sourceDocument: SOURCE_DIGEST,
     } })
