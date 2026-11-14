@@ -226,11 +226,11 @@ enabled primary actions while keeping the action name readable in both themes.
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `ProductButton`      | Native button props and caller-owned aria-busy; primary, secondary, danger and ghost variants; loading disables activation and exposes busy state | Learn, Node help, Activity, Execution log, Problems, Desktop management, mounts, audio recorder and Image document empty state |
 | `ProductTextInput`   | Native text input props and invalid state                                                                                                         | Learn, Desktop management and mounts                                                                                           |
-| `ProductFileInput`   | Hidden native file input; forwards ref, accept, multiple and change events to a separately labelled activation button                              | Image document import, layers and masks                                                                                        |
+| `ProductFileInput`   | Hidden native file input; forwards ref, accept, multiple and change events to a separately labelled activation button                             | Image document import, layers and masks                                                                                        |
 | `ProductTextArea`    | Native textarea props and invalid state                                                                                                           | Desktop management                                                                                                             |
 | `ProductSelect`      | Labelled combobox/listbox with controlled selection, keyboard navigation and focus restoration                                                    | Settings, Execution log and Desktop management                                                                                 |
-| `ProductPanelHeader` | Level-two title, optional headingId for section labelling, count and actions                                                                        | Problems, Backends, Memory and Collaboration                                                                                   |
-| `ProductEmptyState`  | Title, hint, icon and action slots; empty, polite loading and alert error states                                                                  | Learn, Node help, Activity, Execution log, Problems, Image document and Memory                                                    |
+| `ProductPanelHeader` | Level-two title, optional headingId for section labelling, count and actions                                                                      | Problems, Backends, Memory and Collaboration                                                                                   |
+| `ProductEmptyState`  | Title, hint, icon and action slots; empty, polite loading and alert error states                                                                  | Learn, Node help, Activity, Execution log, Problems, Image document and Memory                                                 |
 | `ProductListRow`     | Leading, primary, secondary and action slots with selected state                                                                                  | Activity and Execution log                                                                                                     |
 | `ProductTable`       | Native table semantics in a labelled keyboard-scrollable region, with optional caption and sticky header                                          | Data-heavy product surfaces                                                                                                    |
 
@@ -252,18 +252,18 @@ not grow. This inventory is a migration queue, not a second component system.
 
 ## Token model
 
-| Family | Roles |
-| --- | --- |
-| Space | 4, 8, 12, 16, 24, 32 px |
-| Type | metadata 11/16, body 13/20, section 15/20, title 18/24; regular 400, medium 500, semibold 600 |
-| Surface | canvas, panel, inset, raised, selected |
-| Text | primary, secondary, muted, disabled, inverse, on-selected |
-| Border | subtle, strong, focus, selected |
-| Meaning | accent, success, warning, danger, info; each has foreground, background, and border |
-| Shape | 4 px small, 6 px control, 8 px card/panel, capsule for tags and removable active filters only |
+| Family      | Roles                                                                                           |
+| ----------- | ----------------------------------------------------------------------------------------------- |
+| Space       | 4, 8, 12, 16, 24, 32 px                                                                         |
+| Type        | metadata 11/16, body 13/20, section 15/20, title 18/24; regular 400, medium 500, semibold 600   |
+| Surface     | canvas, panel, inset, raised, selected                                                          |
+| Text        | primary, secondary, muted, disabled, inverse, on-selected                                       |
+| Border      | subtle, strong, focus, selected                                                                 |
+| Meaning     | accent, success, warning, danger, info; each has foreground, background, and border             |
+| Shape       | 4 px small, 6 px control, 8 px card/panel, capsule for tags and removable active filters only   |
 | Interaction | 32 px compact control, 40 px primary input, 2 px focus ring, hover, pressed, selected, disabled |
-| Motion | fast, standard, reduced-motion duration, one product easing curve |
-| Elevation | low and high only |
+| Motion      | fast, standard, reduced-motion duration, one product easing curve                               |
+| Elevation   | low and high only                                                                               |
 
 Canvas code receives space, relevant type roles, surfaces, text, borders,
 meaning, shapes, and bounded interaction state. It does not receive DOM
@@ -416,10 +416,10 @@ shared `0.75` boundary for interactive media controls and output paging. The
 renderer derives one `CanvasDetailLevel` from those owners and the Canvas host
 passes the same tier into hit testing:
 
-| Scale and tier | Required detail |
-| --- | --- |
-| `0.75..4` - `controls` | Full node and row detail; interactive media controls may mount for a visible, active, or focused preview. |
-| `0.5..<0.75` - `content` | Node, group, row, badge, net-name, and detailed lens text remain; media is visible but compact controls are non-interactive. |
+| Scale and tier            | Required detail                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0.75..4` - `controls`    | Full node and row detail; interactive media controls may mount for a visible, active, or focused preview.                                                                                                                                                                                                                                                                           |
+| `0.5..<0.75` - `content`  | Node, group, row, badge, net-name, and detailed lens text remain; media is visible but compact controls are non-interactive.                                                                                                                                                                                                                                                        |
 | `0.05..<0.5` - `overview` | Node rows, titles, badges, link midpoint handles, detailed lens paint, toolbox, and resize targets are omitted. Typed pins, links, reroutes, groups, selection, progress, execution/problem/mode outlines, drop targets, decoded images, and compact video/audio type/count badges remain. Omitted row and handle regions fall back to structural body, link, or group-header hits. |
 
 The grid doubles world spacing until dots are at least 12 CSS pixels apart.
