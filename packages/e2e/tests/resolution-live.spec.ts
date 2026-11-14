@@ -8,7 +8,7 @@ test('resolution composer previews and executes asymmetric dimensions with atomi
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'resolution-live', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Resolution', nodes: {
-        resolution: { id: 'resolution', type: 'ResolutionSelector', values: {} },
+        resolution: { id: 'resolution', type: 'dinkster.utilities.resolution_selector', values: {} },
       }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { resolution: { position: { x: 180, y: 100 } } } } } },
     } as never, 'Resolution')

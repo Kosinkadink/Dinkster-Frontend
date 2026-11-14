@@ -19,17 +19,17 @@ test('compares real completed image batches with independent keyboard frame sele
   const openDocument = async (single = false): Promise<void> => {
     await page.evaluate(async (single) => {
       const nodes: Record<string, unknown> = {
-        compare: { id: 'compare', type: 'ImageCompare', values: { compare_view: null } },
+        compare: { id: 'compare', type: 'dinkster.image.image_compare', values: { compare_view: null } },
       }
       const links: Record<string, unknown> = {}
       for (const [id, color] of [['red', 0xff0000], ['green', 0x00ff00], ['blue', 0x0000ff], ['yellow', 0xffff00], ['cyan', 0x00ffff]] as const) {
-        nodes[id] = { id, type: 'EmptyImage', values: { width: 64, height: 36, batch_size: 1, color } }
+        nodes[id] = { id, type: 'dinkster.image.empty_image', values: { width: 64, height: 36, batch_size: 1, color } }
       }
       const link = (id: string, from: string, to: string, port: string): void => {
         links[id] = { id, from: { node: from, port: 'IMAGE' }, to: { node: to, port } }
       }
       for (const [id, first, second] of [['a', 'red', 'green'], ['b1', 'blue', 'yellow'], ['b', 'b1', 'cyan']] as const) {
-        nodes[id] = { id, type: 'ImageBatch', values: {} }
+        nodes[id] = { id, type: 'dinkster.image.image_batch', values: {} }
         link(`link-${id}-first`, first, id, 'image1'); link(`link-${id}-second`, second, id, 'image2')
       }
       link('a-compare', 'a', 'compare', 'image_a')

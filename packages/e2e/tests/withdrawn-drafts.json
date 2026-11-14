@@ -13,7 +13,6 @@
     "std.list.concat",
     "std.list.length",
     "std.math.add_ints",
-    "std.string.concat",
     "std.string.split"
   ],
   "templates": {

@@ -77,6 +77,15 @@ values select hosted images for main validation, schedules, and manual runs.
 
 ## Full validation
 
+Native crop, comparison, camera and resolution fixtures use served node IDs
+and ports directly. Replacement-source names belong to legacy-import inputs,
+not native workflow documents. Missing-node skips use `required-nodes.ts` and
+the single `withdrawn-drafts.json` list; an absent ID outside that list fails
+before a withdrawn dependency can skip the case. The split-output lifecycle
+retains withdrawn `std.string.split`, but its concatenation consumer uses
+`dinkster.text.string_concatenate`: `string_a` and `string_b` inputs,
+`delimiter` value and `STRING` output.
+
 The live image upload proof requires `dinkster.image.load_image` and
 `dinkster.image.save_image` from the same-origin catalog and fails with the
 missing node IDs when either is absent. Its execution graph connects the

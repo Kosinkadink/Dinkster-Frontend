@@ -21,8 +21,8 @@ test('crop fields submit exact pixels, preview the source and preserve undo', as
       graphs: { g0: {
         id: 'g0', name: 'Crop',
         nodes: {
-          source: { id: 'source', type: 'EmptyImage', values: { width: 64, height: 48, batch_size: 1, color: 0x28649c } },
-          crop: { id: 'crop', type: 'ImageCropV2', values: { crop_region: { x: 0, y: 0, width: 32, height: 24 } } },
+          source: { id: 'source', type: 'dinkster.image.empty_image', values: { width: 64, height: 48, batch_size: 1, color: 0x28649c } },
+          crop: { id: 'crop', type: 'dinkster.image.image_crop_v2', values: { crop_region: { x: 0, y: 0, width: 32, height: 24 } } },
         },
         links: { image: { id: 'image', from: { node: 'source', port: 'IMAGE' }, to: { node: 'crop', port: 'image' } } },
         nets: {}, reroutes: {}, nextOrdinal: 3,

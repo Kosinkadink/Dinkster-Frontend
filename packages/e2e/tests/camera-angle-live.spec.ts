@@ -8,7 +8,7 @@ test('camera composer writes real siblings, executes orbit coordinates and prese
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'camera-angle-live', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Camera', nodes: {
-        camera: { id: 'camera', type: 'CameraAngle', values: {} },
+        camera: { id: 'camera', type: 'dinkster.3d.camera_angle', values: {} },
       }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
       view: { graphs: { g0: { nodes: { camera: { position: { x: 180, y: 100 } } } } } },
     } as never, 'Camera angle')
