@@ -367,14 +367,19 @@ function checkWidgetFields(descriptor: Record<string, unknown>, allowed: readonl
   }
 }
 
-function validateComboOption(value: unknown, where: string, scalar = false): void {
+function comboOptionFields(option: unknown): unknown {
+  if (typeof option !== 'object' || option === null) return option
+  return Object.fromEntries(Object.entries(option).filter(([key]) => ['value', 'label', 'info', 'folder'].includes(key)))
+}
+
+function validateComboOption(value: unknown, where: string, diags: Diagnostic[], scalar = false): void {
   const validValue = (candidate: unknown) => scalar ? isComboValue(candidate) : typeof candidate === 'string' && candidate !== ''
   if (validValue(value)) return
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error(`${where} must be ${scalar ? 'a finite JSON scalar' : 'a non-empty string'} or structured choice`)
   }
   const option = value as Record<string, unknown>
-  checkWidgetFields(option, ['value', 'label', 'info', 'folder'], where)
+  checkWidgetFields(option, ['value', 'label', 'info', 'folder'], where, diags)
   if (!validValue(option['value'])) {
     throw new Error(`${where}.value must be ${scalar ? 'a finite JSON scalar' : 'a non-empty string'}`)
   }
@@ -394,12 +399,12 @@ function validateComboOption(value: unknown, where: string, scalar = false): voi
   }
 }
 
-function decodeTextCompletions(value: unknown, where: string): TextCompletionsSpec {
+function decodeTextCompletions(value: unknown, where: string, diags: Diagnostic[] = []): TextCompletionsSpec {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error(`${where} must be an object`)
   }
   const raw = value as Record<string, unknown>
-  checkWidgetFields(raw, ['items', 'inputFamilies'], where)
+  checkWidgetFields(raw, ['items', 'inputFamilies'], where, diags)
   const rawItems = raw['items'] ?? []
   const rawFamilies = raw['inputFamilies'] ?? []
   if (!Array.isArray(rawItems)) throw new Error(`${where}.items must be an array`)
@@ -413,7 +418,7 @@ function decodeTextCompletions(value: unknown, where: string): TextCompletionsSp
       throw new Error(`${itemWhere} must be an object`)
     }
     const item = value as Record<string, unknown>
-    checkWidgetFields(item, ['value', 'label', 'insertText', 'detail', 'kind'], itemWhere)
+    checkWidgetFields(item, ['value', 'label', 'insertText', 'detail', 'kind'], itemWhere, diags)
     if (typeof item['value'] !== 'string' || item['value'] === '') {
       throw new Error(`${itemWhere}.value must be a non-empty string`)
     }
@@ -475,7 +480,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       const options = descriptor['options']
       if (options !== undefined) {
         if (!Array.isArray(options)) throw new Error(`${where}.options must be an array`)
-        options.forEach((value, index) => validateComboOption(value, `${where}.options[${index}]`, true))
+        options.forEach((value, index) => validateComboOption(value, `${where}.options[${index}]`, diags, true))
       }
       const remote = descriptor['remote']
       if (remote !== undefined) {
@@ -483,7 +488,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
           throw new Error(`${where}.remote must be an object`)
         }
         const remoteObject = remote as Record<string, unknown>
-        checkWidgetFields(remoteObject, ['route', 'refreshButton', 'controlAfterRefresh', 'timeoutMs', 'maxRetries', 'refreshMs'], `${where}.remote`)
+        checkWidgetFields(remoteObject, ['route', 'refreshButton', 'controlAfterRefresh', 'timeoutMs', 'maxRetries', 'refreshMs'], `${where}.remote`, diags)
         if (typeof remoteObject['route'] !== 'string' || !remoteObject['route'].startsWith('/')) {
           throw new Error(`${where}.remote.route must start with '/'`)
         }
@@ -497,7 +502,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
           throw new Error(`${where}.optionSource must be an object`)
         }
         const source = optionSource as Record<string, unknown>
-        checkWidgetFields(source, ['inputFamily'], `${where}.optionSource`)
+        checkWidgetFields(source, ['inputFamily'], `${where}.optionSource`, diags)
         if (typeof source['inputFamily'] !== 'string' || source['inputFamily'] === '') {
           throw new Error(`${where}.optionSource.inputFamily must be a non-empty string`)
         }
@@ -512,7 +517,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       const options = descriptor['options']
       if (options !== undefined) {
         if (!Array.isArray(options)) throw new Error(`${where}.options must be an array`)
-        options.forEach((value, index) => validateComboOption(value, `${where}.options[${index}]`))
+        options.forEach((value, index) => validateComboOption(value, `${where}.options[${index}]`, diags))
       }
       const remote = descriptor['remote']
       if (remote !== undefined) {
@@ -520,7 +525,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
           throw new Error(`${where}.remote must be an object`)
         }
         const r = remote as Record<string, unknown>
-        checkWidgetFields(r, ['route', 'refreshButton', 'controlAfterRefresh', 'timeoutMs', 'maxRetries', 'refreshMs'], `${where}.remote`)
+        checkWidgetFields(r, ['route', 'refreshButton', 'controlAfterRefresh', 'timeoutMs', 'maxRetries', 'refreshMs'], `${where}.remote`, diags)
         if (typeof r['route'] !== 'string' || !/^\/api\/choices\/[A-Za-z0-9._-]+$/.test(r['route'])) {
           throw new Error(`${where}.remote.route must be /api/choices/{choice_id}`)
         }
@@ -596,7 +601,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       if (descriptor['dynamicPrompts'] !== undefined && typeof descriptor['dynamicPrompts'] !== 'boolean') {
         throw new Error(`${where}.dynamicPrompts must be a boolean`)
       }
-      if (descriptor['completions'] !== undefined) decodeTextCompletions(descriptor['completions'], `${where}.completions`)
+      if (descriptor['completions'] !== undefined) decodeTextCompletions(descriptor['completions'], `${where}.completions`, diags)
       if (
         descriptor['multiline'] === undefined &&
         descriptor['placeholder'] === undefined &&
@@ -792,7 +797,7 @@ function widgetFor(
           throw new Error(`${nodeType}.${id}: representation ${index} must be an object`)
         }
         const representation = value as Record<string, unknown>
-        checkWidgetFields(representation, ['id', 'displayName', 'widget'], `${nodeType}.${id} representation ${index}`)
+        checkWidgetFields(representation, ['id', 'displayName', 'widget'], `${nodeType}.${id} representation ${index}`, diags)
         const representationId = representation['id']
         if (typeof representationId !== 'string' || !WIDGET_REPRESENTATION_ID.test(representationId)) {
           throw new Error(`${nodeType}.${id}: representation ${index} id must match [A-Za-z0-9_-]+`)
@@ -881,7 +886,7 @@ function widgetFor(
       let options: unknown[] | undefined
       if (descriptor.options !== undefined) {
         if (Array.isArray(descriptor.options)) {
-          if (descriptor.options.length > 0 || descriptor.editableOptions === true) options = [...descriptor.options]
+          if (descriptor.options.length > 0 || descriptor.editableOptions === true) options = descriptor.options.map(comboOptionFields)
         } else {
           diags.push(diag('warning', 'schema', 'schema.dinkster.badComboOptions', `${nodeType}.${id}: COMBO options are invalid`))
         }
@@ -970,7 +975,7 @@ function widgetFor(
       if (Array.isArray(dflt) && !dflt.every((value) => typeof value === 'string')) {
         throw new Error(`${nodeType}.${id}: MULTI_COMBO default must be string[]`)
       }
-      const options = Array.isArray(descriptor.options) && descriptor.options.length > 0 ? [...descriptor.options] : undefined
+      const options = Array.isArray(descriptor.options) && descriptor.options.length > 0 ? descriptor.options.map(comboOptionFields) : undefined
       const outOptions: Record<string, unknown> = options ? { options } : {}
       if (descriptor.placeholder !== undefined) {
         if (typeof descriptor.placeholder === 'string') outOptions['placeholder'] = descriptor.placeholder

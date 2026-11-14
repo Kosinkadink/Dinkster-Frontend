@@ -934,12 +934,12 @@ export interface EnvironmentNodeStamp {
 
 /**
  * Record of the environment that produced this document, stamped from live
- * /api/nodes data at save time. A RECORD, never identity: loading and
- * execution never depend on it, absence is fully valid, and it is outside
- * the execution-semantic hash by construction (the hash covers exactly the
- * `graphs` subtree). Used-only: it names only packs and node types this
- * document actually instantiates. Powers load-time drift diagnostics and
- * (backend-side) environment reproduction.
+ * /api/nodes data at save time. Absence is fully valid and never blocks
+ * loading or execution. A replacement rule may require a recorded signature
+ * before converting values from a retired node. The stamp is outside the
+ * execution-semantic hash (which covers exactly the `graphs` subtree).
+ * Used-only: it names only packs and node types this document actually
+ * instantiates. Also powers drift diagnostics and environment reproduction.
  */
 export interface EnvironmentStamp {
   /** Backend identity at stamp time (/api/nodes "dinkster" header). */

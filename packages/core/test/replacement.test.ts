@@ -1742,6 +1742,32 @@ describe('scanReplacements', () => {
     return reg
   }
 
+  it('substitutes a retired id only for its recorded signature and saves mapped values once', () => {
+    const original = doc({ g0: graph({ id: 'g0', nodes: { old: { ...node('old', 'OldNode'), values: { amount: 0.37 } } } }) })
+    const rule: ReplacementRule = { ...basicRule, fromSignature: 'old-interface', cases: [{
+      to: 'RenamedPorts', inputs: { scale: { kind: 'value', input: 'amount', transform: { kind: 'scale', factor: 100 } } },
+    }] }
+    const registry = registryWith(rule)
+    const retiredResolve = (type: string) => type === 'OldNode' ? undefined : resolve(type)
+    for (const signature of [undefined, 'different-interface', 'old-interface']) {
+      const saved = signature === undefined ? original : { ...original,
+        environment: { packs: {}, nodes: { OldNode: { signature } } },
+      }
+      const loaded = JSON.parse(JSON.stringify(saved)) as WorkflowDocument
+      const items = scanReplacements(loaded, registry, retiredResolve)
+      if (signature !== 'old-interface') {
+        expect(items).toEqual([])
+        continue
+      }
+      expect(items).toHaveLength(1)
+      const store = new DocumentStore(loaded, coreCommandRegistry())
+      expect(store.dispatch(replacementInvocation(items, loaded, retiredResolve)!).ok).toBe(true)
+      const reopened = JSON.parse(JSON.stringify(store.doc)) as WorkflowDocument
+      expect(reopened.graphs.g0!.nodes.old).toMatchObject({ type: 'RenamedPorts', values: { scale: 37 } })
+      expect(scanReplacements(reopened, registry, resolve)).toEqual([])
+    }
+  })
+
   it('finds every migratable node across graphs; skips others', () => {
     const d = doc(
       {

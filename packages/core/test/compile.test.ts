@@ -329,6 +329,38 @@ describe('partial execution scope', () => {
 })
 
 describe('value handling', () => {
+  it('loads saved values by input id after reordering and fills added inputs without changing the node id', () => {
+    const base = loadWorkflow('minimal')
+    const saved: WorkflowDocument = { ...base, graphs: { [base.root]: {
+      ...base.graphs[base.root]!, links: {}, nodes: {
+        n0: { id: asNodeId('n0'), type: 'Evolving', values: { width: 37, height: 91, mode: 'nearest' } },
+      },
+    } } }
+    const loaded = loadDocument(JSON.parse(JSON.stringify(saved)))
+    expect(loaded.document).toBeDefined()
+    for (const expanded of [false, true]) {
+      const schema = parseDinksterSchema('Evolving', {
+        outputNode: true,
+        interface: [
+          { role: 'input', id: 'mode', type: { kind: 'concrete', types: ['COMBO'] }, required: true,
+            default: 'linear', widget: { type: 'COMBO', options: expanded ? ['linear', 'cubic', 'nearest'] : ['linear', 'nearest'] } },
+          { role: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 512, widget: { type: 'NUMBER', min: 1 } },
+          ...(expanded ? [{ role: 'input' as const, id: 'batch', type: { kind: 'concrete' as const, types: ['INT'] }, required: true, default: 3, widget: { type: 'NUMBER', min: 1 } }] : []),
+          { role: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 512, widget: { type: 'NUMBER', min: 1 } },
+        ],
+      }).schema!
+      expect(schema).toBeDefined()
+      const result = compile(compileInput(loaded.document!, { kind: 'full' }, () => schema))
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) throw new Error('saved additive workflow must compile')
+      expect(result.artifact.prompt.n0!.class_type).toBe('Evolving')
+      expect(result.artifact.prompt.n0!.inputs).toEqual({
+        width: 37, height: 91, mode: 'nearest', ...(expanded ? { batch: 3 } : {}),
+      })
+    }
+    expect(loaded.document!.graphs[base.root]!.nodes.n0!.values).toEqual({ width: 37, height: 91, mode: 'nearest' })
+  })
+
   it('unknown value keys warn and are dropped', () => {
     const doc = mutableWorkflow('exec-basic')
     const nodes = ((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable
