@@ -148,7 +148,9 @@ const openModal = async (page: Page, id: string): Promise<void> => {
 
 const emptyVisualBackend = async (route: Route): Promise<void> => {
   const path = new URL(route.request().url()).pathname
-  if (path.endsWith('/api/nodes')) {
+  if (path.endsWith('/api/library/retention-clients')) {
+    await route.fulfill({ status: 404 })
+  } else if (path.endsWith('/api/nodes')) {
     await route.fulfill({ json: {
       schemaVersion: 1, epoch: 1,
       dinkster: { version: 'visual-fixture', schemaWire: 1 },
@@ -445,6 +447,8 @@ test('Boundary prompt and definition empty states at desktop and compact widths'
 test('HTTP metadata errors expose shell status and panel retries', async ({ page }) => {
   let recover = false
   await page.route('**/offline-visual/api/**', async (route) => {
+    if (new URL(route.request().url()).pathname.endsWith('/api/library/retention-clients'))
+      return route.fulfill({ status: 404 })
     if (!recover) return route.fulfill({ status: 503, body: 'Metadata fixture unavailable' })
     await emptyVisualBackend(route)
   })
