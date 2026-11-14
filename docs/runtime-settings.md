@@ -50,7 +50,10 @@ those streams, settle reads and acknowledge the exact server census before
 requesting evaluated eligibility or cleanup. Streams resume afterward and
 invalidate that acknowledgment. Other clients, incomplete or unclassified
 owners, and legacy observations still block collection; individual complete
-owner receipts and a saved size limit cannot enable vault cleanup.
+owner receipts and a saved size limit cannot enable vault cleanup. Installed
+immutable frontend modules keep their native HTTP import URLs: selected,
+digest-verified code GET/HEAD requests are outside retention admission. This
+exception does not cover executable pack routes, asset reads or value reads.
 
 ## Runtime controls
 
