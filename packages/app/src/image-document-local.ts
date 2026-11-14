@@ -228,7 +228,7 @@ export class ImageDocumentLocalStore {
     digests: readonly string[],
   ): Promise<ImageResourceRetention> {
     const owner: RetainedAssetOwner = {
-      scope, ownerKind: 'preview', ownerId: `image-resource-read:${uuidv4()}`,
+      scope, ownerKind: 'preview', ownerId: `image-resource-read:${uuidv4()}`, holderClasses: [8],
     }
     const read: ImageResourceRetention = {
       key: owner.ownerId, projectId: this.projectId, connectionId, assetBaseUrl,
@@ -270,7 +270,7 @@ export class ImageDocumentLocalStore {
     digest: string,
   ): Promise<ImageResourceRetention> {
     const owner: RetainedAssetOwner = {
-      scope, ownerKind: 'document', ownerId: `image-staged-resource:${uuidv4()}`,
+      scope, ownerKind: 'document', ownerId: `image-staged-resource:${uuidv4()}`, holderClasses: [4],
     }
     const retention: ImageResourceRetention = {
       key: owner.ownerId, projectId: this.projectId, connectionId, assetBaseUrl, owner, digests: [digest],

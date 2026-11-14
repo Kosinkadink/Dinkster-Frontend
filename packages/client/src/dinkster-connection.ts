@@ -24,7 +24,7 @@
  */
 
 import { credentialFetch, mintDelegation, type CollabCredentials, type Delegation, type MintDelegation } from './credentials.js'
-import type { RetentionClient } from './retention-client.js'
+import type { RetentionClient, RetentionHolderClass } from './retention-client.js'
 import { requestWithDeadline } from './request-deadline.js'
 import {
   asPromptId,
@@ -1242,6 +1242,8 @@ export interface RetainedAssetOwner {
   readonly scope: string
   readonly ownerKind: 'document' | 'history' | 'shown-result' | 'preview'
   readonly ownerId: string
+  /** Immutable membership chosen by the admitting lifetime, never inferred from owner kind. */
+  readonly holderClasses?: readonly RetentionHolderClass[]
 }
 
 export interface RetainedAssets extends RetainedAssetOwner {
@@ -1290,6 +1292,16 @@ function retainedAssetRoute(owner: RetainedAssetOwner): string {
   return `/api/library/retentions/${owner.ownerKind}/${encodeURIComponent(owner.ownerId)}?scope=${encodeURIComponent(owner.scope)}`
 }
 
+function retainedAssetHeaders(owner: RetainedAssetOwner): Record<string, string> {
+  const classes = owner.holderClasses
+  if (classes !== undefined && (classes.length === 0 || new Set(classes).size !== classes.length ||
+    classes.some((value) => !Number.isInteger(value) || value < 1 || value > 8))) {
+    throw new Error('Invalid retained asset holder classes')
+  }
+  return { 'Content-Type': 'application/json',
+    ...(classes === undefined ? {} : { 'X-Dinkster-Retention-Holder': [...classes].sort().join(',') }) }
+}
+
 export function retainedAssetAcknowledgment(value: unknown, owner: RetainedAssetOwner): RetainedAssets {
   if (!record(value) || value['scope'] !== owner.scope || value['ownerKind'] !== owner.ownerKind ||
     value['ownerId'] !== owner.ownerId || typeof value['revision'] !== 'number' ||
@@ -1304,6 +1316,7 @@ export function retainedAssetAcknowledgment(value: unknown, owner: RetainedAsset
   }
   return {
     scope: owner.scope, ownerKind: owner.ownerKind, ownerId: owner.ownerId,
+    ...(owner.holderClasses === undefined ? {} : { holderClasses: Object.freeze([...owner.holderClasses]) }),
     revision: value['revision'], digests: value['digests'] as string[], complete: value['complete'],
     ...(value['sourceToken'] === undefined ? {} : { sourceToken: value['sourceToken'] as string }),
   }
@@ -2798,7 +2811,7 @@ export class DinksterConnection {
       throw new Error('Invalid result asset claim')
     }
     const res = await this.fetchFn(`${this.baseUrl}${retainedAssetRoute(owner)}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      method: 'PUT', headers: retainedAssetHeaders(owner),
       body: JSON.stringify({ revision: 0, sourceToken }),
       ...(signal !== undefined ? { signal } : {}),
     })
@@ -2831,10 +2844,8 @@ export class DinksterConnection {
     }
     const route = `${retainedAssetRoute(owner)}${method === 'DELETE' ? `&revision=${revision}` : ''}`
     const res = await this.fetchFn(`${this.baseUrl}${route}`, {
-      method,
-      ...(method === 'PUT' ? {
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision, digests, complete }),
-      } : {}),
+      method, headers: retainedAssetHeaders(owner),
+      ...(method === 'PUT' ? { body: JSON.stringify({ revision, digests, complete }) } : {}),
       ...(signal !== undefined ? { signal } : {}),
     })
     // A failed or lost response can still have committed. Reconciliation is

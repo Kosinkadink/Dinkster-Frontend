@@ -5241,7 +5241,7 @@ export class AppState {
       current,
       read: async <T>(consume: () => Promise<T>): Promise<T> => {
         if (!current()) throw new Error('Workflow asset reader is no longer current')
-        admission ??= retainPreviewAssets(backend.connection, roots)
+        admission ??= retainPreviewAssets(backend.connection, roots, [8])
           .then((retained) => {
             if (!current()) throw new Error('Workflow changed during asset admission')
             return new RetainedAssetReader(backend.connection, retained, current)
@@ -5291,7 +5291,7 @@ export class AppState {
       current,
       read: async <T>(consume: () => Promise<T>): Promise<T> => {
         if (!current()) throw new Error('Execution asset reader is no longer current')
-        admission ??= retainPreviewAssets(backend.connection, roots).then((retained) => {
+        admission ??= retainPreviewAssets(backend.connection, roots, [8]).then((retained) => {
           if (!current()) throw new Error('Execution changed during asset admission')
           return new RetainedAssetReader(backend.connection, retained, current)
         }).catch((error: unknown) => {
@@ -5339,7 +5339,7 @@ export class AppState {
       current,
       read: async <T>(consume: () => Promise<T>): Promise<T> => {
         if (!current()) throw new Error('Original model owner is unavailable')
-        admission ??= retainPreviewAssets(backend.connection, roots)
+        admission ??= retainPreviewAssets(backend.connection, roots, [8])
           .then((retained) => new RetainedAssetReader(backend.connection, retained, current))
           .catch((error: unknown) => { admission = undefined; throw error })
         const owned = await admission
@@ -5874,7 +5874,8 @@ export class AppState {
     const assets = value === null ? [] : Array.isArray(value) ? value : [value]
     if (!assets.every(isAssetRef)) throw new Error('Picker asset inventory is invalid')
     const roots = { complete: true, digests: [...new Set(assets.map((asset) => asset.digest))].sort() }
-    const retained = await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
+    const retained = await retainWorkflowAssets(backend.connection, document.lineage, revision,
+      roots, undefined, undefined, false, [4, 8])
     if (!current()) throw new Error('Picker destination changed during asset admission')
     const owned = new RetainedAssetReader(backend.connection, retained, current)
     const reader = {
@@ -5974,7 +5975,8 @@ export class AppState {
         if (!isAssetRef(value) || value.digest !== target.sourceRef.digest) throw new Error('Editor resource inventory is invalid')
         digests = [value.digest]
       }
-      const retained = await retainWorkflowAssets(backend.connection, tab.store.doc.lineage, tab.store.revision, { complete: true, digests })
+      const retained = await retainWorkflowAssets(backend.connection, tab.store.doc.lineage, tab.store.revision,
+        { complete: true, digests }, undefined, undefined, false, [4])
       const previous = [...this.editorAssetOwners].filter(([, owner]) => owner.target === target)
       this.editorAssetOwners.set(retained, { target, session: tab.store, backend, project, registry, generation })
       this.retireEndedEditorOwners()

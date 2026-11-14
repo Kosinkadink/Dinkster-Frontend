@@ -142,6 +142,8 @@ describe('workflow retention recovery', () => {
       expect([...owners.values()].every((owner) => owner.ownerKind === 'preview' && owner.revision === 1)).toBe(true)
       candidateAck.resolve()
       const retained = await operation
+      expect(retained.holderClasses).toEqual([1, 2, 3])
+      expect([...owners.values()].filter((owner) => owner.ownerKind === 'preview').map((owner) => owner.holderClasses)).toEqual([[8]])
       expect(retained.complete).toBe(['resolved', 'dormant', 'comfy-inputs', 'comfy-empty', 'comfy-output-policy'].includes(scenario))
       expect(retained.digests).toEqual((['missing-document', 'wrong-document', 'noncanonical-document'].includes(scenario)
         ? [documentDigest] : ['opaque-extension', 'comfy-extra', 'comfy-unknown'].includes(scenario) ? [documentDigest, resourceDigest, asset('d').digest]
@@ -215,6 +217,7 @@ describe('workflow retention recovery', () => {
       vi.stubGlobal('WebSocket', FakeSocket)
       const requests: Array<{ signal: AbortSignal; result: ReturnType<typeof deferred<Response>> }> = []
       vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
         if (url.includes('/api/library/retentions/')) {
           expect(init?.method).toBe('GET')
           expect(init?.cache).toBe('no-store')
@@ -232,19 +235,22 @@ describe('workflow retention recovery', () => {
         f.entries.set(f.key, bytes)
         const notices = () => app.problems.get().filter((problem) => problem.code === 'workflow.retention.unresolved')
         backend.connection.connect()
+        await vi.waitFor(() => expect(sockets).toHaveLength(1))
         sockets.at(-1)!.onopen?.({})
-        expect(requests).toHaveLength(1)
+        await vi.waitFor(() => expect(requests).toHaveLength(1))
         requests[0]!.result.resolve(new Response('{}', { status: 404 }))
         await vi.waitFor(() => expect(notices()).toHaveLength(1))
         backend.connection.disconnect()
         backend.connection.connect()
+        await vi.waitFor(() => expect(sockets).toHaveLength(2))
         sockets.at(-1)!.onopen?.({})
-        expect(requests).toHaveLength(2)
+        await vi.waitFor(() => expect(requests).toHaveLength(2))
         if (scenario === 'reconnect') {
           backend.connection.disconnect()
           backend.connection.connect()
+          await vi.waitFor(() => expect(sockets).toHaveLength(3))
           sockets.at(-1)!.onopen?.({})
-          expect(requests).toHaveLength(3)
+          await vi.waitFor(() => expect(requests).toHaveLength(3))
           requests[2]!.result.resolve(new Response(JSON.stringify(f.acknowledgment)))
           await vi.waitFor(() => expect(notices()).toHaveLength(0))
         } else if (scenario === 'disconnect') backend.connection.disconnect()
@@ -361,10 +367,12 @@ describe('retained app dispatch', () => {
       const offer = { token: '0123456789abcdef'.repeat(2), scope: 'local', jobRef: 'original-job', attemptId: 2,
         nodeId: 'n0', outputId: 'images', publication: 3, digests: [asset('a').digest, asset('b').digest], complete: true }
       vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
-      vi.stubGlobal('fetch', async (url: string) => url.includes('/api/values?')
-        ? new Response(JSON.stringify({ available: true, descriptor: { typeId: 'INT', fingerprint: 'child', value: 9 },
-          renditions: [], resultOffer: offer }), { status: 200 })
-        : new Response('{}', { status: 503 }))
+      vi.stubGlobal('fetch', async (url: string) => url.endsWith('/api/library/retention-clients')
+        ? new Response('{}', { status: 404 })
+        : url.includes('/api/values?')
+          ? new Response(JSON.stringify({ available: true, descriptor: { typeId: 'INT', fingerprint: 'child', value: 9 },
+            renditions: [], resultOffer: offer }), { status: 200 })
+          : new Response('{}', { status: 503 }))
       app = createWorkflowApp([{ ...schema, isOutputNode: true }])
       await app.openDocument(session().doc, 'Value source')
       const tab = app.activeTab()!

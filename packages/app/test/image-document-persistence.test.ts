@@ -202,6 +202,7 @@ describe('ImageDocument local persistence', () => {
     const first = controller.dispatch(update(7))
     await vi.waitFor(() => expect(gates).toHaveLength(1))
     expect(controller.session.doc.canvas.width).toBe(2)
+    expect(gates[0]!.receipt.holderClasses).toEqual([2, 3, 4])
     expect(controller.session.canUndo).toBe(false)
     expect(operations).toEqual([])
     expect(remote.methods.releaseRetainedAssets).not.toHaveBeenCalled()
@@ -364,6 +365,7 @@ describe('ImageDocument local persistence', () => {
       ).then((result) => { published = true; return result })
       const owner = await requested.promise
       expect(owner.scope).toBe('render-scope')
+      expect(owner.holderClasses).toEqual([8])
       expect(await store.resourceReads()).toMatchObject([{ owner, digests: [resource.digest] }])
       expect(remote.methods.fetchAssetBytes).not.toHaveBeenCalled()
       admission.resolve({ ...owner, revision: 1, complete: true, digests: [resource.digest] })
@@ -496,6 +498,7 @@ describe('ImageDocument local persistence', () => {
       expect(remote.methods.fetchAssetBytes).toHaveBeenCalledTimes(1)
       const first = await target.stagedResourceRetentions()
       expect(first).toHaveLength(1)
+      expect(first[0]!.owner.holderClasses).toEqual([4])
       await hydrateImageDocumentResources(remote.connection, target, document, 'shared')
       const retained = await target.stagedResourceRetentions()
       expect(retained).toHaveLength(2)

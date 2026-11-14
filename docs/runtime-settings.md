@@ -39,7 +39,12 @@ successful explicit refresh reports eligibility. Errors remain visible and can
 be retried explicitly; a lost or failed response is never automatically replayed.
 Native discovery, HTTP, event streams and collaboration share a backend-scoped,
 server-issued retention generation. A saved generation is reopened from its
-current server revision; disconnect does not release retained owners. Storage
+current server revision; disconnect does not release retained owners. New owners
+record immutable holder membership with their durable intent: workflow literals,
+undo/compile history and restored/shared documents; typed editor resources;
+shown results and persisted history; live previews; or pending reads and caches.
+A shared receipt declares all lifetimes it protects. Exact releases carry that
+same set, while legacy owner journals never acquire membership retroactively. Storage
 Refresh and Clear temporarily suspend event and collaboration reconnects, close
 those streams, settle reads and acknowledge the exact server census before
 requesting evaluated eligibility or cleanup. Streams resume afterward and
