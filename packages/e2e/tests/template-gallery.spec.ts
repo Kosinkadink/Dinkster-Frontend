@@ -40,6 +40,40 @@ async function openGalleryFromSearch(page: import('@playwright/test').Page): Pro
     .click()
 }
 
+test('renders a local template thumbnail from owned bytes and cancels it when the gallery closes', async ({ page }) => {
+  await page.routeWebSocket('**/api/events*', () => {})
+  await page.route('/api/settings', (route) => route.fulfill({ json: {
+    features: { templates: { enabled: true } }, categories: { granted: [], available: [] }, settings: {},
+  } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'gallery-test', schemaWire: 1 }, packs: {}, nodes: {},
+  } }))
+  await page.route('/api/templates*', (route) => route.fulfill({ json: { templates: [{
+    pack: 'demo', id: 'starter', name: 'Local image starter', digest,
+    thumbnail: { digest: `sha256:${'a'.repeat(64)}`, mediaType: 'image/svg+xml' },
+  }] } }))
+  await page.route('**/index/templates*', (route) => route.fulfill({ json: { catalogVersion: 1, templates: [] } }))
+  await page.route('**/api/packs/demo/templates/starter/thumbnail', (route) => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect width="320" height="180" fill="#244268"/><circle cx="160" cy="90" r="55" fill="#c0defa"/></svg>',
+  }))
+  await page.goto('/')
+  const open = page.getByRole('button', { name: 'Browse starter templates' })
+  await expect(open).toBeVisible()
+  await open.click()
+  const gallery = page.getByTestId('template-gallery')
+  const image = gallery.getByTestId('template-card').locator('img')
+  await expect(image).toHaveAttribute('src', /^blob:/)
+  await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBe(320)
+  const source = await image.getAttribute('src')
+  if (proofDir !== undefined) await gallery.screenshot({ path: join(proofDir, 'local-template-thumbnail.png'), animations: 'disabled' })
+  await gallery.getByRole('button', { name: 'Close template gallery' }).click()
+  await expect(gallery).toBeHidden()
+  await expect.poll(() => page.evaluate(async (url) => {
+    try { await fetch(url!); return false } catch { return true }
+  }, source)).toBe(true)
+})
+
 test('refreshes the remote family gallery and opens a digest-verified template', async ({
   page,
 }) => {

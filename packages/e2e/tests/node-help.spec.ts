@@ -117,6 +117,8 @@ test('documented node context Help renders its immutable Markdown page', async (
   await expect(panel.locator('.dinkster-markdown')).toContainText('Add the two integer inputs.')
   await expect(panel.getByRole('img', { name: 'Addition diagram' })).toBeVisible()
   await expect(panel.locator('video')).toHaveAttribute('controls', '')
+  await expect(panel.locator('video')).toHaveAttribute('src', /^blob:/)
+  await expect.poll(() => panel.locator('video').evaluate((video) => (video as HTMLVideoElement).readyState)).toBeGreaterThan(0)
   await expect.poll(async () => (await panel.locator('video').boundingBox())?.height ?? 0).toBeGreaterThan(150)
   await expect(panel.locator('figcaption')).toHaveText('Adding two values')
   await expect(panel.locator('script')).toHaveCount(0)

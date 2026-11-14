@@ -157,7 +157,14 @@ export function packsSource(app: AppState): CollectionSource {
             ...(assetCount > 0 ? [`${assetCount} asset${assetCount === 1 ? '' : 's'}`] : []),
           ],
           ...(info.icon !== undefined && backend !== undefined
-            ? { thumbUrl: `${backend.baseUrl}/api/packs/${encodeURIComponent(packId)}/icon` }
+            ? { thumbRender: async (signal?: AbortSignal) => {
+                if (signal === undefined) throw new Error('Pack preview ownership unavailable')
+                const blob = await backend.connection.fetchPackIcon(packId, signal)
+                signal.throwIfAborted()
+                const url = URL.createObjectURL(blob)
+                signal.addEventListener('abort', () => URL.revokeObjectURL(url), { once: true })
+                return url
+              } }
             : {}),
           details: [
             { label: 'pack id', text: packId },
@@ -263,11 +270,7 @@ export function templatesSource(app: AppState): CollectionSource {
           const models = templateModels(template, backend)
           const missing = models.filter((model) => !held.get(model))
           const remoteTemplate = ref.kind === 'remote' ? ref.template : undefined
-          const thumbUrl = remoteTemplate === undefined
-            ? template.thumbnail === undefined
-              ? undefined
-              : `${backend.baseUrl}/api/packs/${encodeURIComponent(template.pack)}/templates/${encodeURIComponent(template.id)}/thumbnail`
-            : catalog.thumbnailUrl(remoteTemplate)
+          const thumbUrl = remoteTemplate === undefined ? undefined : catalog.thumbnailUrl(remoteTemplate)
           return {
             id: ref.kind === 'remote'
               ? `remote/${template.pack}/${remoteTemplate!.version}/${template.id}`
@@ -281,6 +284,16 @@ export function templatesSource(app: AppState): CollectionSource {
               ...(missing.length > 0 ? [`${missing.length} model${missing.length === 1 ? '' : 's'} missing`] : []),
             ],
             ...(thumbUrl === undefined ? {} : { thumbUrl }),
+            ...(remoteTemplate === undefined && template.thumbnail !== undefined ? {
+              thumbRender: async (signal?: AbortSignal) => {
+                if (signal === undefined) throw new Error('Template preview ownership unavailable')
+                const blob = await backend.connection.fetchTemplateThumbnail(template.pack, template.id, signal)
+                signal.throwIfAborted()
+                const url = URL.createObjectURL(blob)
+                signal.addEventListener('abort', () => URL.revokeObjectURL(url), { once: true })
+                return url
+              },
+            } : {}),
             details: [
               { label: 'template id', text: template.id },
               { label: 'pack', text: template.pack },

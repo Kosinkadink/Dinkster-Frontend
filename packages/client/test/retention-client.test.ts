@@ -73,6 +73,34 @@ describe('backend retention enrollment', () => {
     await rejected
   })
 
+  it('enrolls pack media and blueprint reads through the owning backend transport', async () => {
+    const paths: string[] = []
+    const client = new RetentionClient('http://backend/prefix', async (url, init) => {
+      if (url.endsWith('/retention-clients')) return json(census())
+      expect(new Headers(init?.headers).get('X-Dinkster-Retention-Generation')).toBe(generation)
+      paths.push(new URL(url).pathname)
+      return new Response('pack media', { headers: { 'Content-Type': 'image/png' } })
+    })
+    const connection = new DinksterConnection({ id: asConnectionId('pack-media'), baseUrl: 'http://backend/prefix',
+      clientId: 'pack-media', retentionClient: client })
+    const controller = new AbortController()
+    for (const blob of [
+      await connection.fetchPackIcon('pack/name', controller.signal),
+      await connection.fetchTemplateThumbnail('pack/name', 'template/name', controller.signal),
+      await connection.fetchDocsAsset('pack/name', 'sha256:a+b', controller.signal),
+    ]) {
+      expect(await blob.text()).toBe('pack media')
+      expect(blob.type).toBe('image/png')
+    }
+    expect(await connection.fetchBlueprintBody('pack/name', 'blueprint/name')).toBeUndefined()
+    expect(paths).toEqual([
+      '/prefix/api/packs/pack%2Fname/icon',
+      '/prefix/api/packs/pack%2Fname/templates/template%2Fname/thumbnail',
+      '/prefix/api/packs/pack%2Fname/docs/assets/sha256%3Aa%2Bb',
+      '/prefix/api/packs/pack%2Fname/blueprints/blueprint%2Fname',
+    ])
+  })
+
   it('reopens a stored client from the freshly read revision and disconnects without releasing owners', async () => {
     let saved = generation
     let disconnected = false

@@ -3660,6 +3660,32 @@ export class DinksterConnection {
     }
   }
 
+  /** Fetch and validate one immutable blueprint through the owning backend transport. */
+  async fetchBlueprintBody(packId: string, blueprintId: string): Promise<WorkflowDocument | undefined> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/blueprints/${encodeURIComponent(blueprintId)}`)
+    if (!res.ok) return undefined
+    try { return loadDocument(JSON.parse(await res.text()) as unknown).document }
+    catch { return undefined }
+  }
+
+  async fetchPackIcon(packId: string, signal: AbortSignal): Promise<Blob> {
+    return this.fetchPackMedia(`/api/packs/${encodeURIComponent(packId)}/icon`, signal)
+  }
+
+  async fetchTemplateThumbnail(packId: string, templateId: string, signal: AbortSignal): Promise<Blob> {
+    return this.fetchPackMedia(`/api/packs/${encodeURIComponent(packId)}/templates/${encodeURIComponent(templateId)}/thumbnail`, signal)
+  }
+
+  async fetchDocsAsset(packId: string, digest: string, signal: AbortSignal): Promise<Blob> {
+    return this.fetchPackMedia(`/api/packs/${encodeURIComponent(packId)}/docs/assets/${encodeURIComponent(digest)}`, signal)
+  }
+
+  private async fetchPackMedia(path: string, signal: AbortSignal): Promise<Blob> {
+    const res = await this.fetchFn(`${this.baseUrl}${path}`, { signal })
+    if (!res.ok) throw new Error(`GET pack media failed: ${res.status}`)
+    return res.blob()
+  }
+
   /** Fetch and validate one immutable native-format template body. */
   async fetchTemplateBody(packId: string, templateId: string): Promise<WorkflowDocument | undefined> {
     const res = await this.fetchFn(`${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/templates/${encodeURIComponent(templateId)}`)

@@ -6,7 +6,8 @@
  * corpus for a query, never a loaded page. initialsOf is the shared
  * no-thumbnail fallback.
  */
-import { beforeEach, describe, expect, it } from 'vitest'
+import { resolveObjectURL } from 'node:buffer'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, executionKey, type DinksterNodesPayload, type ExecutionRef } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
@@ -103,7 +104,15 @@ describe('packsSource', () => {
 
     const vhs = page.items[2]!
     expect(vhs.badges).toEqual(['VHS', 'v3.1.4', 'registry', '1 node', '1 asset'])
-    expect(vhs.thumbUrl).toContain('/api/packs/vhs.video/icon')
+    expect(vhs.thumbUrl).toBeUndefined()
+    expect(vhs.thumbRender).toBeDefined()
+    const icon = vi.spyOn(app.backends.get()[0]!.connection, 'fetchPackIcon').mockResolvedValue(new Blob(['icon pixels']))
+    const abort = new AbortController()
+    const iconUrl = await vhs.thumbRender!(abort.signal)
+    expect(await resolveObjectURL(iconUrl)?.text()).toBe('icon pixels')
+    abort.abort()
+    expect(resolveObjectURL(iconUrl)).toBeUndefined()
+    icon.mockRestore()
     expect(vhs.details).toContainEqual({ label: 'backend', text: app.backends.get()[0]!.label })
     expect(vhs.details).toContainEqual({ label: 'publisher', text: 'kosinkadink' })
     expect(vhs.details).toContainEqual({ label: 'digest', text: 'sha256:' + 'b'.repeat(64) })

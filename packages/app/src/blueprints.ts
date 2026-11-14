@@ -20,7 +20,6 @@ import {
   defaultValuesOf,
   diag,
   documentResolver,
-  loadDocument,
   materializeBlueprint,
   type CommandInvocation,
   type Diagnostic,
@@ -28,7 +27,7 @@ import {
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
-import type { FetchLike } from '@dinkster/client'
+import type { DinksterConnection } from '@dinkster/client'
 
 /** Decoded documents are small; 64 cached bodies is plenty for a session. */
 const BODY_CACHE_MAX = 64
@@ -39,13 +38,8 @@ type Entry =
   | { readonly state: 'failed' }
 
 export class BlueprintBodyCache {
-  private readonly fetchFn: FetchLike
   /** digest -> entry; insertion order doubles as eviction age order. */
   private readonly entries = new Map<string, Entry>()
-
-  constructor(opts?: { fetchFn?: FetchLike }) {
-    this.fetchFn = opts?.fetchFn ?? ((url, init) => fetch(url, init))
-  }
 
   /**
    * The validated document for a blueprint, fetching on first use.
@@ -54,7 +48,7 @@ export class BlueprintBodyCache {
    * one digest share a single fetch.
    */
   load(
-    baseUrl: string,
+    connection: Pick<DinksterConnection, 'fetchBlueprintBody'>,
     packId: string,
     blueprintId: string,
     digest: string,
@@ -64,32 +58,15 @@ export class BlueprintBodyCache {
     if (existing?.state === 'failed') return Promise.resolve(undefined)
     if (existing?.state === 'pending') return existing.promise
 
-    const url = `${baseUrl}/api/packs/${encodeURIComponent(packId)}/blueprints/${encodeURIComponent(blueprintId)}`
-    const promise = this.fetchFn(url)
-      .then(async (res) => {
-        if (!res.ok) {
-          // The descriptor promised bytes the server won't serve:
-          // definitive for THIS digest; a reload/new digest retries.
+    const promise = connection.fetchBlueprintBody(packId, blueprintId)
+      .then((document) => {
+        if (document === undefined) {
           this.entries.set(digest, { state: 'failed' })
           return undefined
         }
-        let json: unknown
-        try {
-          json = JSON.parse(await res.text())
-        } catch {
-          this.entries.set(digest, { state: 'failed' })
-          return undefined
-        }
-        // Backend validates JSON-ness only, never document semantics -
-        // format validation is OURS, here, once per digest.
-        const loaded = loadDocument(json)
-        if (!loaded.document) {
-          this.entries.set(digest, { state: 'failed' })
-          return undefined
-        }
-        this.entries.set(digest, { state: 'ready', document: loaded.document })
+        this.entries.set(digest, { state: 'ready', document })
         this.evict()
-        return loaded.document
+        return document
       })
       .catch(() => {
         // Transport failure: clear the slot so the next attempt retries.
