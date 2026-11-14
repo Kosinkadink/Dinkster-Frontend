@@ -266,6 +266,30 @@ it.each(['type-cycle', 'recursive-helper', 'same-type'])('keeps %s translations 
   expect(checkDocument(result.document!)).toEqual([])
 })
 
+it('uses a replacement only for the recorded source node version, not the pack version', () => {
+  const schema: NodeSchema = {
+    type: 'native.percent', displayName: 'Percent', category: 'test', source: 'v3', isOutputNode: false,
+    items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+      widget: { widgetType: 'FLOAT', options: {}, default: 0 } }],
+  }
+  const translations: ComfyTranslation[] = [{ schema, version: '9.0', rule: {
+    from: 'Fraction', fromVersion: '1.2', cases: [{ to: schema.type, inputs: {
+      value: { kind: 'value', input: 'value', transform: { kind: 'scale', factor: 100 } },
+    } }],
+  } }]
+  for (const version of [undefined, '9.0', '1.3', '1.2']) {
+    const imported = importLitegraph({ nodes: [{ id: 1, type: 'Fraction', widgets_values: [0.37],
+      ...(version !== undefined ? { properties: { ver: version } } : {}),
+    }], links: [] }, () => undefined, undefined, translations)
+    expect(errorsOf(imported.diagnostics)).toEqual([])
+    const node = imported.document!.graphs.g0!.nodes.n1!
+    expect(node.type).toBe(version === '1.2' ? 'native.percent' : 'Fraction')
+    expect(node.values).toEqual({ value: version === '1.2' ? 37 : 0.37 })
+    const reopened = loadDocument(JSON.parse(JSON.stringify(imported.document)))
+    expect(reopened.document).toEqual(imported.document)
+  }
+})
+
 it('applies a same-type import value transform exactly once', () => {
   const schema: NodeSchema = {
     type: 'SameType', displayName: 'Same Type', category: 'test', source: 'v3', isOutputNode: false,
