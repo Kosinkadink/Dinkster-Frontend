@@ -568,6 +568,7 @@ async function toolboxButtonPoint(page: Page, buttonId: string): Promise<{ x: nu
 }
 
 test('selection toolbox: mode selector and minimize act without dropping selection', async ({ page }) => {
+  await openauditInteractionFixture(page)
   const canvas = page.getByTestId('graph-canvas')
   await page.mouse.click(...xy(await pointOn(page, 'n0', { kind: 'header' })))
   await expect(canvas).toHaveAttribute('data-selection', '1')
