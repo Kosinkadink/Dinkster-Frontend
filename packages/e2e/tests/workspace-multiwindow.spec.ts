@@ -236,8 +236,7 @@ test('workspace promotion preserves a local edit while ownership acknowledgment 
   await page.screenshot({ path: info.outputPath('workspace-accepted.png') })
 })
 
-// Nonblocking under https://github.com/Kosinkadink/comfy-vibe-station/issues/868.
-test.skip('two windows converge tab operations and restore the durable inventory', async ({ page, context }) => {
+test('two windows converge tab operations and restore the durable inventory', async ({ page, context }) => {
   await page.addInitScript(() => localStorage.removeItem('dinkster.openTabs'))
   await page.goto('/')
   await waitForStartupOwnership(page)
@@ -279,7 +278,7 @@ test.skip('two windows converge tab operations and restore the durable inventory
     return Object.keys(tab.store.doc.graphs[tab.store.doc.root]!.nodes).length
   }, created)).toBe(1)
 
-  await Promise.all([page, second].map((current, index) => current.evaluate(async ({ id, titleIndex }) => {
+  const committedRevisions = await Promise.all([page, second].map((current, index) => current.evaluate(async ({ id, titleIndex }) => {
     const app = window.__dinksterTest!.app
     const tab = app.tabs.get().find((candidate) => candidate.id === id)!
     const graph = tab.store.doc.graphs[tab.store.doc.root]!
@@ -289,7 +288,14 @@ test.skip('two windows converge tab operations and restore the durable inventory
       params: { graphId: tab.store.doc.root, nodeId, title: `window-${titleIndex}` },
     })
     await (tab.store as unknown as { settle(): Promise<void> }).settle()
+    return tab.store.revision
   }, { id: created, titleIndex: index })))
+  // Local submission can settle before a peer receives the committed operation.
+  const committedRevision = Math.max(...committedRevisions)
+  await Promise.all([page, second].map((current) => expect.poll(() => current.evaluate((id) => {
+    const tab = window.__dinksterTest!.app.tabs.get().find((candidate) => candidate.id === id)!
+    return tab.store.revision
+  }, created)).toBe(committedRevision)))
   const documents = await Promise.all([page, second].map((current) => current.evaluate((id) => {
     const tab = window.__dinksterTest!.app.tabs.get().find((candidate) => candidate.id === id)!
     return JSON.stringify(tab.store.doc)
