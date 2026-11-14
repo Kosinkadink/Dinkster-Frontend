@@ -1,4 +1,5 @@
 import {
+  executionKey,
   projectWorkspaceCompileArtifact,
   type CompileArtifact,
   type ConnectionId,
@@ -275,20 +276,22 @@ export function clearExecutionResults(connection?: ConnectionId): void {
 }
 
 /** Corrupt or unreadable persistence cannot authorize retiring an owner. */
-export function persistedResultOwnerIds(): ReadonlySet<string> | undefined {
+export function persistedResultReferences(): { readonly ownerIds: ReadonlySet<string>; readonly executions: ReadonlySet<string> } | undefined {
   try {
     const raw = globalThis.localStorage.getItem(storageKey())
-    if (raw === null) return new Set()
+    if (raw === null) return { ownerIds: new Set(), executions: new Set() }
     if (bytesOf(raw) > MAX_PERSISTED_EXECUTION_BYTES) return undefined
     const parsed: unknown = JSON.parse(raw)
     if (!record(parsed) || parsed['v'] !== 1 || !Array.isArray(parsed['results'])) return undefined
     const owners = new Set<string>()
+    const executions = new Set<string>()
     for (const value of parsed['results']) {
       const result = decodeResult(value)
       if (result === undefined) return undefined
+      executions.add(executionKey(result.ref))
       for (const receipt of result.assetRetentions ?? []) owners.add(receipt.ownerId)
     }
-    return owners
+    return { ownerIds: owners, executions }
   } catch {
     return undefined
   }

@@ -966,6 +966,43 @@ describe('execution output routing', () => {
     expect(release).not.toHaveBeenCalled()
   })
 
+  it('ends cached and pending value reads only after their result lifetime ends', async () => {
+    const backend = addOffline('http://ended-value-owner:8188')
+    const ref = foreignRun(String(backend.id), 'ended-value-read')
+    const query = { jobId: ref.prompt, nodeId: 'audio', outputId: 'result' }
+    let body!: ReadableStreamDefaultController<Uint8Array>
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = new URL(String(input))
+      const selector = url.searchParams.get('rendition')
+      if (selector === null) return Response.json({ available: true,
+        descriptor: { typeId: 'AUDIO', fingerprint: 'ended-audio', meta: {} },
+        renditions: [{ kind: 'window', mime: 'audio/wav', cacheKey: 'ended-window' }] })
+      if (!url.searchParams.has('frame')) return new Response(new Uint8Array([23, 41]))
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { body = controller } }))
+    })
+    const values = app.valuesForExecution(ref)!
+    const peek = await values.peek(query)
+    if (!peek.available) throw new Error('Expected admitted descriptor')
+    const cached = await values.rendition(query, 'window', { descriptor: peek.descriptor })
+    if (!cached.available) throw new Error('Expected live bytes')
+    expect([...new Uint8Array(cached.bytes)]).toEqual([23, 41])
+    expect(await values.rendition(query, 'window', { descriptor: peek.descriptor })).toEqual(cached)
+    const pending = values.rendition(query, 'window', { descriptor: peek.descriptor, frame: 3 })
+    await vi.waitFor(() => expect(body).toBeDefined())
+    app.store.apply({ kind: 'completed', execution: ref, timestamp: 1 })
+    for (let index = 0; index < 201; index++) {
+      const next = foreignRun(String(backend.id), `pressure-${index}`)
+      app.store.apply({ kind: 'completed', execution: next, timestamp: index + 2 })
+    }
+    expect(app.store.get(ref)).toBeUndefined()
+    body.enqueue(new Uint8Array([17, 31]))
+    body.close()
+    expect(await pending).toMatchObject({ available: false, reason: 'ownership-unconfirmed' })
+    expect(await values.rendition(query, 'window', { descriptor: peek.descriptor })).toMatchObject({
+      available: false, reason: 'ownership-unconfirmed',
+    })
+  })
+
   it('assetUrlForExecution uses the execution backend, not the default', () => {
     const b = addOffline('http://other:8188')
     const digest = 'blake3:' + 'ab'.repeat(32)

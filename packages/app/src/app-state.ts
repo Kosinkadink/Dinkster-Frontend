@@ -224,7 +224,7 @@ import {
   clearExecutionResults,
   loadExecutionResults,
   persistedCompileProof,
-  persistedResultOwnerIds,
+  persistedResultReferences,
   removeExecutionResult,
   saveExecutionResult,
   type ExecutionResultBackendIdentity,
@@ -4680,8 +4680,11 @@ export class AppState {
           const ref = { connection: id, prompt: asPromptId(query.jobId) }
           const key = executionKey(ref)
           const pending = this.pendingResultReads.get(key)
+          const observed = pending !== undefined || this.store.get(ref) !== undefined ||
+            persistedResultReferences()?.executions.has(key) === true
+          const project = activeProjectId()
           const generation = this.assetConnectionGenerations.get(connection)
-          const current = (): boolean => !this.disposed &&
+          const current = (): boolean => !this.disposed && activeProjectId() === project &&
             (this.backendFor(id) ?? this.retiredBackends.get(id)) === nativeBackend &&
             generation === this.assetConnectionGenerations.get(connection) &&
             (pending === undefined
@@ -4692,8 +4695,11 @@ export class AppState {
           if (!current()) throw new Error('Value owner is no longer available')
           const roots = offer ?? executionAssetRoots({ outputs: { value: { descriptor } }, artifacts: [] }, () => undefined)
           const retained = await retainExecutionAssets(connection, ref, roots)
-          if (!current()) throw new Error('Value owner changed during asset admission')
           const reader = new RetainedAssetReader(connection, retained, current)
+          this.resultAssetOwners.set(retained.ownerId, { backend: nativeBackend, retained, project, generation,
+            execution: key, reader, observed })
+          this.retireUnusedResultOwners()
+          if (!current()) throw new Error('Value owner changed during asset admission')
           return { read: async <T>(consume: () => Promise<T>): Promise<T> => {
             this.valueAssetReaders.set(reader, (this.valueAssetReaders.get(reader) ?? 0) + 1)
             try {
@@ -5882,13 +5888,26 @@ export class AppState {
   }
 
   private readonly editorAssetRequests = new WeakMap<ImageEditorTarget | CompositorEditorTarget, object>()
-  private readonly editorAssetOwners = new WeakMap<ImageEditorTarget | CompositorEditorTarget, {
+  private readonly endedEditorDocuments = new WeakSet<DocumentSession>()
+  private readonly editorAssetOwners = new Map<RetainedAssets, {
+    readonly target: ImageEditorTarget | CompositorEditorTarget
+    readonly session: DocumentSession
     readonly backend: Backend
-    readonly retained: RetainedAssets
     readonly project: string
     readonly registry: ReturnType<Backend['registry']['get']>
     readonly generation: number | undefined
   }>()
+
+  private retireEndedEditorOwners(): void {
+    for (const [retained, owner] of this.editorAssetOwners) {
+      if (!this.endedEditorDocuments.has(owner.session) || this.disposed ||
+        activeProjectId() !== owner.project || this.backendFor(owner.backend.id) !== owner.backend ||
+        this.assetConnectionGenerations.get(owner.backend.connection) !== owner.generation ||
+        this.tabs.get().some((tab) => tab.store === owner.session)) continue
+      this.editorAssetOwners.delete(retained)
+      void retireAssetOwner(owner.backend.connection, retained)
+    }
+  }
 
   async retainEditorAssets(
     target: ImageEditorTarget | CompositorEditorTarget, backend: Backend, value: unknown, publish: () => boolean,
@@ -5922,15 +5941,19 @@ export class AppState {
         digests = [value.digest]
       }
       const retained = await retainWorkflowAssets(backend.connection, tab.store.doc.lineage, tab.store.revision, { complete: true, digests })
+      const previous = [...this.editorAssetOwners].filter(([, owner]) => owner.target === target)
+      this.editorAssetOwners.set(retained, { target, session: tab.store, backend, project, registry, generation })
+      this.retireEndedEditorOwners()
       if (!current()) throw new Error('Editor source changed during asset admission')
-      const previous = this.editorAssetOwners.get(target)
       if (!publish() || !current()) return
-      this.editorAssetOwners.set(target, { backend, retained, project, registry, generation })
       // A canceled view does not transfer ownership. Only publishing the
       // acknowledged replacement on this exact lifetime can retire its draft.
-      if (current() && previous?.backend === backend && previous.project === project &&
-        previous.registry === registry && previous.generation === generation) {
-        await retireAssetOwner(backend.connection, previous.retained)
+      for (const [receipt, owner] of previous) {
+        if (current() && owner.backend === backend && owner.project === project &&
+          owner.registry === registry && owner.generation === generation) {
+          this.editorAssetOwners.delete(receipt)
+          await retireAssetOwner(backend.connection, receipt)
+        }
       }
     } finally { unsubscribe() }
   }
@@ -6657,9 +6680,13 @@ export class AppState {
   /** Close a tab after the caller has handled any dirty-work confirmation. */
   closeTab(id: string): void {
     this.releaseFrozenPin(id)
+    for (const tab of this.tabs.get()) {
+      if (tab.id === id && !tab.execution) this.endedEditorDocuments.add(tab.store)
+    }
     const remaining = this.tabs.get().filter((t) => t.id !== id)
     this.tabs.set(remaining)
     this.cleanupClosedTab(id)
+    this.retireEndedEditorOwners()
     if (this.activeTabId.get() === id) this.activeTabId.set(remaining[0]?.id ?? '')
   }
 
@@ -7821,6 +7848,10 @@ export class AppState {
     readonly retained: RetainedAssets
     readonly project: string
     readonly generation: number | undefined
+    readonly execution?: string
+    readonly reader?: RetainedAssetReader
+    observed?: boolean
+    drained?: boolean
   }>()
 
   private trackResultOwner(backend: Backend, retained: RetainedAssets): void {
@@ -7830,17 +7861,38 @@ export class AppState {
 
   private retireUnusedResultOwners(): void {
     if (this.disposed || this.resultAssetOwners.size === 0) return
-    const persisted = persistedResultOwnerIds()
+    const persisted = persistedResultReferences()
     if (persisted === undefined) return
     const live = new Set([...this.store.executions.get().values()].flatMap((state) =>
       (state.assetRetentions ?? []).map((receipt) => receipt.ownerId)))
     for (const [id, owner] of this.resultAssetOwners) {
       const { backend, retained } = owner
-      if (activeProjectId() !== owner.project || this.backendFor(backend.id) !== backend ||
+      if (activeProjectId() !== owner.project ||
+        (this.backendFor(backend.id) ?? this.retiredBackends.get(backend.id)) !== backend ||
         this.assetConnectionGenerations.get(backend.connection) !== owner.generation) continue
-      if (live.has(id) || persisted.has(id)) continue
-      // Only locally admitted owners are candidates. Another window's receipt,
-      // a disconnected lifetime, or a pending read is never adopted for release.
+      if (live.has(id) || persisted.ownerIds.has(id)) continue
+      if (owner.execution !== undefined) {
+        if (this.store.executions.get().has(owner.execution) || persisted.executions.has(owner.execution) ||
+          this.pendingResultReads.has(owner.execution)) {
+          owner.observed = true
+          continue
+        }
+        // Absence alone cannot end a historical reader whose owning result
+        // lifetime this window has never observed.
+        if (!owner.observed) continue
+      }
+      if (owner.reader !== undefined && owner.drained !== true) {
+        if (owner.drained === undefined) {
+          owner.drained = false
+          void owner.reader.close().then(() => {
+            owner.drained = true
+            this.retireUnusedResultOwners()
+          })
+        }
+        continue
+      }
+      // Recheck references and connection authority after admitted work settles.
+      // Only this lifetime's locally admitted exact receipt can be released.
       this.resultAssetOwners.delete(id)
       void retireAssetOwner(backend.connection, retained)
     }

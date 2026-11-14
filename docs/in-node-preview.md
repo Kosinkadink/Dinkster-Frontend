@@ -83,6 +83,15 @@ Captured model-byte readers accept canonical digest-only identities as well as
 full resource references; presentation metadata is not needed to protect bytes.
 Malformed digests and opaque resource fields cannot certify a complete inventory.
 
+Public value-peek readers keep their own acknowledged result owners while the
+execution is live, persisted or being restored. Once those references are gone,
+reader admission closes and pending body/decode work drains before the exact
+receipt retires. Cached bytes cannot reopen an ended reader. Closing a workflow
+tab also retires its locally admitted editor drafts, including drafts whose
+renderer already left. A tab switch, editor unmount or read completion alone
+never releases these owners; project and connection generations still gate
+retirement.
+
 Saved image tiles in the output rail, Canvas and App View viewers admit their
 own preview owners before fetching CAS bytes. Each mounted tile holds its own
 reader through browser decode, even when compare sides show the same digest.
