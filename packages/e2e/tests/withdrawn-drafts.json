@@ -2,7 +2,6 @@
   "nodes": [
     "dinkster.audio.envelope",
     "dinkster.curve.evaluate",
-    "dinkster.int",
     "dinkster.layers.edit",
     "dinkster.layers.flatten",
     "dinkster.layers.load",
@@ -11,9 +10,9 @@
     "dinkster.route.gate",
     "dinkster.route.switch_by_name",
     "dinkster.value.compare",
+    "std.list.concat",
     "std.list.length",
     "std.math.add_ints",
-    "std.string.concat",
     "std.string.split"
   ],
   "templates": {

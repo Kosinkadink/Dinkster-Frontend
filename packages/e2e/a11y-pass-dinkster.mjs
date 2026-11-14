@@ -26,29 +26,36 @@ const demoWorkflow = {
       nodes: {
         gen: {
           id: 'gen',
-          type: 'dinkster.image.generate',
+          type: 'dinkster.image.empty_image',
           values: {
             width: 64,
             height: 64,
             batch_size: 1,
-            channels: 'rgb',
-            color_source: 'hex',
-            operation: 'solid',
-            color_a: '#336699',
+            color: 0x336699,
           },
         },
-        prev: { id: 'prev', type: 'dinkster.preview_image', values: {} },
+        scale: {
+          id: 'scale',
+          type: 'dinkster.image.image_scale_by',
+          values: { upscale_method: 'nearest-exact', scale_by: 1 },
+        },
+        prev: { id: 'prev', type: 'dinkster.image.preview_image', values: {} },
       },
       links: {
         l1: {
           id: 'l1',
-          from: { node: 'gen', port: 'image' },
+          from: { node: 'gen', port: 'IMAGE' },
+          to: { node: 'scale', port: 'image' },
+        },
+        l2: {
+          id: 'l2',
+          from: { node: 'scale', port: 'IMAGE' },
           to: { node: 'prev', port: 'images' },
         },
       },
       nets: {},
       reroutes: {},
-      nextOrdinal: 3,
+      nextOrdinal: 4,
     },
   },
   view: {
@@ -56,7 +63,8 @@ const demoWorkflow = {
       g0: {
         nodes: {
           gen: { position: { x: 80, y: 120 } },
-          prev: { position: { x: 480, y: 120 } },
+          scale: { position: { x: 400, y: 120 } },
+          prev: { position: { x: 720, y: 120 } },
         },
       },
     },
@@ -109,7 +117,7 @@ async function audit(page, id, note) {
             .sort(),
         ),
       )
-      .toEqual(id === '02-blank-canvas' ? [] : ['gen', 'prev'])
+      .toEqual(id === '02-blank-canvas' ? [] : ['gen', 'prev', 'scale'])
   }
   if (id === '10-widget-int-editor')
     await expect(page.getByTestId('widget-editor-type')).toHaveText('INT')
@@ -208,7 +216,7 @@ await safe('demo workflow', async () => {
 await audit(
   page,
   '03-canvas-demo-workflow',
-  'two-node native workflow on the canvas',
+  'native image generation, scale and preview workflow on the canvas',
 )
 
 async function openDock(toggleTestId) {
@@ -322,7 +330,7 @@ async function clickWidgetRow(nodeId, inputId) {
   await page.waitForTimeout(700)
 }
 await safe('combo editor', async () => {
-  await clickWidgetRow('gen', 'operation')
+  await clickWidgetRow('scale', 'upscale_method')
   await audit(page, '09-widget-combo-editor', 'COMBO widget editor open')
   await page.keyboard.press('Escape')
 })

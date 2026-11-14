@@ -19,12 +19,12 @@ const browserErrors = new WeakMap<Page, BrowserErrors>()
 
 const firstLink = {
   from: { node: 'split', port: 'parts.parts', members: ['m0'] },
-  to: { node: 'concat', port: 'a' },
+  to: { node: 'concat', port: 'string_a' },
 }
 
 const secondLink = {
   from: { node: 'split', port: 'parts.parts', members: ['m1'] },
-  to: { node: 'concat', port: 'b' },
+  to: { node: 'concat', port: 'string_b' },
 }
 
 async function pinPoint(
@@ -105,13 +105,13 @@ test.beforeEach(async ({ page }, testInfo) => {
     if (response.ok) nodes = (await response.json() as { nodes: Record<string, unknown> }).nodes
   } catch { /* handled by the skip below */ }
   test.skip(nodes === undefined, `no native Dinkster backend reachable at ${NATIVE_BACKEND}`)
-  requireBackendNodes(nodes!, ['std.string.split', 'std.string.concat'], testInfo)
+  requireBackendNodes(nodes!, ['std.string.split', 'dinkster.text.string_concatenate'], testInfo)
 
   await page.goto('/')
   await expect.poll(() => {
     return page.evaluate(() => {
       const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas
-      return schemas?.has('std.string.split') === true && schemas.has('std.string.concat')
+      return schemas?.has('std.string.split') === true && schemas.has('dinkster.text.string_concatenate')
     })
   }, { timeout: 15_000 }).toBe(true)
   await waitForStartupOwnership(page)
@@ -127,7 +127,7 @@ test.beforeEach(async ({ page }, testInfo) => {
               values: { text: 'alpha beta gamma', separator: ' ' },
             },
             concat: {
-              id: 'concat', type: 'std.string.concat', values: { separator: '|' },
+              id: 'concat', type: 'dinkster.text.string_concatenate', values: { delimiter: '|' },
             },
           },
           links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
@@ -153,12 +153,12 @@ test('grows, executes, reloads, shrinks, and restores string split outputs', asy
   await drag(
     page,
     await pinPoint(page, 'split', 'out', { member: 'm0' }),
-    await pinPoint(page, 'concat', 'in', { port: 'a' }),
+    await pinPoint(page, 'concat', 'in', { port: 'string_a' }),
   )
   await drag(
     page,
     await pinPoint(page, 'split', 'out', { member: 'm1' }),
-    await pinPoint(page, 'concat', 'in', { port: 'b' }),
+    await pinPoint(page, 'concat', 'in', { port: 'string_b' }),
   )
 
   await expect.poll(() => splitState(page)).toEqual({
@@ -203,7 +203,7 @@ test('grows, executes, reloads, shrinks, and restores string split outputs', asy
       .find((candidate) => candidate.ref.prompt === target) as unknown as {
       nodes?: Record<string, { outputs?: Record<string, { value?: string | number | boolean }> }>
     }
-    return execution?.nodes?.concat?.outputs?.text?.value
+    return execution?.nodes?.concat?.outputs?.STRING?.value
   }, prompt)).toBe('alpha|beta gamma')
 
   await page.evaluate(async () => {
@@ -222,7 +222,7 @@ test('grows, executes, reloads, shrinks, and restores string split outputs', asy
   if (canvas === null) throw new Error('graph canvas is not visible')
   await drag(
     page,
-    await pinPoint(page, 'concat', 'in', { port: 'b' }),
+    await pinPoint(page, 'concat', 'in', { port: 'string_b' }),
     { x: canvas.x + canvas.width - 40, y: canvas.y + canvas.height - 40 },
   )
   await expect.poll(() => splitState(page)).toEqual({

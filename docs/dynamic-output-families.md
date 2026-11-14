@@ -99,6 +99,7 @@ lists that stable ID under **Inactive linked outputs**. The link remains in the
 document and blocks execution until a matching profile restores it or the user
 disconnects it. Profile changes never move a link to another output by position.
 
-`dinkster.load_model_profile` declares a required concrete `ASSET` input
-named `checkpoint`, with descriptors stored in `entries`. Asset and query
-digests are canonical `blake3:<64 lowercase hex>`; `shapeDigest` is SHA256.
+The model-profile browser fixture declares a required concrete `ASSET` input
+named `checkpoint`, with descriptors stored in `entries`; it is a synthetic
+schema, not a node in the default backend catalog. Asset and query digests are
+canonical `blake3:<64 lowercase hex>`; `shapeDigest` is SHA256.
