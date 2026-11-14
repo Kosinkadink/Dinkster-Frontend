@@ -2386,13 +2386,15 @@ describe('reconcileDinksterExecutions', () => {
     const { conn, store, seedRunning } = harness({ '/api/jobs/cid/j1': job })
     seedRunning('j1')
     conn.ingest({ type: 'run_finished', jobId: 'j1' })
-    expect(store.get(ref('j1'))!.status).toBe('completed')
+    expect(store.get(ref('j1'))!.status).toBe('running')
     expect(await conn.fetchJobOutputs('j1')).toEqual({})
 
     const outputs = { save: { images: {
       typeId: 'IMAGE', fingerprint: 'saved-image', meta: { shape: [2, 48, 64, 3] },
     } } }
     Object.assign(job, { state: 'completed', outputs, artifacts: [] })
+    conn.ingest({ type: 'job_state', jobId: 'j1', state: 'completed' })
+    expect(store.get(ref('j1'))!.status).toBe('completed')
     await hydrateDinksterCompletedExecution(conn, store, ref('j1'))
     expect(store.get(ref('j1'))!.outputs).toEqual(outputs)
     expect(store.get(ref('j1'))!.artifactsHydrated).toBe(true)
@@ -2436,11 +2438,12 @@ describe('reconcileDinksterExecutions', () => {
       mediaType: 'video/webm',
       virtualPath: 'output/result.webm',
     }]
-    const { conn, store } = harness({
+    const { conn, store, seedRunning } = harness({
       '/api/jobs/cid/gap': { state: 'completed', artifacts },
     })
+    seedRunning('gap')
     conn.ingest({ type: 'run_finished', jobId: 'gap' })
-    expect(store.get(ref('gap'))).toMatchObject({ status: 'completed', artifactsHydrated: false })
+    expect(store.get(ref('gap'))).toMatchObject({ status: 'running', artifactsHydrated: false })
 
     await reconcileDinksterExecutions(conn, store)
 

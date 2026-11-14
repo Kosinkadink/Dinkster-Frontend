@@ -1151,9 +1151,11 @@ Completed jobs may retain host-validated saved files as execution
 artifacts. The client accepts at most 1024 exact
 `{nodeId,digest,name,size,mediaType,virtualPath}` rows, each no larger than 1
 GiB, and ignores the entire optional artifact field when any row is malformed.
-The persisted `job_state completed` notification triggers one job read after a
-normal live run. The execution tracks unknown artifact state separately from
-an authoritative empty list, and reconnect reconciliation retries completed
+A run stays in progress until the backend finishes publishing its results and
+reports a terminal job state. Engine execution finishing alone does not make
+recorded output values available. The persisted `job_state completed`
+notification triggers one job read after a normal live run. The execution tracks
+unknown artifact state separately from an authoritative empty list, and reconnect reconciliation retries completed
 runs that have not received a valid artifacts field. Artifacts remain separate
 from graph output descriptors, are associated with their runtime node ID, and
 use that execution's backend asset URL. Saved images, videos, and audio then

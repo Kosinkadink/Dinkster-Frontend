@@ -643,6 +643,7 @@ describe('backend protocols', () => {
         data: { mime: 'application/json', documentDigest: digest('c'), document: {
           layers: { image: { source: { digest: digest('e') } } } } } })
       backend.connection.ingest({ type: 'run_finished', jobId: ref.prompt })
+      backend.connection.ingest({ type: 'job_state', jobId: ref.prompt, state: 'completed' })
       await new Promise<void>((resolve) => setImmediate(resolve))
       expect(requested).toBe(1)
       expect(app.store.get(ref)?.previews).toEqual({})
@@ -683,7 +684,7 @@ describe('backend protocols', () => {
     })
 
     backend.connection.ingest({ type: 'run_finished', jobId: 'saved-job' })
-    expect(app.store.get(ref)?.status).toBe('completed')
+    expect(app.store.get(ref)?.status).toBe('running')
     expect(app.store.get(ref)?.artifactsHydrated).toBe(false)
     expect(fetchJob).not.toHaveBeenCalled()
     backend.connection.ingest({ type: 'job_state', jobId: 'saved-job', state: 'completed' })

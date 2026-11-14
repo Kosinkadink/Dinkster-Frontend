@@ -165,11 +165,7 @@ export class DinksterNormalizer implements EventNormalizer {
   /** runId -> jobId, from any event carrying both (covers stragglers). */
   private jobOfRun = new Map<string, string>()
 
-  /**
-   * Jobs that already emitted a terminal event. A successful run emits
-   * run_finished AND a job_state 'completed'; the second must not produce a
-   * second terminal event.
-   */
+  /** Jobs whose authoritative terminal job_state was already published. */
   private terminalJobs = new Set<string>()
 
   constructor(
@@ -406,14 +402,10 @@ export class DinksterNormalizer implements EventNormalizer {
       }
       case 'value_diagnostics':
         return this.normalizeValueDiagnostics(execution, timestamp, nodeId, detail)
-      case 'run_finished': {
-        // A job already terminal (failed/cancelled/completed) never gets a
-        // SECOND terminal event: a straggling run_finished after job_state
-        // 'failed' must not read as a success reversal.
-        if (this.terminalJobs.has(jobId)) return []
-        this.terminalJobs.add(jobId)
-        return [{ kind: 'completed', execution, timestamp }]
-      }
+      case 'run_finished':
+        // Engine execution ends before result publication and job settlement.
+        // Only the terminal job_state makes completed-run values available.
+        return []
       case 'node_event':
         return this.normalizeNodeEvent(msg, execution, timestamp, nodeId, blob)
       case 'job_state':

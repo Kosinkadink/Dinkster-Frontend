@@ -194,6 +194,14 @@ describe('dinkster stream replay: success', () => {
   const events = replay(successStream.messages)
 
   it('starts once and completes exactly once (run_finished + job_state dedupe)', () => {
+    const normalizer = new DinksterNormalizer(CONN, () => 0)
+    const terminalIndex = successStream.messages.findIndex((message) =>
+      message.type === 'job_state' && message['state'] === 'completed')
+    const beforeTerminal = successStream.messages.slice(0, terminalIndex)
+      .flatMap((message) => normalizer.normalize(toWire(message)))
+    expect(beforeTerminal.some((event) => event.kind === 'completed')).toBe(false)
+    expect(normalizer.normalize(toWire(successStream.messages[terminalIndex]!)))
+      .toEqual([expect.objectContaining({ kind: 'completed' })])
     expect(events.filter((e) => e.kind === 'started')).toHaveLength(1)
     expect(events.filter((e) => e.kind === 'completed')).toHaveLength(1)
     const last = [...events].reverse().find((e) => e.kind !== 'status')!
@@ -359,13 +367,15 @@ describe('routing guards', () => {
         .some((e) => e.kind === 'error'),
     ).toBe(true)
     expect(n1.normalize({ type: 'run_finished', jobId: 'j' })).toEqual([])
-    // run_finished -> straggling failed/cancelled job_state: no reversal either
-    const n2 = new DinksterNormalizer(CONN, () => 0)
-    expect(n2.normalize({ type: 'run_finished', jobId: 'j' })).toEqual([
-      expect.objectContaining({ kind: 'completed' }),
-    ])
-    expect(n2.normalize({ type: 'job_state', jobId: 'j', state: 'failed', error: { message: 'late' } })).toEqual([])
-    expect(n2.normalize({ type: 'job_state', jobId: 'j', state: 'cancelled' })).toEqual([])
+    // Engine completion cannot hide a failed or cancelled job settlement.
+    for (const state of ['failed', 'cancelled'] as const) {
+      const normalizer = new DinksterNormalizer(CONN, () => 0)
+      expect(normalizer.normalize({ type: 'run_finished', jobId: 'j' })).toEqual([])
+      expect(normalizer.normalize({ type: 'job_state', jobId: 'j', state, error: { message: 'settlement failed' } }))
+        .toEqual([expect.objectContaining({ kind: state === 'failed' ? 'error' : 'cancelled' })])
+      expect(normalizer.normalize({ type: 'run_finished', jobId: 'j' })).toEqual([])
+      expect(normalizer.normalize({ type: 'job_state', jobId: 'j', state: 'completed' })).toEqual([])
+    }
   })
 
   it('never cross-routes concurrent jobs interleaved on one socket', () => {
