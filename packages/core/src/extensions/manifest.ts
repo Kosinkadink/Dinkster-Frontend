@@ -249,13 +249,13 @@ export function decodeEffectiveExtensionSnapshot(value: unknown): { readonly sna
     return fail('extension snapshot has an invalid header')
   }
   const extensions: EffectiveExtension[] = []
-  let previous = ''
+  const ids = new Set<string>()
   for (const raw of value['extensions']) {
-    if (!record(raw) || typeof raw['id'] !== 'string' || !PACK_ID.test(raw['id']) || raw['id'] <= previous || typeof raw['version'] !== 'string' || !parseSemver(raw['version']) || typeof raw['packageDigest'] !== 'string' || !SHA256.test(raw['packageDigest']) || !stringArray(raw['contributionIds']) || new Set(raw['contributionIds']).size !== raw['contributionIds'].length || !selectorRows(raw['selectorResolutions']) || !providerRows(raw['serviceProviders']) || !canonicalVocabulary(raw['capabilities'], EFFECTIVE_CAPABILITIES) || !configurationRows(raw['behaviorConfiguration'])) {
+    if (!record(raw) || typeof raw['id'] !== 'string' || !PACK_ID.test(raw['id']) || ids.has(raw['id']) || typeof raw['version'] !== 'string' || !parseSemver(raw['version']) || typeof raw['packageDigest'] !== 'string' || !SHA256.test(raw['packageDigest']) || !stringArray(raw['contributionIds']) || new Set(raw['contributionIds']).size !== raw['contributionIds'].length || !selectorRows(raw['selectorResolutions']) || !providerRows(raw['serviceProviders']) || !uniqueVocabulary(raw['capabilities'], EFFECTIVE_CAPABILITIES) || !configurationRows(raw['behaviorConfiguration'])) {
       problems.push(bad('extension.snapshot-malformed', `extension snapshot contains an invalid '${record(raw) && typeof raw['id'] === 'string' ? raw['id'] : 'unknown'}' row`))
       continue
     }
-    previous = raw['id']
+    ids.add(raw['id'])
     if (!frontendRows(raw['id'], raw['frontend']) || !eventRows(raw['events']) || !routeRows(raw['routes'])) {
       problems.push(bad('extension.snapshot-malformed', `extension '${raw['id']}' has invalid frontend, event, or route declarations`))
       continue
@@ -282,15 +282,15 @@ function frontendRows(pack: string, value: unknown): boolean {
   if (value === undefined) return true
   if (!Array.isArray(value)) return false
   const contributions = new Set<string>()
-  let previous = ''
+  const ids = new Set<string>()
   return value.every((row) => {
-    if (!record(row) || typeof row['id'] !== 'string' || !validOwnedId(pack, row['id']) || row['id'] <= previous ||
+    if (!record(row) || typeof row['id'] !== 'string' || !validOwnedId(pack, row['id']) || ids.has(row['id']) ||
       typeof row['moduleDigest'] !== 'string' || !SHA256.test(row['moduleDigest']) ||
       row['moduleUrl'] !== `/api/extension-assets/${pack}/${row['moduleDigest']}/${row['id']}.js` ||
       !stringArray(row['authorizedPrivileges']) || new Set(row['authorizedPrivileges']).size !== row['authorizedPrivileges'].length ||
       row['authorizedPrivileges'].some((item) => !(FRONTEND_PRIVILEGES as readonly string[]).includes(item)) ||
       !Array.isArray(row['contributions'])) return false
-    previous = row['id']
+    ids.add(row['id'])
     return row['contributions'].every((item) => {
       if (!record(item) || typeof item['id'] !== 'string' || !validOwnedId(pack, item['id']) || contributions.has(item['id']) ||
         typeof item['kind'] !== 'string' || !(FRONTEND_CONTRIBUTION_KINDS as readonly string[]).includes(item['kind'])) return false
@@ -324,11 +324,11 @@ function routeRows(value: unknown): boolean {
 function eventRows(value: unknown): boolean {
   if (value === undefined) return true
   if (!Array.isArray(value)) return false
-  let previous = ''
+  const names = new Set<string>()
   return value.every((row) => {
     if (!record(row) || typeof row['name'] !== 'string' || !/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/.test(row['name']) ||
-      row['name'] <= previous || !jsonSchema(row['payload'])) return false
-    previous = row['name']
+      names.has(row['name']) || !jsonSchema(row['payload'])) return false
+    names.add(row['name'])
     return (row['schemaVersion'] === undefined || row['schemaVersion'] === 1) &&
       (row['scope'] === undefined || row['scope'] === 'execution') &&
       (row['delivery'] === undefined || row['delivery'] === 'drop-oldest') &&
@@ -371,16 +371,11 @@ export function frontendApiSatisfies(version: string, range: string): boolean {
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const validOwnedId = (pack: string, id: string): boolean => id.startsWith(`${pack}.`) && CONTRIBUTION_TAIL.test(id.slice(pack.length + 1))
 const stringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string' && item.length > 0)
-const canonicalStrings = (value: unknown): value is string[] => stringArray(value) && value.every((item, index) => index === 0 || value[index - 1]! < item)
-const canonicalVocabulary = (value: unknown, vocabulary: readonly string[]): value is string[] => canonicalStrings(value) && value.every((item) => vocabulary.includes(item))
-const selectorRows = (value: unknown): boolean => Array.isArray(value) && value.every((row, index) => record(row) && typeof row['selector'] === 'string' && row['selector'].length > 0 && canonicalStrings(row['points']) && (index === 0 || (record(value[index - 1]) && typeof value[index - 1]['selector'] === 'string' && value[index - 1]['selector'] < row['selector'])))
-const providerRows = (value: unknown): boolean => Array.isArray(value) && value.every((row, index) => record(row) && typeof row['service'] === 'string' && row['service'].length > 0 && typeof row['provider'] === 'string' && row['provider'].length > 0 && (index === 0 || (record(value[index - 1]) && typeof value[index - 1]['service'] === 'string' && value[index - 1]['service'] < row['service'])))
-const configurationRows = (value: unknown): boolean => Array.isArray(value) && value.every((row, index) => {
-  if (!record(row) || typeof row['key'] !== 'string') return false
-  const previous = index === 0 ? undefined : value[index - 1]
-  if (previous !== undefined && (!record(previous) || typeof previous['key'] !== 'string' || previous['key'] >= row['key'])) return false
-  return row['key'].length > 0 && (row['value'] === null || typeof row['value'] === 'string' || typeof row['value'] === 'boolean' || (typeof row['value'] === 'number' && Number.isSafeInteger(row['value'])))
-})
+const uniqueStrings = (value: unknown): value is string[] => stringArray(value) && new Set(value).size === value.length
+const uniqueVocabulary = (value: unknown, vocabulary: readonly string[]): value is string[] => uniqueStrings(value) && value.every((item) => vocabulary.includes(item))
+const selectorRows = (value: unknown): boolean => Array.isArray(value) && value.every((row) => record(row) && typeof row['selector'] === 'string' && row['selector'].length > 0 && uniqueStrings(row['points'])) && new Set(value.map((row) => row['selector'])).size === value.length
+const providerRows = (value: unknown): boolean => Array.isArray(value) && value.every((row) => record(row) && typeof row['service'] === 'string' && row['service'].length > 0 && typeof row['provider'] === 'string' && row['provider'].length > 0) && new Set(value.map((row) => row['service'])).size === value.length
+const configurationRows = (value: unknown): boolean => Array.isArray(value) && value.every((row) => record(row) && typeof row['key'] === 'string' && row['key'].length > 0 && (row['value'] === null || typeof row['value'] === 'string' || typeof row['value'] === 'boolean' || (typeof row['value'] === 'number' && Number.isSafeInteger(row['value'])))) && new Set(value.map((row) => row['key'])).size === value.length
 interface ParsedSemver { readonly major: number; readonly minor: number; readonly patch: number; readonly prerelease: readonly (string | number)[] }
 const parseSemver = (value: string): ParsedSemver | undefined => {
   const match = SEMVER.exec(value)

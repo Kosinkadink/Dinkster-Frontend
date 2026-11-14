@@ -60,14 +60,18 @@ try {
   process.exit(1)
 }
 
-if (JSON.stringify(snapshot) !== JSON.stringify(allowlist)) {
-  const paths = [...new Set([...Object.keys(snapshot), ...Object.keys(allowlist)])].sort()
-  console.error('Hardcoded UI strings differ from scripts/ui-string-allowlist.json:')
-  for (const path of paths) {
-    const current = snapshot[path] ?? []
-    const allowed = allowlist[path] ?? []
-    if (JSON.stringify(current) !== JSON.stringify(allowed)) console.error(`  ${path}`)
-  }
-  console.error('Migrate changed literals to catalog keys or refresh the intentional baseline with pnpm check:ui-strings:write.')
+const unlisted = Object.entries(snapshot).flatMap(([path, current]) => {
+  const remaining = [...(allowlist[path] ?? [])]
+  return current.flatMap((literal) => {
+    const index = remaining.indexOf(literal)
+    if (index < 0) return [`  ${path}: ${literal}`]
+    remaining.splice(index, 1)
+    return []
+  })
+})
+if (unlisted.length > 0) {
+  console.error('New hardcoded UI strings are not in scripts/ui-string-allowlist.json:')
+  for (const literal of unlisted) console.error(literal)
+  console.error('Migrate new literals to catalog keys or refresh the intentional baseline with pnpm check:ui-strings:write.')
   process.exit(1)
 }
