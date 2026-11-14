@@ -88,7 +88,8 @@ execution is live, persisted or being restored. Once those references are gone,
 reader admission closes and pending body/decode work drains before the exact
 receipt retires. Cached bytes cannot reopen an ended reader. Closing a workflow
 tab also retires its locally admitted editor drafts, including drafts whose
-renderer already left. A tab switch, editor unmount or read completion alone
+renderer already left or whose document continued through a shared/local
+session replacement. A tab switch, editor unmount or read completion alone
 never releases these owners; project and connection generations still gate
 retirement.
 

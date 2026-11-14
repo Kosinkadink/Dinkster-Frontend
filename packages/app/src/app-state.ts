@@ -5889,6 +5889,7 @@ export class AppState {
 
   private readonly editorAssetRequests = new WeakMap<ImageEditorTarget | CompositorEditorTarget, object>()
   private readonly endedEditorDocuments = new WeakSet<DocumentSession>()
+  private readonly editorDocumentContinuations = new WeakMap<DocumentSession, DocumentSession>()
   private readonly editorAssetOwners = new Map<RetainedAssets, {
     readonly target: ImageEditorTarget | CompositorEditorTarget
     readonly session: DocumentSession
@@ -5900,10 +5901,14 @@ export class AppState {
 
   private retireEndedEditorOwners(): void {
     for (const [retained, owner] of this.editorAssetOwners) {
-      if (!this.endedEditorDocuments.has(owner.session) || this.disposed ||
+      let session = owner.session
+      for (let next = this.editorDocumentContinuations.get(session); next; next = this.editorDocumentContinuations.get(session)) {
+        session = next
+      }
+      if (!this.endedEditorDocuments.has(session) || this.disposed ||
         activeProjectId() !== owner.project || this.backendFor(owner.backend.id) !== owner.backend ||
         this.assetConnectionGenerations.get(owner.backend.connection) !== owner.generation ||
-        this.tabs.get().some((tab) => tab.store === owner.session)) continue
+        this.tabs.get().some((tab) => tab.store === session)) continue
       this.editorAssetOwners.delete(retained)
       void retireAssetOwner(owner.backend.connection, retained)
     }
@@ -7759,6 +7764,7 @@ export class AppState {
   }>()
 
   private continueWorkflowAssetOwner(previous: DocumentSession, session: DocumentSession): void {
+    this.editorDocumentContinuations.set(previous, session)
     const owner = this.workflowAssetOwners.get(previous)
     if (owner === undefined || this.workflowAssetOwners.has(session) || this.disposed ||
       activeProjectId() !== owner.project || !this.backends.get().includes(owner.backend) ||
