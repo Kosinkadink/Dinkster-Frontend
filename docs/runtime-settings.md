@@ -39,9 +39,11 @@ successful explicit refresh reports eligibility. Errors remain visible and can
 be retried explicitly; a lost or failed response is never automatically replayed.
 Native discovery, HTTP, event streams and collaboration share a backend-scoped,
 server-issued retention generation. A saved generation is reopened from its
-current server revision; disconnect does not release retained owners. New owners
-record immutable holder membership with their durable intent: workflow literals,
-undo/compile history and restored/shared documents; typed editor resources;
+current server revision; disconnect does not release retained owners. Browser
+pop-outs ignore a generation copied from their opener and enroll independently;
+reloading the child reopens its own generation without rotating the parent's.
+New owners record immutable holder membership with their durable intent: workflow
+literals, undo/compile history and restored/shared documents; typed editor resources;
 shown results and persisted history; live previews; or pending reads and caches.
 A shared receipt declares all lifetimes it protects. Exact releases carry that
 same set, while legacy owner journals never acquire membership retroactively. Storage

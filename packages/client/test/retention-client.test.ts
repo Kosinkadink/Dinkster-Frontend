@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { DinksterConnection, RetentionClient } from '../src/index.js'
 import { asConnectionId } from '@dinkster/core'
 
@@ -99,6 +99,31 @@ describe('backend retention enrollment', () => {
       '/prefix/api/packs/pack%2Fname/docs/assets/sha256%3Aa%2Bb',
       '/prefix/api/packs/pack%2Fname/blueprints/blueprint%2Fname',
     ])
+  })
+
+  it('enrolls a copied child session independently and reopens its own generation on reload', async () => {
+    let saved = generation
+    vi.stubGlobal('window', { opener: { sessionStorage: { getItem: () => generation } } })
+    const storage = { getItem: () => saved, setItem: (_key: string, value: string) => { saved = value } }
+    const requests: Array<[string | undefined, string | null]> = []
+    try {
+      const child = new RetentionClient('http://backend', async (_url, init) => {
+        requests.push([init?.method, new Headers(init?.headers).get('X-Dinkster-Retention-Generation')])
+        expect(JSON.parse(init?.body as string)).toEqual({ revision: 0 })
+        return json(census({ generation: rotated }))
+      }, storage)
+      expect(await child.enroll()).toBe(rotated)
+      expect(requests).toEqual([['POST', null]])
+      const reloaded = new RetentionClient('http://backend', async (_url, init) => {
+        expect(new Headers(init?.headers).get('X-Dinkster-Retention-Generation')).toBe(rotated)
+        if (init?.method === 'GET') return json(census({ generation: rotated, revision: 7 }))
+        expect(JSON.parse(init?.body as string)).toEqual({ revision: 7 })
+        return json(census({ generation, revision: 8 }))
+      }, storage)
+      expect(await reloaded.enroll()).toBe(generation)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('reopens a stored client from the freshly read revision and disconnects without releasing owners', async () => {

@@ -55,7 +55,12 @@ export class RetentionClient {
       const saved = storage?.getItem(this.storageKey)
       if (saved !== null && saved !== undefined) {
         if (!/^[0-9a-f]{32}$/.test(saved)) throw new Error('Stored retention generation is malformed')
-        this.generation = saved
+        let copiedFromOpener = false
+        try {
+          copiedFromOpener = globalThis.window?.opener?.sessionStorage.getItem(this.storageKey) === saved
+        } catch { /* A cross-origin opener cannot share this origin's session storage. */ }
+        // window.open copies sessionStorage, but cannot transfer the opener's live enrollment.
+        if (!copiedFromOpener) this.generation = saved
       }
     } catch {
       // Unreadable storage cannot authorize adopting any existing owner.
