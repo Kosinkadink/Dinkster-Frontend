@@ -1261,6 +1261,13 @@ export interface LibraryStorage {
   readonly limitBytes: number | null
 }
 
+export interface LibraryStorageCleanup {
+  readonly collectionEnabled: boolean
+  readonly blocked: readonly string[]
+  readonly reclaimedBytes: number
+  readonly reclaimedFiles: number
+}
+
 function libraryStorage(value: unknown): LibraryStorage {
   if (!record(value) ||
     !['temporaryBytes', 'vaultBytes', 'adoptedBytes', 'reclaimableBytes', 'limitBytes'].every((key) =>
@@ -2679,6 +2686,23 @@ export class DinksterConnection {
     if (!record(value) || value['limitBytes'] !== limitBytes || value['collectionEnabled'] !== false) {
       throw new Error('Storage policy acknowledgment differs from the requested limit')
     }
+  }
+
+  async clearLibraryStorage(): Promise<LibraryStorageCleanup> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/library/storage/clear`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+    })
+    if (!res.ok && res.status !== 409) throw new Error(`POST library storage clear failed: ${res.status}`)
+    const value: unknown = await res.json()
+    if (!record(value) || typeof value['collectionEnabled'] !== 'boolean' ||
+      !Array.isArray(value['blocked']) || !value['blocked'].every((reason: unknown) => typeof reason === 'string') ||
+      !['reclaimedBytes', 'reclaimedFiles'].every((key) => typeof value[key] === 'number' &&
+        Number.isSafeInteger(value[key]) && value[key] >= 0) ||
+      (value['collectionEnabled'] !== (res.status === 200)) ||
+      (value['collectionEnabled'] !== (value['blocked'].length === 0))) {
+      throw new Error('Library cleanup response is malformed')
+    }
+    return value as unknown as LibraryStorageCleanup
   }
 
   async fetchResultAssetOffer(scope: string, token: string, signal?: AbortSignal): Promise<ResultAssetOffer | undefined> {

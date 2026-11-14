@@ -29,10 +29,16 @@ Apply a positive integer byte limit or explicitly choose unlimited. The UI
 requires an exact acknowledgment and refreshes the saved policy; failed or
 lost responses are not automatically replayed. Switching backend discards the
 old form and ignores its outstanding callbacks. Refresh reads status without
-enabling deletion. Clear remains disabled while complete frontend retention
-is unsupported and unverified; saving a limit cannot enable automatic cleanup.
-The displayed server blocked-reason identifiers are diagnostic facts, not
-evidence that all client holders are registered.
+enabling deletion. Clear is enabled only when the backend reports collection
+eligibility with no blocking reasons; saving a limit cannot enable cleanup.
+Blocked ownership is explained in plain words, and other backend reasons remain
+visible with their identifiers expanded into words. Clear sends one request,
+shows indeterminate progress while it runs, and reports the backend's reclaimed
+byte and file totals, not an estimate. A refusal keeps Clear blocked until a
+successful explicit refresh reports eligibility. Errors remain visible and can
+be retried explicitly; a lost or failed response is never automatically replayed.
+The current backend keeps collection blocked until its complete client census
+is supported; individual complete owner receipts do not enable vault cleanup.
 
 ## Runtime controls
 

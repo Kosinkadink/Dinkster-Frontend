@@ -67,14 +67,15 @@ describe('SettingsDialog search', () => {
     let resolve!: (value: LibraryStorage) => void
     const pending = new Promise<LibraryStorage>((done) => { resolve = done })
     const [connection, setConnection] = createSignal({ fetchLibraryStorage: () => pending,
-      updateLibraryStorageLimit: async () => {} })
+      updateLibraryStorageLimit: async () => {}, clearLibraryStorage: async () => { throw new Error('Clear must remain blocked') } })
     const root = document.createElement('div')
     document.body.append(root)
     const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()}
       keybindings={new KeybindingRegistry(settings)} storageConnection={connection()}
       request={{ category: 'storage', id: 'library-storage-limit' }} />, root)
     expect(root.textContent).toContain('Loading storage accounting')
-    setConnection({ fetchLibraryStorage: async () => status, updateLibraryStorageLimit: async () => {} })
+    setConnection({ fetchLibraryStorage: async () => status, updateLibraryStorageLimit: async () => {},
+      clearLibraryStorage: async () => { throw new Error('Clear must remain blocked') } })
     await vi.waitFor(() => expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('313 bytes'))
     resolve({ ...status, vaultBytes: 999 })
     await Promise.resolve()
@@ -89,6 +90,7 @@ describe('SettingsDialog search', () => {
         reclaimableBytes: null, blocked: ['owner_completeness_unknown'], collectionEnabled: false,
         policyAvailable: true, limitBytes: limit }),
       updateLibraryStorageLimit: async (next: number | null) => { limit = next },
+      clearLibraryStorage: async () => { throw new Error('Clear must remain blocked') },
     }
     const root = document.createElement('div')
     document.body.append(root)
@@ -107,6 +109,48 @@ describe('SettingsDialog search', () => {
     unmount()
   })
 
+  it('shows cleanup progress, server byte totals, explicit retry and changed ownership refusal', async () => {
+    let enabled = true
+    let finish!: () => void
+    let fail = true
+    let pending = new Promise<void>((resolve) => { finish = resolve })
+    const connection = {
+      fetchLibraryStorage: async () => ({ temporaryBytes: 37, vaultBytes: 513, adoptedBytes: 299,
+        reclaimableBytes: enabled ? 113 : null, blocked: enabled ? [] : ['owner_completeness_unknown'],
+        collectionEnabled: enabled, policyAvailable: true, limitBytes: 21474836480 }),
+      updateLibraryStorageLimit: async () => {},
+      clearLibraryStorage: async () => {
+        await pending
+        if (fail) throw new Error('Cleanup unavailable')
+        return { collectionEnabled: enabled, blocked: enabled ? [] : ['owner_completeness_unknown'],
+          reclaimedBytes: enabled ? 113 : 0, reclaimedFiles: enabled ? 2 : 0 }
+      },
+    }
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <LibraryStorageSettings connection={connection} />, root)
+    const clear = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Clear eligible assets')!
+    await vi.waitFor(() => expect(clear.disabled).toBe(false))
+    clear.click()
+    expect(clear.disabled).toBe(true)
+    expect(root.textContent).toContain('Clearing eligible assets...')
+    finish()
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('Cleanup unavailable'))
+    expect(clear.disabled).toBe(false)
+    fail = false
+    pending = Promise.resolve()
+    clear.click()
+    await vi.waitFor(() => expect(root.textContent).toContain('113 bytes freed across 2 files'))
+    await vi.waitFor(() => expect(clear.disabled).toBe(false))
+    enabled = false
+    clear.click()
+    await vi.waitFor(() => expect(root.textContent).toContain('The backend cannot confirm complete ownership for all clients.'))
+    expect(clear.disabled).toBe(true)
+    expect(root.textContent).not.toContain('Clearing eligible assets...')
+    expect(root.textContent).not.toContain('owner_completeness_unknown')
+    unmount()
+  })
+
   it('does not present an unavailable policy as unlimited or accept a failed write', async () => {
     let available = false
     const connection = {
@@ -114,6 +158,7 @@ describe('SettingsDialog search', () => {
         reclaimableBytes: null, blocked: ['reference_state_unavailable'], collectionEnabled: false,
         policyAvailable: available, limitBytes: available ? 8193 : null }),
       updateLibraryStorageLimit: async () => { throw new Error('Operator permission denied') },
+      clearLibraryStorage: async () => { throw new Error('Clear must remain blocked') },
     }
     const root = document.createElement('div')
     document.body.append(root)
