@@ -525,6 +525,42 @@ describe('sourceDocument stamp on queue', () => {
     expect(upload).toHaveBeenCalledTimes(2)
   })
 
+  it.each(['known', 'opaque', 'edited'] as const)('retains the uploaded source snapshot and its full typed inventory: %s', async (scenario) => {
+    const { backend } = await nativeSetup()
+    const registry = backend.registry.get()!
+    const source: NodeSchema = { type: 'SourceAsset', displayName: 'Source asset', category: 'test',
+      source: 'v3', isOutputNode: false, items: [{ kind: 'input', id: 'file', optional: false,
+        type: { kind: 'asset', element: { kind: 'concrete', name: 'DATA' } } }] }
+    backend.registry.set({ ...registry, schemas: new Map([...registry.schemas, [source.type, source]]),
+      resolve: (type) => type === source.type ? source : registry.resolve(type) })
+    const asset = { digest: DIGEST2, name: 'source.bin', size: 7, mediaType: 'application/octet-stream', virtualPath: '' }
+    await app.openDocument({ ...CHAIN_DOC, ...(scenario === 'opaque' ? { ext: { future: { resource: asset } } } : {}),
+      graphs: { g0: { ...CHAIN_DOC.graphs.g0, nodes: { ...CHAIN_DOC.graphs.g0.nodes,
+        n2: { id: 'n2', type: source.type, values: { file: asset } },
+      }, nextOrdinal: 4 } } }, 'Source inventory')
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    let finish!: (digest: string) => void
+    const upload = vi.spyOn(backend.connection, 'uploadAsset').mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    const submit = vi.spyOn(backend.connection, 'submit').mockResolvedValue({ ok: true,
+      execution: { connection: backend.id, prompt: asPromptId('source-inventory') } })
+    const pending = app.queueSelection(tab, ['n1'])
+    await uploadStarted(upload)
+    if (scenario === 'edited') {
+      expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n2', inputId: 'file', value: { ...asset, digest: `blake3:${'c'.repeat(64)}` },
+      } })).ok).toBe(true)
+    }
+    finish(DIGEST)
+    await pending
+    expect(submit.mock.calls[0]?.[1]?.sourceDocument).toBe(DIGEST)
+    const intents = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+      .filter((key) => key.includes('dinkster.workflow-retentions.'))
+      .map((key) => JSON.parse(localStorage.getItem(key)!))
+    expect(intents.filter((intent) => intent.owner.ownerKind === 'document' && intent.digests.includes(DIGEST)))
+      .toEqual([expect.objectContaining({ complete: scenario !== 'opaque', digests: [DIGEST, DIGEST2], acknowledgedRevision: 1 })])
+  })
+
   it('does not reuse a retained source stamp on another backend with the same schemas', async () => {
     const { backend, tab } = (await nativeSetup())
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)

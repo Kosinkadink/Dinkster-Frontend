@@ -59,12 +59,15 @@ a subsequent execution update can retry against the live owner. Results
 already displayed remain available when their backend is removed.
 
 Queueing journals and confirms ownership of a newly uploaded source-document
-stamp before caching or submitting its digest. An unchanged document reuses
-that stamp only on the same backend connection. A refused declaration or
-unresolved write response leaves the stamp uncached and the submission
-unstamped; the next queue can retry. A lost response can be confirmed by exact
-readback without replaying the write. These owners remain incomplete and are
-not released when a tab closes, so this does not enable collection.
+stamp before caching or submitting its digest. Its inventory includes the source
+bytes and the typed roots of the exact uploaded snapshot, including disconnected
+nodes and compositor resources. Known inventories are complete; unknown schemas,
+opaque fields and unresolved resources remain incomplete. Edits during upload do
+not change that captured inventory. An unchanged document reuses the stamp only
+on the same backend connection. A refused declaration or unresolved write
+response leaves the stamp uncached and the submission unstamped; the next queue
+can retry. A lost response can be confirmed by exact readback without replaying
+the write. Closing a tab does not release these owners.
 
 Cached-output hydration journals an independent shown-result owner and waits
 for its exact acknowledgment before installing the fetched descriptors.

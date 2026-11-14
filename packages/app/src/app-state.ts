@@ -8341,16 +8341,18 @@ export class AppState {
     backend: Extract<Backend, { protocol: 'dinkster' }>,
   ): Promise<{ sourceDocument: string } | undefined> {
     const revision = tab.store.revision
-    const schemaHash = this.registryForTab(tab)?.hash
+    const registry = this.registryForTab(tab)
+    const schemaHash = registry?.hash
     const cached = this.sourceDocCache.get(tab)
     if (cached && cached.connection === backend.connection && cached.revision === revision && cached.schemaHash === schemaHash) {
       return { sourceDocument: cached.digest }
     }
     try {
-      const digest = await backend.connection.uploadAsset(
-        JSON.stringify(this.stampedDocumentOf(tab)),
-      )
-      await retainWorkflowAssets(backend.connection, tab.id, revision, { complete: false, digests: [digest] })
+      const document = this.stampedDocumentOf(tab)
+      const resolve = this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined))
+      const digest = await backend.connection.uploadAsset(JSON.stringify(document))
+      const roots = workflowAssetRoots(document, { revision, undo: [], redo: [] }, resolve, [], 'publication', digest)
+      await retainWorkflowAssets(backend.connection, document.lineage, revision, roots)
       if (schemaHash !== undefined) this.sourceDocCache.set(tab, { connection: backend.connection, revision, schemaHash, digest })
       return { sourceDocument: digest }
     } catch {

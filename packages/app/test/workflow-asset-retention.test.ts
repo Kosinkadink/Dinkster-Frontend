@@ -96,7 +96,8 @@ describe('workflow retention recovery', () => {
         n0: { ...workflow.graphs.g0!.nodes.n0!, ...(dormant ? { dynamic: { mode: { selected: 'active' } } } : {}),
           values: { [dormant ? 'mode.compositor' : 'compositor']: recipe } },
       } } } }
-      const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => compositorSchema)
+      const sourceDocument = asset('f').digest
+      const roots = workflowAssetRoots(document, { revision: 0, undo: [], redo: [] }, () => compositorSchema, [], 'publication', sourceDocument)
       expect(roots.complete).toBe(false)
       const owners = new Map<string, RetainedAssets>()
       const listeners = new Set<() => void>()
@@ -144,8 +145,8 @@ describe('workflow retention recovery', () => {
       const retained = await operation
       expect(retained.complete).toBe(['resolved', 'dormant', 'comfy-inputs', 'comfy-empty', 'comfy-output-policy'].includes(scenario))
       expect(retained.digests).toEqual((['missing-document', 'wrong-document', 'noncanonical-document'].includes(scenario)
-        ? [documentDigest] : ['opaque-extension', 'comfy-extra', 'comfy-unknown'].includes(scenario) ? [documentDigest, resourceDigest, asset('d').digest]
-        : [documentDigest, resourceDigest]).sort())
+        ? [sourceDocument, documentDigest] : ['opaque-extension', 'comfy-extra', 'comfy-unknown'].includes(scenario) ? [sourceDocument, documentDigest, resourceDigest, asset('d').digest]
+        : [sourceDocument, documentDigest, resourceDigest]).sort())
       expect([...owners.values()].filter((owner) => owner.ownerKind === 'preview'))
         .toEqual([expect.objectContaining({ revision: 2, digests: [], complete: true })])
       expect([...owners.values()].filter((owner) => owner.ownerKind === 'document')).toEqual([retained])

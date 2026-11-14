@@ -138,9 +138,10 @@ export function workflowAssetRoots(
   resolve: SchemaResolver,
   additionalDocuments: readonly WorkflowDocument[] = [],
   purpose: 'publication' | 'admission' | 'execution' = 'publication',
+  sourceDocument?: string,
 ): { readonly complete: boolean; readonly digests: readonly string[]; readonly refusal?: string;
   readonly incompleteDiagnostics?: readonly Diagnostic[] } {
-  return censusWorkflowAssetRoots(document, history, resolve, additionalDocuments, purpose)
+  return censusWorkflowAssetRoots(document, history, resolve, additionalDocuments, purpose, sourceDocument)
 }
 
 function censusWorkflowAssetRoots(
@@ -149,9 +150,10 @@ function censusWorkflowAssetRoots(
   resolve: SchemaResolver,
   additionalDocuments: readonly WorkflowDocument[],
   purpose: 'publication' | 'admission' | 'execution',
+  sourceDocument?: string,
   inventories: ReadonlyMap<string, CompositorInventory> = new Map(),
 ): ReturnType<typeof workflowAssetRoots> {
-  const digests = new Set<string>()
+  const digests = new Set<string>(sourceDocument === undefined ? [] : [sourceDocument])
   const recipes = new Map<string, CompositorRecipe>()
   let complete = true
   let refusal: string | undefined
@@ -516,7 +518,7 @@ function censusWorkflowAssetRoots(
   const roots = { complete, digests: [...digests].sort(), ...(refusal === undefined ? {} : { refusal }),
     ...(incompleteDiagnostics.length === 0 ? {} : { incompleteDiagnostics }) }
   if (recipes.size > 0) compositorCensuses.set(roots, { recipes,
-    resolve: (resolved) => censusWorkflowAssetRoots(document, history, resolve, additionalDocuments, purpose, resolved),
+    resolve: (resolved) => censusWorkflowAssetRoots(document, history, resolve, additionalDocuments, purpose, sourceDocument, resolved),
   })
   return roots
 }
