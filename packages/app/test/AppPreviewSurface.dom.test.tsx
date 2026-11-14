@@ -82,6 +82,7 @@ describe('AppView document-owned previews', () => {
       ext: { 'dinkster.exposedPreviews': [{ graphId: 'root', nodeId: 'image', label: 'Selected image' }] },
     }, 'App reader'))).toEqual([])
     const tab = app.activeTab()!
+    vi.spyOn(app.connection, 'fetchAssetBytes').mockResolvedValue(new Uint8Array([1, 2, 3]).buffer)
     let acknowledge!: (receipt: RetainedAssets) => void
     const admission = new Promise<RetainedAssets>((resolve) => { acknowledge = resolve })
     let receipt: RetainedAssets | undefined
@@ -120,7 +121,8 @@ describe('AppView document-owned previews', () => {
           graphId: 'root', nodeId: 'image', inputId: 'image', value: asset('b'),
         } })).ok).toBe(true)
         await vi.waitFor(() => expect(decodes).toHaveLength(2))
-        expect(decodeURIComponent(decodes[1]!.src)).toContain(asset('b').digest)
+        expect(decodes[1]!.src).toMatch(/^blob:/)
+        expect(decodes[1]!.src).not.toBe(decodes[0]!.src)
         decodes[0]!.finish()
         await new Promise<void>((resolve) => queueMicrotask(resolve))
         expect(root.querySelector('[data-testid="app-preview-image"]')).toBeNull()

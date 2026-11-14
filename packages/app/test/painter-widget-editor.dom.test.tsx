@@ -48,6 +48,7 @@ it.each([
     }))
     let renditions = 0
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      if (String(url).endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
       if (!new URL(String(url), 'http://fixture').searchParams.has('rendition')) return Response.json({
         available: true, descriptor: { typeId: 'IMAGE', fingerprint: 'image', meta: {} },
         renditions: [{ kind: 'png', mime: 'image/png', default: true }],
